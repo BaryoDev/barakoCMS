@@ -1,5 +1,7 @@
 using barakoCMS.Handlers;
 using barakoCMS.Models;
+using barakoCMS.Repository;
+using barakoCMS.Repository.Interfaces;
 using barakoCMS.Requests;
 using MediatR;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -24,6 +26,10 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.AddIdentity<IdentityUser, IdentityRole>()
 	.AddEntityFrameworkStores<AppDbContext>()
 	.AddDefaultTokenProviders(); ;
+
+builder.Services.AddScoped<IPostRepository, SqlPostRepository>();
+builder.Services.AddScoped<IPostLikeRepository, SqlPostLikeRepository>();
+builder.Services.AddScoped<IUserRepository, UserRepository>();
 
 string issuer = builder.Configuration.GetValue<string>("Jwt:Issuer");
 string signingKey = builder.Configuration.GetValue<string>("Jwt:Key");
@@ -101,7 +107,7 @@ app.MapPost("/api/changepassword", async (IMediator _mediator, [FromBody] Change
 
 app.MapGet("/api/Posts", async (IMediator _mediator, [FromQuery] int pageNumber, [FromQuery] int pageSize) => {
 	try {
-		var result = await _mediator.Send(new GetAllPostsRequest { PageNumber = pageNumber, PageSize = pageSize});
+		var result = await _mediator.Send(new GetAllPostsRequest { PageNumber = pageNumber, PageSize = pageSize });
 		return Results.Ok(result);
 		}
 	catch (Exception ex) {
@@ -141,7 +147,7 @@ app.MapPut("/api/Posts", async (IMediator _mediator, ClaimsPrincipal user, Guid 
 		}
 }).RequireAuthorization();
 
-app.MapPost("/api/Posts", async (IMediator _mediator, ClaimsPrincipal user, Guid id) => {
+app.MapPost("/api/Posts/like", async (IMediator _mediator, ClaimsPrincipal user, Guid id) => {
 	try {
 		var request = new LikePostRequest { PostId = id, UserId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? string.Empty };
 		var result = await _mediator.Send(request);
