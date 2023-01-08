@@ -25,7 +25,8 @@ namespace barakoCMS.Handlers {
 				var user = await _userManager.FindByEmailAsync(request.Email);
 				var claims = new[]
 				{
-				new Claim(JwtRegisteredClaimNames.Sub, user.Id)
+				new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+				new Claim(ClaimTypes.Email, user.Email) ,
 			};
 				var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["JWT:Key"]));
 				var token = new JwtSecurityToken(
