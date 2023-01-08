@@ -25,14 +25,18 @@ namespace barakoCMS.Repository {
 			}
 
 		public async Task<IEnumerable<Post>> GetAllAsync(int pageNumber, int pageSize, string searchTerm) {
-			return await _db.Posts
-			.Include(p => p.Likes)
-			.Include(p => p.Author)
-			.Where(p => p.Content.Contains(searchTerm) || p.Author.UserName.Contains(searchTerm))
-			.OrderByDescending(p => p.Created)
-			.Skip((pageNumber - 1) * pageSize)
-			.Take(pageSize)
-			.ToListAsync();
+			var posts = _db.Posts
+			.Include(p => p.Author).AsQueryable();
+
+			if (!string.IsNullOrWhiteSpace(searchTerm)) {
+				posts = posts.Where(p => p.Content.Contains(searchTerm) || p.Author.UserName.Contains(searchTerm));
+				}
+
+			posts = posts.OrderByDescending(p => p.Created)
+				.Skip((pageNumber - 1) * pageSize)
+				.Take(pageSize);
+
+			return await posts.ToListAsync();
 			}
 
 		public async Task<Post> GetByIdAsync(Guid id) {

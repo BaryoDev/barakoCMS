@@ -9,7 +9,6 @@ namespace barakoCMS.Models {
 		public string Content { get; set; }
 		public string AuthorId { get; set; }
 		public virtual IdentityUser Author { get; set; }
-		public virtual ICollection<PostLike> Likes { get; set; }
 		public DateTime Created { get; set; }
 		public DateTime Updated { get; set; }
 		}
