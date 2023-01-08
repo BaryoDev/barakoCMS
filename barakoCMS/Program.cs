@@ -28,7 +28,6 @@ builder.Services.AddIdentity<IdentityUser, IdentityRole>()
 	.AddDefaultTokenProviders(); ;
 
 builder.Services.AddScoped<IPostRepository, SqlPostRepository>();
-builder.Services.AddScoped<IPostLikeRepository, SqlPostLikeRepository>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 
 string issuer = builder.Configuration.GetValue<string>("Jwt:Issuer");
@@ -125,8 +124,9 @@ app.MapGet("/api/Posts/{id}", async (IMediator _mediator, Guid id) => {
 		}
 }).RequireAuthorization();
 
-app.MapPost("/api/Posts", async (IMediator _mediator, [FromBody] CreatePostRequest request) => {
+app.MapPost("/api/Posts", async (IMediator _mediator, ClaimsPrincipal user, [FromBody] CreatePostRequest request) => {
 	try {
+		request.AuthorId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
 		var result = await _mediator.Send(request);
 		return Results.Created($"/api/Posts/{result.Post.Id}", result);
 		}
@@ -139,17 +139,6 @@ app.MapPut("/api/Posts", async (IMediator _mediator, ClaimsPrincipal user, Guid 
 	try {
 		request.Id = id;
 		request.UserId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
-		var result = await _mediator.Send(request);
-		return Results.Ok(result);
-		}
-	catch (Exception ex) {
-		return Results.BadRequest(ex);
-		}
-}).RequireAuthorization();
-
-app.MapPost("/api/Posts/like", async (IMediator _mediator, ClaimsPrincipal user, Guid id) => {
-	try {
-		var request = new LikePostRequest { PostId = id, UserId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? string.Empty };
 		var result = await _mediator.Send(request);
 		return Results.Ok(result);
 		}
