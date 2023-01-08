@@ -14,6 +14,7 @@ builder.Services.AddDbConfig(builder.Configuration);
 builder.Services.AddRepositoryConfig();
 
 builder.Services.AddAuthConfig(builder.Configuration);
+builder.Services.AddMediatorConfig();
 
 builder.Services.AddHandlerConfig();
 
