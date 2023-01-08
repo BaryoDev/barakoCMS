@@ -13,7 +13,7 @@ namespace barakoCMS.Handlers {
 		public async Task<ChangePasswordResponse> Handle(ChangePasswordRequest request, CancellationToken cancellationToken) {
 			var user = await _userManager.FindByEmailAsync(request.Email);
 			if (user == null) {
-				throw new Exception("User not found.");
+				throw new KeyNotFoundException("User not found.");
 				}
 			var result = await _userManager.ChangePasswordAsync(user, request.OldPassword, request.NewPassword);
 			return new ChangePasswordResponse { Result = result };
