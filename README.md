@@ -11,5 +11,7 @@ Items in the pipeline includes
 6. Improve Swagger documentation
 7. Add logging and better exception handling 
 
-Changes:
+Changes.
+
 2023-01-11: Restructure Dependency Injection (https://www.youtube.com/watch?v=tKEF6xaeoig)
+2023-01-12: Use Carter Module to group endpoints (https://github.com/CarterCommunity/Carter)
