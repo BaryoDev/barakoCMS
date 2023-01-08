@@ -3,7 +3,6 @@ using barakoCMS.Repository.Interfaces;
 using Microsoft.AspNetCore.Identity;
 
 namespace barakoCMS.Repository {
-
 	public class UserRepository : IUserRepository {
 		private readonly AppDbContext _db;
 
@@ -12,7 +11,11 @@ namespace barakoCMS.Repository {
 			}
 
 		public async Task<IdentityUser> GetById(string userId) {
-			return await _db.Users.FindAsync(userId);
+			var user = await _db.Users.FindAsync(userId);
+			if (user == null) {
+				throw new Exception("User not found.");
+				}
+			return user;
 			}
 		}
 	}

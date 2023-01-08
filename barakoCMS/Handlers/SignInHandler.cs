@@ -28,7 +28,7 @@ namespace barakoCMS.Handlers {
 				new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
 				new Claim(ClaimTypes.Email, user.Email) ,
 			};
-				var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["JWT:Key"]));
+				var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["JWT:Key"] ?? string.Empty));
 				var token = new JwtSecurityToken(
 					issuer: _configuration["JWT:Issuer"],
 					audience: _configuration["JWT:Audience"],

@@ -20,6 +20,7 @@ namespace barakoCMS.Handlers {
 			if (author == null) {
 				throw new Exception("Author not found.");
 				}
+
 			var post = new Post {
 				Id = Guid.NewGuid(),
 				Title = request.Title,
