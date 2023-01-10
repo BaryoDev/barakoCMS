@@ -40,7 +40,11 @@ namespace barakoCMS.Repository {
 			}
 
 		public async Task<Post> GetByIdAsync(Guid id) {
-			return await _db.Posts.FindAsync(id);
+			var post = await _db.Posts.FindAsync(id);
+			if (post == null) {
+				throw new Exception("Post not found.");
+				}
+			return post;
 			}
 
 		public async Task UpdateAsync(Post post) {
