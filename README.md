@@ -12,4 +12,4 @@ Items in the pipeline includes
 7. Add logging and better exception handling 
 
 Changes:
-2023-01-11: Restructure Dependency Injection
+2023-01-11: Restructure Dependency Injection (https://www.youtube.com/watch?v=tKEF6xaeoig)
