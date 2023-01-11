@@ -1,61 +1,21 @@
-using barakoCMS.Handlers;
-using barakoCMS.Models;
-using barakoCMS.Repository;
-using barakoCMS.Repository.Interfaces;
+using barakoCMS.Configurations;
 using barakoCMS.Requests;
 using MediatR;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Logging;
-using Microsoft.IdentityModel.Tokens;
 using System.Security.Claims;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerConfig();
 
-//Database
-builder.Services.AddDbContext<AppDbContext>(options =>
-	options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+builder.Services.AddDbConfig(builder.Configuration);
 
-builder.Services.AddIdentity<IdentityUser, IdentityRole>()
-	.AddEntityFrameworkStores<AppDbContext>()
-	.AddDefaultTokenProviders(); ;
+builder.Services.AddRepositoryConfig();
 
-builder.Services.AddScoped<IPostRepository, SqlPostRepository>();
-builder.Services.AddScoped<IUserRepository, UserRepository>();
+builder.Services.AddAuthConfig(builder.Configuration);
 
-string issuer = builder.Configuration.GetValue<string>("Jwt:Issuer");
-string signingKey = builder.Configuration.GetValue<string>("Jwt:Key");
-byte[] signingKeyBytes = System.Text.Encoding.UTF8.GetBytes(signingKey);
-
-builder.Services.AddAuthentication(options => {
-	options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-	options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-}).AddJwtBearer(options => {
-	options.RequireHttpsMetadata = false;
-	options.SaveToken = true;
-	options.TokenValidationParameters = new TokenValidationParameters() {
-		ValidateIssuer = true,
-		ValidIssuer = issuer,
-		ValidateAudience = true,
-		ValidAudience = issuer,
-		ValidateLifetime = true,
-		ValidateIssuerSigningKey = true,
-		ClockSkew = System.TimeSpan.Zero,
-		IssuerSigningKey = new SymmetricSecurityKey(signingKeyBytes)
-		};
-});
-builder.Services.AddAuthorization();
-
-builder.Services.AddMediatR(typeof(SignUpHandler), typeof(SignInHandler),
-	typeof(ChangePasswordHandler), typeof(GetAllPostsHandler), typeof(GetPostByIdHandler),
-	typeof(CreatePostHandler), typeof(UpdatePostHandler), typeof(DeletePostHandler));
+builder.Services.AddHandlerConfig();
 
 builder.Services.AddCors();
 
@@ -82,7 +42,10 @@ app.MapPost("/api/signin", async (IMediator _mediator, [FromBody] SignInRequest 
 	catch (Exception ex) {
 		return Results.BadRequest(ex);
 		}
-});
+})
+.Accepts<SignInRequest>(contentType: "application/json")
+.Produces<SignInResponse>(contentType: "application/json", statusCode: StatusCodes.Status200OK)
+.Produces(StatusCodes.Status400BadRequest);
 
 app.MapPost("/api/signup", async (IMediator _mediator, [FromBody] SignUpRequest request) => {
 	try {
