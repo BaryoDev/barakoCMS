@@ -2,6 +2,7 @@
 using barakoCMS.Models;
 using barakoCMS.Repository;
 using barakoCMS.Repository.Interfaces;
+using MediatR;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -55,6 +56,13 @@ namespace barakoCMS.Configurations {
 		public static IServiceCollection AddRepositoryConfig(this IServiceCollection services) {
 			services.AddScoped<IPostRepository, SqlPostRepository>();
 			services.AddScoped<IUserRepository, UserRepository>();
+			return services;
+			}
+
+		public static IServiceCollection AddMediatorConfig(this IServiceCollection services) {
+			services.AddMediatR(typeof(SignUpHandler), typeof(SignInHandler),
+				typeof(ChangePasswordHandler), typeof(GetAllPostsHandler), typeof(GetPostByIdHandler),
+				typeof(CreatePostHandler), typeof(UpdatePostHandler), typeof(DeletePostHandler));
 			return services;
 			}
 
