@@ -13,5 +13,5 @@ Items in the pipeline includes
 
 Changes.
 
-2023-01-11: Restructure Dependency Injection (https://www.youtube.com/watch?v=tKEF6xaeoig)
-2023-01-12: Use Carter Module to group endpoints (https://github.com/CarterCommunity/Carter)
+- 2023-01-11: Restructure Dependency Injection (https://www.youtube.com/watch?v=tKEF6xaeoig)
+- 2023-01-12: Use Carter Module to group endpoints (https://github.com/CarterCommunity/Carter)
