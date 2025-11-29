@@ -19,9 +19,9 @@ Install the BarakoCMS package into your ASP.NET Core project via NuGet:
 dotnet add package BarakoCMS
 ```
 
-## Usage
+## Quick Start Guide
 
-### 1. Configure Services and Middleware
+### 1. Setup Project
 
 Update your `Program.cs` to register and use BarakoCMS:
 
@@ -43,7 +43,7 @@ app.Run();
 
 ### 2. Configure Database
 
-Add the PostgreSQL connection string to your `appsettings.json`:
+Add the PostgreSQL connection string and JWT key to your `appsettings.json`:
 
 ```json
 {
@@ -58,15 +58,77 @@ Add the PostgreSQL connection string to your `appsettings.json`:
 
 *Note: Ensure you have a running PostgreSQL instance.*
 
-## Running the Application
+### 3. Run and Access
 
-Once configured, run your application:
-
+Run your application:
 ```bash
 dotnet run
 ```
+Navigate to `http://localhost:5000/swagger` to access the API.
 
-Navigate to `http://localhost:5000/swagger` (or your configured port) to access the BarakoCMS API documentation and interface.
+---
+
+## Usage Guide
+
+### Step 1: Create First Admin User
+
+Since the system starts empty, you need to create your first user.
+
+1.  Open Swagger UI.
+2.  Go to `POST /api/auth/register`.
+3.  Execute with your details:
+    ```json
+    {
+      "username": "admin",
+      "email": "admin@example.com",
+      "password": "SecurePassword123!"
+    }
+    ```
+4.  **Login** using `POST /api/auth/login` to get your **JWT Token**.
+5.  Click **Authorize** in Swagger and paste the token (format: `Bearer <token>`).
+
+### Step 2: Define Content Structure
+
+Let's create a "Blog Post" content type.
+
+1.  Go to `POST /api/content-types`.
+2.  Define the schema:
+    ```json
+    {
+      "name": "Blog Post",
+      "fields": {
+        "title": "string",
+        "slug": "string",
+        "body": "richtext",
+        "tags": "array"
+      }
+    }
+    ```
+
+### Step 3: Create Content
+
+Now, let's add a blog post using the structure we just defined.
+
+1.  Go to `POST /api/contents`.
+2.  Create the content:
+    ```json
+    {
+      "contentType": "Blog Post",
+      "data": {
+        "title": "Welcome to BarakoCMS",
+        "slug": "welcome-to-barakocms",
+        "body": "<p>This is my first post using BarakoCMS!</p>",
+        "tags": ["cms", "dotnet", "headless"]
+      }
+    }
+    ```
+
+### Step 4: Retrieve Content
+
+You can fetch your content via the API to display on your frontend (React, Vue, Blazor, etc.).
+
+- **Get All**: `GET /api/contents` (Implement filtering by ContentType if needed)
+- **Get Single**: `GET /api/contents/{id}`
 
 ## Architecture
 
