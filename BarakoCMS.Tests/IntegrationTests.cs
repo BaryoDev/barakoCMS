@@ -170,4 +170,56 @@ public class IntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         // For now, let's just check it doesn't crash.
         updateRes.IsSuccessStatusCode.Should().BeTrue(); // Marten upserts by default on stream append?
     }
+    [Fact(Skip = "Requires running PostgreSQL instance")]
+    public async Task Content_Workflow()
+    {
+        // 1. Login as Admin
+        var adminLoginRes = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest { Username = "arnex", Password = "barako" });
+        var adminToken = (await adminLoginRes.Content.ReadFromJsonAsync<LoginResponse>())!.Token;
+        _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", adminToken);
+
+        // 2. Create Content (Default Draft)
+        var contentData = new Dictionary<string, object> { { "Title", "Draft Article" } };
+        var createRes = await _client.PostAsJsonAsync("/api/contents", new CreateContentRequest
+        {
+            ContentType = "Article",
+            Data = contentData
+        });
+        createRes.IsSuccessStatusCode.Should().BeTrue();
+        var contentId = (await createRes.Content.ReadFromJsonAsync<CreateContentResponse>())!.Id;
+
+        // 3. Verify Status is Draft
+        var getRes = await _client.GetAsync($"/api/contents/{contentId}");
+        getRes.IsSuccessStatusCode.Should().BeTrue();
+        var content = await getRes.Content.ReadFromJsonAsync<barakoCMS.Models.Content>();
+        content!.Status.Should().Be(barakoCMS.Models.ContentStatus.Draft);
+
+        // 4. Change Status to Published
+        var statusRes = await _client.PutAsJsonAsync($"/api/contents/{contentId}/status", new barakoCMS.Features.Content.ChangeStatus.Request
+        {
+            Id = contentId,
+            NewStatus = barakoCMS.Models.ContentStatus.Published
+        });
+        statusRes.IsSuccessStatusCode.Should().BeTrue();
+
+        // 5. Verify Status is Published
+        getRes = await _client.GetAsync($"/api/contents/{contentId}");
+        var updatedContent = await getRes.Content.ReadFromJsonAsync<barakoCMS.Models.Content>();
+        updatedContent!.Status.Should().Be(barakoCMS.Models.ContentStatus.Published);
+
+        // 6. Create Content with Specific Status (Archived)
+        var archivedRes = await _client.PostAsJsonAsync("/api/contents", new CreateContentRequest
+        {
+            ContentType = "Article",
+            Data = contentData,
+            Status = barakoCMS.Models.ContentStatus.Archived
+        });
+        archivedRes.IsSuccessStatusCode.Should().BeTrue();
+        var archivedId = (await archivedRes.Content.ReadFromJsonAsync<CreateContentResponse>())!.Id;
+
+        // 7. Verify Status is Archived
+        getRes = await _client.GetAsync($"/api/contents/{archivedId}");
+        var archivedContent = await getRes.Content.ReadFromJsonAsync<barakoCMS.Models.Content>();
+        archivedContent!.Status.Should().Be(barakoCMS.Models.ContentStatus.Archived);
+    }
 }
