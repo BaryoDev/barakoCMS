@@ -12,6 +12,49 @@ A modern, headless CMS built with .NET 8, FastEndpoints, and MartenDB (PostgreSQ
 - **Authentication**: Built-in JWT Authentication with Role-Based Access Control (RBAC).
 - **Swagger UI**: Interactive API documentation.
 
+## Using as a NuGet Package
+
+### 1. Installation
+
+```bash
+dotnet add package BarakoCMS
+```
+
+### 2. Registration
+
+In your `Program.cs`:
+
+```csharp
+using barakoCMS.Extensions;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// Register BarakoCMS services
+builder.Services.AddBarakoCMS(builder.Configuration);
+
+var app = builder.Build();
+
+// Use BarakoCMS middleware
+app.UseBarakoCMS();
+
+app.Run();
+```
+
+### 3. Configuration
+
+Ensure your `appsettings.json` has the required configuration:
+
+```json
+{
+  "ConnectionStrings": {
+    "DefaultConnection": "Host=localhost;Database=barako_cms;Username=postgres;Password=postgres"
+  },
+  "JWT": {
+    "Key": "your-super-secret-key-that-is-at-least-32-chars-long"
+  }
+}
+```
+
 ## Prerequisites
 
 - [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
