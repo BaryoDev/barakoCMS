@@ -298,6 +298,24 @@ public class RequestValidator : FastEndpoints.Validator<Request>
 }
 ```
 
+> [!WARNING]
+> **Dependency Injection in Validators**: Validators are registered as **Singletons**. Do NOT inject **Scoped** services (like `IQuerySession` or `IDocumentSession`) into the constructor. This will cause a runtime exception.
+>
+> **Correct Way**: Use `Resolve<T>()` inside the validation methods if you need access to scoped services.
+> ```csharp
+> public class MyValidator : Validator<Request>
+> {
+>     public MyValidator()
+>     {
+>         RuleFor(x => x.Id).MustAsync(async (id, ct) => 
+>         {
+>             var session = Resolve<IQuerySession>(); // ✅ Correct
+>             return await session.Query<Entity>().AnyAsync(e => e.Id == id, ct);
+>         });
+>     }
+> }
+> ```
+
 ### Common Validation Rules
 
 **Not Empty:**
