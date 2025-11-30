@@ -745,4 +745,59 @@ For a complete, working example of BarakoCMS in action, refer to the **Attendanc
 
 ---
 
+---
+
+## Runtime Validation
+
+BarakoCMS now includes optional runtime validation to enforce development standards. This ensures that data stored in the system conforms to the defined schema and naming conventions.
+
+### What is Validated?
+
+1.  **Field Types**: Ensures fields in `ContentType` use only allowed types (`string`, `int`, `bool`, `datetime`, `decimal`, `array`, `object`).
+2.  **Field Names**: Enforces **PascalCase** for field names in `ContentType`.
+3.  **Content Data**: Validates that data values match the types defined in the `ContentType` schema.
+
+### Configuration
+
+Validation is enabled by default but can be configured in `appsettings.json`:
+
+```json
+{
+  "BarakoCMS": {
+    "StrictValidation": true,
+    "ValidationOptions": {
+      "EnforceFieldTypes": true,
+      "EnforcePascalCaseFieldNames": true,
+      "ValidateDataTypes": true
+    }
+  }
+}
+```
+
+### Error Messages
+
+If validation fails, the API returns a `400 Bad Request` with detailed error messages:
+
+**Invalid Field Type:**
+```
+Field 'Name' has invalid type 'varchar'. Allowed types are: string, int, bool, datetime, decimal, array, object.
+```
+
+**Invalid Field Name:**
+```
+Field 'first_name' must be PascalCase (e.g., 'FirstName').
+```
+
+**Data Type Mismatch:**
+```
+Field 'Age' expects type 'int' but received 'string' ("twenty-five").
+```
+
+### Troubleshooting
+
+-   **"Field expects type 'string' but received 'string'":** This usually happens if you send a JSON object or array where a string is expected, or if there's a mismatch in how the JSON serializer handles the value. Ensure your JSON payload matches the expected type.
+-   **"Cannot resolve scoped service...":** This is a known issue if you try to inject `IQuerySession` into a singleton validator. Use `Resolve<IQuerySession>()` instead.
+
+---
+
 *Last Updated: 2025-12-05*

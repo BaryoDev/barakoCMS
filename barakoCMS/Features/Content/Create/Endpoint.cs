@@ -23,18 +23,36 @@ public class Endpoint : Endpoint<Request, Response>
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        var userId = Guid.Parse(User.FindFirst("UserId")!.Value);
+        var userIdClaim = User.FindFirst("UserId");
+        if (userIdClaim == null)
+        {
+            await SendAsync(new Response { Message = "User ID claim not found" }, 400, ct);
+            return;
+        }
 
-        var contentId = Guid.NewGuid();
-        var @event = new barakoCMS.Events.ContentCreated(contentId, req.ContentType, req.Data, req.Status, userId);
+        if (!Guid.TryParse(userIdClaim.Value, out var userId))
+        {
+            await SendAsync(new Response { Message = "Invalid User ID format" }, 400, ct);
+            return;
+        }
 
-        _session.Events.StartStream<barakoCMS.Models.Content>(contentId, @event);
-        await _session.SaveChangesAsync(ct);
+        try 
+        {
+            var contentId = Guid.NewGuid();
+            var @event = new barakoCMS.Events.ContentCreated(contentId, req.ContentType, req.Data, req.Status, userId);
 
-        await SendAsync(new Response 
-        { 
-            Id = contentId, 
-            Message = "Content created successfully" 
-        });
+            _session.Events.StartStream<barakoCMS.Models.Content>(contentId, @event);
+            await _session.SaveChangesAsync(ct);
+
+            await SendAsync(new Response 
+            { 
+                Id = contentId, 
+                Message = "Content created successfully" 
+            });
+        }
+        catch (Exception ex)
+        {
+            await SendAsync(new Response { Message = $"Error creating content: {ex.Message}" }, 500, ct);
+        }
     }
 }

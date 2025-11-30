@@ -53,7 +53,8 @@ Want to see BarakoCMS in action? We've included a fully functional **Attendance 
 
 ### 🧩 Infinite Extensibility
 - **Plugin Architecture**: Easily swap out core services like `IEmailService` and `ISmsService` with your preferred providers (SendGrid, Twilio, etc.).
-- **Workflow Engine**: A powerful, event-driven workflow engine that lets you define custom triggers and actions (e.g., "Send Email when Order is Created").
+- **Runtime Validation**: Optional schema enforcement for field types and naming conventions.
+- **Workflow Engine**: State machine for content approval flows.
 - **Custom Content Types**: Define any content structure you need on the fly without schema migrations.
 
 ### 🛡️ Enterprise-Grade Robustness
