@@ -20,6 +20,7 @@ public static class ServiceCollectionExtensions
 
         services.AddJWTBearerAuth(configuration["JWT:Key"]!);
         services.AddAuthorization();
+        services.AddScoped<barakoCMS.Repository.IUserRepository, barakoCMS.Repository.MartenUserRepository>();
 
         var connectionString = configuration.GetConnectionString("DefaultConnection");
 

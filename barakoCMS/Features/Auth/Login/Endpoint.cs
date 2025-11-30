@@ -7,11 +7,13 @@ namespace barakoCMS.Features.Auth.Login;
 
 public class Endpoint : Endpoint<Request, Response>
 {
-    private readonly IDocumentSession _session;
+    private readonly barakoCMS.Repository.IUserRepository _repo;
+    private readonly IConfiguration _config;
 
-    public Endpoint(IDocumentSession session)
+    public Endpoint(barakoCMS.Repository.IUserRepository repo, IConfiguration config)
     {
-        _session = session;
+        _repo = repo;
+        _config = config;
     }
 
     public override void Configure()
@@ -22,8 +24,7 @@ public class Endpoint : Endpoint<Request, Response>
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        var user = await _session.Query<User>()
-            .FirstOrDefaultAsync(u => u.Username == req.Username, ct);
+        var user = await _repo.GetByUsernameAsync(req.Username, ct);
 
         if (user == null || !BCrypt.Net.BCrypt.Verify(req.Password, user.PasswordHash))
         {
@@ -31,12 +32,13 @@ public class Endpoint : Endpoint<Request, Response>
         }
 
         var jwtToken = JWTBearer.CreateToken(
-            signingKey: Config["JWT:Key"]!,
+            signingKey: _config["JWT:Key"]!,
             expireAt: DateTime.UtcNow.AddDays(1),
             privileges: u => 
             {
                 u.Claims.Add(new("UserId", user.Id.ToString()));
                 u.Claims.Add(new("Username", user.Username));
+                u.Claims.Add(new(System.Security.Claims.ClaimTypes.Role, user.Role));
             });
 
         await SendAsync(new Response 

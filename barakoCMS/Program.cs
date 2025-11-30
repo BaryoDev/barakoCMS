@@ -14,6 +14,7 @@ builder.Services.SwaggerDocument();
 
 builder.Services.AddJWTBearerAuth(builder.Configuration["JWT:Key"]!);
 builder.Services.AddAuthorization();
+builder.Services.AddScoped<barakoCMS.Repository.IUserRepository, barakoCMS.Repository.MartenUserRepository>();
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 
@@ -37,6 +38,8 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.UseFastEndpoints();
 app.UseSwaggerGen();
+
+await barakoCMS.Data.DataSeeder.SeedAsync(app);
 
 app.Run();
 public partial class Program { }
