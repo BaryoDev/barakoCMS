@@ -357,3 +357,164 @@ curl -X PUT "http://localhost:5000/api/contents/{CONTENT_ID}/status" \
 curl -X GET "http://localhost:5000/api/contents/{CONTENT_ID}"
 ```
 
+## Working with Content Types and Content
+
+BarakoCMS uses a **flexible content modeling system** where you define **Content Types** (schemas) and then create **Content** (records) based on those types.
+
+### Understanding the Workflow
+
+1. **Create a Content Type** - Define the schema (field names and types)
+2. **Create Content** - Add records based on that schema
+3. **Update Content** - Modify existing records
+4. **Change Status** - Publish, archive, or unpublish content
+5. **Query Content** - Retrieve and filter records
+
+### Example: Attendance Record System
+
+Let's create an attendance tracking system step-by-step.
+
+#### Step 1: Create the Content Type
+
+First, define the schema for your attendance records:
+
+**POST** `/api/content-types`
+
+```bash
+curl -X POST "http://localhost:5000/api/content-types" \
+  -H "Authorization: Bearer <YOUR_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Attendance Record",
+    "fields": {
+      "Name": "string",
+      "Attended": "bool",
+      "Date": "datetime"
+    }
+  }'
+```
+
+**Response:**
+```json
+{
+  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "message": "Content Type created successfully"
+}
+```
+
+> **Note:** The `slug` is auto-generated from the name: `"Attendance Record"` → `"attendance-record"`
+
+#### Step 2: Add Records
+
+Create attendance records using the generated slug:
+
+**POST** `/api/content`
+
+```bash
+curl -X POST "http://localhost:5000/api/contents" \
+  -H "Authorization: Bearer <YOUR_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "contentType": "attendance-record",
+    "data": {
+      "Name": "Juan Dela Cruz",
+      "Attended": true,
+      "Date": "2023-12-05T10:00:00Z"
+    },
+    "status": 1,
+    "sensitivity": 0
+  }'
+```
+
+**Status Values:**
+- `0` = Draft
+- `1` = Published
+- `2` = Archived
+
+**Sensitivity Values:**
+- `0` = Public (visible to all)
+- `1` = Sensitive (masked for non-SuperAdmin)
+- `2` = Hidden (completely hidden from non-SuperAdmin)
+
+**Response:**
+```json
+{
+  "id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+  "message": "Content created successfully"
+}
+```
+
+#### Step 3: Edit a Record
+
+Update an existing record using its GUID:
+
+**PUT** `/api/contents/{id}`
+
+```bash
+curl -X PUT "http://localhost:5000/api/contents/7c9e6679-7425-40de-944b-e07fc1f90ae7" \
+  -H "Authorization: Bearer <YOUR_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+    "data": {
+      "Name": "Juan Dela Cruz",
+      "Attended": false,
+      "Date": "2023-12-05T10:00:00Z"
+    }
+  }'
+```
+
+**Response:**
+```json
+{
+  "id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+  "message": "Content updated successfully"
+}
+```
+
+#### Step 4: Archive (Delete) a Record
+
+BarakoCMS uses **soft deletion** via status change. To "delete" a record, archive it:
+
+**PUT** `/api/contents/{id}/status`
+
+```bash
+curl -X PUT "http://localhost:5000/api/contents/7c9e6679-7425-40de-944b-e07fc1f90ae7/status" \
+  -H "Authorization: Bearer <YOUR_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+    "newStatus": 2
+  }'
+```
+
+**Response:**
+```json
+{
+  "message": "Content status changed to Archived"
+}
+```
+
+> **Note:** Archived content is not physically deleted and can be restored by changing the status back to `Draft` or `Published`.
+
+### Field Types Reference
+
+When defining Content Type fields, use these type identifiers:
+
+| Type       | Description        | Example Value            |
+| ---------- | ------------------ | ------------------------ |
+| `string`   | Text data          | `"John Doe"`             |
+| `int`      | Integer numbers    | `42`                     |
+| `bool`     | Boolean            | `true` or `false`        |
+| `datetime` | ISO 8601 timestamp | `"2023-12-05T10:00:00Z"` |
+| `decimal`  | Decimal numbers    | `99.99`                  |
+| `array`    | JSON array         | `["tag1", "tag2"]`       |
+| `object`   | Nested JSON object | `{"key": "value"}`       |
+
+### Best Practices
+
+1. **Use descriptive Content Type names** - They're user-facing and auto-generate slugs
+2. **Plan your schema** - While you can add fields later, removing them requires data migration
+3. **Use appropriate sensitivity levels** - Protect personal data with `Sensitive` or `Hidden`
+4. **Leverage Draft status** - Work on content before publishing
+5. **Archive instead of delete** - Maintains data integrity and audit trails
+
