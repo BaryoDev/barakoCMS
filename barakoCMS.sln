@@ -5,6 +5,8 @@ VisualStudioVersion = 17.4.33205.214
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "barakoCMS", "barakoCMS\barakoCMS.csproj", "{49939FDF-57C8-41DE-9479-868BB11820DB}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BarakoCMS.Tests", "BarakoCMS.Tests\BarakoCMS.Tests.csproj", "{1F897506-7F9F-45CC-A6D0-1875F77FD5F7}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -15,6 +17,10 @@ Global
 		{49939FDF-57C8-41DE-9479-868BB11820DB}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{49939FDF-57C8-41DE-9479-868BB11820DB}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{49939FDF-57C8-41DE-9479-868BB11820DB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1F897506-7F9F-45CC-A6D0-1875F77FD5F7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1F897506-7F9F-45CC-A6D0-1875F77FD5F7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1F897506-7F9F-45CC-A6D0-1875F77FD5F7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1F897506-7F9F-45CC-A6D0-1875F77FD5F7}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
