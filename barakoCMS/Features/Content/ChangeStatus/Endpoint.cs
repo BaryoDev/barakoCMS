@@ -1,9 +1,8 @@
 using FastEndpoints;
 using Marten;
-using barakoCMS.Models;
 using System.Security.Claims;
 
-namespace barakoCMS.Features.Content.Create;
+namespace barakoCMS.Features.Content.ChangeStatus;
 
 public class Endpoint : Endpoint<Request, Response>
 {
@@ -16,7 +15,7 @@ public class Endpoint : Endpoint<Request, Response>
 
     public override void Configure()
     {
-        Post("/api/contents");
+        Put("/api/contents/{Id}/status");
         Claims("UserId");
         Roles("Admin");
     }
@@ -25,16 +24,22 @@ public class Endpoint : Endpoint<Request, Response>
     {
         var userId = Guid.Parse(User.FindFirst("UserId")!.Value);
 
-        var contentId = Guid.NewGuid();
-        var @event = new barakoCMS.Events.ContentCreated(contentId, req.ContentType, req.Data, req.Status, userId);
+        // Check if content exists
+        var content = await _session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct);
+        if (content == null)
+        {
+            await SendNotFoundAsync(ct);
+            return;
+        }
 
-        _session.Events.StartStream<barakoCMS.Models.Content>(contentId, @event);
+        var @event = new barakoCMS.Events.ContentStatusChanged(req.Id, req.NewStatus, userId);
+
+        _session.Events.Append(req.Id, @event);
         await _session.SaveChangesAsync(ct);
 
         await SendAsync(new Response 
         { 
-            Id = contentId, 
-            Message = "Content created successfully" 
+            Message = $"Content status changed to {req.NewStatus}" 
         });
     }
 }

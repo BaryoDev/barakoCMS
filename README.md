@@ -8,42 +8,28 @@ A modern, headless CMS built with .NET 8, FastEndpoints, and MartenDB (PostgreSQ
 - **High Performance**: Built on [FastEndpoints](https://fast-endpoints.com/) for minimal overhead.
 - **Document Database**: Uses [MartenDB](https://martendb.io/) on top of PostgreSQL for flexible content storage.
 - **Event Sourcing**: Content changes are versioned using Event Sourcing, providing a full audit trail and history.
-- **Authentication**: Built-in JWT Authentication.
+- **Content Workflow**: Built-in Draft, Published, and Archived statuses.
+- **Authentication**: Built-in JWT Authentication with Role-Based Access Control (RBAC).
 - **Swagger UI**: Interactive API documentation.
 
-## Installation
+## Prerequisites
 
-Install the BarakoCMS package into your ASP.NET Core project via NuGet:
+- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
+- [Docker](https://www.docker.com/) (for PostgreSQL) or a running PostgreSQL instance.
+
+## Setup Guide
+
+### 1. Database Setup
+
+Run a PostgreSQL container:
 
 ```bash
-dotnet add package BarakoCMS
+docker run --name barako-postgres -e POSTGRES_PASSWORD=postgres -p 5432:5432 -d postgres
 ```
 
-## Quick Start Guide
+### 2. Configuration
 
-### 1. Setup Project
-
-Update your `Program.cs` to register and use BarakoCMS:
-
-```csharp
-using barakoCMS.Extensions;
-
-var builder = WebApplication.CreateBuilder(args);
-
-// Register BarakoCMS services
-builder.Services.AddBarakoCMS(builder.Configuration);
-
-var app = builder.Build();
-
-// Use BarakoCMS middleware (Auth, Swagger, FastEndpoints)
-app.UseBarakoCMS();
-
-app.Run();
-```
-
-### 2. Configure Database & Admin
-
-Add the PostgreSQL connection string, JWT key, and **Initial Admin** credentials to your `appsettings.json`:
+Update `appsettings.json` with your database connection and JWT key:
 
 ```json
 {
@@ -60,94 +46,132 @@ Add the PostgreSQL connection string, JWT key, and **Initial Admin** credentials
 }
 ```
 
-*   **DefaultConnection**: Your PostgreSQL connection string.
-*   **InitialAdmin**: These credentials will be used to create the first admin user automatically when the application starts.
+### 3. Run Application
 
-### 3. Run and Access
-
-Run your application:
 ```bash
-dotnet run
+dotnet run --project barakoCMS
 ```
-Navigate to `http://localhost:5000/swagger` to access the API.
 
----
+Access Swagger UI at `http://localhost:5000/swagger`.
 
-## Usage Guide
+## Usage & Workflows
 
-### Step 1: Login as Admin
+### Authentication Flow
 
-1.  Open Swagger UI (`/swagger`).
-2.  Go to `POST /api/auth/login`.
-3.  Execute with the credentials you configured in `appsettings.json` (e.g., `admin` / `SecurePassword123!`).
-4.  Copy the **Token** from the response.
-5.  Click **Authorize** at the top of Swagger and paste the token (format: `Bearer <token>`).
+```mermaid
+sequenceDiagram
+    participant User
+    participant API
+    participant DB
+    
+    User->>API: POST /api/auth/login
+    API->>DB: Verify Credentials
+    DB-->>API: User Details
+    API-->>User: JWT Token
+    
+    User->>API: POST /api/contents (with Bearer Token)
+    API->>API: Validate Token & Role
+    API->>DB: Create Content
+    DB-->>API: Success
+    API-->>User: Content ID
+```
 
-### Step 2: Define Content Structure
+### Content Creation & Workflow
 
-Before creating content, you must define its structure (Content Type). Let's create a "Blog Post".
+```mermaid
+stateDiagram-v2
+    [*] --> Draft: Create Content
+    Draft --> Published: Change Status
+    Published --> Archived: Change Status
+    Archived --> Draft: Restore
+    Published --> Draft: Unpublish
+```
 
-1.  Go to `POST /api/content-types`.
-2.  Define the schema:
-    ```json
-    {
-      "name": "Blog Post",
-      "fields": {
-        "title": "string",
-        "slug": "string",
-        "body": "richtext",
-        "tags": "array"
-      }
-    }
-    ```
+## API Reference (cURL Examples)
 
-### Step 3: Create First Post
+### 1. Login
 
-Now, let's add a blog post using the structure we just defined.
+```bash
+curl -X POST "http://localhost:5000/api/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "admin",
+    "password": "SecurePassword123!"
+  }'
+```
 
-1.  Go to `POST /api/contents`.
-2.  Create the content:
-    ```json
-    {
-      "contentType": "Blog Post",
-      "data": {
-        "title": "Welcome to BarakoCMS",
-        "slug": "welcome-to-barakocms",
-        "body": "<p>This is my first post using BarakoCMS!</p>",
-        "tags": ["cms", "dotnet", "headless"]
-      }
-    }
-    ```
-
-### Step 4: Query Content
-
-You can fetch your content via the API to display on your frontend.
-
-**Get All Content:**
-`GET /api/contents`
-
-**Get Single Content:**
-`GET /api/contents/{id}`
-
-**Example Response:**
+**Response:**
 ```json
 {
-  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "contentType": "Blog Post",
-  "data": {
-    "title": "Welcome to BarakoCMS",
-    "slug": "welcome-to-barakocms",
-    "body": "<p>This is my first post using BarakoCMS!</p>",
-    "tags": ["cms", "dotnet", "headless"]
-  },
-  "version": 1,
-  "createdAt": "2023-10-27T10:00:00Z",
-  "updatedAt": "2023-10-27T10:00:00Z"
+  "token": "eyJhbGciOiJIUzI1Ni...",
+  "expiry": "2023-12-01T12:00:00Z"
 }
 ```
 
-## Architecture
+### 2. Create Content Type
 
-- **API**: FastEndpoints (REPR Pattern)
-- **Data**: MartenDB (Document Store + Event Sourcing)
-- **Auth**: JWT Bearer
+```bash
+curl -X POST "http://localhost:5000/api/content-types" \
+  -H "Authorization: Bearer <YOUR_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Article",
+    "fields": {
+      "title": "string",
+      "body": "richtext",
+      "tags": "array"
+    }
+  }'
+```
+
+### 3. Create Content (Draft)
+
+```bash
+curl -X POST "http://localhost:5000/api/contents" \
+  -H "Authorization: Bearer <YOUR_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "contentType": "Article",
+    "data": {
+      "title": "My First Article",
+      "body": "Hello World",
+      "tags": ["news", "tech"]
+    },
+    "status": "Draft"
+  }'
+```
+
+### 4. Change Status (Publish)
+
+```bash
+curl -X PUT "http://localhost:5000/api/contents/{CONTENT_ID}/status" \
+  -H "Authorization: Bearer <YOUR_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "{CONTENT_ID}",
+    "newStatus": "Published"
+  }'
+```
+
+### 5. Get Content
+
+```bash
+curl -X GET "http://localhost:5000/api/contents/{CONTENT_ID}"
+```
+
+## Deployment
+
+### Publish to NuGet
+
+To publish this package to NuGet, use the provided script or the dotnet CLI.
+
+```bash
+./publish_nuget.sh
+```
+
+Or manually:
+
+```bash
+dotnet pack -c Release
+dotnet nuget push barakoCMS/bin/Release/BarakoCMS.1.0.0.nupkg --source https://api.nuget.org/v3/index.json --api-key <YOUR_API_KEY>
+```
