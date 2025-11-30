@@ -367,3 +367,4 @@ appsettings.Development.json
 nuget_api_key.txt
 test_debug*.txt
 test_output*.txt
+kapehan-*.md
