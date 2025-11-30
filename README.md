@@ -202,19 +202,3 @@ curl -X PUT "http://localhost:5000/api/contents/{CONTENT_ID}/status" \
 curl -X GET "http://localhost:5000/api/contents/{CONTENT_ID}"
 ```
 
-## Deployment
-
-### Publish to NuGet
-
-To publish this package to NuGet, use the provided script or the dotnet CLI.
-
-```bash
-./publish_nuget.sh
-```
-
-Or manually:
-
-```bash
-dotnet pack -c Release
-dotnet nuget push barakoCMS/bin/Release/BarakoCMS.1.0.0.nupkg --source https://api.nuget.org/v3/index.json --api-key <YOUR_API_KEY>
-```
