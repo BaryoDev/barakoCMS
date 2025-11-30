@@ -1,14 +1,30 @@
 # BarakoCMS
 
-A modern, headless CMS built with .NET 8, FastEndpoints, and MartenDB (PostgreSQL).
+**The AI-Native, High-Performance Headless CMS for .NET 8.**
 
-## Why BarakoCMS?
+BarakoCMS is engineered for **Speed**, **Extensibility**, and **Robustness**. Built on the bleeding edge with [FastEndpoints](https://fast-endpoints.com/) and [MartenDB](https://martendb.io/), it delivers a developer-first experience that is both human-friendly and agent-ready.
 
-- **🚀 AI-Native Ready**: Includes `llms.txt` and `.cursorrules` out of the box, making it the perfect baseline for AI agents and "vibe coding".
-- **⚡ High Performance**: Built on [FastEndpoints](https://fast-endpoints.com/) for minimal overhead.
-- **📄 Document Database**: Uses [MartenDB](https://martendb.io/) on top of PostgreSQL for flexible content storage.
-- **📜 Event Sourcing**: Content changes are versioned using Event Sourcing, providing a full audit trail and history.
-- **🔒 Secure**: Built-in JWT Authentication with Role-Based Access Control (RBAC).
+## 🌟 Key Features
+
+### ⚡ Unmatched Speed
+- **Minimal Overhead**: Powered by FastEndpoints, avoiding the bloat of traditional MVC controllers.
+- **Optimized Data Access**: Uses MartenDB (PostgreSQL) for blazing-fast JSON document storage and retrieval.
+- **Efficient Caching**: Built-in support for caching strategies to minimize database hits.
+
+### 🧩 Infinite Extensibility
+- **Plugin Architecture**: Easily swap out core services like `IEmailService` and `ISmsService` with your preferred providers (SendGrid, Twilio, etc.).
+- **Workflow Engine**: A powerful, event-driven workflow engine that lets you define custom triggers and actions (e.g., "Send Email when Order is Created").
+- **Custom Content Types**: Define any content structure you need on the fly without schema migrations.
+
+### 🛡️ Enterprise-Grade Robustness
+- **Event Sourcing**: Every change is an event. Travel back in time with built-in **Versioning** and **Rollback** capabilities.
+- **Idempotency**: Built-in protection against duplicate requests, ensuring data integrity even in flaky network conditions.
+- **Role-Based Access Control (RBAC)**: Granular permission management with support for User Groups and Roles.
+- **Sensitive Data Protection**: Field-level sensitivity settings (`Public`, `Sensitive`, `Hidden`) to ensure the right data reaches the right users.
+
+### 🚀 AI-Native Design
+- **Context-Aware**: Includes `llms.txt` to give AI agents immediate context about the codebase.
+- **Rule-Based**: Ships with `.cursorrules` to ensure AI assistants generate code that adheres to project standards.
 
 ## Community & AI
 
@@ -197,6 +213,36 @@ stateDiagram-v2
     Published --> Archived: Change Status
     Archived --> Draft: Restore
     Published --> Draft: Unpublish
+    Published --> Draft: Unpublish
+```
+
+### Workflow Engine
+
+BarakoCMS supports event-driven workflows. You can define workflows that trigger actions based on content events.
+
+**Example Workflow:**
+- **Trigger**: `PurchaseOrder` Created
+- **Condition**: `Status` == "New"
+- **Action**: Send Email to `finance@example.com`
+
+### Sensitive Data Protection
+
+Content can be marked with a sensitivity level:
+- **Public**: Visible to everyone with read access.
+- **Sensitive**: Data is hidden/masked for non-SuperAdmin users.
+- **Hidden**: Content is completely hidden from non-SuperAdmin users.
+
+### Data Versioning & Rollback
+
+Every change to content is versioned.
+- `GET /api/contents/{id}/history`: View version history.
+- `POST /api/contents/{id}/rollback/{versionId}`: Rollback to a previous version.
+
+### Idempotency
+
+To prevent duplicate processing, include the `Idempotency-Key` header in your `POST`, `PUT`, or `PATCH` requests.
+```bash
+Idempotency-Key: unique-request-id-123
 ```
 
 ## API Reference (cURL Examples)
