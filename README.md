@@ -11,48 +11,19 @@ A modern, headless CMS built with .NET 8, FastEndpoints, and MartenDB (PostgreSQ
 - **Authentication**: Built-in JWT Authentication.
 - **Swagger UI**: Interactive API documentation.
 
-## Getting Started
+## Installation
 
-### Prerequisites
-
-- .NET 8 SDK
-- PostgreSQL Database
-
-### Setup
-
-1.  **Clone the repository**:
-    ```bash
-    git clone https://github.com/yourusername/barakoCMS.git
-    cd barakoCMS
-    ```
-
-2.  **Configure Database**:
-    Update `barakoCMS/appsettings.json` with your PostgreSQL connection string:
-    ```json
-    "ConnectionStrings": {
-      "DefaultConnection": "Host=localhost;Database=barako_cms;Username=postgres;Password=postgres"
-    }
-    ```
-
-3.  **Run the Application**:
-    ```bash
-    dotnet run --project barakoCMS
-    ```
-    Access Swagger UI at `http://localhost:5000/swagger`.
-
-## NuGet Package
-
-BarakoCMS is available as a NuGet package for embedding into existing ASP.NET Core applications.
-
-### Installation
+Install the BarakoCMS package into your ASP.NET Core project via NuGet:
 
 ```bash
 dotnet add package BarakoCMS
 ```
 
-### Usage
+## Usage
 
-In your `Program.cs`:
+### 1. Configure Services and Middleware
+
+Update your `Program.cs` to register and use BarakoCMS:
 
 ```csharp
 using barakoCMS.Extensions;
@@ -64,34 +35,38 @@ builder.Services.AddBarakoCMS(builder.Configuration);
 
 var app = builder.Build();
 
-// Use BarakoCMS middleware
+// Use BarakoCMS middleware (Auth, Swagger, FastEndpoints)
 app.UseBarakoCMS();
 
 app.Run();
 ```
 
-Ensure you have the connection string configured in your `appsettings.json`.
+### 2. Configure Database
 
-## Publishing to NuGet
+Add the PostgreSQL connection string to your `appsettings.json`:
 
-To publish this package to NuGet.org:
-
-1.  **Create an API Key**: Go to [NuGet.org](https://www.nuget.org/account/apikeys) and create a new API key.
-2.  **Run the Publish Script**:
-    ```bash
-    ./publish_nuget.sh
-    ```
-3.  **Push**: The script will generate the `.nupkg` file and show you the command to push it using your API key.
-
-## Testing
-
-The solution includes integration tests in `BarakoCMS.Tests`.
-
-```bash
-dotnet test
+```json
+{
+  "ConnectionStrings": {
+    "DefaultConnection": "Host=localhost;Database=barako_cms;Username=postgres;Password=postgres"
+  },
+  "JWT": {
+    "Key": "your-super-secret-key-that-is-at-least-32-chars-long"
+  }
+}
 ```
 
-*Note: Tests require a running PostgreSQL instance.*
+*Note: Ensure you have a running PostgreSQL instance.*
+
+## Running the Application
+
+Once configured, run your application:
+
+```bash
+dotnet run
+```
+
+Navigate to `http://localhost:5000/swagger` (or your configured port) to access the BarakoCMS API documentation and interface.
 
 ## Architecture
 
