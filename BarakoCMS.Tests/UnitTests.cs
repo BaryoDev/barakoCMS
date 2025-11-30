@@ -18,7 +18,7 @@ public class UnitTests
         // Arrange
         var repo = Substitute.For<IUserRepository>();
         var session = Substitute.For<IQuerySession>();
-        
+
         repo.GetByUsernameOrEmailAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<User?>(null));
 
@@ -35,7 +35,7 @@ public class UnitTests
         {
             Username = "testuser",
             Email = "test@test.com",
-            Password = "password123"
+            Password = "Password123!"
         };
 
         // Act
@@ -53,7 +53,7 @@ public class UnitTests
         // Arrange
         var repo = Substitute.For<IUserRepository>();
         var session = Substitute.For<IQuerySession>();
-        
+
         repo.GetByUsernameOrEmailAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<User?>(new User()));
 

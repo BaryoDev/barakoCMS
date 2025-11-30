@@ -13,7 +13,7 @@ public class MockSmsService : ISmsService
 
     public Task SendSmsAsync(string to, string message, CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("Sending SMS to {To}: {Message}", to, message);
+        _logger.LogInformation("Sending SMS to {To}: [REDACTED]", to);
         return Task.CompletedTask;
     }
 }
