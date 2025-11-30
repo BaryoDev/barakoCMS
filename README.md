@@ -518,3 +518,8 @@ When defining Content Type fields, use these type identifiers:
 4. **Leverage Draft status** - Work on content before publishing
 5. **Archive instead of delete** - Maintains data integrity and audit trails
 
+## Developer Resources
+
+For comprehensive development guidelines, see:
+- **[DEVELOPMENT_STANDARDS.md](DEVELOPMENT_STANDARDS.md)** - Complete standards for field types, ID handling, naming conventions, validation patterns, and code examples
+
