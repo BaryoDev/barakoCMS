@@ -18,6 +18,7 @@ public class Endpoint : Endpoint<Request, Response>
     {
         Post("/api/contents");
         Claims("UserId");
+        Roles("Admin");
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
