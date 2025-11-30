@@ -1,0 +1,51 @@
+# BarakoCMS
+
+> A lightweight, high-performance Headless CMS built with .NET 8, FastEndpoints, and MartenDB (PostgreSQL).
+
+## Project Overview
+
+BarakoCMS is designed to be a simple, fast, and developer-friendly headless CMS. It avoids the complexity of traditional CMSs by leveraging the power of:
+- **FastEndpoints**: For high-performance, minimal API endpoints.
+- **MartenDB**: For document storage within PostgreSQL, enabling a schema-less experience with ACID compliance.
+- **.NET 8**: For modern, cross-platform performance.
+
+## Architecture
+
+- **Backend**: ASP.NET Core Web API (.NET 8)
+- **Database**: PostgreSQL (via MartenDB)
+- **API Pattern**: REPR (Request-Endpoint-Response) using FastEndpoints.
+- **Authentication**: JWT Bearer Auth.
+
+## Key Directories
+
+- `barakoCMS/`: Main Web API project.
+  - `Features/`: Vertical slice architecture. Each feature (e.g., `Content`, `ContentType`) has its own folder containing Endpoints, Models, and Validators.
+  - `Models/`: Domain entities (e.g., `Content`, `User`).
+  - `Data/`: Data seeding and configuration.
+- `BarakoCMS.Tests/`: Integration and Unit tests.
+
+## Usage for AI Agents
+
+When generating code or refactoring for BarakoCMS:
+1. **Follow REPR Pattern**: Do not create Controllers. Create `Endpoint<TRequest, TResponse>` classes in `Features/`.
+2. **Use Marten**: Use `IDocumentSession` for data access. Do not use Entity Framework Core unless explicitly asked.
+3. **Validation**: Use `FastEndpoints` validation (`Validator<TRequest>`).
+4. **Vertical Slices**: Keep related code (Endpoint, Request, Response, Validator) in the same feature folder.
+
+## Quick Start
+
+```bash
+# Clone repository
+git clone https://github.com/baryodev/barakoCMS.git
+
+# Run database (PostgreSQL)
+docker-compose up -d
+
+# Run application
+dotnet run --project barakoCMS
+```
+
+## Documentation
+
+- [FastEndpoints Docs](https://fast-endpoints.com/)
+- [Marten Docs](https://martendb.io/)

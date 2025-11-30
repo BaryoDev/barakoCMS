@@ -1,0 +1,45 @@
+# BarakoCMS AI Context Rules
+
+You are working on BarakoCMS, a .NET 8 Headless CMS using FastEndpoints and MartenDB.
+
+## Architectural Principles
+
+- **Vertical Slices**: Organize code by feature, not by technical layer.
+  - `Features/<FeatureName>/<Action>/` (e.g., `Features/Content/Create/`)
+  - Each slice should contain: `Endpoint.cs`, `Models.cs` (Request/Response), `Validator.cs`.
+- **REPR Pattern**: Use Request-Endpoint-Response pattern. Avoid Controllers.
+- **No Repository Pattern**: Use Marten's `IDocumentSession` directly in Endpoints for simplicity, unless complex logic requires a service.
+
+## Coding Standards
+
+- **Nullable Reference Types**: Enabled. Handle nulls explicitly.
+- **Async/Await**: Use async for all I/O operations.
+- **Validation**: Use FluentValidation via FastEndpoints `Validator<T>`.
+- **Testing**: Use `xUnit` and `FastEndpoints.Testing` for integration tests.
+
+## Technology Stack
+
+- **Framework**: .NET 8 (ASP.NET Core)
+- **API**: FastEndpoints
+- **Database**: PostgreSQL (MartenDB - Document Store)
+- **Auth**: JWT
+
+## Common Tasks
+
+### Creating a New Endpoint
+1. Create a folder in `Features/<FeatureName>/<ActionName>`.
+2. Define `Request` and `Response` records.
+3. Create `Endpoint` class inheriting from `Endpoint<Request, Response>`.
+4. Implement `Configure()` to set routes and permissions.
+5. Implement `HandleAsync()` for logic.
+
+### Database Access
+- Inject `IDocumentSession`.
+- `session.Store(entity)` to save.
+- `session.Query<T>().Where(...)` to query.
+- `session.SaveChangesAsync()` to commit.
+
+## "Vibe Coding" Tips
+- If the user asks for a "quick fix", prioritize minimal changes.
+- If the user asks for a "feature", ensure it fits the Vertical Slice architecture.
+- Always assume the user wants high-performance, clean code.

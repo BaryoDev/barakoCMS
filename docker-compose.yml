@@ -1,4 +1,19 @@
 services:
+  app:
+    container_name: barako-cms
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "5000:8080"
+    environment:
+      - ConnectionStrings__DefaultConnection=Host=postgres;Database=barako_cms;Username=postgres;Password=postgres
+      - JWT__Key=your-super-secret-key-that-is-at-least-32-chars-long
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
   postgres:
     image: postgres:16-alpine
     container_name: barako-postgres

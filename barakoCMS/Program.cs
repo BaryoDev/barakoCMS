@@ -11,6 +11,7 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 builder.Services.AddFastEndpoints();
 builder.Services.SwaggerDocument();
+builder.Services.AddHealthChecks();
 
 builder.Services.AddJWTBearerAuth(builder.Configuration["JWT:Key"]!);
 builder.Services.AddAuthorization();
@@ -36,8 +37,13 @@ var app = builder.Build();
 // Configure the HTTP request pipeline.
 app.UseAuthentication();
 app.UseAuthorization();
-app.UseFastEndpoints();
+app.UseFastEndpoints(c => 
+{
+    c.Errors.UseProblemDetails();
+});
 app.UseSwaggerGen();
+
+app.MapHealthChecks("/health");
 
 await barakoCMS.Data.DataSeeder.SeedAsync(app);
 
