@@ -13,4 +13,5 @@ public class Response
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public Guid LastModifiedBy { get; set; }
+    public barakoCMS.Models.SensitivityLevel Sensitivity { get; set; }
 }

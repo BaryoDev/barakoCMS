@@ -6,6 +6,7 @@ public class User
     public string Username { get; set; } = string.Empty;
     public string PasswordHash { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
-    public string Role { get; set; } = "User";
+    public List<Guid> RoleIds { get; set; } = new();
+    public List<Guid> GroupIds { get; set; } = new();
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
