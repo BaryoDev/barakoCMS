@@ -1,0 +1,23 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [1.0.3] - 2024-01-01
+
+### Added
+- **AI Adoption**: Added `llms.txt` and `.cursorrules` to improve AI agent compatibility.
+- **Community**: Added `CONTRIBUTING.md` and `CODE_OF_CONDUCT.md`.
+- **Production**: Added `Dockerfile` and updated `docker-compose.yml` with health checks.
+- **Health Checks**: Added `/health` endpoint.
+- **Documentation**: Added `CITATIONS.cff` for research citation.
+
+### Changed
+- **Licensing**: Changed license from custom restrictive license to **Apache License 2.0**.
+- **NuGet**: Updated package tags to include `ai-native` and `vibe-coding`.
+- **Error Handling**: Enabled global exception handling with `UseProblemDetails()`.
+
+### Fixed
+- Improved `docker-compose.yml` reliability with `depends_on` and health checks.

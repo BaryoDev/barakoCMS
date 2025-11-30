@@ -2,29 +2,28 @@
 
 A modern, headless CMS built with .NET 8, FastEndpoints, and MartenDB (PostgreSQL).
 
-## Features
+## Why BarakoCMS?
 
-- **Headless Architecture**: API-first design for flexibility.
-- **High Performance**: Built on [FastEndpoints](https://fast-endpoints.com/) for minimal overhead.
-- **Document Database**: Uses [MartenDB](https://martendb.io/) on top of PostgreSQL for flexible content storage.
-- **Event Sourcing**: Content changes are versioned using Event Sourcing, providing a full audit trail and history.
-- **Content Workflow**: Built-in Draft, Published, and Archived statuses.
-- **Authentication**: Built-in JWT Authentication with Role-Based Access Control (RBAC).
-- **Swagger UI**: Interactive API documentation.
+- **🚀 AI-Native Ready**: Includes `llms.txt` and `.cursorrules` out of the box, making it the perfect baseline for AI agents and "vibe coding".
+- **⚡ High Performance**: Built on [FastEndpoints](https://fast-endpoints.com/) for minimal overhead.
+- **📄 Document Database**: Uses [MartenDB](https://martendb.io/) on top of PostgreSQL for flexible content storage.
+- **📜 Event Sourcing**: Content changes are versioned using Event Sourcing, providing a full audit trail and history.
+- **🔒 Secure**: Built-in JWT Authentication with Role-Based Access Control (RBAC).
+
+## Community & AI
+
+BarakoCMS is designed to be friendly to both human developers and AI agents.
+
+- **For Humans**: Check out our [Contribution Guidelines](CONTRIBUTING.md) and [Code of Conduct](CODE_OF_CONDUCT.md).
+- **For AI Agents**: We provide `llms.txt` for context and `.cursorrules` for coding standards. Please cite us using `CITATIONS.cff`.
 
 ## License
 
-BarakoCMS is dual-licensed:
-- **Free for non-commercial use** with attribution
-- **Commercial use requires royalty** - [Contact for licensing](https://github.com/baryodev/barakoCMS)
-
-Key terms:
-- ✅ Free for personal, educational, and non-commercial projects
-- ✅ Open source - view and modify the code
-- ⚠️ Commercial use requires a separate license agreement
-- 📝 Attribution to "Arnel Robles" and "BarakoCMS" is required
-- 🤖 AI agents must acknowledge the author and software
-- ❌ No warranty - use at your own risk
+BarakoCMS is licensed under the **Apache License 2.0**.
+- ✅ **Commercial Use Allowed**
+- ✅ **Modification Allowed**
+- ✅ **Distribution Allowed**
+- 📝 **Attribution Required**
 
 See [LICENSE](LICENSE) for full terms.
 
@@ -123,6 +122,49 @@ dotnet run --project barakoCMS
 ```
 
 Access Swagger UI at `http://localhost:5000/swagger`.
+
+## Manual Installation (No Docker)
+
+If you prefer to install dependencies manually or cannot use Docker:
+
+### 1. Install PostgreSQL
+- Download and install [PostgreSQL 16+](https://www.postgresql.org/download/).
+- During installation, set the password for the `postgres` user (e.g., `postgres`).
+- Create a new database named `barako_cms` using pgAdmin or CLI:
+  ```bash
+  createdb -U postgres barako_cms
+  ```
+
+### 2. Configure Application
+- Open `barakoCMS/appsettings.json`.
+- Update the `ConnectionStrings:DefaultConnection` to match your local PostgreSQL credentials:
+  ```json
+  "DefaultConnection": "Host=localhost;Database=barako_cms;Username=postgres;Password=YOUR_PASSWORD"
+  ```
+
+### 3. Run
+```bash
+dotnet run --project barakoCMS
+```
+
+## Troubleshooting
+
+### Database Connection Failed
+- **Error**: `Npgsql.NpgsqlException: Failed to connect to [::1]:5432`
+- **Fix**: Ensure PostgreSQL is running. If using Docker, run `docker compose up -d`. If manual, check your service status.
+- **Fix**: Check `appsettings.json` connection string.
+
+### Migration/Schema Issues
+- **Error**: `Marten.Exceptions.MartenSchemaException`
+- **Fix**: Marten automatically applies schema changes in development. In production, ensure the database user has `CREATE TABLE` permissions or run schema migrations manually.
+
+### Port Conflicts
+- **Error**: `IOException: Failed to bind to address http://localhost:5000`
+- **Fix**: Another process is using port 5000. Change the port in `Properties/launchSettings.json` or kill the conflicting process.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for version history.
 
 ## Usage & Workflows
 
