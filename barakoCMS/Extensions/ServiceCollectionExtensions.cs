@@ -17,6 +17,7 @@ public static class ServiceCollectionExtensions
     {
         services.AddFastEndpoints();
         services.SwaggerDocument();
+        services.AddHealthChecks();
 
         services.AddJWTBearerAuth(configuration["JWT:Key"]!);
         services.AddAuthorization();
@@ -44,7 +45,10 @@ public static class ServiceCollectionExtensions
     {
         app.UseAuthentication();
         app.UseAuthorization();
-        app.UseFastEndpoints();
+        app.UseFastEndpoints(c => 
+        {
+            c.Errors.UseProblemDetails();
+        });
         app.UseSwaggerGen();
         
         return app;
