@@ -4,6 +4,46 @@
 
 BarakoCMS is engineered for **Speed**, **Extensibility**, and **Robustness**. Built on the bleeding edge with [FastEndpoints](https://fast-endpoints.com/) and [MartenDB](https://martendb.io/), it delivers a developer-first experience that is both human-friendly and agent-ready.
 
+## 🐛 Bugs Fixed & Changelog (Developer's Log)
+- **[Feature] Field-Level Sensitivity**: Implemented `ISensitivityService` to support field-level masking (e.g., hiding SSN, masking BirthDay) for `AttendanceRecord` content type.
+- **[Fix] Seeder Configuration**: Updated `Seeder.cs` to correctly use `WebApplication` type.
+- **[Fix] Test Infrastructure**: Implemented `CustomWebApplicationFactory` to support Testcontainers for POC tests.
+- **[Fix] Authorization**: Updated `Get` endpoint to use `ISensitivityService` for robust data protection.
+
+## 🚀 What's New in v1.1
+- **[Architecture] Decoupled Sensitivity**: The `AttendanceRecord` logic has been moved out of the core library into the `AttendancePOC` project, making `barakoCMS` fully generic.
+- **[Security] Configurable Policies**: Sensitivity rules (e.g., which roles can see SSN) are now defined in `appsettings.json` instead of hardcoded C#.
+- **[Performance] Lightweight Sessions**: Marten now uses lightweight sessions by default, significantly reducing memory usage for high-concurrency scenarios.
+
+## 🧪 Attendance POC (Real-World Example)
+Want to see BarakoCMS in action? We've included a fully functional **Attendance System POC**.
+
+### Features
+- **Sensitive Data**: Handles SSN (Hidden) and BirthDay (Masked).
+- **RBAC**: Different views for `SuperAdmin`, `HR`, and `Standard` users.
+- **Workflows**: Automatically sends emails (simulated) upon submission.
+
+### How to Run
+1.  **Navigate to the POC directory**:
+    ```bash
+    cd AttendancePOC
+    ```
+2.  **Run the application**:
+    ```bash
+    dotnet run
+    ```
+3.  **Explore**:
+    -   The POC runs on the same port as the main app (default 5000).
+    -   It seeds sample data automatically.
+    -   Try `GET /api/contents` with different user tokens (see `Seeder.cs` for credentials).
+
+## ✅ Test Coverage (QA's Log)
+- **AttendancePOC.Tests**:
+    - `SubmitAttendance_ShouldTriggerWorkflow`: **PASSED** (Verifies data submission and workflow trigger).
+    - `GetAttendance_ShouldMaskSensitiveData_ForNonSuperAdmin`: **PASSED** (Verifies SSN is hidden and BirthDay is masked for Standard users).
+    - `GetAttendance_ShouldReturnAllData_ForSuperAdmin`: **PASSED** (Verifies SuperAdmin can see all sensitive data).
+    - `CreateAttendance_ShouldFail_ForAnonymousUser`: **PASSED** (Verifies unauthorized users cannot create records).
+
 ## 🌟 Key Features
 
 ### ⚡ Unmatched Speed
