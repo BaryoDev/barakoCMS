@@ -64,10 +64,21 @@ Ensure your `appsettings.json` has the required configuration:
 
 ### 1. Database Setup
 
-Run a PostgreSQL container:
+Start PostgreSQL using Docker Compose:
 
 ```bash
-docker run --name barako-postgres -e POSTGRES_PASSWORD=postgres -p 5432:5432 -d postgres
+docker compose up -d
+# Or if using older Docker Compose v1:
+# docker-compose up -d
+```
+
+This will start a PostgreSQL container with the database `barako_cms` already created.
+
+To stop the database:
+
+```bash
+docker compose down
+# Or: docker-compose down
 ```
 
 ### 2. Configuration
