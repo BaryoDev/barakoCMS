@@ -6,16 +6,16 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <PackageId>BarakoCMS</PackageId>
-    <Version>1.0.0</Version>
+    <Version>1.0.1</Version>
     <Authors>Arnel Robles</Authors>
     <Description>A Headless CMS using .NET 8, FastEndpoints, and MartenDB.</Description>
     <IsPackable>true</IsPackable>
     <StaticWebAssetsEnabled>false</StaticWebAssetsEnabled>
     <GenerateRuntimeConfigurationFiles>false</GenerateRuntimeConfigurationFiles>
     <PackageTags>cms;headless;dotnet;fastendpoints;marten;postgres</PackageTags>
-    <RepositoryUrl>https://github.com/yourusername/barakoCMS</RepositoryUrl>
+    <RepositoryUrl>https://github.com/baryodev/barakoCMS</RepositoryUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageProjectUrl>https://github.com/yourusername/barakoCMS</PackageProjectUrl>
+    <PackageProjectUrl>https://github.com/baryodev/barakoCMS</PackageProjectUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
