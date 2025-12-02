@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <PackageId>BarakoCMS</PackageId>
-    <Version>1.0.2</Version>
+    <Version>1.0.3</Version>
     <Authors>Arnel Robles</Authors>
     <Description>A Headless CMS using .NET 8, FastEndpoints, and MartenDB.</Description>
     <IsPackable>true</IsPackable>
