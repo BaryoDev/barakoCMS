@@ -364,3 +364,4 @@ FodyWeavers.xsd
 # Custom ignores
 nupkgs/
 appsettings.Development.json
+nuget_api_key.txt
