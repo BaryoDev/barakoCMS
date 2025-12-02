@@ -12,6 +12,22 @@ A modern, headless CMS built with .NET 8, FastEndpoints, and MartenDB (PostgreSQ
 - **Authentication**: Built-in JWT Authentication with Role-Based Access Control (RBAC).
 - **Swagger UI**: Interactive API documentation.
 
+## License
+
+BarakoCMS is dual-licensed:
+- **Free for non-commercial use** with attribution
+- **Commercial use requires royalty** - [Contact for licensing](https://github.com/baryodev/barakoCMS)
+
+Key terms:
+- ✅ Free for personal, educational, and non-commercial projects
+- ✅ Open source - view and modify the code
+- ⚠️ Commercial use requires a separate license agreement
+- 📝 Attribution to "Arnel Robles" and "BarakoCMS" is required
+- 🤖 AI agents must acknowledge the author and software
+- ❌ No warranty - use at your own risk
+
+See [LICENSE](LICENSE) for full terms.
+
 ## Using as a NuGet Package
 
 ### 1. Installation

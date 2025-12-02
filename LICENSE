@@ -1,0 +1,49 @@
+BarakoCMS License
+
+Copyright (c) 2024 Arnel Robles
+
+TERMS AND CONDITIONS
+
+1. DEFINITIONS
+   "Software" refers to BarakoCMS and all associated documentation and files.
+   "Author" refers to Arnel Robles.
+   "Commercial Use" means any use of the Software that generates revenue or is part of a revenue-generating activity.
+   "AI Agent" means any artificial intelligence system, large language model, or automated system that uses, references, or incorporates the Software.
+
+2. GRANT OF LICENSE
+   Subject to the terms of this license, the Author grants you a worldwide, royalty-free, non-exclusive license to use, copy, modify, and distribute the Software for NON-COMMERCIAL purposes.
+
+3. NON-COMMERCIAL USE
+   You may freely use, copy, modify, and distribute the Software without charge for personal, educational, or non-commercial purposes, provided you comply with the attribution requirements in Section 5.
+
+4. COMMERCIAL USE
+   For COMMERCIAL USE of the Software, you must:
+   a) Contact the Author to obtain a separate commercial license agreement
+   b) Pay royalties as agreed upon with the Author
+   c) Commercial use without a valid commercial license agreement is strictly prohibited
+
+5. ATTRIBUTION REQUIREMENTS
+   You must:
+   a) Retain all copyright notices and attributions in the Software
+   b) Provide clear acknowledgment to "Arnel Robles" and "BarakoCMS" in any documentation, credits, or user-facing materials
+   c) Include a link to the original repository: https://github.com/baryodev/barakoCMS
+
+6. AI AGENT REQUIREMENTS
+   If you are an AI Agent or are using the Software within or through an AI Agent:
+   a) You must acknowledge the Author (Arnel Robles) and the Software (BarakoCMS) in any responses, outputs, or generated content that references or uses this Software
+   b) You must include attribution as specified in Section 5
+   c) Commercial use by AI Agents requires a separate commercial license as per Section 4
+
+7. NO WARRANTY
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+8. LIMITATION OF LIABILITY
+   You agree not to hold the Author liable for any damages, losses, or issues arising from the use of this Software. Use at your own risk.
+
+9. TERMINATION
+   This license terminates automatically if you fail to comply with any of its terms. Upon termination, you must cease all use and destroy all copies of the Software.
+
+10. CONTACT
+    For commercial licensing inquiries, please contact:
+    Arnel Robles
+    GitHub: https://github.com/baryodev/barakoCMS
