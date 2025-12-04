@@ -23,20 +23,28 @@ public static class ServiceCollectionExtensions
         services.AddAuthorization();
         services.AddScoped<barakoCMS.Repository.IUserRepository, barakoCMS.Repository.MartenUserRepository>();
 
-        var connectionString = configuration.GetConnectionString("DefaultConnection");
-
-        services.AddMarten((StoreOptions options) =>
+        services.AddMarten(sp =>
         {
+            var config = sp.GetRequiredService<IConfiguration>();
+            var connectionString = config.GetConnectionString("DefaultConnection");
+            var options = new StoreOptions();
             options.Connection(connectionString!);
-            
-
 
             // Configure document versioning
             options.Schema.For<Content>().DocumentAlias("contents");
             options.Schema.For<User>().DocumentAlias("users");
 
             options.Projections.Snapshot<Content>(SnapshotLifecycle.Inline);
+            
+            return options;
         });
+
+        services.AddScoped<barakoCMS.Core.Interfaces.IEmailService, barakoCMS.Infrastructure.Services.MockEmailService>();
+        services.AddScoped<barakoCMS.Core.Interfaces.ISmsService, barakoCMS.Infrastructure.Services.MockSmsService>();
+        services.AddScoped<barakoCMS.Features.Workflows.WorkflowEngine>();
+
+        services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Filters.IdempotencyFilter>();
+        services.AddSingleton<FastEndpoints.IGlobalPostProcessor, barakoCMS.Infrastructure.Filters.SensitivityFilter>();
 
         return services;
     }
@@ -48,6 +56,8 @@ public static class ServiceCollectionExtensions
         app.UseFastEndpoints(c => 
         {
             c.Errors.UseProblemDetails();
+            // c.GlobalPreProcessor = new barakoCMS.Infrastructure.Filters.IdempotencyFilter();
+            // c.GlobalPostProcessor = new barakoCMS.Infrastructure.Filters.SensitivityFilter();
         });
         app.UseSwaggerGen();
         

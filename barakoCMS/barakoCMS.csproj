@@ -6,9 +6,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <PackageId>BarakoCMS</PackageId>
-    <Version>1.0.5</Version>
+    <Version>1.0.6</Version>
     <Authors>Arnel Robles</Authors>
-    <Description>A Headless CMS using .NET 8, FastEndpoints, and MartenDB.</Description>
+    <Description>The AI-Native, High-Performance Headless CMS for .NET 8. Built for Speed, Extensibility, and Robustness.</Description>
     <IsPackable>true</IsPackable>
     <StaticWebAssetsEnabled>false</StaticWebAssetsEnabled>
     <GenerateRuntimeConfigurationFiles>false</GenerateRuntimeConfigurationFiles>

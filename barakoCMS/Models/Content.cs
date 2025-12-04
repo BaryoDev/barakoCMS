@@ -7,12 +7,20 @@ public enum ContentStatus
     Archived
 }
 
+public enum SensitivityLevel
+{
+    Public,
+    Sensitive,
+    Hidden
+}
+
 public class Content
 {
     public Guid Id { get; set; }
     public string ContentType { get; set; } = string.Empty;
     public Dictionary<string, object> Data { get; set; } = new();
     public ContentStatus Status { get; set; } = ContentStatus.Draft;
+    public SensitivityLevel Sensitivity { get; set; } = SensitivityLevel.Public;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
     
