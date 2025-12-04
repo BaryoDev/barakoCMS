@@ -37,10 +37,11 @@ public static class ServiceCollectionExtensions
             options.Projections.Snapshot<Content>(SnapshotLifecycle.Inline);
             
             return options;
-        });
+        }).UseLightweightSessions();
 
         services.AddScoped<barakoCMS.Core.Interfaces.IEmailService, barakoCMS.Infrastructure.Services.MockEmailService>();
         services.AddScoped<barakoCMS.Core.Interfaces.ISmsService, barakoCMS.Infrastructure.Services.MockSmsService>();
+        services.AddScoped<barakoCMS.Core.Interfaces.ISensitivityService, barakoCMS.Infrastructure.Services.SensitivityService>();
         services.AddScoped<barakoCMS.Features.Workflows.WorkflowEngine>();
 
         services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Filters.IdempotencyFilter>();
@@ -56,8 +57,11 @@ public static class ServiceCollectionExtensions
         app.UseFastEndpoints(c => 
         {
             c.Errors.UseProblemDetails();
-            // c.GlobalPreProcessor = new barakoCMS.Infrastructure.Filters.IdempotencyFilter();
-            // c.GlobalPostProcessor = new barakoCMS.Infrastructure.Filters.SensitivityFilter();
+            c.Endpoints.Configurator = ep =>
+            {
+                ep.PreProcessors(Order.Before, new barakoCMS.Infrastructure.Filters.IdempotencyFilter());
+                ep.PostProcessors(Order.Before, new barakoCMS.Infrastructure.Filters.SensitivityFilter());
+            };
         });
         app.UseSwaggerGen();
         

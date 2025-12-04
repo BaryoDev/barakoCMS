@@ -29,14 +29,18 @@ public class Endpoint : Endpoint<Request, Response>
             return;
         }
 
-        await SendAsync(new Response
+        Response = new Response
         {
             Id = content.Id,
             ContentType = content.ContentType,
-            Data = content.Data,
+            Data = new Dictionary<string, object>(content.Data),
             CreatedAt = content.CreatedAt,
             UpdatedAt = content.UpdatedAt,
-            LastModifiedBy = content.LastModifiedBy
-        });
+            LastModifiedBy = content.LastModifiedBy,
+            Sensitivity = content.Sensitivity
+        };
+
+        var sensitivityService = Resolve<barakoCMS.Core.Interfaces.ISensitivityService>();
+        sensitivityService.Apply(Response, HttpContext);
     }
 }
