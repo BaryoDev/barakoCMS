@@ -16,11 +16,23 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddBarakoCMS(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddFastEndpoints();
-        services.SwaggerDocument();
+        if (Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development")
+        {
+            services.SwaggerDocument();
+        }
         services.AddHealthChecks();
 
         services.AddJWTBearerAuth(configuration["JWT:Key"]!);
         services.AddAuthorization();
+        services.AddCors(options =>
+        {
+            options.AddPolicy("SecurePolicy", builder =>
+            {
+                builder.WithOrigins("http://localhost:3000", "https://localhost:7049") // Adjust as needed
+                       .AllowAnyMethod()
+                       .AllowAnyHeader();
+            });
+        });
         services.AddScoped<barakoCMS.Repository.IUserRepository, barakoCMS.Repository.MartenUserRepository>();
 
         services.AddMarten(sp =>
@@ -63,7 +75,11 @@ public static class ServiceCollectionExtensions
                 ep.PostProcessors(Order.Before, new barakoCMS.Infrastructure.Filters.SensitivityFilter());
             };
         });
-        app.UseSwaggerGen();
+        app.UseCors("SecurePolicy");
+        if (Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development")
+        {
+            app.UseSwaggerGen();
+        }
         
         return app;
     }

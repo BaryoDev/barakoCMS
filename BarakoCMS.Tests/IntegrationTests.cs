@@ -31,13 +31,13 @@ public class IntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         _client = factory.CreateClient();
     }
 
-    [Fact(Skip = "Requires running PostgreSQL instance")]
+    [Fact]
     public async Task Auth_RBAC_Flow()
     {
         // 1. Register (Standard User)
         var username = $"user_{Guid.NewGuid()}";
         var email = $"{username}@test.com";
-        var password = "password123";
+        var password = "Password123!";
 
         var registerRes = await _client.PostAsJsonAsync("/api/auth/register", new RegisterRequest
         {
@@ -62,9 +62,9 @@ public class IntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         // 3. Try Create Content (Should Fail - Forbidden)
         var userClient = _client; // Reusing client but setting header
         userClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", userToken);
-        
+
         var contentData = new Dictionary<string, object> { { "Title", "Test Article" }, { "Body", "Hello World" } };
-        
+
         var failCreateRes = await userClient.PostAsJsonAsync("/api/contents", new CreateContentRequest
         {
             ContentType = "Article",
@@ -77,7 +77,7 @@ public class IntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         var adminLoginRes = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest
         {
             Username = "arnex",
-            Password = "barako"
+            Password = "Barako123!"
         });
 
         adminLoginRes.IsSuccessStatusCode.Should().BeTrue();
@@ -87,7 +87,7 @@ public class IntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         // 5. Create Content as Admin (Should Succeed)
         var adminClient = _client;
         adminClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", adminToken);
-        
+
         var createRes = await adminClient.PostAsJsonAsync("/api/contents", new CreateContentRequest
         {
             ContentType = "Article",
@@ -97,7 +97,7 @@ public class IntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         createRes.IsSuccessStatusCode.Should().BeTrue();
     }
 
-    [Fact(Skip = "Requires running PostgreSQL instance")]
+    [Fact]
     public async Task Auth_Security_EdgeCases()
     {
         // 1. Register with Short Password
@@ -114,15 +114,15 @@ public class IntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         // 2. Register Duplicate User
         var username = $"dup_{Guid.NewGuid()}";
         var email = $"{username}@test.com";
-        var password = "password123";
+        var password = "Password123!";
 
         await _client.PostAsJsonAsync("/api/auth/register", new RegisterRequest { Username = username, Email = email, Password = password });
-        
-        var dupRes = await _client.PostAsJsonAsync("/api/auth/register", new RegisterRequest 
-        { 
-            Username = username, 
-            Email = "other@test.com", 
-            Password = password 
+
+        var dupRes = await _client.PostAsJsonAsync("/api/auth/register", new RegisterRequest
+        {
+            Username = username,
+            Email = "other@test.com",
+            Password = password
         });
 
         dupRes.IsSuccessStatusCode.Should().BeFalse();
@@ -139,28 +139,28 @@ public class IntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         invalidLoginRes.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
-    [Fact(Skip = "Requires running PostgreSQL instance")]
+    [Fact]
     public async Task Content_EdgeCases()
     {
         // 1. Get Non-Existent Content
         var nonExistentId = Guid.NewGuid();
         var getRes = await _client.GetAsync($"/api/contents/{nonExistentId}");
-        
+
         // Note: Depending on implementation, this might be 404 or 500 if not handled. 
         // Assuming Get endpoint handles null result.
         // If using Marten LoadAsync, it returns null. Endpoint should check and return 404.
         // Let's verify current implementation handles it.
-        
+
         // 2. Update Non-Existent Content
         // Need Admin Token
-        var adminLoginRes = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest { Username = "arnex", Password = "barako" });
+        var adminLoginRes = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest { Username = "arnex", Password = "Barako123!" });
         var adminToken = (await adminLoginRes.Content.ReadFromJsonAsync<LoginResponse>())!.Token;
         _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", adminToken);
 
-        var updateRes = await _client.PutAsJsonAsync($"/api/contents/{nonExistentId}", new UpdateContentRequest 
-        { 
+        var updateRes = await _client.PutAsJsonAsync($"/api/contents/{nonExistentId}", new UpdateContentRequest
+        {
             Id = nonExistentId,
-            Data = new Dictionary<string, object>() 
+            Data = new Dictionary<string, object>()
         });
 
         // Marten StartStream/Append might create a new stream if not exists? 
@@ -170,11 +170,11 @@ public class IntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         // For now, let's just check it doesn't crash.
         updateRes.IsSuccessStatusCode.Should().BeTrue(); // Marten upserts by default on stream append?
     }
-    [Fact(Skip = "Requires running PostgreSQL instance")]
+    [Fact]
     public async Task Content_Workflow()
     {
         // 1. Login as Admin
-        var adminLoginRes = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest { Username = "arnex", Password = "barako" });
+        var adminLoginRes = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest { Username = "arnex", Password = "Barako123!" });
         var adminToken = (await adminLoginRes.Content.ReadFromJsonAsync<LoginResponse>())!.Token;
         _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", adminToken);
 

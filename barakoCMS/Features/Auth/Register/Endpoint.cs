@@ -30,9 +30,15 @@ public class Endpoint : Endpoint<Request, Response>
             ThrowError("Username or Email already exists");
         }
 
-        if (req.Password.Length < 8)
+        // Password Complexity: Min 8, One Upper, One Lower, One Number, One Special
+        var hasNumber = new System.Text.RegularExpressions.Regex(@"[0-9]+");
+        var hasUpperChar = new System.Text.RegularExpressions.Regex(@"[A-Z]+");
+        var hasLowerChar = new System.Text.RegularExpressions.Regex(@"[a-z]+");
+        var hasSymbols = new System.Text.RegularExpressions.Regex(@"[!@#$%^&*()_+=\[{\]};:<>|./?,-]");
+
+        if (req.Password.Length < 8 || !hasUpperChar.IsMatch(req.Password) || !hasLowerChar.IsMatch(req.Password) || !hasNumber.IsMatch(req.Password) || !hasSymbols.IsMatch(req.Password))
         {
-            ThrowError("Password must be at least 8 characters long");
+            ThrowError("Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, one number, and one special character.");
         }
 
         var userRole = await _session.Query<Role>().FirstOrDefaultAsync(r => r.Name == "User", ct);

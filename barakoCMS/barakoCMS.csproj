@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <PackageId>BarakoCMS</PackageId>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <Authors>Arnel Robles</Authors>
     <Description>The AI-Native, High-Performance Headless CMS for .NET 8. Built for Speed, Extensibility, and Robustness.</Description>
     <IsPackable>true</IsPackable>
@@ -18,6 +18,7 @@
     <PackageProjectUrl>https://github.com/baryodev/barakoCMS</PackageProjectUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <UserSecretsId>c77ffe8f-737f-455c-ae23-d3686cd5edd9</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
