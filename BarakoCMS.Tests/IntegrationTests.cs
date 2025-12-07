@@ -31,6 +31,18 @@ public class IntegrationTests : IClassFixture<IntegrationTestFixture>
         _client = factory.CreateClient();
     }
 
+    private string CreateAdminToken()
+    {
+        return FastEndpoints.Security.JWTBearer.CreateToken(
+            signingKey: "test-super-secret-key-that-is-at-least-32-chars-long",
+            expireAt: DateTime.UtcNow.AddDays(1),
+            privileges: u =>
+            {
+                u.Roles.Add("Admin");
+                u.Claims.Add(new System.Security.Claims.Claim("UserId", Guid.NewGuid().ToString()));
+            });
+    }
+
     [Fact]
     public async Task Auth_RBAC_Flow()
     {
@@ -73,16 +85,8 @@ public class IntegrationTests : IClassFixture<IntegrationTestFixture>
 
         failCreateRes.StatusCode.Should().Be(HttpStatusCode.Forbidden);
 
-        // 4. Login as Admin (Seeded)
-        var adminLoginRes = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest
-        {
-            Username = "arnex",
-            Password = "Barako123!"
-        });
-
-        adminLoginRes.IsSuccessStatusCode.Should().BeTrue();
-        var adminLoginContent = await adminLoginRes.Content.ReadFromJsonAsync<LoginResponse>();
-        var adminToken = adminLoginContent!.Token;
+        // 4. Create Admin Token
+        var adminToken = CreateAdminToken();
 
         // 5. Create Content as Admin (Should Succeed)
         var adminClient = _client;
@@ -152,9 +156,8 @@ public class IntegrationTests : IClassFixture<IntegrationTestFixture>
         // Let's verify current implementation handles it.
 
         // 2. Update Non-Existent Content
-        // Need Admin Token
-        var adminLoginRes = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest { Username = "arnex", Password = "Barako123!" });
-        var adminToken = (await adminLoginRes.Content.ReadFromJsonAsync<LoginResponse>())!.Token;
+        // Create Admin Token
+        var adminToken = CreateAdminToken();
         _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", adminToken);
 
         var updateRes = await _client.PutAsJsonAsync($"/api/contents/{nonExistentId}", new UpdateContentRequest
@@ -173,9 +176,8 @@ public class IntegrationTests : IClassFixture<IntegrationTestFixture>
     [Fact]
     public async Task Content_Workflow()
     {
-        // 1. Login as Admin
-        var adminLoginRes = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest { Username = "arnex", Password = "Barako123!" });
-        var adminToken = (await adminLoginRes.Content.ReadFromJsonAsync<LoginResponse>())!.Token;
+        // 1. Create Admin Token
+        var adminToken = CreateAdminToken();
         _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", adminToken);
 
         // 2. Create Content (Default Draft)
