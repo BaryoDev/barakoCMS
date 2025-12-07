@@ -4,6 +4,8 @@
 
 BarakoCMS is engineered for **Speed**, **Extensibility**, and **Robustness**. Built on the bleeding edge with [FastEndpoints](https://fast-endpoints.com/) and [MartenDB](https://martendb.io/), it delivers a developer-first experience that is both human-friendly and agent-ready.
 
+[![CLA assistant](https://cla-assistant.io/readme/badge/BaryoDev/barakoCMS)](https://cla-assistant.io/BaryoDev/barakoCMS)
+
 ---
 
 ## 📦 Quick Start
