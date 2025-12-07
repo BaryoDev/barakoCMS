@@ -39,7 +39,7 @@ public class ValidationIntegrationTests : IClassFixture<CustomWebApplicationFact
 
     #region ContentType Creation Validation Tests
 
-    [Fact(Skip = "Broken test - requires DB state setup")]
+    [Fact]
     public async Task CreateContentType_ShouldSucceed_WithValidFieldTypes()
     {
         // Arrange
@@ -69,7 +69,7 @@ public class ValidationIntegrationTests : IClassFixture<CustomWebApplicationFact
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
-    [Fact(Skip = "Broken test - requires DB state setup")]
+    [Fact]
     public async Task CreateContentType_ShouldFail_WithInvalidFieldType()
     {
         // Arrange
@@ -96,7 +96,7 @@ public class ValidationIntegrationTests : IClassFixture<CustomWebApplicationFact
         error.Should().Contain("Allowed types");
     }
 
-    [Fact(Skip = "Broken test - requires DB state setup")]
+    [Fact]
     public async Task CreateContentType_ShouldFail_WithNonPascalCaseFieldName()
     {
         // Arrange
@@ -124,7 +124,7 @@ public class ValidationIntegrationTests : IClassFixture<CustomWebApplicationFact
         error.Should().Contain("FirstName");
     }
 
-    [Fact(Skip = "Broken test - requires DB state setup")]
+    [Fact]
     public async Task CreateContentType_ShouldFail_WithMultipleValidationErrors()
     {
         // Arrange
@@ -157,7 +157,7 @@ public class ValidationIntegrationTests : IClassFixture<CustomWebApplicationFact
 
     #region Content Creation Validation Tests
 
-    [Fact(Skip = "Broken test - requires DB state setup")]
+    [Fact]
     public async Task CreateContent_ShouldSucceed_WhenDataMatchesSchema()
     {
         // Arrange
@@ -204,7 +204,7 @@ public class ValidationIntegrationTests : IClassFixture<CustomWebApplicationFact
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
-    [Fact(Skip = "Broken test - requires DB state setup")]
+    [Fact]
     public async Task CreateContent_ShouldFail_WhenDataTypeMismatch()
     {
         // Arrange
@@ -244,7 +244,7 @@ public class ValidationIntegrationTests : IClassFixture<CustomWebApplicationFact
         error.Should().Contain("decimal");
     }
 
-    [Fact(Skip = "Broken test - requires DB state setup")]
+    [Fact]
     public async Task CreateContent_ShouldSucceed_WithPartialData()
     {
         // Arrange
@@ -289,7 +289,7 @@ public class ValidationIntegrationTests : IClassFixture<CustomWebApplicationFact
 
     #region Content Update Validation Tests
 
-    [Fact(Skip = "Broken test - requires DB state setup")]
+    [Fact]
     public async Task UpdateContent_ShouldFail_WhenDataTypeMismatch()
     {
         // Arrange
@@ -346,7 +346,7 @@ public class ValidationIntegrationTests : IClassFixture<CustomWebApplicationFact
 
     #region Edge Cases and Regression Tests
 
-    [Fact(Skip = "Broken test - requires DB state setup")]
+    [Fact]
     public async Task EdgeCase_NullValues_ShouldBeAllowed()
     {
         // Arrange
@@ -383,7 +383,7 @@ public class ValidationIntegrationTests : IClassFixture<CustomWebApplicationFact
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
-    [Fact(Skip = "Broken test - requires DB state setup")]
+    [Fact]
     public async Task EdgeCase_DateTimeFromString_ShouldBeAccepted()
     {
         // Arrange
@@ -420,7 +420,7 @@ public class ValidationIntegrationTests : IClassFixture<CustomWebApplicationFact
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
-    [Fact(Skip = "Broken test - requires DB state setup")]
+    [Fact]
     public async Task EdgeCase_AllFieldTypes_ShouldWorkTogether()
     {
         // Arrange
@@ -469,7 +469,7 @@ public class ValidationIntegrationTests : IClassFixture<CustomWebApplicationFact
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
-    [Fact(Skip = "Broken test - requires DB state setup")]
+    [Fact(Skip = "Flaky - Marten projection timing")]
     public async Task Regression_OldDataWithoutValidation_ShouldStillWork()
     {
         // This test ensures backward compatibility
@@ -515,7 +515,7 @@ public class ValidationIntegrationTests : IClassFixture<CustomWebApplicationFact
 
     #region Full CRUD Workflow Test
 
-    [Fact(Skip = "Broken test - requires DB state setup")]
+    [Fact(Skip = "Flaky - Marten projection timing")]
     public async Task FullWorkflow_CreateReadUpdateDelete_WithValidation()
     {
         // This test validates the complete CRUD lifecycle with validation
