@@ -7,6 +7,8 @@ using Marten.Events.Daemon;
 using Weasel.Core;
 using barakoCMS.Features.Workflows;
 using barakoCMS.Models;
+using barakoCMS.Repository;
+using barakoCMS.Infrastructure.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.AspNetCore.Builder;
@@ -37,7 +39,12 @@ public static class ServiceCollectionExtensions
                        .AllowAnyHeader();
             });
         });
-        services.AddScoped<barakoCMS.Repository.IUserRepository, barakoCMS.Repository.MartenUserRepository>();
+        // Repository registration
+        services.AddScoped<IUserRepository, MartenUserRepository>();
+
+        // RBAC Services
+        services.AddScoped<IConditionEvaluator, ConditionEvaluator>();
+        services.AddScoped<IPermissionResolver, PermissionResolver>();
 
         services.AddMarten((IServiceProvider sp) =>
         {
