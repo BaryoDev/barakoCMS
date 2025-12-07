@@ -556,8 +556,17 @@ See [LICENSE](LICENSE) for full terms.
 
 ---
 
-## 🌟 Star Us!
+## 💖 Support This Project
 
-If BarakoCMS helps you build better CMSs, give us a star ⭐
+<a href='https://ko-fi.com/T6T01CQT4R' target='_blank'><img height='36' style='border:0px;height:36px;' src='https://storage.ko-fi.com/cdn/kofi3.png?v=6' border='0' alt='Buy Me a Coffee at ko-fi.com' /></a>
+
+If BarakoCMS helps you build better applications, consider supporting the development!
+
+---
+
+## 👨‍💻 Author
+
+**Arnel Robles**  
+GitHub: [@arnelirobles](https://github.com/arnelirobles)
 
 **Built with ❤️ by developers, for developers.**
