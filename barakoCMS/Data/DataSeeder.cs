@@ -140,11 +140,6 @@ public static class DataSeeder
                 { "Gender", "string" },
                 { "SSN", "string" }
             },
-            SensitiveFields = new Dictionary<string, SensitivityLevel>
-            {
-                { "SSN", SensitivityLevel.Hidden },
-                { "BirthDay", SensitivityLevel.Sensitive }
-            },
             CreatedAt = DateTime.UtcNow
         };
 
@@ -167,28 +162,25 @@ public static class DataSeeder
         {
             Id = Guid.NewGuid(),
             Name = "Attendance Confirmation Email",
-            Description = "Send confirmation email to attendee after record creation",
             TriggerContentType = "AttendanceRecord",
-            TriggerEvent = WorkflowTriggerEvent.Created,
-            Conditions = new Dictionary<string, object>
+            TriggerEvent = "Created",
+            Conditions = new Dictionary<string, string>
             {
-                { "status", ContentStatus.Published }
+                { "status", "Published" }
             },
             Actions = new List<WorkflowAction>
             {
                 new WorkflowAction
                 {
                     Type = "SendEmail",
-                    Config = new Dictionary<string, object>
+                    Parameters = new Dictionary<string, string>
                     {
-                        { "to", "{{data.Email}}" },
-                        { "subject", "Attendance Record Created - {{data.FirstName}} {{data.LastName}}" },
-                        { "body", "Hello {{data.FirstName}},\n\nYour attendance record has been successfully created.\n\nDetails:\n- Name: {{data.FirstName}} {{data.LastName}}\n- Job: {{data.JobDescription}}\n- Gender: {{data.Gender}}\n\nThank you!" }
+                        { "To", "{{data.Email}}" },
+                        { "Subject", "Attendance Record Created - {{data.FirstName}} {{data.LastName}}" },
+                        { "Body", "Hello {{data.FirstName}},\n\nYour attendance record has been successfully created.\n\nThank you!" }
                     }
                 }
-            },
-            IsActive = true,
-            CreatedAt = DateTime.UtcNow
+            }
         };
 
         session.Store(workflow);
@@ -225,7 +217,6 @@ public static class DataSeeder
                 },
                 Status = ContentStatus.Published,
                 Sensitivity = SensitivityLevel.Sensitive,
-                Version = 1,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             },
@@ -245,7 +236,6 @@ public static class DataSeeder
                 },
                 Status = ContentStatus.Published,
                 Sensitivity = SensitivityLevel.Sensitive,
-                Version = 1,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             },
@@ -265,7 +255,6 @@ public static class DataSeeder
                 },
                 Status = ContentStatus.Published,
                 Sensitivity = SensitivityLevel.Sensitive,
-                Version = 1,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             }
