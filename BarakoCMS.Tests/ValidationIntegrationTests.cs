@@ -11,11 +11,11 @@ namespace BarakoCMS.Tests;
 /// Integration tests for validation in CRUD operations
 /// Tests the entire workflow from setup to edge cases
 /// </summary>
-public class ValidationIntegrationTests : IClassFixture<CustomWebApplicationFactory>
+public class ValidationIntegrationTests : IClassFixture<IntegrationTestFixture>
 {
     private readonly HttpClient _client;
 
-    public ValidationIntegrationTests(CustomWebApplicationFactory factory)
+    public ValidationIntegrationTests(IntegrationTestFixture factory)
     {
         _client = factory.CreateClient();
     }
