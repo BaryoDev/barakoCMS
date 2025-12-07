@@ -1,0 +1,23 @@
+{
+    "RoslynExtensionsOptions": {
+        "EnableAnalyzersSupport": true,
+        "EnableImportCompletion": true,
+        "EnableDecompilationSupport": false
+    },
+    "FormattingOptions": {
+        "EnableEditorConfigSupport": true
+    },
+    "MsBuild": {
+        "UseLegacySdkResolver": false,
+        "LoadProjectsOnDemand": false
+    },
+    "FileOptions": {
+        "SystemExcludeSearchPatterns": [
+            "**/node_modules/**",
+            "**/bin/**",
+            "**/obj/**",
+            "**/.git/**",
+            "**/dist/**"
+        ]
+    }
+}
