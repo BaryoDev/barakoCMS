@@ -29,10 +29,18 @@ public class Endpoint : Endpoint<Request, Response>
         _session.Events.Append(req.Id, @event);
         await _session.SaveChangesAsync(ct);
 
-        await SendAsync(new Response 
-        { 
-            Id = req.Id, 
-            Message = "Content updated successfully" 
+        // Trigger Workflow
+        var content = await _session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct);
+        if (content != null)
+        {
+            var workflowEngine = Resolve<barakoCMS.Features.Workflows.WorkflowEngine>();
+            await workflowEngine.ProcessEventAsync(content.ContentType, "Updated", content, ct);
+        }
+
+        await SendAsync(new Response
+        {
+            Id = req.Id,
+            Message = "Content updated successfully"
         });
     }
 }

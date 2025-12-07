@@ -7,15 +7,19 @@ using barakoCMS.Models;
 using FastEndpoints.Security;
 using System.Net.Http.Headers;
 using Xunit; // Added based on the provided Code Edit
+using Microsoft.Extensions.DependencyInjection;
+using barakoCMS.Core.Interfaces;
 
 namespace AttendancePOC.Tests;
 
 public class AttendanceTests : IClassFixture<CustomWebApplicationFactory>
 {
     private readonly HttpClient _client;
+    private readonly CustomWebApplicationFactory _factory;
 
     public AttendanceTests(CustomWebApplicationFactory factory)
     {
+        _factory = factory;
         _client = factory.CreateClient();
     }
 
@@ -26,7 +30,7 @@ public class AttendanceTests : IClassFixture<CustomWebApplicationFactory>
         var token = JWTBearer.CreateToken(
             signingKey: "test-super-secret-key-that-is-at-least-32-chars-long",
             expireAt: DateTime.UtcNow.AddDays(1),
-            privileges: u => 
+            privileges: u =>
             {
                 u.Roles.Add("HR");
                 u.Roles.Add("Admin"); // Required to access Create endpoint
@@ -57,10 +61,15 @@ public class AttendanceTests : IClassFixture<CustomWebApplicationFactory>
         var res = await _client.PostAsJsonAsync("/api/contents", req);
         res.EnsureSuccessStatusCode();
 
-        // 3. Verify Workflow Triggered (Mock Email Service)
-        // Since we can't easily check logs in this setup without a custom sink, 
-        // we assume success if the request processed and no error occurred.
-        // In a real test, we'd inject a MockEmailService and verify calls.
+        // 3. Verify Workflow Triggered (Spy Email Service)
+        var spy = _factory.Services.GetRequiredService<IEmailService>() as CustomWebApplicationFactory.SpyEmailService;
+        spy.Should().NotBeNull();
+
+        // Wait loop for async processing if needed, but since it's awaited in Endpoint, it should be done.
+        // However, WorkflowEngine might do async things? It awaits _emailService.SendEmailAsync.
+        // So it should be synchronous to the request.
+
+        spy!.SentEmails.Should().Contain(e => e.To == "hr-group@company.com");
     }
 
     [Fact]
@@ -70,13 +79,13 @@ public class AttendanceTests : IClassFixture<CustomWebApplicationFactory>
         var adminToken = JWTBearer.CreateToken(
             signingKey: "test-super-secret-key-that-is-at-least-32-chars-long",
             expireAt: DateTime.UtcNow.AddDays(1),
-            privileges: u => 
+            privileges: u =>
             {
                 u.Roles.Add("SuperAdmin");
                 u.Roles.Add("Admin"); // Required to access Create endpoint
                 u.Claims.Add(new("UserId", Guid.NewGuid().ToString()));
             });
-        
+
         _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
 
         var data = new Dictionary<string, object>
@@ -95,8 +104,8 @@ public class AttendanceTests : IClassFixture<CustomWebApplicationFactory>
         });
         if (!createRes.IsSuccessStatusCode)
         {
-             var error = await createRes.Content.ReadAsStringAsync();
-             throw new Exception($"Create failed: {createRes.StatusCode} - {error}");
+            var error = await createRes.Content.ReadAsStringAsync();
+            throw new Exception($"Create failed: {createRes.StatusCode} - {error}");
         }
         var contentId = (await createRes.Content.ReadFromJsonAsync<barakoCMS.Features.Content.Create.Response>())!.Id;
 
@@ -104,7 +113,7 @@ public class AttendanceTests : IClassFixture<CustomWebApplicationFactory>
         var userToken = JWTBearer.CreateToken(
             signingKey: "test-super-secret-key-that-is-at-least-32-chars-long",
             expireAt: DateTime.UtcNow.AddDays(1),
-            privileges: u => 
+            privileges: u =>
             {
                 u.Claims.Add(new("UserId", Guid.NewGuid().ToString()));
             });
@@ -135,13 +144,13 @@ public class AttendanceTests : IClassFixture<CustomWebApplicationFactory>
         var adminToken = JWTBearer.CreateToken(
             signingKey: "test-super-secret-key-that-is-at-least-32-chars-long",
             expireAt: DateTime.UtcNow.AddDays(1),
-            privileges: u => 
+            privileges: u =>
             {
                 u.Roles.Add("SuperAdmin");
                 u.Roles.Add("Admin");
                 u.Claims.Add(new("UserId", Guid.NewGuid().ToString()));
             });
-        
+
         _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
 
         var data = new Dictionary<string, object>

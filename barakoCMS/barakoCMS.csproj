@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <PackageId>BarakoCMS</PackageId>
-    <Version>1.2.0</Version>
+    <Version>1.2.1</Version>
     <Authors>Arnel Robles</Authors>
     <Description>The AI-Native, High-Performance Headless CMS for .NET 8. Built for Speed, Extensibility, and Robustness.</Description>
     <IsPackable>true</IsPackable>
@@ -19,6 +19,11 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <UserSecretsId>c77ffe8f-737f-455c-ae23-d3686cd5edd9</UserSecretsId>
+    
+    <!-- Design & Code Quality -->
+    <AnalysisLevel>latest</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <RepositoryType>git</RepositoryType>
   </PropertyGroup>
 
   <ItemGroup>
