@@ -67,6 +67,17 @@ public static class DataSeeder
         var hrRole = await session.Query<Role>().FirstOrDefaultAsync(r => r.Name == "HR");
         var userRole = await session.Query<Role>().FirstOrDefaultAsync(r => r.Name == "User");
 
+        // Validate that roles exist before creating users
+        if (superAdminRole == null || adminRole == null || hrRole == null || userRole == null)
+        {
+            Console.WriteLine("[DataSeeder] ERROR: Required roles not found. Cannot create users.");
+            Console.WriteLine($"[DataSeeder] SuperAdmin: {(superAdminRole != null ? "✓" : "✗")}");
+            Console.WriteLine($"[DataSeeder] Admin: {(adminRole != null ? "✓" : "✗")}");
+            Console.WriteLine($"[DataSeeder] HR: {(hrRole != null ? "✓" : "✗")}");
+            Console.WriteLine($"[DataSeeder] User: {(userRole != null ? "✓" : "✗")}");
+            return;
+        }
+
         // Create configured admin
         var adminConfig = configuration.GetSection("InitialAdmin");
         var username = adminConfig["Username"];
@@ -80,7 +91,7 @@ public static class DataSeeder
                 Username = username,
                 Email = $"{username}@company.com",
                 PasswordHash = BCrypt.Net.BCrypt.HashPassword(password),
-                RoleIds = new List<Guid> { superAdminRole!.Id, adminRole!.Id },
+                RoleIds = new List<Guid> { superAdminRole.Id, adminRole.Id },
                 CreatedAt = DateTime.UtcNow
             };
             session.Store(adminUser);
@@ -94,7 +105,7 @@ public static class DataSeeder
             Username = "hr_manager",
             Email = "hr@company.com",
             PasswordHash = BCrypt.Net.BCrypt.HashPassword("HRPassword123!"),
-            RoleIds = new List<Guid> { hrRole!.Id, adminRole!.Id },
+            RoleIds = new List<Guid> { hrRole.Id, adminRole.Id },
             CreatedAt = DateTime.UtcNow
         };
         session.Store(hrUser);
@@ -107,7 +118,7 @@ public static class DataSeeder
             Username = "john_viewer",
             Email = "john@company.com",
             PasswordHash = BCrypt.Net.BCrypt.HashPassword("UserPassword123!"),
-            RoleIds = new List<Guid> { userRole!.Id },
+            RoleIds = new List<Guid> { userRole.Id },
             CreatedAt = DateTime.UtcNow
         };
         session.Store(standardUser);
