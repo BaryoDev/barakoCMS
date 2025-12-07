@@ -352,13 +352,25 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 ### Workflow Automation
 
-#### Create Workflow Definition
+Create event-driven workflows that trigger automatically when content changes.
+
+#### How Workflows Work
+
+1. **Event Triggered** - Content created/updated/status changed
+2. **Async Processing** - Background daemon picks up event (no API delay)
+3. **Workflow Matched** - System finds workflows matching content type + event
+4. **Actions Executed** - Email, SMS, webhooks, etc. run automatically
+
+#### Create a Workflow
+
 ```bash
 POST /api/workflows
+Authorization: Bearer {ADMIN_TOKEN}
 
 {
-  "name": "New Blog Post Notification",
-  "triggerContentType": "blog-post",
+  "name": "Attendance Confirmation Email",
+  "description": "Send email to attendee after record creation",
+  "triggerContentType": "AttendanceRecord",
   "triggerEvent": "Created",
   "conditions": {
     "status": "Published"
@@ -367,21 +379,98 @@ POST /api/workflows
     {
       "type": "SendEmail",
       "config": {
-        "to": "editors@example.com",
-        "subject": "New blog post published",
-        "body": "{{data.title}} by {{data.author}}"
+        "to": "{{data.Email}}",
+        "subject": "Attendance Record Created - {{data.FirstName}} {{data.LastName}}",
+        "body": "Hello {{data.FirstName}},\n\nYour attendance record has been successfully created.\n\nThank you!"
       }
     }
   ]
 }
 ```
 
-**How It Works**:
-1. Content is created/updated → Event saved to DB
-2. Async Daemon picks up event → Calls WorkflowProjection
-3. WorkflowProjection loads matching workflow definitions
-4. WorkflowEngine executes actions (email, SMS, webhooks)
-5. All async - zero API latency impact
+#### Template Variables
+
+Use dynamic values from the content in your workflows:
+
+```json
+{
+  "to": "{{data.Email}}",              // Field from record data
+  "subject": "Record {{id}} Created",  // Record ID
+  "body": "Status: {{status}}"         // Record status
+}
+```
+
+#### Example: Email to Record's Email Field
+
+When creating an attendance record:
+
+```bash
+POST /api/contents
+{
+  "contentType": "AttendanceRecord",
+  "data": {
+    "FirstName": "John",
+    "LastName": "Doe",
+    "Email": "john.doe@company.com",  # Email recipient
+    "BirthDay": "1990-01-01"
+  },
+  "status": 1  // Published
+}
+```
+
+The workflow automatically sends email to `john.doe@company.com` using the `{{data.Email}}` template variable.
+
+#### Available Actions (Current)
+
+- **SendEmail** - Email notifications with templates
+- **SendSms** - SMS alerts (via ISmsService)
+
+#### Supported Events
+
+- `Created` - When content is first created
+- `Updated` - When content is modified
+- `StatusChanged` - When content status changes
+- `Deleted` - When content is removed
+
+#### Conditional Execution
+
+Add conditions to control when workflows run:
+
+```json
+{
+  "conditions": {
+    "status": "Published",              // Only for published content
+    "data.Salary": { "_gt": 100000 }   // Only if salary > 100k
+  }
+}
+```
+
+#### Multiple Actions
+
+Chain multiple actions in one workflow:
+
+```json
+{
+  "actions": [
+    {
+      "type": "SendEmail",
+      "config": {
+        "to": "{{data.Email}}",
+        "subject": "Record Created"
+      }
+    },
+    {
+      "type": "SendEmail",
+      "config": {
+        "to": "manager@company.com",
+        "subject": "New Submission: {{data.FirstName}}"
+      }
+    }
+  ]
+}
+```
+
+**Performance**: All workflows run asynchronously in background - zero impact on API response time.
 
 ---
 
