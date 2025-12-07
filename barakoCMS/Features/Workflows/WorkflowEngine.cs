@@ -4,7 +4,7 @@ using Marten;
 
 namespace barakoCMS.Features.Workflows;
 
-public class WorkflowEngine
+public class WorkflowEngine : IWorkflowEngine
 {
     private readonly IDocumentSession _session;
     private readonly IEmailService _emailService;
@@ -75,7 +75,7 @@ public class WorkflowEngine
                         $"Workflow: {workflow.Name} triggered.",
                         ct);
                     break;
-                // Add more actions here
+                    // Add more actions here
             }
         }
     }
