@@ -1,5 +1,7 @@
 using FluentAssertions;
 using Xunit;
+using Moq;
+using Marten;
 using barakoCMS.Models;
 using barakoCMS.Infrastructure.Services;
 
@@ -31,16 +33,21 @@ public class PermissionResolverTests
             RoleIds = new List<Guid> { role.Id }
         };
 
-        // TODO: Setup mock document session to return role
+        // Mock IDocumentSession
+        var mockSession = new Mock<IDocumentSession>();
+        mockSession.Setup(s => s.LoadAsync<Role>(role.Id, default))
+            .ReturnsAsync(role);
+
+        // Mock IConditionEvaluator (not needed for this test)
+        var mockConditionEvaluator = new Mock<IConditionEvaluator>();
+
+        var resolver = new PermissionResolver(mockSession.Object, mockConditionEvaluator.Object);
+
         // Act
-        // var resolver = new PermissionResolver(mockSession);
-        // var result = await resolver.CanPerformAction(user, "article", "update");
+        var result = await resolver.CanPerformActionAsync(user, "article", "update");
 
         // Assert
-        // result.Should().BeTrue();
-
-        // Placeholder assertion for now - will implement after creating interfaces
-        Assert.True(true); // This will fail until PermissionResolver is created
+        result.Should().BeTrue("because the role grants update permission");
     }
 
     [Fact]
@@ -69,11 +76,22 @@ public class PermissionResolverTests
 
         var user = new User
         {
+            Id = Guid.NewGuid(),
             RoleIds = new List<Guid> { role1.Id, role2.Id }
         };
 
-        // TODO: Will implement after creating PermissionResolver
-        Assert.True(true);
+        var mockSession = new Mock<IDocumentSession>();
+        mockSession.Setup(s => s.LoadAsync<Role>(role1.Id, default)).ReturnsAsync(role1);
+        mockSession.Setup(s => s.LoadAsync<Role>(role2.Id, default)).ReturnsAsync(role2);
+
+        var mockConditionEvaluator = new Mock<IConditionEvaluator>();
+        var resolver = new PermissionResolver(mockSession.Object, mockConditionEvaluator.Object);
+
+        // Act
+        var result = await resolver.CanPerformActionAsync(user, "article", "update");
+
+        // Assert
+        result.Should().BeTrue("because ALL roles grant update permission");
     }
 
     [Fact]
@@ -102,11 +120,22 @@ public class PermissionResolverTests
 
         var user = new User
         {
+            Id = Guid.NewGuid(),
             RoleIds = new List<Guid> { editorRole.Id, viewerRole.Id }
         };
 
-        // Expected: DENY because viewer role denies (Most Restrictive = ALL must allow)
-        Assert.True(true); // Will implement
+        var mockSession = new Mock<IDocumentSession>();
+        mockSession.Setup(s => s.LoadAsync<Role>(editorRole.Id, default)).ReturnsAsync(editorRole);
+        mockSession.Setup(s => s.LoadAsync<Role>(viewerRole.Id, default)).ReturnsAsync(viewerRole);
+
+        var mockConditionEvaluator = new Mock<IConditionEvaluator>();
+        var resolver = new PermissionResolver(mockSession.Object, mockConditionEvaluator.Object);
+
+        // Act
+        var result = await resolver.CanPerformActionAsync(user, "article", "update");
+
+        // Assert
+        result.Should().BeFalse("because ONE role denies (Most Restrictive = ALL must allow)");
     }
 
     [Fact]
@@ -119,8 +148,15 @@ public class PermissionResolverTests
             RoleIds = new List<Guid>() // Empty roles
         };
 
-        // Expected: DENY (no roles = no permissions)
-        Assert.True(true); // Will implement
+        var mockSession = new Mock<IDocumentSession>();
+        var mockConditionEvaluator = new Mock<IConditionEvaluator>();
+        var resolver = new PermissionResolver(mockSession.Object, mockConditionEvaluator.Object);
+
+        // Act
+        var result = await resolver.CanPerformActionAsync(user, "article", "update");
+
+        // Assert
+        result.Should().BeFalse("because user has no roles");
     }
 
     [Fact]
@@ -164,8 +200,29 @@ public class PermissionResolverTests
             }
         };
 
-        // Expected: ALLOW (condition matches: author == current user)
-        Assert.True(true); // Will implement
+        var mockSession = new Mock<IDocumentSession>();
+        mockSession.Setup(s => s.LoadAsync<Role>(role.Id, default)).ReturnsAsync(role);
+
+        // Mock condition evaluator to return TRUE (condition matches)
+        var mockConditionEvaluator = new Mock<IConditionEvaluator>();
+        mockConditionEvaluator
+            .Setup(e => e.Evaluate(
+                It.IsAny<Dictionary<string, object>>(),
+                content.Data,
+                user))
+            .Returns(true);
+
+        var resolver = new PermissionResolver(mockSession.Object, mockConditionEvaluator.Object);
+
+        // Act
+        var result = await resolver.CanPerformActionAsync(user, "article", "update", content);
+
+        // Assert
+        result.Should().BeTrue("because condition matches (author == current user)");
+        mockConditionEvaluator.Verify(e => e.Evaluate(
+            It.IsAny<Dictionary<string, object>>(),
+            content.Data,
+            user), Times.Once);
     }
 
     [Fact]
@@ -198,13 +255,36 @@ public class PermissionResolverTests
 
         var content = new Content
         {
+            Id = Guid.NewGuid(),
+            ContentType = "article",
             Data = new Dictionary<string, object>
             {
                 ["author"] = otherUserId.ToString() // Different author
             }
         };
 
-        // Expected: DENY (condition fails: author != current user)
-        Assert.True(true); // Will implement
+        var mockSession = new Mock<IDocumentSession>();
+        mockSession.Setup(s => s.LoadAsync<Role>(role.Id, default)).ReturnsAsync(role);
+
+        // Mock condition evaluator to return FALSE (condition doesn't match)
+        var mockConditionEvaluator = new Mock<IConditionEvaluator>();
+        mockConditionEvaluator
+            .Setup(e => e.Evaluate(
+                It.IsAny<Dictionary<string, object>>(),
+                content.Data,
+                user))
+            .Returns(false);
+
+        var resolver = new PermissionResolver(mockSession.Object, mockConditionEvaluator.Object);
+
+        // Act
+        var result = await resolver.CanPerformActionAsync(user, "article", "update", content);
+
+        // Assert
+        result.Should().BeFalse("because condition fails (author != current user)");
+        mockConditionEvaluator.Verify(e => e.Evaluate(
+            It.IsAny<Dictionary<string, object>>(),
+            content.Data,
+            user), Times.Once);
     }
 }
