@@ -1,5 +1,5 @@
 using barakoCMS.Models;
-using barakoCMS.Core.Interfaces;
+using Microsoft.Extensions.Logging;
 using Marten;
 
 namespace barakoCMS.Features.Workflows;
@@ -7,14 +7,14 @@ namespace barakoCMS.Features.Workflows;
 public class WorkflowEngine : IWorkflowEngine
 {
     private readonly IDocumentSession _session;
-    private readonly IEmailService _emailService;
-    private readonly ISmsService _smsService;
+    private readonly IEnumerable<IWorkflowAction> _actions;
+    private readonly ILogger<WorkflowEngine> _logger;
 
-    public WorkflowEngine(IDocumentSession session, IEmailService emailService, ISmsService smsService)
+    public WorkflowEngine(IDocumentSession session, IEnumerable<IWorkflowAction> actions, ILogger<WorkflowEngine> logger)
     {
         _session = session;
-        _emailService = emailService;
-        _smsService = smsService;
+        _actions = actions;
+        _logger = logger;
     }
 
     public async Task ProcessEventAsync(string contentType, string eventType, barakoCMS.Models.Content content, CancellationToken ct)
@@ -60,22 +60,15 @@ public class WorkflowEngine : IWorkflowEngine
     {
         foreach (var action in workflow.Actions)
         {
-            switch (action.Type)
+            var handler = _actions.FirstOrDefault(a => a.Type == action.Type);
+            if (handler != null)
             {
-                case "Email":
-                    await _emailService.SendEmailAsync(
-                        action.Parameters.GetValueOrDefault("To", "admin@example.com"),
-                        $"Workflow Triggered: {workflow.Name}",
-                        $"Content {content.Id} triggered this workflow.",
-                        ct);
-                    break;
-                case "SMS":
-                    await _smsService.SendSmsAsync(
-                        action.Parameters.GetValueOrDefault("To", "+1234567890"),
-                        $"Workflow: {workflow.Name} triggered.",
-                        ct);
-                    break;
-                    // Add more actions here
+                _logger.LogInformation("Executing workflow action '{ActionType}' for workflow '{WorkflowName}'", action.Type, workflow.Name);
+                await handler.ExecuteAsync(action.Parameters, content, ct);
+            }
+            else
+            {
+                _logger.LogWarning("Unknown workflow action type '{ActionType}' in workflow '{WorkflowName}'. Skipping.", action.Type, workflow.Name);
             }
         }
     }
