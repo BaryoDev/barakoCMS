@@ -26,16 +26,25 @@ public class Endpoint : Endpoint<Request, Response>
 
         var @event = new barakoCMS.Events.ContentUpdated(req.Id, req.Data, userId);
 
-        _session.Events.Append(req.Id, @event);
-        await _session.SaveChangesAsync(ct);
-
-        // Trigger Workflow
-        var content = await _session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct);
-        if (content != null)
+        try
         {
-            var workflowEngine = Resolve<barakoCMS.Features.Workflows.WorkflowEngine>();
-            await workflowEngine.ProcessEventAsync(content.ContentType, "Updated", content, ct);
+            // Explicit Concurrency Check
+            var state = await _session.Events.FetchStreamStateAsync(req.Id, ct);
+            if (state != null && state.Version != req.Version)
+            {
+                ThrowError(e => e.Version, "The content has been modified by another user. Please refresh and try again.", 412);
+            }
+
+            // Append (Optimistic constraint handled by check above)
+            _session.Events.Append(req.Id, @event);
+            await _session.SaveChangesAsync(ct);
         }
+        catch (Exception ex) when (ex.GetType().Name.Contains("Concurrency") || ex.GetType().Name.Contains("UnexpectedMaxEventId"))
+        {
+            // Marten throws EventStreamUnexpectedMaxEventIdException (or ConcurrencyException)
+            ThrowError(e => e.Version, "The content has been modified by another user. Please refresh and try again.", 412);
+        }
+
 
         await SendAsync(new Response
         {
