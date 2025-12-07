@@ -22,11 +22,11 @@ using UpdateContentResponse = barakoCMS.Features.Content.Update.Response;
 
 namespace BarakoCMS.Tests;
 
-public class IntegrationTests : IClassFixture<WebApplicationFactory<Program>>
+public class IntegrationTests : IClassFixture<IntegrationTestFixture>
 {
     private readonly HttpClient _client;
 
-    public IntegrationTests(WebApplicationFactory<Program> factory)
+    public IntegrationTests(IntegrationTestFixture factory)
     {
         _client = factory.CreateClient();
     }

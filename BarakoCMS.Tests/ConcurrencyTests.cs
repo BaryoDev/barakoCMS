@@ -6,11 +6,11 @@ using FastEndpoints.Security;
 
 namespace BarakoCMS.Tests;
 
-public class ConcurrencyTests : IClassFixture<LocalDbWebApplicationFactory>
+public class ConcurrencyTests : IClassFixture<IntegrationTestFixture>
 {
     private readonly HttpClient _client;
 
-    public ConcurrencyTests(LocalDbWebApplicationFactory factory)
+    public ConcurrencyTests(IntegrationTestFixture factory)
     {
         _client = factory.CreateClient();
     }
