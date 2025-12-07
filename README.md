@@ -2,13 +2,22 @@
 
 **The AI-Native, High-Performance Headless CMS for .NET 8.**
 
-BarakoCMS is engineered for **Speed**, **Extensibility**, and **Robustness**. Built on the bleeding edge with [FastEndpoints](https://fast-endpoints.com/) and [MartenDB](https://martendb.io/), it delivers a developer-first experience that is both human-friendly and agent-ready.
+[![NuGet](https://img.shields.io/nuget/v/BarakoCMS.svg)](https://www.nuget.org/packages/BarakoCMS)
+[![Documentation](https://img.shields.io/badge/docs-visited-blue)](https://baryodev.github.io/barakoCMS/)
+[![License](https://img.shields.io/github/license/BaryoDev/barakoCMS)](LICENSE)
 
-[![CLA assistant](https://cla-assistant.io/readme/badge/BaryoDev/barakoCMS)](https://cla-assistant.io/BaryoDev/barakoCMS)
+<a href='https://ko-fi.com/T6T01CQT4R' target='_blank'><img height='36' style='border:0px;height:36px;' src='https://storage.ko-fi.com/cdn/kofi3.png?v=6' border='0' alt='Buy Me a Coffee at ko-fi.com' /></a>
+
+> 📚 **Full Documentation**: [https://baryodev.github.io/barakoCMS/](https://baryodev.github.io/barakoCMS/)
+>
+> Please visit our documentation site for Getting Started guides, API Reference, and Architecture Deep Dives.
+
+BarakoCMS is engineered for **Speed**, **Extensibility**, and **Robustness**. Built on the bleeding edge with [FastEndpoints](https://fast-endpoints.com/) and [MartenDB](https://martendb.io/), it delivers a developer-first experience that is both human-friendly and agent-ready.
 
 ---
 
 ## 📦 Quick Start
+
 
 ### Prerequisites
 - [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
