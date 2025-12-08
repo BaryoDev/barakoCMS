@@ -36,7 +36,7 @@ public class Endpoint : Endpoint<Request, Response>
             return;
         }
 
-        try 
+        try
         {
             var contentId = Guid.NewGuid();
             var @event = new barakoCMS.Events.ContentCreated(contentId, req.ContentType, req.Data, req.Status, userId);
@@ -44,10 +44,18 @@ public class Endpoint : Endpoint<Request, Response>
             _session.Events.StartStream<barakoCMS.Models.Content>(contentId, @event);
             await _session.SaveChangesAsync(ct);
 
-            await SendAsync(new Response 
-            { 
-                Id = contentId, 
-                Message = "Content created successfully" 
+            // Trigger Workflow
+            var content = await _session.LoadAsync<barakoCMS.Models.Content>(contentId, ct);
+            if (content != null)
+            {
+                var workflowEngine = Resolve<barakoCMS.Features.Workflows.WorkflowEngine>();
+                await workflowEngine.ProcessEventAsync(req.ContentType, "Created", content, ct);
+            }
+
+            await SendAsync(new Response
+            {
+                Id = contentId,
+                Message = "Content created successfully"
             });
         }
         catch (Exception ex)

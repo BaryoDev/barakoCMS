@@ -16,4 +16,3 @@ await barakoCMS.Data.DataSeeder.SeedAsync(app);
 
 app.Run();
 public partial class Program { }
-public partial class Program { }

@@ -6,8 +6,6 @@ public class IdempotencyFilter : IGlobalPreProcessor
 {
     public async Task PreProcessAsync(IPreProcessorContext context, CancellationToken ct)
     {
-        Console.WriteLine($"[SERVER] IdempotencyFilter Running. Path: {context.HttpContext.Request.Path}");
-
         if (context.HttpContext.Request.Method != "POST" && context.HttpContext.Request.Method != "PUT" && context.HttpContext.Request.Method != "PATCH")
         {
             return;
@@ -15,12 +13,26 @@ public class IdempotencyFilter : IGlobalPreProcessor
 
         if (!context.HttpContext.Request.Headers.TryGetValue("Idempotency-Key", out var idempotencyKey))
         {
-            return; // No idempotency key, proceed normally
+            return;
         }
         Console.WriteLine($"[SERVER] Idempotency Key Found: {idempotencyKey}");
 
-        // TODO: Implement actual idempotency check using a distributed cache or database
-        // For now, we just acknowledge the key exists
-        await Task.CompletedTask;
+        var session = context.HttpContext.RequestServices.GetService<Marten.IDocumentSession>();
+        if (session == null) return;
+
+        var key = idempotencyKey.ToString();
+        var existing = await session.LoadAsync<barakoCMS.Models.IdempotencyRecord>(key, ct);
+
+        if (existing != null)
+        {
+            // Key already exists, conflict
+            await context.HttpContext.Response.SendAsync("Request with this Idempotency-Key already processed.", 409, cancellation: ct);
+            context.ValidationFailures.Add(new FluentValidation.Results.ValidationFailure("Idempotency-Key", "Duplicate Request"));
+            return;
+        }
+
+        // Consuming the key
+        session.Store(new barakoCMS.Models.IdempotencyRecord { Key = key });
+        await session.SaveChangesAsync(ct);
     }
 }
