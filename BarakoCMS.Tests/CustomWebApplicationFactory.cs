@@ -14,7 +14,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyn
         .WithPassword("postgres")
         .Build();
 
-    public string ConnectionString => _postgresContainer.GetConnectionString();
+    public string ConnectionString => _postgresContainer.GetConnectionString().Replace("localhost", "127.0.0.1").Replace("Host=", "Server=") + ";Pooling=false";
 
     public CustomWebApplicationFactory()
     {
@@ -24,7 +24,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyn
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        builder.ConfigureAppConfiguration((ctx, config) => 
+        builder.ConfigureAppConfiguration((ctx, config) =>
         {
             var settings = new Dictionary<string, string>
             {
