@@ -3,6 +3,7 @@ import { defineConfig } from 'vitepress'
 export default defineConfig({
     title: "BarakoCMS",
     description: "The AI-Native, High-Performance Headless CMS for .NET 8",
+    base: '/barakoCMS/',
     themeConfig: {
         nav: [
             { text: 'Home', link: '/' },
