@@ -7,30 +7,33 @@ export default defineConfig({
         nav: [
             { text: 'Home', link: '/' },
             { text: 'Guide', link: '/guide/getting-started' },
-            { text: 'API', link: '/api/endpoints' },
+            { text: 'Reference', link: '/reference/api' },
             { text: 'Workflows', link: '/workflows/index' }
         ],
 
         sidebar: [
             {
-                text: 'Introduction',
+                text: 'Guide',
                 items: [
-                    { text: 'What is BarakoCMS?', link: '/guide/introduction' },
-                    { text: 'Getting Started', link: '/guide/getting-started' }
+                    { text: 'Introduction', link: '/guide/introduction' },
+                    { text: 'Getting Started', link: '/guide/getting-started' },
+                    { text: 'Architecture Deep Dive', link: '/guide/architecture' },
+                    { text: 'Configuration', link: '/guide/configuration' },
+                    { text: 'Troubleshooting', link: '/guide/troubleshooting' }
                 ]
             },
             {
                 text: 'Core Concepts',
                 items: [
-                    { text: 'Architecture', link: '/guide/architecture' },
-                    { text: 'RBAC System', link: '/guide/rbac' }
+                    { text: 'RBAC System', link: '/guide/rbac' },
+                    { text: 'Workflow Engine', link: '/workflows/index' }
                 ]
             },
             {
-                text: 'Advanced',
+                text: 'Reference',
                 items: [
-                    { text: 'Workflows', link: '/workflows/index' },
-                    { text: 'API Reference', link: '/api/endpoints' }
+                    { text: 'API Endpoints', link: '/api/endpoints' },
+                    { text: 'Error Codes', link: '/reference/error-codes' }
                 ]
             }
         ],

@@ -1,47 +1,67 @@
 # Workflow Automation
 
-BarakoCMS includes an event-driven workflow engine that triggers actions automatically when content changes.
+BarakoCMS includes a powerful **Event-Driven Workflow Engine**.
 
-## How It Works
+## Concepts
 
-1. **Event Triggered**: Content is Created, Updated, Deleted, or Status Changed.
-2. **Async Processing**: A background daemon processes the event (zero API latency).
-3. **Workflow Matched**: The system finds active workflows for that Content Type and Event.
-4. **Actions Executed**: Configured actions (Email, SMS, Webhook) are executed.
+```mermaid
+graph LR
+    Event[Event: Content Created] -->|Trigger| Daemon[Async Daemon]
+    Daemon -->|Match| Workflow{Workflow Definition}
+    Workflow -->|Action 1| Email[Send Email]
+    Workflow -->|Action 2| SMS[Send SMS]
+```
 
-## Creating a Workflow
+## 1. Creating a Workflow
+
+Workflows are defined via JSON.
 
 ```bash
 POST /api/workflows
 Authorization: Bearer {ADMIN_TOKEN}
 
 {
-  "name": "Welcome Email",
-  "triggerContentType": "UserProfile",
+  "name": "Onboarding Email",
+  "triggerContentType": "Employee",
   "triggerEvent": "Created",
+  "conditions": {
+    "status": "Published"
+  },
   "actions": [
     {
       "type": "SendEmail",
       "config": {
         "to": "{{data.Email}}",
-        "subject": "Welcome {{data.FirstName}}!",
-        "body": "Thanks for joining us."
+        "subject": "Welcome {{data.Name}}",
+        "body": "Your account is ready."
       }
     }
   ]
 }
 ```
 
-## Template Variables
+## 2. Template Variables
 
-You can inject data from the content record into your action configuration:
+Inject dynamic data from the event into actions:
 
-- `{{data.FieldName}}`: Value of a field in the content data.
-- `{{id}}`: The ID of the record.
-- `{{status}}`: The status of the record.
+| Variable         | Description                | Example          |
+| :--------------- | :------------------------- | :--------------- |
+| `{{data.Field}}` | Value from content payload | `{{data.Email}}` |
+| `{{id}}`         | Content ID                 | `{{id}}`         |
+| `{{status}}`     | Content Status             | `{{status}}`     |
 
-## Available Actions
+## 3. Supported Events
 
-- **SendEmail**: Sends an email via the configured `IEmailService`.
-- **SendSms**: Sends an SMS via the configured `ISmsService`.
-- **(More coming in Phase 2)**: Custom plugins, Webhooks, Task creation.
+*   `Created`: New content added.
+*   `Updated`: Existing content modified.
+*   `StatusChanged`: Draft -> Published, etc.
+*   `Deleted`: Soft deleted.
+
+## 4. Troubleshooting Workflows
+
+::: warning Delay
+Workflows run in the background. Expect a 1-5 second delay after the API returns `200 OK`.
+:::
+
+*   **Check Logs**: The console outputs `[WorkflowEngine] Executing workflow...`.
+*   **Check Conditions**: Ensure your `Conditions` match the content data exactly (case-sensitive values).
