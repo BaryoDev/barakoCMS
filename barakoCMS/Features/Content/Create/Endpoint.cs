@@ -44,13 +44,6 @@ public class Endpoint : Endpoint<Request, Response>
             _session.Events.StartStream<barakoCMS.Models.Content>(contentId, @event);
             await _session.SaveChangesAsync(ct);
 
-            // Trigger Workflow
-            var content = await _session.LoadAsync<barakoCMS.Models.Content>(contentId, ct);
-            if (content != null)
-            {
-                var workflowEngine = Resolve<barakoCMS.Features.Workflows.WorkflowEngine>();
-                await workflowEngine.ProcessEventAsync(req.ContentType, "Created", content, ct);
-            }
 
             await SendAsync(new Response
             {

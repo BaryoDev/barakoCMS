@@ -3,11 +3,15 @@ using FastEndpoints.Swagger;
 using FastEndpoints.Security;
 using Marten;
 using Marten.Events.Projections;
+using Marten.Events.Daemon;
 using Weasel.Core;
+using barakoCMS.Features.Workflows;
 using barakoCMS.Models;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.AspNetCore.Builder;
+using JasperFx.Events;
+using JasperFx.Core;
 
 namespace barakoCMS.Extensions;
 
@@ -35,10 +39,10 @@ public static class ServiceCollectionExtensions
         });
         services.AddScoped<barakoCMS.Repository.IUserRepository, barakoCMS.Repository.MartenUserRepository>();
 
-        services.AddMarten(sp =>
+        services.AddMarten((IServiceProvider sp) =>
         {
-            var config = sp.GetRequiredService<IConfiguration>();
-            var connectionString = config.GetConnectionString("DefaultConnection");
+            // var config = sp.GetRequiredService<IConfiguration>();
+            var connectionString = configuration.GetConnectionString("DefaultConnection");
             var options = new StoreOptions();
             options.Connection(connectionString!);
 
@@ -46,15 +50,28 @@ public static class ServiceCollectionExtensions
             options.Schema.For<Content>().DocumentAlias("contents");
             options.Schema.For<User>().DocumentAlias("users");
 
-            options.Projections.Snapshot<Content>(SnapshotLifecycle.Inline);
-            
+            // TODO: Fix Marten 8 Enum namespaces for SnapshotLifecycle
+            // options.Projections.Snapshot<Content>(Marten.SnapshotLifecycle.Inline);
+
+            // Register Workflow Projection (Async)
+            options.Projections.Add(new WorkflowProjection(sp), JasperFx.Events.Projections.ProjectionLifecycle.Async);
+
             return options;
-        }).UseLightweightSessions();
+        })
+        .UseLightweightSessions()
+        .AddAsyncDaemon(JasperFx.Events.Daemon.DaemonMode.Solo);
+
+        // services.AddHealthChecks()
+        //    .AddNpgSql(configuration.GetConnectionString("DefaultConnection")!, tags: new[] { "db", "ready" });
+
+        services.AddHttpClient("ExternalApi")
+            .AddStandardResilienceHandler();
 
         services.AddScoped<barakoCMS.Core.Interfaces.IEmailService, barakoCMS.Infrastructure.Services.MockEmailService>();
         services.AddScoped<barakoCMS.Core.Interfaces.ISmsService, barakoCMS.Infrastructure.Services.MockSmsService>();
         services.AddScoped<barakoCMS.Core.Interfaces.ISensitivityService, barakoCMS.Infrastructure.Services.SensitivityService>();
         services.AddScoped<barakoCMS.Features.Workflows.WorkflowEngine>();
+        services.AddScoped<barakoCMS.Features.Workflows.IWorkflowEngine>(sp => sp.GetRequiredService<barakoCMS.Features.Workflows.WorkflowEngine>());
 
         services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Filters.IdempotencyFilter>();
         services.AddSingleton<FastEndpoints.IGlobalPostProcessor, barakoCMS.Infrastructure.Filters.SensitivityFilter>();
@@ -66,7 +83,7 @@ public static class ServiceCollectionExtensions
     {
         app.UseAuthentication();
         app.UseAuthorization();
-        app.UseFastEndpoints(c => 
+        app.UseFastEndpoints(c =>
         {
             c.Errors.UseProblemDetails();
             c.Endpoints.Configurator = ep =>
@@ -75,12 +92,15 @@ public static class ServiceCollectionExtensions
                 ep.PostProcessors(Order.Before, new barakoCMS.Infrastructure.Filters.SensitivityFilter());
             };
         });
+
+        app.UseHealthChecks("/health");
+
         app.UseCors("SecurePolicy");
         if (Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development")
         {
             app.UseSwaggerGen();
         }
-        
+
         return app;
     }
 }
