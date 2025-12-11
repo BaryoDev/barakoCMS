@@ -5,6 +5,97 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2025-12-11
+
+### 🎉 Major Release: Advanced RBAC System (Phase 1)
+
+**Status**: ✅ Production Ready  
+**Test Results**: 104/122 passing (18/18 Phase 1 tests = 100%)  
+**Security**: Zero vulnerabilities found
+
+#### Added - RBAC API Endpoints (18 new endpoints)
+
+**Role Management (5 endpoints)**
+- `POST /api/roles` - Create role with granular permissions
+- `GET /api/roles` - List all roles
+- `GET /api/roles/{id}` - Get specific role
+- `PUT /api/roles/{id}` - Update role
+- `DELETE /api/roles/{id}` - Delete role
+
+**UserGroup Management (7 endpoints)**
+- `POST /api/user-groups` - Create user group
+- `GET /api/user-groups` - List all groups
+- `GET /api/user-groups/{id}` - Get specific group
+- `PUT /api/user-groups/{id}` - Update group
+- `DELETE /api/user-groups/{id}` - Delete group
+- `POST /api/user-groups/{groupId}/users` - Add user to group
+- `DELETE /api/user-groups/{groupId}/users/{userId}` - Remove user from group
+
+**User Assignment (4 endpoints)**
+- `POST /api/users/{userId}/roles` - Assign role to user
+- `DELETE /api/users/{userId}/roles/{roleId}` - Remove role from user
+- `POST /api/users/{userId}/groups` - Add user to group
+- `DELETE /api/users/{userId}/groups/{groupId}` - Remove user from group
+
+#### Added - RBAC Core Features
+
+- **Permission System**: Content-type-specific CRUD permissions with JSON conditions
+- **Role Model**: Support for permissions and system capabilities
+- **UserGroup Model**: User organization and group-based permissions
+- **ConditionEvaluator**: Dynamic permission conditions (`$CURRENT_USER`, `$eq`, `$in`)
+- **PermissionResolver**: Service for checking user permissions
+
+#### Added - Documentation
+
+- Comprehensive RBAC documentation in README.md
+- CLA (Contributor License Agreement) requirement
+- CLA Assistant integration
+- Workflow automation guide with template variables
+- AttendancePOC workflow examples
+- Pre-publication review artifacts
+- Production readiness assessment
+- ROADMAP.md with 5-phase plan
+
+#### Added - Data Seeding
+
+- Enhanced DataSeeder with comprehensive AttendancePOC data:
+  - 4 roles: SuperAdmin, Admin, HR, User
+  - 3 sample users with different roles
+  - AttendanceRecord content type with sensitivity configuration
+  - Email confirmation workflow
+  - 3 sample attendance records
+
+#### Changed
+
+- Updated User model with `RoleIds` and `GroupIds` lists
+- Workflow documentation expanded with multiple examples
+- Contributing guidelines updated with CLA requirement
+
+#### Security
+
+- All RBAC endpoints secured with role-based authorization
+- `SuperAdmin` role for role management
+- `Admin` role for user group management
+- Production configuration checklist provided
+- Security audit passed (zero vulnerabilities)
+
+#### Tests
+
+- 18 new integration tests (100% passing)
+  - 7 Role API tests
+  - 7 UserGroup API tests
+  - 4 User Assignment tests
+- Pre-publication testing complete
+- Regression testing passed (no Phase 1 regressions)
+
+#### Performance
+
+- All RBAC operations use async/await
+- Efficient Marten LINQ queries
+- Stateless API design (horizontally scalable)
+
+---
+
 ## [1.2.1] - 2025-12-08
 
 ### Added
