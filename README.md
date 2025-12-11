@@ -43,11 +43,99 @@ Open **Swagger UI**: `http://localhost:5000/swagger`
 
 ---
 
-## 🚀 What's New in v1.2 (Stabilization Release)
+## 🚀 What's New in v2.0 (Phase 1: Advanced RBAC)
 
-> **Production-Ready Features**: Data integrity, async processing, and resilience patterns
+> **Production-Ready Enterprise Features**: Advanced role-based access control with granular permissions
 
-### ✅ Optimistic Concurrency Control
+### ✨ Advanced RBAC System
+
+**Complete Role & Permission Management**:
+- **Roles**: Create roles with content-type-specific CRUD permissions
+- **UserGroups**: Organize users into groups for easier management
+- **User Assignment**: Assign roles and groups to users dynamically
+- **Granular Permissions**: Per-content-type Create, Read, Update, Delete controls
+- **Conditional Access**: JSON-based conditions (e.g., `"author": { "_eq": "$CURRENT_USER" }`)
+- **System Capabilities**: Global permissions beyond content (e.g., `view_analytics`)
+
+**API Endpoints** (18 new endpoints):
+```bash
+# Role Management
+POST   /api/roles                  # Create role
+GET    /api/roles                  # List roles
+GET    /api/roles/{id}             # Get role
+PUT    /api/roles/{id}             # Update role
+DELETE /api/roles/{id}             # Delete role
+
+# UserGroup Management  
+POST   /api/user-groups            # Create group
+GET    /api/user-groups            # List groups
+GET    /api/user-groups/{id}       # Get group
+PUT    /api/user-groups/{id}       # Update group
+DELETE /api/user-groups/{id}       # Delete group
+POST   /api/user-groups/{id}/users # Add user to group
+DELETE /api/user-groups/{id}/users/{userId} # Remove user
+
+# User Assignment
+POST   /api/users/{id}/roles       # Assign role to user
+DELETE /api/users/{id}/roles/{roleId} # Remove role
+POST   /api/users/{id}/groups      # Add user to group
+DELETE /api/users/{id}/groups/{groupId} # Remove user
+```
+
+**Example - Create Role**:
+```bash
+POST /api/roles
+Authorization: Bearer {ADMIN_TOKEN}
+
+{
+  "name": "Content Editor",
+  "description": "Can edit own articles",
+  "permissions": [{
+    "contentTypeSlug": "article",
+    "create": { "enabled": true },
+    "read": { "enabled": true },
+    "update": {
+      "enabled": true,
+      "conditions": { "author": { "_eq": "$CURRENT_USER" } }
+    },
+    "delete": { "enabled": false }
+  }],
+  "systemCapabilities": ["view_analytics"]
+}
+```
+
+### 🛡️ v1.2 Features (Still Available)
+
+- ✅ **Optimistic Concurrency Control** - Prevent data conflicts
+- ✅ **Async Workflow Processing** - Non-blocking background tasks
+- ✅ **Resilience Patterns** - HTTP retries, circuit breakers
+
+---
+
+## 🌟 Core Features
+
+### ⚡ Unmatched Speed
+- **FastEndpoints**: Minimal overhead, maximum throughput
+- **MartenDB**: PostgreSQL-backed JSON document store with event sourcing
+- **Async-First**: Non-blocking I/O throughout
+
+### 🧩 Infinite Extensibility
+- **Plugin Architecture**: Swap `IEmailService`, `ISmsService`, `ISensitivityService`
+- **Custom Content Types**: No schema migrations needed
+- **Workflow Engine**: Event-driven automation
+- **Projections**: Transform events into read models
+
+### 🛡️ Enterprise-Grade Robustness
+- ✅ **Advanced RBAC**: Granular role-based access control with conditions
+- ✅ **Event Sourcing**: Full audit trail, time travel, replay
+- ✅ **Idempotency**: Duplicate request protection
+- ✅ **Optimistic Concurrency**: Race condition prevention
+- ✅ **Sensitive Data**: Field-level masking/hiding
+- ✅ **Resilience**: Built-in retries, circuit breakers
+
+---
+
+
 **Problem Solved**: Prevents data loss when multiple users edit the same content simultaneously.
 
 **How It Works**:
@@ -531,7 +619,32 @@ dotnet run
 
 ## 🤝 Contributing
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+We welcome contributions! All contributors must sign our **Contributor License Agreement (CLA)**.
+
+### Why CLA?
+
+The CLA protects both you and the project:
+- ✅ You retain ownership of your contributions
+- ✅ You grant BarakoCMS permission to use your code
+- ✅ Prevents legal issues around commercial licensing
+- ✅ Enables future dual-licensing (CE/EE) without re-permission
+
+### How It Works
+
+1. **First-Time Contributors**: 
+   - Open a Pull Request
+   - @cla-assistant will automatically comment
+   - Click the link to sign the CLA (takes 30 seconds)
+   - Your PR will be automatically updated
+
+2. **After Signing**:
+   - Your GitHub username is permanently recorded
+   - No need to sign again for future PRs
+   - Start contributing immediately!
+
+**CLA Status**: [![CLA assistant](https://cla-assistant.io/readme/badge/BaryoDev/barakoCMS)](https://cla-assistant.io/BaryoDev/barakoCMS)
+
+See [CLA.md](CLA.md) for full agreement text.
 
 ### Development Workflow
 1. Fork the repository
@@ -540,7 +653,15 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guid
 4. Ensure tests pass: `dotnet test`
 5. Commit: `git commit -m 'Add amazing feature'`
 6. Push: `git push origin feature/amazing-feature`
-7. Open Pull Request
+7. Open Pull Request (CLA will be requested automatically)
+
+### Code Standards
+- Follow existing code style (FastEndpoints vertical slices)
+- Add tests for new features
+- Update README if adding user-facing features
+- Keep PRs focused and small
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 
 ---
 
