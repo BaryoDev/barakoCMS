@@ -5,6 +5,7 @@ export default defineConfig({
     description: "The AI-Native, High-Performance Headless CMS for .NET 8",
     base: '/barakoCMS/',
     themeConfig: {
+        logo: '/logo.webp',
         nav: [
             { text: 'Home', link: '/' },
             { text: 'Guide', link: '/guide/getting-started' },

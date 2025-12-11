@@ -14,7 +14,7 @@ hero:
       link: /guide/getting-started
     - theme: alt
       text: View API Reference
-      link: /reference/api
+      link: /api/endpoints
     - theme: alt
       text: Architecture Deep Dive
       link: /guide/architecture
