@@ -7,6 +7,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "barakoCMS", "barakoCMS\bara
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BarakoCMS.Tests", "BarakoCMS.Tests\BarakoCMS.Tests.csproj", "{1F897506-7F9F-45CC-A6D0-1875F77FD5F7}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AttendancePOC", "AttendancePOC\AttendancePOC.csproj", "{9C3534A8-B381-479C-A0C9-5A1AAD33D8C7}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AttendancePOC.Tests", "AttendancePOC.Tests\AttendancePOC.Tests.csproj", "{4E81231A-389D-4C69-8AFF-D46224E704A1}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -21,6 +25,14 @@ Global
 		{1F897506-7F9F-45CC-A6D0-1875F77FD5F7}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{1F897506-7F9F-45CC-A6D0-1875F77FD5F7}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{1F897506-7F9F-45CC-A6D0-1875F77FD5F7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9C3534A8-B381-479C-A0C9-5A1AAD33D8C7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9C3534A8-B381-479C-A0C9-5A1AAD33D8C7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9C3534A8-B381-479C-A0C9-5A1AAD33D8C7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9C3534A8-B381-479C-A0C9-5A1AAD33D8C7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4E81231A-389D-4C69-8AFF-D46224E704A1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4E81231A-389D-4C69-8AFF-D46224E704A1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4E81231A-389D-4C69-8AFF-D46224E704A1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4E81231A-389D-4C69-8AFF-D46224E704A1}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
