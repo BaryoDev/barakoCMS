@@ -206,10 +206,10 @@ When using `ConditionalAction`, the `ThenActions` and `ElseActions` parameters m
 
 Use template variables to make workflows dynamic:
 
-- `{{id}}` - Content ID
-- `{{contentType}}` - Content type name
-- `{{status}}` - Content status
-- `{{data.FieldName}}` - Any field from content data
+- `{ {id} }` - Content ID
+- `{ {contentType} }` - Content type name
+- `{ {status} }` - Content status  
+- `{ {data.FieldName} }` - Any field from content data
 
 ### Error Handling
 

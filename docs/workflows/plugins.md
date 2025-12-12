@@ -117,7 +117,7 @@ BarakoCMS ships with the following workflow actions:
 *   **ConditionalAction** (`Type: "Conditional"`)
     *   Parameters: `Condition`, `ThenActions`, `ElseActions`
     *   Implements if/then/else logic for workflows
-    *   Supports simple expressions: `{{data.Field}} == "Value"`, `{{status}} == "Published"`
+    *   Supports simple expressions: `{ {data.Field} } == "Value"`, `{ {status} } == "Published"`
 
 ## Action Examples
 
@@ -178,12 +178,12 @@ BarakoCMS ships with the following workflow actions:
 
 Action parameters support template variables using `{{variable}}` syntax:
 
-| Variable             | Description             | Example           |
-| -------------------- | ----------------------- | ----------------- |
-| `{{id}}`             | Content ID              | `{{id}}`          |
-| `{{contentType}}`    | Content type name       | `{{contentType}}` |
-| `{{status}}`         | Content status          | `{{status}}`      |
-| `{{data.FieldName}}` | Value from content data | `{{data.Email}}`  |
+| Variable               | Description             | Example            |
+| ---------------------- | ----------------------- | ------------------ |
+| `{{id}}`               | Content ID              | `{{id}}`           |
+| `{{contentType}}`      | Content type name       | `{{contentType}}`  |
+| `{{status}}`           | Content status          | `{{status}}`       |
+| `{ {data.FieldName} }` | Value from content data | `{ {data.Email} }` |
 
 ## Best Practices
 
