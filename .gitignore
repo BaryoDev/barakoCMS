@@ -375,3 +375,4 @@ RELEASE_PROCESS.md
 publish_nuget.sh
 release_test_failure.txt
 ROADMAP.md
+release.sh
