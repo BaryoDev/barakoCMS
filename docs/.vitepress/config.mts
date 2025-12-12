@@ -1,14 +1,20 @@
 import { defineConfig } from 'vitepress'
 
+// Version management
+const VERSION = '2.0.2'
+
+// https://vitepress.dev/reference/site-config
 export default defineConfig({
-    title: "BarakoCMS",
-    description: "The AI-Native, High-Performance Headless CMS for .NET 8",
+    title: `BarakoCMS v${VERSION} `,
+    description: 'The AI-Native, High-Performance Headless CMS for .NET 8',
     base: '/barakoCMS/',
     themeConfig: {
         logo: '/logo.webp',
+        // https://vitepress.dev/reference/default-theme-config
         nav: [
             { text: 'Home', link: '/' },
-            { text: 'Guide', link: '/guide/getting-started' },
+            { text: 'Guide', link: '/getting-started' },
+            { text: `v${VERSION} `, link: '/versions' },
             { text: 'Reference', link: '/api/endpoints' },
             { text: 'Workflows', link: '/workflows/index' }
         ],

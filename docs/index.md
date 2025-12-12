@@ -3,11 +3,11 @@ layout: home
 
 hero:
   name: "BarakoCMS"
-  text: "The AI-Native Headless CMS"
-  tagline: "Speed of .NET 8. Flexibility of Event Sourcing. Power of AI."
+  text: "The AI-Native, High-Performance Headless CMS for .NET 8"
+  tagline: "Built for Speed, Extensibility, and Robustness"
   image:
     src: /logo.png
-    alt: BarakoCMS Logo
+    alt: BarakoCMS
   actions:
     - theme: brand
       text: Get Started
@@ -20,21 +20,24 @@ hero:
       link: /guide/architecture
 
 features:
-  - title: ⚡ Blazing Fast
-    details: Built strategies on FastEndpoints and MartenDB (PostgreSQL) for sub-millisecond overhead and maximum throughput.
-    icon: ⚡
-  - title: 🛡️ Enterprise RBAC
-    details: Granular permissions, dynamic conditions, user groups, and field-level sensitivity masking out of the box.
-    icon: 🛡️
-  - title: 📜 Event Sourcing
-    details: Complete audit trail, time travel, and rollback capabilities. Every change is an event, never lose data again.
-    icon: 📜
-  - title: 🤖 AI-Native Design
-    details: Structured specifically for AI agents to understand, extend, and manage. Includes `llms.txt` and `.cursorrules`.
-    icon: 🤖
-  - title: 🔄 Async Workflows
-    details: Event-driven engine for emails, webhooks, and tasks without blocking your API responses.
-    icon: 🔄
+  - icon: 🚀
+    title: High Performance
+    details: Built on top of FastEndpoints and Marten for blazing-fast API responses and efficient document storage.
+  - icon: 🔐
+    title: Advanced RBAC
+    details: Granular permission system with user groups, role hierarchies, and dynamic conditions.
+  - icon: 🔄
+    title: Workflow Automation
+    details: v2.0.2 - Plugin-based workflow system with 6 extensible actions. Create custom workflows with Email, SMS, Webhooks, Task Creation, Field Updates, and Conditional Logic.
+  - icon: 🏢
+    title: Multi-Tenancy Ready
+    details: Built-in tenant isolation and group-based access control for SaaS applications.
+  - icon: 📦
+    title: Event Sourcing
+    details: Full audit history and time-travel capabilities with Marten's event sourcing foundation.
+  - icon: 🛠️
+    title: Extensible
+    details: Plugin architecture for workflows, custom content types, and third-party integrations.
   - title: 🧩 Infinite Scale
     details: Stateless API design, CQRS separation, and Optimistic Concurrency Control for high-traffic environments.
     icon: 🧩

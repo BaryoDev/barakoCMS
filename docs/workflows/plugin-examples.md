@@ -6,6 +6,7 @@ Practical examples demonstrating how to use BarakoCMS workflow plugins to automa
 
 Auto-create approval tasks when content is submitted for review.
 
+::: v-pre
 ```json
 {
   "name": "Content Approval Workflow",
@@ -37,11 +38,13 @@ Auto-create approval tasks when content is submitted for review.
   ]
 }
 ```
+:::
 
 ## Priority-Based Escalation
 
 Send different notifications based on content priority.
 
+::: v-pre
 ```json
 {
   "name": "Priority Escalation",
@@ -60,11 +63,13 @@ Send different notifications based on content priority.
   ]
 }
 ```
+:::
 
 ## Auto-Assignment Workflow
 
 Automatically assign content to team members based on category.
 
+::: v-pre
 ```json
 {
   "name": "Auto-Assign by Category",
@@ -91,11 +96,13 @@ Automatically assign content to team members based on category.
   ]
 }
 ```
+:::
 
 ## Status Change Notifications
 
 Notify stakeholders when content status changes.
 
+::: v-pre
 ```json
 {
   "name": "Status Change Alerts",
@@ -113,11 +120,13 @@ Notify stakeholders when content status changes.
   ]
 }
 ```
+:::
 
 ## Multi-Step Approval Chain
 
 Create subsequent approval tasks as previous ones complete.
 
+::: v-pre
 ```json
 {
   "name": "Multi-Level Approval",
@@ -138,11 +147,13 @@ Create subsequent approval tasks as previous ones complete.
   ]
 }
 ```
+:::
 
 ## Webhook Integration Pattern
 
 Trigger external services when content events occur.
 
+::: v-pre
 ```json
 {
   "name": "External System Integration",
@@ -171,6 +182,7 @@ Trigger external services when content events occur.
   ]
 }
 ```
+:::
 
 ## Best Practices
 
@@ -178,6 +190,7 @@ Trigger external services when content events occur.
 
 When using `ConditionalAction`, the `ThenActions` and `ElseActions` parameters must be **valid JSON strings**:
 
+::: v-pre
 ```json
 {
   "type": "Conditional",
@@ -187,6 +200,7 @@ When using `ConditionalAction`, the `ThenActions` and `ElseActions` parameters m
   }
 }
 ```
+:::
 
 ### Template Variables
 
@@ -201,6 +215,7 @@ Use template variables to make workflows dynamic:
 
 Always provide fallback actions for conditional workflows:
 
+::: v-pre
 ```json
 {
   "type": "Conditional",
@@ -211,6 +226,7 @@ Always provide fallback actions for conditional workflows:
   }
 }
 ```
+:::
 
 ### Testing Workflows
 
