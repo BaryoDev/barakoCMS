@@ -45,6 +45,13 @@ public class UserAssignmentApiTests : IClassFixture<IntegrationTestFixture>
             name = "Editor",
             description = "Content Editor"
         });
+        
+        if (!roleResponse.IsSuccessStatusCode)
+        {
+            var error = await roleResponse.Content.ReadAsStringAsync();
+            throw new Exception($"Create Role failed: {roleResponse.StatusCode}, {error}");
+        }
+        
         var role = await roleResponse.Content.ReadFromJsonAsync<barakoCMS.Features.Roles.Create.Response>();
 
         var userId = Guid.NewGuid();
@@ -53,6 +60,11 @@ public class UserAssignmentApiTests : IClassFixture<IntegrationTestFixture>
         var response = await _client.PostAsJsonAsync($"/api/users/{userId}/roles", new { roleId = role!.Id });
 
         // Assert
+        if (!response.IsSuccessStatusCode)
+        {
+            var content = await response.Content.ReadAsStringAsync();
+            throw new Exception($"Request failed with {response.StatusCode}. Content: {content}");
+        }
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
