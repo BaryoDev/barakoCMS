@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure.Attributes;
 using Marten;
 using Microsoft.Extensions.Logging;
 
@@ -7,6 +8,11 @@ namespace barakoCMS.Features.Workflows.Actions;
 /// Workflow action plugin for updating fields on content items.
 /// Supports updating the triggering content or other content by ID.
 /// </summary>
+[WorkflowActionMetadata(
+    Description = "Update fields on content items (status, data fields, etc.)",
+    RequiredParameters = new[] { "Field", "Value" },
+    ExampleJson = @"{""Type"":""UpdateField"",""Parameters"":{""Field"":""data.Status"",""Value"":""Approved""}}"
+)]
 public class UpdateFieldAction : IWorkflowAction
 {
     private readonly IDocumentSession _session;
