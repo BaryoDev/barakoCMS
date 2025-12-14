@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: barako-config
+  namespace: barako-cms
+data:
+  ASPNETCORE_ENVIRONMENT: "Production"
+  POSTGRES_HOST: "postgres-service"
+  POSTGRES_DB: "barako_cms"
+  POSTGRES_USER: "postgres"
