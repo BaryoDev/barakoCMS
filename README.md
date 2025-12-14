@@ -8,6 +8,11 @@
 
 <a href='https://ko-fi.com/T6T01CQT4R' target='_blank'><img height='36' style='border:0px;height:36px;' src='https://storage.ko-fi.com/cdn/kofi3.png?v=6' border='0' alt='Buy Me a Coffee at ko-fi.com' /></a>
 
+
+> [!IMPORTANT]
+> **Hobby Project Disclaimer**
+> BarakoCMS is a passion project built for educational and portfolio purposes. While we strive for backward compatibility, **breaking changes may occur** as we introduce new features or refine the architecture. Use in production with this understanding.
+
 > 📚 **Full Documentation**: [https://baryodev.github.io/barakoCMS/](https://baryodev.github.io/barakoCMS/)
 >
 > Please visit our documentation site for Getting Started guides, API Reference, and Architecture Deep Dives.
@@ -49,6 +54,31 @@ dotnet run --project barakoCMS
 ```
 
 Open **Swagger UI**: `http://localhost:5000/swagger`
+
+---
+
+## 🖥️ Admin UI (New!)
+
+BarakoCMS includes a **full-featured Admin Dashboard** built with Next.js 16.
+
+### Features
+- **Dashboard**: Health status, quick stats
+- **Content Management**: Create, Edit, List, Search, Filter
+- **Schema Management**: Define and view Content Types
+- **Workflows**: Create and manage automation rules
+- **Roles & UserGroups**: RBAC administration
+- **Ops**: Health Checks, Logs, Backups (Create, Download, Restore, Delete)
+
+### Running the Admin UI
+```bash
+cd admin
+npm install
+npm run dev
+```
+
+Open **Admin Dashboard**: `http://localhost:3000`
+
+Default Login: `arnex` / `password123` (or see seeded data)
 
 ---
 

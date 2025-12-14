@@ -11,7 +11,7 @@ public class SensitivityFilter : IGlobalPostProcessor
         // Check if the response is a Content object or list of Content objects
         // This is a simplified implementation. In a real scenario, we might need to inspect the response body more deeply
         // or use a custom serializer.
-        
+
         if (context.Response is Content content)
         {
             ApplySensitivity(content, context.HttpContext);
@@ -37,7 +37,7 @@ public class SensitivityFilter : IGlobalPostProcessor
     {
         var isSuperAdmin = httpContext.User.IsInRole("SuperAdmin");
         var isHr = httpContext.User.IsInRole("HR");
-        
+
         Console.WriteLine($"[SERVER] Applying Sensitivity. ContentType: {content.ContentType}, IsSuperAdmin: {isSuperAdmin}, IsHr: {isHr}");
         Console.WriteLine($"[SERVER] Keys before: {string.Join(", ", content.Data.Keys)}");
 
@@ -62,10 +62,10 @@ public class SensitivityFilter : IGlobalPostProcessor
                 content.Data["BirthDay"] = "***";
             }
         }
-        
+
         if (content.Sensitivity == SensitivityLevel.Sensitive && !isSuperAdmin && !isHr)
         {
-             content.Data.Clear();
+            content.Data.Clear();
         }
     }
 
@@ -98,11 +98,11 @@ public class SensitivityFilter : IGlobalPostProcessor
             }
             // Note: If user is HR, they see BirthDay. If SuperAdmin, they see everything.
         }
-        
+
         // Fallback for generic Sensitive content
         if (content.Sensitivity == SensitivityLevel.Sensitive && !isSuperAdmin && !isHr)
         {
-             content.Data.Clear();
+            content.Data.Clear();
         }
     }
 }

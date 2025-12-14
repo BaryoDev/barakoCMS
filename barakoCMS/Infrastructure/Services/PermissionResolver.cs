@@ -43,6 +43,10 @@ public class PermissionResolver : IPermissionResolver
         if (roles.Count == 0)
             return false;
 
+        // SUPER ADMIN BYPASS
+        if (roles.Any(r => r.Name == "SuperAdmin"))
+            return true;
+
         // Get permission rules for this content type + action
         var rules = new List<Models.PermissionRule>();
         foreach (var role in roles)
@@ -62,23 +66,24 @@ public class PermissionResolver : IPermissionResolver
         if (rules.Count == 0)
             return false;
 
-        // MOST RESTRICTIVE: ALL rules must allow
+        // ADDITIVE LOGIC (Union): If ANY rule allows, grant access.
+        // Unless we explicitly need restrictive (intersection), Additive is standard for CMS.
         foreach (var rule in rules)
         {
-            // 1. Check if rule is enabled
-            if (!rule.Enabled)
-                return false; // Any disabled rule denies access
-
-            // 2. Check conditions (if present and content provided)
-            if (content != null && rule.Conditions != null && rule.Conditions.Count > 0)
+            // If rule is enabled...
+            if (rule.Enabled)
             {
-                if (!_conditionEvaluator.Evaluate(rule.Conditions, content.Data, user))
-                    return false; // Any failed condition denies access
+                // And conditions match (or are empty)...
+                if (content == null || rule.Conditions == null || rule.Conditions.Count == 0 ||
+                    _conditionEvaluator.Evaluate(rule.Conditions, content.Data, user))
+                {
+                    return true; // Granted by at least one role
+                }
             }
         }
 
-        // All rules passed - ALLOW
-        return true;
+        // None of the rules granted access
+        return false;
     }
 
     private Models.PermissionRule? GetRuleForAction(Models.ContentTypePermission permission, string action)

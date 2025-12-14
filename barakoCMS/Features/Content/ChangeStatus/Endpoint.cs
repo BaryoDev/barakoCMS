@@ -7,28 +7,38 @@ namespace barakoCMS.Features.Content.ChangeStatus;
 public class Endpoint : Endpoint<Request, Response>
 {
     private readonly IDocumentSession _session;
+    private readonly barakoCMS.Infrastructure.Services.IPermissionResolver _permissionResolver;
 
-    public Endpoint(IDocumentSession session)
+    public Endpoint(IDocumentSession session, barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver)
     {
         _session = session;
+        _permissionResolver = permissionResolver;
     }
 
     public override void Configure()
     {
         Put("/api/contents/{Id}/status");
         Claims("UserId");
-        Roles("Admin");
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
         var userId = Guid.Parse(User.FindFirst("UserId")!.Value);
+        var user = await _session.LoadAsync<barakoCMS.Models.User>(userId, ct);
 
         // Check if content exists
         var content = await _session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct);
         if (content == null)
         {
             await SendNotFoundAsync(ct);
+            return;
+        }
+
+        // PERMISSION CHECK
+        // Treating status change as an "Update" action.
+        if (user == null || !await _permissionResolver.CanPerformActionAsync(user, content.ContentType, "update", content, ct))
+        {
+            await SendForbiddenAsync(ct);
             return;
         }
 
