@@ -67,6 +67,8 @@ BarakoCMS includes a **full-featured Admin Dashboard** built with Next.js 16.
 - **Schema Management**: Define and view Content Types
 - **Workflows**: Create and manage automation rules
 - **Roles & UserGroups**: RBAC administration
+- **Settings Management**: Runtime configuration toggles (Kubernetes, HealthChecks UI, Logging)
+- **Monitoring**: System metrics, Kubernetes cluster status (when enabled)
 - **Ops**: Health Checks, Logs, Backups (Create, Download, Restore, Delete)
 
 ### Running the Admin UI
@@ -761,6 +763,50 @@ dotnet run
 1. Verify PostgreSQL is running
 2. Check connection string
 3. Ensure database user has proper permissions
+
+### Kubernetes Monitoring Not Working
+**Symptom**: Admin UI shows "Kubernetes monitoring is disabled or not available in this environment"
+
+**Prerequisites**:
+- Docker Desktop installed
+- Kubernetes enabled in Docker Desktop
+
+**Setup Kubernetes in Docker Desktop**:
+1. Open **Docker Desktop**
+2. Go to **Settings** (gear icon)
+3. Click on **Kubernetes** in the left sidebar
+4. Check **"Enable Kubernetes"**
+5. Click **"Apply & Restart"**
+6. Wait for the green Kubernetes indicator (bottom left)
+
+**Verify Kubernetes is Running**:
+```bash
+# Check if kubectl is working
+kubectl cluster-info
+
+# Should see something like:
+# Kubernetes control plane is running at https://kubernetes.docker.internal:6443
+```
+
+**Restart BarakoCMS**:
+```bash
+docker compose restart app
+```
+
+**Check Logs**:
+```bash
+docker compose logs app | grep -i kubernetes
+
+# Should see:
+# Kubernetes client initialized using local kubeconfig
+```
+
+**Enable in Settings**:
+1. Open Admin UI at `http://localhost:3000/settings`
+2. Toggle **Kubernetes Monitoring** to ON
+3. Visit `/ops/health` page to see cluster status
+
+**Note**: If you don't need Kubernetes monitoring, simply keep the toggle OFF in Settings. The feature is optional.
 
 ---
 
