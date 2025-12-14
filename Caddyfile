@@ -1,0 +1,12 @@
+{
+    # Global Options
+    email ${ACME_EMAIL}
+}
+
+{$DOMAIN_API} {
+    reverse_proxy app:8080
+}
+
+{$DOMAIN_ADMIN} {
+    reverse_proxy admin:3000
+}
