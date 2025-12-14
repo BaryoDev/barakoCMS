@@ -1,6 +1,6 @@
 # BarakoCMS Roadmap
 
-**Vision**: Build the most developer-friendly, AI-native headless CMS for .NET
+**Vision**: Build the most developer-friendly, AI-native headless CMS for .NET that empowers both humans and AI agents.
 
 **Current Version**: v2.0 Phase 1 (Advanced RBAC)  
 **Status**: ✅ Production Ready
@@ -166,23 +166,19 @@ Transform BarakoCMS from beta-quality to enterprise production-ready by addressi
   - [x] Workflow endpoint access control (Note: Temporarily anonymous for tests)
 
 #### Week 3-4: Observability & Monitoring
-- [ ] **Metrics & Monitoring**
-  - [ ] Prometheus metrics exposition
-  - [ ] Key performance indicators (request duration, error rate, DB queries)
-  - [ ] Grafana dashboards
-  - [ ] Alerting rules (PagerDuty/Slack integration)
-  
-- [ ] **Distributed Tracing**
-  - [ ] OpenTelemetry integration
+- [ ] **Structured Logging**
+  - [ ] **Serilog Integration** (JSON logs, file rotation)
   - [ ] Correlation IDs across services
-  - [ ] Trace context propagation
-  - [ ] Jaeger/Zipkin instrumentation
+  - [ ] Request/Response logging middleware
   
-- [ ] **Log Aggregation**
-  - [ ] Centralized logging (ELK stack or Cloud logging)
-  - [ ] Log retention policies
-  - [ ] Log-based alerting
-  - [ ] Security event logging
+- [ ] **Health Monitoring**
+  - [ ] **Health Checks UI** (visual traffic lights)
+  - [ ] Database Liveness/Readiness probes
+  - [ ] Disk space & memory checks
+
+- [ ] **Metrics**
+  - [ ] Prometheus endpoint configuration
+  - [ ] Grafana dashboard template for BarakoCMS
 
 #### Week 5-6: Compliance & Security
 - [ ] **GDPR Compliance**
@@ -234,55 +230,75 @@ Transform BarakoCMS from beta-quality to enterprise production-ready by addressi
 
 ---
 
-## 📱 Phase 2.6: Community & Support Infrastructure
+## 🚀 Phase 2.6: SMB Enablement & Ecosystem (Start: Jan 2026)
 
-**Duration**: Ongoing  
-**Status**: 🔮 Planned  
-**Priority**: MEDIUM (Required for mass adoption)
+**Duration**: 4-6 Weeks
+**Status**: 🔮 Planned
+**Priority**: CRITICAL (Required for Mass Adoption)
 
 ### Goals
-Build community, support infrastructure, and learning resources to enable SMB adoption without heavy support burden.
+Bridge the gap between "Developer Tool" and "SMB Product" by providing visual tools, one-click deployments, and pre-built templates.
 
 ### Deliverables
 
-#### Community Building
-- [ ] Discord/Slack community setup
-- [ ] GitHub Discussions enabled
-- [ ] Stack Overflow tag creation
-- [ ] Twitter/LinkedIn presence
-- [ ] Monthly community calls
+#### Week 1-2: Low-Code/No-Code Tools
+- [ ] **Visual Workflow Builder** (Promoted to MANDATORY)
+  - [ ] Drag-and-drop action canvas
+  - [ ] Visual condition builder
+  - [ ] Test/Dry-run UI button
+- [ ] **Admin Dashboard 2.0**
+  - [ ] Simple "Traffic Light" health status UI
+  - [ ] One-click backup/restore UI
+  - [ ] Plugin marketplace UI (browse & install)
 
-#### Learning Resources
-- [ ] Video tutorial series (YouTube)
-  - [ ] Getting Started (5-10 min)
-  - [ ] RBAC Setup (10-15 min)
-  - [ ] Workflow Automation (15-20 min)
-  - [ ] Custom Plugin Development (20-30 min)
-  
-- [ ] Blog articles
-  - [ ] "Why BarakoCMS vs Strapi/Contentful"
-  - [ ] "Event Sourcing for CMS"
-  - [ ] "Building Custom Workflow Actions"
-  - [ ] Case studies (AttendancePOC, etc.)
-  
-- [ ] Documentation improvements
-  - [ ] Interactive tutorials
-  - [ ] API playground
-  - [ ] Migration guides (from competitors)
-  - [ ] Troubleshooting FAQ
+#### Week 3-4: "Headless Starters" (The Frontend)
+- [ ] **Create `barako-nextjs-starter` Repository**
+  - [ ] Next.js 14 + Tailwind CSS
+  - [ ] Pre-configured Barako Client
+  - [ ] Blog & Landing Page templates
+- [ ] **Create `barako-saas-starter` Repository**
+  - [ ] React/Vue + Stripe Integration
+  - [ ] User Dashboard components
+- [ ] **1-Click Deploy Buttons** (Vercel, Netlify compatibility)
 
-#### Support Offerings
-- [ ] Free tier: Community support (Discord)
-- [ ] Pro tier: Email support (48h SLA)
-- [ ] Enterprise tier: Dedicated Slack, phone support
-- [ ] Professional services (migration assistance)
+#### Week 5-6: Infrastructure Simplicity
+- [ ] **1-Click Cloud Deploy**
+  - [ ] "Deploy to Railway" / "Deploy to Render" buttons
+  - [ ] Azure/AWS Marketplace listing preparation
+- [ ] **Auto-Update Mechanism**
+  - [ ] Dashboard notification for new versions
+  - [ ] Docker tag management guide for SMBs
 
-#### Managed Service
-- [ ] SaaS offering on cloud
-- [ ] Self-service sign-up
-- [ ] Stripe billing integration
-- [ ] Multi-tenant infrastructure
-- [ ] "Heroku for BarakoCMS" experience
+## 🤖 Phase 2.7: AI-Native Integrations (MCP) (Start: Feb 2026)
+
+**Duration**: 4 Weeks
+**Status**: 🔮 Planned
+**Priority**: HIGH (Strategic Differentiator)
+
+### Goals
+Make BarakoCMS the first "AI-Native" CMS by implementing the Model Context Protocol (MCP), allowing generic LLMs (Claude, ChatGPT) to directly access and manage content.
+
+### Deliverables
+
+#### Week 1-2: BarakoCMS as MCP Server
+- [ ] **MCP Server Prototype**
+  - [ ] C# implementation of Model Context Protocol
+  - [ ] Console app proof-of-concept
+  - [ ] Direct integration with Claude Desktop
+- [ ] **Core MCP Implementation**
+  - [ ] Expose content types as MCP Resources `cms://{type}/{slug}`
+  - [ ] Expose workflows as MCP Tools `cms.start_workflow`
+  - [ ] Streaming log support for AI debugging
+  - [ ] "Chat with your Content" interface
+  - [ ] "Generate Content" using CMS context
+
+#### Week 3-4: Knowledge Graph & Context
+- [ ] **Context Window Optimization**
+  - [ ] Token-optimized content exports
+  - [ ] Semantic search for relevant context
+- [ ] **AI Agent Permissions**
+  - [ ] "AI-agent" specific RBAC role
+  - [ ] Rate limiting for AI agents
 
 ### Success Criteria
 - [ ] 500+ Discord members
