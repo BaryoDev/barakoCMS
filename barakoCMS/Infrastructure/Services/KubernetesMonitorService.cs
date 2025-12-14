@@ -56,31 +56,28 @@ public class KubernetesMonitorService : IKubernetesMonitorService
     {
         if (_initFailed) return null;
 
-        // User Request: Make it optional via config, default false
-        var isEnabled = _config.GetValue<bool>("Kubernetes:Enabled");
-        if (!isEnabled)
-        {
-            _logger.LogInformation("Kubernetes Monitoring is disabled via configuration.");
-            return null;
-        }
-
         try
         {
+            // First, try in-cluster configuration
             if (KubernetesClientConfiguration.IsInCluster())
             {
                 var config = KubernetesClientConfiguration.InClusterConfig();
+                _logger.LogInformation("Kubernetes client initialized using InCluster configuration.");
                 return new Kubernetes(config);
             }
 
-            // Skip local config if already failed once or if in production/non-dev
-            if (_env != null && _env.EnvironmentName != "Development")
+            // Try local kubeconfig (works for Docker Desktop with Kubernetes enabled)
+            try
             {
+                var localConfig = KubernetesClientConfiguration.BuildConfigFromConfigFile();
+                _logger.LogInformation("Kubernetes client initialized using local kubeconfig.");
+                return new Kubernetes(localConfig);
+            }
+            catch (Exception localEx)
+            {
+                _logger.LogInformation("Local kubeconfig not available: {Error}. This is normal if Kubernetes is not installed.", localEx.Message);
                 return null;
             }
-
-            // Allow fallback to local kubeconfig for dev
-            var localConfig = KubernetesClientConfiguration.BuildConfigFromConfigFile();
-            return new Kubernetes(localConfig);
         }
         catch (Exception ex)
         {
@@ -96,22 +93,39 @@ public class KubernetesMonitorService : IKubernetesMonitorService
 
         // Check if Kubernetes monitoring is enabled via database setting
         var isEnabled = await _configService.GetConfigValueAsync("Kubernetes__Enabled", false);
+        _logger.LogInformation("Kubernetes monitoring enabled check: {IsEnabled}, Client initialized: {ClientInitialized}",
+            isEnabled, _client != null);
 
         if (!isEnabled || _client == null)
         {
             status.IsConnected = false;
             status.IsInCluster = false;
             status.ConnectionMethod = "None";
-            status.Error = isEnabled ? "Kubernetes monitoring is not initialized." : "Kubernetes monitoring is disabled via settings.";
+
+            // Provide clearer error messages
+            if (!isEnabled)
+            {
+                status.Error = "Kubernetes monitoring is disabled via settings.";
+                _logger.LogInformation("Kubernetes monitoring is disabled via settings");
+            }
+            else if (_client == null)
+            {
+                status.Error = "Kubernetes monitoring is not available in this environment. No cluster connection could be established.";
+                _logger.LogWarning("Kubernetes client is null - no cluster connection available. Init failed: {InitFailed}", _initFailed);
+            }
+
             return status;
         }
 
         status.IsInCluster = KubernetesClientConfiguration.IsInCluster();
         status.ConnectionMethod = KubernetesClientConfiguration.IsInCluster() ? "InCluster" : "LocalConfig";
+        _logger.LogInformation("Attempting to fetch Kubernetes status. IsInCluster: {IsInCluster}, Method: {Method}",
+            status.IsInCluster, status.ConnectionMethod);
 
         try
         {
             // Fetch Nodes
+            _logger.LogDebug("Fetching Kubernetes nodes...");
             var nodes = await _client.CoreV1.ListNodeAsync();
             status.Nodes = nodes.Items.Select(n => new NodeInfo
             {
@@ -128,6 +142,7 @@ public class KubernetesMonitorService : IKubernetesMonitorService
             // K8s client doesn't easily expose "current namespace" without file reading, defaulting to 'default' or 'barako-cms'
             // We will list all in 'default' for now as a POC.
 
+            _logger.LogDebug("Fetching Kubernetes deployments in namespace: {Namespace}", ns);
             var deployments = await _client.AppsV1.ListNamespacedDeploymentAsync(ns);
             status.Deployments = deployments.Items.Select(d => new DeploymentInfo
             {
@@ -138,6 +153,8 @@ public class KubernetesMonitorService : IKubernetesMonitorService
             }).ToList();
 
             status.IsConnected = true;
+            _logger.LogInformation("Successfully fetched Kubernetes status: {NodeCount} nodes, {DeploymentCount} deployments",
+                status.Nodes.Count, status.Deployments.Count);
         }
         catch (Exception ex)
         {

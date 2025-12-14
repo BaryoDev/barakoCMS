@@ -11,6 +11,8 @@ services:
       - JWT__Key=your-super-secret-key-that-is-at-least-32-chars-long
       - InitialAdmin__Username=arnex
       - InitialAdmin__Password=SuperBarako123!
+    volumes:
+      - ${HOME}/.kube:/root/.kube:ro  # Mount kubeconfig for Kubernetes access
     depends_on:
       postgres:
         condition: service_healthy
