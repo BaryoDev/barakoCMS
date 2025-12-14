@@ -12,6 +12,14 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+declare global {
+  interface Window {
+    _env_?: {
+      NEXT_PUBLIC_API_URL?: string;
+    };
+  }
+}
+
 import QueryProvider from "@/components/query-provider";
 import { Toaster } from "sonner";
 
@@ -27,6 +35,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        <script src="/env-config.js" />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
