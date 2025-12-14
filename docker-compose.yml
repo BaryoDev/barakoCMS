@@ -41,8 +41,8 @@ services:
     build:
       context: ./admin
       dockerfile: Dockerfile
-      args:
-        NEXT_PUBLIC_API_URL: http://localhost:5005
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:5005
     ports:
       - "3000:3000"
     depends_on:
