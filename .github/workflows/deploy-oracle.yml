@@ -1,0 +1,53 @@
+name: Deploy to Oracle Cloud
+
+on:
+    push:
+        branches: ["master"]
+    workflow_dispatch:
+
+jobs:
+    deploy:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Deploy via SSH
+              uses: appleboy/ssh-action@v1.0.3
+              with:
+                  host: ${{ secrets.ORACLE_HOST }}
+                  username: ${{ secrets.ORACLE_USER }}
+                  key: ${{ secrets.ORACLE_SSH_KEY }}
+                  port: 22
+                  script: |
+                      # 1. Navigate to project directory
+                      TARGET_DIR="~/barakoCMS"
+
+                      # 2. Clone if not exists, otherwise pull
+                      if [ ! -d "$TARGET_DIR" ]; then
+                        echo "📂 Cloning repository..."
+                        git clone https://github.com/BaryoDev/barakoCMS.git "$TARGET_DIR"
+                      else
+                        echo "🔄 Pulling latest changes..."
+                        cd "$TARGET_DIR"
+                        git checkout master
+                        git pull origin master
+                      fi
+
+                      cd "$TARGET_DIR"
+
+                      # 3. Ensure deployment script is executable
+                      chmod +x scripts/deploy-oracle.sh
+
+                      # 4. Check for .env Configuration
+                      if [ ! -f .env ]; then
+                        echo "❌ ERROR: .env file missing!"
+                        echo "Please SSH into the server and run './scripts/deploy-oracle.sh' manually ONCE to configure secrets."
+                        exit 1
+                      fi
+
+                      # 5. Build and Deploy
+                      echo "🚀 Rebuilding and Deploying containers..."
+                      docker compose -f docker-compose.prod.yml up -d --build
+
+                      echo "✅ Deployment Complete"
