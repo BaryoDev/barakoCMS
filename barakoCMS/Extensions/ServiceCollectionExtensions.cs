@@ -58,6 +58,20 @@ public static class ServiceCollectionExtensions
             options.Schema.For<Content>().DocumentAlias("contents");
             options.Schema.For<User>().DocumentAlias("users");
 
+            // Database Automation: Schema Migration Policy
+            var env = sp.GetRequiredService<IWebHostEnvironment>();
+            if (env.IsDevelopment())
+            {
+                // In Dev: Allow destructive changes for rapid iteration
+                options.AutoCreateSchemaObjects = AutoCreate.All;
+            }
+            else
+            {
+                // In Prod: Only allow safe additive changes (CreateOrUpdate)
+                // Prevents accidental data loss from destructive schema changes
+                options.AutoCreateSchemaObjects = AutoCreate.CreateOrUpdate;
+            }
+
             // TODO: Fix Marten 8 Enum namespaces for SnapshotLifecycle
             // options.Projections.Snapshot<Content>(Marten.SnapshotLifecycle.Inline);
 
