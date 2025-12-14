@@ -35,7 +35,7 @@ public class CorrelationIdMiddleware
     {
         if (context.Request.Headers.TryGetValue(CorrelationIdHeaderName, out var correlationId))
         {
-            return correlationId;
+            return correlationId.ToString() ?? Guid.NewGuid().ToString();
         }
 
         return Guid.NewGuid().ToString();

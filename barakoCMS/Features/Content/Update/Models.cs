@@ -7,6 +7,7 @@ public class Request
 {
     public Guid Id { get; set; }
     public Dictionary<string, object> Data { get; set; } = new();
+    public Models.ContentStatus Status { get; set; }
     public long Version { get; set; }
 }
 

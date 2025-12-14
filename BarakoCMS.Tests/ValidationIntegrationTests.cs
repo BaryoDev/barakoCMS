@@ -4,6 +4,8 @@ using System.Net.Http.Json;
 using System.Net;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using FastEndpoints.Security;
+using Marten;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace BarakoCMS.Tests;
 
@@ -13,25 +15,77 @@ namespace BarakoCMS.Tests;
 /// </summary>
 public class ValidationIntegrationTests : IClassFixture<IntegrationTestFixture>
 {
+    private readonly IntegrationTestFixture _factory;
     private readonly HttpClient _client;
 
     public ValidationIntegrationTests(IntegrationTestFixture factory)
     {
+        _factory = factory;
         _client = factory.CreateClient();
     }
 
     #region Setup and Helper Methods
 
-    private string CreateToken(params string[] roles)
+    private async Task<string> CreateTokenAsync(params string[] roleNames)
     {
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<Marten.IDocumentSession>();
+
+        var roleIds = new List<Guid>();
+
+        foreach (var roleName in roleNames)
+        {
+            // Check if role exists, otherwise create it
+            var role = await session.Query<barakoCMS.Models.Role>()
+                .FirstOrDefaultAsync(r => r.Name == roleName);
+
+            if (role == null)
+            {
+                role = new barakoCMS.Models.Role
+                {
+                    Id = Guid.NewGuid(),
+                    Name = roleName,
+                    Permissions = new List<barakoCMS.Models.ContentTypePermission>()
+                };
+
+                // Add default full permissions for Admin/SuperAdmin for testing
+                if (roleName == "Admin" || roleName == "SuperAdmin")
+                {
+                    // Assuming we want them to pass permission checks for all types?
+                    // PermissionResolver checks specific content type.
+                    // For Admin, we might need to add permissions dynamically?
+                    // Actually, for SuperAdmin, PermissionResolver bypasses checks!
+                }
+
+                session.Store(role);
+            }
+            roleIds.Add(role.Id);
+        }
+
+        var userId = Guid.NewGuid();
+        var user = new barakoCMS.Models.User
+        {
+            Id = userId,
+            Username = $"user-{userId}",
+            Email = $"user-{userId}@example.com",
+            RoleIds = roleIds
+        };
+        session.Store(user);
+        await session.SaveChangesAsync();
+
         return JWTBearer.CreateToken(
             signingKey: "test-super-secret-key-that-is-at-least-32-chars-long",
             expireAt: DateTime.UtcNow.AddDays(1),
+            issuer: "BarakoTest",
+            audience: "BarakoClient",
             privileges: u =>
             {
-                foreach (var role in roles)
+                foreach (var role in roleNames)
+                {
                     u.Roles.Add(role);
-                u.Claims.Add(new("UserId", Guid.NewGuid().ToString()));
+                    u.Claims.Add(new(System.Security.Claims.ClaimTypes.Role, role));
+                }
+                u.Claims.Add(new("UserId", userId.ToString()));
             });
     }
 
@@ -43,7 +97,7 @@ public class ValidationIntegrationTests : IClassFixture<IntegrationTestFixture>
     public async Task CreateContentType_ShouldSucceed_WithValidFieldTypes()
     {
         // Arrange
-        var token = CreateToken("Admin");
+        var token = await CreateTokenAsync("Admin", "SuperAdmin");
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
@@ -73,7 +127,7 @@ public class ValidationIntegrationTests : IClassFixture<IntegrationTestFixture>
     public async Task CreateContentType_ShouldFail_WithInvalidFieldType()
     {
         // Arrange
-        var token = CreateToken("Admin");
+        var token = await CreateTokenAsync("Admin", "SuperAdmin");
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
@@ -100,7 +154,7 @@ public class ValidationIntegrationTests : IClassFixture<IntegrationTestFixture>
     public async Task CreateContentType_ShouldFail_WithNonPascalCaseFieldName()
     {
         // Arrange
-        var token = CreateToken("Admin");
+        var token = await CreateTokenAsync("Admin", "SuperAdmin");
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
@@ -128,7 +182,7 @@ public class ValidationIntegrationTests : IClassFixture<IntegrationTestFixture>
     public async Task CreateContentType_ShouldFail_WithMultipleValidationErrors()
     {
         // Arrange
-        var token = CreateToken("Admin");
+        var token = await CreateTokenAsync("Admin", "SuperAdmin");
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
@@ -161,7 +215,7 @@ public class ValidationIntegrationTests : IClassFixture<IntegrationTestFixture>
     public async Task CreateContent_ShouldSucceed_WhenDataMatchesSchema()
     {
         // Arrange
-        var token = CreateToken("Admin");
+        var token = await CreateTokenAsync("Admin", "SuperAdmin");
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
@@ -208,7 +262,7 @@ public class ValidationIntegrationTests : IClassFixture<IntegrationTestFixture>
     public async Task CreateContent_ShouldFail_WhenDataTypeMismatch()
     {
         // Arrange
-        var token = CreateToken("Admin");
+        var token = await CreateTokenAsync("Admin", "SuperAdmin");
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
@@ -248,7 +302,7 @@ public class ValidationIntegrationTests : IClassFixture<IntegrationTestFixture>
     public async Task CreateContent_ShouldSucceed_WithPartialData()
     {
         // Arrange
-        var token = CreateToken("Admin");
+        var token = await CreateTokenAsync("Admin", "SuperAdmin");
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
@@ -293,7 +347,7 @@ public class ValidationIntegrationTests : IClassFixture<IntegrationTestFixture>
     public async Task UpdateContent_ShouldFail_WhenDataTypeMismatch()
     {
         // Arrange
-        var token = CreateToken("Admin");
+        var token = await CreateTokenAsync("Admin", "SuperAdmin");
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
@@ -350,7 +404,7 @@ public class ValidationIntegrationTests : IClassFixture<IntegrationTestFixture>
     public async Task EdgeCase_NullValues_ShouldBeAllowed()
     {
         // Arrange
-        var token = CreateToken("Admin");
+        var token = await CreateTokenAsync("Admin", "SuperAdmin");
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
@@ -387,7 +441,7 @@ public class ValidationIntegrationTests : IClassFixture<IntegrationTestFixture>
     public async Task EdgeCase_DateTimeFromString_ShouldBeAccepted()
     {
         // Arrange
-        var token = CreateToken("Admin");
+        var token = await CreateTokenAsync("Admin", "SuperAdmin");
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
@@ -424,7 +478,7 @@ public class ValidationIntegrationTests : IClassFixture<IntegrationTestFixture>
     public async Task EdgeCase_AllFieldTypes_ShouldWorkTogether()
     {
         // Arrange
-        var token = CreateToken("Admin");
+        var token = await CreateTokenAsync("Admin", "SuperAdmin");
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
@@ -476,7 +530,7 @@ public class ValidationIntegrationTests : IClassFixture<IntegrationTestFixture>
         // Existing data that doesn't conform to standards should still be retrievable
 
         // Arrange
-        var token = CreateToken("Admin");
+        var token = await CreateTokenAsync("Admin", "SuperAdmin");
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
@@ -521,7 +575,7 @@ public class ValidationIntegrationTests : IClassFixture<IntegrationTestFixture>
         // This test validates the complete CRUD lifecycle with validation
 
         // Arrange
-        var token = CreateToken("Admin", "SuperAdmin");
+        var token = await CreateTokenAsync("Admin", "SuperAdmin");
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 

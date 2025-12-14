@@ -46,7 +46,7 @@ public class UpdateFieldAction : IWorkflowAction
         try
         {
             // Determine target content
-            barakoCMS.Models.Content targetContent;
+            barakoCMS.Models.Content? targetContent;
             if (!string.IsNullOrEmpty(targetIdStr) && Guid.TryParse(targetIdStr, out var targetId))
             {
                 targetContent = await _session.LoadAsync<barakoCMS.Models.Content>(targetId, ct);

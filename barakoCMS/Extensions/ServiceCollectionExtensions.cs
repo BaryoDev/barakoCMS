@@ -27,17 +27,50 @@ public static class ServiceCollectionExtensions
         {
             services.SwaggerDocument();
         }
-        services.AddHealthChecks();
 
-        services.AddJWTBearerAuth(configuration["JWT:Key"]!);
+        var connectionString = ResolveConnectionString(configuration);
+
+        services.AddHealthChecks()
+            .AddNpgSql(connectionString, name: "Database", tags: new[] { "db", "ready" });
+
+        services.AddJWTBearerAuth(configuration["JWT:Key"]!, tokenValidation: p =>
+        {
+            p.ValidateIssuerSigningKey = true;
+            p.ValidateIssuer = true;
+            p.ValidateAudience = true;
+            p.ValidIssuer = configuration["JWT:Issuer"];
+            p.ValidAudience = configuration["JWT:Audience"];
+
+            // Explicitly map claims
+            p.NameClaimType = "Username";
+            p.RoleClaimType = System.Security.Claims.ClaimTypes.Role;
+        });
         services.AddAuthorization();
         services.AddCors(options =>
         {
             options.AddPolicy("SecurePolicy", builder =>
             {
-                builder.WithOrigins("http://localhost:3000", "https://localhost:7049") // Adjust as needed
-                       .AllowAnyMethod()
-                       .AllowAnyHeader();
+                // Get allowed origins from configuration (comma-separated list)
+                // Priority: CORS__AllowedOrigins env var > appsettings.json CORS:AllowedOrigins
+                var allowedOrigins = configuration["CORS:AllowedOrigins"]?
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    ?? Array.Empty<string>();
+
+                if (allowedOrigins.Length > 0)
+                {
+                    builder.WithOrigins(allowedOrigins)
+                           .AllowAnyMethod()
+                           .AllowAnyHeader()
+                           .AllowCredentials();
+                }
+                else
+                {
+                    // Fallback to localhost for development if no origins configured
+                    builder.WithOrigins("http://localhost:3000", "http://localhost:3001", "https://localhost:7049")
+                           .AllowAnyMethod()
+                           .AllowAnyHeader()
+                           .AllowCredentials();
+                }
             });
         });
         // Repository registration
@@ -47,32 +80,15 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IConditionEvaluator, ConditionEvaluator>();
         services.AddScoped<IPermissionResolver, PermissionResolver>();
 
+        connectionString = ResolveConnectionString(configuration);
         services.AddMarten((IServiceProvider sp) =>
         {
-            // var config = sp.GetRequiredService<IConfiguration>();
-            var connectionString = configuration.GetConnectionString("DefaultConnection");
             var options = new StoreOptions();
-            options.Connection(connectionString!);
+            options.Connection(connectionString);
 
             // Configure document versioning
             options.Schema.For<Content>().DocumentAlias("contents");
             options.Schema.For<User>().DocumentAlias("users");
-
-            // Database Automation: Schema Migration Policy
-            // var env = sp.GetRequiredService<IWebHostEnvironment>();
-            // if (env.IsDevelopment())
-            // {
-            //    // In Dev: Allow destructive changes for rapid iteration
-            //    options.AutoCreateSchemaObjects = Weasel.Core.AutoCreate.All; 
-            // }
-            // else
-            // {
-            //    // In Prod: Only allow safe additive changes (CreateOrUpdate)
-            //    options.AutoCreateSchemaObjects = Weasel.Core.AutoCreate.CreateOrUpdate;
-            // }
-
-            // TODO: Fix Marten 8 Enum namespaces for SnapshotLifecycle
-            // options.Projections.Snapshot<Content>(Marten.SnapshotLifecycle.Inline);
 
             // Register Workflow Projection (Async)
             options.Projections.Add(new WorkflowProjection(sp), JasperFx.Events.Projections.ProjectionLifecycle.Async);
@@ -86,7 +102,7 @@ public static class ServiceCollectionExtensions
         //    .AddNpgSql(configuration.GetConnectionString("DefaultConnection")!, tags: new[] { "db", "ready" });
 
         services.AddHttpClient("ExternalApi")
-            .AddStandardResilienceHandler();
+                .AddStandardResilienceHandler();
 
         services.AddScoped<barakoCMS.Core.Interfaces.IEmailService, barakoCMS.Infrastructure.Services.MockEmailService>();
         services.AddScoped<barakoCMS.Core.Interfaces.ISmsService, barakoCMS.Infrastructure.Services.MockSmsService>();
@@ -109,6 +125,10 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IWorkflowSchemaValidator, WorkflowSchemaValidator>();
         services.AddScoped<ITemplateVariableExtractor, TemplateVariableExtractor>();
         services.AddScoped<IWorkflowDebugger, WorkflowDebugger>();
+        services.AddScoped<IContentValidatorService, ContentValidatorService>();
+        services.AddSingleton<IKubernetesMonitorService, KubernetesMonitorService>();
+        services.AddSingleton<IMetricsService, MetricsService>();
+        services.AddScoped<IBackupService, BackupService>();
 
         services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Filters.IdempotencyFilter>();
         services.AddSingleton<FastEndpoints.IGlobalPostProcessor, barakoCMS.Infrastructure.Filters.SensitivityFilter>();
@@ -152,20 +172,54 @@ public static class ServiceCollectionExtensions
             };
         });
 
-        // Health Checks UI
-        services.AddHealthChecksUI(setup =>
+        // Health Checks UI (Config-Gated)
+        if (configuration.GetValue<bool>("HealthChecksUI:Enabled"))
         {
-            setup.SetEvaluationTimeInSeconds(10); // Check every 10 seconds
-            setup.MaximumHistoryEntriesPerEndpoint(60);
-            setup.AddHealthCheckEndpoint("BarakoCMS", "/health");
-        })
-        .AddInMemoryStorage();
+            services.AddHealthChecksUI(setup =>
+            {
+                setup.SetEvaluationTimeInSeconds(10); // Check every 10 seconds
+                setup.MaximumHistoryEntriesPerEndpoint(60);
+                setup.AddHealthCheckEndpoint("BarakoCMS", "/health");
+            })
+            .AddInMemoryStorage();
+        }
 
         return services;
     }
 
+    private static string ResolveConnectionString(IConfiguration configuration)
+    {
+        var connectionString = configuration.GetConnectionString("DefaultConnection");
+        var dbUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
+
+        if (!string.IsNullOrWhiteSpace(dbUrl))
+        {
+            try
+            {
+                var uri = new Uri(dbUrl);
+                var userInfo = uri.UserInfo.Split(':');
+                var username = userInfo[0];
+                var password = userInfo.Length > 1 ? userInfo[1] : "";
+
+                connectionString = $"Host={uri.Host};Port={uri.Port};Database={uri.AbsolutePath.TrimStart('/')};Username={username};Password={password};SSL Mode=Disable;Include Error Detail=true";
+            }
+            catch
+            {
+                connectionString = dbUrl;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            return "Server=127.0.0.1;Port=5432;Database=dummy;User Id=postgres;Password=nomartencrash;";
+        }
+
+        return connectionString;
+    }
+
     public static IApplicationBuilder UseBarakoCMS(this IApplicationBuilder app)
     {
+        var configuration = app.ApplicationServices.GetRequiredService<IConfiguration>();
         var env = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
 
         // HTTPS Redirection and HSTS (Production only)
@@ -186,7 +240,7 @@ public static class ServiceCollectionExtensions
 
             // Content Security Policy
             context.Response.Headers.Append("Content-Security-Policy",
-                "default-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:;");
+            "default-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:;");
 
             // HSTS (HTTP Strict Transport Security)
             if (context.Request.IsHttps)
@@ -208,6 +262,9 @@ public static class ServiceCollectionExtensions
         // 2. Request Logging (Must be after Correlation ID)
         app.UseMiddleware<barakoCMS.Infrastructure.Middleware.RequestResponseLoggingMiddleware>();
 
+        // CORS (Must be before Authentication/Authorization)
+        app.UseCors("SecurePolicy");
+
         app.UseAuthentication();
         app.UseAuthorization();
         app.UseFastEndpoints(c =>
@@ -227,12 +284,15 @@ public static class ServiceCollectionExtensions
             ResponseWriter = HealthChecks.UI.Client.UIResponseWriter.WriteHealthCheckUIResponse
         });
 
-        // Health Checks UI Dashboard
-        app.UseHealthChecksUI(options =>
+        // Health Checks UI Dashboard (Config-Gated)
+        if (configuration.GetValue<bool>("HealthChecksUI:Enabled"))
         {
-            options.UIPath = "/health-ui";
-            options.ApiPath = "/health-ui-api";
-        });
+            app.UseHealthChecksUI(options =>
+            {
+                options.UIPath = "/health-ui";
+                options.ApiPath = "/health-ui-api";
+            });
+        }
 
         app.UseCors("SecurePolicy");
         if (env == "Development")
