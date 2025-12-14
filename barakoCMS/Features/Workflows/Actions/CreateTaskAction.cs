@@ -1,4 +1,5 @@
 using barakoCMS.Core.Interfaces;
+using barakoCMS.Infrastructure.Attributes;
 using Marten;
 using Microsoft.Extensions.Logging;
 
@@ -8,6 +9,11 @@ namespace barakoCMS.Features.Workflows.Actions;
 /// Workflow action plugin for creating new content items.
 /// Useful for auto-generating tasks, tickets, or related content based on triggers.
 /// </summary>
+[WorkflowActionMetadata(
+    Description = "Create new content items automatically (tasks, tickets, etc.)",
+    RequiredParameters = new[] { "ContentType", "Title" },
+    ExampleJson = @"{""Type"":""CreateTask"",""Parameters"":{""ContentType"":""Task"",""Title"":""Review {{contentType}}"",""Status"":""Draft""}}"
+)]
 public class CreateTaskAction : IWorkflowAction
 {
     private readonly IDocumentSession _session;

@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure.Attributes;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
 
@@ -7,6 +8,11 @@ namespace barakoCMS.Features.Workflows.Actions;
 /// Workflow action plugin for conditional logic (if/then/else).
 /// Evaluates a condition and executes different action sets based on the result.
 /// </summary>
+[WorkflowActionMetadata(
+    Description = "Conditional if/then/else logic for workflows",
+    RequiredParameters = new[] { "Condition", "ThenActions" },
+    ExampleJson = @"{""Type"":""Conditional"",""Parameters"":{""Condition"":""{{status}} == Published"",""ThenActions"":""[{\""Type\"":\""Email\"",\""Parameters\"":{\""To\"":\""admin@example.com\""}}]""}}"
+)]
 public class ConditionalAction : IWorkflowAction
 {
     private readonly IServiceProvider _serviceProvider;
