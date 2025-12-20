@@ -15,52 +15,48 @@ public class RequestValidator : FastEndpoints.Validator<Request>
 {
     private readonly IQuerySession _session;
 
+    // Storage for validation errors during async validation
+    private string _lastValidationErrors = string.Empty;
+
     public RequestValidator(IQuerySession session)
     {
         _session = session;
 
         RuleFor(x => x.ContentType).NotEmpty();
         RuleFor(x => x.Data).NotEmpty();
-        
+
         // Async validation against ContentType schema
+        // The errors are cached during MustAsync to avoid blocking .Result call in WithMessage
         RuleFor(x => x)
             .MustAsync(async (req, ct) => await ValidateDataAgainstSchema(req, ct))
-            .WithMessage(req => GetSchemaValidationErrors(req).Result);
+            .WithMessage(_ => _lastValidationErrors);
     }
-    
+
     private async Task<bool> ValidateDataAgainstSchema(Request req, CancellationToken ct)
     {
         // Find the ContentType by slug (async query)
         var contentType = await _session.Query<barakoCMS.Models.ContentType>()
             .FirstOrDefaultAsync(c => c.Slug == req.ContentType, ct);
-        
+
         if (contentType == null)
         {
             // ContentType doesn't exist - let the endpoint handle this error
-            return true; // Don't fail validation here
+            // (No schema means no validation rules to enforce)
+            _lastValidationErrors = string.Empty;
+            return true;
         }
-        
+
         // Validate data against field definitions
         var result = barakoCMS.Core.Validation.ContentDataValidator.ValidateData(
             req.Data,
             contentType.Fields);
-        
+
+        // Cache errors for WithMessage to use (avoids blocking .Result call)
+        _lastValidationErrors = result.IsValid
+            ? string.Empty
+            : string.Join("; ", result.Errors);
+
         return result.IsValid;
-    }
-    
-    private async Task<string> GetSchemaValidationErrors(Request req)
-    {
-        var contentType = await _session.Query<barakoCMS.Models.ContentType>()
-            .FirstOrDefaultAsync(c => c.Slug == req.ContentType);
-        
-        if (contentType == null)
-            return $"ContentType '{req.ContentType}' not found";
-        
-        var result = barakoCMS.Core.Validation.ContentDataValidator.ValidateData(
-            req.Data,
-            contentType.Fields);
-        
-        return string.Join("; ", result.Errors);
     }
 }
 
