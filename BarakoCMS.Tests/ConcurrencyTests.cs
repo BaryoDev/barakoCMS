@@ -6,7 +6,8 @@ using FastEndpoints.Security;
 
 namespace BarakoCMS.Tests;
 
-public class ConcurrencyTests : IClassFixture<IntegrationTestFixture>
+[Collection("Sequential")]
+public class ConcurrencyTests
 {
     private readonly HttpClient _client;
 
