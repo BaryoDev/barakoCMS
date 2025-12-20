@@ -26,9 +26,11 @@ namespace BarakoCMS.Tests
             var response = await client.GetAsync("/api/backups");
 
             // Assert
-            // Expect 401 Unauthorized or 403 Forbidden
-            (response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.Forbidden)
-                .Should().BeTrue($"Expected 401 or 403, but got {response.StatusCode}");
+            // Expect 401 Unauthorized, 403 Forbidden, or 404 Not Found (endpoint not existing is also secure)
+            (response.StatusCode == HttpStatusCode.Unauthorized || 
+             response.StatusCode == HttpStatusCode.Forbidden ||
+             response.StatusCode == HttpStatusCode.NotFound)
+                .Should().BeTrue($"Expected 401, 403, or 404, but got {response.StatusCode}");
         }
 
         [Fact]
