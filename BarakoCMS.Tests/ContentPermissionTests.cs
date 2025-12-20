@@ -57,18 +57,10 @@ public class ContentPermissionTests
         session.Store(user);
         await session.SaveChangesAsync();
 
-        // 3. Mint Token
-        var token = FastEndpoints.Security.JWTBearer.CreateToken(
-            signingKey: "test-super-secret-key-that-is-at-least-32-chars-long",
-            expireAt: DateTime.UtcNow.AddDays(1),
-            issuer: "BarakoTest",
-            audience: "BarakoClient",
-            privileges: u =>
-            {
-                u.Roles.Add(role.Name);
-                u.Claims.Add(new System.Security.Claims.Claim("UserId", user.Id.ToString()));
-                u.Claims.Add(new System.Security.Claims.Claim("System.Security.Claims.ClaimTypes.NameIdentifier", user.Id.ToString())); // Add NameIdentifier just in case
-            });
+        // 3. Mint Token using the fixture's helper to avoid FastEndpoints static state issues
+        var token = _factory.CreateToken(
+            roles: new[] { role.Name },
+            userId: user.Id.ToString());
 
         return (token, user.Id);
     }
