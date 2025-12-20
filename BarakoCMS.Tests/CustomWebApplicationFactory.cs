@@ -29,6 +29,9 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyn
             var settings = new Dictionary<string, string>
             {
                 {"ConnectionStrings:DefaultConnection", ConnectionString},
+                {"JWT:Key", "test-super-secret-key-that-is-at-least-32-chars-long"},
+                {"JWT:Issuer", "BarakoTest"},
+                {"JWT:Audience", "BarakoClient"},
                 {"BarakoCMS:StrictValidation", "true"}, // Enable strict validation for tests
                 {"BarakoCMS:ValidationOptions:EnforceFieldTypes", "true"},
                 {"BarakoCMS:ValidationOptions:EnforcePascalCaseFieldNames", "true"},
