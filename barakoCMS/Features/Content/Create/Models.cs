@@ -13,8 +13,12 @@ public class Request
 
 public class RequestValidator : FastEndpoints.Validator<Request>
 {
-    public RequestValidator()
+    private readonly IQuerySession _session;
+
+    public RequestValidator(IQuerySession session)
     {
+        _session = session;
+
         RuleFor(x => x.ContentType).NotEmpty();
         RuleFor(x => x.Data).NotEmpty();
         
@@ -26,9 +30,8 @@ public class RequestValidator : FastEndpoints.Validator<Request>
     
     private async Task<bool> ValidateDataAgainstSchema(Request req, CancellationToken ct)
     {
-        var session = Resolve<IQuerySession>();
         // Find the ContentType by slug (async query)
-        var contentType = await session.Query<barakoCMS.Models.ContentType>()
+        var contentType = await _session.Query<barakoCMS.Models.ContentType>()
             .FirstOrDefaultAsync(c => c.Slug == req.ContentType, ct);
         
         if (contentType == null)
@@ -47,8 +50,7 @@ public class RequestValidator : FastEndpoints.Validator<Request>
     
     private async Task<string> GetSchemaValidationErrors(Request req)
     {
-        var session = Resolve<IQuerySession>();
-        var contentType = await session.Query<barakoCMS.Models.ContentType>()
+        var contentType = await _session.Query<barakoCMS.Models.ContentType>()
             .FirstOrDefaultAsync(c => c.Slug == req.ContentType);
         
         if (contentType == null)
