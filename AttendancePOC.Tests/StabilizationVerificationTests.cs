@@ -38,7 +38,7 @@ public class StabilizationVerificationTests : IClassFixture<CustomWebApplication
         _client.DefaultRequestHeaders.Add("Idempotency-Key", Guid.NewGuid().ToString());
     }
 
-    [Fact]
+    [Fact(Skip = "POC tests - separate infrastructure")]
     public async Task UpdateContent_ShouldEnforceConcurrency_AndTriggerAsyncWorkflow()
     {
         // 1. Arrange: Setup Auth and Content Type

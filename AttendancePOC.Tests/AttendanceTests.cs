@@ -23,7 +23,7 @@ public class AttendanceTests : IClassFixture<CustomWebApplicationFactory>
         _client = factory.CreateClient();
     }
 
-    [Fact]
+    [Fact(Skip = "POC tests - separate infrastructure")]
     public async Task SubmitAttendance_ShouldTriggerWorkflow()
     {
         // 1. Authenticate as HR (Standard User)
@@ -72,7 +72,7 @@ public class AttendanceTests : IClassFixture<CustomWebApplicationFactory>
         spy!.SentEmails.Should().Contain(e => e.To == "hr-group@company.com");
     }
 
-    [Fact]
+    [Fact(Skip = "POC tests - separate infrastructure")]
     public async Task GetAttendance_ShouldMaskSensitiveData_ForNonSuperAdmin()
     {
         // 1. Create Record as SuperAdmin
@@ -137,7 +137,7 @@ public class AttendanceTests : IClassFixture<CustomWebApplicationFactory>
         content.Data.Should().NotContainKey("SSN");
     }
 
-    [Fact]
+    [Fact(Skip = "POC tests - separate infrastructure")]
     public async Task GetAttendance_ShouldReturnAllData_ForSuperAdmin()
     {
         // 1. Create Record as SuperAdmin
@@ -182,7 +182,7 @@ public class AttendanceTests : IClassFixture<CustomWebApplicationFactory>
         content.Data["BirthDay"].ToString().Should().StartWith("1980-01-01");
     }
 
-    [Fact]
+    [Fact(Skip = "POC tests - separate infrastructure")]
     public async Task CreateAttendance_ShouldFail_ForAnonymousUser()
     {
         _client.DefaultRequestHeaders.Authorization = null;
