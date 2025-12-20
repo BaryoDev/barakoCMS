@@ -13,7 +13,8 @@ namespace BarakoCMS.Tests;
 /// Integration tests for validation in CRUD operations
 /// Tests the entire workflow from setup to edge cases
 /// </summary>
-public class ValidationIntegrationTests : IClassFixture<IntegrationTestFixture>
+[Collection("Sequential")]
+public class ValidationIntegrationTests
 {
     private readonly IntegrationTestFixture _factory;
     private readonly HttpClient _client;
