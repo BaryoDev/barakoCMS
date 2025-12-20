@@ -63,23 +63,26 @@ try
     Log.Information("DEBUG: DATABASE_URL available: {Available}, Length: {Length}", !string.IsNullOrEmpty(dbUrl), dbUrl?.Length ?? 0);
 
     // Run Seeder in background to avoid blocking startup and timeouts.
-    _ = Task.Run(async () =>
+    if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("SKIP_SEEDER")))
     {
-        try
+        _ = Task.Run(async () =>
         {
-            await Task.Delay(5000); // Wait 5s for app to warm up
-            Log.Information("[Background] Starting Data Seeder...");
-            using (var scope = app.Services.CreateScope())
+            try
             {
-                await barakoCMS.Data.DataSeeder.SeedAsync(app);
+                await Task.Delay(5000); // Wait 5s for app to warm up
+                Log.Information("[Background] Starting Data Seeder...");
+                using (var scope = app.Services.CreateScope())
+                {
+                    await barakoCMS.Data.DataSeeder.SeedAsync(app);
+                }
+                Log.Information("[Background] Data Seeder Completed.");
             }
-            Log.Information("[Background] Data Seeder Completed.");
-        }
-        catch (Exception ex)
-        {
-            Log.Error(ex, "[Background] Data Seeder Failed!");
-        }
-    });
+            catch (Exception ex)
+            {
+                Log.Error(ex, "[Background] Data Seeder Failed!");
+            }
+        });
+    }
 
     Log.Information("BarakoCMS App Running...");
     app.Run();
