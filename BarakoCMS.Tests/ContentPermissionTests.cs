@@ -79,8 +79,15 @@ public class ContentPermissionTests
             Data = new Dictionary<string, object> { { "title", "Test Title" } }
         });
 
+        // Debug: Output response body if not 200
+        if (res.StatusCode != HttpStatusCode.OK)
+        {
+            var body = await res.Content.ReadAsStringAsync();
+            Console.WriteLine($"[TEST DEBUG] Response Status: {res.StatusCode}, Body: {body}");
+        }
+
         // Assert
-        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        res.StatusCode.Should().Be(HttpStatusCode.OK, because: "user has permission to create content");
     }
 
     [Fact]

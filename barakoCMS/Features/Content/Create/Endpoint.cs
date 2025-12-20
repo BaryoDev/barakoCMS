@@ -87,7 +87,15 @@ public class Endpoint : Endpoint<Request, Response>
         }
         catch (Exception ex)
         {
-            await SendAsync(new Response { Message = $"Error creating content: {ex.Message}" }, 500, ct);
+            // Log detailed error for debugging
+            var fullError = $"Error creating content: {ex.GetType().Name}: {ex.Message}";
+            if (ex.InnerException != null)
+            {
+                fullError += $" | Inner: {ex.InnerException.GetType().Name}: {ex.InnerException.Message}";
+            }
+            Console.WriteLine($"[CREATE CONTENT ERROR] {fullError}");
+            Console.WriteLine($"[CREATE CONTENT STACK] {ex.StackTrace}");
+            await SendAsync(new Response { Message = fullError }, 500, ct);
         }
     }
 }
