@@ -7,7 +7,7 @@ using FastEndpoints.Security;
 namespace BarakoCMS.Tests.Features.Users;
 
 [Collection("Sequential")]
-public class UserAssignmentApiTests : IClassFixture<IntegrationTestFixture>
+public class UserAssignmentApiTests
 {
     private readonly HttpClient _client;
 
@@ -45,13 +45,13 @@ public class UserAssignmentApiTests : IClassFixture<IntegrationTestFixture>
             name = "Editor",
             description = "Content Editor"
         });
-        
+
         if (!roleResponse.IsSuccessStatusCode)
         {
             var error = await roleResponse.Content.ReadAsStringAsync();
             throw new Exception($"Create Role failed: {roleResponse.StatusCode}, {error}");
         }
-        
+
         var role = await roleResponse.Content.ReadFromJsonAsync<barakoCMS.Features.Roles.Create.Response>();
 
         var userId = Guid.NewGuid();
