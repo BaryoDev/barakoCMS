@@ -1,5 +1,4 @@
 using FluentValidation;
-using Marten;
 
 namespace barakoCMS.Features.Content.Create;
 
@@ -11,52 +10,17 @@ public class Request
     public barakoCMS.Models.SensitivityLevel Sensitivity { get; set; } = barakoCMS.Models.SensitivityLevel.Public;
 }
 
+/// <summary>
+/// Basic request validator - only performs synchronous validation.
+/// Schema validation against ContentType is handled by the endpoint via IContentValidatorService,
+/// which uses a properly scoped IQuerySession.
+/// </summary>
 public class RequestValidator : FastEndpoints.Validator<Request>
 {
-    private readonly IQuerySession _session;
-
-    // Storage for validation errors during async validation
-    private string _lastValidationErrors = string.Empty;
-
-    public RequestValidator(IQuerySession session)
+    public RequestValidator()
     {
-        _session = session;
-
-        RuleFor(x => x.ContentType).NotEmpty();
-        RuleFor(x => x.Data).NotEmpty();
-
-        // Async validation against ContentType schema
-        // The errors are cached during MustAsync to avoid blocking .Result call in WithMessage
-        RuleFor(x => x)
-            .MustAsync(async (req, ct) => await ValidateDataAgainstSchema(req, ct))
-            .WithMessage(_ => _lastValidationErrors);
-    }
-
-    private async Task<bool> ValidateDataAgainstSchema(Request req, CancellationToken ct)
-    {
-        // Find the ContentType by slug (async query)
-        var contentType = await _session.Query<barakoCMS.Models.ContentType>()
-            .FirstOrDefaultAsync(c => c.Slug == req.ContentType, ct);
-
-        if (contentType == null)
-        {
-            // ContentType doesn't exist - let the endpoint handle this error
-            // (No schema means no validation rules to enforce)
-            _lastValidationErrors = string.Empty;
-            return true;
-        }
-
-        // Validate data against field definitions
-        var result = barakoCMS.Core.Validation.ContentDataValidator.ValidateData(
-            req.Data,
-            contentType.Fields);
-
-        // Cache errors for WithMessage to use (avoids blocking .Result call)
-        _lastValidationErrors = result.IsValid
-            ? string.Empty
-            : string.Join("; ", result.Errors);
-
-        return result.IsValid;
+        RuleFor(x => x.ContentType).NotEmpty().WithMessage("ContentType is required");
+        RuleFor(x => x.Data).NotEmpty().WithMessage("Data is required");
     }
 }
 
