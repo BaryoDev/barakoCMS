@@ -5,7 +5,8 @@ using Xunit;
 
 namespace BarakoCMS.Tests.Features.Workflows;
 
-public class TemplateVariableExtractorIntegrationTests : IClassFixture<IntegrationTestFixture>
+[Collection("Sequential")]
+public class TemplateVariableExtractorIntegrationTests
 {
     private readonly IntegrationTestFixture _fixture;
     private readonly IDocumentStore _store;
