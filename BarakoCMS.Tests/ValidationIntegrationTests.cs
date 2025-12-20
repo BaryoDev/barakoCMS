@@ -74,20 +74,7 @@ public class ValidationIntegrationTests
         session.Store(user);
         await session.SaveChangesAsync();
 
-        return JWTBearer.CreateToken(
-            signingKey: "test-super-secret-key-that-is-at-least-32-chars-long",
-            expireAt: DateTime.UtcNow.AddDays(1),
-            issuer: "BarakoTest",
-            audience: "BarakoClient",
-            privileges: u =>
-            {
-                foreach (var role in roleNames)
-                {
-                    u.Roles.Add(role);
-                    u.Claims.Add(new(System.Security.Claims.ClaimTypes.Role, role));
-                }
-                u.Claims.Add(new("UserId", userId.ToString()));
-            });
+        return _factory.CreateToken(roles: roleNames, userId: userId.ToString());
     }
 
     #endregion
