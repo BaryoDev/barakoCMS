@@ -18,4 +18,4 @@ WORKDIR /app
 COPY --from=publish /app/publish .
 EXPOSE 8080
 ENV ASPNETCORE_URLS=http://+:8080
-ENTRYPOINT ["dotnet", "BarakoCMS.dll"]
+ENTRYPOINT ["dotnet", "barakoCMS.dll"]

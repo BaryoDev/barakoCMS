@@ -59,18 +59,17 @@ public static class ServiceCollectionExtensions
             options.Schema.For<User>().DocumentAlias("users");
 
             // Database Automation: Schema Migration Policy
-            var env = sp.GetRequiredService<IWebHostEnvironment>();
-            if (env.IsDevelopment())
-            {
-                // In Dev: Allow destructive changes for rapid iteration
-                options.AutoCreateSchemaObjects = AutoCreate.All;
-            }
-            else
-            {
-                // In Prod: Only allow safe additive changes (CreateOrUpdate)
-                // Prevents accidental data loss from destructive schema changes
-                options.AutoCreateSchemaObjects = AutoCreate.CreateOrUpdate;
-            }
+            // var env = sp.GetRequiredService<IWebHostEnvironment>();
+            // if (env.IsDevelopment())
+            // {
+            //    // In Dev: Allow destructive changes for rapid iteration
+            //    options.AutoCreateSchemaObjects = Weasel.Core.AutoCreate.All; 
+            // }
+            // else
+            // {
+            //    // In Prod: Only allow safe additive changes (CreateOrUpdate)
+            //    options.AutoCreateSchemaObjects = Weasel.Core.AutoCreate.CreateOrUpdate;
+            // }
 
             // TODO: Fix Marten 8 Enum namespaces for SnapshotLifecycle
             // options.Projections.Snapshot<Content>(Marten.SnapshotLifecycle.Inline);
@@ -153,6 +152,15 @@ public static class ServiceCollectionExtensions
             };
         });
 
+        // Health Checks UI
+        services.AddHealthChecksUI(setup =>
+        {
+            setup.SetEvaluationTimeInSeconds(10); // Check every 10 seconds
+            setup.MaximumHistoryEntriesPerEndpoint(60);
+            setup.AddHealthCheckEndpoint("BarakoCMS", "/health");
+        })
+        .AddInMemoryStorage();
+
         return services;
     }
 
@@ -178,7 +186,7 @@ public static class ServiceCollectionExtensions
 
             // Content Security Policy
             context.Response.Headers.Append("Content-Security-Policy",
-                "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'");
+                "default-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:;");
 
             // HSTS (HTTP Strict Transport Security)
             if (context.Request.IsHttps)
@@ -205,7 +213,19 @@ public static class ServiceCollectionExtensions
             };
         });
 
-        app.UseHealthChecks("/health");
+        // Health Checks Endpoint (JSON for UI)
+        app.UseHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+        {
+            Predicate = _ => true,
+            ResponseWriter = HealthChecks.UI.Client.UIResponseWriter.WriteHealthCheckUIResponse
+        });
+
+        // Health Checks UI Dashboard
+        app.UseHealthChecksUI(options =>
+        {
+            options.UIPath = "/health-ui";
+            options.ApiPath = "/health-ui-api";
+        });
 
         app.UseCors("SecurePolicy");
         if (env == "Development")

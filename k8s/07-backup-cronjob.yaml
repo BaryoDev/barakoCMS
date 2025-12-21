@@ -1,0 +1,37 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: db-backup
+  namespace: barako-cms
+spec:
+  schedule: "0 2 * * *" # 2:00 AM Daily
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: backup
+              image: postgres:16-alpine
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  echo "Starting backup..."
+                  pg_dump -h postgres-service -U postgres -d barako_cms | gzip > /backups/backup-$(date +%Y-%m-%d-%H-%M-%S).sql.gz
+                  # Retention: Keep last 7 days
+                  find /backups -name "backup-*.sql.gz" -mtime +7 -delete
+                  echo "Backup complete."
+              env:
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: barako-secrets
+                      key: POSTGRES_PASSWORD
+              volumeMounts:
+                - name: backup-volume
+                  mountPath: /backups
+          restartPolicy: OnFailure
+          volumes:
+            - name: backup-volume
+              persistentVolumeClaim:
+                claimName: postgres-data # Ideally use a separate PVC or S3, but reusing for simplicity in starter kit

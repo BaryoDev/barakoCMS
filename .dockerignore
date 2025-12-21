@@ -1,0 +1,7 @@
+**/.git
+**/.DS_Store
+**/bin/
+**/obj/
+.vscode/
+.idea/
+global.json
