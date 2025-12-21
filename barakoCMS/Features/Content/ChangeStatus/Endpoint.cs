@@ -47,9 +47,18 @@ public class Endpoint : Endpoint<Request, Response>
         _session.Events.Append(req.Id, @event);
         await _session.SaveChangesAsync(ct);
 
-        await SendAsync(new Response 
-        { 
-            Message = $"Content status changed to {req.NewStatus}" 
+        // Reload and apply the event to the document (manual projection workaround)
+        var updatedContent = await _session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct);
+        if (updatedContent != null)
+        {
+            updatedContent.Apply(@event);
+            _session.Store(updatedContent);
+            await _session.SaveChangesAsync(ct);
+        }
+
+        await SendAsync(new Response
+        {
+            Message = $"Content status changed to {req.NewStatus}"
         });
     }
 }

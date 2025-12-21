@@ -1,7 +1,10 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Testcontainers.PostgreSql;
+using Marten;
+using JasperFx.Events.Projections;
 
 namespace BarakoCMS.Tests;
 
@@ -38,6 +41,36 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyn
                 {"BarakoCMS:ValidationOptions:ValidateDataTypes", "true"}
             };
             config.AddInMemoryCollection(settings!);
+        });
+
+        // Override Marten configuration for tests to use INLINE projections
+        builder.ConfigureServices(services =>
+        {
+            // Remove the existing Marten configuration
+            var martenDescriptor = services.FirstOrDefault(d => d.ServiceType == typeof(IDocumentStore));
+            if (martenDescriptor != null)
+            {
+                services.Remove(martenDescriptor);
+            }
+
+            // Re-add Marten with INLINE projections for immediate consistency in tests
+            services.AddMarten(sp =>
+            {
+                var options = new StoreOptions();
+                options.Connection(ConnectionString);
+
+                // Configure document versioning
+                options.Schema.For<barakoCMS.Models.Content>().DocumentAlias("contents");
+                options.Schema.For<barakoCMS.Models.User>().DocumentAlias("users");
+                options.Schema.For<barakoCMS.Models.SystemSetting>().DocumentAlias("system_settings");
+
+                // Register Workflow Projection as INLINE for tests (not Async)
+                options.Projections.Add(new barakoCMS.Features.Workflows.WorkflowProjection(sp), ProjectionLifecycle.Inline);
+
+                return options;
+            })
+            .UseLightweightSessions();
+            // Note: No AddAsyncDaemon for tests - projections run synchronously
         });
     }
 

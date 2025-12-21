@@ -81,7 +81,7 @@ public class ValidationIntegrationTests
 
     #region ContentType Creation Validation Tests
 
-    [Fact(Skip = "ContentType endpoint doesn't implement field validation - uses List<FieldDefinition> not Dictionary")]
+    [Fact]
     public async Task CreateContentType_ShouldSucceed_WithValidFieldTypes()
     {
         // Arrange
@@ -92,15 +92,17 @@ public class ValidationIntegrationTests
         var request = new
         {
             name = "ValidType",
-            fields = new Dictionary<string, string>
+            displayName = "Valid Type",
+            description = "A content type with valid field types",
+            fields = new List<object>
             {
-                { "Name", "string" },
-                { "Age", "int" },
-                { "IsActive", "bool" },
-                { "CreatedAt", "datetime" },
-                { "Price", "decimal" },
-                { "Tags", "array" },
-                { "Metadata", "object" }
+                new { name = "Name", displayName = "Name", type = "string", isRequired = false, defaultValue = (object?)null, validationRules = new Dictionary<string, object>() },
+                new { name = "Age", displayName = "Age", type = "int", isRequired = false, defaultValue = (object?)null, validationRules = new Dictionary<string, object>() },
+                new { name = "IsActive", displayName = "Is Active", type = "bool", isRequired = false, defaultValue = (object?)null, validationRules = new Dictionary<string, object>() },
+                new { name = "CreatedAt", displayName = "Created At", type = "datetime", isRequired = false, defaultValue = (object?)null, validationRules = new Dictionary<string, object>() },
+                new { name = "Price", displayName = "Price", type = "decimal", isRequired = false, defaultValue = (object?)null, validationRules = new Dictionary<string, object>() },
+                new { name = "Tags", displayName = "Tags", type = "array", isRequired = false, defaultValue = (object?)null, validationRules = new Dictionary<string, object>() },
+                new { name = "Metadata", displayName = "Metadata", type = "object", isRequired = false, defaultValue = (object?)null, validationRules = new Dictionary<string, object>() }
             }
         };
 
@@ -111,7 +113,7 @@ public class ValidationIntegrationTests
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
-    [Fact(Skip = "ContentType endpoint doesn't implement field type validation")]
+    [Fact]
     public async Task CreateContentType_ShouldFail_WithInvalidFieldType()
     {
         // Arrange
@@ -122,9 +124,11 @@ public class ValidationIntegrationTests
         var request = new
         {
             name = "InvalidType",
-            fields = new Dictionary<string, string>
+            displayName = "Invalid Type",
+            description = "Test",
+            fields = new List<object>
             {
-                { "Name", "varchar" } // Invalid type
+                new { name = "Name", displayName = "Name", type = "varchar", isRequired = false, defaultValue = (object?)null, validationRules = new Dictionary<string, object>() } // Invalid type
             }
         };
 
@@ -138,7 +142,7 @@ public class ValidationIntegrationTests
         error.Should().Contain("Allowed types");
     }
 
-    [Fact(Skip = "ContentType endpoint doesn't implement PascalCase field name validation")]
+    [Fact]
     public async Task CreateContentType_ShouldFail_WithNonPascalCaseFieldName()
     {
         // Arrange
@@ -149,9 +153,11 @@ public class ValidationIntegrationTests
         var request = new
         {
             name = "InvalidNaming",
-            fields = new Dictionary<string, string>
+            displayName = "Invalid Naming",
+            description = "Test",
+            fields = new List<object>
             {
-                { "first_name", "string" } // Invalid naming (snake_case)
+                new { name = "first_name", displayName = "First Name", type = "string", isRequired = false, defaultValue = (object?)null, validationRules = new Dictionary<string, object>() } // Invalid naming (snake_case)
             }
         };
 
@@ -166,7 +172,7 @@ public class ValidationIntegrationTests
         error.Should().Contain("FirstName");
     }
 
-    [Fact(Skip = "ContentType endpoint doesn't implement field validation")]
+    [Fact]
     public async Task CreateContentType_ShouldFail_WithMultipleValidationErrors()
     {
         // Arrange
@@ -177,11 +183,13 @@ public class ValidationIntegrationTests
         var request = new
         {
             name = "MultipleErrors",
-            fields = new Dictionary<string, string>
+            displayName = "Multiple Errors",
+            description = "Test",
+            fields = new List<object>
             {
-                { "first_name", "varchar" },  // Both naming and type invalid
-                { "age", "number" },          // Both naming and type invalid
-                { "Active", "bool" }          // Valid
+                new { name = "first_name", displayName = "First Name", type = "varchar", isRequired = false, defaultValue = (object?)null, validationRules = new Dictionary<string, object>() },  // Both naming and type invalid
+                new { name = "age", displayName = "Age", type = "number", isRequired = false, defaultValue = (object?)null, validationRules = new Dictionary<string, object>() },          // Naming invalid (should be Age), type is valid
+                new { name = "Active", displayName = "Active", type = "bool", isRequired = false, defaultValue = (object?)null, validationRules = new Dictionary<string, object>() }          // Valid
             }
         };
 
@@ -258,9 +266,18 @@ public class ValidationIntegrationTests
         var contentTypeReq = new
         {
             name = "Product",
-            fields = new Dictionary<string, string>
+            displayName = "Product",
+            description = "Product content type",
+            fields = new List<object>
             {
-                { "Price", "decimal" }
+                new {
+                    name = "Price",
+                    displayName = "Price",
+                    type = "decimal",
+                    isRequired = false,
+                    defaultValue = (object?)null,
+                    validationRules = new Dictionary<string, object>()
+                }
             }
         };
         await _client.PostAsJsonAsync("/api/content-types", contentTypeReq);
@@ -343,9 +360,18 @@ public class ValidationIntegrationTests
         var contentTypeReq = new
         {
             name = "Event",
-            fields = new Dictionary<string, string>
+            displayName = "Event",
+            description = "Event content type",
+            fields = new List<object>
             {
-                { "Attended", "bool" }
+                new {
+                    name = "Attended",
+                    displayName = "Attended",
+                    type = "boolean",
+                    isRequired = false,
+                    defaultValue = (object?)null,
+                    validationRules = new Dictionary<string, object>()
+                }
             }
         };
         await _client.PostAsJsonAsync("/api/content-types", contentTypeReq);
@@ -377,11 +403,10 @@ public class ValidationIntegrationTests
         var response = await _client.PutAsJsonAsync($"/api/contents/{createData.Id}", updateReq);
 
         // Assert
-        // Note: Optimistic concurrency check happens BEFORE validation,
-        // so we get 412 PreconditionFailed instead of 400 BadRequest
-        response.StatusCode.Should().Be(HttpStatusCode.PreconditionFailed);
+        // Validation should fail with 400 BadRequest due to type mismatch
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         var error = await response.Content.ReadAsStringAsync();
-        error.Should().Contain("modified by another user");
+        error.Should().Contain("Validation Failed");
     }
 
     #endregion
@@ -412,7 +437,7 @@ public class ValidationIntegrationTests
         {
             contentType = "nulltest",
             status = 1,
-            data = new Dictionary<string, object>
+            data = new Dictionary<string, object?>
             {
                 { "OptionalField", null }
             }
@@ -511,7 +536,7 @@ public class ValidationIntegrationTests
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
-    [Fact(Skip = "Flaky - Marten projection timing")]
+    [Fact]
     public async Task Regression_OldDataWithoutValidation_ShouldStillWork()
     {
         // This test ensures backward compatibility
@@ -526,9 +551,18 @@ public class ValidationIntegrationTests
         var contentTypeReq = new
         {
             name = "Legacy",
-            fields = new Dictionary<string, string>
+            displayName = "Legacy",
+            description = "Legacy content type",
+            fields = new List<object>
             {
-                { "Name", "string" }
+                new {
+                    name = "Name",
+                    displayName = "Name",
+                    type = "string",
+                    isRequired = false,
+                    defaultValue = (object?)null,
+                    validationRules = new Dictionary<string, object>()
+                }
             }
         };
         var ctRes = await _client.PostAsJsonAsync("/api/content-types", contentTypeReq);
@@ -557,7 +591,7 @@ public class ValidationIntegrationTests
 
     #region Full CRUD Workflow Test
 
-    [Fact(Skip = "Flaky - Marten projection timing")]
+    [Fact]
     public async Task FullWorkflow_CreateReadUpdateDelete_WithValidation()
     {
         // This test validates the complete CRUD lifecycle with validation
@@ -571,11 +605,34 @@ public class ValidationIntegrationTests
         var contentTypeReq = new
         {
             name = "Task",
-            fields = new Dictionary<string, string>
+            displayName = "Task",
+            description = "Task content type",
+            fields = new List<object>
             {
-                { "Title", "string" },
-                { "Completed", "bool" },
-                { "Priority", "int" }
+                new {
+                    name = "Title",
+                    displayName = "Title",
+                    type = "string",
+                    isRequired = false,
+                    defaultValue = (object?)null,
+                    validationRules = new Dictionary<string, object>()
+                },
+                new {
+                    name = "Completed",
+                    displayName = "Completed",
+                    type = "boolean",
+                    isRequired = false,
+                    defaultValue = (object?)null,
+                    validationRules = new Dictionary<string, object>()
+                },
+                new {
+                    name = "Priority",
+                    displayName = "Priority",
+                    type = "number",
+                    isRequired = false,
+                    defaultValue = (object?)null,
+                    validationRules = new Dictionary<string, object>()
+                }
             }
         };
         var ctRes = await _client.PostAsJsonAsync("/api/content-types", contentTypeReq);
