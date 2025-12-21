@@ -7,7 +7,7 @@ using FastEndpoints.Security;
 namespace BarakoCMS.Tests.Features.Roles;
 
 [Collection("Sequential")]
-public class RoleApiTests : IClassFixture<IntegrationTestFixture>
+public class RoleApiTests
 {
     private readonly HttpClient _client;
     private readonly IntegrationTestFixture _fixture;
