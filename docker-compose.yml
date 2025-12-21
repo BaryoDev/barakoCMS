@@ -27,10 +27,30 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
+
+  db-backup:
+    image: postgres:16-alpine
+    container_name: barako-db-backup
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backups:/backups
+      - ./scripts:/scripts
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: barako_cms
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      # Schedule: 2:00 AM daily
+      BACKUP_CRON_SCHEDULE: "0 2 * * *"
+      BACKUP_KEEP_DAYS: 7
+    entrypoint: ["/bin/sh", "/scripts/backup-cron.sh"]
 
 volumes:
   postgres_data:
