@@ -95,6 +95,7 @@ public static class ServiceCollectionExtensions
             // Configure document versioning
             options.Schema.For<Content>().DocumentAlias("contents");
             options.Schema.For<User>().DocumentAlias("users");
+            options.Schema.For<SystemSetting>().DocumentAlias("system_settings");
 
             // Register Workflow Projection (Async)
             options.Projections.Add(new WorkflowProjection(sp), JasperFx.Events.Projections.ProjectionLifecycle.Async);
@@ -113,6 +114,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<barakoCMS.Core.Interfaces.IEmailService, barakoCMS.Infrastructure.Services.MockEmailService>();
         services.AddScoped<barakoCMS.Core.Interfaces.ISmsService, barakoCMS.Infrastructure.Services.MockSmsService>();
         services.AddScoped<barakoCMS.Core.Interfaces.ISensitivityService, barakoCMS.Infrastructure.Services.SensitivityService>();
+        services.AddScoped<barakoCMS.Infrastructure.Services.IConfigurationService, barakoCMS.Infrastructure.Services.ConfigurationService>();
 
         // Workflow Action Plugins
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.EmailAction>();
