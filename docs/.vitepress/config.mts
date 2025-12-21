@@ -15,6 +15,7 @@ export default withMermaid(defineConfig({
         nav: [
             { text: 'Home', link: '/' },
             { text: 'Guide', link: '/guide/getting-started' },
+            { text: 'Blog', link: '/blog/index' },
             { text: `v${VERSION} `, link: '/versions' },
             { text: 'Reference', link: '/api/endpoints' },
             { text: 'Workflows', link: '/workflows/index' }
@@ -72,6 +73,7 @@ export default withMermaid(defineConfig({
             {
                 text: 'Project',
                 items: [
+                    { text: 'Blog', link: '/blog/index' },
                     { text: 'Roadmap', link: '/roadmap' },
                     { text: 'Changelog', link: 'https://github.com/BaryoDev/barakoCMS/blob/master/CHANGELOG.md' }
                 ]
