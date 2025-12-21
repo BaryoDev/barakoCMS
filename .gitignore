@@ -1,3 +1,8 @@
+# CRITICAL: Never commit real environment files
+.env
+.env.*
+!.env.example
+
 # Project-specific
 docs/roadmap.md
 ROADMAP.md
