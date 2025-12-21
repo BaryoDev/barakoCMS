@@ -14,6 +14,7 @@ import {
   Layers, FileText, GitBranch, Activity, Server, Database,
   ArrowRight, Zap, Shield, ChevronRight
 } from 'lucide-react';
+import { SystemMetrics } from '@/components/system-metrics';
 
 export default function DashboardPage() {
   const { isAuthenticated, isLoading, requireAuth } = useAuth();
