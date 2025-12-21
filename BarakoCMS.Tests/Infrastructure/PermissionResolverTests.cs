@@ -95,9 +95,10 @@ public class PermissionResolverTests
     }
 
     [Fact]
-    public async Task CanPerformAction_MultipleRoles_OneDenies_ShouldDeny_MostRestrictive()
+    public async Task CanPerformAction_MultipleRoles_OneGrants_ShouldAllow_Additive()
     {
-        // Arrange - This is the KEY test for "Most Restrictive" logic
+        // Arrange - Standard CMS Logic is Additive (Union)
+        // If one role grants permission, the user has it, even if another rol (e.g. Viewer) does not.
         var editorRole = new Role
         {
             Id = Guid.NewGuid(),
@@ -135,7 +136,7 @@ public class PermissionResolverTests
         var result = await resolver.CanPerformActionAsync(user, "article", "update");
 
         // Assert
-        result.Should().BeFalse("because ONE role denies (Most Restrictive = ALL must allow)");
+        result.Should().BeTrue("because standard permission logic is additive (Union of permissions)");
     }
 
     [Fact]
@@ -286,5 +287,45 @@ public class PermissionResolverTests
             It.IsAny<Dictionary<string, object>>(),
             content.Data,
             user), Times.Once);
+    }
+    [Fact]
+    public async Task CanPerformAction_MultipleRoles_OneGrant_OneSilent_ShouldAllow()
+    {
+        // Arrange
+        var editorRole = new Role
+        {
+            Id = Guid.NewGuid(),
+            Name = "Editor",
+            Permissions = new List<ContentTypePermission>
+            {
+                new() { ContentTypeSlug = "article", Update = new PermissionRule { Enabled = true } }
+            }
+        };
+
+        var silentRole = new Role
+        {
+            Id = Guid.NewGuid(),
+            Name = "Silent",
+            Permissions = new List<ContentTypePermission>() // No permissions defined
+        };
+
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            RoleIds = new List<Guid> { editorRole.Id, silentRole.Id }
+        };
+
+        var mockSession = new Mock<IDocumentSession>();
+        mockSession.Setup(s => s.LoadAsync<Role>(editorRole.Id, default)).ReturnsAsync(editorRole);
+        mockSession.Setup(s => s.LoadAsync<Role>(silentRole.Id, default)).ReturnsAsync(silentRole);
+
+        var mockConditionEvaluator = new Mock<IConditionEvaluator>();
+        var resolver = new PermissionResolver(mockSession.Object, mockConditionEvaluator.Object);
+
+        // Act
+        var result = await resolver.CanPerformActionAsync(user, "article", "update");
+
+        // Assert
+        result.Should().BeTrue("because Silent role should be ignored, and Editor grants permission");
     }
 }

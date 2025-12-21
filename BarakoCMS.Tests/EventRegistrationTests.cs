@@ -29,10 +29,14 @@ public class EventRegistrationTests : IClassFixture<IntegrationTestFixture>
         var token = FastEndpoints.Security.JWTBearer.CreateToken(
             signingKey: "test-super-secret-key-that-is-at-least-32-chars-long",
             expireAt: DateTime.UtcNow.AddDays(1),
+            issuer: "BarakoTest",
+            audience: "BarakoClient",
             privileges: u =>
             {
                 u.Roles.Add("Admin");
                 u.Roles.Add("SuperAdmin");
+                u.Claims.Add(new(System.Security.Claims.ClaimTypes.Role, "Admin"));
+                u.Claims.Add(new(System.Security.Claims.ClaimTypes.Role, "SuperAdmin"));
                 u.Claims.Add(new("UserId", Guid.NewGuid().ToString()));
                 u.Claims.Add(new("Username", "admin"));
             });

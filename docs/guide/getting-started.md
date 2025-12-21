@@ -32,3 +32,26 @@
    - **SuperAdmin**: See `appsettings.json` or console output.
    - **HR Manager**: `hr_manager` / `HRPassword123!`
    - **Standard User**: `john_viewer` / `UserPassword123!`
+
+## Building a Frontend
+
+BarakoCMS is headless-first. We provide a **Next.js Starter Kit** to get you up and running quickly.
+
+### Using the Starter Kit
+
+1. Navigate to the examples directory:
+   ```bash
+   cd examples/nextjs-starter
+   ```
+
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+3. Run the development server:
+   ```bash
+   npm run dev
+   ```
+
+4. Open `http://localhost:3000`. It will connect to your local BarakoCMS backend (`http://localhost:5005`) to fetch content.

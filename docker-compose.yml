@@ -9,6 +9,8 @@ services:
     environment:
       - ConnectionStrings__DefaultConnection=Host=postgres;Database=barako_cms;Username=postgres;Password=postgres
       - JWT__Key=your-super-secret-key-that-is-at-least-32-chars-long
+      - InitialAdmin__Username=arnex
+      - InitialAdmin__Password=SuperBarako123!
     depends_on:
       postgres:
         condition: service_healthy

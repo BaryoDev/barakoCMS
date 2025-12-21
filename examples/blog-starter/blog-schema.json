@@ -1,0 +1,49 @@
+{
+    "name": "blog-post",
+    "displayName": "Blog Post",
+    "description": "Standard blog post with title, content, and cover image",
+    "sensitivity": "public",
+    "fields": [
+        {
+            "name": "title",
+            "displayName": "Title",
+            "type": "text",
+            "required": true,
+            "validation": {
+                "minLength": 5,
+                "maxLength": 100
+            }
+        },
+        {
+            "name": "slug",
+            "displayName": "Slug",
+            "type": "text",
+            "required": true,
+            "validation": {
+                "pattern": "^[a-z0-9-]+$"
+            }
+        },
+        {
+            "name": "publishedAt",
+            "displayName": "Publish Date",
+            "type": "date",
+            "required": true
+        },
+        {
+            "name": "content",
+            "displayName": "Content",
+            "type": "richtext",
+            "required": true
+        },
+        {
+            "name": "coverImage",
+            "displayName": "Cover Image",
+            "type": "media"
+        },
+        {
+            "name": "tags",
+            "displayName": "Tags",
+            "type": "list"
+        }
+    ]
+}

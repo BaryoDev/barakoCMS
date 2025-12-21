@@ -26,10 +26,18 @@ export default defineConfig({
                     { text: 'Introduction', link: '/guide/introduction' },
                     { text: 'Getting Started', link: '/guide/getting-started' },
                     { text: 'Configuration', link: '/guide/configuration' },
-                    { text: 'Observability & Logging', link: '/guide/observability' }, // New
+                    { text: 'Admin UI', link: '/guide/admin-ui' },
+                    { text: 'Observability & Logging', link: '/guide/observability' },
                     { text: 'Database Automation', link: '/guide/database-automation' },
-                    { text: 'Kubernetes Deployment', link: '/guide/kubernetes-deployment' }, // New
+                    { text: 'Kubernetes Deployment', link: '/guide/kubernetes-deployment' },
+                    { text: 'Fly.io Deployment', link: '/guide/fly-io-deployment' },
                     { text: 'Troubleshooting', link: '/guide/troubleshooting' }
+                ]
+            },
+            {
+                text: 'Operations',
+                items: [
+                    { text: 'Backup & Recovery', link: '/guide/backup-recovery' }
                 ]
             },
             {
@@ -42,6 +50,7 @@ export default defineConfig({
                 text: 'Core Concepts',
                 items: [
                     { text: 'Architecture Deep Dive', link: '/guide/architecture' },
+                    { text: 'Content Modeling (Dynamic)', link: '/guide/content-modeling' }, // New
                     { text: 'RBAC System', link: '/guide/rbac' },
                     { text: 'Workflow Engine', link: '/workflows/index' },
                     { text: 'Workflow Plugins', link: '/workflows/plugins' },

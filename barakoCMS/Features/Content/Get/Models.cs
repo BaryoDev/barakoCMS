@@ -12,6 +12,7 @@ public class Response
     public Dictionary<string, object> Data { get; set; } = new();
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+    public barakoCMS.Models.ContentStatus Status { get; set; }
     public Guid LastModifiedBy { get; set; }
     public barakoCMS.Models.SensitivityLevel Sensitivity { get; set; }
 }

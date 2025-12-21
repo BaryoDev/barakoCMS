@@ -78,3 +78,18 @@ We use a "Fire-and-Forget" pattern backed by persistence.
 2.  **Marten Async Daemon**: Polling process sees new event.
 3.  **Permission**: Daemon checks if any Workflow matches the event.
 4.  **Execute**: Runs the `WorkflowAction` (e.g., SendGrid API).
+
+## Technology Stack Decisions
+
+### Frontend: Next.js (React) vs. Blazor WASM
+
+For the Admin UI ("Visual Builder"), we explicitly chose **Next.js (React)** over Blazor WebAssembly.
+
+| Feature         | Next.js (React)                                    | Blazor WASM                                   | Why We Chose Next.js                                |
+| :-------------- | :------------------------------------------------- | :-------------------------------------------- | :-------------------------------------------------- |
+| **Ecosystem**   | **Rich**: React Flow, dnd-kit, shadcn/ui.          | **Limited**: Often wraps JS libs anyway.      | Crucial for "Visual Builder" features.              |
+| **Performance** | **Instant**: Static HTML skeleton.                 | **Slow Start**: Downloads .NET Runtime (MBs). | First impression matters for product adoption.      |
+| **Adoption**    | **Industry Standard**: Most frontend devs know it. | **Niche**: Mostly .NET shops.                 | "Dogfooding" our API proves it's frontend-friendly. |
+| **Styling**     | **TailwindCSS**: Rapid, modern.                    | **Components**: Often bulky/generic.          | We need a premium, custom look.                     |
+
+**Verdict**: We use .NET 8 for high-performance Backend (the "Engine") and Next.js for high-fidelity Frontend (the "Dashboard"). Best tool for the job.

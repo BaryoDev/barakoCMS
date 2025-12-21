@@ -21,9 +21,12 @@ public class UserGroupApiTests : IClassFixture<IntegrationTestFixture>
         return JWTBearer.CreateToken(
             signingKey: "test-super-secret-key-that-is-at-least-32-chars-long",
             expireAt: DateTime.UtcNow.AddDays(1),
+            issuer: "BarakoTest",
+            audience: "BarakoClient",
             privileges: u =>
             {
                 u.Roles.Add("SuperAdmin");
+                u.Claims.Add(new(System.Security.Claims.ClaimTypes.Role, "SuperAdmin")); // Explicit add
                 u.Claims.Add(new("UserId", Guid.NewGuid().ToString()));
             });
     }
