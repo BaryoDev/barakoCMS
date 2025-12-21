@@ -7,12 +7,13 @@ services:
     ports:
       - "5005:8080"
     environment:
-      - ConnectionStrings__DefaultConnection=Host=postgres;Database=barako_cms;Username=postgres;Password=postgres
-      - JWT__Key=your-super-secret-key-that-is-at-least-32-chars-long
-      - InitialAdmin__Username=arnex
-      - InitialAdmin__Password=SuperBarako123!
+      # WARNING: Override these in production with real secrets!
+      - ConnectionStrings__DefaultConnection=Host=postgres;Database=barako_cms;Username=postgres;Password=${POSTGRES_PASSWORD:-postgres}
+      - JWT__Key=${JWT_SECRET:-dev-only-key-minimum-32-chars-long}
+      - InitialAdmin__Username=${ADMIN_USER:-admin}
+      - InitialAdmin__Password=${ADMIN_PASSWORD:-changeme-in-production}
     volumes:
-      - ${HOME}/.kube:/root/.kube:ro  # Mount kubeconfig for Kubernetes access
+      - ${HOME}/.kube:/root/.kube:ro # Mount kubeconfig for Kubernetes access
     depends_on:
       postgres:
         condition: service_healthy
