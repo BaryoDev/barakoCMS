@@ -11,7 +11,16 @@
       "Bash(brew install:*)",
       "Bash(gh auth:*)",
       "Bash(curl:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(git pull:*)",
+      "Bash(git commit:*)",
+      "Bash(unzip:*)",
+      "Bash(git stash:*)",
+      "Bash(cat:*)",
+      "Bash(docker build:*)",
+      "Bash(claude config list:*)",
+      "Bash(echo:*)",
+      "Bash(dotnet nuget delete:*)"
     ]
   }
 }
