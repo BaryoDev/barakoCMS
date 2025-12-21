@@ -41,12 +41,14 @@ public class KubernetesMonitorService : IKubernetesMonitorService
     private static bool _initFailed = false;
     private readonly IWebHostEnvironment? _env;
     private readonly IConfiguration _config;
+    private readonly IConfigurationService _configService;
 
-    public KubernetesMonitorService(ILogger<KubernetesMonitorService> logger, IServiceProvider serviceProvider, IConfiguration config)
+    public KubernetesMonitorService(ILogger<KubernetesMonitorService> logger, IServiceProvider serviceProvider, IConfiguration config, IConfigurationService configService)
     {
         _logger = logger;
         _env = serviceProvider.GetService<IWebHostEnvironment>();
         _config = config;
+        _configService = configService;
         _client = CreateClient();
     }
 
@@ -92,12 +94,15 @@ public class KubernetesMonitorService : IKubernetesMonitorService
     {
         var status = new ClusterStatus();
 
-        if (_client == null)
+        // Check if Kubernetes monitoring is enabled via database setting
+        var isEnabled = await _configService.GetConfigValueAsync("Kubernetes__Enabled", false);
+
+        if (!isEnabled || _client == null)
         {
             status.IsConnected = false;
             status.IsInCluster = false;
             status.ConnectionMethod = "None";
-            status.Error = "Kubernetes monitoring is disabled or not initialized.";
+            status.Error = isEnabled ? "Kubernetes monitoring is not initialized." : "Kubernetes monitoring is disabled via settings.";
             return status;
         }
 
