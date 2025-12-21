@@ -23,6 +23,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<App::Program>, 
     public CustomWebApplicationFactory()
     {
         Environment.SetEnvironmentVariable("JWT__Key", "test-super-secret-key-that-is-at-least-32-chars-long");
+        Environment.SetEnvironmentVariable("SKIP_SEEDER", "true");
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -33,6 +34,8 @@ public class CustomWebApplicationFactory : WebApplicationFactory<App::Program>, 
             {
                 {"ConnectionStrings:DefaultConnection", ConnectionString},
                 {"JWT:Key", "test-super-secret-key-that-is-at-least-32-chars-long"},
+                {"JWT:Issuer", "BarakoTest"},
+                {"JWT:Audience", "BarakoClient"},
                 {"SensitivityPolicies:AttendanceRecord:SSN:Action", "Remove"},
                 {"SensitivityPolicies:AttendanceRecord:SSN:AllowedRoles:0", "SuperAdmin"},
                 {"SensitivityPolicies:AttendanceRecord:BirthDay:Action", "Mask"},
@@ -68,6 +71,9 @@ public class CustomWebApplicationFactory : WebApplicationFactory<App::Program>, 
     public async Task InitializeAsync()
     {
         await _postgresContainer.StartAsync();
+        // Set env vars after container starts so the connection string points to the right port
+        Environment.SetEnvironmentVariable("DATABASE_URL", ConnectionString);
+        Environment.SetEnvironmentVariable("ConnectionStrings__DefaultConnection", ConnectionString);
     }
 
     public new async Task DisposeAsync()
