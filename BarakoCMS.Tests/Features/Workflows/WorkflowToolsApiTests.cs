@@ -6,7 +6,8 @@ using Xunit;
 
 namespace BarakoCMS.Tests.Features.Workflows;
 
-public class WorkflowToolsApiTests : IClassFixture<IntegrationTestFixture>
+[Collection("Sequential")]
+public class WorkflowToolsApiTests
 {
     private readonly HttpClient _client;
     private readonly IntegrationTestFixture _fixture;
