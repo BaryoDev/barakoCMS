@@ -22,7 +22,8 @@ using UpdateContentResponse = barakoCMS.Features.Content.Update.Response;
 
 namespace BarakoCMS.Tests;
 
-public class IntegrationTests : IClassFixture<IntegrationTestFixture>
+[Collection("Sequential")]
+public class IntegrationTests
 {
     private readonly HttpClient _client;
 
