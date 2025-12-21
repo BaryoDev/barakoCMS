@@ -101,9 +101,9 @@ public class RoleApiTests
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        var roles = await response.Content.ReadFromJsonAsync<List<barakoCMS.Models.Role>>();
-        roles.Should().NotBeNull();
-        roles.Should().NotBeEmpty();
+        var result = await response.Content.ReadFromJsonAsync<barakoCMS.Models.PaginatedResponse<barakoCMS.Models.Role>>();
+        result.Should().NotBeNull();
+        result!.Items.Should().NotBeEmpty();
     }
 
     [Fact]

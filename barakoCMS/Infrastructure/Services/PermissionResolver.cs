@@ -31,14 +31,10 @@ public class PermissionResolver : IPermissionResolver
         if (user.RoleIds == null || user.RoleIds.Count == 0)
             return false;
 
-        // Load all user's roles
-        var roles = new List<Models.Role>();
-        foreach (var roleId in user.RoleIds)
-        {
-            var role = await _session.LoadAsync<Models.Role>(roleId, cancellationToken);
-            if (role != null)
-                roles.Add(role);
-        }
+        // Batch load all user's roles in a SINGLE query (eliminates N+1)
+        var roles = await _session.Query<Models.Role>()
+            .Where(r => r.Id.In(user.RoleIds))
+            .ToListAsync(cancellationToken);
 
         if (roles.Count == 0)
             return false;

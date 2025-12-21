@@ -1,19 +1,17 @@
 using FluentValidation;
 
-namespace barakoCMS.Features.Auth.Login;
+namespace barakoCMS.Features.Auth.Refresh;
 
 public class Request
 {
-    public string Username { get; set; } = string.Empty;
-    public string Password { get; set; } = string.Empty;
+    public string RefreshToken { get; set; } = string.Empty;
 }
 
 public class RequestValidator : FastEndpoints.Validator<Request>
 {
     public RequestValidator()
     {
-        RuleFor(x => x.Username).NotEmpty();
-        RuleFor(x => x.Password).NotEmpty();
+        RuleFor(x => x.RefreshToken).NotEmpty().WithMessage("Refresh token is required");
     }
 }
 

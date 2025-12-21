@@ -4,12 +4,10 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.Content.List;
 
-public class Request
+public class Request : PaginatedRequest
 {
     public string? ContentType { get; set; }
 }
-
-public class Response : List<ContentResponse> { }
 
 public class ContentResponse
 {
@@ -20,21 +18,26 @@ public class ContentResponse
     public DateTimeOffset UpdatedAt { get; set; }
 }
 
-public class Endpoint : Endpoint<Request, Response>
+public class Endpoint : Endpoint<Request, PaginatedResponse<ContentResponse>>
 {
     private readonly IQuerySession _session;
     private readonly barakoCMS.Infrastructure.Services.IPermissionResolver _permissionResolver;
+    private readonly ILogger<Endpoint> _logger;
 
-    public Endpoint(IQuerySession session, barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver)
+    public Endpoint(
+        IQuerySession session,
+        barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver,
+        ILogger<Endpoint> logger)
     {
         _session = session;
         _permissionResolver = permissionResolver;
+        _logger = logger;
     }
 
     public override void Configure()
     {
         Get("/api/contents");
-        // Removed AllowAnonymous
+        // Removed AllowAnonymous - requires authentication
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
@@ -46,6 +49,7 @@ public class Endpoint : Endpoint<Request, Response>
             await SendUnauthorizedAsync(ct);
             return;
         }
+        
         var user = await _session.LoadAsync<barakoCMS.Models.User>(userId, ct);
         if (user == null)
         {
@@ -53,7 +57,7 @@ public class Endpoint : Endpoint<Request, Response>
             return;
         }
 
-        // 2. Query
+        // 2. Build Query
         var query = _session.Query<barakoCMS.Models.Content>().AsQueryable();
 
         if (!string.IsNullOrEmpty(req.ContentType))
@@ -61,35 +65,53 @@ public class Endpoint : Endpoint<Request, Response>
             query = query.Where(c => c.ContentType == req.ContentType);
         }
 
-        // Order by newest first
-        var items = await query.OrderByDescending(c => c.CreatedAt).ToListAsync(ct);
+        // 3. Get Total Count (before pagination)
+        var totalCount = await query.CountAsync(ct);
 
-        // 3. Filter (In-Memory Permission Check)
-        // Warning: This is O(N) permission checks. Pagination is recommended for production scale.
-        var allowedItems = new List<barakoCMS.Models.Content>();
+        // 4. Apply Sorting
+        query = req.SortOrder.ToLower() == "asc"
+            ? query.OrderBy(c => c.CreatedAt)
+            : query.OrderByDescending(c => c.CreatedAt);
+
+        // 5. Apply Pagination (CRITICAL: Limits result set size)
+        var items = await query
+            .Skip(req.Skip)
+            .Take(req.Take)
+            .ToListAsync(ct);
+
+        _logger.LogInformation(
+            "Content list query: Page={Page}, PageSize={PageSize}, TotalCount={TotalCount}, Retrieved={Retrieved}",
+            req.Page, req.PageSize, totalCount, items.Count);
+
+        // 6. Filter by Permission (now O(pageSize) not O(total))
+        // This is much more efficient - only checking permissions for items on current page
+        var permittedItems = new List<ContentResponse>();
         foreach (var item in items)
         {
             if (await _permissionResolver.CanPerformActionAsync(user, item.ContentType, "read", item, ct))
             {
-                allowedItems.Add(item);
-            }
-            else
-            {
-                Serilog.Log.Warning($"[DEBUG] Permission Denied for Item {item.Id} ({item.ContentType})");
+                permittedItems.Add(new ContentResponse
+                {
+                    Id = item.Id,
+                    ContentType = item.ContentType,
+                    Data = new Dictionary<string, object>(item.Data),
+                    CreatedAt = item.CreatedAt,
+                    UpdatedAt = item.UpdatedAt
+                });
             }
         }
-        Serilog.Log.Information($"[DEBUG] Returning {allowedItems.Count} items after filter");
 
-        var response = new Response();
-        response.AddRange(allowedItems.Select(c => new ContentResponse
+        _logger.LogInformation(
+            "Permission filtering: Retrieved={Retrieved}, Permitted={Permitted}",
+            items.Count, permittedItems.Count);
+
+        // 7. Return Paginated Response
+        await SendAsync(new PaginatedResponse<ContentResponse>
         {
-            Id = c.Id,
-            ContentType = c.ContentType,
-            Data = new Dictionary<string, object>(c.Data),
-            CreatedAt = c.CreatedAt,
-            UpdatedAt = c.UpdatedAt
-        }));
-
-        await SendAsync(response, cancellation: ct);
+            Items = permittedItems,
+            Page = req.Page,
+            PageSize = req.PageSize,
+            TotalItems = totalCount // Note: This is total before permission filtering
+        }, cancellation: ct);
     }
 }
