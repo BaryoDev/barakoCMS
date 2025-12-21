@@ -13,7 +13,7 @@
     <Description>The AI-Native, High-Performance Headless CMS for .NET 8. Plugin-based workflow system with 6 built-in actions, advanced RBAC, event sourcing, and production-grade security.</Description>
     <IsPackable>true</IsPackable>
     <StaticWebAssetsEnabled>false</StaticWebAssetsEnabled>
-    <GenerateRuntimeConfigurationFiles>false</GenerateRuntimeConfigurationFiles>
+    <GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
     <RepositoryUrl>https://github.com/baryodev/barakoCMS</RepositoryUrl>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
     <PackageProjectUrl>https://github.com/baryodev/barakoCMS</PackageProjectUrl>
@@ -34,6 +34,9 @@
 
   <ItemGroup>
     <PackageReference Include="AspNetCore.HealthChecks.Npgsql" Version="9.0.0" />
+    <PackageReference Include="AspNetCore.HealthChecks.UI" Version="9.0.0" />
+    <PackageReference Include="AspNetCore.HealthChecks.UI.Client" Version="9.0.0" />
+    <PackageReference Include="AspNetCore.HealthChecks.UI.InMemory.Storage" Version="9.0.0" />
     <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
     <PackageReference Include="FastEndpoints" Version="5.21.2" />
     <PackageReference Include="FastEndpoints.Swagger" Version="5.21.2" />

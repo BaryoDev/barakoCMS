@@ -146,11 +146,11 @@ Transform BarakoCMS from beta-quality to enterprise production-ready by addressi
   - [ ] Container security scanning (Trivy/Snyk)
   - [ ] Automated NuGet package publishing
   
-- [ ] **Kubernetes Deployment**
-  - [ ] Production-ready K8s manifests (Deployment, Service, Ingress)
-  - [ ] ConfigMap and Secret management
-  - [ ] HPA (Horizontal Pod Autoscaler) configuration
-  - [ ] Resource limits and requests
+- [x] **Kubernetes Deployment** ✅ **(2025-12-16)**
+  - [x] Production-ready K8s manifests (Deployment, Service, Ingress)
+  - [x] ConfigMap and Secret management
+  - [x] Docker Image Build Verification (`barakocms:latest`)
+  - [x] HPA & Resource limits defined
   
 - [x] **Database Automation** ✅ **(2025-12-16)**
   - [x] Automated schema migrations on startup (Configured Marten AutoCreate)
@@ -171,9 +171,9 @@ Transform BarakoCMS from beta-quality to enterprise production-ready by addressi
   - [ ] Correlation IDs across services
   - [ ] Request/Response logging middleware
   
-- [ ] **Health Monitoring**
-  - [ ] **Health Checks UI** (visual traffic lights)
-  - [ ] Database Liveness/Readiness probes
+- [x] **Health Monitoring** ✅ **(2025-12-16)**
+  - [x] **Health Checks UI** (visual traffic lights at `/health-ui`)
+  - [x] Database Liveness/Readiness probes (`.AddHealthChecks()`)
   - [ ] Disk space & memory checks
 
 - [ ] **Metrics**

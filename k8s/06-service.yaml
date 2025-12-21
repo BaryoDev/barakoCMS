@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: barako-cms-service
+  namespace: barako-cms
+spec:
+  type: LoadBalancer # Easy access for local testing (localhost:8080)
+  ports:
+    - port: 80
+      targetPort: 8080
+  selector:
+    app: barako-cms

@@ -26,7 +26,8 @@ export default defineConfig({
                     { text: 'Introduction', link: '/guide/introduction' },
                     { text: 'Getting Started', link: '/guide/getting-started' },
                     { text: 'Configuration', link: '/guide/configuration' },
-                    { text: 'Database Automation', link: '/guide/database-automation' }, // New
+                    { text: 'Database Automation', link: '/guide/database-automation' },
+                    { text: 'Kubernetes Deployment', link: '/guide/kubernetes-deployment' }, // New
                     { text: 'Troubleshooting', link: '/guide/troubleshooting' }
                 ]
             },
