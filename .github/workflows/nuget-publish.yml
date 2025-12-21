@@ -8,9 +8,7 @@ on:
     branches: ["master"]
     paths-ignore:
       - "**/*.md"
-    # Added a conditional check or just removed push completely?
-    # Actually, the user likely wants to keep tests on push but not publish.
-    # Let's split it or use conditions.
+      - "docs/**"
 
 jobs:
   test:
