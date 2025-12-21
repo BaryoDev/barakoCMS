@@ -10,12 +10,14 @@ public class Endpoint : Endpoint<Request, Response>
     private readonly IDocumentSession _session;
     private readonly barakoCMS.Infrastructure.Services.IPermissionResolver _permissionResolver;
     private readonly barakoCMS.Features.Workflows.IWorkflowEngine _workflowEngine;
+    private readonly barakoCMS.Infrastructure.Services.IContentValidatorService _validator;
 
-    public Endpoint(IDocumentSession session, barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver, barakoCMS.Features.Workflows.IWorkflowEngine workflowEngine)
+    public Endpoint(IDocumentSession session, barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver, barakoCMS.Features.Workflows.IWorkflowEngine workflowEngine, barakoCMS.Infrastructure.Services.IContentValidatorService validator)
     {
         _session = session;
         _permissionResolver = permissionResolver;
         _workflowEngine = workflowEngine;
+        _validator = validator;
     }
 
     public override void Configure()
@@ -39,6 +41,14 @@ public class Endpoint : Endpoint<Request, Response>
         if (user == null || !await _permissionResolver.CanPerformActionAsync(user, existingContent.ContentType, "update", existingContent, ct))
         {
             await SendForbiddenAsync(ct);
+            return;
+        }
+
+        // DYNAMIC VALIDATION - Validate data against ContentType schema
+        var validationResult = await _validator.ValidateAsync(existingContent.ContentType, req.Data);
+        if (!validationResult.IsValid)
+        {
+            await SendAsync(new Response { Message = "Validation Failed: " + string.Join(", ", validationResult.Errors) }, 400, ct);
             return;
         }
 
@@ -69,25 +79,36 @@ public class Endpoint : Endpoint<Request, Response>
             // Append Events
             _session.Events.Append(req.Id, events.ToArray());
 
-            // MANUAL PERSISTENCE (Fix for Projection Lag)
-            // Apply events to existing content in memory
-            existingContent.Apply(updateEvent);
-            if (statusChanged)
-            {
-                var statusEvent = new barakoCMS.Events.ContentStatusChanged(req.Id, req.Status, userId);
-                existingContent.Apply(statusEvent);
-            }
-
-            // Explicitly store the updated document
-            _session.Store(existingContent);
-
+            // Save events to stream
             await _session.SaveChangesAsync(ct);
 
-            // WORKFLOW TRIGGER
-            await _workflowEngine.ProcessEventAsync(existingContent.ContentType, "update", existingContent, ct);
-            if (statusChanged)
+            // Reload content and manually apply events (manual projection workaround)
+            var updatedContent = await _session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct);
+            if (updatedContent != null)
             {
-                await _workflowEngine.ProcessEventAsync(existingContent.ContentType, "status_change", existingContent, ct);
+                // Apply each event to the document
+                foreach (var evt in events)
+                {
+                    if (evt is barakoCMS.Events.ContentUpdated updateEvt)
+                    {
+                        updatedContent.Apply(updateEvt);
+                    }
+                    else if (evt is barakoCMS.Events.ContentStatusChanged statusEvt)
+                    {
+                        updatedContent.Apply(statusEvt);
+                    }
+                }
+
+                // Store the updated document
+                _session.Store(updatedContent);
+                await _session.SaveChangesAsync(ct);
+
+                // WORKFLOW TRIGGER - use updated content with applied events
+                await _workflowEngine.ProcessEventAsync(updatedContent.ContentType, "update", updatedContent, ct);
+                if (statusChanged)
+                {
+                    await _workflowEngine.ProcessEventAsync(updatedContent.ContentType, "status_change", updatedContent, ct);
+                }
             }
         }
         catch (Exception ex) when (ex.GetType().Name.Contains("Concurrency") || ex.GetType().Name.Contains("UnexpectedMaxEventId"))

@@ -48,5 +48,7 @@ public class WorkflowTests
         // I will write a test that focuses on the logic if I can.
         
         // Alternative: Integration Test with LightMarten or similar.
+
+        await Task.CompletedTask; // Placeholder to avoid CS1998 warning
     }
 }

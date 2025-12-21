@@ -16,15 +16,18 @@ public class Response
 {
     public Guid Id { get; set; }
     public string Name { get; set; } = string.Empty;
+    public List<string>? Errors { get; set; }
 }
 
 public class Endpoint : Endpoint<Request, Response>
 {
     private readonly IDocumentSession _session;
+    private readonly barakoCMS.Infrastructure.Services.IContentTypeValidatorService _validator;
 
-    public Endpoint(IDocumentSession session)
+    public Endpoint(IDocumentSession session, barakoCMS.Infrastructure.Services.IContentTypeValidatorService validator)
     {
         _session = session;
+        _validator = validator;
     }
 
     public override void Configure()
@@ -35,10 +38,18 @@ public class Endpoint : Endpoint<Request, Response>
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        // 1. Normalize Name (slugify)
+        // 1. Validate ContentType
+        var (isValid, errors) = _validator.Validate(req.Name, req.DisplayName, req.Fields);
+        if (!isValid)
+        {
+            await SendAsync(new Response { Errors = errors }, 400, ct);
+            return;
+        }
+
+        // 2. Normalize Name (slugify)
         var slug = req.Name.ToLowerInvariant().Trim().Replace(" ", "-");
 
-        // 2. Check Uniqueness
+        // 3. Check Uniqueness
         var existing = await _session.Query<ContentTypeDefinition>()
             .FirstOrDefaultAsync(x => x.Name == slug, ct);
 
@@ -47,7 +58,7 @@ public class Endpoint : Endpoint<Request, Response>
             ThrowError("A Content Type with this name already exists.");
         }
 
-        // 3. Create
+        // 4. Create
         var def = new ContentTypeDefinition
         {
             Id = Guid.NewGuid(),

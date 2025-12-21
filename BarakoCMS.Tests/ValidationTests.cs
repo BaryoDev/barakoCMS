@@ -50,7 +50,7 @@ public class ValidationTests
     [InlineData("richtext")]
     [InlineData("")]
     [InlineData(null)]
-    public void FieldTypeValidator_ShouldRejectInvalidTypes(string type)
+    public void FieldTypeValidator_ShouldRejectInvalidTypes(string? type)
     {
         // Act
         var result = FieldTypeValidator.IsValidFieldType(type);
@@ -84,7 +84,7 @@ public class ValidationTests
     [InlineData("1Name")] // starts with number
     [InlineData("")]
     [InlineData(null)]
-    public void FieldTypeValidator_ShouldRejectNonPascalCaseNames(string fieldName)
+    public void FieldTypeValidator_ShouldRejectNonPascalCaseNames(string? fieldName)
     {
         // Act
         var result = FieldTypeValidator.IsValidFieldName(fieldName);
@@ -352,7 +352,7 @@ public class ValidationTests
     public void ContentDataValidator_ShouldAllowNullValues()
     {
         // Arrange
-        var data = new Dictionary<string, object>
+        var data = new Dictionary<string, object?>
         {
             { "Name", null }
         };
