@@ -201,6 +201,13 @@ public static class ServiceCollectionExtensions
         // Rate Limiting
         app.UseRateLimiter();
 
+        // OBSERVABILITY MIDDLEWARE
+        // 1. Correlation ID (Must be early to tag everything)
+        app.UseMiddleware<barakoCMS.Infrastructure.Middleware.CorrelationIdMiddleware>();
+
+        // 2. Request Logging (Must be after Correlation ID)
+        app.UseMiddleware<barakoCMS.Infrastructure.Middleware.RequestResponseLoggingMiddleware>();
+
         app.UseAuthentication();
         app.UseAuthorization();
         app.UseFastEndpoints(c =>
