@@ -8,6 +8,8 @@ using barakoCMS.Features.Content.Get;
 using barakoCMS.Features.Workflows;
 using System.Net;
 using System.Net.Http.Json;
+using Marten;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace BarakoCMS.Tests;
 
@@ -25,16 +27,22 @@ public class EventRegistrationTests
         _output = output;
         _output.WriteLine($"[TEST] Connection String: {_fixture.ConnectionString}");
         _client = fixture.CreateClient();
-
-        // Generate Admin Token using the fixture's helper to avoid FastEndpoints static state issues
-        var token = _fixture.CreateToken(roles: new[] { "Admin", "SuperAdmin" });
-
-        _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
     }
 
-    [Fact(Skip = "Broken test - timing/idempotency")]
+    private async Task<(string token, Guid userId)> CreateAdminUserAsync()
+    {
+        return await TestHelpers.CreateAdminUserAsync(_fixture);
+    }
+
+    [Fact]
     public async Task EventRegistration_EndToEnd_Scenario()
     {
+        // --------------------------------------------------------------------------------
+        // STEP 1: Create Admin User and Token
+        // --------------------------------------------------------------------------------
+        var (token, userId) = await CreateAdminUserAsync();
+        _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
         // --------------------------------------------------------------------------------
         // STEP 2: Create Workflow
         // --------------------------------------------------------------------------------
@@ -112,9 +120,10 @@ public class EventRegistrationTests
         idempResp1.EnsureSuccessStatusCode();
         _output.WriteLine("[TEST] Idempotency 1 Success");
 
+        // Second request with same idempotency key should be rejected with 409 Conflict
         var idempResp2 = await _client.PostAsJsonAsync("/api/contents", registerReq);
-        idempResp2.EnsureSuccessStatusCode();
-        _output.WriteLine("[TEST] Idempotency 2 Success");
+        idempResp2.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        _output.WriteLine("[TEST] Idempotency 2 Correctly Rejected (409 Conflict)");
 
         _client.DefaultRequestHeaders.Remove("Idempotency-Key");
 
