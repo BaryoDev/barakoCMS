@@ -31,7 +31,13 @@ public static class ServiceCollectionExtensions
         var connectionString = ResolveConnectionString(configuration);
 
         services.AddHealthChecks()
-            .AddNpgSql(connectionString, name: "Database", tags: new[] { "db", "ready" });
+            .AddNpgSql(connectionString, name: "Database", tags: new[] { "db", "ready" })
+            .AddDiskStorageHealthCheck(setup =>
+            {
+                setup.AddDrive(@"/", minimumFreeMegabytes: 512); // Warn if < 512MB free
+                setup.CheckAllDrives = false;
+            }, name: "Disk Space")
+            .AddPrivateMemoryHealthCheck(1024 * 1024 * 1024, name: "Memory"); // 1GB threshold
 
         services.AddJWTBearerAuth(configuration["JWT:Key"]!, tokenValidation: p =>
         {

@@ -3,6 +3,7 @@ using Serilog;
 using Serilog.Events;
 using HealthChecks.UI.Client;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Prometheus;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -48,6 +49,10 @@ app.MapHealthChecks("/health", new HealthCheckOptions
 {
     ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
 });
+
+// Prometheus Metrics
+app.UseHttpMetrics();
+app.MapMetrics();
 
 try
 {
