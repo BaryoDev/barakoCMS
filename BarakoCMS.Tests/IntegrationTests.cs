@@ -26,25 +26,17 @@ namespace BarakoCMS.Tests;
 public class IntegrationTests
 {
     private readonly HttpClient _client;
+    private readonly IntegrationTestFixture _factory;
 
     public IntegrationTests(IntegrationTestFixture factory)
     {
+        _factory = factory;
         _client = factory.CreateClient();
     }
 
     private string CreateAdminToken()
     {
-        return FastEndpoints.Security.JWTBearer.CreateToken(
-            signingKey: "test-super-secret-key-that-is-at-least-32-chars-long",
-            expireAt: DateTime.UtcNow.AddDays(1),
-            issuer: "BarakoTest",
-            audience: "BarakoClient",
-            privileges: u =>
-            {
-                u.Roles.Add("Admin");
-                u.Claims.Add(new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Role, "Admin")); // Explicit add
-                u.Claims.Add(new System.Security.Claims.Claim("UserId", Guid.NewGuid().ToString()));
-            });
+        return _factory.CreateToken(roles: new[] { "Admin" });
     }
 
     [Fact(Skip = "Flaky test - depends on order/timing")]
