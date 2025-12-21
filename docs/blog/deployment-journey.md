@@ -1,5 +1,7 @@
 # The Road to the Cloud: Our Journey with Fly.io and Oracle Cloud
 
+*December 19, 2025 • By Arnel Robles (Founder, BaryoDev)*
+
 Deploying a high-performance CMS like **BarakoCMS** isn't just about pushing code; it's about understanding the infrastructure that powers it. Over the past few weeks, we've taken BarakoCMS to the skies with **Fly.io** and built a fortress on **Oracle Cloud**. 
 
 Here’s the story of the hurdles we faced, how we cleared them, and what we learned along the way.
