@@ -36,7 +36,7 @@ Moving away from hardcoded logic towards a future-proof, DI-driven plugin system
 
 ### [Stronger than your Average Joe: The BarakoCMS Manifesto ☕](./barako-manifesto.md)
 *December 1, 2025*
-Where it all began. The philosophy of the "Barrio Dev" and the quest for a stronger web.
+Where it all began. The philosophy of the **"Baryo Dev"** and the quest for a stronger web.
 
 ---
 

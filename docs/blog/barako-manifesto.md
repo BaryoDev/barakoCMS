@@ -10,13 +10,17 @@ That was the night BarakoCMS was born.
 
 ## Why "Barako"?
 
-In the Philippines, "Barako" refers to the liberica coffee bean. It’s known for its strong, pungent aroma and a body that hits you like a freight train. It’s a coffee for people who need to get things done—people from the *barrio* who don't have time for fancy lattes and flavored syrups.
+In the Philippines, "Barako" refers to the liberica coffee bean. It’s known for its strong, pungent aroma and a body that hits you like a freight train. It’s a coffee for people who need to get things done—people from the *barrio* or *baryo* who don't have time for fancy lattes and flavored syrups.
 
 I wanted this CMS to be exactly that. **Strong. Bold. Minimalist. Grounded.**
 
-## The "Barrio Dev" Spirit
+## The "Baryo Dev" Spirit
 
-I identify as a "developer from the barrio." It’s a mindset of resourcefulness. When you don't have the fastest fiber connection or the latest M3 Max, you learn to appreciate efficiency. You learn that every extra kilobyte of JavaScript has a cost. You learn that simplicity isn't just a design choice; it's a necessity.
+I identify as a **"developer from the baryo."** 
+
+Wait, why the "y"? In the Philippines, while *barrio* is the Spanish-influenced root, we often translate and spell it as **"baryo"** in modern Tagalog/Filipino. It’s part of our linguistic evolution—taking a loanword and making it distinctly ours. 
+
+That "y" represents the localized, gritty reality of where we come from. It’s a mindset of resourcefulness. When you don't have the fastest fiber connection or the latest M3 Max, you learn to appreciate efficiency. You learn that every extra kilobyte of JavaScript has a cost. You learn that simplicity isn't just a design choice; it's a necessity.
 
 BarakoCMS is a rebellion against "Enterprise Bloat."
 
