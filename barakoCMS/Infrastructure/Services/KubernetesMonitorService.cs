@@ -41,14 +41,14 @@ public class KubernetesMonitorService : IKubernetesMonitorService
     private static bool _initFailed = false;
     private readonly IWebHostEnvironment? _env;
     private readonly IConfiguration _config;
-    private readonly IConfigurationService _configService;
+    private readonly IServiceScopeFactory _scopeFactory;
 
-    public KubernetesMonitorService(ILogger<KubernetesMonitorService> logger, IServiceProvider serviceProvider, IConfiguration config, IConfigurationService configService)
+    public KubernetesMonitorService(ILogger<KubernetesMonitorService> logger, IServiceProvider serviceProvider, IConfiguration config, IServiceScopeFactory scopeFactory)
     {
         _logger = logger;
         _env = serviceProvider.GetService<IWebHostEnvironment>();
         _config = config;
-        _configService = configService;
+        _scopeFactory = scopeFactory;
         _client = CreateClient();
     }
 
@@ -92,7 +92,14 @@ public class KubernetesMonitorService : IKubernetesMonitorService
         var status = new ClusterStatus();
 
         // Check if Kubernetes monitoring is enabled via database setting
-        var isEnabled = await _configService.GetConfigValueAsync("Kubernetes__Enabled", false);
+        // Create a scope to resolve the scoped IConfigurationService
+        bool isEnabled = false;
+        using (var scope = _scopeFactory.CreateScope())
+        {
+            var configService = scope.ServiceProvider.GetRequiredService<IConfigurationService>();
+            isEnabled = await configService.GetConfigValueAsync("Kubernetes__Enabled", false);
+        }
+
         _logger.LogInformation("Kubernetes monitoring enabled check: {IsEnabled}, Client initialized: {ClientInitialized}",
             isEnabled, _client != null);
 
