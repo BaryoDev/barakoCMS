@@ -13,8 +13,12 @@ public class Request
 
 public class RequestValidator : FastEndpoints.Validator<Request>
 {
-    public RequestValidator()
+    private readonly IDocumentSession _session;
+
+    public RequestValidator(IDocumentSession session)
     {
+        _session = session;
+
         RuleFor(x => x.Id).NotEmpty();
         RuleFor(x => x.Data).NotEmpty();
 
@@ -26,9 +30,8 @@ public class RequestValidator : FastEndpoints.Validator<Request>
 
     private async Task<bool> ValidateDataAgainstExistingContentType(Request req, CancellationToken ct)
     {
-        var session = Resolve<IDocumentSession>();
         // Find the existing content
-        var content = await session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct);
+        var content = await _session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct);
 
         if (content == null)
         {
@@ -37,7 +40,7 @@ public class RequestValidator : FastEndpoints.Validator<Request>
         }
 
         // Find the ContentType (async query)
-        var contentType = await session.Query<barakoCMS.Models.ContentType>()
+        var contentType = await _session.Query<barakoCMS.Models.ContentType>()
             .FirstOrDefaultAsync(c => c.Slug == content.ContentType, ct);
 
         if (contentType == null)
@@ -56,13 +59,12 @@ public class RequestValidator : FastEndpoints.Validator<Request>
 
     private async Task<string> GetSchemaValidationErrors(Request req)
     {
-        var session = Resolve<IDocumentSession>();
-        var content = await session.LoadAsync<barakoCMS.Models.Content>(req.Id);
+        var content = await _session.LoadAsync<barakoCMS.Models.Content>(req.Id);
 
         if (content == null)
             return $"Content with ID '{req.Id}' not found";
 
-        var contentType = await session.Query<barakoCMS.Models.ContentType>()
+        var contentType = await _session.Query<barakoCMS.Models.ContentType>()
             .FirstOrDefaultAsync(c => c.Slug == content.ContentType);
 
         if (contentType == null)
