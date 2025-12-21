@@ -12,16 +12,23 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@v4
+
             - name: Setup .NET
               uses: actions/setup-dotnet@v4
               with:
                   dotnet-version: 8.0.x
+
             - name: Restore dependencies
               run: dotnet restore
+
             - name: Build
               run: dotnet build --no-restore --configuration Release
-            - name: Test
-              run: dotnet test --no-build --configuration Release --verbosity normal
+
+            - name: Test BarakoCMS.Tests
+              run: dotnet test BarakoCMS.Tests/BarakoCMS.Tests.csproj --no-build --configuration Release --verbosity normal --logger "console;verbosity=detailed"
+              env:
+                  # TestContainers needs Docker to be available
+                  DOCKER_HOST: unix:///var/run/docker.sock
 
     publish:
         needs: test
