@@ -119,6 +119,40 @@ Authorization: Bearer {ADMIN_TOKEN}
 - ✅ **Async Workflow Processing** - Non-blocking background tasks
 - ✅ **Resilience Patterns** - HTTP retries, circuit breakers
 
+###  🧩 v2.1 Workflow System (Phase 2)
+
+BarakoCMS includes a powerful **plugin-based workflow system**:
+
+- **6 Built-in Actions**: Email, SMS, Webhook, CreateTask, UpdateField, Conditional
+- **Custom Plugins**: Create your own actions without touching core code  
+- **Template Variables**: Dynamic content substitution (`{{data.FieldName}}`)
+- **Dry-Run Testing**: Test workflows without side effects
+- **JSON Schema Validation**: Catch errors before execution
+- **Execution Logging**: Full audit trail of workflow runs
+- **Auto-Discovery**: New actions automatically appear in API
+
+**Quick Example**:
+```bash
+# Create custom plugin
+public class SlackAction : IWorkflowAction
+{
+    public string Type => "Slack";
+    public async Task ExecuteAsync(...) { /* send to Slack */ }
+}
+
+# Use in workflow
+{
+  "actions": [{
+    "type": "Slack",
+    "parameters": {
+      "message": "New order: {{data.OrderNumber}}"
+    }
+  }]
+}
+```
+
+See [Plugin Development Guide](docs/plugin-development-guide.md) and [Migration Guide](docs/workflow-migration-guide.md) to get started.
+
 ---
 
 ## 🌟 Core Features
