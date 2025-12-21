@@ -21,6 +21,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
 
     public IntegrationTestFixture()
     {
+        Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", "Development");
         Environment.SetEnvironmentVariable("JWT__Key", "test-super-secret-key-that-is-at-least-32-chars-long");
     }
 
