@@ -30,6 +30,7 @@ export default defineConfig({
                     { text: 'Observability & Logging', link: '/guide/observability' },
                     { text: 'Database Automation', link: '/guide/database-automation' },
                     { text: 'Kubernetes Deployment', link: '/guide/kubernetes-deployment' },
+                    { text: 'Local Deployment', link: '/guide/local-deployment' },
                     { text: 'Fly.io Deployment', link: '/guide/fly-io-deployment' },
                     { text: 'Oracle Cloud Deployment', link: '/guide/oracle-cloud-deployment' },
                     { text: 'Troubleshooting', link: '/guide/troubleshooting' }
