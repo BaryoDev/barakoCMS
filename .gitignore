@@ -374,5 +374,14 @@ roadmap_and_market_analysis.md
 RELEASE_PROCESS.md
 publish_nuget.sh
 release_test_failure.txt
-ROADMAP.md
 release.sh
+
+# Temp files from testing
+token.json
+token.txt
+content_list.json
+*_content_id.txt
+output.txt
+
+# Gemini Artifacts (development only)
+.gemini/

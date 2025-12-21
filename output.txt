@@ -1,5 +1,0 @@
-Building...
-FOUND TYPES IN ALL ASSEMBLIES:
-Marten.HostExtensions+OverrideDaemonModeToSolo in Marten
-JasperFx.Events.Projections.ProjectionLifecycle in JasperFx.Events
-JasperFx.Events.Daemon.DaemonMode in JasperFx.Events

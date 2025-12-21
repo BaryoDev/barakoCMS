@@ -33,7 +33,9 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 { "ConnectionStrings:DefaultConnection", ConnectionString },
-                { "JWT:Key", "test-super-secret-key-that-is-at-least-32-chars-long" }
+                { "JWT:Key", "test-super-secret-key-that-is-at-least-32-chars-long" },
+                { "JWT:Issuer", "BarakoTest" },
+                { "JWT:Audience", "BarakoClient" }
             });
         });
     }

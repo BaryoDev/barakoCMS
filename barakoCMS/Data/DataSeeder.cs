@@ -51,6 +51,9 @@ public static class DataSeeder
                 Console.WriteLine($"[DataSeeder] Created role: {role.Name}");
             }
         }
+
+        // Save roles to database before querying for them in next step
+        await session.SaveChangesAsync();
     }
 
     private static async Task SeedUsersAsync(IDocumentSession session, IConfiguration configuration)
@@ -85,44 +88,47 @@ public static class DataSeeder
 
         if (!string.IsNullOrEmpty(username) && !string.IsNullOrEmpty(password))
         {
-            var adminUser = new User
-            {
-                Id = Guid.NewGuid(),
-                Username = username,
-                Email = $"{username}@company.com",
-                PasswordHash = BCrypt.Net.BCrypt.HashPassword(password),
-                RoleIds = new List<Guid> { superAdminRole.Id, adminRole.Id },
-                CreatedAt = DateTime.UtcNow
-            };
+            var existingAdmin = await session.Query<User>().FirstOrDefaultAsync(u => u.Username == username);
+
+            var adminUser = existingAdmin ?? new User { Id = Guid.NewGuid(), CreatedAt = DateTime.UtcNow };
+
+            adminUser.Username = username;
+            adminUser.Email = $"{username}@company.com";
+            adminUser.PasswordHash = BCrypt.Net.BCrypt.HashPassword(password);
+            adminUser.RoleIds = new List<Guid> { superAdminRole.Id, adminRole.Id };
+
             session.Store(adminUser);
-            Console.WriteLine($"[DataSeeder] Created SuperAdmin user: {username}");
+            Console.WriteLine($"[DataSeeder] {(existingAdmin == null ? "Created" : "Updated")} SuperAdmin user: {username}");
         }
 
-        // Create sample HR user
-        var hrUser = new User
+        if (userCount == 0)
         {
-            Id = Guid.NewGuid(),
-            Username = "hr_manager",
-            Email = "hr@company.com",
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword("HRPassword123!"),
-            RoleIds = new List<Guid> { hrRole.Id, adminRole.Id },
-            CreatedAt = DateTime.UtcNow
-        };
-        session.Store(hrUser);
-        Console.WriteLine("[DataSeeder] Created HR user: hr_manager");
+            // Create sample HR user
+            var hrUser = new User
+            {
+                Id = Guid.NewGuid(),
+                Username = "hr_manager",
+                Email = "hr@company.com",
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword("HRPassword123!"),
+                RoleIds = new List<Guid> { hrRole.Id, adminRole.Id },
+                CreatedAt = DateTime.UtcNow
+            };
+            session.Store(hrUser);
+            Console.WriteLine("[DataSeeder] Created HR user: hr_manager");
 
-        // Create sample standard user
-        var standardUser = new User
-        {
-            Id = Guid.NewGuid(),
-            Username = "john_viewer",
-            Email = "john@company.com",
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword("UserPassword123!"),
-            RoleIds = new List<Guid> { userRole.Id },
-            CreatedAt = DateTime.UtcNow
-        };
-        session.Store(standardUser);
-        Console.WriteLine("[DataSeeder] Created Standard user: john_viewer");
+            // Create sample standard user
+            var standardUser = new User
+            {
+                Id = Guid.NewGuid(),
+                Username = "john_viewer",
+                Email = "john@company.com",
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword("UserPassword123!"),
+                RoleIds = new List<Guid> { userRole.Id },
+                CreatedAt = DateTime.UtcNow
+            };
+            session.Store(standardUser);
+            Console.WriteLine("[DataSeeder] Created Standard user: john_viewer");
+        }
     }
 
     private static async Task SeedAttendanceContentTypeAsync(IDocumentSession session)

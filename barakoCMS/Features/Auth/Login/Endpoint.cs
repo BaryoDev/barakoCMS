@@ -42,7 +42,9 @@ public class Endpoint : Endpoint<Request, Response>
         var jwtToken = JWTBearer.CreateToken(
             signingKey: _config["JWT:Key"]!,
             expireAt: DateTime.UtcNow.AddDays(1),
-            privileges: u => 
+            issuer: _config["JWT:Issuer"],
+            audience: _config["JWT:Audience"],
+            privileges: u =>
             {
                 u.Claims.Add(new("UserId", user.Id.ToString()));
                 u.Claims.Add(new("Username", user.Username));
@@ -57,8 +59,8 @@ public class Endpoint : Endpoint<Request, Response>
                 }
             });
 
-        await SendAsync(new Response 
-        { 
+        await SendAsync(new Response
+        {
             Token = jwtToken,
             Expiry = DateTime.UtcNow.AddDays(1)
         });

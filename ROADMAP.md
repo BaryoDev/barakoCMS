@@ -164,6 +164,7 @@ Transform BarakoCMS from beta-quality to enterprise production-ready by addressi
   - [x] HTTPS enforcement (production)
   - [x] Environment variable template (.env.example)
   - [x] Workflow endpoint access control (Note: Temporarily anonymous for tests)
+  - [ ] **Content Permission Enforcement** (Integrate `IPermissionResolver` in Endpoints)
 
 #### Week 3-4: Observability & Monitoring
 - [x] **Structured Logging** ✅ **(2025-12-16)**
@@ -233,7 +234,7 @@ Transform BarakoCMS from beta-quality to enterprise production-ready by addressi
 ## 🚀 Phase 2.6: SMB Enablement & Ecosystem (Start: Jan 2026)
 
 **Duration**: 4-6 Weeks
-**Status**: 🔮 Planned
+**Status**: 🚧 In Progress (Admin UI Complete)
 **Priority**: CRITICAL (Required for Mass Adoption)
 
 ### Goals
@@ -241,21 +242,55 @@ Bridge the gap between "Developer Tool" and "SMB Product" by providing visual to
 
 ### Deliverables
 
-#### Week 1-2: Low-Code/No-Code Tools
-- [ ] **Visual Workflow Builder** (Promoted to MANDATORY)
+#### Week 1: Admin UI Foundation ✅ **COMPLETE (2025-12-17)**
+- [x] **Next.js 16 Admin Dashboard**
+  - [x] Authentication (Login/Logout with JWT)
+  - [x] Dashboard with health status widget
+  - [x] Schema management (Create, List)
+  - [x] Content management (Create, Edit, List with search/filter)
+  - [x] Role & UserGroup management pages
+  - [x] Workflow management (List, Create, Edit)
+  - [x] Ops pages (Health, Logs, Backups)
+
+- [x] **Backup System (Full CRUD)**
+  - [x] Create Backup (Event Store Snapshot)
+  - [x] List Backups
+  - [x] Download Backup
+  - [x] Restore Backup (Simulated)
+  - [x] Delete Backup
+
+#### Week 2: Dynamic Schema Engine & Builder (MANDATORY)
+- [ ] **Dynamic Content Type System**
+  - [ ] Store `ContentTypeDefinition` in Database (Marten)
+  - [ ] Dynamic Validator (replaces compiled FluentValidation)
+  - [ ] API for Schema Management (Create/Update Types)
+- [ ] **Content Type Builder UI**
+  - [ ] Visual Field Editor (Text, Number, Date, Boolean)
+  - [ ] Validation Rules Editor (Required, Min/Max)
+
+#### Week 3: Headless CMS Admin UI
+- [x] **Generic CRUD Interface** ✅
+  - [x] Auto-generated Content List Tables
+  - [x] Auto-generated Input Forms based on Schema
+  - [ ] Rich Text Editor integration
+- [ ] **Data Management**
+  - [ ] Import/Export (JSON/CSV) for content
+
+#### Week 4: Visual Workflow & Operations
+- [ ] **Visual Workflow Builder**
   - [ ] Drag-and-drop action canvas
   - [ ] Visual condition builder
   - [ ] Test/Dry-run UI button
-- [ ] **Admin Dashboard 2.0**
-  - [ ] Simple "Traffic Light" health status UI
-  - [ ] One-click backup/restore UI
-  - [ ] Plugin marketplace UI (browse & install)
+- [x] **Admin Dashboard 2.0** ✅
+  - [x] Simple "Traffic Light" health status UI
+  - [x] One-click backup/restore UI
+  - [ ] Plugin marketplace UI
 
 #### Week 3-4: "Headless Starters" (The Frontend)
-- [ ] **Create `barako-nextjs-starter` Repository**
-  - [ ] Next.js 14 + Tailwind CSS
-  - [ ] Pre-configured Barako Client
-  - [ ] Blog & Landing Page templates
+- [x] **Create `barako-nextjs-starter` Repository** ✅ **(2025-12-16)**
+  - [x] Next.js 15 + Tailwind CSS + Lucide
+  - [x] Pre-configured Barako Client (`lib/barako.ts`)
+  - [x] Blog & Landing Page templates (HomePage implemented)
 - [ ] **Create `barako-saas-starter` Repository**
   - [ ] React/Vue + Stripe Integration
   - [ ] User Dashboard components
@@ -268,6 +303,9 @@ Bridge the gap between "Developer Tool" and "SMB Product" by providing visual to
 - [ ] **Auto-Update Mechanism**
   - [ ] Dashboard notification for new versions
   - [ ] Docker tag management guide for SMBs
+- [ ] **Docker Hub Distribution (Admin UI)**
+  - [ ] Implement Runtime Configuration (replace build-time env vars)
+  - [ ] Publish official `barako-admin` image to Docker Hub
 
 ## 🤖 Phase 2.7: AI-Native Integrations (MCP) (Start: Feb 2026)
 
@@ -460,13 +498,15 @@ Optimize for enterprise-scale deployments with caching, monitoring, and performa
 
 ## 📊 Progress Tracking
 
-| Phase                  | Status        | Completion | Tests  | Duration |
-| ---------------------- | ------------- | ---------- | ------ | -------- |
-| Phase 1: RBAC          | ✅ Complete    | 100%       | 18/18  | 4 weeks  |
-| Phase 2: Plugins       | � In Progress | 25%        | 84/122 | 4 weeks  |
-| Phase 3: Versioning    | 🔮 Future      | 0%         | 0/20   | 4 weeks  |
-| Phase 4: Multi-Tenancy | 🔮 Future      | 0%         | 0/15   | 4 weeks  |
-| Phase 5: Performance   | 🔮 Future      | 0%         | 0/10   | 4 weeks  |
+| Phase                     | Status        | Completion | Tests   | Duration |
+| ------------------------- | ------------- | ---------- | ------- | -------- |
+| Phase 1: RBAC             | ✅ Complete    | 100%       | 18/18   | 4 weeks  |
+| Phase 2: Plugins          | ✅ Complete    | 100%       | 122/122 | 4 weeks  |
+| Phase 2.5: Production Ops | 🚧 Partial     | 60%        | -       | Ongoing  |
+| Phase 2.6: SMB/Admin UI   | 🚧 In Progress | 40%        | -       | 2 weeks  |
+| Phase 3: Versioning       | 🔮 Future      | 0%         | 0/20    | 4 weeks  |
+| Phase 4: Multi-Tenancy    | 🔮 Future      | 0%         | 0/15    | 4 weeks  |
+| Phase 5: Performance      | 🔮 Future      | 0%         | 0/10    | 4 weeks  |
 
 **Total Estimated Timeline**: 20 weeks (5 months) for core phases
 
@@ -503,5 +543,5 @@ Want to influence the roadmap?
 
 ---
 
-**Last Updated**: 2025-12-12  
+**Last Updated**: 2025-12-17  
 **Maintained By**: [@arnelirobles](https://github.com/arnelirobles)
