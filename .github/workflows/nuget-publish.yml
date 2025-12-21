@@ -47,6 +47,11 @@ jobs:
               with:
                   dotnet-version: 8.0.x
 
+            - name: Restore and Build for Publish
+              run: |
+                  dotnet restore
+                  dotnet build barakoCMS/barakoCMS.csproj --no-restore --configuration Release
+
             - name: Bump Version
               id: bump_version
               run: |
@@ -84,11 +89,11 @@ jobs:
 
                   # Commit
                   git add "$CSPROJ_PATH"
-                  git commit -m "Bump version to $NEW_VERSION [skip ci]"
+                  git commit -m "chore: Bump version to $NEW_VERSION [skip ci]"
                   git push
 
             - name: Pack NuGet
-              run: dotnet pack barakoCMS/barakoCMS.csproj -c Release -o out
+              run: dotnet pack barakoCMS/barakoCMS.csproj --no-build --configuration Release -o out
 
             - name: Publish NuGet
               run: dotnet nuget push "out/*.nupkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
