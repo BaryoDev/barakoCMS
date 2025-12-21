@@ -16,6 +16,7 @@ const navItems = [
     { href: '/ops/health', label: 'Health', icon: '🩺' },
     { href: '/ops/backups', label: 'Backups', icon: '💾' },
     { href: '/ops/logs', label: 'Logs', icon: '📋' },
+    { href: '/settings', label: 'Settings', icon: '⚙️' },
 ];
 
 export function Header() {
