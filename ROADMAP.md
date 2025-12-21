@@ -166,10 +166,10 @@ Transform BarakoCMS from beta-quality to enterprise production-ready by addressi
   - [x] Workflow endpoint access control (Note: Temporarily anonymous for tests)
 
 #### Week 3-4: Observability & Monitoring
-- [ ] **Structured Logging**
-  - [ ] **Serilog Integration** (JSON logs, file rotation)
-  - [ ] Correlation IDs across services
-  - [ ] Request/Response logging middleware
+- [x] **Structured Logging** ✅ **(2025-12-16)**
+  - [x] **Serilog Integration** (JSON logs, file rotation)
+  - [x] Correlation IDs (`X-Correlation-ID` header)
+  - [x] Request/Response logging middleware
   
 - [x] **Health Monitoring** ✅ **(2025-12-16)**
   - [x] **Health Checks UI** (visual traffic lights at `/health-ui`)
