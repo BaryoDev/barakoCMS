@@ -44,9 +44,10 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
     public async Task InitializeAsync()
     {
         await _postgresContainer.StartAsync();
-        // Explicitly set DATABASE_URL to ensure ResolveConnectionString picks it up.
-        // Even if Uri parsing fails, it falls back to the raw string, which is what we want.
+        // Explicitly set Env Vars to ensure they are available for Program.cs builder
         Environment.SetEnvironmentVariable("DATABASE_URL", ConnectionString);
+        Environment.SetEnvironmentVariable("ConnectionStrings__DefaultConnection", ConnectionString);
+        Environment.SetEnvironmentVariable("SKIP_SEEDER", "true");
     }
 
     public new async Task DisposeAsync()
