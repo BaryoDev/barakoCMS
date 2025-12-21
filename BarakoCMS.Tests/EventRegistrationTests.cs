@@ -26,21 +26,8 @@ public class EventRegistrationTests
         _output.WriteLine($"[TEST] Connection String: {_fixture.ConnectionString}");
         _client = fixture.CreateClient();
 
-        // Generate Admin Token
-        var token = FastEndpoints.Security.JWTBearer.CreateToken(
-            signingKey: "test-super-secret-key-that-is-at-least-32-chars-long",
-            expireAt: DateTime.UtcNow.AddDays(1),
-            issuer: "BarakoTest",
-            audience: "BarakoClient",
-            privileges: u =>
-            {
-                u.Roles.Add("Admin");
-                u.Roles.Add("SuperAdmin");
-                u.Claims.Add(new(System.Security.Claims.ClaimTypes.Role, "Admin"));
-                u.Claims.Add(new(System.Security.Claims.ClaimTypes.Role, "SuperAdmin"));
-                u.Claims.Add(new("UserId", Guid.NewGuid().ToString()));
-                u.Claims.Add(new("Username", "admin"));
-            });
+        // Generate Admin Token using the fixture's helper to avoid FastEndpoints static state issues
+        var token = _fixture.CreateToken(roles: new[] { "Admin", "SuperAdmin" });
 
         _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
     }
