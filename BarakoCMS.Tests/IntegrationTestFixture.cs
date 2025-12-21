@@ -29,7 +29,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        builder.ConfigureAppConfiguration((ctx, config) => 
+        builder.ConfigureAppConfiguration((ctx, config) =>
         {
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
@@ -44,6 +44,9 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
     public async Task InitializeAsync()
     {
         await _postgresContainer.StartAsync();
+        // Explicitly set DATABASE_URL to ensure ResolveConnectionString picks it up.
+        // Even if Uri parsing fails, it falls back to the raw string, which is what we want.
+        Environment.SetEnvironmentVariable("DATABASE_URL", ConnectionString);
     }
 
     public new async Task DisposeAsync()
