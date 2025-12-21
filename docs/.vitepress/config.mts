@@ -35,6 +35,8 @@ export default defineConfig({
                     { text: 'Architecture Deep Dive', link: '/guide/architecture' },
                     { text: 'RBAC System', link: '/guide/rbac' },
                     { text: 'Workflow Engine', link: '/workflows/index' },
+                    { text: 'Workflow Plugins', link: '/workflows/plugins' },
+                    { text: 'Plugin Examples', link: '/workflows/plugin-examples' },
                     { text: 'Event Sourcing', link: '/core-concepts/event-sourcing' }, // New
                     { text: 'Optimistic Concurrency', link: '/core-concepts/concurrency' } // New
                 ]

@@ -1,6 +1,10 @@
 # Workflow Automation
 
-BarakoCMS includes a powerful **Event-Driven Workflow Engine**.
+BarakoCMS includes a powerful **Event-Driven Workflow Engine** with a **plugin-based action system**.
+
+::: tip Phase 2 Update
+**v2.0 Phase 2** introduces workflow plugins! Create custom actions by implementing `IWorkflowAction`. [Learn more →](./plugins)
+:::
 
 ## Concepts
 
@@ -8,8 +12,9 @@ BarakoCMS includes a powerful **Event-Driven Workflow Engine**.
 graph LR
     Event[Event: Content Created] -->|Trigger| Daemon[Async Daemon]
     Daemon -->|Match| Workflow{Workflow Definition}
-    Workflow -->|Action 1| Email[Send Email]
-    Workflow -->|Action 2| SMS[Send SMS]
+    Workflow -->|Action 1| Email[EmailAction Plugin]
+    Workflow -->|Action 2| SMS[SmsAction Plugin]
+    Workflow -->|Action 3| Custom[Your Custom Plugin]
 ```
 
 ## 1. Creating a Workflow
