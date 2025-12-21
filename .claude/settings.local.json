@@ -5,7 +5,13 @@
       "Bash(gh run list:*)",
       "Bash(dotnet build:*)",
       "Bash(grep:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nfeat: Complete Phase 3 & 4 - ContentType validation, test fixes, and CI improvements\n\nPhase 3 - ContentType Validation & Test Fixes:\n- Add ContentTypeValidatorService with field type and PascalCase validation\n- Integrate validator into ContentType/Create endpoint\n- Fix 4 skipped ContentType validation tests\n- Fix Auth_RBAC_Flow flaky test \\(separate HttpClient instances\\)\n- Fix EventRegistration test \\(proper admin user creation, correct idempotency expectations\\)\n- Un-skip 6 tests, achieving 180/181 passing \\(99.4%\\)\n\nPhase 4 - Code Quality & CI:\n- Extract CreateAdminUserAsync to shared TestHelpers class\n- Fix compiler warnings \\(async methods, null literals\\)\n- Update GitHub Actions workflows for proper TestContainers support\n- Add standalone CI workflow for running tests on push/PR\n- Improve test infrastructure consistency\n\nTest Results: 180/181 passing \\(99.4% pass rate\\)\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git push:*)",
+      "Bash(brew install:*)",
+      "Bash(gh auth:*)",
+      "Bash(curl:*)",
+      "Bash(python3:*)"
     ]
   }
 }
