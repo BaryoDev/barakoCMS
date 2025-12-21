@@ -11,7 +11,8 @@ using System.Net.Http.Json;
 
 namespace BarakoCMS.Tests;
 
-public class EventRegistrationTests : IClassFixture<IntegrationTestFixture>
+[Collection("Sequential")]
+public class EventRegistrationTests
 {
     private readonly IntegrationTestFixture _fixture;
     private readonly HttpClient _client;
