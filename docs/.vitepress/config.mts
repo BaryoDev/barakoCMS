@@ -39,6 +39,13 @@ export default withMermaid(defineConfig({
                 ]
             },
             {
+                text: 'Development',
+                items: [
+                    { text: 'Testing', link: '/guide/testing' },
+                    { text: 'Extending BarakoCMS', link: '/guide/extending-barakocms' }
+                ]
+            },
+            {
                 text: 'Operations',
                 items: [
                     { text: 'Backup & Recovery', link: '/guide/backup-recovery' }
