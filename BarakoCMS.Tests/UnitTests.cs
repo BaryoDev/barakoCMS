@@ -53,16 +53,17 @@ public class UnitTests
         // Arrange
         var repo = Substitute.For<IUserRepository>();
         var session = Substitute.For<IQuerySession>();
+        var passwordValidator = new barakoCMS.Infrastructure.Services.PasswordPolicyValidator();
 
         repo.GetByUsernameOrEmailAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<User?>(new User()));
+            .Returns(new User { Username = "existinguser" });
 
-        var endpoint = Factory.Create<barakoCMS.Features.Auth.Register.Endpoint>(repo, session);
+        var endpoint = Factory.Create<barakoCMS.Features.Auth.Register.Endpoint>(repo, session, passwordValidator);
         var req = new barakoCMS.Features.Auth.Register.Request
         {
-            Username = "existing",
-            Email = "test@test.com",
-            Password = "password123"
+            Username = "existinguser",
+            Email = "existing@test.com",
+            Password = "ValidPassword123!"
         };
 
         // Act

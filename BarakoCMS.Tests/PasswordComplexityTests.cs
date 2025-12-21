@@ -16,11 +16,12 @@ public class PasswordComplexityTests
         // Arrange
         var repo = Substitute.For<IUserRepository>();
         var session = Substitute.For<IQuerySession>();
+        var passwordValidator = new barakoCMS.Infrastructure.Services.PasswordPolicyValidator();
 
         repo.GetByUsernameOrEmailAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<User?>(null));
 
-        var endpoint = Factory.Create<barakoCMS.Features.Auth.Register.Endpoint>(repo, session);
+        var endpoint = Factory.Create<barakoCMS.Features.Auth.Register.Endpoint>(repo, session, passwordValidator);
         var req = new barakoCMS.Features.Auth.Register.Request
         {
             Username = "weakuser",
@@ -37,7 +38,7 @@ public class PasswordComplexityTests
 
         // Assert
         endpoint.ValidationFailed.Should().BeTrue();
-        endpoint.ValidationFailures.Should().Contain(f => f.ErrorMessage.Contains("Password must be at least 8 characters long"));
+        endpoint.ValidationFailures.Should().Contain(f => f.ErrorMessage.Contains("Password must be at least 12 characters"));
     }
 
     [Fact]
@@ -46,16 +47,17 @@ public class PasswordComplexityTests
         // Arrange
         var repo = Substitute.For<IUserRepository>();
         var session = Substitute.For<IQuerySession>();
+        var passwordValidator = new barakoCMS.Infrastructure.Services.PasswordPolicyValidator();
 
         repo.GetByUsernameOrEmailAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<User?>(null));
 
-        var endpoint = Factory.Create<barakoCMS.Features.Auth.Register.Endpoint>(repo, session);
+        var endpoint = Factory.Create<barakoCMS.Features.Auth.Register.Endpoint>(repo, session, passwordValidator);
         var req = new barakoCMS.Features.Auth.Register.Request
         {
             Username = "stronguser",
             Email = "strong@test.com",
-            Password = "Password123!"
+            Password = "Password123!" // Strong password
         };
 
         // Act

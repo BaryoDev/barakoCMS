@@ -84,7 +84,21 @@ public static class ServiceCollectionExtensions
 
         // RBAC Services
         services.AddScoped<IConditionEvaluator, ConditionEvaluator>();
-        services.AddScoped<IPermissionResolver, PermissionResolver>();
+        
+        // Permission Resolver with Caching
+        services.AddScoped<PermissionResolver>(); // Inner resolver
+        services.AddScoped<IPermissionResolver, CachedPermissionResolver>(); // Cached decorator
+        
+        // Security Services
+        services.AddScoped<ITokenRevocationService, TokenRevocationService>();
+        services.AddScoped<IPasswordPolicyValidator, PasswordPolicyValidator>();
+        
+        // Memory Cache for token revocation and permissions
+        services.AddMemoryCache(options =>
+        {
+            options.SizeLimit = 10000; // Max 10000 cached items
+            options.CompactionPercentage = 0.25; // Remove 25% when limit hit
+        });
 
         connectionString = ResolveConnectionString(configuration);
         services.AddMarten((IServiceProvider sp) =>
@@ -92,10 +106,29 @@ public static class ServiceCollectionExtensions
             var options = new StoreOptions();
             options.Connection(connectionString);
 
-            // Configure document versioning
-            options.Schema.For<Content>().DocumentAlias("contents");
-            options.Schema.For<User>().DocumentAlias("users");
+            // Configure document versioning and indexes
+            options.Schema.For<Content>()
+                .DocumentAlias("contents")
+                .Index(x => x.ContentType)  // Frequently filtered
+                .Index(x => x.CreatedAt)    // Frequently sorted
+                .Index(x => x.UpdatedAt)
+                .Index(x => x.Status)
+                .Index(x => new { x.ContentType, x.CreatedAt })
+                .Index(x => new { x.ContentType, x.Status }); // Composite for status filtering
+            
+            options.Schema.For<User>()
+                .DocumentAlias("users")
+                .Index(x => x.Username, idx => idx.IsUnique = true)
+                .Index(x => x.Email, idx => idx.IsUnique = true);
+            
             options.Schema.For<SystemSetting>().DocumentAlias("system_settings");
+            
+            options.Schema.For<Models.Role>()
+                .DocumentAlias("roles")
+                .Index(x => x.Name, idx => idx.IsUnique = true);
+            
+            options.Schema.For<RefreshToken>().DocumentAlias("refresh_tokens");
+            options.Schema.For<RevokedToken>().DocumentAlias("revoked_tokens");
 
             // Register Workflow Projection (Async)
             options.Projections.Add(new WorkflowProjection(sp), JasperFx.Events.Projections.ProjectionLifecycle.Async);
@@ -160,7 +193,7 @@ public static class ServiceCollectionExtensions
                     });
             });
 
-            // Stricter limit for authentication endpoints
+            // Stricter limit for authentication endpoints: 5 per 15 minutes
             options.AddPolicy("auth", context =>
             {
                 var ipAddress = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
@@ -168,8 +201,21 @@ public static class ServiceCollectionExtensions
                 return RateLimitPartition.GetFixedWindowLimiter($"auth-{ipAddress}", _ =>
                     new FixedWindowRateLimiterOptions
                     {
-                        PermitLimit = 10,  // Only 10 login attempts per minute
-                        Window = TimeSpan.FromMinutes(1)
+                        PermitLimit = 5,  // 5 login attempts per 15 minutes
+                        Window = TimeSpan.FromMinutes(15)
+                    });
+            });
+            
+            // Registration rate limit: 5 per hour
+            options.AddPolicy("registration", context =>
+            {
+                var ipAddress = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+                return RateLimitPartition.GetFixedWindowLimiter($"registration-{ipAddress}", _ =>
+                    new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 5,  // 5 registrations per hour
+                        Window = TimeSpan.FromHours(1)
                     });
             });
 
@@ -275,6 +321,10 @@ public static class ServiceCollectionExtensions
         app.UseCors("SecurePolicy");
 
         app.UseAuthentication();
+        
+        // Token Revocation Check (Must be after Authentication)
+        app.UseMiddleware<barakoCMS.Infrastructure.Middleware.TokenValidationMiddleware>();
+        
         app.UseAuthorization();
         app.UseFastEndpoints(c =>
         {

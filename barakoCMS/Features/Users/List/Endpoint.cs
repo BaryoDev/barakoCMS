@@ -4,6 +4,8 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.Users.List;
 
+public class Request : PaginatedRequest { }
+
 public class UserResponse
 {
     public Guid Id { get; set; }
@@ -14,7 +16,7 @@ public class UserResponse
     public DateTime CreatedAt { get; set; }
 }
 
-public class Endpoint : EndpointWithoutRequest<List<UserResponse>>
+public class Endpoint : Endpoint<Request, PaginatedResponse<UserResponse>>
 {
     private readonly IDocumentSession _session;
 
@@ -29,9 +31,17 @@ public class Endpoint : EndpointWithoutRequest<List<UserResponse>>
         Roles("SuperAdmin");
     }
 
-    public override async Task HandleAsync(CancellationToken ct)
+    public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        var users = await _session.Query<User>().ToListAsync(ct);
+        var query = _session.Query<User>();
+
+        var totalCount = await query.CountAsync(ct);
+
+        var users = await query
+            .OrderByDescending(u => u.CreatedAt)
+            .Skip(req.Skip)
+            .Take(req.Take)
+            .ToListAsync(ct);
         
         var response = users.Select(u => new UserResponse
         {
@@ -43,6 +53,12 @@ public class Endpoint : EndpointWithoutRequest<List<UserResponse>>
             CreatedAt = u.CreatedAt
         }).ToList();
 
-        await SendOkAsync(response, ct);
+        await SendAsync(new PaginatedResponse<UserResponse>
+        {
+            Items = response,
+            Page = req.Page,
+            PageSize = req.PageSize,
+            TotalItems = totalCount
+        }, cancellation: ct);
     }
 }
