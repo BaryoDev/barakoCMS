@@ -31,6 +31,7 @@ export default defineConfig({
                     { text: 'Database Automation', link: '/guide/database-automation' },
                     { text: 'Kubernetes Deployment', link: '/guide/kubernetes-deployment' },
                     { text: 'Fly.io Deployment', link: '/guide/fly-io-deployment' },
+                    { text: 'Oracle Cloud Deployment', link: '/guide/oracle-cloud-deployment' },
                     { text: 'Troubleshooting', link: '/guide/troubleshooting' }
                 ]
             },
