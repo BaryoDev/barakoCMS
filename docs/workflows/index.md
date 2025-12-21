@@ -44,11 +44,13 @@ Authorization: Bearer {ADMIN_TOKEN}
 
 Inject dynamic data from the event into actions:
 
+::: v-pre
 | Variable         | Description                | Example          |
 | :--------------- | :------------------------- | :--------------- |
 | `{{data.Field}}` | Value from content payload | `{{data.Email}}` |
 | `{{id}}`         | Content ID                 | `{{id}}`         |
 | `{{status}}`     | Content Status             | `{{status}}`     |
+:::
 
 ## 3. Supported Events
 
