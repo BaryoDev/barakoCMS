@@ -114,8 +114,8 @@ jobs:
                   file: Dockerfile
                   push: true
                   tags: |
-                      arnelirobles/barakocms-api:latest
-                      arnelirobles/barakocms-api:${{ env.NEW_VERSION }}
+                      arnelirobles/barako-cms:latest
+                      arnelirobles/barako-cms:${{ env.NEW_VERSION }}
 
             - name: Build and push Admin UI
               uses: docker/build-push-action@v5
@@ -124,5 +124,5 @@ jobs:
                   file: admin/Dockerfile
                   push: true
                   tags: |
-                      arnelirobles/barakocms-admin:latest
-                      arnelirobles/barakocms-admin:${{ env.NEW_VERSION }}
+                      arnelirobles/barako-admin:latest
+                      arnelirobles/barako-admin:${{ env.NEW_VERSION }}
