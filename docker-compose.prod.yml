@@ -1,0 +1,70 @@
+services:
+  # 1. Reverse Proxy (Caddy) - Handles HTTPS & Routing
+  caddy:
+    image: caddy:alpine
+    container_name: barako-caddy
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      - DOMAIN_API=${DOMAIN_API}
+      - DOMAIN_ADMIN=${DOMAIN_ADMIN}
+    depends_on:
+      - app
+      - admin
+
+  # 2. Database (PostgreSQL)
+  postgres:
+    image: postgres:16-alpine
+    container_name: barako-postgres
+    restart: always
+    environment:
+      POSTGRES_DB: ${DB_NAME:-barako_cms}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_prod_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 3. Backend API
+  app:
+    container_name: barako-api
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: always
+    environment:
+      - ConnectionStrings__DefaultConnection=Host=postgres;Database=${DB_NAME:-barako_cms};Username=${DB_USER:-postgres};Password=${DB_PASSWORD}
+      - JWT__Key=${JWT_KEY}
+      - CORS__AllowedOrigins=https://${DOMAIN_ADMIN}
+      - InitialAdmin__Username=${ADMIN_USER:-admin}
+      - InitialAdmin__Password=${ADMIN_PASSWORD}
+      - Kubernetes__Enabled=false
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # 4. Frontend Admin UI
+  admin:
+    container_name: barako-admin
+    build:
+      context: ./admin
+      dockerfile: Dockerfile
+      args:
+        # ⚠️ CRITICAL: Next.js needs this at BUILD TIME
+        NEXT_PUBLIC_API_URL: https://${DOMAIN_API}
+    restart: always
+
+volumes:
+  postgres_prod_data:
+  caddy_data:
+  caddy_config:

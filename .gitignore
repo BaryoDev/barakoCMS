@@ -377,6 +377,10 @@ startup_strategy.md
 roadmap_and_market_analysis.md
 RELEASE_PROCESS.md
 release_test_failure.txt
+release.sh
+publish_nuget.sh
+docker-compose.prod.yml
+
 
 # Temp files from testing
 token.json
@@ -390,16 +394,10 @@ output.txt
 
 # Oracle deployment files (local only)
 docker-compose.oracle.yml
-docker-compose.prod.yml
-release.sh
-publish_nuget.sh
-.env.oracle
-*.env
-*.env.*
-
-
 # AI Agent Implementations
 .claude/
 .gemini/
 .cursor/
+.copilot/
+
 
