@@ -134,6 +134,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ITemplateVariableExtractor, TemplateVariableExtractor>();
         services.AddScoped<IWorkflowDebugger, WorkflowDebugger>();
         services.AddScoped<IContentValidatorService, ContentValidatorService>();
+        services.AddScoped<IContentTypeValidatorService, ContentTypeValidatorService>();
         services.AddSingleton<IKubernetesMonitorService, KubernetesMonitorService>();
         services.AddSingleton<IMetricsService, MetricsService>();
         services.AddScoped<IBackupService, BackupService>();

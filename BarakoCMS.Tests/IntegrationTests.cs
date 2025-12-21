@@ -9,6 +9,8 @@ using barakoCMS.Features.Auth.Login;
 using barakoCMS.Features.Content.Create;
 using barakoCMS.Features.Content.Get;
 using barakoCMS.Features.Content.Update;
+using Marten;
+using Microsoft.Extensions.DependencyInjection;
 using RegisterRequest = barakoCMS.Features.Auth.Register.Request;
 using RegisterResponse = barakoCMS.Features.Auth.Register.Response;
 using LoginRequest = barakoCMS.Features.Auth.Login.Request;
@@ -39,7 +41,12 @@ public class IntegrationTests
         return _factory.CreateToken(roles: new[] { "Admin" });
     }
 
-    [Fact(Skip = "Flaky test - depends on order/timing")]
+    private async Task<(string token, Guid userId)> CreateAdminUserAsync()
+    {
+        return await TestHelpers.CreateAdminUserAsync(_factory);
+    }
+
+    [Fact]
     public async Task Auth_RBAC_Flow()
     {
         // 1. Register (Standard User)
@@ -68,7 +75,8 @@ public class IntegrationTests
         var userToken = loginContent!.Token;
 
         // 3. Try Create Content (Should Fail - Forbidden)
-        var userClient = _client; // Reusing client but setting header
+        // Create separate HttpClient for user to avoid shared state
+        var userClient = _factory.CreateClient();
         userClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", userToken);
 
         var contentData = new Dictionary<string, object> { { "Title", "Test Article" }, { "Body", "Hello World" } };
@@ -81,11 +89,12 @@ public class IntegrationTests
 
         failCreateRes.StatusCode.Should().Be(HttpStatusCode.Forbidden);
 
-        // 4. Create Admin Token
-        var adminToken = CreateAdminToken();
+        // 4. Create Admin User and Token
+        var (adminToken, adminUserId) = await CreateAdminUserAsync();
 
         // 5. Create Content as Admin (Should Succeed)
-        var adminClient = _client;
+        // Create separate HttpClient for admin to avoid shared state
+        var adminClient = _factory.CreateClient();
         adminClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", adminToken);
 
         var createRes = await adminClient.PostAsJsonAsync("/api/contents", new CreateContentRequest
@@ -139,7 +148,7 @@ public class IntegrationTests
         invalidLoginRes.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
-    [Fact(Skip = "Flaky test - Marten projection delays")]
+    [Fact]
     public async Task Content_EdgeCases()
     {
         // 1. Get Non-Existent Content
@@ -152,28 +161,24 @@ public class IntegrationTests
         // Let's verify current implementation handles it.
 
         // 2. Update Non-Existent Content
-        // Create Admin Token
-        var adminToken = CreateAdminToken();
+        // Create Admin User and Token
+        var (adminToken, adminUserId) = await CreateAdminUserAsync();
         _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", adminToken);
 
         var updateRes = await _client.PutAsJsonAsync($"/api/contents/{nonExistentId}", new UpdateContentRequest
         {
             Id = nonExistentId,
-            Data = new Dictionary<string, object>()
+            Data = new Dictionary<string, object> { { "Title", "Some Data" } } // Must be non-empty to pass FastEndpoints validator
         });
 
-        // Marten StartStream/Append might create a new stream if not exists? 
-        // Or we should check existence first.
-        // If we just append event, it might "create" it but without initial state?
-        // Let's assume we want 404 or success (if upsert).
-        // For now, let's just check it doesn't crash.
-        updateRes.IsSuccessStatusCode.Should().BeTrue(); // Marten upserts by default on stream append?
+        // Update endpoint checks if content exists and returns 404 if not found
+        updateRes.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
-    [Fact(Skip = "Flaky test - Marten projection delays")]
+    [Fact]
     public async Task Content_Workflow()
     {
-        // 1. Create Admin Token
-        var adminToken = CreateAdminToken();
+        // 1. Create Admin User and Token
+        var (adminToken, adminUserId) = await CreateAdminUserAsync();
         _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", adminToken);
 
         // 2. Create Content (Default Draft)
