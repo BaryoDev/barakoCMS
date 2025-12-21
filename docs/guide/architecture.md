@@ -35,7 +35,17 @@ Features/
   │   │   └── Validator.cs
   │   ├── Update/
   │   └── Delete/
+Infrastructure/
+  ├── Services/
+  │   ├── ContentValidatorService.cs
+  │   ├── ContentTypeValidatorService.cs (NEW)
+  │   └── PermissionResolver.cs
 ```
+
+**Validation Services**: Shared services handle complex validation logic:
+- **ContentValidatorService**: Validates content data against ContentType definitions
+- **ContentTypeValidatorService**: Validates ContentType creation (field types, PascalCase naming)
+- **PermissionResolver**: RBAC permission checking
 
 ### 2. Event Sourcing (The "Write" Side)
 
