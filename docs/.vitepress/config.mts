@@ -1,7 +1,7 @@
 import { defineConfig } from 'vitepress'
 
 // Version management
-const VERSION = '2.0.2'
+const VERSION = '2.1.0'
 
 // https://vitepress.dev/reference/site-config
 export default defineConfig({
@@ -43,8 +43,15 @@ export default defineConfig({
                     { text: 'Workflow Engine', link: '/workflows/index' },
                     { text: 'Workflow Plugins', link: '/workflows/plugins' },
                     { text: 'Plugin Examples', link: '/workflows/plugin-examples' },
-                    { text: 'Event Sourcing', link: '/core-concepts/event-sourcing' }, // New
-                    { text: 'Optimistic Concurrency', link: '/core-concepts/concurrency' } // New
+                    { text: 'Event Sourcing', link: '/core-concepts/event-sourcing' },
+                    { text: 'Optimistic Concurrency', link: '/core-concepts/concurrency' }
+                ]
+            },
+            {
+                text: 'Plugin Development',
+                items: [
+                    { text: 'Plugin Development Guide', link: '/plugin-development-guide' },
+                    { text: 'Migration Guide', link: '/workflow-migration-guide' }
                 ]
             },
             {

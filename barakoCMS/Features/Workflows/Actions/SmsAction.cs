@@ -1,10 +1,16 @@
 using barakoCMS.Core.Interfaces;
+using barakoCMS.Infrastructure.Attributes;
 
 namespace barakoCMS.Features.Workflows.Actions;
 
 /// <summary>
 /// Workflow action plugin for sending SMS messages.
 /// </summary>
+[WorkflowActionMetadata(
+    Description = "Send SMS text messages",
+    RequiredParameters = new[] { "To", "Message" },
+    ExampleJson = @"{""Type"":""SMS"",""Parameters"":{""To"":""+1234567890"",""Message"":""Content {{id}} needs review""}}"
+)]
 public class SmsAction : IWorkflowAction
 {
     private readonly ISmsService _smsService;

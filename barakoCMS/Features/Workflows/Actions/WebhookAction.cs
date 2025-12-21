@@ -1,4 +1,5 @@
 using barakoCMS.Core.Interfaces;
+using barakoCMS.Infrastructure.Attributes;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
 
@@ -7,6 +8,11 @@ namespace barakoCMS.Features.Workflows.Actions;
 /// <summary>
 /// Workflow action plugin for sending HTTP POST requests to webhooks.
 /// </summary>
+[WorkflowActionMetadata(
+    Description = "Send HTTP POST requests to external webhooks",
+    RequiredParameters = new[] { "Url" },
+    ExampleJson = @"{""Type"":""Webhook"",""Parameters"":{""Url"":""https://example.com/webhook""}}"
+)]
 public class WebhookAction : IWorkflowAction
 {
     private readonly IHttpClientFactory _httpClientFactory;

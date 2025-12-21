@@ -8,6 +8,7 @@ using Weasel.Core;
 using barakoCMS.Features.Workflows;
 using barakoCMS.Models;
 using barakoCMS.Repository;
+using System.Threading.RateLimiting;
 using barakoCMS.Infrastructure.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Configuration;
@@ -90,14 +91,94 @@ public static class ServiceCollectionExtensions
         services.AddScoped<barakoCMS.Features.Workflows.WorkflowEngine>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowEngine>(sp => sp.GetRequiredService<barakoCMS.Features.Workflows.WorkflowEngine>());
 
+        // Workflow Tools
+        services.AddScoped<IWorkflowPluginRegistry, WorkflowPluginRegistry>();
+        services.AddScoped<IWorkflowSchemaValidator, WorkflowSchemaValidator>();
+        services.AddScoped<ITemplateVariableExtractor, TemplateVariableExtractor>();
+        services.AddScoped<IWorkflowDebugger, WorkflowDebugger>();
+
         services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Filters.IdempotencyFilter>();
         services.AddSingleton<FastEndpoints.IGlobalPostProcessor, barakoCMS.Infrastructure.Filters.SensitivityFilter>();
+
+        // Rate Limiting
+        services.AddRateLimiter(options =>
+        {
+            // Global rate limit: 100 requests per minute per IP
+            options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
+            {
+                var ipAddress = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+                return RateLimitPartition.GetFixedWindowLimiter(ipAddress, _ =>
+                    new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 100,
+                        Window = TimeSpan.FromMinutes(1),
+                        QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                        QueueLimit = 10
+                    });
+            });
+
+            // Stricter limit for authentication endpoints
+            options.AddPolicy("auth", context =>
+            {
+                var ipAddress = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+                return RateLimitPartition.GetFixedWindowLimiter($"auth-{ipAddress}", _ =>
+                    new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 10,  // Only 10 login attempts per minute
+                        Window = TimeSpan.FromMinutes(1)
+                    });
+            });
+
+            options.OnRejected = async (context, cancellationToken) =>
+            {
+                context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+                await context.HttpContext.Response.WriteAsync(
+                    "Too many requests. Please try again later.", cancellationToken);
+            };
+        });
 
         return services;
     }
 
     public static IApplicationBuilder UseBarakoCMS(this IApplicationBuilder app)
     {
+        var env = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
+
+        // HTTPS Redirection and HSTS (Production only)
+        if (env != "Development")
+        {
+            app.UseHttpsRedirection();
+            app.UseHsts();
+        }
+
+        // Security Headers
+        app.Use(async (context, next) =>
+        {
+            // Prevent XSS attacks
+            context.Response.Headers.Append("X-Content-Type-Options", "nosniff");
+            context.Response.Headers.Append("X-Frame-Options", "DENY");
+            context.Response.Headers.Append("X-XSS-Protection", "1; mode=block");
+            context.Response.Headers.Append("Referrer-Policy", "strict-origin-when-cross-origin");
+
+            // Content Security Policy
+            context.Response.Headers.Append("Content-Security-Policy",
+                "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'");
+
+            // HSTS (HTTP Strict Transport Security)
+            if (context.Request.IsHttps)
+            {
+                context.Response.Headers.Append("Strict-Transport-Security",
+                    "max-age=31536000; includeSubDomains");
+            }
+
+            await next();
+        });
+
+        // Rate Limiting
+        app.UseRateLimiter();
+
         app.UseAuthentication();
         app.UseAuthorization();
         app.UseFastEndpoints(c =>
@@ -113,7 +194,7 @@ public static class ServiceCollectionExtensions
         app.UseHealthChecks("/health");
 
         app.UseCors("SecurePolicy");
-        if (Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development")
+        if (env == "Development")
         {
             app.UseSwaggerGen();
         }

@@ -22,6 +22,7 @@ public class Endpoint : Endpoint<Request, Response>
     {
         Post("/api/auth/login");
         AllowAnonymous();
+        Options(x => x.RequireRateLimiting("auth")); // Limit to 10 requests per minute
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
