@@ -1,128 +1,127 @@
 name: NuGet Publish
 
 on:
-    push:
-        branches: ["master"]
-        paths-ignore:
-            - "**/*.md"
-            - "docs/**"
+  push:
+    branches: ["master"]
+    paths-ignore:
+      - "**/*.md"
 
 jobs:
-    test:
-        runs-on: ubuntu-latest
-        steps:
-            - uses: actions/checkout@v4
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
-            - name: Setup .NET
-              uses: actions/setup-dotnet@v4
-              with:
-                  dotnet-version: 8.0.x
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
 
-            - name: Restore dependencies
-              run: dotnet restore
+      - name: Restore dependencies
+        run: dotnet restore
 
-            - name: Build
-              run: dotnet build --no-restore --configuration Release
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
 
-            - name: Test BarakoCMS.Tests
-              run: dotnet test BarakoCMS.Tests/BarakoCMS.Tests.csproj --no-build --configuration Release --verbosity normal --logger "console;verbosity=detailed"
-              env:
-                  # TestContainers needs Docker to be available
-                  DOCKER_HOST: unix:///var/run/docker.sock
+      - name: Test BarakoCMS.Tests
+        run: dotnet test BarakoCMS.Tests/BarakoCMS.Tests.csproj --no-build --configuration Release --verbosity normal --logger "console;verbosity=detailed"
+        env:
+          # TestContainers needs Docker to be available
+          DOCKER_HOST: unix:///var/run/docker.sock
 
-    publish:
-        needs: test
-        runs-on: ubuntu-latest
-        permissions:
-            contents: write
-            packages: write
-        steps:
-            - uses: actions/checkout@v4
-              with:
-                  fetch-depth: 0
-                  token: ${{ secrets.GITHUB_TOKEN }}
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-            - name: Setup .NET
-              uses: actions/setup-dotnet@v4
-              with:
-                  dotnet-version: 8.0.x
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
 
-            - name: Restore and Build for Publish
-              run: |
-                  dotnet restore
-                  dotnet build barakoCMS/barakoCMS.csproj --no-restore --configuration Release
+      - name: Restore and Build for Publish
+        run: |
+          dotnet restore
+          dotnet build barakoCMS/barakoCMS.csproj --no-restore --configuration Release
 
-            - name: Bump Version
-              id: bump_version
-              run: |
-                  git config --global user.name "github-actions[bot]"
-                  git config --global user.email "github-actions[bot]@users.noreply.github.com"
+      - name: Bump Version
+        id: bump_version
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-                  CSPROJ_PATH="barakoCMS/barakoCMS.csproj"
+          CSPROJ_PATH="barakoCMS/barakoCMS.csproj"
 
-                  # Extract version
-                  CURRENT_VERSION=$(sed -n 's/.*<Version>\(.*\)<\/Version>.*/\1/p' "$CSPROJ_PATH" | head -n 1)
+          # Extract version
+          CURRENT_VERSION=$(sed -n 's/.*<Version>\(.*\)<\/Version>.*/\1/p' "$CSPROJ_PATH" | head -n 1)
 
-                  if [ -z "$CURRENT_VERSION" ]; then
-                    echo "Could not find version in $CSPROJ_PATH"
-                    exit 1
-                  fi
+          if [ -z "$CURRENT_VERSION" ]; then
+            echo "Could not find version in $CSPROJ_PATH"
+            exit 1
+          fi
 
-                  echo "Current Version: $CURRENT_VERSION"
+          echo "Current Version: $CURRENT_VERSION"
 
-                  # Split and increment
-                  IFS='.' read -r -a VERSION_PARTS <<< "$CURRENT_VERSION"
-                  MAJOR="${VERSION_PARTS[0]}"
-                  MINOR="${VERSION_PARTS[1]}"
-                  PATCH="${VERSION_PARTS[2]}"
+          # Split and increment
+          IFS='.' read -r -a VERSION_PARTS <<< "$CURRENT_VERSION"
+          MAJOR="${VERSION_PARTS[0]}"
+          MINOR="${VERSION_PARTS[1]}"
+          PATCH="${VERSION_PARTS[2]}"
 
-                  # Handle cases where version might be malformed
-                  if [ -z "$PATCH" ]; then PATCH=0; fi
+          # Handle cases where version might be malformed
+          if [ -z "$PATCH" ]; then PATCH=0; fi
 
-                  NEW_PATCH=$((PATCH + 1))
-                  NEW_VERSION="$MAJOR.$MINOR.$NEW_PATCH"
-                  echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
-                  echo "New Version: $NEW_VERSION"
+          NEW_PATCH=$((PATCH + 1))
+          NEW_VERSION="$MAJOR.$MINOR.$NEW_PATCH"
+          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
+          echo "New Version: $NEW_VERSION"
 
-                  # Replace in file
-                  sed -i "s|<Version>$CURRENT_VERSION</Version>|<Version>$NEW_VERSION</Version>|" "$CSPROJ_PATH"
+          # Replace in file
+          sed -i "s|<Version>$CURRENT_VERSION</Version>|<Version>$NEW_VERSION</Version>|" "$CSPROJ_PATH"
 
-                  # Commit
-                  git add "$CSPROJ_PATH"
-                  git commit -m "chore: Bump version to $NEW_VERSION [skip ci]"
-                  git push
+          # Commit
+          git add "$CSPROJ_PATH"
+          git commit -m "chore: Bump version to $NEW_VERSION [skip ci]"
+          git push
 
-            - name: Pack NuGet
-              run: dotnet pack barakoCMS/barakoCMS.csproj --no-build --configuration Release -o out
+      - name: Pack NuGet
+        run: dotnet pack barakoCMS/barakoCMS.csproj --no-build --configuration Release -o out
 
-            - name: Publish NuGet
-              run: dotnet nuget push "out/*.nupkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+      - name: Publish NuGet
+        run: dotnet nuget push "out/*.nupkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
 
-            - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-            - name: Login to Docker Hub
-              uses: docker/login-action@v3
-              with:
-                  username: ${{ secrets.DOCKER_USERNAME }}
-                  password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
 
-            - name: Build and push API
-              uses: docker/build-push-action@v5
-              with:
-                  context: .
-                  file: Dockerfile
-                  push: true
-                  tags: |
-                      arnelirobles/barako-cms:latest
-                      arnelirobles/barako-cms:${{ env.NEW_VERSION }}
+      - name: Build and push API
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: |
+            arnelirobles/barako-cms:latest
+            arnelirobles/barako-cms:${{ env.NEW_VERSION }}
 
-            - name: Build and push Admin UI
-              uses: docker/build-push-action@v5
-              with:
-                  context: ./admin
-                  file: admin/Dockerfile
-                  push: true
-                  tags: |
-                      arnelirobles/barako-admin:latest
-                      arnelirobles/barako-admin:${{ env.NEW_VERSION }}
+      - name: Build and push Admin UI
+        uses: docker/build-push-action@v5
+        with:
+          context: ./admin
+          file: admin/Dockerfile
+          push: true
+          tags: |
+            arnelirobles/barako-admin:latest
+            arnelirobles/barako-admin:${{ env.NEW_VERSION }}

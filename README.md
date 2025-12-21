@@ -3,7 +3,7 @@
 **The AI-Native, High-Performance Headless CMS for .NET 8.**
 
 [![NuGet](https://img.shields.io/nuget/v/BarakoCMS.svg)](https://www.nuget.org/packages/BarakoCMS)
-[![Documentation](https://img.shields.io/badge/docs-visited-blue)](https://baryodev.github.io/barakoCMS/)
+[![Documentation](https://img.shields.io/badge/docs-visited-blue)](https://baryo.dev/barakoCMS)
 [![License](https://img.shields.io/github/license/BaryoDev/barakoCMS)](LICENSE)
 
 <a href='https://ko-fi.com/T6T01CQT4R' target='_blank'><img height='36' style='border:0px;height:36px;' src='https://storage.ko-fi.com/cdn/kofi3.png?v=6' border='0' alt='Buy Me a Coffee at ko-fi.com' /></a>
@@ -13,7 +13,7 @@
 > **Hobby Project Disclaimer**
 > BarakoCMS is a passion project built for educational and portfolio purposes. While we strive for backward compatibility, **breaking changes may occur** as we introduce new features or refine the architecture. Use in production with this understanding.
 
-> 📚 **Full Documentation**: [https://baryodev.github.io/barakoCMS/](https://baryodev.github.io/barakoCMS/)
+> 📚 **Full Documentation**: [https://baryo.dev/barakoCMS](https://baryo.dev/barakoCMS)
 >
 > Please visit our documentation site for Getting Started guides, API Reference, and Architecture Deep Dives.
 
@@ -183,7 +183,7 @@ public class SlackAction : IWorkflowAction
 }
 ```
 
-See [Plugin Development Guide](docs/plugin-development-guide.md) and [Migration Guide](docs/workflow-migration-guide.md) to get started.
+See [Advanced Documentation](https://baryo.dev/barakoCMS) to get started.
 
 ---
 
