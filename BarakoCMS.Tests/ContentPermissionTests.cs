@@ -9,7 +9,8 @@ using barakoCMS.Models;
 
 namespace BarakoCMS.Tests;
 
-public class ContentPermissionTests : IClassFixture<IntegrationTestFixture>
+[Collection("Sequential")]
+public class ContentPermissionTests
 {
     private readonly IntegrationTestFixture _factory;
     private readonly HttpClient _client;
