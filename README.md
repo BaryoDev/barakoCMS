@@ -23,6 +23,40 @@ BarakoCMS is engineered for **Speed**, **Extensibility**, and **Robustness**. Bu
 
 ---
 
+## 💝 Support BarakoCMS
+
+BarakoCMS is **free and open-source** under Apache-2.0. If you're using it in production or it's saving your team development time, please consider supporting the project:
+
+<table>
+<tr>
+<td width="50%">
+
+### 🌟 For Individuals & Startups
+- ⭐ **Star this repo** - Help others discover BarakoCMS
+- ☕ **[Ko-fi](https://ko-fi.com/T6T01CQT4R)** - One-time donation
+- 💬 **Share** - Tweet about your experience
+- 🐛 **Contribute** - Report bugs, submit PRs
+
+</td>
+<td width="50%">
+
+### 🏢 For Commercial Users
+If BarakoCMS is powering your business, please consider:
+- 💎 **[GitHub Sponsors](https://github.com/sponsors/BaryoDev)** - Monthly support
+- 🤝 **Enterprise Support** - SLA-backed support contracts
+- 📧 **Contact**: [arnelirobles@gmail.com](mailto:arnelirobles@gmail.com)
+
+**Fair Use Suggestion**: If BarakoCMS saves your company development costs, consider contributing 5-10% back to support ongoing development.
+
+</td>
+</tr>
+</table>
+
+> [!NOTE]
+> **Why Support?** Your contributions help maintain the project, add new features, fix bugs, and provide community support. Every dollar goes directly to development.
+
+---
+
 ## 📦 Quick Start
 
 
@@ -926,31 +960,42 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 
 ---
 
-## 📄 License
+## 📄 License & Commercial Use
 
-**Apache License 2.0**
+**Apache License 2.0** - Free for everyone, including commercial use!
 
-- ✅ Commercial use allowed
-- ✅ Modification allowed
-- ✅ Distribution allowed
-- ✅ Patent use allowed
-- 📝 Attribution required
+### What You Can Do
+- ✅ **Commercial use** - Use in your business, SaaS, products
+- ✅ **Modification** - Customize to your needs
+- ✅ **Distribution** - Share with others
+- ✅ **Patent use** - Explicit patent grant protection
+- 📝 **Attribution required** - Keep copyright notices
 
-See [LICENSE](LICENSE) for full terms.
+### Using BarakoCMS Commercially?
 
----
+BarakoCMS is **100% free** for commercial use. However, if it's generating value for your business, we kindly ask you to:
 
-## 💖 Support This Project
+1. **⭐ Star the repository** - Help others discover it
+2. **💝 Support development** - [GitHub Sponsors](https://github.com/sponsors/BaryoDev) or [Ko-fi](https://ko-fi.com/T6T01CQT4R)
+3. **🤝 Contribute back** - Bug fixes, features, documentation
+4. **📧 Enterprise support** - Contact us for SLA-backed support contracts
 
-<a href='https://ko-fi.com/T6T01CQT4R' target='_blank'><img height='36' style='border:0px;height:36px;' src='https://storage.ko-fi.com/cdn/kofi3.png?v=6' border='0' alt='Buy Me a Coffee at ko-fi.com' /></a>
+**Suggested Contribution Tiers:**
+- 🌱 Startups/Side Projects: $50-100/month
+- 🏢 SMBs: $200-500/month
+- 🏭 Enterprise: $1000+/month or custom support contract
 
-If BarakoCMS helps you build better applications, consider supporting the development!
+> **Why contribute?** Your support ensures BarakoCMS stays maintained, secure, and feature-rich. Every contribution directly funds development, bug fixes, and community support.
+
+See [LICENSE](LICENSE) for full legal terms.
 
 ---
 
 ## 👨‍💻 Author
 
 **Arnel Robles**  
-GitHub: [@arnelirobles](https://github.com/arnelirobles)
+GitHub: [@arnelirobles](https://github.com/arnelirobles)  
+Email: [arnelirobles@gmail.com](mailto:arnelirobles@gmail.com)
 
 **Built with ❤️ by developers, for developers.**
+
