@@ -167,12 +167,6 @@ export default function DashboardPage() {
           </Card>
         </div>
 
-        {/* System Metrics Panel */}
-        <div className="mb-10">
-          <SystemMetrics />
-        </div>
-
-
         {/* Health Checks Detail */}
         <Card className="bg-slate-800/50 border-slate-700 backdrop-blur-sm mb-10 shadow-xl">
           <CardHeader>
