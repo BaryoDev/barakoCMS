@@ -1,10 +1,11 @@
 import { defineConfig } from 'vitepress'
+import { withMermaid } from 'vitepress-plugin-mermaid'
 
 // Version management
 const VERSION = '2.1.0'
 
 // https://vitepress.dev/reference/site-config
-export default defineConfig({
+export default withMermaid(defineConfig({
     title: `BarakoCMS v${VERSION} `,
     description: 'The AI-Native, High-Performance Headless CMS for .NET 8',
     base: '/barakoCMS/',
@@ -93,4 +94,4 @@ export default defineConfig({
             copyright: 'Copyright © 2024-present Arnel Robles'
         }
     }
-})
+}))
