@@ -64,8 +64,9 @@ export function useHealthStatus() {
     return useQuery({
         queryKey: ['health-status'],
         queryFn: async () => {
-            const response = await api.get<DetailedHealthStatus>('/health');
-            return response.data;
+            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/health`);
+            if (!response.ok) throw new Error('Failed to fetch health status');
+            return response.json() as Promise<DetailedHealthStatus>;
         },
         refetchInterval: 15000, // Refresh every 15 seconds
     });
