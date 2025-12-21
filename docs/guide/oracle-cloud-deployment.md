@@ -67,3 +67,21 @@ Once the script finishes (it may take 5-10 minutes to build), your apps will be 
 -   **API Endpoint**: `https://api.yourdomain.com`
 
 **⚠️ IMPORTANT**: Save the credentials output by the script! They are stored in `.env` if you need them later.
+
+## Step 5: Automating Updates (CI/CD)
+
+We have included a GitHub Actions workflow (`.github/workflows/deploy-oracle.yml`) to automatically deploy changes when you push to `master`.
+
+### 1. Configure GitHub Secrets
+Go to your GitHub Repository -> **Settings** -> **Secrets and variables** -> **Actions** -> **New repository secret**.
+
+Add the following secrets:
+
+| Secret Name      | Value                                                                                             |
+| :--------------- | :------------------------------------------------------------------------------------------------ |
+| `ORACLE_HOST`    | Your VM's Public IP Address (e.g., `123.45.67.89`)                                                |
+| `ORACLE_USER`    | Your SSH Username (e.g., `ubuntu` or `opc`)                                                       |
+| `ORACLE_SSH_KEY` | Your **Private SSH Key**. Copy the entire content of your `.pem` key (including `-----BEGIN...`). |
+
+### 2. Push to Deploy
+Once configured, any push to the `master` branch will trigger the workflow, pull the latest code on your server, and rebuild the containers.
