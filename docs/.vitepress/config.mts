@@ -39,6 +39,13 @@ export default defineConfig({
                 ]
             },
             {
+                text: 'Project',
+                items: [
+                    { text: 'Roadmap', link: '/roadmap' },
+                    { text: 'Changelog', link: 'https://github.com/BaryoDev/barakoCMS/blob/master/CHANGELOG.md' }
+                ]
+            },
+            {
                 text: 'Reference',
                 items: [
                     { text: 'API Endpoints', link: '/api/endpoints' },
