@@ -579,7 +579,7 @@ public class EmailActionV2 : IWorkflowAction { }
 ## Next Steps
 
 - ✅ [Plugin Development Guide](plugin-development-guide.md) - Create custom actions
-- ✅ [AttendancePOC Examples](../AttendancePOC) - Real-world usage
-- ✅ [API Documentation](/swagger) - Test workflows
+- ✅ `AttendancePOC` Examples - Real-world usage
+- ✅ API Documentation (via Swagger UI) - Test workflows
 
 **Happy Migrating!** 🚀
