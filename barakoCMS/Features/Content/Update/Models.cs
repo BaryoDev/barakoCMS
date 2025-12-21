@@ -14,6 +14,9 @@ public class Request
 public class RequestValidator : FastEndpoints.Validator<Request>
 {
     private readonly IDocumentSession _session;
+    
+    // Thread-safe storage for validation errors during async validation
+    private string _lastValidationErrors = string.Empty;
 
     public RequestValidator(IDocumentSession session)
     {
@@ -23,9 +26,10 @@ public class RequestValidator : FastEndpoints.Validator<Request>
         RuleFor(x => x.Data).NotEmpty();
 
         // Async validation against existing Content's ContentType
+        // The errors are cached during MustAsync to avoid blocking .Result call in WithMessage
         RuleFor(x => x)
             .MustAsync(async (req, ct) => await ValidateDataAgainstExistingContentType(req, ct))
-            .WithMessage(req => GetSchemaValidationErrors(req).Result);
+            .WithMessage(_ => _lastValidationErrors);
     }
 
     private async Task<bool> ValidateDataAgainstExistingContentType(Request req, CancellationToken ct)
@@ -36,6 +40,7 @@ public class RequestValidator : FastEndpoints.Validator<Request>
         if (content == null)
         {
             // Content doesn't exist - let the endpoint handle this error
+            _lastValidationErrors = $"Content with ID '{req.Id}' not found";
             return true;
         }
 
@@ -46,6 +51,7 @@ public class RequestValidator : FastEndpoints.Validator<Request>
         if (contentType == null)
         {
             // ContentType doesn't exist (shouldn't happen)
+            _lastValidationErrors = $"ContentType '{content.ContentType}' not found";
             return true;
         }
 
@@ -54,27 +60,12 @@ public class RequestValidator : FastEndpoints.Validator<Request>
             req.Data,
             contentType.Fields);
 
+        // Cache errors for WithMessage to use (avoids blocking .Result call)
+        _lastValidationErrors = result.IsValid 
+            ? string.Empty 
+            : string.Join("; ", result.Errors);
+
         return result.IsValid;
-    }
-
-    private async Task<string> GetSchemaValidationErrors(Request req)
-    {
-        var content = await _session.LoadAsync<barakoCMS.Models.Content>(req.Id);
-
-        if (content == null)
-            return $"Content with ID '{req.Id}' not found";
-
-        var contentType = await _session.Query<barakoCMS.Models.ContentType>()
-            .FirstOrDefaultAsync(c => c.Slug == content.ContentType);
-
-        if (contentType == null)
-            return $"ContentType '{content.ContentType}' not found";
-
-        var result = barakoCMS.Core.Validation.ContentDataValidator.ValidateData(
-            req.Data,
-            contentType.Fields);
-
-        return string.Join("; ", result.Errors);
     }
 }
 
