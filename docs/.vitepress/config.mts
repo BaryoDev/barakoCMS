@@ -13,7 +13,7 @@ export default defineConfig({
         // https://vitepress.dev/reference/default-theme-config
         nav: [
             { text: 'Home', link: '/' },
-            { text: 'Guide', link: '/getting-started' },
+            { text: 'Guide', link: '/guide/getting-started' },
             { text: `v${VERSION} `, link: '/versions' },
             { text: 'Reference', link: '/api/endpoints' },
             { text: 'Workflows', link: '/workflows/index' }
