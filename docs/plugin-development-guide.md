@@ -679,7 +679,7 @@ public async Task DryRun_SlackAction_ShouldSimulate()
 
 ### Template Variables Not Resolving
 
-**Problem**: `{{data.Field}}` shows literally in output
+**Problem**: `\{\{data.Field\}\}` shows literally in output
 
 **Solutions**:
 1. Inject `ITemplateVariableExtractor`
@@ -713,7 +713,7 @@ public async Task DryRun_SlackAction_ShouldSimulate()
 ## Next Steps
 
 - ✅ Follow [Migration Guide](workflow-migration-guide.md) to upgrade existing workflows
-- ✅ See [AttendancePOC](../AttendancePOC) for real-world examples
+- ✅ See `AttendancePOC` project for real-world examples
 - ✅ Join community discussions on GitHub
 - ✅ Share your custom plugins!
 
