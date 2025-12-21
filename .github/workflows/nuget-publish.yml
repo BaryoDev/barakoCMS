@@ -2,13 +2,11 @@ name: NuGet Publish
 
 on:
   workflow_dispatch:
-  release:
-    types: [published]
-  push:
-    branches: ["master"]
-    paths-ignore:
-      - "**/*.md"
-      - "docs/**"
+    inputs:
+      version:
+        description: 'Version tag (e.g., 2.2.0)'
+        required: true
+        default: '2.2.0'
 
 jobs:
   test:
@@ -30,11 +28,9 @@ jobs:
       - name: Test BarakoCMS.Tests
         run: dotnet test BarakoCMS.Tests/BarakoCMS.Tests.csproj --no-build --configuration Release --verbosity normal --logger "console;verbosity=detailed"
         env:
-          # TestContainers needs Docker to be available
           DOCKER_HOST: unix:///var/run/docker.sock
 
   publish:
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'release'
     needs: test
     runs-on: ubuntu-latest
     permissions:
@@ -51,50 +47,30 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
-      - name: Restore and Build for Publish
-        run: |
-          dotnet restore
-          dotnet build barakoCMS/barakoCMS.csproj --no-restore --configuration Release
-
-      - name: Bump Version
-        id: bump_version
+      - name: Update Version in csproj
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
           CSPROJ_PATH="barakoCMS/barakoCMS.csproj"
-
-          # Extract version
+          NEW_VERSION="${{ github.event.inputs.version }}"
           CURRENT_VERSION=$(sed -n 's/.*<Version>\(.*\)<\/Version>.*/\1/p' "$CSPROJ_PATH" | head -n 1)
 
-          if [ -z "$CURRENT_VERSION" ]; then
-            echo "Could not find version in $CSPROJ_PATH"
-            exit 1
-          fi
-
           echo "Current Version: $CURRENT_VERSION"
-
-          # Split and increment
-          IFS='.' read -r -a VERSION_PARTS <<< "$CURRENT_VERSION"
-          MAJOR="${VERSION_PARTS[0]}"
-          MINOR="${VERSION_PARTS[1]}"
-          PATCH="${VERSION_PARTS[2]}"
-
-          # Handle cases where version might be malformed
-          if [ -z "$PATCH" ]; then PATCH=0; fi
-
-          NEW_PATCH=$((PATCH + 1))
-          NEW_VERSION="$MAJOR.$MINOR.$NEW_PATCH"
-          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
           echo "New Version: $NEW_VERSION"
 
-          # Replace in file
+          # Replace version in file
           sed -i "s|<Version>$CURRENT_VERSION</Version>|<Version>$NEW_VERSION</Version>|" "$CSPROJ_PATH"
 
-          # Commit
+          # Commit version change
           git add "$CSPROJ_PATH"
-          git commit -m "chore: Bump version to $NEW_VERSION [skip ci]"
-          git push
+          git commit -m "chore: Bump version to $NEW_VERSION [skip ci]" || echo "No changes to commit"
+          git push || echo "Nothing to push"
+
+      - name: Restore and Build
+        run: |
+          dotnet restore
+          dotnet build barakoCMS/barakoCMS.csproj --no-restore --configuration Release
 
       - name: Pack NuGet
         run: dotnet pack barakoCMS/barakoCMS.csproj --no-build --configuration Release -o out
@@ -119,7 +95,7 @@ jobs:
           push: true
           tags: |
             arnelirobles/barako-cms:latest
-            arnelirobles/barako-cms:${{ env.NEW_VERSION }}
+            arnelirobles/barako-cms:${{ github.event.inputs.version }}
 
       - name: Build and push Admin UI
         uses: docker/build-push-action@v5
@@ -129,4 +105,4 @@ jobs:
           push: true
           tags: |
             arnelirobles/barako-admin:latest
-            arnelirobles/barako-admin:${{ env.NEW_VERSION }}
+            arnelirobles/barako-admin:${{ github.event.inputs.version }}
