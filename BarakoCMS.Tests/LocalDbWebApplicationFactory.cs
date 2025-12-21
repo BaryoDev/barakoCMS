@@ -20,6 +20,9 @@ public class LocalDbWebApplicationFactory : WebApplicationFactory<Program>
             var settings = new Dictionary<string, string>
             {
                 {"ConnectionStrings:DefaultConnection", LocalConnectionString},
+                {"JWT:Key", "test-super-secret-key-that-is-at-least-32-chars-long"},
+                {"JWT:Issuer", "BarakoTest"},
+                {"JWT:Audience", "BarakoClient"},
                 {"BarakoCMS:StrictValidation", "true"},
                 {"BarakoCMS:ValidationOptions:EnforceFieldTypes", "true"},
                 {"BarakoCMS:ValidationOptions:EnforcePascalCaseFieldNames", "true"},
