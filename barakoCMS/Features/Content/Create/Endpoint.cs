@@ -28,43 +28,43 @@ public class Endpoint : Endpoint<Request, Response>
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        var userIdClaim = User.FindFirst("UserId");
-        if (userIdClaim == null)
-        {
-            await SendAsync(new Response { Message = "User ID claim not found" }, 400, ct);
-            return;
-        }
-
-        if (!Guid.TryParse(userIdClaim.Value, out var userId))
-        {
-            await SendAsync(new Response { Message = "Invalid User ID format" }, 400, ct);
-            return;
-        }
-
-        // PERMISSION CHECK
-        var user = await _session.LoadAsync<User>(userId, ct);
-        if (user == null)
-        {
-            await SendAsync(new Response { Message = "User not found" }, 401, ct);
-            return;
-        }
-
-        if (!await _permissionResolver.CanPerformActionAsync(user, req.ContentType, "create", null, ct))
-        {
-            await SendForbiddenAsync(ct);
-            return;
-        }
-
-        // DYNAMIC VALIDATION
-        var validationResult = await _validator.ValidateAsync(req.ContentType, req.Data);
-        if (!validationResult.IsValid)
-        {
-            await SendAsync(new Response { Message = "Validation Failed: " + string.Join(", ", validationResult.Errors) }, 400, ct);
-            return;
-        }
-
         try
         {
+            var userIdClaim = User.FindFirst("UserId");
+            if (userIdClaim == null)
+            {
+                await SendAsync(new Response { Message = "User ID claim not found" }, 400, ct);
+                return;
+            }
+
+            if (!Guid.TryParse(userIdClaim.Value, out var userId))
+            {
+                await SendAsync(new Response { Message = "Invalid User ID format" }, 400, ct);
+                return;
+            }
+
+            // PERMISSION CHECK
+            var user = await _session.LoadAsync<User>(userId, ct);
+            if (user == null)
+            {
+                await SendAsync(new Response { Message = "User not found" }, 401, ct);
+                return;
+            }
+
+            if (!await _permissionResolver.CanPerformActionAsync(user, req.ContentType, "create", null, ct))
+            {
+                await SendForbiddenAsync(ct);
+                return;
+            }
+
+            // DYNAMIC VALIDATION
+            var validationResult = await _validator.ValidateAsync(req.ContentType, req.Data);
+            if (!validationResult.IsValid)
+            {
+                await SendAsync(new Response { Message = "Validation Failed: " + string.Join(", ", validationResult.Errors) }, 400, ct);
+                return;
+            }
+
             var contentId = Guid.NewGuid();
             var @event = new barakoCMS.Events.ContentCreated(contentId, req.ContentType, req.Data, req.Status, userId);
 
