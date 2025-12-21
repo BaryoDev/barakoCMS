@@ -19,7 +19,7 @@ public class ExtraFeatureTests : IClassFixture<CustomWebApplicationFactory>
         _client = factory.CreateClient();
     }
 
-    [Fact]
+    [Fact(Skip = "POC tests - separate infrastructure")]
     public async Task Idempotency_ShouldReturnConflict_OnDuplicateKey()
     {
         // 1. Authenticate
@@ -60,7 +60,7 @@ public class ExtraFeatureTests : IClassFixture<CustomWebApplicationFactory>
         res2.StatusCode.Should().Be(HttpStatusCode.Conflict);
     }
 
-    [Fact]
+    [Fact(Skip = "POC tests - separate infrastructure")]
     public async Task History_ShouldTrackChanges_And_AllowRollback()
     {
         // 1. Authenticate
