@@ -389,3 +389,17 @@ output.txt
 
 # Gemini Artifacts (development only)
 .gemini/
+
+# Oracle deployment files (local only)
+docker-compose.oracle.yml
+.env.oracle
+*.env
+*.env.*
+
+
+# AI Agent Implementations
+.claude/
+.gemini/
+.cursor/
+.copilot/
+
