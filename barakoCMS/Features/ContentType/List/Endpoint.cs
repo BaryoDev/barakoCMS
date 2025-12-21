@@ -4,7 +4,9 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.ContentType.List;
 
-public class Endpoint : EndpointWithoutRequest<Response>
+public class Request : PaginatedRequest { }
+
+public class Endpoint : Endpoint<Request, PaginatedResponse<barakoCMS.Models.ContentType>>
 {
     private readonly IQuerySession _session;
 
@@ -19,13 +21,24 @@ public class Endpoint : EndpointWithoutRequest<Response>
         AllowAnonymous();
     }
 
-    public override async Task HandleAsync(CancellationToken ct)
+    public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        var contentTypes = await _session.Query<barakoCMS.Models.ContentType>().ToListAsync(ct);
+        var query = _session.Query<barakoCMS.Models.ContentType>();
 
-        await SendAsync(new Response 
-        { 
-            ContentTypes = contentTypes.ToList()
-        });
+        var totalCount = await query.CountAsync(ct);
+
+        var contentTypes = await query
+            .OrderBy(c => c.Name)
+            .Skip(req.Skip)
+            .Take(req.Take)
+            .ToListAsync(ct);
+
+        await SendAsync(new PaginatedResponse<barakoCMS.Models.ContentType>
+        {
+            Items = contentTypes.ToList(),
+            Page = req.Page,
+            PageSize = req.PageSize,
+            TotalItems = totalCount
+        }, cancellation: ct);
     }
 }

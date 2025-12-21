@@ -25,7 +25,14 @@ public class Endpoint : Endpoint<Request, Response>
         var user = await _session.LoadAsync<User>(req.UserId, ct);
         if (user == null)
         {
-            user = new User { Id = req.UserId, RoleIds = new() };
+            user = new User 
+            { 
+                Id = req.UserId, 
+                RoleIds = new(),
+                Username = $"user_{req.UserId:N}",
+                Email = $"user_{req.UserId:N}@example.com",
+                CreatedAt = DateTime.UtcNow
+            };
         }
 
         if (!user.RoleIds.Contains(req.RoleId))

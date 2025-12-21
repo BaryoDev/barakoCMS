@@ -405,4 +405,11 @@ docker-compose.oracle.yml
 .cursor/
 .copilot/
 
+# Documentation (generated/internal)
+docs/
+
+# POC/Experimental Projects
+AttendancePOC/
+AttendancePOC.Tests/
+
 
