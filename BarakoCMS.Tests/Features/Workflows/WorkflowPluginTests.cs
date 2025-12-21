@@ -186,5 +186,7 @@ public class WorkflowPluginTests
         // Note: This test validates the plugin discovery mechanism
         // The engine should be able to resolve EmailAction from the IEnumerable<IWorkflowAction>
         actions.Should().Contain(a => a.Type == "Email");
+
+        await Task.CompletedTask; // Placeholder to avoid CS1998 warning
     }
 }
