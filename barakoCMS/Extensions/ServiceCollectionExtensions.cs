@@ -40,7 +40,12 @@ public static class ServiceCollectionExtensions
             .AddPrivateMemoryHealthCheck(1024 * 1024 * 1024, name: "Memory"); // 1GB threshold
 
         // Validate JWT key exists and has minimum length for security
+        // Check both configuration and environment variable (env var uses __ for nested keys)
         var jwtKey = configuration["JWT:Key"];
+        if (string.IsNullOrWhiteSpace(jwtKey))
+        {
+            jwtKey = Environment.GetEnvironmentVariable("JWT__Key");
+        }
         if (string.IsNullOrWhiteSpace(jwtKey) || jwtKey.Length < 32)
         {
             throw new InvalidOperationException("JWT:Key must be configured and at least 32 characters (256 bits) for security.");
