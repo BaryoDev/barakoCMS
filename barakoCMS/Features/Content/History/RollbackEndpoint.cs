@@ -28,12 +28,28 @@ public class RollbackEndpoint : Endpoint<RollbackRequest, barakoCMS.Models.Conte
 
     public override async Task HandleAsync(RollbackRequest req, CancellationToken ct)
     {
+        // Extract userId from claims for audit trail
+        var userIdClaim = User.FindFirst("UserId");
+        if (userIdClaim == null)
+        {
+            AddError("User ID claim not found");
+            await SendErrorsAsync(400, ct);
+            return;
+        }
+
+        if (!Guid.TryParse(userIdClaim.Value, out var userId))
+        {
+            AddError("Invalid User ID format");
+            await SendErrorsAsync(400, ct);
+            return;
+        }
+
         // 1. Fetch the event stream
         var events = await _session.Events.FetchStreamAsync(req.Id, token: ct);
-        
+
         // 2. Find the target event
         var targetEvent = events.FirstOrDefault(e => e.Id == req.VersionId);
-        
+
         if (targetEvent == null)
         {
             await SendNotFoundAsync(ct);
@@ -58,17 +74,29 @@ public class RollbackEndpoint : Endpoint<RollbackRequest, barakoCMS.Models.Conte
         }
 
         // 4. Create a new update event with the old data
-        // We need to know who is doing the rollback. For now, we'll use a placeholder or get from User
-        var userId = Guid.Empty; // TODO: Get from Claims
-
         var rollbackEvent = new ContentUpdated(req.Id, data, userId);
 
         // 5. Append the new event
         _session.Events.Append(req.Id, rollbackEvent);
+
+        // 6. Apply rollback to the document in same transaction
+        var content = await _session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct);
+        if (content != null)
+        {
+            content.Apply(rollbackEvent);
+            _session.Store(content);
+        }
+
         await _session.SaveChangesAsync(ct);
 
-        // 6. Return the new state
-        var content = await _session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct);
-        await SendAsync(content!, cancellation: ct);
+        // 7. Return the new state
+        if (content == null)
+        {
+            AddError("Content not found after rollback");
+            await SendErrorsAsync(cancellation: ct);
+            return;
+        }
+
+        await SendAsync(content, cancellation: ct);
     }
 }

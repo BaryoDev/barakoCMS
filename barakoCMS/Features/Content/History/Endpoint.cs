@@ -16,7 +16,7 @@ public class Endpoint : Endpoint<Request, Response>
     public override void Configure()
     {
         Get("/api/contents/{id}/history");
-        AllowAnonymous(); // Or require auth depending on requirements
+        Claims("UserId"); // Require authentication to view content history
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)

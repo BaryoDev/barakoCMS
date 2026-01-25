@@ -28,7 +28,19 @@ public class Endpoint : Endpoint<Request, Response>
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        var userId = Guid.Parse(User.FindFirst("UserId")!.Value);
+        var userIdClaim = User.FindFirst("UserId");
+        if (userIdClaim == null)
+        {
+            await SendAsync(new Response { Message = "User ID claim not found" }, 400, ct);
+            return;
+        }
+
+        if (!Guid.TryParse(userIdClaim.Value, out var userId))
+        {
+            await SendAsync(new Response { Message = "Invalid User ID format" }, 400, ct);
+            return;
+        }
+
         var user = await _session.LoadAsync<User>(userId, ct);
 
         var existingContent = await _session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct);
@@ -79,10 +91,7 @@ public class Endpoint : Endpoint<Request, Response>
             // Append Events
             _session.Events.Append(req.Id, events.ToArray());
 
-            // Save events to stream
-            await _session.SaveChangesAsync(ct);
-
-            // Reload content and manually apply events (manual projection workaround)
+            // Apply events to the document in the same transaction
             var updatedContent = await _session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct);
             if (updatedContent != null)
             {
@@ -101,6 +110,8 @@ public class Endpoint : Endpoint<Request, Response>
 
                 // Store the updated document
                 _session.Store(updatedContent);
+
+                // Single SaveChanges for atomicity - both events and document saved together
                 await _session.SaveChangesAsync(ct);
 
                 // WORKFLOW TRIGGER - use updated content with applied events
