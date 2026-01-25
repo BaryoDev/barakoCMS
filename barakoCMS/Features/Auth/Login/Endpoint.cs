@@ -36,12 +36,19 @@ public class Endpoint : Endpoint<Request, Response>
         Options(x => x.RequireRateLimiting("auth")); // 5 attempts per 15 minutes
     }
 
+    // Dummy password hash for timing attack prevention (pre-computed BCrypt hash)
+    private static readonly string DummyPasswordHash = BCrypt.Net.BCrypt.HashPassword("dummy_password_for_timing_attack_prevention");
+
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
         var user = await _repo.GetByUsernameAsync(req.Username, ct);
 
         if (user == null)
         {
+            // Prevent timing attack: always perform BCrypt verification even for non-existent users
+            // This ensures consistent response time regardless of whether user exists
+            BCrypt.Net.BCrypt.Verify(req.Password, DummyPasswordHash);
+
             _logger.LogWarning("Login attempt for non-existent user: {Username}", req.Username);
             ThrowError("Invalid credentials");
             return;

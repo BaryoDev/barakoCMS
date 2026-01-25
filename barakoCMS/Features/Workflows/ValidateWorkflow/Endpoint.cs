@@ -34,7 +34,7 @@ public class Endpoint : Endpoint<Request, WorkflowValidationResult>
     public override void Configure()
     {
         Post("/api/workflows/validate");
-        AllowAnonymous(); // Allow for testing
+        Roles("SuperAdmin", "Admin"); // Restrict to admins - exposes internal workflow logic
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)

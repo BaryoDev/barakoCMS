@@ -32,14 +32,21 @@ public static class DataSeeder
         Console.WriteLine("[DataSeeder] ✅ Seeding complete!");
     }
 
+    // Well-known deterministic GUIDs for system roles (must match CachedPermissionResolver)
+    public static readonly Guid SuperAdminRoleId = Guid.Parse("00000000-0000-0000-0000-000000000001");
+    public static readonly Guid AdminRoleId = Guid.Parse("00000000-0000-0000-0000-000000000002");
+    public static readonly Guid HRRoleId = Guid.Parse("00000000-0000-0000-0000-000000000003");
+    public static readonly Guid UserRoleId = Guid.Parse("00000000-0000-0000-0000-000000000004");
+
     private static async Task SeedRolesAsync(IDocumentSession session)
     {
+        // Use deterministic GUIDs for system roles to enable SuperAdmin bypass in CachedPermissionResolver
         var roles = new[]
         {
-            new Role { Id = Guid.NewGuid(), Name = "SuperAdmin", Description = "Full system access" },
-            new Role { Id = Guid.NewGuid(), Name = "Admin", Description = "Administrator with full access" },
-            new Role { Id = Guid.NewGuid(), Name = "HR", Description = "Human Resources - manage attendance" },
-            new Role { Id = Guid.NewGuid(), Name = "User", Description = "Standard user" }
+            new Role { Id = SuperAdminRoleId, Name = "SuperAdmin", Description = "Full system access" },
+            new Role { Id = AdminRoleId, Name = "Admin", Description = "Administrator with full access" },
+            new Role { Id = HRRoleId, Name = "HR", Description = "Human Resources - manage attendance" },
+            new Role { Id = UserRoleId, Name = "User", Description = "Standard user" }
         };
 
         foreach (var role in roles)
@@ -65,21 +72,14 @@ public static class DataSeeder
             return;
         }
 
-        var superAdminRole = await session.Query<Role>().FirstOrDefaultAsync(r => r.Name == "SuperAdmin");
-        var adminRole = await session.Query<Role>().FirstOrDefaultAsync(r => r.Name == "Admin");
-        var hrRole = await session.Query<Role>().FirstOrDefaultAsync(r => r.Name == "HR");
-        var userRole = await session.Query<Role>().FirstOrDefaultAsync(r => r.Name == "User");
+        // Use the well-known role IDs directly instead of querying
+        // This avoids potential race conditions and ensures consistency
+        var superAdminRole = new Role { Id = SuperAdminRoleId, Name = "SuperAdmin" };
+        var adminRole = new Role { Id = AdminRoleId, Name = "Admin" };
+        var hrRole = new Role { Id = HRRoleId, Name = "HR" };
+        var userRole = new Role { Id = UserRoleId, Name = "User" };
 
-        // Validate that roles exist before creating users
-        if (superAdminRole == null || adminRole == null || hrRole == null || userRole == null)
-        {
-            Console.WriteLine("[DataSeeder] ERROR: Required roles not found. Cannot create users.");
-            Console.WriteLine($"[DataSeeder] SuperAdmin: {(superAdminRole != null ? "✓" : "✗")}");
-            Console.WriteLine($"[DataSeeder] Admin: {(adminRole != null ? "✓" : "✗")}");
-            Console.WriteLine($"[DataSeeder] HR: {(hrRole != null ? "✓" : "✗")}");
-            Console.WriteLine($"[DataSeeder] User: {(userRole != null ? "✓" : "✗")}");
-            return;
-        }
+        // Roles are now using deterministic IDs, no validation needed
 
         // Create configured admin
         var adminConfig = configuration.GetSection("InitialAdmin");

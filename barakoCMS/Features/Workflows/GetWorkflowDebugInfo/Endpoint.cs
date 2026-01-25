@@ -31,7 +31,7 @@ public class Endpoint : Endpoint<Request, List<WorkflowExecutionLog>>
     public override void Configure()
     {
         Get("/api/workflows/{id}/debug");
-        AllowAnonymous(); // Allow for testing
+        Roles("SuperAdmin", "Admin"); // Restrict to admins - exposes internal workflow execution logs
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)

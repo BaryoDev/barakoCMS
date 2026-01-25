@@ -39,7 +39,14 @@ public static class ServiceCollectionExtensions
             }, name: "Disk Space")
             .AddPrivateMemoryHealthCheck(1024 * 1024 * 1024, name: "Memory"); // 1GB threshold
 
-        services.AddJWTBearerAuth(configuration["JWT:Key"]!, tokenValidation: p =>
+        // Validate JWT key exists and has minimum length for security
+        var jwtKey = configuration["JWT:Key"];
+        if (string.IsNullOrWhiteSpace(jwtKey) || jwtKey.Length < 32)
+        {
+            throw new InvalidOperationException("JWT:Key must be configured and at least 32 characters (256 bits) for security.");
+        }
+
+        services.AddJWTBearerAuth(jwtKey, tokenValidation: p =>
         {
             p.ValidateIssuerSigningKey = true;
             p.ValidateIssuer = true;
@@ -50,6 +57,9 @@ public static class ServiceCollectionExtensions
             // Explicitly map claims
             p.NameClaimType = "Username";
             p.RoleClaimType = System.Security.Claims.ClaimTypes.Role;
+
+            // Strict token expiration - no clock skew tolerance
+            p.ClockSkew = TimeSpan.Zero;
         });
         services.AddAuthorization();
         services.AddCors(options =>
@@ -127,8 +137,20 @@ public static class ServiceCollectionExtensions
                 .DocumentAlias("roles")
                 .Index(x => x.Name, idx => idx.IsUnique = true);
             
-            options.Schema.For<RefreshToken>().DocumentAlias("refresh_tokens");
-            options.Schema.For<RevokedToken>().DocumentAlias("revoked_tokens");
+            options.Schema.For<RefreshToken>()
+                .DocumentAlias("refresh_tokens")
+                .Index(x => x.Token, idx => idx.IsUnique = true)  // Index for fast lookup
+                .Index(x => x.UserId)  // Index for user queries
+                .Index(x => x.ExpiresAt);  // Index for cleanup queries
+
+            options.Schema.For<RevokedToken>()
+                .DocumentAlias("revoked_tokens")
+                .Index(x => x.TokenJti, idx => idx.IsUnique = true)  // Index for fast revocation check
+                .Index(x => x.ExpiresAt);  // Index for cleanup queries
+
+            options.Schema.For<IdempotencyRecord>()
+                .DocumentAlias("idempotency_records")
+                .Index(x => x.Key, idx => idx.IsUnique = true);  // Unique constraint prevents race condition
 
             // Register Workflow Projection (Async)
             options.Projections.Add(new WorkflowProjection(sp), JasperFx.Events.Projections.ProjectionLifecycle.Async);
@@ -174,6 +196,9 @@ public static class ServiceCollectionExtensions
 
         services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Filters.IdempotencyFilter>();
         services.AddSingleton<FastEndpoints.IGlobalPostProcessor, barakoCMS.Infrastructure.Filters.SensitivityFilter>();
+
+        // Background service for cleaning up expired tokens
+        services.AddHostedService<TokenCleanupService>();
 
         // Rate Limiting
         services.AddRateLimiter(options =>

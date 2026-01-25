@@ -30,6 +30,7 @@ public class Endpoint : Endpoint<Request, Response>
     {
         Post("/api/auth/refresh");
         AllowAnonymous(); // No auth required, validated by refresh token
+        Options(x => x.RequireRateLimiting("auth")); // Rate limit to prevent brute-force attacks
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)

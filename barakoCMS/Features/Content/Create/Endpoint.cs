@@ -68,12 +68,14 @@ public class Endpoint : Endpoint<Request, Response>
             var contentId = Guid.NewGuid();
             var @event = new barakoCMS.Events.ContentCreated(contentId, req.ContentType, req.Data, req.Status, userId);
 
+            // Start event stream and store document in a single transaction
             _session.Events.StartStream<barakoCMS.Models.Content>(contentId, @event);
-            await _session.SaveChangesAsync(ct);
 
             var content = new barakoCMS.Models.Content();
             content.Apply(@event);
             _session.Store(content);
+
+            // Single SaveChanges for atomicity - both event and document saved together
             await _session.SaveChangesAsync(ct);
 
             // WORKFLOW TRIGGER
@@ -87,15 +89,16 @@ public class Endpoint : Endpoint<Request, Response>
         }
         catch (Exception ex)
         {
-            // Log detailed error for debugging
-            var fullError = $"Error creating content: {ex.GetType().Name}: {ex.Message}";
+            // Log detailed error for debugging (server-side only)
+            Console.WriteLine($"[CREATE CONTENT ERROR] {ex.GetType().Name}: {ex.Message}");
             if (ex.InnerException != null)
             {
-                fullError += $" | Inner: {ex.InnerException.GetType().Name}: {ex.InnerException.Message}";
+                Console.WriteLine($"[CREATE CONTENT INNER] {ex.InnerException.GetType().Name}: {ex.InnerException.Message}");
             }
-            Console.WriteLine($"[CREATE CONTENT ERROR] {fullError}");
             Console.WriteLine($"[CREATE CONTENT STACK] {ex.StackTrace}");
-            await SendAsync(new Response { Message = fullError }, 500, ct);
+
+            // Send generic error to client - don't expose internal details
+            await SendAsync(new Response { Message = "An error occurred while creating content. Please try again." }, 500, ct);
         }
     }
 }

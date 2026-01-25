@@ -14,7 +14,9 @@ public class RequestValidator : FastEndpoints.Validator<Request>
     public RequestValidator()
     {
         RuleFor(x => x.Username).NotEmpty().MinimumLength(3);
-        RuleFor(x => x.Password).NotEmpty().MinimumLength(6);
+        // Password minimum length must match PasswordPolicyValidator (12 characters)
+        RuleFor(x => x.Password).NotEmpty().MinimumLength(12)
+            .WithMessage("Password must be at least 12 characters long.");
         RuleFor(x => x.Email).NotEmpty().EmailAddress();
     }
 }

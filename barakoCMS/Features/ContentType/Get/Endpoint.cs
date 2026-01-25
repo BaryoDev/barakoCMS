@@ -18,9 +18,8 @@ public class Endpoint : EndpointWithoutRequest<Response>
     public override void Configure()
     {
         Get("/api/schemas");
-        AllowAnonymous(); // Or restrict to Authenticated users? For the Builder UI, probably Auth only, but for usage... let's say Auth.
-        // Actually, for "Zero Code" frontend, we might need public schema? Maybe not.
-        Roles("Admin", "Editor");
+        // Require authentication - AllowAnonymous was overriding Roles()
+        Roles("SuperAdmin", "Admin", "Editor");
     }
 
     public override async Task HandleAsync(CancellationToken ct)

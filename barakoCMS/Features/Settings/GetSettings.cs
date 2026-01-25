@@ -32,7 +32,7 @@ public class GetSettingsEndpoint : EndpointWithoutRequest<GetSettingsResponse>
     public override void Configure()
     {
         Get("/api/settings");
-        AllowAnonymous(); // For now - can restrict to Admin later
+        Roles("SuperAdmin", "Admin"); // Restrict to admins only
     }
 
     public override async Task HandleAsync(CancellationToken ct)
