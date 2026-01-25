@@ -16,6 +16,11 @@ public class WorkflowToolsApiTests
     {
         _fixture = fixture;
         _client = fixture.CreateClient();
+
+        // Add authentication for all tests - workflow debug endpoints require Admin/SuperAdmin role
+        var token = _fixture.CreateToken(new[] { "SuperAdmin" });
+        _client.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
     }
 
     #region GET /api/workflows/actions Tests
