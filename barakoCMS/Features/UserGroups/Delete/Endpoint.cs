@@ -29,6 +29,19 @@ public class Endpoint : Endpoint<Request, Response>
             return;
         }
 
+        // Check referential integrity - ensure no users belong to this group
+        var usersInGroup = await _session.Query<User>()
+            .AnyAsync(u => u.GroupIds.Contains(req.Id), ct);
+
+        if (usersInGroup)
+        {
+            await SendAsync(new Response
+            {
+                Message = "Cannot delete user group: it still has members. Remove all users from the group first."
+            }, 409, ct);
+            return;
+        }
+
         _session.Delete(group);
         await _session.SaveChangesAsync(ct);
 

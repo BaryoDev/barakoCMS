@@ -28,7 +28,7 @@ public class UpdateSettingEndpoint : Endpoint<UpdateSettingRequest, UpdateSettin
     public override void Configure()
     {
         Post("/api/settings");
-        AllowAnonymous(); // TODO: Add [Roles("Admin")] when ready
+        Roles("SuperAdmin", "Admin"); // Restrict to admins only
     }
 
     public override async Task HandleAsync(UpdateSettingRequest req, CancellationToken ct)

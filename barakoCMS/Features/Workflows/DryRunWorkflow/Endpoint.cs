@@ -56,7 +56,7 @@ public class Endpoint : Endpoint<Request, Response>
     public override void Configure()
     {
         Post("/api/workflows/dry-run");
-        AllowAnonymous(); // Allow for testing
+        Roles("SuperAdmin", "Admin"); // Restrict to admins - exposes internal workflow logic
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
