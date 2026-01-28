@@ -61,6 +61,11 @@ public class Endpoint : Endpoint<Request, Response>
             return;
         }
 
+        // 3. Get content type definition for field-level sensitivity
+        var contentTypeDefinition = await _session
+            .Query<ContentTypeDefinition>()
+            .FirstOrDefaultAsync(x => x.Name == content.ContentType, ct);
+
         Response = new Response
         {
             Id = content.Id,
@@ -73,7 +78,8 @@ public class Endpoint : Endpoint<Request, Response>
             Sensitivity = content.Sensitivity
         };
 
+        // 4. Apply document and field-level sensitivity
         var sensitivityService = Resolve<barakoCMS.Core.Interfaces.ISensitivityService>();
-        sensitivityService.Apply(Response, HttpContext);
+        sensitivityService.Apply(Response, HttpContext, contentTypeDefinition);
     }
 }

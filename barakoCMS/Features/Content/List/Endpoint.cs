@@ -1,6 +1,7 @@
 using FastEndpoints;
 using Marten;
 using barakoCMS.Models;
+using barakoCMS.Core.Interfaces;
 
 namespace barakoCMS.Features.Content.List;
 
@@ -16,21 +17,25 @@ public class ContentResponse
     public Dictionary<string, object> Data { get; set; } = new();
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
+    public SensitivityLevel Sensitivity { get; set; }
 }
 
 public class Endpoint : Endpoint<Request, PaginatedResponse<ContentResponse>>
 {
     private readonly IQuerySession _session;
     private readonly barakoCMS.Infrastructure.Services.IPermissionResolver _permissionResolver;
+    private readonly ISensitivityService _sensitivityService;
     private readonly ILogger<Endpoint> _logger;
 
     public Endpoint(
         IQuerySession session,
         barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver,
+        ISensitivityService sensitivityService,
         ILogger<Endpoint> logger)
     {
         _session = session;
         _permissionResolver = permissionResolver;
+        _sensitivityService = sensitivityService;
         _logger = logger;
     }
 
@@ -49,7 +54,7 @@ public class Endpoint : Endpoint<Request, PaginatedResponse<ContentResponse>>
             await SendUnauthorizedAsync(ct);
             return;
         }
-        
+
         var user = await _session.LoadAsync<barakoCMS.Models.User>(userId, ct);
         if (user == null)
         {
@@ -83,20 +88,38 @@ public class Endpoint : Endpoint<Request, PaginatedResponse<ContentResponse>>
             "Content list query: Page={Page}, PageSize={PageSize}, TotalCount={TotalCount}, Retrieved={Retrieved}",
             req.Page, req.PageSize, totalCount, items.Count);
 
-        // 6. Filter by Permission (now O(pageSize) not O(total))
-        // This is much more efficient - only checking permissions for items on current page
+        // 6. Load content type definitions for field-level sensitivity (cached by content type)
+        var contentTypeCache = new Dictionary<string, ContentTypeDefinition?>();
+
+        // 7. Filter by Permission and apply sensitivity (now O(pageSize) not O(total))
         var permittedItems = new List<ContentResponse>();
         foreach (var item in items)
         {
             if (await _permissionResolver.CanPerformActionAsync(user, item.ContentType, "read", item, ct))
             {
+                // Get or load content type definition
+                if (!contentTypeCache.TryGetValue(item.ContentType, out var contentTypeDef))
+                {
+                    contentTypeDef = await _session
+                        .Query<ContentTypeDefinition>()
+                        .FirstOrDefaultAsync(x => x.Name == item.ContentType, ct);
+                    contentTypeCache[item.ContentType] = contentTypeDef;
+                }
+
+                // Create response with copy of data
+                var responseData = new Dictionary<string, object>(item.Data);
+
+                // Apply field-level sensitivity filtering
+                _sensitivityService.ApplyFieldSensitivity(responseData, HttpContext, contentTypeDef);
+
                 permittedItems.Add(new ContentResponse
                 {
                     Id = item.Id,
                     ContentType = item.ContentType,
-                    Data = new Dictionary<string, object>(item.Data),
+                    Data = responseData,
                     CreatedAt = item.CreatedAt,
-                    UpdatedAt = item.UpdatedAt
+                    UpdatedAt = item.UpdatedAt,
+                    Sensitivity = item.Sensitivity
                 });
             }
         }
@@ -105,7 +128,7 @@ public class Endpoint : Endpoint<Request, PaginatedResponse<ContentResponse>>
             "Permission filtering: Retrieved={Retrieved}, Permitted={Permitted}",
             items.Count, permittedItems.Count);
 
-        // 7. Return Paginated Response
+        // 8. Return Paginated Response
         await SendAsync(new PaginatedResponse<ContentResponse>
         {
             Items = permittedItems,

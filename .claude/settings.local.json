@@ -21,7 +21,8 @@
       "Bash(claude config list:*)",
       "Bash(echo:*)",
       "Bash(dotnet nuget delete:*)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(dotnet add:*)"
     ]
   }
 }
