@@ -27,5 +27,10 @@ public class RequestValidator : FastEndpoints.Validator<Request>
 public class Response
 {
     public Guid Id { get; set; }
+    /// <summary>
+    /// The content's event-stream version after this update. Echo it back in the next
+    /// update's Version field to enable optimistic-concurrency conflict detection.
+    /// </summary>
+    public long Version { get; set; }
     public string Message { get; set; } = string.Empty;
 }

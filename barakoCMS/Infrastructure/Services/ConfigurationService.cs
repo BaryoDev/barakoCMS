@@ -21,43 +21,48 @@ public class ConfigurationService : IConfigurationService
 
     public async Task<T> GetConfigValueAsync<T>(string key, T defaultValue, CancellationToken ct = default)
     {
-        // 1. Check database for override
+        // 1. Check database for override (an admin-editable, possibly malformed value).
         var setting = await _session.Query<SystemSetting>()
             .FirstOrDefaultAsync(s => s.Key == key, ct);
 
-        if (setting != null)
+        if (setting != null && TryConvertValue<T>(setting.Value, out var dbValue))
         {
-            return ConvertValue<T>(setting.Value);
+            return dbValue;
         }
 
         // 2. Check environment variable (supports both __ and : separators)
         var envValue = _configuration[key] ?? _configuration[key.Replace("__", ":")];
-        if (envValue != null)
+        if (envValue != null && TryConvertValue<T>(envValue, out var envConverted))
         {
-            return ConvertValue<T>(envValue);
+            return envConverted;
         }
 
-        // 3. Return default
+        // 3. Fall back to the default. Malformed or unsupported values fall through here rather
+        //    than throwing, so a bad admin-entered setting cannot crash its consumers.
         return defaultValue;
     }
 
-    private static T ConvertValue<T>(string value)
+    private static bool TryConvertValue<T>(string value, out T result)
     {
+        result = default!;
         var targetType = typeof(T);
 
-        if (targetType == typeof(bool))
+        if (targetType == typeof(bool) && bool.TryParse(value, out var b))
         {
-            return (T)(object)bool.Parse(value);
+            result = (T)(object)b;
+            return true;
         }
-        if (targetType == typeof(int))
+        if (targetType == typeof(int) && int.TryParse(value, out var i))
         {
-            return (T)(object)int.Parse(value);
+            result = (T)(object)i;
+            return true;
         }
         if (targetType == typeof(string))
         {
-            return (T)(object)value;
+            result = (T)(object)value;
+            return true;
         }
 
-        throw new NotSupportedException($"Type {targetType} is not supported for configuration values");
+        return false;
     }
 }

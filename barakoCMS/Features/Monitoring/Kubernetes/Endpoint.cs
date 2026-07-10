@@ -17,7 +17,8 @@ public class Endpoint : EndpointWithoutRequest<ClusterStatus>
     public override void Configure()
     {
         Get("/api/monitoring/k8s");
-        AllowAnonymous(); // TODO: Restrict to Admin role in production
+        // Exposes cluster topology (nodes, versions, replica counts) — admins only.
+        Roles("Admin", "SuperAdmin");
         Description(b => b
             .Produces<ClusterStatus>(200)
             .WithTags("Monitoring"));
