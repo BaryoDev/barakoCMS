@@ -7,10 +7,12 @@ namespace barakoCMS.Features.Roles.Update;
 public class Endpoint : Endpoint<Request, Response>
 {
     private readonly IDocumentSession _session;
+    private readonly barakoCMS.Infrastructure.Services.IPermissionResolver _permissionResolver;
 
-    public Endpoint(IDocumentSession session)
+    public Endpoint(IDocumentSession session, barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver)
     {
         _session = session;
+        _permissionResolver = permissionResolver;
     }
 
     public override void Configure()
@@ -37,6 +39,9 @@ public class Endpoint : Endpoint<Request, Response>
 
         _session.Store(role);
         await _session.SaveChangesAsync(ct);
+
+        // Permissions changed — evict cached decisions so the new rules take effect immediately.
+        _permissionResolver.InvalidateAllPermissions();
 
         await SendOkAsync(new Response
         {

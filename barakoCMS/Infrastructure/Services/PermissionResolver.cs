@@ -3,7 +3,8 @@ using Marten;
 namespace barakoCMS.Infrastructure.Services;
 
 /// <summary>
-/// Service for resolving user permissions with "Most Restrictive" strategy
+/// Service for resolving user permissions using additive (union) role semantics: a user is
+/// granted an action if ANY of their roles grants it. SuperAdmin bypasses all checks.
 /// </summary>
 public class PermissionResolver : IPermissionResolver
 {
@@ -17,8 +18,8 @@ public class PermissionResolver : IPermissionResolver
     }
 
     /// <summary>
-    /// Check if user can perform action using "Most Restrictive" logic:
-    /// ALL roles must grant permission for approval
+    /// Check if a user can perform an action using additive (union) logic: access is granted if
+    /// ANY of the user's roles has an enabled rule for the action whose conditions match.
     /// </summary>
     public async Task<bool> CanPerformActionAsync(
         Models.User user,
@@ -81,6 +82,12 @@ public class PermissionResolver : IPermissionResolver
         // None of the rules granted access
         return false;
     }
+
+    // No caching in the inner resolver, so invalidation is a no-op here. The CachedPermissionResolver
+    // decorator implements the actual eviction.
+    public void InvalidateUserPermissions(Guid userId) { }
+
+    public void InvalidateAllPermissions() { }
 
     private Models.PermissionRule? GetRuleForAction(Models.ContentTypePermission permission, string action)
     {

@@ -7,10 +7,12 @@ namespace barakoCMS.Features.Roles.Delete;
 public class Endpoint : Endpoint<Request, Response>
 {
     private readonly IDocumentSession _session;
+    private readonly barakoCMS.Infrastructure.Services.IPermissionResolver _permissionResolver;
 
-    public Endpoint(IDocumentSession session)
+    public Endpoint(IDocumentSession session, barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver)
     {
         _session = session;
+        _permissionResolver = permissionResolver;
     }
 
     public override void Configure()
@@ -62,6 +64,9 @@ public class Endpoint : Endpoint<Request, Response>
 
         _session.Delete(role);
         await _session.SaveChangesAsync(ct);
+
+        // A deleted role changes effective permissions for its holders — evict cached decisions.
+        _permissionResolver.InvalidateAllPermissions();
 
         await SendOkAsync(new Response
         {

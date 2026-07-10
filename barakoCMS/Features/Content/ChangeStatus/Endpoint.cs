@@ -8,16 +8,13 @@ public class Endpoint : Endpoint<Request, Response>
 {
     private readonly IDocumentSession _session;
     private readonly barakoCMS.Infrastructure.Services.IPermissionResolver _permissionResolver;
-    private readonly barakoCMS.Features.Workflows.IWorkflowEngine _workflowEngine;
 
     public Endpoint(
         IDocumentSession session,
-        barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver,
-        barakoCMS.Features.Workflows.IWorkflowEngine workflowEngine)
+        barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver)
     {
         _session = session;
         _permissionResolver = permissionResolver;
-        _workflowEngine = workflowEngine;
     }
 
     public override void Configure()
@@ -61,25 +58,11 @@ public class Endpoint : Endpoint<Request, Response>
 
         var @event = new barakoCMS.Events.ContentStatusChanged(req.Id, req.NewStatus, userId);
 
-        _session.Events.Append(req.Id, @event);
-
-        // Apply the event to the document in the same transaction
-        var updatedContent = await _session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct);
-        if (updatedContent != null)
-        {
-            updatedContent.Apply(@event);
-            _session.Store(updatedContent);
-
-            // Single SaveChanges for atomicity - both event and document saved together
-            await _session.SaveChangesAsync(ct);
-
-            // Trigger workflow for status change (consistent with Update endpoint)
-            await _workflowEngine.ProcessEventAsync(updatedContent.ContentType, "status_change", updatedContent, ct);
-        }
-        else
-        {
-            await _session.SaveChangesAsync(ct);
-        }
+        // Append the event AND update the read-model document in one transaction so they can't
+        // diverge. Workflows fire out-of-band via the async WorkflowProjection.
+        content.Apply(@event);
+        _session.Store(content);
+        await _session.SaveChangesAsync(ct);
 
         await SendAsync(new Response
         {

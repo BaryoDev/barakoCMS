@@ -1,5 +1,6 @@
 using barakoCMS.Models;
 using Marten;
+using System.Text.RegularExpressions;
 
 namespace barakoCMS.Infrastructure.Services;
 
@@ -88,6 +89,9 @@ public class TemplateVariableExtractor : ITemplateVariableExtractor
         return collection;
     }
 
+    // Matches {{ variable }} tokens. Field/variable names are limited to identifier-ish characters.
+    private static readonly Regex TemplateToken = new(@"\{\{\s*([A-Za-z0-9_.]+)\s*\}\}", RegexOptions.Compiled);
+
     public string ResolveVariables(string template, Content content)
     {
         ArgumentNullException.ThrowIfNull(content, nameof(content));
@@ -95,27 +99,34 @@ public class TemplateVariableExtractor : ITemplateVariableExtractor
         if (string.IsNullOrEmpty(template))
             return template;
 
-        var sb = new System.Text.StringBuilder(template);
-
-        // Resolve system variables
-        sb.Replace("{{id}}", content.Id.ToString());
-        sb.Replace("{{contentType}}", content.ContentType ?? string.Empty);
-        sb.Replace("{{status}}", content.Status.ToString());
-        sb.Replace("{{createdAt}}", content.CreatedAt.ToString("o"));
-        sb.Replace("{{updatedAt}}", content.UpdatedAt.ToString("o"));
-
-        // Resolve data fields
-        if (content.Data != null)
+        // Single pass over the ORIGINAL template. Because each {{...}} token is resolved exactly
+        // once and substituted values are NOT re-scanned, a content field whose value itself
+        // contains "{{data.Other}}" cannot inject/leak another field (second-order injection).
+        return TemplateToken.Replace(template, match =>
         {
-            foreach (var kvp in content.Data)
-            {
-                var variableName = $"{{{{data.{kvp.Key}}}}}";
-                var value = kvp.Value?.ToString() ?? "";
-                sb.Replace(variableName, value);
-            }
-        }
+            var key = match.Groups[1].Value;
 
-        return sb.ToString();
+            switch (key)
+            {
+                case "id": return content.Id.ToString();
+                case "contentType": return content.ContentType ?? string.Empty;
+                case "status": return content.Status.ToString();
+                case "createdAt": return content.CreatedAt.ToString("o");
+                case "updatedAt": return content.UpdatedAt.ToString("o");
+            }
+
+            if (key.StartsWith("data.", StringComparison.Ordinal) && content.Data != null)
+            {
+                var fieldName = key.Substring("data.".Length);
+                if (content.Data.TryGetValue(fieldName, out var value))
+                {
+                    return value?.ToString() ?? string.Empty;
+                }
+            }
+
+            // Unknown variable: leave the original token untouched.
+            return match.Value;
+        });
     }
 
     private List<TemplateVariable> GetSystemVariables()

@@ -18,7 +18,8 @@ public class Endpoint : EndpointWithoutRequest<Response>
     public override void Configure()
     {
         Get("/api/schemas");
-        // Require authentication - AllowAnonymous was overriding Roles()
+        // NOTE: AllowAnonymous() must NOT be combined with Roles() — in ASP.NET Core
+        // AllowAnonymous short-circuits authorization and silently disables the role check.
         Roles("SuperAdmin", "Admin", "Editor");
     }
 

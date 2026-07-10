@@ -54,7 +54,16 @@ public class EventRegistrationTests
             Conditions = new Dictionary<string, string>(), // Always trigger
             Actions = new List<WorkflowAction>
             {
-                new WorkflowAction { Type = "Email", Parameters = new Dictionary<string, string> { { "To", "organizer@example.com" } } }
+                new WorkflowAction
+                {
+                    Type = "Email",
+                    Parameters = new Dictionary<string, string>
+                    {
+                        { "To", "organizer@example.com" },
+                        { "Subject", "New registration" },
+                        { "Body", "A new registration was created for {{contentType}} {{id}}." }
+                    }
+                }
             }
         };
 
