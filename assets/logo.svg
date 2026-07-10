@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="BarakoCMS coffee bean logo">
+  <title>BarakoCMS</title>
+  <defs>
+    <linearGradient id="beanFill" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#A9744F"/>
+      <stop offset="0.55" stop-color="#6F4E37"/>
+      <stop offset="1" stop-color="#3E2418"/>
+    </linearGradient>
+  </defs>
+  <g transform="rotate(-32 64 64)">
+    <!-- Bean body -->
+    <ellipse cx="64" cy="64" rx="33" ry="50" fill="url(#beanFill)"/>
+    <!-- Subtle highlight -->
+    <ellipse cx="52" cy="44" rx="9" ry="17" fill="#C89B76" opacity="0.35"/>
+    <!-- Center crease -->
+    <path d="M64 17 C 51 41, 77 55, 64 64 C 51 73, 77 87, 64 111"
+          fill="none" stroke="#2A170D" stroke-width="6.5" stroke-linecap="round"/>
+  </g>
+</svg>
