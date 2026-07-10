@@ -1,4 +1,8 @@
-# BarakoCMS
+<p align="center">
+  <img src="assets/logo.svg" alt="BarakoCMS logo — a coffee bean" width="120" height="120" />
+</p>
+
+<h1 align="center">BarakoCMS</h1>
 
 **The AI-Native, High-Performance Headless CMS for .NET 8.**
 
@@ -20,6 +24,23 @@
 > Please visit our documentation site for Getting Started guides, API Reference, and Architecture Deep Dives.
 
 BarakoCMS is engineered for **Speed**, **Extensibility**, and **Robustness**. Built on the bleeding edge with [FastEndpoints](https://fast-endpoints.com/) and [MartenDB](https://martendb.io/), it delivers a developer-first experience that is both human-friendly and agent-ready.
+
+> The name **Barako** comes from *kapeng barako*, a bold Philippine coffee varietal — hence the coffee-bean mark above.
+
+---
+
+## 🔒 Security & Stability
+
+BarakoCMS has been through a focused hardening pass. Highlights:
+
+- **Dependencies**: pinned to patched versions (no known vulnerable packages).
+- **Authentication**: JWT signing key is validated at startup (fails fast if missing or < 32 chars); refresh tokens rotate with **reuse detection** — replaying a used token revokes the whole token family. Token revocation (logout / password change / admin revoke) is enforced on every request.
+- **Authorization**: role-based checks with a cached resolver that is **invalidated immediately** when roles or permissions change (no stale-access window).
+- **Write path**: content updates use **optimistic concurrency** — read the `Version` field from a `GET`/`POST`/`PUT` response and echo it back on your next update to detect conflicting edits (HTTP 412). Rollback restores prior versions to the live read model.
+- **Workflows** run out-of-band and are **fault-isolated**: a slow or failing action (webhook, email, SMS) can never block or fail a content save, and one failing action cannot stall the engine. Outbound webhooks are guarded against SSRF (internal/loopback/link-local targets are blocked).
+- **Hardening**: global exception handling (no stack-trace leaks), request body-size limits, rate limiting, and locked-down diagnostics/monitoring/health endpoints.
+
+See [`SECURITY.md`](SECURITY.md) for vulnerability reporting.
 
 ---
 
@@ -83,6 +104,9 @@ Update `barakoCMS/appsettings.json`:
   }
 }
 ```
+
+> [!IMPORTANT]
+> **`JWT:Key` is required and must be at least 32 characters** — the app refuses to start otherwise (no insecure default). In containers, set it via the `JWT__Key` environment variable and keep it out of source control. Likewise, the initial admin password is supplied via `InitialAdmin__Password` (empty by default in the base config; a dev value ships only in `appsettings.Development.json`). Request bodies are capped at 10 MB by default (`RequestLimits:MaxBodyBytes`).
 
 ### 3. Run
 ```bash
