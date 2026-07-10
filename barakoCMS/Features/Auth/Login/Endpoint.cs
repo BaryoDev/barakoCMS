@@ -1,6 +1,7 @@
 using FastEndpoints;
 using FastEndpoints.Security;
 using Marten;
+using Marten.Patching;
 using barakoCMS.Models;
 using System.Security.Cryptography;
 using System.IdentityModel.Tokens.Jwt;
@@ -69,25 +70,28 @@ public class Endpoint : Endpoint<Request, Response>
         // Verify password
         if (!BCrypt.Net.BCrypt.Verify(req.Password, user.PasswordHash))
         {
-            // Increment failed login attempts
-            user.FailedLoginAttempts++;
-            
-            if (user.FailedLoginAttempts >= 5)
+            // Atomic SQL-level increment so concurrent failed attempts can't be lost to a
+            // read-modify-write race (which would let an attacker bypass the lockout threshold).
+            _documentSession.Patch<User>(user.Id).Increment(x => x.FailedLoginAttempts);
+            await _documentSession.SaveChangesAsync(ct);
+
+            // Re-read the authoritative count and lock out once the threshold is reached.
+            var refreshed = await _session.LoadAsync<User>(user.Id, ct);
+            var attempts = refreshed?.FailedLoginAttempts ?? 0;
+
+            if (attempts >= 5)
             {
-                // Lock account for 15 minutes
-                user.LockoutUntil = DateTime.UtcNow.AddMinutes(15);
+                _documentSession.Patch<User>(user.Id).Set(x => x.LockoutUntil, DateTime.UtcNow.AddMinutes(15));
+                await _documentSession.SaveChangesAsync(ct);
                 _logger.LogWarning(
-                    "Account locked due to 5 failed login attempts: {Username}",
+                    "Account locked due to failed login attempts: {Username}",
                     req.Username);
             }
-            
-            _documentSession.Update(user);
-            await _documentSession.SaveChangesAsync(ct);
-            
+
             _logger.LogWarning(
                 "Failed login attempt for user: {Username}, Attempts: {Attempts}",
-                req.Username, user.FailedLoginAttempts);
-            
+                req.Username, attempts);
+
             ThrowError("Invalid credentials");
             return;
         }

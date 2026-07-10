@@ -101,7 +101,11 @@ public static class DataSeeder
             Console.WriteLine($"[DataSeeder] {(existingAdmin == null ? "Created" : "Updated")} SuperAdmin user: {username}");
         }
 
-        if (userCount == 0)
+        // Sample login accounts with fixed passwords are demo data — only seed them outside
+        // production so they never ship as usable accounts in a real deployment.
+        var isDevelopment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development";
+
+        if (userCount == 0 && isDevelopment)
         {
             // Create sample HR user
             var hrUser = new User

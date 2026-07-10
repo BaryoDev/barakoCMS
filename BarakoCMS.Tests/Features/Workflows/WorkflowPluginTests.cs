@@ -180,8 +180,9 @@ public class WorkflowPluginTests
 
         var emailAction = new EmailAction(mockEmailService.Object);
         var actions = new List<IWorkflowAction> { emailAction };
+        var mockVariableExtractor = new Mock<barakoCMS.Infrastructure.Services.ITemplateVariableExtractor>();
 
-        var engine = new WorkflowEngine(mockSession.Object, actions, mockLogger.Object);
+        var engine = new WorkflowEngine(mockSession.Object, actions, mockVariableExtractor.Object, mockLogger.Object);
 
         // Note: This test validates the plugin discovery mechanism
         // The engine should be able to resolve EmailAction from the IEnumerable<IWorkflowAction>

@@ -15,7 +15,8 @@ public class TypeCheckEndpoint : EndpointWithoutRequest
     public override void Configure()
     {
         Get("/api/diagnostics/typecheck");
-        AllowAnonymous();
+        // Leaks internal assembly/type info — restrict to admins only.
+        Roles("Admin", "SuperAdmin");
     }
 
     public override async Task HandleAsync(CancellationToken ct)
