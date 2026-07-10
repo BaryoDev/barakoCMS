@@ -13,7 +13,10 @@ public class MockEmailService : IEmailService
 
     public Task SendEmailAsync(string to, string subject, string body, CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("Sending Email to {To}: {Subject} - {Body}", to, subject, body);
+        // Mock provider: does NOT deliver email. Log recipient + subject only (body may contain PII).
+        _logger.LogWarning(
+            "MockEmailService: no email provider configured — email to {To} (subject: {Subject}) was NOT sent.",
+            to, subject);
         return Task.CompletedTask;
     }
 }

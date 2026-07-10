@@ -7,10 +7,12 @@ namespace barakoCMS.Features.Users.AssignRole;
 public class Endpoint : Endpoint<Request, Response>
 {
     private readonly IDocumentSession _session;
+    private readonly barakoCMS.Infrastructure.Services.IPermissionResolver _permissionResolver;
 
-    public Endpoint(IDocumentSession session)
+    public Endpoint(IDocumentSession session, barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver)
     {
         _session = session;
+        _permissionResolver = permissionResolver;
     }
 
     public override void Configure()
@@ -25,9 +27,9 @@ public class Endpoint : Endpoint<Request, Response>
         var user = await _session.LoadAsync<User>(req.UserId, ct);
         if (user == null)
         {
-            user = new User 
-            { 
-                Id = req.UserId, 
+            user = new User
+            {
+                Id = req.UserId,
                 RoleIds = new(),
                 Username = $"user_{req.UserId:N}",
                 Email = $"user_{req.UserId:N}@example.com",
@@ -40,6 +42,9 @@ public class Endpoint : Endpoint<Request, Response>
             user.RoleIds.Add(req.RoleId);
             _session.Store(user);
             await _session.SaveChangesAsync(ct);
+
+            // This user's effective permissions changed — evict their cached decisions.
+            _permissionResolver.InvalidateUserPermissions(req.UserId);
         }
 
         await SendOkAsync(new Response { Message = "Role assigned to user successfully" }, ct);

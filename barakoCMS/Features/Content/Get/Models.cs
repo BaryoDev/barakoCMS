@@ -15,4 +15,8 @@ public class Response
     public barakoCMS.Models.ContentStatus Status { get; set; }
     public Guid LastModifiedBy { get; set; }
     public barakoCMS.Models.SensitivityLevel Sensitivity { get; set; }
+    /// <summary>
+    /// Event-stream version. Send this back in an update's Version field for optimistic concurrency.
+    /// </summary>
+    public long Version { get; set; }
 }

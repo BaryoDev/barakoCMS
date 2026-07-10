@@ -1,9 +1,13 @@
 using barakoCMS.Extensions;
 using Serilog;
 using Serilog.Events;
-using HealthChecks.UI.Client;
-using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Prometheus;
+
+// The codebase stores UTC DateTime values throughout. Npgsql 6+ refuses to bind a Kind=UTC
+// DateTime to a 'timestamp without time zone' column, which made every LINQ query that compares
+// a DateTime field to DateTime.UtcNow throw — silently breaking token-revocation checks. This
+// switch (set before Npgsql initializes) restores the DateTime<->timestamp mapping the code assumes.
+AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -45,10 +49,8 @@ catch (Exception ex)
     throw;
 }
 
-app.MapHealthChecks("/health", new HealthCheckOptions
-{
-    ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
-});
+// NOTE: /health is mapped once, inside UseBarakoCMS (see ServiceCollectionExtensions),
+// with a minimal response writer so it doesn't leak internal check details to anonymous callers.
 
 // Prometheus Metrics
 app.UseHttpMetrics();
@@ -57,10 +59,6 @@ app.MapMetrics();
 try
 {
     Log.Information("Starting BarakoCMS Host...");
-
-    // DEBUG: Print Env Vars
-    var dbUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
-    Log.Information("DEBUG: DATABASE_URL available: {Available}, Length: {Length}", !string.IsNullOrEmpty(dbUrl), dbUrl?.Length ?? 0);
 
     // Run Seeder in background to avoid blocking startup and timeouts.
     if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("SKIP_SEEDER")))

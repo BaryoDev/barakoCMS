@@ -61,6 +61,8 @@ public class Endpoint : Endpoint<Request, Response>
             return;
         }
 
+        var streamState = await _session.Events.FetchStreamStateAsync(req.Id, ct);
+
         Response = new Response
         {
             Id = content.Id,
@@ -70,7 +72,8 @@ public class Endpoint : Endpoint<Request, Response>
             UpdatedAt = content.UpdatedAt,
             Status = content.Status,
             LastModifiedBy = content.LastModifiedBy,
-            Sensitivity = content.Sensitivity
+            Sensitivity = content.Sensitivity,
+            Version = streamState?.Version ?? 0
         };
 
         var sensitivityService = Resolve<barakoCMS.Core.Interfaces.ISensitivityService>();
