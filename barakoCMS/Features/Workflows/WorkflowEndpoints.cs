@@ -7,10 +7,12 @@ namespace barakoCMS.Features.Workflows;
 public class CreateWorkflowEndpoint : Endpoint<WorkflowDefinition, WorkflowDefinition>
 {
     private readonly IDocumentSession _session;
+    private readonly barakoCMS.Infrastructure.Services.IWorkflowSchemaValidator _validator;
 
-    public CreateWorkflowEndpoint(IDocumentSession session)
+    public CreateWorkflowEndpoint(IDocumentSession session, barakoCMS.Infrastructure.Services.IWorkflowSchemaValidator validator)
     {
         _session = session;
+        _validator = validator;
     }
 
     public override void Configure()
@@ -21,7 +23,19 @@ public class CreateWorkflowEndpoint : Endpoint<WorkflowDefinition, WorkflowDefin
 
     public override async Task HandleAsync(WorkflowDefinition req, CancellationToken ct)
     {
-        Console.WriteLine($"[SERVER] User Claims: {string.Join(", ", User.Claims.Select(c => $"{c.Type}={c.Value}"))}");
+        // Validate before persisting so invalid trigger events / unknown action types / missing
+        // required parameters are rejected up front rather than silently never firing (or firing twice).
+        var validation = _validator.Validate(req, ct);
+        if (!validation.IsValid)
+        {
+            foreach (var error in validation.Errors)
+            {
+                AddError($"{error.Field}: {error.Message}");
+            }
+            await SendErrorsAsync(cancellation: ct);
+            return;
+        }
+
         req.Id = Guid.NewGuid();
         _session.Store(req);
         await _session.SaveChangesAsync(ct);

@@ -7,7 +7,9 @@ services:
     ports:
       - "5005:8080"
     environment:
-      # WARNING: Override these in production with real secrets!
+      # WARNING: This compose file is for LOCAL DEVELOPMENT ONLY. Use docker-compose.prod.yml
+      # (which requires real secrets with no defaults) for any real deployment.
+      - ASPNETCORE_ENVIRONMENT=Development
       - ConnectionStrings__DefaultConnection=Host=postgres;Database=barako_cms;Username=postgres;Password=${POSTGRES_PASSWORD:-postgres}
       - JWT__Key=${JWT_SECRET:-dev-only-key-minimum-32-chars-long}
       - InitialAdmin__Username=${ADMIN_USER:-admin}

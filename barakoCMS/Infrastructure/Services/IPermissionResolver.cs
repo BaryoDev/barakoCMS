@@ -20,4 +20,16 @@ public interface IPermissionResolver
         string action,
         Models.Content? content = null,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Evict any cached permission decisions for a single user. Call after that user's role
+    /// assignments change so revoked access takes effect immediately instead of after the TTL.
+    /// </summary>
+    void InvalidateUserPermissions(Guid userId);
+
+    /// <summary>
+    /// Evict all cached permission decisions. Call after a role's permissions change, which can
+    /// affect every user holding that role.
+    /// </summary>
+    void InvalidateAllPermissions();
 }

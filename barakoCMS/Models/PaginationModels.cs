@@ -7,19 +7,24 @@ namespace barakoCMS.Models;
 public class PaginatedRequest
 {
     private int _pageSize = 20;
-    
+    private int _page = 1;
+
     /// <summary>
-    /// Page number (1-indexed)
+    /// Page number (1-indexed). Values below 1 are clamped to 1 to prevent negative OFFSET.
     /// </summary>
-    public int Page { get; set; } = 1;
-    
+    public int Page
+    {
+        get => _page;
+        set => _page = value < 1 ? 1 : value;
+    }
+
     /// <summary>
-    /// Number of items per page (max 100)
+    /// Number of items per page. Clamped to the range 1..100 to prevent negative/zero LIMIT.
     /// </summary>
     public int PageSize
     {
         get => _pageSize;
-        set => _pageSize = Math.Min(value, 100); // Enforce max 100
+        set => _pageSize = value < 1 ? 1 : Math.Min(value, 100);
     }
     
     /// <summary>

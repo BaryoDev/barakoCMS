@@ -23,6 +23,18 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddBarakoCMS(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddFastEndpoints();
+
+        // Request body size limit (defends against large-payload memory pressure / DoS on the
+        // arbitrary-JSON content endpoints). Configurable via RequestLimits:MaxBodyBytes; default 10 MB.
+        var maxBodyBytes = configuration.GetValue<long?>("RequestLimits:MaxBodyBytes") ?? 10L * 1024 * 1024;
+        services.Configure<Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions>(o =>
+        {
+            o.Limits.MaxRequestBodySize = maxBodyBytes;
+        });
+        services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o =>
+        {
+            o.MultipartBodyLengthLimit = maxBodyBytes;
+        });
         if (Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development")
         {
             services.SwaggerDocument();
@@ -39,8 +51,8 @@ public static class ServiceCollectionExtensions
             }, name: "Disk Space")
             .AddPrivateMemoryHealthCheck(1024 * 1024 * 1024, name: "Memory"); // 1GB threshold
 
-        // Validate JWT key exists and has minimum length for security
-        // Check both configuration and environment variable (env var uses __ for nested keys)
+        // Validate JWT key exists and has minimum length for security. Fail fast rather than
+        // booting with broken or insecure auth. Check both config and the JWT__Key env var.
         var jwtKey = configuration["JWT:Key"];
         if (string.IsNullOrWhiteSpace(jwtKey))
         {
@@ -144,6 +156,9 @@ public static class ServiceCollectionExtensions
             
             options.Schema.For<RefreshToken>()
                 .DocumentAlias("refresh_tokens")
+                // Optimistic concurrency so a single refresh token cannot be rotated twice
+                // concurrently (defeats refresh-token reuse/replay).
+                .UseOptimisticConcurrency(true)
                 .Index(x => x.Token, idx => idx.IsUnique = true)  // Index for fast lookup
                 .Index(x => x.UserId)  // Index for user queries
                 .Index(x => x.ExpiresAt);  // Index for cleanup queries
@@ -307,6 +322,10 @@ public static class ServiceCollectionExtensions
         var configuration = app.ApplicationServices.GetRequiredService<IConfiguration>();
         var env = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
 
+        // Global exception handler — MUST be first so it wraps every downstream middleware/endpoint.
+        // Returns a structured 500 (no stack trace leak) and logs the exception via FastEndpoints.
+        app.UseDefaultExceptionHandler();
+
         // HTTPS Redirection and HSTS (Production only)
         if (env != "Development")
         {
@@ -366,11 +385,17 @@ public static class ServiceCollectionExtensions
             };
         });
 
-        // Health Checks Endpoint (JSON for UI)
+        // Health Checks Endpoint — unauthenticated for k8s liveness/readiness probes.
+        // All checks still run (status code reflects DB/disk/memory), but the response body is
+        // minimal so anonymous callers can't enumerate internal check names/descriptions/timings.
         app.UseHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
         {
             Predicate = _ => true,
-            ResponseWriter = HealthChecks.UI.Client.UIResponseWriter.WriteHealthCheckUIResponse
+            ResponseWriter = async (context, report) =>
+            {
+                context.Response.ContentType = "application/json";
+                await context.Response.WriteAsync($"{{\"status\":\"{report.Status}\"}}");
+            }
         });
 
         // Health Checks UI Dashboard (Config-Gated)
@@ -383,7 +408,6 @@ public static class ServiceCollectionExtensions
             });
         }
 
-        app.UseCors("SecurePolicy");
         if (env == "Development")
         {
             app.UseSwaggerGen();

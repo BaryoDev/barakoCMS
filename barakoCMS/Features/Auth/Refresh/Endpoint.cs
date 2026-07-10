@@ -13,17 +13,20 @@ public class Endpoint : Endpoint<Request, Response>
     private readonly IDocumentSession _documentSession;
     private readonly IConfiguration _config;
     private readonly ILogger<Endpoint> _logger;
+    private readonly barakoCMS.Infrastructure.Services.ITokenRevocationService _tokenRevocation;
 
     public Endpoint(
         IQuerySession querySession,
         IDocumentSession documentSession,
         IConfiguration config,
-        ILogger<Endpoint> logger)
+        ILogger<Endpoint> logger,
+        barakoCMS.Infrastructure.Services.ITokenRevocationService tokenRevocation)
     {
         _querySession = querySession;
         _documentSession = documentSession;
         _config = config;
         _logger = logger;
+        _tokenRevocation = tokenRevocation;
     }
 
     public override void Configure()
@@ -35,14 +38,37 @@ public class Endpoint : Endpoint<Request, Response>
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        // Find the refresh token
-        var refreshToken = await _querySession.Query<RefreshToken>()
+        // Load via the document session so Marten tracks the version for the optimistic-concurrency
+        // guard on rotation below.
+        var refreshToken = await _documentSession.Query<RefreshToken>()
             .FirstOrDefaultAsync(rt => rt.Token == req.RefreshToken, ct);
 
         if (refreshToken == null)
         {
             _logger.LogWarning("Refresh attempt with invalid token");
             ThrowError("Invalid refresh token");
+            return;
+        }
+
+        // Check if token is revoked
+        if (refreshToken.IsRevoked)
+        {
+            // Reuse detection: replaying an already-rotated ("used") token is a strong signal that
+            // the token family is compromised — revoke every active token for the user.
+            if (refreshToken.RevokedReason == "used")
+            {
+                _logger.LogWarning(
+                    "Refresh token reuse detected. Revoking all tokens for UserId: {UserId}",
+                    refreshToken.UserId);
+                await _tokenRevocation.RevokeAllUserTokensAsync(refreshToken.UserId, "reuse_detected", ct);
+            }
+            else
+            {
+                _logger.LogWarning(
+                    "Refresh attempt with revoked token. UserId: {UserId}, Reason: {Reason}",
+                    refreshToken.UserId, refreshToken.RevokedReason);
+            }
+            ThrowError("Refresh token has been revoked. Please log in again.");
             return;
         }
 
@@ -53,16 +79,6 @@ public class Endpoint : Endpoint<Request, Response>
                 "Refresh attempt with expired token. UserId: {UserId}, Expired: {ExpiresAt}",
                 refreshToken.UserId, refreshToken.ExpiresAt);
             ThrowError("Refresh token has expired. Please log in again.");
-            return;
-        }
-
-        // Check if token is revoked
-        if (refreshToken.IsRevoked)
-        {
-            _logger.LogWarning(
-                "Refresh attempt with revoked token. UserId: {UserId}, Reason: {Reason}",
-                refreshToken.UserId, refreshToken.RevokedReason);
-            ThrowError("Refresh token has been revoked. Please log in again.");
             return;
         }
 
@@ -119,14 +135,28 @@ public class Endpoint : Endpoint<Request, Response>
             IsRevoked = false
         };
 
-        // Revoke old refresh token
+        // Revoke old refresh token (rotation)
         refreshToken.IsRevoked = true;
         refreshToken.RevokedReason = "used";
         refreshToken.RevokedAt = DateTime.UtcNow;
-        
+
         _documentSession.Update(refreshToken);
         _documentSession.Store(newRefreshToken);
-        await _documentSession.SaveChangesAsync(ct);
+
+        try
+        {
+            // Optimistic-concurrency guard: if another request rotated this same token first,
+            // this commit throws and we reject rather than issuing a second valid token.
+            await _documentSession.SaveChangesAsync(ct);
+        }
+        catch (JasperFx.ConcurrencyException)
+        {
+            _logger.LogWarning(
+                "Concurrent refresh-token use detected for UserId: {UserId}. Rejecting duplicate rotation.",
+                refreshToken.UserId);
+            ThrowError("Refresh token was already used. Please log in again.");
+            return;
+        }
 
         _logger.LogInformation(
             "Token refreshed for user: {Username}, UserId: {UserId}",

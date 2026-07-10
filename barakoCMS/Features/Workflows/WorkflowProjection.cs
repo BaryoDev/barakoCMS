@@ -2,6 +2,7 @@ using Marten;
 using Marten.Events;
 using Marten.Events.Projections;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
@@ -20,29 +21,43 @@ public class WorkflowProjection : EventProjection
 
     public async Task Project(IEvent<barakoCMS.Events.ContentUpdated> e, IDocumentOperations ops, CancellationToken ct)
     {
-        await ProcessEventAsync("Updated", e.Data.Id, e.StreamId, ops);
+        await ProcessEventAsync(barakoCMS.Models.WorkflowEvents.Updated, e.Data.Id, ops);
     }
 
     public async Task Project(IEvent<barakoCMS.Events.ContentCreated> e, IDocumentOperations ops, CancellationToken ct)
     {
-        await ProcessEventAsync("Created", e.Data.Id, e.StreamId, ops);
+        await ProcessEventAsync(barakoCMS.Models.WorkflowEvents.Created, e.Data.Id, ops);
     }
 
-    private async Task ProcessEventAsync(string eventType, Guid contentId, Guid streamId, IDocumentOperations ops)
+    public async Task Project(IEvent<barakoCMS.Events.ContentStatusChanged> e, IDocumentOperations ops, CancellationToken ct)
     {
-        // Create a scope to resolve scoped services like WorkflowEngine
-        using var scope = _serviceProvider.CreateScope();
-        var workflowEngine = scope.ServiceProvider.GetRequiredService<IWorkflowEngine>();
-
-        // We need the full Content object. 
-        // Since we are in a Projection, we might need to load it. 
-        // 'ops' allows loading.
-        var content = await ops.LoadAsync<barakoCMS.Models.Content>(contentId);
-
-        if (content != null)
+        // Map a status transition to the "Published" trigger event when applicable, so workflows
+        // configured with TriggerEvent = "Published" actually fire (previously nothing emitted it).
+        if (e.Data.NewStatus == barakoCMS.Models.ContentStatus.Published)
         {
-            // We pass CancellationToken.None or a timeout token
-            await workflowEngine.ProcessEventAsync(content.ContentType, eventType, content, CancellationToken.None);
+            await ProcessEventAsync(barakoCMS.Models.WorkflowEvents.Published, e.Data.Id, ops);
+        }
+    }
+
+    private async Task ProcessEventAsync(string eventType, Guid contentId, IDocumentOperations ops)
+    {
+        // This runs inside Marten's async projection daemon. Any unhandled exception here stops the
+        // projection shard and halts ALL workflows until a manual rebuild — so nothing may escape.
+        try
+        {
+            using var scope = _serviceProvider.CreateScope();
+            var workflowEngine = scope.ServiceProvider.GetRequiredService<IWorkflowEngine>();
+
+            var content = await ops.LoadAsync<barakoCMS.Models.Content>(contentId);
+            if (content != null)
+            {
+                await workflowEngine.ProcessEventAsync(content.ContentType, eventType, content, CancellationToken.None);
+            }
+        }
+        catch (Exception ex)
+        {
+            var logger = _serviceProvider.GetService<ILogger<WorkflowProjection>>();
+            logger?.LogError(ex, "WorkflowProjection failed to process {EventType} for content {ContentId}", eventType, contentId);
         }
     }
 }

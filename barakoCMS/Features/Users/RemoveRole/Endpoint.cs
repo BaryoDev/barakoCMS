@@ -7,10 +7,12 @@ namespace barakoCMS.Features.Users.RemoveRole;
 public class Endpoint : Endpoint<Request, Response>
 {
     private readonly IDocumentSession _session;
+    private readonly barakoCMS.Infrastructure.Services.IPermissionResolver _permissionResolver;
 
-    public Endpoint(IDocumentSession session)
+    public Endpoint(IDocumentSession session, barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver)
     {
         _session = session;
+        _permissionResolver = permissionResolver;
     }
 
     public override void Configure()
@@ -32,6 +34,9 @@ public class Endpoint : Endpoint<Request, Response>
         user.RoleIds.Remove(req.RoleId);
         _session.Store(user);
         await _session.SaveChangesAsync(ct);
+
+        // Removing a role narrows the user's access — evict cached decisions so it applies now.
+        _permissionResolver.InvalidateUserPermissions(req.UserId);
 
         await SendOkAsync(new Response { Message = "Role removed from user successfully" }, ct);
     }
