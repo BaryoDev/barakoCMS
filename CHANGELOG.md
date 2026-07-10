@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### 🔒 Security & Stability Hardening
+
+A focused stabilization pass across authentication, the content write path, the workflow engine, and RBAC. Test suite grew from 173 to 182 passing (9 new regression tests).
+
+#### Security
+- **Upgraded Marten 8.16.1 → 8.37.0**, fixing a critical full-text-search injection advisory (GHSA-vmw2-qwm8-x84c).
+- **Locked down anonymous endpoints**: content version history now requires authentication + per-content read permission and applies sensitivity redaction; `GET /api/schemas`, `/api/diagnostics/typecheck`, and `/api/monitoring/k8s` are restricted to admin roles (previously publicly readable).
+- **JWT signing key is validated at startup** — the app fails fast if it is missing or shorter than 32 characters (no insecure default).
+- **Removed committed credentials** from base config; the initial admin password and dev JWT key now live only in `appsettings.Development.json`, and seeded sample accounts are gated to Development.
+- **SSRF protection** on workflow webhook actions (loopback, link-local incl. cloud metadata, and private ranges are blocked).
+- Added a **global exception handler** (no stack-trace leaks), request body-size limits, and a minimal (non-enumerating) health response.
+- **Fixed a latent bug that silently disabled token revocation**: UTC `DateTime` comparisons in LINQ queries threw under Npgsql and were swallowed, so revoked tokens were treated as valid. Revocation now works.
+
+#### Correctness
+- **Content rollback** now updates the read model (previously appended an event but left `GET`/`LIST` serving stale data) and records the acting admin.
+- **Optimistic concurrency** on content updates is now enforced via Marten `AppendOptimistic`; responses expose a `Version` field to echo back for conflict detection (HTTP 412). Create/Update/ChangeStatus commit their event and read-model document in a single transaction.
+- **Refresh-token rotation** is race-safe (optimistic concurrency) with **reuse detection** that revokes the entire token family on replay.
+- **Login lockout counter** uses an atomic increment, closing a race that allowed lockout bypass.
+- **Permission cache** is invalidated immediately on role/permission/user-role changes instead of serving stale decisions for up to 5 minutes.
+- `ConfigurationService` no longer throws on malformed admin-editable settings (falls back to defaults).
+
+#### Workflows
+- Workflow execution is **decoupled from the request path** and runs via the async projection — a slow or failing action can no longer block or fail a content save.
+- **Fault isolation**: per-action and per-workflow error handling prevents one failing action from stalling the engine/daemon.
+- **Template variables are now resolved in live runs** (previously only in dry-run), with a single-pass resolver that prevents second-order injection between fields.
+- Status transitions now fire `Published`-triggered workflows; workflows are **validated on creation** (trigger event, action types, required parameters).
+
+### Added
+- SVG coffee-bean logo (`assets/logo.svg`) and README Security & Stability section.
+
 ## [2.0.0] - 2025-12-11
 
 ### 🎉 Major Release: Advanced RBAC System (Phase 1)
