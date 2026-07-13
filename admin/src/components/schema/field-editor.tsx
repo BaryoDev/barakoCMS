@@ -4,218 +4,270 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Switch } from '@/components/ui/switch';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { FIELD_TYPES, type FieldDefinition } from '@/types/schema';
+import { EmptyState } from '@/components/patterns/empty-state';
+import {
+    IconChevronDown,
+    IconContentTypes,
+    IconPen,
+    IconPlus,
+    IconTrash,
+} from '@/components/icons';
+import { FIELD_TYPES, type FieldDefinition, type FieldType } from '@/types/schema';
 
 interface FieldEditorProps {
     fields: FieldDefinition[];
     onChange: (fields: FieldDefinition[]) => void;
 }
 
+// The backend requires PascalCase field names (FieldTypeValidator).
+function toPascalCase(input: string): string {
+    return input
+        .replace(/[^A-Za-z0-9\s_-]/g, '')
+        .split(/[\s_-]+/)
+        .filter(Boolean)
+        .map((word) => word[0].toUpperCase() + word.slice(1))
+        .join('');
+}
+
+const PASCAL_CASE = /^[A-Z][A-Za-z0-9]*$/;
+
+const EMPTY_FIELD: FieldDefinition = {
+    name: '',
+    displayName: '',
+    type: 'string',
+    isRequired: false,
+};
+
 export function FieldEditor({ fields, onChange }: FieldEditorProps) {
     const [isDialogOpen, setIsDialogOpen] = useState(false);
     const [editingIndex, setEditingIndex] = useState<number | null>(null);
-    const [fieldForm, setFieldForm] = useState<FieldDefinition>({
-        name: '',
-        displayName: '',
-        type: 'text',
-        isRequired: false,
-    });
+    const [form, setForm] = useState<FieldDefinition>(EMPTY_FIELD);
 
-    const resetForm = () => {
-        setFieldForm({
-            name: '',
-            displayName: '',
-            type: 'text',
-            isRequired: false,
-        });
+    const nameIsValid = PASCAL_CASE.test(form.name);
+    const nameIsDuplicate = fields.some(
+        (f, i) => f.name === form.name && i !== editingIndex
+    );
+    const canSave = form.name && form.displayName && nameIsValid && !nameIsDuplicate;
+
+    const openNew = () => {
+        setForm(EMPTY_FIELD);
         setEditingIndex(null);
+        setIsDialogOpen(true);
     };
 
-    const handleSaveField = () => {
-        if (!fieldForm.name || !fieldForm.displayName) return;
-
-        const newFields = [...fields];
-        if (editingIndex !== null) {
-            newFields[editingIndex] = fieldForm;
-        } else {
-            newFields.push(fieldForm);
-        }
-        onChange(newFields);
-        setIsDialogOpen(false);
-        resetForm();
-    };
-
-    const handleEditField = (index: number) => {
-        setFieldForm(fields[index]);
+    const openEdit = (index: number) => {
+        setForm(fields[index]);
         setEditingIndex(index);
         setIsDialogOpen(true);
     };
 
-    const handleDeleteField = (index: number) => {
-        const newFields = fields.filter((_, i) => i !== index);
-        onChange(newFields);
+    const save = () => {
+        if (!canSave) return;
+        const next = [...fields];
+        if (editingIndex !== null) next[editingIndex] = form;
+        else next.push(form);
+        onChange(next);
+        setIsDialogOpen(false);
     };
 
-    const moveField = (index: number, direction: 'up' | 'down') => {
-        const newFields = [...fields];
-        const targetIndex = direction === 'up' ? index - 1 : index + 1;
-        if (targetIndex < 0 || targetIndex >= newFields.length) return;
-        [newFields[index], newFields[targetIndex]] = [newFields[targetIndex], newFields[index]];
-        onChange(newFields);
+    const remove = (index: number) => {
+        onChange(fields.filter((_, i) => i !== index));
     };
 
-    const getFieldTypeInfo = (type: string) => {
-        return FIELD_TYPES.find(t => t.value === type) || FIELD_TYPES[0];
+    const move = (index: number, delta: -1 | 1) => {
+        const target = index + delta;
+        if (target < 0 || target >= fields.length) return;
+        const next = [...fields];
+        [next[index], next[target]] = [next[target], next[index]];
+        onChange(next);
     };
+
+    const typeLabel = (type: FieldType) => FIELD_TYPES.find((t) => t.value === type)?.label ?? type;
 
     return (
-        <div className="space-y-4">
+        <div className="space-y-3">
             <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-white">Fields</h3>
-                <Dialog open={isDialogOpen} onOpenChange={(open) => { setIsDialogOpen(open); if (!open) resetForm(); }}>
-                    <DialogTrigger asChild>
-                        <Button variant="outline" className="border-amber-500/50 text-amber-400 hover:bg-amber-500/10">
-                            + Add Field
-                        </Button>
-                    </DialogTrigger>
-                    <DialogContent className="bg-slate-900 border-slate-700">
-                        <DialogHeader>
-                            <DialogTitle className="text-white">{editingIndex !== null ? 'Edit Field' : 'Add Field'}</DialogTitle>
-                            <DialogDescription className="text-slate-400">
-                                Configure the properties of this field.
-                            </DialogDescription>
-                        </DialogHeader>
-                        <div className="space-y-4 py-4">
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                    <Label htmlFor="field-name" className="text-slate-200">Field Name (slug)</Label>
-                                    <Input
-                                        id="field-name"
-                                        value={fieldForm.name}
-                                        onChange={(e) => setFieldForm({ ...fieldForm, name: e.target.value.toLowerCase().replace(/\s+/g, '_') })}
-                                        placeholder="title"
-                                        className="bg-slate-800 border-slate-700 text-white"
-                                    />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="field-displayName" className="text-slate-200">Display Name</Label>
-                                    <Input
-                                        id="field-displayName"
-                                        value={fieldForm.displayName}
-                                        onChange={(e) => setFieldForm({ ...fieldForm, displayName: e.target.value })}
-                                        placeholder="Title"
-                                        className="bg-slate-800 border-slate-700 text-white"
-                                    />
-                                </div>
-                            </div>
-                            <div className="space-y-2">
-                                <Label className="text-slate-200">Field Type</Label>
-                                <Select value={fieldForm.type} onValueChange={(value) => setFieldForm({ ...fieldForm, type: value as FieldDefinition['type'] })}>
-                                    <SelectTrigger className="bg-slate-800 border-slate-700 text-white">
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent className="bg-slate-800 border-slate-700">
-                                        {FIELD_TYPES.map((type) => (
-                                            <SelectItem key={type.value} value={type.value} className="text-white hover:bg-slate-700">
-                                                <span className="flex items-center gap-2">
-                                                    <span>{type.icon}</span>
-                                                    <span>{type.label}</span>
-                                                </span>
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <input
-                                    type="checkbox"
-                                    id="isRequired"
-                                    checked={fieldForm.isRequired}
-                                    onChange={(e) => setFieldForm({ ...fieldForm, isRequired: e.target.checked })}
-                                    className="rounded border-slate-600 bg-slate-800 text-amber-500"
-                                />
-                                <Label htmlFor="isRequired" className="text-slate-200">Required field</Label>
-                            </div>
-                        </div>
-                        <DialogFooter>
-                            <Button variant="outline" onClick={() => setIsDialogOpen(false)} className="border-slate-700 text-slate-300">
-                                Cancel
-                            </Button>
-                            <Button onClick={handleSaveField} className="bg-amber-500 hover:bg-amber-600 text-white">
-                                {editingIndex !== null ? 'Update' : 'Add'} Field
-                            </Button>
-                        </DialogFooter>
-                    </DialogContent>
-                </Dialog>
+                <h3 className="text-sm font-medium">Fields</h3>
+                <Button type="button" variant="outline" size="sm" onClick={openNew}>
+                    <IconPlus />
+                    Add field
+                </Button>
             </div>
 
             {fields.length === 0 ? (
-                <Card className="bg-slate-800/30 border-slate-700 border-dashed">
-                    <CardContent className="py-8 text-center">
-                        <p className="text-slate-500">No fields defined. Click &quot;Add Field&quot; to get started.</p>
-                    </CardContent>
-                </Card>
+                <EmptyState
+                    icon={IconContentTypes}
+                    title="No fields yet"
+                    description="Every entry of this type will have the fields you define here."
+                    action={
+                        <Button type="button" variant="outline" size="sm" onClick={openNew}>
+                            <IconPlus />
+                            Add field
+                        </Button>
+                    }
+                />
             ) : (
-                <div className="space-y-2">
-                    {fields.map((field, index) => {
-                        const typeInfo = getFieldTypeInfo(field.type);
-                        return (
-                            <Card key={index} className="bg-slate-800/50 border-slate-700 hover:border-slate-600 transition-colors">
-                                <CardContent className="py-3 px-4 flex items-center justify-between">
-                                    <div className="flex items-center gap-4">
-                                        <div className="flex flex-col gap-1">
-                                            <button
-                                                onClick={() => moveField(index, 'up')}
-                                                disabled={index === 0}
-                                                className="text-slate-500 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed"
-                                            >
-                                                ▲
-                                            </button>
-                                            <button
-                                                onClick={() => moveField(index, 'down')}
-                                                disabled={index === fields.length - 1}
-                                                className="text-slate-500 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed"
-                                            >
-                                                ▼
-                                            </button>
-                                        </div>
-                                        <div className="w-10 h-10 bg-slate-700/50 rounded-lg flex items-center justify-center">
-                                            <span className="text-lg">{typeInfo.icon}</span>
-                                        </div>
-                                        <div>
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-white font-medium">{field.displayName}</span>
-                                                {field.isRequired && (
-                                                    <Badge variant="outline" className="border-red-500/50 text-red-400 bg-red-500/10 text-xs">
-                                                        Required
-                                                    </Badge>
-                                                )}
-                                            </div>
-                                            <div className="flex items-center gap-2 text-sm text-slate-400">
-                                                <code className="text-xs bg-slate-700/50 px-1.5 py-0.5 rounded">{field.name}</code>
-                                                <span>•</span>
-                                                <span>{typeInfo.label}</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <Button variant="ghost" size="sm" onClick={() => handleEditField(index)} className="text-slate-400 hover:text-white">
-                                            Edit
-                                        </Button>
-                                        <Button variant="ghost" size="sm" onClick={() => handleDeleteField(index)} className="text-red-400 hover:text-red-300">
-                                            Delete
-                                        </Button>
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        );
-                    })}
-                </div>
+                <ul className="divide-y rounded-lg border">
+                    {fields.map((field, index) => (
+                        <li key={field.name} className="flex items-center gap-3 px-4 py-3">
+                            <div className="flex flex-col">
+                                <button
+                                    type="button"
+                                    onClick={() => move(index, -1)}
+                                    disabled={index === 0}
+                                    aria-label={`Move ${field.displayName} up`}
+                                    className="text-muted-foreground hover:text-foreground disabled:opacity-30"
+                                >
+                                    <IconChevronDown className="size-3 rotate-180" />
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => move(index, 1)}
+                                    disabled={index === fields.length - 1}
+                                    aria-label={`Move ${field.displayName} down`}
+                                    className="text-muted-foreground hover:text-foreground disabled:opacity-30"
+                                >
+                                    <IconChevronDown className="size-3" />
+                                </button>
+                            </div>
+                            <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2">
+                                    <span className="truncate text-sm font-medium">{field.displayName}</span>
+                                    {field.isRequired && (
+                                        <Badge variant="secondary" className="text-xs">
+                                            Required
+                                        </Badge>
+                                    )}
+                                </div>
+                                <p className="text-muted-foreground text-xs">
+                                    <code className="font-mono">{field.name}</code> · {typeLabel(field.type)}
+                                </p>
+                            </div>
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => openEdit(index)}
+                                aria-label={`Edit ${field.displayName}`}
+                            >
+                                <IconPen className="size-3.5" />
+                            </Button>
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => remove(index)}
+                                aria-label={`Remove ${field.displayName}`}
+                                className="text-destructive hover:text-destructive"
+                            >
+                                <IconTrash className="size-3.5" />
+                            </Button>
+                        </li>
+                    ))}
+                </ul>
             )}
+
+            <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>{editingIndex !== null ? 'Edit field' : 'Add field'}</DialogTitle>
+                        <DialogDescription>
+                            The field name is how the API stores the value; the display name is what editors see.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-2">
+                        <div className="space-y-2">
+                            <Label htmlFor="field-display-name">Display name</Label>
+                            <Input
+                                id="field-display-name"
+                                value={form.displayName}
+                                placeholder="Publish date"
+                                onChange={(e) =>
+                                    setForm((f) => ({
+                                        ...f,
+                                        displayName: e.target.value,
+                                        // Keep the API name in sync until the user edits it directly.
+                                        name:
+                                            editingIndex === null && (f.name === '' || f.name === toPascalCase(f.displayName))
+                                                ? toPascalCase(e.target.value)
+                                                : f.name,
+                                    }))
+                                }
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="field-name">Field name (API)</Label>
+                            <Input
+                                id="field-name"
+                                value={form.name}
+                                placeholder="PublishDate"
+                                className="font-mono"
+                                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                            />
+                            {form.name && !nameIsValid && (
+                                <p className="text-destructive text-xs">
+                                    Use PascalCase — start with a capital letter, letters and numbers only.
+                                </p>
+                            )}
+                            {nameIsDuplicate && (
+                                <p className="text-destructive text-xs">A field with this name already exists.</p>
+                            )}
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Type</Label>
+                            <Select
+                                value={form.type}
+                                onValueChange={(value) => setForm((f) => ({ ...f, type: value as FieldType }))}
+                            >
+                                <SelectTrigger className="w-full">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {FIELD_TYPES.map((type) => (
+                                        <SelectItem key={type.value} value={type.value}>
+                                            <span className="font-medium">{type.label}</span>
+                                            <span className="text-muted-foreground ml-1.5 text-xs">{type.description}</span>
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="flex items-center justify-between rounded-lg border px-4 py-3">
+                            <Label htmlFor="field-required">Required</Label>
+                            <Switch
+                                id="field-required"
+                                checked={form.isRequired}
+                                onCheckedChange={(checked) => setForm((f) => ({ ...f, isRequired: checked }))}
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
+                            Cancel
+                        </Button>
+                        <Button type="button" onClick={save} disabled={!canSave}>
+                            {editingIndex !== null ? 'Save field' : 'Add field'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

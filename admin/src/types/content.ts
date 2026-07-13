@@ -1,13 +1,18 @@
-// Types for Content items
+// Types for Content items (event-sourced on the backend).
 
-export interface ContentItem {
+export interface ContentListItem {
     id: string;
     contentType: string;
     data: Record<string, unknown>;
-    status: ContentStatus;
     createdAt: string;
     updatedAt: string;
-    createdBy?: string;
+}
+
+export interface ContentDetail extends ContentListItem {
+    status: ContentStatus;
+    sensitivity: SensitivityLevel;
+    lastModifiedBy?: string;
+    version: number; // echo back on update — the backend enforces optimistic concurrency (412)
 }
 
 export enum ContentStatus {
@@ -31,18 +36,27 @@ export interface CreateContentRequest {
 
 export interface UpdateContentRequest {
     data: Record<string, unknown>;
-    status?: ContentStatus;
-    sensitivity?: SensitivityLevel;
+    status: ContentStatus;
+    version: number;
 }
 
-export const SENSITIVITY_LABELS: Record<SensitivityLevel, { label: string; color: string }> = {
-    [SensitivityLevel.Public]: { label: 'Public', color: 'text-green-400 bg-green-500/10 border-green-500/50' },
-    [SensitivityLevel.Sensitive]: { label: 'Sensitive', color: 'text-purple-400 bg-purple-500/10 border-purple-500/50' },
-    [SensitivityLevel.Hidden]: { label: 'Hidden', color: 'text-slate-400 bg-slate-500/10 border-slate-500/50' },
+export interface ContentVersion {
+    id: string;
+    data: Record<string, unknown>;
+    updatedAt: string;
+    lastModifiedBy?: string;
+    versionId: string;
+    timestamp: string;
+}
+
+export const STATUS_META: Record<ContentStatus, { label: string; tone: 'muted' | 'success' | 'warning' }> = {
+    [ContentStatus.Draft]: { label: 'Draft', tone: 'warning' },
+    [ContentStatus.Published]: { label: 'Published', tone: 'success' },
+    [ContentStatus.Archived]: { label: 'Archived', tone: 'muted' },
 };
 
-export const STATUS_LABELS: Record<ContentStatus, { label: string; color: string }> = {
-    [ContentStatus.Draft]: { label: 'Draft', color: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/50' },
-    [ContentStatus.Published]: { label: 'Published', color: 'text-green-400 bg-green-500/10 border-green-500/50' },
-    [ContentStatus.Archived]: { label: 'Archived', color: 'text-slate-400 bg-slate-500/10 border-slate-500/50' },
+export const SENSITIVITY_META: Record<SensitivityLevel, { label: string; description: string }> = {
+    [SensitivityLevel.Public]: { label: 'Public', description: 'Visible to every reader' },
+    [SensitivityLevel.Sensitive]: { label: 'Sensitive', description: 'Data hidden except from SuperAdmin and HR' },
+    [SensitivityLevel.Hidden]: { label: 'Hidden', description: 'Data hidden except from SuperAdmin' },
 };

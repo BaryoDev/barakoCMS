@@ -1,0 +1,56 @@
+# BarakoCMS — run everything from prebuilt Docker Hub images (no build step).
+#
+#   docker compose -f docker-compose.hub.yml up -d
+#
+# Then open http://localhost:3000 (admin UI) — the API is on http://localhost:5005.
+# Override the defaults below with a .env file for anything beyond a local try-out.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: barako-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-barako_cms}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    image: arnelirobles/barako-cms:latest
+    container_name: barako-cms
+    restart: unless-stopped
+    ports:
+      - "5005:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Development}
+      - ConnectionStrings__DefaultConnection=Host=postgres;Database=${DB_NAME:-barako_cms};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-postgres}
+      # JWT key must be at least 32 characters or the API refuses to start.
+      - JWT__Key=${JWT_SECRET:-dev-only-key-minimum-32-chars-long}
+      - InitialAdmin__Username=${ADMIN_USER:-admin}
+      - InitialAdmin__Password=${ADMIN_PASSWORD:-changeme-in-production}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  admin:
+    image: arnelirobles/barako-admin:latest
+    container_name: barako-admin
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # Injected at container start (entrypoint.sh) — no rebuild needed to point
+      # the UI at a different API host.
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:5005}
+    depends_on:
+      - app
+
+volumes:
+  postgres_data:

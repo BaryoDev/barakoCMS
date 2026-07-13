@@ -1,40 +1,96 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import type { Workflow, CreateWorkflowRequest } from '@/types/workflow';
+import type {
+    WorkflowDefinition,
+    WorkflowActionMetadata,
+    TemplateVariableCollection,
+    WorkflowValidationResult,
+    WorkflowExecutionLog,
+    DryRunResult,
+} from '@/types/workflow';
 
-// Fetch all workflows
 export function useWorkflows() {
     return useQuery({
         queryKey: ['workflows'],
         queryFn: async () => {
-            const response = await api.get<Workflow[]>('/api/workflows');
+            const response = await api.get<WorkflowDefinition[]>('/api/workflows');
             return response.data;
         },
     });
 }
 
-// Fetch single workflow
+// The backend has no single-workflow endpoint; select from the cached list.
 export function useWorkflow(id: string) {
+    const query = useWorkflows();
+    return {
+        ...query,
+        data: query.data?.find((w) => w.id === id),
+    };
+}
+
+export function useWorkflowActions() {
     return useQuery({
-        queryKey: ['workflows', id],
+        queryKey: ['workflow-actions'],
         queryFn: async () => {
-            const response = await api.get<Workflow>(`/api/workflows/${id}`);
+            const response = await api.get<WorkflowActionMetadata[]>('/api/workflows/actions');
+            return response.data;
+        },
+        staleTime: Infinity, // plugin list only changes with a backend deploy
+    });
+}
+
+export function useWorkflowVariables(contentType?: string) {
+    return useQuery({
+        queryKey: ['workflow-variables', contentType],
+        queryFn: async () => {
+            const response = await api.get<TemplateVariableCollection>('/api/workflows/variables', {
+                params: contentType ? { contentType } : {},
+            });
+            return response.data;
+        },
+    });
+}
+
+export function useWorkflowDebugLogs(id: string, limit = 20) {
+    return useQuery({
+        queryKey: ['workflow-debug', id, limit],
+        queryFn: async () => {
+            const response = await api.get<WorkflowExecutionLog[]>(`/api/workflows/${id}/debug`, {
+                params: { limit },
+            });
             return response.data;
         },
         enabled: !!id,
     });
 }
 
-// Create workflow
 export function useCreateWorkflow() {
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: async (data: CreateWorkflowRequest) => {
-            const response = await api.post<Workflow>('/api/workflows', data);
+        mutationFn: async (data: WorkflowDefinition) => {
+            const response = await api.post<WorkflowDefinition>('/api/workflows', data);
             return response.data;
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['workflows'] });
+        },
+    });
+}
+
+export function useValidateWorkflow() {
+    return useMutation({
+        mutationFn: async (data: WorkflowDefinition) => {
+            const response = await api.post<WorkflowValidationResult>('/api/workflows/validate', data);
+            return response.data;
+        },
+    });
+}
+
+export function useDryRunWorkflow() {
+    return useMutation({
+        mutationFn: async (payload: { workflow: WorkflowDefinition; sampleContent: unknown }) => {
+            const response = await api.post<DryRunResult>('/api/workflows/dry-run', payload);
+            return response.data;
         },
     });
 }

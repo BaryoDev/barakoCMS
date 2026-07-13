@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { getApiUrl } from "@/lib/api";
 
 export interface SystemMetrics {
     diskUsagePercent: number;
@@ -31,7 +32,7 @@ export function useSystemMetrics() {
         queryKey: ["system-metrics"],
         queryFn: async (): Promise<SystemMetrics> => {
             // Fetch /metrics endpoint
-            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/metrics`);
+            const response = await fetch(`${getApiUrl()}/metrics`);
             const text = await response.text();
             const metrics = parsePrometheusMetrics(text);
 

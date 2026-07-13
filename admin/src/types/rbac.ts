@@ -1,36 +1,69 @@
-export interface Role {
-    id: string; // Guid
-    name: string;
-    permissions: string[];
+// Types mirroring the backend RBAC model (Models/Role.cs, ContentTypePermission.cs).
+// Permissions are per-content-type CRUD rules; grants are additive across roles.
+
+export type PermissionAction = 'create' | 'read' | 'update' | 'delete';
+
+export interface PermissionRule {
+    enabled: boolean;
+    // Directus-style conditions, e.g. { "CreatedBy": { "_eq": "$CURRENT_USER" } }
+    conditions?: Record<string, Record<string, unknown>> | null;
 }
 
-export interface UserGroup {
-    id: string; // Guid
+export interface ContentTypePermission {
+    contentTypeSlug: string;
+    create: PermissionRule;
+    read: PermissionRule;
+    update: PermissionRule;
+    delete: PermissionRule;
+}
+
+export interface Role {
+    id: string;
     name: string;
-    roles: string[]; // List of Role Names or IDs depending on backend, checking... usually IDs in relations
+    description?: string;
+    permissions: ContentTypePermission[];
+    systemCapabilities: string[];
+    createdAt?: string;
+}
+
+export interface RoleRequest {
+    name: string;
+    description?: string;
+    permissions: ContentTypePermission[];
+    systemCapabilities: string[];
 }
 
 export interface User {
-    id: string; // Guid
+    id: string;
     username: string;
     email: string;
-    roleIds: string[]; // List<Guid>
-    groupIds: string[]; // List<Guid>
-    createdAt: string; // DateTime
+    roleIds: string[];
+    groupIds: string[];
+    createdAt: string;
 }
 
-export interface CreateRoleRequest {
+export interface UserGroup {
+    id: string;
     name: string;
     description?: string;
-    permissions: any[]; // Changed from string[] to allow backend DTO structure
+    userIds: string[];
+    parentGroupId?: string | null;
+    childGroupIds?: string[];
 }
 
-export interface AssignRoleRequest {
-    userId: string;
-    roleId: string;
+// Seeded, non-deletable system roles (Data/DataSeeder.cs)
+export const SYSTEM_ROLE_NAMES = ['SuperAdmin', 'Admin', 'HR', 'User'];
+
+export function emptyRule(): PermissionRule {
+    return { enabled: false };
 }
 
-export interface AssignGroupRequest {
-    userId: string;
-    groupId: string;
+export function emptyPermission(slug: string): ContentTypePermission {
+    return {
+        contentTypeSlug: slug,
+        create: emptyRule(),
+        read: emptyRule(),
+        update: emptyRule(),
+        delete: emptyRule(),
+    };
 }
