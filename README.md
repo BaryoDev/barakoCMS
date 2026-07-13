@@ -80,8 +80,24 @@ If BarakoCMS is powering your business, please consider:
 
 ## 📦 Quick Start
 
+### Option A — Docker images (no build, no clone)
 
-### Prerequisites
+Prebuilt images are on Docker Hub:
+[`arnelirobles/barako-cms`](https://hub.docker.com/r/arnelirobles/barako-cms) (API) and
+[`arnelirobles/barako-admin`](https://hub.docker.com/r/arnelirobles/barako-admin) (admin UI).
+
+```bash
+curl -O https://raw.githubusercontent.com/BaryoDev/barakoCMS/main/docker-compose.hub.yml
+docker compose -f docker-compose.hub.yml up -d
+```
+
+That starts PostgreSQL, the API (<http://localhost:5005>), and the admin UI (<http://localhost:3000>).
+Sign in with the initial admin account (`ADMIN_USER` / `ADMIN_PASSWORD`, default `admin` / `changeme-in-production`).
+For anything beyond a local try-out, set `JWT_SECRET` (32+ chars), `DB_PASSWORD`, and `ADMIN_PASSWORD` in a `.env` file first.
+
+### Option B — from source
+
+#### Prerequisites
 - [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
 - [Docker Desktop](https://www.docker.com/) (or PostgreSQL 16+)
 
@@ -117,30 +133,45 @@ Open **Swagger UI**: `http://localhost:5000/swagger`
 
 ---
 
-## 🖥️ Admin UI (New!)
+## 🖥️ Admin UI
 
-BarakoCMS includes a **full-featured Admin Dashboard** built with Next.js 16.
+BarakoCMS ships with a **minimalist admin dashboard** (Next.js 16 + shadcn/ui, icons by
+[Icons8 Line Awesome](https://icons8.com/line-awesome)) that covers the full API surface.
+Light and dark themes follow the *kapeng barako* identity — warm paper and roasted espresso.
 
-### Features
-- **Dashboard**: Health status, quick stats
-- **Content Management**: Create, Edit, List, Search, Filter
-- **Schema Management**: Define and view Content Types
-- **Workflows**: Create and manage automation rules
-- **Roles & UserGroups**: RBAC administration
-- **Settings Management**: Runtime configuration toggles (Kubernetes, HealthChecks UI, Logging)
-- **Monitoring**: System metrics, Kubernetes cluster status (when enabled)
-- **Ops**: Health Checks, Logs, Backups (Create, Download, Restore, Delete)
+![Admin dashboard](assets/admin/02-dashboard.png)
+
+### What it covers
+- **Overview**: live stats, latest entries, health summary, quick actions, ⌘K command palette
+- **Content types**: browse and define schemas with the API's typed fields
+- **Entries**: draft/publish/archive, filter by type, server-side pagination, **version history with one-click rollback**
+- **Workflows**: trigger builder (Created/Updated per content type), conditions, actions (Email, SMS, Webhook, CreateTask, UpdateField, Conditional), template variables, validation, **dry-run simulation**, execution logs
+- **Access**: users with inline role/group assignment, role CRUD with a per-content-type permission matrix, group CRUD with member management
+- **System**: runtime settings toggles, live health checks, API metrics, Kubernetes status
+- **Sessions** ride the API's rotating refresh tokens, so editors are not logged out every 15 minutes
+
+| Entry editing with history | Workflow builder |
+| --- | --- |
+| ![Entry editing](assets/admin/06-content-detail.png) | ![Workflow builder](assets/admin/08-workflow-new.png) |
+
+| Role permission matrix | Dark mode |
+| --- | --- |
+| ![Role editor](assets/admin/12-role-edit.png) | ![Dark dashboard](assets/admin/16-dashboard-dark.png) |
 
 ### Running the Admin UI
+
+From Docker Hub (recommended — see Quick Start Option A above), or from source:
+
 ```bash
 cd admin
 npm install
 npm run dev
 ```
 
-Open **Admin Dashboard**: `http://localhost:3000`
+Open **Admin Dashboard**: `http://localhost:3000` and sign in with the initial admin account
+configured on the API (`InitialAdmin__Username` / `InitialAdmin__Password`).
 
-Default Login: `arnex` / `password123` (or see seeded data)
+More detail in [`admin/README.md`](admin/README.md).
 
 ---
 
