@@ -1,7 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { api, getApiUrl } from '@/lib/api';
 
-// Kubernetes cluster status
 export interface ClusterStatus {
     isInCluster: boolean;
     isConnected: boolean;
@@ -32,7 +31,6 @@ export interface MetricsSummary {
     errorRate: number;
 }
 
-// Health check data
 export interface DetailedHealthStatus {
     status: string;
     totalDuration: string;
@@ -47,7 +45,6 @@ export interface HealthEntry {
     tags?: string[];
 }
 
-// Fetch Kubernetes status
 export function useKubernetesStatus() {
     return useQuery({
         queryKey: ['kubernetes-status'],
@@ -55,24 +52,24 @@ export function useKubernetesStatus() {
             const response = await api.get<ClusterStatus>('/api/monitoring/k8s');
             return response.data;
         },
-        refetchInterval: 30000, // Refresh every 30 seconds
+        refetchInterval: 30000,
     });
 }
 
-// Fetch health status
+// /health is anonymous and outside /api, so plain fetch is fine — but the URL
+// must come from getApiUrl() so runtime env-config.js overrides still apply.
 export function useHealthStatus() {
     return useQuery({
         queryKey: ['health-status'],
         queryFn: async () => {
-            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/health`);
+            const response = await fetch(`${getApiUrl()}/health`);
             if (!response.ok) throw new Error('Failed to fetch health status');
             return response.json() as Promise<DetailedHealthStatus>;
         },
-        refetchInterval: 15000, // Refresh every 15 seconds
+        refetchInterval: 15000,
     });
 }
 
-// Fetch metrics
 export function useMetrics() {
     return useQuery({
         queryKey: ['metrics'],
@@ -80,6 +77,6 @@ export function useMetrics() {
             const response = await api.get<MetricsSummary>('/api/monitoring/metrics');
             return response.data;
         },
-        refetchInterval: 10000, // Refresh every 10 seconds
+        refetchInterval: 10000,
     });
 }

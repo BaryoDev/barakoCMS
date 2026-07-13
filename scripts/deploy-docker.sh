@@ -1,28 +1,28 @@
 #!/bin/bash
+set -euo pipefail
 
 # Configuration
 USERNAME="arnelirobles"
 API_IMAGE="barako-cms"
 ADMIN_IMAGE="barako-admin"
-TAG="latest"
+TAG="${1:-latest}"
 
-echo "🚀 Starting Docker Hub Deployment for $USERNAME..."
+# Multi-arch build (amd64 for servers, arm64 for Apple Silicon) pushed straight
+# to Docker Hub. The plain docker driver cannot do multi-platform builds, so use
+# a docker-container builder (created once, reused afterwards).
+PLATFORMS="linux/amd64,linux/arm64"
+BUILDER="barako-builder"
 
-# 1. Build and Tag Backend API
-echo "📦 Building Backend API..."
-docker build -t $USERNAME/$API_IMAGE:$TAG -f Dockerfile .
+docker buildx inspect "$BUILDER" >/dev/null 2>&1 || docker buildx create --name "$BUILDER" --driver docker-container
 
-# 2. Build and Tag Admin UI
-echo "📦 Building Admin UI..."
-cd admin
-docker build -t $USERNAME/$ADMIN_IMAGE:$TAG -f Dockerfile .
-cd ..
+echo "🚀 Building and pushing $USERNAME/{$API_IMAGE,$ADMIN_IMAGE}:$TAG for ${PLATFORMS}..."
 
-# 3. Push to Docker Hub
-echo "📤 Pushing images to Docker Hub..."
-docker push $USERNAME/$API_IMAGE:$TAG
-docker push $USERNAME/$ADMIN_IMAGE:$TAG
+echo "📦 Backend API..."
+docker buildx build --builder "$BUILDER" --platform "$PLATFORMS" -t "$USERNAME/$API_IMAGE:$TAG" --push -f Dockerfile .
 
-echo "✅ Deployment Complete!"
-echo "API: $USERNAME/$API_IMAGE:$TAG"
-echo "Admin: $USERNAME/$ADMIN_IMAGE:$TAG"
+echo "📦 Admin UI..."
+docker buildx build --builder "$BUILDER" --platform "$PLATFORMS" -t "$USERNAME/$ADMIN_IMAGE:$TAG" --push -f admin/Dockerfile admin
+
+echo "✅ Deployment complete!"
+echo "API:   https://hub.docker.com/r/$USERNAME/$API_IMAGE"
+echo "Admin: https://hub.docker.com/r/$USERNAME/$ADMIN_IMAGE"

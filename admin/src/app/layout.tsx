@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono, Fraunces } from "next/font/google";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -12,6 +12,12 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const fraunces = Fraunces({
+  variable: "--font-fraunces",
+  subsets: ["latin"],
+  weight: ["500", "600"],
+});
+
 declare global {
   interface Window {
     _env_?: {
@@ -21,6 +27,7 @@ declare global {
 }
 
 import QueryProvider from "@/components/query-provider";
+import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "sonner";
 
 export const metadata: Metadata = {
@@ -36,15 +43,19 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        {/* Runtime env must load before hydration so getApiUrl() sees overrides. */}
+        {/* eslint-disable-next-line @next/next/no-sync-scripts */}
         <script src="/env-config.js" />
       </head>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} ${fraunces.variable} antialiased`}
       >
-        <QueryProvider>
-          {children}
-          <Toaster richColors position="top-right" />
-        </QueryProvider>
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+          <QueryProvider>
+            {children}
+            <Toaster richColors position="top-right" />
+          </QueryProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

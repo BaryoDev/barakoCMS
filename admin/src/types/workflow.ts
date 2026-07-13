@@ -1,29 +1,68 @@
-export interface WorkflowState {
+// Types mirroring the backend workflow engine (Models/WorkflowDefinition.cs):
+// workflows are content-event triggers that run a list of actions, not a state machine.
+
+export interface WorkflowAction {
+    type: string; // Email | SMS | Webhook | CreateTask | UpdateField | Conditional
+    parameters: Record<string, string>; // values support {{template}} variables
+}
+
+export interface WorkflowDefinition {
+    id?: string;
     name: string;
-    displayName: string;
-    color?: string;
-    isInitial?: boolean;
-    isFinal?: boolean;
+    triggerContentType: string;
+    triggerEvent: TriggerEvent;
+    conditions: Record<string, string>;
+    actions: WorkflowAction[];
 }
 
-export interface WorkflowTransition {
-    fromState: string;
-    toState: string;
-    trigger: string;
-    allowedRoles: string[];
+export type TriggerEvent = 'Created' | 'Updated';
+
+export interface WorkflowActionMetadata {
+    type: string;
+    description: string;
+    requiredParameters: string[];
+    exampleConfiguration: string;
 }
 
-export interface Workflow {
+export interface TemplateVariable {
+    name: string; // "{{status}}"
+    description: string;
+    example: string;
+    type: string;
+}
+
+export interface TemplateVariableCollection {
+    systemVariables: TemplateVariable[];
+    dataFields: TemplateVariable[];
+}
+
+export interface WorkflowValidationResult {
+    isValid: boolean;
+    errors: { field: string; message: string }[];
+}
+
+export interface ActionExecutionLog {
+    actionType: string;
+    success: boolean;
+    errorMessage?: string;
+    resolvedParameters: Record<string, string>;
+    duration: string;
+}
+
+export interface WorkflowExecutionLog {
     id: string;
-    name: string;
-    contentType: string; // The content type slug this workflow applies to
-    states: WorkflowState[];
-    transitions: WorkflowTransition[];
+    workflowId: string;
+    contentId: string;
+    executedAt: string;
+    isDryRun: boolean;
+    success: boolean;
+    duration: string;
+    actions: ActionExecutionLog[];
 }
 
-export interface CreateWorkflowRequest {
-    name: string;
-    contentType: string;
-    states: WorkflowState[];
-    transitions: WorkflowTransition[];
+export interface DryRunResult {
+    success: boolean;
+    actions: ActionExecutionLog[];
+    duration: string;
+    message: string;
 }

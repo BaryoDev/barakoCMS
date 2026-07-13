@@ -42,14 +42,20 @@ public static class ServiceCollectionExtensions
 
         var connectionString = ResolveConnectionString(configuration);
 
+        // Thresholds are configurable. The memory default is deliberately generous:
+        // .NET's server GC holds ~1.3GB of private memory on an idle container, so a
+        // 1GB ceiling reports Unhealthy on a perfectly healthy boot.
+        var maxMemoryMb = configuration.GetValue<long?>("HealthChecks:MaxPrivateMemoryMegabytes") ?? 4096;
+        var minFreeDiskMb = configuration.GetValue<long?>("HealthChecks:MinimumFreeDiskMegabytes") ?? 512;
+
         services.AddHealthChecks()
             .AddNpgSql(connectionString, name: "Database", tags: new[] { "db", "ready" })
             .AddDiskStorageHealthCheck(setup =>
             {
-                setup.AddDrive(@"/", minimumFreeMegabytes: 512); // Warn if < 512MB free
+                setup.AddDrive(@"/", minimumFreeMegabytes: minFreeDiskMb);
                 setup.CheckAllDrives = false;
             }, name: "Disk Space")
-            .AddPrivateMemoryHealthCheck(1024 * 1024 * 1024, name: "Memory"); // 1GB threshold
+            .AddPrivateMemoryHealthCheck(maxMemoryMb * 1024 * 1024, name: "Memory");
 
         // Validate JWT key exists and has minimum length for security. Fail fast rather than
         // booting with broken or insecure auth. Check both config and the JWT__Key env var.
