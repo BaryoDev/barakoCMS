@@ -25,6 +25,11 @@ ARG NEXT_PUBLIC_API_URL
 # Set it as environment variable so Next.js can use it during build
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 
+# Optional sub-path (e.g. /barakocms) when served behind a shared reverse proxy.
+# Must be baked in at build time — Next.js resolves basePath during the build.
+ARG NEXT_BASE_PATH
+ENV NEXT_BASE_PATH=$NEXT_BASE_PATH
+
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 

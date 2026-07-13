@@ -78,10 +78,50 @@ If BarakoCMS is powering your business, please consider:
 
 ---
 
+## 🚀 Live demo
+
+**<https://playground.baryo.dev/barakocms>** — sign in as `demo_admin` / `BarakoDemo2026!`
+
+The API behind it is at `https://playground.baryo.dev/barakocms-api` (try
+[`/barakocms-api/health`](https://playground.baryo.dev/barakocms-api/health)).
+
+---
+
 ## 📦 Quick Start
 
+### Option A — Docker images (no build, no clone)
 
-### Prerequisites
+Prebuilt **multi-arch** images (amd64 + arm64) are on Docker Hub:
+[`arnelirobles/barako-cms`](https://hub.docker.com/r/arnelirobles/barako-cms) (API) and
+[`arnelirobles/barako-admin`](https://hub.docker.com/r/arnelirobles/barako-admin) (admin UI).
+
+```bash
+curl -O https://raw.githubusercontent.com/BaryoDev/barakoCMS/master/docker-compose.hub.yml
+docker compose -f docker-compose.hub.yml up -d
+```
+
+That starts PostgreSQL, the API (<http://localhost:5005>), and the admin UI
+(<http://localhost:3000>). Sign in with `ADMIN_USER` / `ADMIN_PASSWORD` (default
+`admin` / `changeme-in-production`).
+
+> [!IMPORTANT]
+> Before exposing this anywhere real, set `JWT_SECRET` (32+ characters), `DB_PASSWORD`,
+> and `ADMIN_PASSWORD` in a `.env` file next to the compose file. The compose file
+> publishes the app ports on localhost only — put a TLS-terminating reverse proxy in
+> front of it, and never publish PostgreSQL to a public interface.
+
+To pull the images on their own:
+
+```bash
+docker pull arnelirobles/barako-cms:latest    # headless API
+docker pull arnelirobles/barako-admin:latest  # admin UI
+```
+
+Rebuild and republish both with `./scripts/deploy-docker.sh [tag]`.
+
+### Option B — from source
+
+#### Prerequisites
 - [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
 - [Docker Desktop](https://www.docker.com/) (or PostgreSQL 16+)
 
@@ -117,30 +157,51 @@ Open **Swagger UI**: `http://localhost:5000/swagger`
 
 ---
 
-## 🖥️ Admin UI (New!)
+## 🖥️ Admin UI
 
-BarakoCMS includes a **full-featured Admin Dashboard** built with Next.js 16.
+BarakoCMS ships with a **minimalist admin dashboard** (Next.js 16 + shadcn/ui, icons by
+[Icons8 Line Awesome](https://icons8.com/line-awesome)) that covers the full API surface.
+Light and dark themes follow the *kapeng barako* identity — warm paper and roasted espresso.
 
-### Features
-- **Dashboard**: Health status, quick stats
-- **Content Management**: Create, Edit, List, Search, Filter
-- **Schema Management**: Define and view Content Types
-- **Workflows**: Create and manage automation rules
-- **Roles & UserGroups**: RBAC administration
-- **Settings Management**: Runtime configuration toggles (Kubernetes, HealthChecks UI, Logging)
-- **Monitoring**: System metrics, Kubernetes cluster status (when enabled)
-- **Ops**: Health Checks, Logs, Backups (Create, Download, Restore, Delete)
+Try it: **<https://playground.baryo.dev/barakocms>** (`demo_admin` / `BarakoDemo2026!`)
+
+![Admin dashboard](assets/admin/dashboard.png)
+
+### What it covers
+- **Overview**: live stats, latest entries, health summary, quick actions, ⌘K command palette
+- **Content types**: browse and define schemas with the API's typed fields
+- **Entries**: draft/publish/archive, filter by type, server-side pagination, **version history with one-click rollback**
+- **Workflows**: trigger builder (Created/Updated per content type), conditions, actions (Email, SMS, Webhook, CreateTask, UpdateField, Conditional), template variables, validation, **dry-run simulation**, execution logs
+- **Access**: users with inline role/group assignment, role CRUD with a per-content-type permission matrix, group CRUD with member management
+- **System**: runtime settings toggles, live health checks, API metrics, Kubernetes status
+- **Sessions** ride the API's rotating refresh tokens, so editors are not logged out every 15 minutes
+
+| Entries | Entry editor + version history |
+| --- | --- |
+| ![Entries](assets/admin/content.png) | ![Entry editor](assets/admin/entry.png) |
+
+| Workflows | Role permission matrix |
+| --- | --- |
+| ![Workflows](assets/admin/workflows.png) | ![Role editor](assets/admin/roles.png) |
+
+| Health | Dark mode |
+| --- | --- |
+| ![Health](assets/admin/health.png) | ![Dark dashboard](assets/admin/dark.png) |
 
 ### Running the Admin UI
+
+From Docker Hub (recommended — see Quick Start Option A above), or from source:
+
 ```bash
 cd admin
 npm install
 npm run dev
 ```
 
-Open **Admin Dashboard**: `http://localhost:3000`
+Open **Admin Dashboard**: `http://localhost:3000` and sign in with the initial admin account
+configured on the API (`InitialAdmin__Username` / `InitialAdmin__Password`).
 
-Default Login: `arnex` / `password123` (or see seeded data)
+More detail in [`admin/README.md`](admin/README.md).
 
 ---
 

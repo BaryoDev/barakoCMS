@@ -11,7 +11,8 @@ on:
     branches: ["master"]
 
 jobs:
-  test:
+  backend:
+    name: Backend (.NET)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -36,5 +37,42 @@ jobs:
       - name: Test Summary
         if: always()
         run: |
-          echo "## Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "## Backend" >> $GITHUB_STEP_SUMMARY
           echo "✅ BarakoCMS.Tests completed" >> $GITHUB_STEP_SUMMARY
+
+  admin:
+    name: Admin UI (Next.js)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: admin
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: admin/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Unit tests
+        run: npx vitest run
+
+      - name: Build
+        run: npm run build
+
+      - name: Admin Summary
+        if: always()
+        run: |
+          echo "## Admin UI" >> $GITHUB_STEP_SUMMARY
+          echo "✅ lint, typecheck, vitest, and production build completed" >> $GITHUB_STEP_SUMMARY

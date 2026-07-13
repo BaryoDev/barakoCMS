@@ -1,81 +1,47 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api';
-import { User, Role, UserGroup, AssignRoleRequest, AssignGroupRequest, CreateRoleRequest } from '@/types/rbac';
+import { api, type Paginated, type PageParams } from '@/lib/api';
+import type { User, Role, RoleRequest } from '@/types/rbac';
 
 // Users
-export function useUsers() {
+
+export function useUsers(params: PageParams = {}) {
     return useQuery({
-        queryKey: ['users'],
+        queryKey: ['users', params],
         queryFn: async () => {
-            const response = await api.get<User[]>('/api/users');
+            const response = await api.get<Paginated<User>>('/api/users', { params });
             return response.data;
         },
     });
 }
 
 // Roles
-export function useRoles() {
+
+export function useRoles(params: PageParams = {}) {
     return useQuery({
-        queryKey: ['roles'],
+        queryKey: ['roles', params],
         queryFn: async () => {
-            const response = await api.get<Role[]>('/api/roles');
+            const response = await api.get<Paginated<Role>>('/api/roles', { params });
             return response.data;
         },
     });
 }
 
-// User Groups
-export function useUserGroups() {
+export function useRole(id: string) {
     return useQuery({
-        queryKey: ['user-groups'],
+        queryKey: ['roles', 'detail', id],
         queryFn: async () => {
-            const response = await api.get<UserGroup[]>('/api/user-groups');
+            const response = await api.get<Role>(`/api/roles/${id}`);
             return response.data;
         },
+        enabled: !!id,
     });
 }
 
-// Create Role
 export function useCreateRole() {
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: async (data: any) => {
-            // Transform permission strings to backend objects
-            const permissionStrings = data.permissions as string[];
-            const transformedPermissions: any[] = [];
-            const permissionsMap = new Map<string, any>();
-
-            permissionStrings.forEach(perm => {
-                // Format: contents:{slug}:{action}
-                const parts = perm.split(':');
-                if (parts.length < 3) return;
-
-                const slug = parts[1];
-                const action = parts[2]; // create, read, update, delete
-
-                if (!permissionsMap.has(slug)) {
-                    permissionsMap.set(slug, {
-                        contentTypeSlug: slug,
-                        create: { enabled: false },
-                        read: { enabled: false },
-                        update: { enabled: false },
-                        delete: { enabled: false }
-                    });
-                }
-
-                const entry = permissionsMap.get(slug);
-                if (action === 'create') entry.create.enabled = true;
-                if (action === 'read') entry.read.enabled = true;
-                if (action === 'update') entry.update.enabled = true;
-                if (action === 'delete') entry.delete.enabled = true;
-            });
-
-            const payload = {
-                ...data,
-                permissions: Array.from(permissionsMap.values())
-            };
-
-            const response = await api.post<Role>('/api/roles', payload);
+        mutationFn: async (data: RoleRequest) => {
+            const response = await api.post<{ id: string; message: string }>('/api/roles', data);
             return response.data;
         },
         onSuccess: () => {
@@ -84,13 +50,26 @@ export function useCreateRole() {
     });
 }
 
-// Update Role
 export function useUpdateRole() {
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: async ({ id, data }: { id: string; data: CreateRoleRequest }) => {
-            const response = await api.put<Role>(`/api/roles/${id}`, data);
+        mutationFn: async ({ id, data }: { id: string; data: RoleRequest }) => {
+            const response = await api.put<{ message: string }>(`/api/roles/${id}`, { id, ...data });
             return response.data;
+        },
+        onSuccess: (_data, { id }) => {
+            queryClient.invalidateQueries({ queryKey: ['roles'] });
+            queryClient.invalidateQueries({ queryKey: ['roles', 'detail', id] });
+        },
+    });
+}
+
+// System roles refuse deletion (403); roles still assigned to users conflict (409).
+export function useDeleteRole() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (id: string) => {
+            await api.delete(`/api/roles/${id}`);
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['roles'] });
@@ -98,15 +77,13 @@ export function useUpdateRole() {
     });
 }
 
-// Assign Role
+// User ↔ role / group assignment
+
 export function useAssignRole() {
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: async ({ userId, roleId }: AssignRoleRequest) => {
-            const response = await api.post(`/api/users/${userId}/roles`, {
-                userId,
-                roleId
-            });
+        mutationFn: async ({ userId, roleId }: { userId: string; roleId: string }) => {
+            const response = await api.post(`/api/users/${userId}/roles`, { userId, roleId });
             return response.data;
         },
         onSuccess: () => {
@@ -115,11 +92,10 @@ export function useAssignRole() {
     });
 }
 
-// Remove Role
 export function useRemoveRole() {
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: async ({ userId, roleId }: { userId: string, roleId: string }) => {
+        mutationFn: async ({ userId, roleId }: { userId: string; roleId: string }) => {
             await api.delete(`/api/users/${userId}/roles/${roleId}`);
         },
         onSuccess: () => {
@@ -128,32 +104,29 @@ export function useRemoveRole() {
     });
 }
 
-// Assign Group
 export function useAssignGroup() {
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: async ({ userId, groupId }: AssignGroupRequest) => {
-            const response = await api.post(`/api/users/${userId}/groups`, {
-                userId,
-                groupId
-            });
+        mutationFn: async ({ userId, groupId }: { userId: string; groupId: string }) => {
+            const response = await api.post(`/api/users/${userId}/groups`, { userId, groupId });
             return response.data;
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['users'] });
+            queryClient.invalidateQueries({ queryKey: ['user-groups'] });
         },
     });
 }
 
-// Remove Group
 export function useRemoveGroup() {
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: async ({ userId, groupId }: { userId: string, groupId: string }) => {
+        mutationFn: async ({ userId, groupId }: { userId: string; groupId: string }) => {
             await api.delete(`/api/users/${userId}/groups/${groupId}`);
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['users'] });
+            queryClient.invalidateQueries({ queryKey: ['user-groups'] });
         },
     });
 }

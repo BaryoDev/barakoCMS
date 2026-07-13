@@ -1,4 +1,5 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { api } from '@/lib/api';
 
 export interface SystemSetting {
     key: string;
@@ -8,17 +9,12 @@ export interface SystemSetting {
     updatedAt: string;
 }
 
-export interface SettingsResponse {
-    settings: SystemSetting[];
-}
-
 export function useSettings() {
     return useQuery({
-        queryKey: ["settings"],
-        queryFn: async (): Promise<SettingsResponse> => {
-            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/settings`);
-            if (!response.ok) throw new Error("Failed to fetch settings");
-            return response.json();
+        queryKey: ['settings'],
+        queryFn: async () => {
+            const response = await api.get<{ settings: SystemSetting[] }>('/api/settings');
+            return response.data.settings;
         },
     });
 }
@@ -28,17 +24,14 @@ export function useUpdateSetting() {
 
     return useMutation({
         mutationFn: async ({ key, value }: { key: string; value: string }) => {
-            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/settings`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ key, value }),
+            const response = await api.post<{ success: boolean; message: string }>('/api/settings', {
+                key,
+                value,
             });
-
-            if (!response.ok) throw new Error("Failed to update setting");
-            return response.json();
+            return response.data;
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ["settings"] });
+            queryClient.invalidateQueries({ queryKey: ['settings'] });
         },
     });
 }

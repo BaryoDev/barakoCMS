@@ -1,7 +1,11 @@
 'use client';
 
+import { useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
+import { cn } from '@/lib/utils';
 import type { FieldDefinition } from '@/types/schema';
 
 interface DynamicFormProps {
@@ -11,156 +15,182 @@ interface DynamicFormProps {
     errors?: Record<string, string>;
 }
 
+// Renders a form for the backend's enforced field types:
+// string, int, decimal, bool, datetime, array, object.
 export function DynamicForm({ fields, values, onChange, errors }: DynamicFormProps) {
-    const handleFieldChange = (fieldName: string, value: unknown) => {
-        onChange({ ...values, [fieldName]: value });
-    };
-
-    const renderField = (field: FieldDefinition) => {
-        const value = values[field.name];
-        const error = errors?.[field.name];
-
-        switch (field.type) {
-            case 'text':
-            case 'richtext':
-                return (
-                    <div key={field.name} className="space-y-2">
-                        <Label htmlFor={field.name} className="text-slate-200">
-                            {field.displayName}
-                            {field.isRequired && <span className="text-red-400 ml-1">*</span>}
-                        </Label>
-                        {field.type === 'richtext' ? (
-                            <textarea
-                                id={field.name}
-                                value={(value as string) || ''}
-                                onChange={(e) => handleFieldChange(field.name, e.target.value)}
-                                className="w-full min-h-[150px] bg-slate-800 border border-slate-700 rounded-md px-3 py-2 text-white placeholder:text-slate-500 focus:border-amber-500 focus:ring-amber-500"
-                                placeholder={`Enter ${field.displayName.toLowerCase()}`}
-                            />
-                        ) : (
-                            <Input
-                                id={field.name}
-                                value={(value as string) || ''}
-                                onChange={(e) => handleFieldChange(field.name, e.target.value)}
-                                className="bg-slate-800 border-slate-700 text-white placeholder:text-slate-500"
-                                placeholder={`Enter ${field.displayName.toLowerCase()}`}
-                            />
-                        )}
-                        {error && <p className="text-red-400 text-sm">{error}</p>}
-                    </div>
-                );
-
-            case 'number':
-                return (
-                    <div key={field.name} className="space-y-2">
-                        <Label htmlFor={field.name} className="text-slate-200">
-                            {field.displayName}
-                            {field.isRequired && <span className="text-red-400 ml-1">*</span>}
-                        </Label>
-                        <Input
-                            id={field.name}
-                            type="number"
-                            value={(value as number) ?? ''}
-                            onChange={(e) => handleFieldChange(field.name, e.target.value ? parseFloat(e.target.value) : null)}
-                            className="bg-slate-800 border-slate-700 text-white placeholder:text-slate-500"
-                            placeholder={`Enter ${field.displayName.toLowerCase()}`}
-                        />
-                        {error && <p className="text-red-400 text-sm">{error}</p>}
-                    </div>
-                );
-
-            case 'boolean':
-                return (
-                    <div key={field.name} className="space-y-2">
-                        <div className="flex items-center gap-3">
-                            <input
-                                id={field.name}
-                                type="checkbox"
-                                checked={(value as boolean) || false}
-                                onChange={(e) => handleFieldChange(field.name, e.target.checked)}
-                                className="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500"
-                            />
-                            <Label htmlFor={field.name} className="text-slate-200">
-                                {field.displayName}
-                                {field.isRequired && <span className="text-red-400 ml-1">*</span>}
-                            </Label>
-                        </div>
-                        {error && <p className="text-red-400 text-sm">{error}</p>}
-                    </div>
-                );
-
-            case 'date':
-                return (
-                    <div key={field.name} className="space-y-2">
-                        <Label htmlFor={field.name} className="text-slate-200">
-                            {field.displayName}
-                            {field.isRequired && <span className="text-red-400 ml-1">*</span>}
-                        </Label>
-                        <Input
-                            id={field.name}
-                            type="datetime-local"
-                            value={(value as string) || ''}
-                            onChange={(e) => handleFieldChange(field.name, e.target.value)}
-                            className="bg-slate-800 border-slate-700 text-white"
-                        />
-                        {error && <p className="text-red-400 text-sm">{error}</p>}
-                    </div>
-                );
-
-            case 'image':
-                return (
-                    <div key={field.name} className="space-y-2">
-                        <Label htmlFor={field.name} className="text-slate-200">
-                            {field.displayName}
-                            {field.isRequired && <span className="text-red-400 ml-1">*</span>}
-                        </Label>
-                        <Input
-                            id={field.name}
-                            value={(value as string) || ''}
-                            onChange={(e) => handleFieldChange(field.name, e.target.value)}
-                            className="bg-slate-800 border-slate-700 text-white placeholder:text-slate-500"
-                            placeholder="Enter image URL"
-                        />
-                        {(value as string) && (
-                            <div className="mt-2 rounded-lg overflow-hidden border border-slate-700 max-w-xs">
-                                <img src={value as string} alt="Preview" className="w-full h-auto" />
-                            </div>
-                        )}
-                        {error && <p className="text-red-400 text-sm">{error}</p>}
-                    </div>
-                );
-
-            default:
-                return (
-                    <div key={field.name} className="space-y-2">
-                        <Label htmlFor={field.name} className="text-slate-200">
-                            {field.displayName}
-                            {field.isRequired && <span className="text-red-400 ml-1">*</span>}
-                        </Label>
-                        <Input
-                            id={field.name}
-                            value={(value as string) || ''}
-                            onChange={(e) => handleFieldChange(field.name, e.target.value)}
-                            className="bg-slate-800 border-slate-700 text-white placeholder:text-slate-500"
-                            placeholder={`Enter ${field.displayName.toLowerCase()}`}
-                        />
-                        {error && <p className="text-red-400 text-sm">{error}</p>}
-                    </div>
-                );
-        }
+    const setField = (name: string, value: unknown) => {
+        onChange({ ...values, [name]: value });
     };
 
     if (fields.length === 0) {
         return (
-            <div className="text-center py-8 text-slate-500">
-                No fields defined for this content type.
-            </div>
+            <p className="text-muted-foreground py-8 text-center text-sm">
+                This content type has no fields yet. Add fields to its definition first.
+            </p>
         );
     }
 
     return (
-        <div className="space-y-6">
-            {fields.map(renderField)}
+        <div className="space-y-5">
+            {fields.map((field) => (
+                <FieldControl
+                    key={field.name}
+                    field={field}
+                    value={values[field.name]}
+                    error={errors?.[field.name]}
+                    onChange={(v) => setField(field.name, v)}
+                />
+            ))}
         </div>
     );
+}
+
+function FieldControl({
+    field,
+    value,
+    error,
+    onChange,
+}: {
+    field: FieldDefinition;
+    value: unknown;
+    error?: string;
+    onChange: (value: unknown) => void;
+}) {
+    const label = (
+        <Label htmlFor={field.name}>
+            {field.displayName}
+            {field.isRequired && <span className="text-destructive ml-0.5">*</span>}
+        </Label>
+    );
+
+    switch (field.type) {
+        case 'bool':
+            return (
+                <div className="flex items-center justify-between gap-4 rounded-lg border px-4 py-3">
+                    {label}
+                    <Switch
+                        id={field.name}
+                        checked={Boolean(value)}
+                        onCheckedChange={onChange}
+                    />
+                </div>
+            );
+
+        case 'int':
+        case 'decimal':
+            return (
+                <div className="space-y-2">
+                    {label}
+                    <Input
+                        id={field.name}
+                        type="number"
+                        step={field.type === 'int' ? 1 : 'any'}
+                        value={value === null || value === undefined ? '' : String(value)}
+                        onChange={(e) => {
+                            const raw = e.target.value;
+                            if (raw === '') return onChange(null);
+                            onChange(field.type === 'int' ? parseInt(raw, 10) : parseFloat(raw));
+                        }}
+                    />
+                    <FieldError message={error} />
+                </div>
+            );
+
+        case 'datetime':
+            return (
+                <div className="space-y-2">
+                    {label}
+                    <Input
+                        id={field.name}
+                        type="datetime-local"
+                        value={(value as string) || ''}
+                        onChange={(e) => onChange(e.target.value)}
+                        className="w-fit"
+                    />
+                    <FieldError message={error} />
+                </div>
+            );
+
+        case 'array':
+        case 'object':
+            return (
+                <JsonField
+                    field={field}
+                    label={label}
+                    value={value}
+                    error={error}
+                    onChange={onChange}
+                />
+            );
+
+        case 'string':
+        default:
+            return (
+                <div className="space-y-2">
+                    {label}
+                    <Textarea
+                        id={field.name}
+                        rows={2}
+                        value={(value as string) || ''}
+                        onChange={(e) => onChange(e.target.value)}
+                    />
+                    <FieldError message={error} />
+                </div>
+            );
+    }
+}
+
+function JsonField({
+    field,
+    label,
+    value,
+    error,
+    onChange,
+}: {
+    field: FieldDefinition;
+    label: React.ReactNode;
+    value: unknown;
+    error?: string;
+    onChange: (value: unknown) => void;
+}) {
+    const [text, setText] = useState(() =>
+        value === undefined || value === null
+            ? field.type === 'array'
+                ? '[]'
+                : '{}'
+            : JSON.stringify(value, null, 2)
+    );
+    const [parseError, setParseError] = useState<string | null>(null);
+
+    return (
+        <div className="space-y-2">
+            {label}
+            <Textarea
+                id={field.name}
+                rows={4}
+                spellCheck={false}
+                value={text}
+                onChange={(e) => {
+                    setText(e.target.value);
+                    try {
+                        const parsed = JSON.parse(e.target.value);
+                        setParseError(null);
+                        onChange(parsed);
+                    } catch {
+                        setParseError('Not valid JSON yet — the field keeps its last valid value until this parses.');
+                    }
+                }}
+                className={cn('font-mono text-xs', parseError && 'border-warning')}
+            />
+            <p className="text-muted-foreground text-xs">
+                {field.type === 'array' ? 'JSON list, e.g. ["one", "two"]' : 'JSON object, e.g. {"key": "value"}'}
+            </p>
+            <FieldError message={parseError ?? error} />
+        </div>
+    );
+}
+
+function FieldError({ message }: { message?: string | null }) {
+    if (!message) return null;
+    return <p className="text-destructive text-xs">{message}</p>;
 }
