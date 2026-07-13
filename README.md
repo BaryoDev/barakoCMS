@@ -78,22 +78,46 @@ If BarakoCMS is powering your business, please consider:
 
 ---
 
+## 🚀 Live demo
+
+**<https://playground.baryo.dev/barakocms>** — sign in as `demo_admin` / `BarakoDemo2026!`
+
+The API behind it is at `https://playground.baryo.dev/barakocms-api` (try
+[`/barakocms-api/health`](https://playground.baryo.dev/barakocms-api/health)).
+
+---
+
 ## 📦 Quick Start
 
 ### Option A — Docker images (no build, no clone)
 
-Prebuilt images are on Docker Hub:
+Prebuilt **multi-arch** images (amd64 + arm64) are on Docker Hub:
 [`arnelirobles/barako-cms`](https://hub.docker.com/r/arnelirobles/barako-cms) (API) and
 [`arnelirobles/barako-admin`](https://hub.docker.com/r/arnelirobles/barako-admin) (admin UI).
 
 ```bash
-curl -O https://raw.githubusercontent.com/BaryoDev/barakoCMS/main/docker-compose.hub.yml
+curl -O https://raw.githubusercontent.com/BaryoDev/barakoCMS/master/docker-compose.hub.yml
 docker compose -f docker-compose.hub.yml up -d
 ```
 
-That starts PostgreSQL, the API (<http://localhost:5005>), and the admin UI (<http://localhost:3000>).
-Sign in with the initial admin account (`ADMIN_USER` / `ADMIN_PASSWORD`, default `admin` / `changeme-in-production`).
-For anything beyond a local try-out, set `JWT_SECRET` (32+ chars), `DB_PASSWORD`, and `ADMIN_PASSWORD` in a `.env` file first.
+That starts PostgreSQL, the API (<http://localhost:5005>), and the admin UI
+(<http://localhost:3000>). Sign in with `ADMIN_USER` / `ADMIN_PASSWORD` (default
+`admin` / `changeme-in-production`).
+
+> [!IMPORTANT]
+> Before exposing this anywhere real, set `JWT_SECRET` (32+ characters), `DB_PASSWORD`,
+> and `ADMIN_PASSWORD` in a `.env` file next to the compose file. The compose file
+> publishes the app ports on localhost only — put a TLS-terminating reverse proxy in
+> front of it, and never publish PostgreSQL to a public interface.
+
+To pull the images on their own:
+
+```bash
+docker pull arnelirobles/barako-cms:latest    # headless API
+docker pull arnelirobles/barako-admin:latest  # admin UI
+```
+
+Rebuild and republish both with `./scripts/deploy-docker.sh [tag]`.
 
 ### Option B — from source
 
@@ -139,7 +163,9 @@ BarakoCMS ships with a **minimalist admin dashboard** (Next.js 16 + shadcn/ui, i
 [Icons8 Line Awesome](https://icons8.com/line-awesome)) that covers the full API surface.
 Light and dark themes follow the *kapeng barako* identity — warm paper and roasted espresso.
 
-![Admin dashboard](assets/admin/02-dashboard.png)
+Try it: **<https://playground.baryo.dev/barakocms>** (`demo_admin` / `BarakoDemo2026!`)
+
+![Admin dashboard](assets/admin/dashboard.png)
 
 ### What it covers
 - **Overview**: live stats, latest entries, health summary, quick actions, ⌘K command palette
@@ -150,13 +176,17 @@ Light and dark themes follow the *kapeng barako* identity — warm paper and roa
 - **System**: runtime settings toggles, live health checks, API metrics, Kubernetes status
 - **Sessions** ride the API's rotating refresh tokens, so editors are not logged out every 15 minutes
 
-| Entry editing with history | Workflow builder |
+| Entries | Entry editor + version history |
 | --- | --- |
-| ![Entry editing](assets/admin/06-content-detail.png) | ![Workflow builder](assets/admin/08-workflow-new.png) |
+| ![Entries](assets/admin/content.png) | ![Entry editor](assets/admin/entry.png) |
 
-| Role permission matrix | Dark mode |
+| Workflows | Role permission matrix |
 | --- | --- |
-| ![Role editor](assets/admin/12-role-edit.png) | ![Dark dashboard](assets/admin/16-dashboard-dark.png) |
+| ![Workflows](assets/admin/workflows.png) | ![Role editor](assets/admin/roles.png) |
+
+| Health | Dark mode |
+| --- | --- |
+| ![Health](assets/admin/health.png) | ![Dark dashboard](assets/admin/dark.png) |
 
 ### Running the Admin UI
 

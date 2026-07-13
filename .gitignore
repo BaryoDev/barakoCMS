@@ -413,3 +413,9 @@ AttendancePOC/
 AttendancePOC.Tests/
 
 
+
+# Playwright / Vitest output
+admin/playwright-report/
+admin/test-results/
+playwright-report/
+test-results/
