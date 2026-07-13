@@ -42,10 +42,10 @@ public static class ServiceCollectionExtensions
 
         var connectionString = ResolveConnectionString(configuration);
 
-        // Thresholds are configurable: the defaults suit a small container, but .NET's
-        // server GC happily holds several GB of private memory on a large host without
-        // anything being wrong, which would otherwise report Unhealthy forever.
-        var maxMemoryMb = configuration.GetValue<long?>("HealthChecks:MaxPrivateMemoryMegabytes") ?? 1024;
+        // Thresholds are configurable. The memory default is deliberately generous:
+        // .NET's server GC holds ~1.3GB of private memory on an idle container, so a
+        // 1GB ceiling reports Unhealthy on a perfectly healthy boot.
+        var maxMemoryMb = configuration.GetValue<long?>("HealthChecks:MaxPrivateMemoryMegabytes") ?? 4096;
         var minFreeDiskMb = configuration.GetValue<long?>("HealthChecks:MinimumFreeDiskMegabytes") ?? 512;
 
         services.AddHealthChecks()
