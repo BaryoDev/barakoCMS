@@ -24,6 +24,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { IconArchive, IconHistory, IconRollback } from '@/components/icons';
 import { format } from 'date-fns';
+import { contentTitle } from '@/lib/content-title';
 
 export default function ContentDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -80,7 +81,7 @@ export default function ContentDetailPage({ params }: { params: Promise<{ id: st
     );
   };
 
-  const title = String(Object.values(content.data).find((v) => typeof v === 'string' && v) ?? id);
+  const title = contentTitle(content.data, id);
 
   return (
     <>

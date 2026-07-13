@@ -19,6 +19,7 @@ import {
   IconWorkflows,
 } from '@/components/icons';
 import { formatDistanceToNow } from 'date-fns';
+import { contentTitle } from '@/lib/content-title';
 
 function healthTone(status?: string): Tone {
   if (status === 'Healthy') return 'success';
@@ -132,7 +133,7 @@ export default function DashboardPage() {
                     >
                       <IconContent className="text-muted-foreground size-4 shrink-0" />
                       <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                        {String(Object.values(item.data)[0] ?? item.id)}
+                        {contentTitle(item.data, item.id)}
                       </span>
                       <span className="text-muted-foreground shrink-0 font-mono text-xs">{item.contentType}</span>
                       <span className="text-muted-foreground hidden shrink-0 text-xs sm:block">

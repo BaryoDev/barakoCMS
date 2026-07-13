@@ -27,6 +27,7 @@ import {
 } from '@/components/ui/table';
 import { IconContent, IconPlus } from '@/components/icons';
 import { formatDistanceToNow } from 'date-fns';
+import { contentTitle } from '@/lib/content-title';
 
 const ALL_TYPES = 'all';
 
@@ -42,11 +43,6 @@ function ContentListInner() {
   const setType = (value: string) => {
     setPage(1);
     router.replace(value === ALL_TYPES ? '/content' : `/content?type=${value}`);
-  };
-
-  const entryTitle = (data: Record<string, unknown>, id: string) => {
-    const first = Object.values(data).find((v) => typeof v === 'string' && v);
-    return (first as string) ?? id;
   };
 
   return (
@@ -115,7 +111,7 @@ function ContentListInner() {
                     onClick={() => router.push(`/content/${item.id}`)}
                   >
                     <TableCell className="max-w-md">
-                      <span className="block truncate font-medium">{entryTitle(item.data, item.id)}</span>
+                      <span className="block truncate font-medium">{contentTitle(item.data, item.id)}</span>
                     </TableCell>
                     <TableCell className="text-muted-foreground font-mono text-xs">{item.contentType}</TableCell>
                     <TableCell className="text-muted-foreground hidden text-sm sm:table-cell">
