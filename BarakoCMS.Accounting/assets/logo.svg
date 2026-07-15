@@ -1,0 +1,22 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="BarakoCMS.Accounting">
+  <title>BarakoCMS.Accounting</title>
+  <defs>
+    <linearGradient id="acct-bg" x1="0" y1="0" x2="128" y2="128" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6D4C2F"/>
+      <stop offset="1" stop-color="#3E2A18"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="120" height="120" rx="26" fill="url(#acct-bg)"/>
+
+  <!-- balance scale: double-entry, always balanced -->
+  <g stroke="#F2B441" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <line x1="64" y1="30" x2="64" y2="96"/>
+    <line x1="34" y1="44" x2="94" y2="44"/>
+    <line x1="46" y1="98" x2="82" y2="98"/>
+    <!-- left pan -->
+    <path d="M34 44 L24 66 L44 66 Z" fill="#F2B441" fill-opacity="0.18"/>
+    <!-- right pan -->
+    <path d="M94 44 L84 66 L104 66 Z" fill="#F2B441" fill-opacity="0.18"/>
+  </g>
+  <circle cx="64" cy="30" r="5" fill="#F2B441"/>
+</svg>

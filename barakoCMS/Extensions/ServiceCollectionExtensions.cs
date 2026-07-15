@@ -7,12 +7,15 @@ using Marten.Events.Daemon;
 using Weasel.Core;
 using barakoCMS.Features.Workflows;
 using barakoCMS.Models;
+using barakoCMS.Modules;
 using barakoCMS.Repository;
 using System.Threading.RateLimiting;
 using barakoCMS.Infrastructure.Services;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.Hosting;
 using JasperFx.Events;
 using JasperFx.Core;
 
@@ -21,8 +24,42 @@ namespace barakoCMS.Extensions;
 public static class ServiceCollectionExtensions
 {
     public static IServiceCollection AddBarakoCMS(this IServiceCollection services, IConfiguration configuration)
+        => services.AddBarakoCMS(configuration, configureModules: null);
+
+    /// <summary>
+    /// Registers barakoCMS core plus any optional feature modules. Modules are purely additive:
+    /// with no modules this behaves exactly like the core-only overload. Each module can contribute
+    /// services, Marten document types, endpoints (from its own assembly), and seed data.
+    /// </summary>
+    public static IServiceCollection AddBarakoCMS(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        Action<BarakoModuleBuilder>? configureModules)
     {
-        services.AddFastEndpoints();
+        // Collect opted-in modules first, so their endpoint assemblies and Marten config are
+        // available when we wire up FastEndpoints and Marten below.
+        var moduleBuilder = new BarakoModuleBuilder();
+        configureModules?.Invoke(moduleBuilder);
+        var modules = moduleBuilder.Modules;
+
+        foreach (var module in modules)
+        {
+            // Keep the instance discoverable at runtime (used by the seed runner).
+            services.AddSingleton<IBarakoModule>(module);
+            module.ConfigureServices(services, configuration);
+        }
+
+        // FastEndpoints scans the entry (host) assembly by default; add each module's assembly so
+        // endpoints shipped inside a module DLL are discovered too. DisableAutoDiscovery stays false,
+        // so this augments rather than replaces the host scan.
+        var moduleAssemblies = modules
+            .SelectMany(m => m.EndpointAssemblies)
+            .Distinct()
+            .ToArray();
+        if (moduleAssemblies.Length > 0)
+            services.AddFastEndpoints(o => o.Assemblies = moduleAssemblies);
+        else
+            services.AddFastEndpoints();
 
         // Request body size limit (defends against large-payload memory pressure / DoS on the
         // arbitrary-JSON content endpoints). Configurable via RequestLimits:MaxBodyBytes; default 10 MB.
@@ -178,8 +215,17 @@ public static class ServiceCollectionExtensions
                 .DocumentAlias("idempotency_records")
                 .Index(x => x.Key, idx => idx.IsUnique = true);  // Unique constraint prevents race condition
 
+            options.Schema.For<OtpCode>()
+                .DocumentAlias("otp_codes")
+                .Index(x => x.Email)
+                .Index(x => x.ExpiresAt);
+
             // Register Workflow Projection (Async)
             options.Projections.Add(new WorkflowProjection(sp), JasperFx.Events.Projections.ProjectionLifecycle.Async);
+
+            // Let each opted-in module register its own document types / indexes on the shared store.
+            foreach (var module in modules)
+                module.ConfigureMarten(options);
 
             return options;
         })
@@ -192,8 +238,10 @@ public static class ServiceCollectionExtensions
         services.AddHttpClient("ExternalApi")
                 .AddStandardResilienceHandler();
 
-        services.AddScoped<barakoCMS.Core.Interfaces.IEmailService, barakoCMS.Infrastructure.Services.MockEmailService>();
-        services.AddScoped<barakoCMS.Core.Interfaces.ISmsService, barakoCMS.Infrastructure.Services.MockSmsService>();
+        // Defaults registered with TryAdd so an opted-in module or the host can substitute a real
+        // provider (e.g. a Resend email module) without being clobbered by these mocks.
+        services.TryAddScoped<barakoCMS.Core.Interfaces.IEmailService, barakoCMS.Infrastructure.Services.MockEmailService>();
+        services.TryAddScoped<barakoCMS.Core.Interfaces.ISmsService, barakoCMS.Infrastructure.Services.MockSmsService>();
         services.AddScoped<barakoCMS.Core.Interfaces.ISensitivityService, barakoCMS.Infrastructure.Services.SensitivityService>();
         services.AddScoped<barakoCMS.Infrastructure.Services.IConfigurationService, barakoCMS.Infrastructure.Services.ConfigurationService>();
 
@@ -420,5 +468,23 @@ public static class ServiceCollectionExtensions
         }
 
         return app;
+    }
+
+    /// <summary>
+    /// Runs <see cref="IBarakoModule.SeedAsync"/> for every registered module inside a single shared
+    /// session, committing once at the end. Call after <c>UseBarakoCMS</c> during startup. No-op when
+    /// no modules are registered.
+    /// </summary>
+    public static async Task RunBarakoModuleSeedersAsync(this IHost host, CancellationToken ct = default)
+    {
+        using var scope = host.Services.CreateScope();
+        var modules = scope.ServiceProvider.GetServices<IBarakoModule>().ToList();
+        if (modules.Count == 0)
+            return;
+
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        foreach (var module in modules)
+            await module.SeedAsync(session, scope.ServiceProvider, ct);
+        await session.SaveChangesAsync(ct);
     }
 }
