@@ -75,6 +75,14 @@ jobs:
       - name: Pack NuGet
         run: dotnet pack barakoCMS/barakoCMS.csproj --no-build --configuration Release -o out
 
+      - name: Pack modules
+        # Modules reference barakoCMS by project, so they pick up the version bumped above.
+        # Built here (no --no-build) since only the core project was compiled earlier.
+        run: |
+          for m in BarakoCMS.Accounting BarakoCMS.Import BarakoCMS.Files BarakoCMS.Email.Resend; do
+            dotnet pack "$m/$m.csproj" --configuration Release -o out
+          done
+
       - name: Publish NuGet
         run: dotnet nuget push "out/*.nupkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
 
