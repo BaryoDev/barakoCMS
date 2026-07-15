@@ -21,7 +21,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\barakoCMS\barakoCMS.csproj" />
-    <ProjectReference Include="..\..\Talaan\src\Talaan\Talaan.csproj" />
+    <!-- Talaan is consumed as a published NuGet package so this module builds standalone (CI, NuGet). -->
+    <PackageReference Include="Talaan" Version="0.1.0" />
   </ItemGroup>
 
 </Project>
