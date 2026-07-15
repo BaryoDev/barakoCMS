@@ -1,0 +1,25 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="BarakoCMS.Import">
+  <title>BarakoCMS.Import</title>
+  <defs>
+    <linearGradient id="imp-bg" x1="0" y1="0" x2="128" y2="128" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2B5B8A"/>
+      <stop offset="1" stop-color="#16324F"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="120" height="120" rx="26" fill="url(#imp-bg)"/>
+
+  <!-- grid (target content) -->
+  <g fill="#FFFFFF" fill-opacity="0.9">
+    <rect x="34" y="66" width="26" height="12" rx="3"/>
+    <rect x="68" y="66" width="26" height="12" rx="3"/>
+    <rect x="34" y="84" width="26" height="12" rx="3"/>
+    <rect x="68" y="84" width="26" height="12" rx="3"/>
+  </g>
+  <rect x="34" y="66" width="60" height="30" rx="5" stroke="#8FC2F0" stroke-width="3" fill="none"/>
+
+  <!-- import arrow -->
+  <g stroke="#F2B441" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <line x1="64" y1="28" x2="64" y2="56"/>
+    <path d="M50 44 L64 58 L78 44"/>
+  </g>
+</svg>
