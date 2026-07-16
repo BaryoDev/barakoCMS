@@ -197,13 +197,21 @@ public static class ServiceCollectionExtensions
                 .Index(x => x.Username, idx => idx.IsUnique = true)
                 .Index(x => x.Email, idx => idx.IsUnique = true);
             
-            options.Schema.For<SystemSetting>().DocumentAlias("system_settings");
-            
+            // Global (single-tenanted) platform + auth infrastructure. Identity, roles, tokens, OTP,
+            // idempotency and settings live once across all tenants — otherwise per-club role
+            // resolution (Membership references global role ids) and token revocation would silently
+            // fail inside a club's partition. Only domain content below stays tenant-scoped.
+            options.Schema.For<SystemSetting>()
+                .SingleTenanted()
+                .DocumentAlias("system_settings");
+
             options.Schema.For<Models.Role>()
+                .SingleTenanted() // roles are global; per-tenant assignment lives on Membership
                 .DocumentAlias("roles")
                 .Index(x => x.Name, idx => idx.IsUnique = true);
-            
+
             options.Schema.For<RefreshToken>()
+                .SingleTenanted() // token lifecycle is global, independent of which club is in the URL
                 .DocumentAlias("refresh_tokens")
                 // Optimistic concurrency so a single refresh token cannot be rotated twice
                 // concurrently (defeats refresh-token reuse/replay).
@@ -213,15 +221,18 @@ public static class ServiceCollectionExtensions
                 .Index(x => x.ExpiresAt);  // Index for cleanup queries
 
             options.Schema.For<RevokedToken>()
+                .SingleTenanted() // a revoked token must be revoked everywhere
                 .DocumentAlias("revoked_tokens")
                 .Index(x => x.TokenJti, idx => idx.IsUnique = true)  // Index for fast revocation check
                 .Index(x => x.ExpiresAt);  // Index for cleanup queries
 
             options.Schema.For<IdempotencyRecord>()
+                .SingleTenanted()
                 .DocumentAlias("idempotency_records")
                 .Index(x => x.Key, idx => idx.IsUnique = true);  // Unique constraint prevents race condition
 
             options.Schema.For<OtpCode>()
+                .SingleTenanted() // sign-in codes are keyed by global email, not by club
                 .DocumentAlias("otp_codes")
                 .Index(x => x.Email)
                 .Index(x => x.ExpiresAt);
