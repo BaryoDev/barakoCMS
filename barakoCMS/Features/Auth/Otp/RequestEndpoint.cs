@@ -1,8 +1,8 @@
 using FastEndpoints;
 using Marten;
 using barakoCMS.Core.Interfaces;
+using barakoCMS.Infrastructure;
 using barakoCMS.Models;
-using System.Security.Cryptography;
 
 namespace barakoCMS.Features.Auth.Otp;
 
@@ -23,14 +23,12 @@ public class OtpRequestResponse
 public class RequestEndpoint : Endpoint<OtpRequest, OtpRequestResponse>
 {
     private readonly IDocumentSession _session;
-    private readonly IEmailService _email;
-    private readonly ILogger<RequestEndpoint> _logger;
+    private readonly IOtpService _otp;
 
-    public RequestEndpoint(IDocumentSession session, IEmailService email, ILogger<RequestEndpoint> logger)
+    public RequestEndpoint(IDocumentSession session, IOtpService otp)
     {
         _session = session;
-        _email = email;
-        _logger = logger;
+        _otp = otp;
     }
 
     public override void Configure()
@@ -61,35 +59,7 @@ public class RequestEndpoint : Endpoint<OtpRequest, OtpRequestResponse>
             return;
         }
 
-        // Invalidate any outstanding codes for this email.
-        var existing = await _session.Query<OtpCode>()
-            .Where(o => o.Email == email && !o.Consumed)
-            .ToListAsync(ct);
-        foreach (var o in existing) { o.Consumed = true; _session.Update(o); }
-
-        var code = RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6");
-        _session.Store(new OtpCode
-        {
-            Email = email,
-            CodeHash = BCrypt.Net.BCrypt.HashPassword(code),
-            ExpiresAt = DateTime.UtcNow.AddMinutes(10),
-        });
-        await _session.SaveChangesAsync(ct);
-
-        var body =
-            $"<p>Your BaryoClub sign-in code is:</p>" +
-            $"<p style=\"font-size:28px;font-weight:700;letter-spacing:4px\">{code}</p>" +
-            $"<p>It expires in 10 minutes. If you didn't request this, you can ignore this email.</p>";
-        try
-        {
-            await _email.SendEmailAsync(user.Email, "Your BaryoClub sign-in code", body, ct);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to send OTP email to user {UserId}", user.Id);
-            // Still return the neutral response; the code remains valid if they retry sending.
-        }
-
+        await _otp.SendCodeAsync(user.Email, DeviceContext.From(HttpContext), ct);
         await SendAsync(ok, cancellation: ct);
     }
 }
