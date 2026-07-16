@@ -31,6 +31,25 @@ public class PublicTenantEndpoint : EndpointWithoutRequest<TenantPublicResponse>
     }
 }
 
+/// <summary>GET /api/tenants — list all tenants with full profile (platform admin).</summary>
+public class ListTenantsEndpoint : EndpointWithoutRequest<List<Tenant>>
+{
+    private readonly IQuerySession _session;
+    public ListTenantsEndpoint(IQuerySession session) => _session = session;
+
+    public override void Configure()
+    {
+        Get("/api/tenants");
+        Roles("SuperAdmin");
+    }
+
+    public override async Task HandleAsync(CancellationToken ct)
+    {
+        var tenants = await _session.Query<Tenant>().ToListAsync(ct);
+        await SendOkAsync(tenants.OrderBy(t => t.Name).ToList(), ct);
+    }
+}
+
 public sealed class TenantWriteRequest
 {
     public string Handle { get; set; } = string.Empty;
