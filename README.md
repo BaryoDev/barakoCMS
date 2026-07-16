@@ -373,6 +373,41 @@ See [Advanced Documentation](https://baryo.dev/barakoCMS), [Plugin Development G
 
 ---
 
+## 📦 Official modules
+
+Core stays lean and generic. Specialized capabilities ship as **optional NuGet modules** you opt into
+per project — the same `IBarakoModule` contract you can implement yourself. Each is MPL-2.0 and
+published to NuGet.
+
+| Module | Package | What it adds |
+| --- | --- | --- |
+| **Accounting** | [![NuGet](https://img.shields.io/nuget/v/BarakoCMS.Accounting.svg)](https://www.nuget.org/packages/BarakoCMS.Accounting) | A chart-of-accounts-agnostic **double-entry ledger** — accounts, balanced journal entries, and reporting. |
+| **Import** | [![NuGet](https://img.shields.io/nuget/v/BarakoCMS.Import.svg)](https://www.nuget.org/packages/BarakoCMS.Import) | **Bulk import** `.xlsx`/CSV into content via the zero-dependency [Talaan](https://github.com/BaryoDev/Talaan) reader, through the CMS's own validation, permissions, and event sourcing. |
+| **Files** | [![NuGet](https://img.shields.io/nuget/v/BarakoCMS.Files.svg)](https://www.nuget.org/packages/BarakoCMS.Files) | **File upload + download** stored in Postgres via Marten — receipts, photos, and documents attached to your records. |
+| **Email.Resend** | [![NuGet](https://img.shields.io/nuget/v/BarakoCMS.Email.Resend.svg)](https://www.nuget.org/packages/BarakoCMS.Email.Resend) | An `IEmailService` backed by the [Resend](https://resend.com) API, so password-reset, OTP sign-in, and workflow emails deliver for real. |
+
+Enable the ones you want when you register the CMS — core knows nothing about them:
+
+```csharp
+builder.Services.AddBarakoCMS(builder.Configuration, modules =>
+{
+    modules.Add(new BarakoCMS.Accounting.AccountingModule());
+    modules.Add(new BarakoCMS.Files.FilesModule());
+    modules.Add(new BarakoCMS.Import.ImportModule());
+    modules.Add(new BarakoCMS.Email.Resend.ResendEmailModule());
+});
+
+// After the app is built, run any module seeders (roles, reference data):
+await app.RunBarakoModuleSeedersAsync();
+```
+
+A module can contribute DI services, its own Marten documents, FastEndpoints endpoints, and seed
+data — implementing only the hooks it needs. See [`docs/`](docs/) and each module's README for
+configuration. **[BaryoClub](https://github.com/BaryoDev/BaryoClub)** is a sample app that composes
+Accounting + Import + Files + Email.Resend into a club membership and treasury manager.
+
+---
+
 ## 🌟 Core Features
 
 ### ⚡ Unmatched Speed
