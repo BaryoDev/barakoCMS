@@ -3,12 +3,16 @@ using Microsoft.AspNetCore.Http;
 namespace barakoCMS.Infrastructure.Multitenancy;
 
 /// <summary>
-/// Resolves the current tenant from the request host's leading subdomain (the trusted source for
-/// tenancy). Apex domains, localhost, and infrastructure subdomains fall back to the default tenant.
-/// Records the slug on <see cref="TenantContext"/>; scoping data and auth to it happens downstream.
+/// Resolves the current tenant, preferring the <c>X-Tenant</c> header (path-based routing sets it
+/// from the URL handle) and falling back to the host's leading subdomain. Apex domains, localhost,
+/// infra subdomains, and no header fall back to the default tenant. For authenticated requests,
+/// TenantAccessMiddleware still verifies the token was minted for the resolved tenant, so the header
+/// only ever selects a tenant the caller is already authorized for (or public data).
 /// </summary>
 public class TenantResolutionMiddleware
 {
+    public const string TenantHeader = "X-Tenant";
+
     private static readonly HashSet<string> InfraSubdomains =
         new(StringComparer.OrdinalIgnoreCase) { "www", "app", "api", "admin" };
 
@@ -18,7 +22,11 @@ public class TenantResolutionMiddleware
 
     public async Task InvokeAsync(HttpContext context, TenantContext tenant)
     {
-        var slug = ResolveSlug(context.Request.Host.Host);
+        var header = context.Request.Headers[TenantHeader].ToString();
+        var slug = !string.IsNullOrWhiteSpace(header)
+            ? header.Trim().ToLowerInvariant()
+            : ResolveSlug(context.Request.Host.Host);
+
         if (!string.IsNullOrEmpty(slug))
             tenant.Slug = slug;
 
