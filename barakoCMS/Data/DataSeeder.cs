@@ -13,16 +13,16 @@ public static class DataSeeder
 
         Console.WriteLine("[DataSeeder] Starting comprehensive data seeding...");
 
-        // 1. Seed Roles (including HR role for AttendancePOC)
+        // 1. Seed Roles (including HR role for attendance demo)
         await SeedRolesAsync(session);
 
         // 2. Seed Users (Admin, HR, Standard users)
         await SeedUsersAsync(session, configuration);
 
-        // 3. Seed AttendancePOC Content Type
+        // 3. Seed attendance demo Content Type
         await SeedAttendanceContentTypeAsync(session);
 
-        // 4. Seed AttendancePOC Workflow (Email confirmation)
+        // 4. Seed attendance demo Workflow (Email confirmation)
         await SeedAttendanceWorkflowAsync(session);
 
         // 5. Seed Sample Attendance Records
