@@ -86,19 +86,13 @@ public class Endpoint : Endpoint<Request, Response>
         .Cast<VersionResponse>()
         .ToList();
 
-        // 3. Apply sensitivity redaction to every historical version, mirroring SensitivityService
-        // rules based on the current content's sensitivity level. Get/List mask the same data.
-        var isSuperAdmin = User.IsInRole("SuperAdmin");
-        var isHr = User.IsInRole("HR");
-        var mustRedact = (content.Sensitivity == SensitivityLevel.Hidden && !isSuperAdmin)
-            || (content.Sensitivity == SensitivityLevel.Sensitive && !isSuperAdmin && !isHr);
-
-        if (mustRedact)
+        // 3. Apply the same document- and field-level sensitivity as Get/List to every historical
+        // version, based on the current content's sensitivity level and schema.
+        var sensitivity = Resolve<barakoCMS.Core.Interfaces.ISensitivityService>();
+        foreach (var version in versions)
         {
-            foreach (var version in versions)
-            {
-                version.Data = new Dictionary<string, object>();
-            }
+            version.Data ??= new Dictionary<string, object>();
+            sensitivity.Apply(content.ContentType, content.Sensitivity, version.Data, HttpContext);
         }
 
         await SendAsync(new Response

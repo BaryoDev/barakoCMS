@@ -1,45 +1,112 @@
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Models;
+using Marten;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Configuration;
 
 namespace barakoCMS.Infrastructure.Services;
 
+/// <summary>
+/// Schema-driven sensitivity: document-level (Public/Sensitive/Hidden) plus per-field masking read
+/// from the content type's <see cref="FieldDefinition.Sensitivity"/>. SuperAdmin sees everything.
+/// Scoped, so its schema lookups are cached for the duration of one request (cheap for List).
+/// </summary>
 public class SensitivityService : ISensitivityService
 {
-    public void Apply(Content content, HttpContext httpContext)
+    private readonly IQuerySession _session;
+    private readonly SensitivityMode _mode;
+    private readonly Dictionary<string, ContentTypeDefinition?> _schemaCache = new(StringComparer.OrdinalIgnoreCase);
+
+    public SensitivityService(IQuerySession session, IConfiguration configuration)
     {
-        var isSuperAdmin = httpContext.User.IsInRole("SuperAdmin");
-        var isHr = httpContext.User.IsInRole("HR");
-
-        if (content.Sensitivity == SensitivityLevel.Hidden && !isSuperAdmin)
-        {
-            content.Data.Clear();
-            content.ContentType = "HIDDEN";
-            return;
-        }
-
-        if (content.Sensitivity == SensitivityLevel.Sensitive && !isSuperAdmin && !isHr)
-        {
-             content.Data.Clear();
-        }
+        _session = session;
+        _mode = Enum.TryParse<SensitivityMode>(configuration["Sensitivity:Mode"], ignoreCase: true, out var m)
+            ? m
+            : SensitivityMode.SensitiveOnly;
     }
 
-    public void Apply(barakoCMS.Features.Content.Get.Response content, HttpContext httpContext)
+    public bool Apply(string contentType, SensitivityLevel level, IDictionary<string, object> data, HttpContext httpContext)
     {
-        Console.WriteLine("[CORE] SensitivityService Running");
-        var isSuperAdmin = httpContext.User.IsInRole("SuperAdmin");
-        var isHr = httpContext.User.IsInRole("HR");
+        if (_mode == SensitivityMode.Off)
+            return false;
 
-        if (content.Sensitivity == SensitivityLevel.Hidden && !isSuperAdmin)
+        var user = httpContext.User;
+        if (user.IsInRole("SuperAdmin"))
+            return false; // SuperAdmin sees everything.
+
+        // 1. Document-level.
+        if (level == SensitivityLevel.Hidden)
         {
-            content.Data.Clear();
-            content.ContentType = "HIDDEN";
-            return;
+            data.Clear();
+            return true; // whole document hidden
+        }
+        if (level == SensitivityLevel.Sensitive && !RoleAllowed(user, DefaultRolesFor(SensitivityLevel.Sensitive)))
+        {
+            data.Clear();
+            return false;
         }
 
-        if (content.Sensitivity == SensitivityLevel.Sensitive && !isSuperAdmin && !isHr)
+        // 2. Field-level, from the content type's schema.
+        var definition = LoadDefinition(contentType);
+        if (definition != null)
         {
-             content.Data.Clear();
+            foreach (var field in definition.Fields)
+            {
+                if (field.Sensitivity == SensitivityLevel.Public || !data.ContainsKey(field.Name))
+                    continue;
+
+                IEnumerable<string> allowed = field.VisibleToRoles.Count > 0
+                    ? field.VisibleToRoles
+                    : DefaultRolesFor(field.Sensitivity);
+                if (RoleAllowed(user, allowed))
+                    continue;
+
+                ApplyMask(data, field);
+            }
+        }
+
+        return false;
+    }
+
+    private ContentTypeDefinition? LoadDefinition(string contentType)
+    {
+        if (_schemaCache.TryGetValue(contentType, out var cached))
+            return cached;
+        var def = _session.Query<ContentTypeDefinition>().FirstOrDefault(d => d.Name == contentType);
+        _schemaCache[contentType] = def;
+        return def;
+    }
+
+    private static bool RoleAllowed(System.Security.Claims.ClaimsPrincipal user, IEnumerable<string> roles)
+        => roles.Any(user.IsInRole);
+
+    // Default policy when a field does not list explicit VisibleToRoles. SuperAdmin is always
+    // allowed (handled above), so it need not be repeated here.
+    private static string[] DefaultRolesFor(SensitivityLevel level) => level switch
+    {
+        SensitivityLevel.Sensitive => new[] { "HR" },
+        SensitivityLevel.Hidden => Array.Empty<string>(), // only SuperAdmin by default
+        _ => Array.Empty<string>(),
+    };
+
+    private static void ApplyMask(IDictionary<string, object> data, FieldDefinition field)
+    {
+        var mask = field.Mask;
+        if (mask == FieldMask.Default)
+            mask = field.Sensitivity == SensitivityLevel.Hidden ? FieldMask.Remove : FieldMask.Redact;
+
+        switch (mask)
+        {
+            case FieldMask.Remove:
+                data.Remove(field.Name);
+                break;
+            case FieldMask.Last4:
+                var s = data[field.Name]?.ToString() ?? string.Empty;
+                data[field.Name] = s.Length <= 4 ? "****" : new string('*', s.Length - 4) + s[^4..];
+                break;
+            default: // Redact
+                data[field.Name] = "***";
+                break;
         }
     }
 }

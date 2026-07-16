@@ -77,6 +77,7 @@ public class Endpoint : Endpoint<Request, Response>
         };
 
         var sensitivityService = Resolve<barakoCMS.Core.Interfaces.ISensitivityService>();
-        sensitivityService.Apply(Response, HttpContext);
+        if (sensitivityService.Apply(Response.ContentType, Response.Sensitivity, Response.Data, HttpContext))
+            Response.ContentType = "HIDDEN";
     }
 }
