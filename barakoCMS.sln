@@ -17,6 +17,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BarakoCMS.Email.Resend", "B
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BarakoCMS.DeviceTrust", "BarakoCMS.DeviceTrust\BarakoCMS.DeviceTrust.csproj", "{746EE789-6112-47B3-98C3-9231F0FD8B2B}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BarakoCMS.ExternalAuth", "BarakoCMS.ExternalAuth\BarakoCMS.ExternalAuth.csproj", "{40F88271-8FFA-4904-9FA9-DE18EFB5C737}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -51,6 +53,10 @@ Global
 		{746EE789-6112-47B3-98C3-9231F0FD8B2B}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{746EE789-6112-47B3-98C3-9231F0FD8B2B}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{746EE789-6112-47B3-98C3-9231F0FD8B2B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{40F88271-8FFA-4904-9FA9-DE18EFB5C737}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{40F88271-8FFA-4904-9FA9-DE18EFB5C737}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{40F88271-8FFA-4904-9FA9-DE18EFB5C737}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{40F88271-8FFA-4904-9FA9-DE18EFB5C737}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
