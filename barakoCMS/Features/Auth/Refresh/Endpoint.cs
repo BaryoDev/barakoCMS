@@ -14,19 +14,22 @@ public class Endpoint : Endpoint<Request, Response>
     private readonly IConfiguration _config;
     private readonly ILogger<Endpoint> _logger;
     private readonly barakoCMS.Infrastructure.Services.ITokenRevocationService _tokenRevocation;
+    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
 
     public Endpoint(
         IQuerySession querySession,
         IDocumentSession documentSession,
         IConfiguration config,
         ILogger<Endpoint> logger,
-        barakoCMS.Infrastructure.Services.ITokenRevocationService tokenRevocation)
+        barakoCMS.Infrastructure.Services.ITokenRevocationService tokenRevocation,
+        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
     {
         _querySession = querySession;
         _documentSession = documentSession;
         _config = config;
         _logger = logger;
         _tokenRevocation = tokenRevocation;
+        _tenant = tenant;
     }
 
     public override void Configure()
@@ -91,16 +94,20 @@ public class Endpoint : Endpoint<Request, Response>
             return;
         }
 
-        // Load user roles
+        // Roles from the user's membership in the current tenant (the client sends X-Tenant on refresh),
+        // so a refreshed token keeps the same per-club roles as the login/switch token — not the user's
+        // global roles. Falls back to global roles when there's no membership (e.g. the default tenant).
+        var roleIds = await barakoCMS.Infrastructure.Multitenancy.MembershipRoles
+            .EffectiveRoleIdsAsync(_documentSession, user, _tenant.Slug, ct);
         var roles = await _querySession.Query<Role>()
-            .Where(r => user.RoleIds.Contains(r.Id))
+            .Where(r => r.Id.In(roleIds))
             .Select(r => r.Name)
             .ToListAsync(ct);
 
         // Generate new access token (15 minutes)
         var jti = Guid.NewGuid().ToString();
         var accessTokenExpiry = DateTime.UtcNow.AddMinutes(15);
-        
+
         var jwtToken = JWTBearer.CreateToken(
             signingKey: _config["JWT:Key"]!,
             expireAt: accessTokenExpiry,
@@ -111,6 +118,7 @@ public class Endpoint : Endpoint<Request, Response>
                 u.Claims.Add(new(JwtRegisteredClaimNames.Jti, jti));
                 u.Claims.Add(new("UserId", user.Id.ToString()));
                 u.Claims.Add(new("Username", user.Username));
+                u.Claims.Add(new("tenant", _tenant.Slug));
                 foreach (var role in roles)
                 {
                     u.Claims.Add(new(System.Security.Claims.ClaimTypes.Role, role));
@@ -119,6 +127,9 @@ public class Endpoint : Endpoint<Request, Response>
                 {
                     u.Claims.Add(new(System.Security.Claims.ClaimTypes.Role, "User"));
                 }
+                // Preserve device binding so DeviceTrust enforcement still applies to refreshed tokens.
+                if (!string.IsNullOrEmpty(refreshToken.DeviceId))
+                    u.Claims.Add(new("did", refreshToken.DeviceId));
             });
 
         // Generate new refresh token (rotation)
