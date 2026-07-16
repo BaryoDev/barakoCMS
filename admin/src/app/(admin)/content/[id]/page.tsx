@@ -175,9 +175,13 @@ function HistoryPanel({
     return <p className="text-muted-foreground py-8 text-center text-sm">No earlier versions recorded.</p>;
   }
 
+  // The API returns versions oldest-first; show newest first so the top card is the current state
+  // (labeled "Current version", no Restore) and earlier versions are the ones you can restore.
+  const ordered = [...versions].reverse();
+
   return (
     <ol className="space-y-3">
-      {versions.map((version, i) => (
+      {ordered.map((version, i) => (
         <li key={version.versionId} className="rounded-lg border p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
