@@ -25,7 +25,8 @@ public class Endpoint : Endpoint<Request, Response>
         IConfiguration _config,
         ILogger<Endpoint> logger,
         barakoCMS.Core.Interfaces.IDeviceGate deviceGate,
-        barakoCMS.Core.Interfaces.IOtpService otp)
+        barakoCMS.Core.Interfaces.IOtpService otp,
+        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
     {
         _repo = repo;
         _session = session;
@@ -34,7 +35,10 @@ public class Endpoint : Endpoint<Request, Response>
         _logger = logger;
         _deviceGate = deviceGate;
         _otp = otp;
+        _tenant = tenant;
     }
+
+    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
 
     public override void Configure()
     {
@@ -128,9 +132,11 @@ public class Endpoint : Endpoint<Request, Response>
             return;
         }
 
-        // Load user roles
+        // Load the user's roles in the current tenant (membership, or legacy user roles).
+        var roleIds = await barakoCMS.Infrastructure.Multitenancy.MembershipRoles
+            .EffectiveRoleIdsAsync(_session, user, _tenant.Slug, ct);
         var roles = await _session.Query<Role>()
-            .Where(r => user.RoleIds.Contains(r.Id))
+            .Where(r => roleIds.Contains(r.Id))
             .Select(r => r.Name)
             .ToListAsync(ct);
 
@@ -148,6 +154,7 @@ public class Endpoint : Endpoint<Request, Response>
                 u.Claims.Add(new(JwtRegisteredClaimNames.Jti, jti));
                 u.Claims.Add(new("UserId", user.Id.ToString()));
                 u.Claims.Add(new("Username", user.Username));
+                u.Claims.Add(new("tenant", _tenant.Slug));
                 foreach (var role in roles)
                 {
                     u.Claims.Add(new(System.Security.Claims.ClaimTypes.Role, role));

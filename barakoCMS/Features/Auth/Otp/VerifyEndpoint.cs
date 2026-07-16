@@ -32,14 +32,16 @@ public class VerifyEndpoint : Endpoint<OtpVerifyRequest, OtpVerifyResponse>
     private readonly IDocumentSession _session;
     private readonly IConfiguration _config;
 
-    public VerifyEndpoint(IDocumentSession session, IConfiguration config, barakoCMS.Core.Interfaces.IDeviceGate deviceGate)
+    public VerifyEndpoint(IDocumentSession session, IConfiguration config, barakoCMS.Core.Interfaces.IDeviceGate deviceGate, barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
     {
         _session = session;
         _config = config;
         _deviceGate = deviceGate;
+        _tenant = tenant;
     }
 
     private readonly barakoCMS.Core.Interfaces.IDeviceGate _deviceGate;
+    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
 
     public override void Configure()
     {
@@ -93,8 +95,10 @@ public class VerifyEndpoint : Endpoint<OtpVerifyRequest, OtpVerifyResponse>
             return;
         }
 
+        var roleIds = await barakoCMS.Infrastructure.Multitenancy.MembershipRoles
+            .EffectiveRoleIdsAsync(_session, user, _tenant.Slug, ct);
         var roles = await _session.Query<Role>()
-            .Where(r => user.RoleIds.Contains(r.Id))
+            .Where(r => roleIds.Contains(r.Id))
             .Select(r => r.Name)
             .ToListAsync(ct);
 
@@ -115,6 +119,7 @@ public class VerifyEndpoint : Endpoint<OtpVerifyRequest, OtpVerifyResponse>
                 u.Claims.Add(new(JwtRegisteredClaimNames.Jti, jti));
                 u.Claims.Add(new("UserId", user.Id.ToString()));
                 u.Claims.Add(new("Username", user.Username));
+                u.Claims.Add(new("tenant", _tenant.Slug));
                 foreach (var role in roles)
                     u.Claims.Add(new(System.Security.Claims.ClaimTypes.Role, role));
                 if (!roles.Any())
