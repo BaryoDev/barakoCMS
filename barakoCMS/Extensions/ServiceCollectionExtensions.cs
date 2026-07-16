@@ -176,6 +176,11 @@ public static class ServiceCollectionExtensions
             var options = new StoreOptions();
             options.Connection(connectionString);
 
+            // Conjoined multi-tenancy: every document and event stream is tagged with a tenant id and
+            // auto-filtered by the session's tenant. Global identity/registry docs opt out below.
+            options.Policies.AllDocumentsAreMultiTenanted();
+            options.Events.TenancyStyle = Marten.Storage.TenancyStyle.Conjoined;
+
             // Configure document versioning and indexes
             options.Schema.For<Content>()
                 .DocumentAlias("contents")
@@ -187,6 +192,7 @@ public static class ServiceCollectionExtensions
                 .Index(x => new { x.ContentType, x.Status }); // Composite for status filtering
             
             options.Schema.For<User>()
+                .SingleTenanted() // global identity — a user exists once across all tenants
                 .DocumentAlias("users")
                 .Index(x => x.Username, idx => idx.IsUnique = true)
                 .Index(x => x.Email, idx => idx.IsUnique = true);
@@ -222,9 +228,11 @@ public static class ServiceCollectionExtensions
 
             // Multi-tenancy registry (global documents — not tenant-scoped).
             options.Schema.For<Models.Tenant>()
+                .SingleTenanted() // the tenant registry itself is global
                 .DocumentAlias("tenants")
                 .Index(x => x.Slug, idx => idx.IsUnique = true);
             options.Schema.For<Models.Membership>()
+                .SingleTenanted() // maps global users to tenants — necessarily cross-tenant
                 .DocumentAlias("memberships")
                 .Index(x => x.UserId)
                 .Index(x => x.TenantSlug);
@@ -238,7 +246,7 @@ public static class ServiceCollectionExtensions
 
             return options;
         })
-        .UseLightweightSessions()
+        .BuildSessionsWith<barakoCMS.Infrastructure.Multitenancy.TenantSessionFactory>(Microsoft.Extensions.DependencyInjection.ServiceLifetime.Scoped)
         .AddAsyncDaemon(JasperFx.Events.Daemon.DaemonMode.Solo);
 
         // services.AddHealthChecks()
