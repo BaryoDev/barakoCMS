@@ -85,19 +85,24 @@ public class Endpoint : Endpoint<Request, PaginatedResponse<ContentResponse>>
 
         // 6. Filter by Permission (now O(pageSize) not O(total))
         // This is much more efficient - only checking permissions for items on current page
+        var sensitivity = Resolve<barakoCMS.Core.Interfaces.ISensitivityService>();
         var permittedItems = new List<ContentResponse>();
         foreach (var item in items)
         {
             if (await _permissionResolver.CanPerformActionAsync(user, item.ContentType, "read", item, ct))
             {
-                permittedItems.Add(new ContentResponse
+                var response = new ContentResponse
                 {
                     Id = item.Id,
                     ContentType = item.ContentType,
                     Data = new Dictionary<string, object>(item.Data),
                     CreatedAt = item.CreatedAt,
                     UpdatedAt = item.UpdatedAt
-                });
+                };
+                // Same document- and field-level scrubbing as Get, so lists never leak sensitive data.
+                if (sensitivity.Apply(item.ContentType, item.Sensitivity, response.Data, HttpContext))
+                    response.ContentType = "HIDDEN";
+                permittedItems.Add(response);
             }
         }
 

@@ -269,7 +269,9 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IBackupService, BackupService>();
 
         services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Filters.IdempotencyFilter>();
-        services.AddSingleton<FastEndpoints.IGlobalPostProcessor, barakoCMS.Infrastructure.Filters.SensitivityFilter>();
+        // Sensitivity is applied explicitly by the read endpoints (Get/List/History) via
+        // ISensitivityService, not as a post-processor: a post-processor's edits did not reach the
+        // serialized response, so field-level masking was silently dropped.
 
         // Background service for cleaning up expired tokens
         services.AddHostedService<TokenCleanupService>();
@@ -435,7 +437,6 @@ public static class ServiceCollectionExtensions
             c.Endpoints.Configurator = ep =>
             {
                 ep.PreProcessors(Order.Before, new barakoCMS.Infrastructure.Filters.IdempotencyFilter());
-                ep.PostProcessors(Order.Before, new barakoCMS.Infrastructure.Filters.SensitivityFilter());
             };
         });
 
