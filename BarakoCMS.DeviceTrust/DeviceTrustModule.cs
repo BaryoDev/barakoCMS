@@ -30,7 +30,10 @@ public sealed class DeviceTrustModule : IBarakoModule
 
     public void ConfigureMarten(StoreOptions options)
     {
+        // Devices belong to the global user identity, not a single club — a device trusted while
+        // signing into one club must stay trusted when the user switches to another. Keep it global.
         options.Schema.For<Device>()
+            .SingleTenanted()
             .DocumentAlias("devices")
             .Index(x => x.UserId)
             .Index(x => x.DeviceId);
