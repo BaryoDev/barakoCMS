@@ -220,6 +220,15 @@ public static class ServiceCollectionExtensions
                 .Index(x => x.Email)
                 .Index(x => x.ExpiresAt);
 
+            // Multi-tenancy registry (global documents — not tenant-scoped).
+            options.Schema.For<Models.Tenant>()
+                .DocumentAlias("tenants")
+                .Index(x => x.Slug, idx => idx.IsUnique = true);
+            options.Schema.For<Models.Membership>()
+                .DocumentAlias("memberships")
+                .Index(x => x.UserId)
+                .Index(x => x.TenantSlug);
+
             // Register Workflow Projection (Async)
             options.Projections.Add(new WorkflowProjection(sp), JasperFx.Events.Projections.ProjectionLifecycle.Async);
 
@@ -246,6 +255,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<barakoCMS.Core.Interfaces.IOtpService, barakoCMS.Infrastructure.Services.OtpService>();
         // Device trust is opt-in: the default gate does nothing. The DeviceTrust module overrides it.
         services.TryAddScoped<barakoCMS.Core.Interfaces.IDeviceGate, barakoCMS.Core.Interfaces.NoopDeviceGate>();
+        // Per-request tenant, resolved from the subdomain by TenantResolutionMiddleware.
+        services.AddScoped<barakoCMS.Infrastructure.Multitenancy.TenantContext>();
         services.AddScoped<barakoCMS.Infrastructure.Services.IConfigurationService, barakoCMS.Infrastructure.Services.ConfigurationService>();
 
         // Workflow Action Plugins
@@ -424,6 +435,9 @@ public static class ServiceCollectionExtensions
 
         // 2. Request Logging (Must be after Correlation ID)
         app.UseMiddleware<barakoCMS.Infrastructure.Middleware.RequestResponseLoggingMiddleware>();
+
+        // Resolve the tenant from the subdomain, early so downstream code can read it.
+        app.UseMiddleware<barakoCMS.Infrastructure.Multitenancy.TenantResolutionMiddleware>();
 
         // CORS (Must be before Authentication/Authorization)
         app.UseCors("SecurePolicy");
