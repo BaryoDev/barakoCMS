@@ -1,6 +1,10 @@
 // Types for Content Type Schema management.
 // Field types mirror the backend's enforced set (Core/Validation/FieldTypeValidator.cs).
 
+import { SensitivityLevel } from './content';
+
+export { SensitivityLevel };
+
 export interface FieldDefinition {
     name: string; // PascalCase enforced by the backend
     displayName: string;
@@ -8,7 +12,27 @@ export interface FieldDefinition {
     isRequired: boolean;
     defaultValue?: unknown;
     validationRules?: Record<string, unknown>;
+    // Field-level sensitivity. When not Public, the field is masked for readers who are not
+    // SuperAdmin and not in visibleToRoles (falling back to a default policy when empty).
+    sensitivity?: SensitivityLevel;
+    visibleToRoles?: string[];
+    mask?: FieldMask;
 }
+
+// Mirrors barakoCMS Models.FieldMask (numeric enum, serialized as numbers).
+export enum FieldMask {
+    Default = 0, // Remove for Hidden, Redact for Sensitive
+    Remove = 1, // drop the field
+    Redact = 2, // replace with ***
+    Last4 = 3, // keep only the last 4 characters
+}
+
+export const FIELD_MASKS: { value: FieldMask; label: string }[] = [
+    { value: FieldMask.Default, label: 'Default (remove if Hidden, *** if Sensitive)' },
+    { value: FieldMask.Remove, label: 'Remove the field entirely' },
+    { value: FieldMask.Redact, label: 'Redact to ***' },
+    { value: FieldMask.Last4, label: 'Show last 4 only' },
+];
 
 export type FieldType = 'string' | 'int' | 'bool' | 'datetime' | 'decimal' | 'array' | 'object';
 

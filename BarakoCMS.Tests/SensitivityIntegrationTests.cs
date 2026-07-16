@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Text.Json;
 using FluentAssertions;
 using Marten;
@@ -85,6 +86,42 @@ public class SensitivityIntegrationTests
         session.Store(user);
         await session.SaveChangesAsync();
 
+        return _factory.CreateToken(new[] { tokenRole }, user.Id.ToString());
+    }
+
+    // Like SetupReader but also grants create + update, for write-path tests.
+    private async Task<string> SetupWriter(string tokenRole, string contentType)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
+        using var session = store.LightweightSession();
+
+        var role = new Role
+        {
+            Id = Guid.NewGuid(),
+            Name = $"dbrole_{Guid.NewGuid():N}",
+            Permissions = new List<ContentTypePermission>
+            {
+                new()
+                {
+                    ContentTypeSlug = contentType,
+                    Read = new PermissionRule { Enabled = true },
+                    Create = new PermissionRule { Enabled = true },
+                    Update = new PermissionRule { Enabled = true },
+                    Delete = new PermissionRule { Enabled = false },
+                },
+            },
+        };
+        session.Store(role);
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            Username = $"user_{Guid.NewGuid()}",
+            Email = $"{Guid.NewGuid()}@example.com",
+            RoleIds = new List<Guid> { role.Id },
+        };
+        session.Store(user);
+        await session.SaveChangesAsync();
         return _factory.CreateToken(new[] { tokenRole }, user.Id.ToString());
     }
 
@@ -213,5 +250,82 @@ public class SensitivityIntegrationTests
         var body = await res.Content.ReadAsStringAsync();
         // The record's SSN must not appear anywhere in the list payload.
         body.Should().NotContain("123-45-6789", "List must scrub the Hidden SSN, not just Get");
+    }
+
+    // ---- write-path protection ----
+
+    [Fact]
+    public async Task PlainUser_cannot_inject_hidden_field_on_create()
+    {
+        var ct = await SeedSchema();
+        var viewer = await SetupWriter($"Viewer_{Guid.NewGuid():N}", ct);
+        var admin = await SetupReader("SuperAdmin", ct);
+
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", viewer);
+        var create = await _client.PostAsJsonAsync("/api/contents", new barakoCMS.Features.Content.Create.Request
+        {
+            ContentType = ct,
+            Data = new Dictionary<string, object> { { "Name", "X" }, { "SSN", "999-99-9999" } },
+        });
+        create.StatusCode.Should().Be(HttpStatusCode.OK);
+        var id = JsonDocument.Parse(await create.Content.ReadAsStringAsync()).RootElement.GetProperty("id").GetGuid();
+
+        var (status, root) = await Get(admin, id);
+        status.Should().Be(HttpStatusCode.OK);
+        Data(root).TryGetProperty("SSN", out _).Should().BeFalse("a plain writer cannot inject a Hidden field");
+        Data(root).GetProperty("Name").GetString().Should().Be("X");
+    }
+
+    [Fact]
+    public async Task PlainUser_cannot_overwrite_hidden_field_on_update()
+    {
+        var ct = await SeedSchema();
+        var viewer = await SetupWriter($"Viewer_{Guid.NewGuid():N}", ct);
+        var admin = await SetupWriter("SuperAdmin", ct);
+
+        // Create the record via the API (as SuperAdmin) so it has a proper event stream to update.
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", admin);
+        var create = await _client.PostAsJsonAsync("/api/contents", new barakoCMS.Features.Content.Create.Request
+        {
+            ContentType = ct,
+            Data = new Dictionary<string, object> { { "Name", "Original" }, { "SSN", "123-45-6789" } },
+        });
+        create.StatusCode.Should().Be(HttpStatusCode.OK);
+        var id = JsonDocument.Parse(await create.Content.ReadAsStringAsync()).RootElement.GetProperty("id").GetGuid();
+
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", viewer);
+        var upd = await _client.PutAsJsonAsync($"/api/contents/{id}", new barakoCMS.Features.Content.Update.Request
+        {
+            Id = id,
+            Status = ContentStatus.Draft,
+            Version = 0, // bypass optimistic check
+            Data = new Dictionary<string, object> { { "Name", "Changed" }, { "SSN", "999-99-9999" } },
+        });
+        upd.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var (_, root) = await Get(admin, id);
+        Data(root).GetProperty("SSN").GetString().Should().Be("123-45-6789", "a plain writer cannot overwrite a Hidden field");
+        Data(root).GetProperty("Name").GetString().Should().Be("Changed", "but non-sensitive fields update normally");
+    }
+
+    [Fact]
+    public async Task HR_can_write_sensitive_field_but_not_hidden()
+    {
+        var ct = await SeedSchema();
+        var hr = await SetupWriter("HR", ct);
+        var admin = await SetupReader("SuperAdmin", ct);
+
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", hr);
+        var create = await _client.PostAsJsonAsync("/api/contents", new barakoCMS.Features.Content.Create.Request
+        {
+            ContentType = ct,
+            Data = new Dictionary<string, object> { { "Name", "Y" }, { "BirthDay", "2001-02-03" }, { "SSN", "111-11-1111" } },
+        });
+        create.StatusCode.Should().Be(HttpStatusCode.OK);
+        var id = JsonDocument.Parse(await create.Content.ReadAsStringAsync()).RootElement.GetProperty("id").GetGuid();
+
+        var (_, root) = await Get(admin, id);
+        Data(root).GetProperty("BirthDay").GetString().Should().Contain("2001-02-03", "HR may write the Sensitive BirthDay");
+        Data(root).TryGetProperty("SSN", out _).Should().BeFalse("HR still cannot write the Hidden SSN");
     }
 }

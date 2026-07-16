@@ -17,4 +17,12 @@ public interface ISensitivityService
     /// content type).
     /// </summary>
     bool Apply(string contentType, SensitivityLevel level, IDictionary<string, object> data, HttpContext httpContext);
+
+    /// <summary>
+    /// Enforces sensitivity on writes: a caller who may not <em>see</em> a field may not
+    /// <em>set</em> it. Mutates <paramref name="incoming"/> in place — on update, a field the caller
+    /// cannot write is reverted to its value in <paramref name="existing"/>; on create
+    /// (<paramref name="existing"/> null) it is dropped. So masking cannot be bypassed by writing.
+    /// </summary>
+    void ApplyWrite(string contentType, IDictionary<string, object> incoming, IReadOnlyDictionary<string, object>? existing, HttpContext httpContext);
 }
