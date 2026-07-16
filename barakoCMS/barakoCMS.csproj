@@ -20,6 +20,9 @@
     <PackageProjectUrl>https://github.com/baryodev/barakoCMS</PackageProjectUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- Ship the XML doc file for the documented public API, but don't warn on members without
+         XML comments (CS1591). Keeps consumer and project-reference builds quiet. -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
     <UserSecretsId>c77ffe8f-737f-455c-ae23-d3686cd5edd9</UserSecretsId>
     
     <!-- Design & Code Quality -->
