@@ -42,4 +42,10 @@ public class RefreshToken
     /// When this token was revoked (if applicable)
     /// </summary>
     public DateTime? RevokedAt { get; set; }
+
+    /// <summary>
+    /// The client device id (X-Device-Id) this token is bound to, when device trust is enabled.
+    /// Lets a refresh be tied to its device and revoked with it.
+    /// </summary>
+    public string? DeviceId { get; set; }
 }

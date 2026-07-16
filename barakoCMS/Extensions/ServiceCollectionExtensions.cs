@@ -243,6 +243,9 @@ public static class ServiceCollectionExtensions
         services.TryAddScoped<barakoCMS.Core.Interfaces.IEmailService, barakoCMS.Infrastructure.Services.MockEmailService>();
         services.TryAddScoped<barakoCMS.Core.Interfaces.ISmsService, barakoCMS.Infrastructure.Services.MockSmsService>();
         services.AddScoped<barakoCMS.Core.Interfaces.ISensitivityService, barakoCMS.Infrastructure.Services.SensitivityService>();
+        services.AddScoped<barakoCMS.Core.Interfaces.IOtpService, barakoCMS.Infrastructure.Services.OtpService>();
+        // Device trust is opt-in: the default gate does nothing. The DeviceTrust module overrides it.
+        services.TryAddScoped<barakoCMS.Core.Interfaces.IDeviceGate, barakoCMS.Core.Interfaces.NoopDeviceGate>();
         services.AddScoped<barakoCMS.Infrastructure.Services.IConfigurationService, barakoCMS.Infrastructure.Services.ConfigurationService>();
 
         // Workflow Action Plugins
@@ -431,12 +434,19 @@ public static class ServiceCollectionExtensions
         app.UseMiddleware<barakoCMS.Infrastructure.Middleware.TokenValidationMiddleware>();
         
         app.UseAuthorization();
+        // Global pre/post processors come from DI, so modules can contribute their own (e.g. the
+        // DeviceTrust enforcement pre-processor) simply by registering IGlobalPreProcessor/PostProcessor.
+        var globalPreProcessors = app.ApplicationServices.GetServices<FastEndpoints.IGlobalPreProcessor>().ToArray();
+        var globalPostProcessors = app.ApplicationServices.GetServices<FastEndpoints.IGlobalPostProcessor>().ToArray();
         app.UseFastEndpoints(c =>
         {
             c.Errors.UseProblemDetails();
             c.Endpoints.Configurator = ep =>
             {
-                ep.PreProcessors(Order.Before, new barakoCMS.Infrastructure.Filters.IdempotencyFilter());
+                if (globalPreProcessors.Length > 0)
+                    ep.PreProcessors(Order.Before, globalPreProcessors);
+                if (globalPostProcessors.Length > 0)
+                    ep.PostProcessors(Order.After, globalPostProcessors);
             };
         });
 

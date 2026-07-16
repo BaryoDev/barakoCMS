@@ -32,11 +32,14 @@ public class VerifyEndpoint : Endpoint<OtpVerifyRequest, OtpVerifyResponse>
     private readonly IDocumentSession _session;
     private readonly IConfiguration _config;
 
-    public VerifyEndpoint(IDocumentSession session, IConfiguration config)
+    public VerifyEndpoint(IDocumentSession session, IConfiguration config, barakoCMS.Core.Interfaces.IDeviceGate deviceGate)
     {
         _session = session;
         _config = config;
+        _deviceGate = deviceGate;
     }
+
+    private readonly barakoCMS.Core.Interfaces.IDeviceGate _deviceGate;
 
     public override void Configure()
     {
@@ -95,6 +98,11 @@ public class VerifyEndpoint : Endpoint<OtpVerifyRequest, OtpVerifyResponse>
             .Select(r => r.Name)
             .ToListAsync(ct);
 
+        // OTP proves possession of this device, so trust it. The gate (DeviceTrust module, if
+        // installed) records/trusts the device and returns claims to bind the token to it.
+        var device = barakoCMS.Infrastructure.DeviceContext.From(HttpContext);
+        var deviceClaims = await _deviceGate.TrustOnOtpAsync(user, device, ct);
+
         var jti = Guid.NewGuid().ToString();
         var accessTokenExpiry = DateTime.UtcNow.AddMinutes(15);
         var jwtToken = JWTBearer.CreateToken(
@@ -111,6 +119,8 @@ public class VerifyEndpoint : Endpoint<OtpVerifyRequest, OtpVerifyResponse>
                     u.Claims.Add(new(System.Security.Claims.ClaimTypes.Role, role));
                 if (!roles.Any())
                     u.Claims.Add(new(System.Security.Claims.ClaimTypes.Role, "User"));
+                foreach (var claim in deviceClaims)
+                    u.Claims.Add(claim);
             });
 
         var refreshTokenString = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
@@ -123,6 +133,7 @@ public class VerifyEndpoint : Endpoint<OtpVerifyRequest, OtpVerifyResponse>
             ExpiresAt = refreshTokenExpiry,
             CreatedAt = DateTime.UtcNow,
             IsRevoked = false,
+            DeviceId = device.DeviceId,
         });
         await _session.SaveChangesAsync(ct);
 

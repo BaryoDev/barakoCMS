@@ -15,19 +15,25 @@ public class Endpoint : Endpoint<Request, Response>
     private readonly IDocumentSession _documentSession;
     private readonly IConfiguration _config;
     private readonly ILogger<Endpoint> _logger;
+    private readonly barakoCMS.Core.Interfaces.IDeviceGate _deviceGate;
+    private readonly barakoCMS.Core.Interfaces.IOtpService _otp;
 
     public Endpoint(
         barakoCMS.Repository.IUserRepository repo,
         IQuerySession session,
         IDocumentSession documentSession,
         IConfiguration _config,
-        ILogger<Endpoint> logger)
+        ILogger<Endpoint> logger,
+        barakoCMS.Core.Interfaces.IDeviceGate deviceGate,
+        barakoCMS.Core.Interfaces.IOtpService otp)
     {
         _repo = repo;
         _session = session;
         _documentSession = documentSession;
         this._config = _config;
         _logger = logger;
+        _deviceGate = deviceGate;
+        _otp = otp;
     }
 
     public override void Configure()
@@ -105,6 +111,23 @@ public class Endpoint : Endpoint<Request, Response>
             await _documentSession.SaveChangesAsync(ct);
         }
 
+        // Device trust: if this password sign-in comes from an unknown device, don't issue tokens —
+        // send an OTP so the user can approve the device (which trusts it on verify).
+        var device = barakoCMS.Infrastructure.DeviceContext.From(HttpContext);
+        var gate = await _deviceGate.EvaluatePasswordAsync(user, device, ct);
+        if (gate.Decision == barakoCMS.Core.Interfaces.DeviceDecision.ApprovalRequired)
+        {
+            await _otp.SendCodeAsync(user.Email, device, ct);
+            _logger.LogInformation("Password login from an unapproved device for {Username}; sent approval OTP", user.Username);
+            await SendAsync(new Response
+            {
+                RequiresDeviceApproval = true,
+                Message = "This device isn't approved yet. Enter the code we emailed to approve it.",
+                Email = user.Email,
+            });
+            return;
+        }
+
         // Load user roles
         var roles = await _session.Query<Role>()
             .Where(r => user.RoleIds.Contains(r.Id))
@@ -114,7 +137,7 @@ public class Endpoint : Endpoint<Request, Response>
         // Generate JWT with 15-minute expiry
         var jti = Guid.NewGuid().ToString(); // JWT ID for revocation tracking
         var accessTokenExpiry = DateTime.UtcNow.AddMinutes(15);
-        
+
         var jwtToken = JWTBearer.CreateToken(
             signingKey: _config["JWT:Key"]!,
             expireAt: accessTokenExpiry,
@@ -134,6 +157,10 @@ public class Endpoint : Endpoint<Request, Response>
                 {
                     u.Claims.Add(new(System.Security.Claims.ClaimTypes.Role, "User"));
                 }
+                foreach (var claim in gate.Claims)
+                {
+                    u.Claims.Add(claim);
+                }
             });
 
         // Generate refresh token (7-day expiry)
@@ -147,7 +174,8 @@ public class Endpoint : Endpoint<Request, Response>
             UserId = user.Id,
             ExpiresAt = refreshTokenExpiry,
             CreatedAt = DateTime.UtcNow,
-            IsRevoked = false
+            IsRevoked = false,
+            DeviceId = device.DeviceId
         };
 
         _documentSession.Store(refreshToken);
