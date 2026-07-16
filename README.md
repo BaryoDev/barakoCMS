@@ -223,6 +223,35 @@ More detail in [`admin/README.md`](admin/README.md).
 
 ---
 
+## 🏘️ What's New in v3.0 (Multi-tenancy)
+
+> **One deployment, many tenants** — a shared database with per-tenant data isolation.
+
+barakoCMS is now multi-tenant on a **shared database** using Marten's [conjoined tenancy](https://martendb.io/documents/multi-tenancy.html): every document and event stream is tagged with a tenant id, so one app + one database serves many isolated tenants.
+
+**Identity is global, data is per-tenant** (the Slack/GitHub model):
+
+- **`Tenant`** — the tenant registry, with a public profile (name, handle/slug, logo, about, location, contact URL). Global.
+- **`Membership`** — links a global `User` to a tenant with the roles they hold *there*. The same user can belong to many tenants with different roles in each. Global.
+- **Global by design**: users, roles, tokens, OTP codes, settings and trusted devices are single-tenanted (shared), so identity, sign-in, role resolution and token revocation work across tenants. Only domain **content** and event streams are tenant-scoped.
+- **Default tenant** maps to Marten's default partition, so existing single-tenant deployments keep working with **no data migration**.
+
+**Resolving the tenant**: `TenantResolutionMiddleware` reads the `X-Tenant` header (path-based hosting) or a subdomain; `TenantAccessMiddleware` verifies a token was minted for the tenant it's used against (global `/api/me/*` identity endpoints are exempt).
+
+**New endpoints**:
+```bash
+GET  /api/tenants/{handle}/public   # anonymous public profile for a tenant landing page
+GET  /api/tenants                   # list tenants (SuperAdmin)
+POST /api/tenants                   # create a tenant (SuperAdmin)
+PUT  /api/tenants/{handle}          # update a tenant profile (SuperAdmin)
+GET  /api/me/tenants                # the tenants the signed-in user belongs to
+POST /api/me/switch                 # swap the token for another of your tenants (no re-auth)
+GET  /api/club/roles                # roles a tenant officer may assign
+GET/POST/PUT/DELETE /api/club/members   # per-tenant member + role management (tenant officers)
+```
+
+---
+
 ## 🚀 What's New in v2.2 (Security & Performance)
 
 > **Enterprise-Ready**: Authentication hardening + Performance optimizations
