@@ -454,7 +454,10 @@ public static class ServiceCollectionExtensions
         
         // Token Revocation Check (Must be after Authentication)
         app.UseMiddleware<barakoCMS.Infrastructure.Middleware.TokenValidationMiddleware>();
-        
+
+        // Reject tokens minted for a different tenant than the resolved host.
+        app.UseMiddleware<barakoCMS.Infrastructure.Multitenancy.TenantAccessMiddleware>();
+
         app.UseAuthorization();
         // Global pre/post processors come from DI, so modules can contribute their own (e.g. the
         // DeviceTrust enforcement pre-processor) simply by registering IGlobalPreProcessor/PostProcessor.

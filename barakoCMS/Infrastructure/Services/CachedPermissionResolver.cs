@@ -19,14 +19,18 @@ public class CachedPermissionResolver : IPermissionResolver
     // Well-known SuperAdmin role ID (matches DataSeeder.SuperAdminRoleId)
     private static readonly Guid SuperAdminRoleId = barakoCMS.Data.DataSeeder.SuperAdminRoleId;
 
+    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
+
     public CachedPermissionResolver(
         PermissionResolver inner,
         IMemoryCache cache,
-        ILogger<CachedPermissionResolver> logger)
+        ILogger<CachedPermissionResolver> logger,
+        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
     {
         _inner = inner;
         _cache = cache;
         _logger = logger;
+        _tenant = tenant;
     }
 
     /// <summary>
@@ -69,8 +73,8 @@ public class CachedPermissionResolver : IPermissionResolver
         var globalVersion = _cache.Get<int>("perm_version:global");
 
         return content == null
-            ? $"{CacheKeyPrefix}{user.Id}:{contentTypeSlug}:{action}:v{userVersion}_{globalVersion}"
-            : $"{CacheKeyPrefix}{user.Id}:{contentTypeSlug}:{action}:{content.Id}:v{userVersion}_{globalVersion}";
+            ? $"{CacheKeyPrefix}{_tenant.Slug}:{user.Id}:{contentTypeSlug}:{action}:v{userVersion}_{globalVersion}"
+            : $"{CacheKeyPrefix}{_tenant.Slug}:{user.Id}:{contentTypeSlug}:{action}:{content.Id}:v{userVersion}_{globalVersion}";
     }
 
     public async Task<bool> CanPerformActionAsync(

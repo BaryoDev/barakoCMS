@@ -10,11 +10,16 @@ public class PermissionResolver : IPermissionResolver
 {
     private readonly IDocumentSession _session;
     private readonly IConditionEvaluator _conditionEvaluator;
+    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
 
-    public PermissionResolver(IDocumentSession session, IConditionEvaluator conditionEvaluator)
+    public PermissionResolver(
+        IDocumentSession session,
+        IConditionEvaluator conditionEvaluator,
+        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
     {
         _session = session;
         _conditionEvaluator = conditionEvaluator;
+        _tenant = tenant;
     }
 
     /// <summary>
@@ -28,13 +33,16 @@ public class PermissionResolver : IPermissionResolver
         Models.Content? content = null,
         CancellationToken cancellationToken = default)
     {
-        // No roles = no permissions
-        if (user.RoleIds == null || user.RoleIds.Count == 0)
+        // Roles come from the user's membership in the current tenant (falling back to the user's
+        // legacy roles when there's no membership).
+        var roleIds = await barakoCMS.Infrastructure.Multitenancy.MembershipRoles
+            .EffectiveRoleIdsAsync(_session, user, _tenant.Slug, cancellationToken);
+        if (roleIds.Count == 0)
             return false;
 
-        // Batch load all user's roles in a SINGLE query (eliminates N+1)
+        // Batch load all the user's roles in a SINGLE query (eliminates N+1)
         var roles = await _session.Query<Models.Role>()
-            .Where(r => r.Id.In(user.RoleIds))
+            .Where(r => r.Id.In(roleIds))
             .ToListAsync(cancellationToken);
 
         if (roles.Count == 0)
