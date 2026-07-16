@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { api, getApiUrl } from '@/lib/api';
+import { api } from '@/lib/api';
 
 export interface ClusterStatus {
     isInCluster: boolean;
@@ -56,15 +56,14 @@ export function useKubernetesStatus() {
     });
 }
 
-// /health is anonymous and outside /api, so plain fetch is fine — but the URL
-// must come from getApiUrl() so runtime env-config.js overrides still apply.
+// Anonymous /health returns only { status }; the dashboard needs per-check `entries`, so it uses
+// the authenticated /api/monitoring/health endpoint.
 export function useHealthStatus() {
     return useQuery({
         queryKey: ['health-status'],
         queryFn: async () => {
-            const response = await fetch(`${getApiUrl()}/health`);
-            if (!response.ok) throw new Error('Failed to fetch health status');
-            return response.json() as Promise<DetailedHealthStatus>;
+            const response = await api.get<DetailedHealthStatus>('/api/monitoring/health');
+            return response.data;
         },
         refetchInterval: 15000,
     });

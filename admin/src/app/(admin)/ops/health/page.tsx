@@ -43,7 +43,7 @@ export default function HealthPage() {
         {healthLoading &&
           Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-28 w-full" />)}
         {health &&
-          Object.entries(health.entries).map(([name, entry]) => {
+          Object.entries(health.entries ?? {}).map(([name, entry]) => {
             const Icon = ENTRY_ICONS[name] ?? IconHealth;
             return (
               <Card key={name} className="gap-3 py-5">
