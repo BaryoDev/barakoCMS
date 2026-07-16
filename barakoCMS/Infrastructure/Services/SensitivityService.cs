@@ -54,18 +54,50 @@ public class SensitivityService : ISensitivityService
             {
                 if (field.Sensitivity == SensitivityLevel.Public || !data.ContainsKey(field.Name))
                     continue;
-
-                IEnumerable<string> allowed = field.VisibleToRoles.Count > 0
-                    ? field.VisibleToRoles
-                    : DefaultRolesFor(field.Sensitivity);
-                if (RoleAllowed(user, allowed))
+                if (CallerMaySee(field, user))
                     continue;
-
                 ApplyMask(data, field);
             }
         }
 
         return false;
+    }
+
+    public void ApplyWrite(string contentType, IDictionary<string, object> incoming, IReadOnlyDictionary<string, object>? existing, HttpContext httpContext)
+    {
+        if (_mode == SensitivityMode.Off)
+            return;
+
+        var user = httpContext.User;
+        if (user.IsInRole("SuperAdmin"))
+            return;
+
+        var definition = LoadDefinition(contentType);
+        if (definition == null)
+            return;
+
+        foreach (var field in definition.Fields)
+        {
+            if (field.Sensitivity == SensitivityLevel.Public)
+                continue;
+            if (CallerMaySee(field, user))
+                continue;
+
+            // The caller cannot see this field, so they cannot set it. Revert to the stored value
+            // on update, or drop it entirely on create.
+            if (existing != null && existing.TryGetValue(field.Name, out var current))
+                incoming[field.Name] = current;
+            else
+                incoming.Remove(field.Name);
+        }
+    }
+
+    private static bool CallerMaySee(FieldDefinition field, System.Security.Claims.ClaimsPrincipal user)
+    {
+        IEnumerable<string> allowed = field.VisibleToRoles.Count > 0
+            ? field.VisibleToRoles
+            : DefaultRolesFor(field.Sensitivity);
+        return RoleAllowed(user, allowed);
     }
 
     private ContentTypeDefinition? LoadDefinition(string contentType)

@@ -42,6 +42,11 @@ public class Endpoint : Endpoint<Request, Response>
             return;
         }
 
+        // WRITE-PATH SENSITIVITY: a caller who may not see a field may not change it. Revert any
+        // such fields to their stored values before applying the update.
+        Resolve<barakoCMS.Core.Interfaces.ISensitivityService>()
+            .ApplyWrite(existingContent.ContentType, req.Data, existingContent.Data, HttpContext);
+
         // DYNAMIC VALIDATION - Validate data against ContentType schema
         var validationResult = await _validator.ValidateAsync(existingContent.ContentType, req.Data);
         if (!validationResult.IsValid)

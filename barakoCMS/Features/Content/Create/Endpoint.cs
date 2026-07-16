@@ -53,6 +53,11 @@ public class Endpoint : Endpoint<Request, Response>
             return;
         }
 
+        // WRITE-PATH SENSITIVITY: drop any sensitive fields this caller may not see, so they cannot
+        // inject values into fields that would be masked from them on read.
+        Resolve<barakoCMS.Core.Interfaces.ISensitivityService>()
+            .ApplyWrite(req.ContentType, req.Data, existing: null, HttpContext);
+
         // DYNAMIC VALIDATION
         var validationResult = await _validator.ValidateAsync(req.ContentType, req.Data);
         if (!validationResult.IsValid)

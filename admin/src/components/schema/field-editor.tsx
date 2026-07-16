@@ -29,7 +29,15 @@ import {
     IconPlus,
     IconTrash,
 } from '@/components/icons';
-import { FIELD_TYPES, type FieldDefinition, type FieldType } from '@/types/schema';
+import {
+    FIELD_MASKS,
+    FIELD_TYPES,
+    FieldMask,
+    SensitivityLevel,
+    type FieldDefinition,
+    type FieldType,
+} from '@/types/schema';
+import { SENSITIVITY_META } from '@/types/content';
 
 interface FieldEditorProps {
     fields: FieldDefinition[];
@@ -53,6 +61,9 @@ const EMPTY_FIELD: FieldDefinition = {
     displayName: '',
     type: 'string',
     isRequired: false,
+    sensitivity: SensitivityLevel.Public,
+    visibleToRoles: [],
+    mask: FieldMask.Default,
 };
 
 export function FieldEditor({ fields, onChange }: FieldEditorProps) {
@@ -153,6 +164,11 @@ export function FieldEditor({ fields, onChange }: FieldEditorProps) {
                                     {field.isRequired && (
                                         <Badge variant="secondary" className="text-xs">
                                             Required
+                                        </Badge>
+                                    )}
+                                    {field.sensitivity !== undefined && field.sensitivity !== SensitivityLevel.Public && (
+                                        <Badge variant="outline" className="text-xs">
+                                            {SENSITIVITY_META[field.sensitivity].label}
                                         </Badge>
                                     )}
                                 </div>
@@ -257,6 +273,78 @@ export function FieldEditor({ fields, onChange }: FieldEditorProps) {
                                 onCheckedChange={(checked) => setForm((f) => ({ ...f, isRequired: checked }))}
                             />
                         </div>
+
+                        <div className="space-y-2">
+                            <Label>Sensitivity</Label>
+                            <Select
+                                value={String(form.sensitivity ?? SensitivityLevel.Public)}
+                                onValueChange={(value) =>
+                                    setForm((f) => ({ ...f, sensitivity: Number(value) as SensitivityLevel }))
+                                }
+                            >
+                                <SelectTrigger className="w-full">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {[SensitivityLevel.Public, SensitivityLevel.Sensitive, SensitivityLevel.Hidden].map(
+                                        (level) => (
+                                            <SelectItem key={level} value={String(level)}>
+                                                <span className="font-medium">{SENSITIVITY_META[level].label}</span>
+                                                <span className="text-muted-foreground ml-1.5 text-xs">
+                                                    {SENSITIVITY_META[level].description}
+                                                </span>
+                                            </SelectItem>
+                                        )
+                                    )}
+                                </SelectContent>
+                            </Select>
+                        </div>
+
+                        {form.sensitivity !== undefined && form.sensitivity !== SensitivityLevel.Public && (
+                            <>
+                                <div className="space-y-2">
+                                    <Label htmlFor="field-roles">Visible to roles</Label>
+                                    <Input
+                                        id="field-roles"
+                                        value={(form.visibleToRoles ?? []).join(', ')}
+                                        placeholder="Admin, HR"
+                                        onChange={(e) =>
+                                            setForm((f) => ({
+                                                ...f,
+                                                visibleToRoles: e.target.value
+                                                    .split(',')
+                                                    .map((r) => r.trim())
+                                                    .filter(Boolean),
+                                            }))
+                                        }
+                                    />
+                                    <p className="text-muted-foreground text-xs">
+                                        Comma-separated. SuperAdmin always sees every field. Leave empty for the default
+                                        (Sensitive → HR; Hidden → SuperAdmin only).
+                                    </p>
+                                </div>
+                                <div className="space-y-2">
+                                    <Label>Mask</Label>
+                                    <Select
+                                        value={String(form.mask ?? FieldMask.Default)}
+                                        onValueChange={(value) =>
+                                            setForm((f) => ({ ...f, mask: Number(value) as FieldMask }))
+                                        }
+                                    >
+                                        <SelectTrigger className="w-full">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {FIELD_MASKS.map((m) => (
+                                                <SelectItem key={m.value} value={String(m.value)}>
+                                                    {m.label}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            </>
+                        )}
                     </div>
                     <DialogFooter>
                         <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>

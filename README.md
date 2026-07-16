@@ -188,6 +188,23 @@ Try it: **<https://playground.baryo.dev/barakocms>** (`demo_admin` / `BarakoDemo
 | --- | --- |
 | ![Health](assets/admin/health.png) | ![Dark dashboard](assets/admin/dark.png) |
 
+### Field-level sensitivity
+
+Mark individual fields **Sensitive** or **Hidden** on a content type, and BarakoCMS masks them per
+role on every read (Get, List, and version history) and blocks writes to fields a role may not see.
+SuperAdmin sees everything; by default Sensitive fields are visible to HR and Hidden fields to
+SuperAdmin only, and you can override the allowed roles and the mask (remove the field, redact to
+`***`, or show only the last 4 characters) per field.
+
+| Add-field editor — Sensitivity, roles, mask | Fields with sensitivity badges |
+| --- | --- |
+| ![Field sensitivity editor](assets/admin/field-sensitivity-dialog.png) | ![Fields with sensitivity badges](assets/admin/field-sensitivity-list.png) |
+
+For example, an `Employee` type can mark `SSN` as **Hidden** (SuperAdmin only) and `Birthday` as
+**Sensitive** (HR + SuperAdmin) while `Name` stays public. A treasurer who can read employees then
+sees the name but a masked SSN and birthday, and cannot overwrite them. Enforcement is global via
+the `Sensitivity:Mode` setting (`Off` / `SensitiveOnly`).
+
 ### Running the Admin UI
 
 From Docker Hub (recommended — see Quick Start Option A above), or from source:
