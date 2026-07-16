@@ -174,6 +174,7 @@ Try it: **<https://playground.baryo.dev/barakocms>** (`demo_admin` / `BarakoDemo
 - **Workflows**: trigger builder (Created/Updated per content type), conditions, actions (Email, SMS, Webhook, CreateTask, UpdateField, Conditional), template variables, validation, **dry-run simulation**, execution logs
 - **Access**: users with inline role/group assignment, role CRUD with a per-content-type permission matrix, group CRUD with member management
 - **System**: runtime settings toggles, live health checks, API metrics, Kubernetes status
+- **What's new**: a version-tracked changelog (⚡ in the header) opens once per release so editors see the latest features and fixes
 - **Sessions** ride the API's rotating refresh tokens, so editors are not logged out every 15 minutes
 
 | Entries | Entry editor + version history |

@@ -4,6 +4,7 @@ import { Fragment } from 'react';
 import { usePathname } from 'next/navigation';
 import { breadcrumbsFor } from '@/lib/navigation';
 import { CommandMenu } from '@/components/command-menu';
+import { WhatsNew } from '@/components/whats-new';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import { Separator } from '@/components/ui/separator';
 import {
@@ -48,6 +49,7 @@ export function AppHeader() {
           ))}
         </BreadcrumbList>
       </Breadcrumb>
+      <WhatsNew />
       <CommandMenu />
     </header>
   );
