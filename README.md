@@ -4,7 +4,7 @@
 
 <h1 align="center">BarakoCMS</h1>
 
-**The AI-Native, High-Performance Headless CMS for .NET 8.**
+**A full-stack CMS suite for .NET 8: an event-sourced engine, opt-in modules, an admin UI, and a PWA kit. Blended to taste.**
 
 [![NuGet](https://img.shields.io/nuget/v/BarakoCMS.svg)](https://www.nuget.org/packages/BarakoCMS)
 [![Documentation](https://img.shields.io/badge/docs-visited-blue)](https://baryo.dev/barakoCMS)
@@ -414,8 +414,12 @@ published to NuGet.
 | **Import** | [![NuGet](https://img.shields.io/nuget/v/BarakoCMS.Import.svg)](https://www.nuget.org/packages/BarakoCMS.Import) | **Bulk import** `.xlsx`/CSV into content via the zero-dependency [Talaan](https://github.com/BaryoDev/Talaan) reader, through the CMS's own validation, permissions, and event sourcing. |
 | **Files** | [![NuGet](https://img.shields.io/nuget/v/BarakoCMS.Files.svg)](https://www.nuget.org/packages/BarakoCMS.Files) | **File upload + download** stored in Postgres via Marten — receipts, photos, and documents attached to your records. |
 | **Email.Resend** | [![NuGet](https://img.shields.io/nuget/v/BarakoCMS.Email.Resend.svg)](https://www.nuget.org/packages/BarakoCMS.Email.Resend) | An `IEmailService` backed by the [Resend](https://resend.com) API, so password-reset, OTP sign-in, and workflow emails deliver for real. |
+| **DeviceTrust** | [![NuGet](https://img.shields.io/nuget/v/BarakoCMS.DeviceTrust.svg)](https://www.nuget.org/packages/BarakoCMS.DeviceTrust) | Remembers trusted devices and adds step-up OTP verification when a new one signs in. |
+| **ExternalAuth** | [![NuGet](https://img.shields.io/nuget/v/BarakoCMS.ExternalAuth.svg)](https://www.nuget.org/packages/BarakoCMS.ExternalAuth) | "Continue with Facebook / Google / LinkedIn / GitHub" via OAuth, with a single `ExternalAuth:Enabled` master switch. |
+| **FeatureFlags** | [![NuGet](https://img.shields.io/nuget/v/BarakoCMS.FeatureFlags.svg)](https://www.nuget.org/packages/BarakoCMS.FeatureFlags) | Create a flag, toggle it on/off, and target it by tenant, user, or percentage rollout. |
+| **Portability** | [![NuGet](https://img.shields.io/nuget/v/BarakoCMS.Portability.svg)](https://www.nuget.org/packages/BarakoCMS.Portability) | Export and import content-type definitions and content data as a JSON bundle, for backup, migration, and seeding. |
 
-Enable the ones you want when you register the CMS — core knows nothing about them:
+Enable the ones you want when you register the CMS. Core knows nothing about them, and each is another shot in the pour:
 
 ```csharp
 builder.Services.AddBarakoCMS(builder.Configuration, modules =>
@@ -424,6 +428,10 @@ builder.Services.AddBarakoCMS(builder.Configuration, modules =>
     modules.Add(new BarakoCMS.Files.FilesModule());
     modules.Add(new BarakoCMS.Import.ImportModule());
     modules.Add(new BarakoCMS.Email.Resend.ResendEmailModule());
+    modules.Add(new BarakoCMS.DeviceTrust.DeviceTrustModule());
+    modules.Add(new BarakoCMS.ExternalAuth.ExternalAuthModule());
+    modules.Add(new BarakoCMS.FeatureFlags.FeatureFlagsModule());
+    modules.Add(new BarakoCMS.Portability.PortabilityModule());
 });
 
 // After the app is built, run any module seeders (roles, reference data):
@@ -431,9 +439,14 @@ await app.RunBarakoModuleSeedersAsync();
 ```
 
 A module can contribute DI services, its own Marten documents, FastEndpoints endpoints, and seed
-data — implementing only the hooks it needs. See [`docs/`](docs/) and each module's README for
-configuration. **[BaryoClub](https://github.com/BaryoDev/BaryoClub)** is a sample app that composes
-Accounting + Import + Files + Email.Resend into a club membership and treasury manager.
+data, implementing only the hooks it needs. See [`docs/`](docs/) and each module's README for
+configuration.
+
+Want every module in one image? Pull **`arnelirobles/barako-cms`** (Barako, the full pour); for the
+lean core, use **`arnelirobles/barako-cms-decaf`** (Decaf) and add your own shots. See the
+[Docker page](https://baryo.dev/docker). **[BaryoClub](https://github.com/BaryoDev/BaryoClub)** is a
+sample app that composes the suite into a club membership and treasury manager, installable as a PWA
+via [pwa-kit](https://github.com/BaryoDev/pwa-kit).
 
 ---
 
