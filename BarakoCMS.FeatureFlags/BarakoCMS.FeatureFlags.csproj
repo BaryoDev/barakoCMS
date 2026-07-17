@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>BarakoCMS.FeatureFlags</RootNamespace>
+
+    <IsPackable>true</IsPackable>
+    <PackageId>BarakoCMS.FeatureFlags</PackageId>
+    <Version>0.1.0</Version>
+    <Description>Lean feature-flag module for barakoCMS: create a flag, toggle it on/off, and target it ("true for this and that") by club, by user, or by percentage rollout. Global flags with per-tenant targeting, evaluated server-side and exposed at GET /api/feature-flags for the UI.</Description>
+    <Company>BaryoDev</Company>
+    <PackageLicenseExpression>MPL-2.0</PackageLicenseExpression>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Microsoft.Extensions.Configuration" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\barakoCMS\barakoCMS.csproj" />
+  </ItemGroup>
+
+</Project>
