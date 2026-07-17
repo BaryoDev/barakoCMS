@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>BarakoCMS.Suite</RootNamespace>
+    <AssemblyName>BarakoCMS.Suite</AssemblyName>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <!-- "Barako" — the full pour. The engine plus every module, registered and ready. -->
+  <ItemGroup>
+    <ProjectReference Include="..\barakoCMS\barakoCMS.csproj" />
+    <ProjectReference Include="..\BarakoCMS.Accounting\BarakoCMS.Accounting.csproj" />
+    <ProjectReference Include="..\BarakoCMS.Import\BarakoCMS.Import.csproj" />
+    <ProjectReference Include="..\BarakoCMS.Files\BarakoCMS.Files.csproj" />
+    <ProjectReference Include="..\BarakoCMS.Email.Resend\BarakoCMS.Email.Resend.csproj" />
+    <ProjectReference Include="..\BarakoCMS.DeviceTrust\BarakoCMS.DeviceTrust.csproj" />
+    <ProjectReference Include="..\BarakoCMS.ExternalAuth\BarakoCMS.ExternalAuth.csproj" />
+    <ProjectReference Include="..\BarakoCMS.FeatureFlags\BarakoCMS.FeatureFlags.csproj" />
+    <ProjectReference Include="..\BarakoCMS.Portability\BarakoCMS.Portability.csproj" />
+  </ItemGroup>
+
+</Project>

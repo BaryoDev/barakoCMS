@@ -95,15 +95,25 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Build and push API
+      - name: Build and push Barako (full suite → barako-cms)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.suite
+          push: true
+          tags: |
+            arnelirobles/barako-cms:latest
+            arnelirobles/barako-cms:${{ github.event.inputs.version }}
+
+      - name: Build and push Decaf (core → barako-cms-decaf)
         uses: docker/build-push-action@v5
         with:
           context: .
           file: Dockerfile
           push: true
           tags: |
-            arnelirobles/barako-cms:latest
-            arnelirobles/barako-cms:${{ github.event.inputs.version }}
+            arnelirobles/barako-cms-decaf:latest
+            arnelirobles/barako-cms-decaf:${{ github.event.inputs.version }}
 
       - name: Build and push Admin UI
         uses: docker/build-push-action@v5

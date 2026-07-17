@@ -1,0 +1,13 @@
+# "Barako" — the full-suite image: the barakoCMS engine with every module registered.
+# Built and pushed as arnelirobles/barako-cms (the default, caffeinated pour).
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+WORKDIR /src
+COPY . .
+RUN dotnet publish "BarakoCMS.Suite/BarakoCMS.Suite.csproj" -c Release -o /app/publish /p:UseAppHost=false
+
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
+WORKDIR /app
+COPY --from=build /app/publish .
+EXPOSE 8080
+ENV ASPNETCORE_URLS=http://+:8080
+ENTRYPOINT ["dotnet", "BarakoCMS.Suite.dll"]
