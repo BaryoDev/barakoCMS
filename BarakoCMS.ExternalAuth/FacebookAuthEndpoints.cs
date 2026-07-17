@@ -39,6 +39,7 @@ public class FacebookStartEndpoint : EndpointWithoutRequest
 
     public override async Task HandleAsync(CancellationToken ct)
     {
+        if (!ExternalAuthSupport.ProviderEnabled(_config, "Facebook", "AppId")) { await SendNotFoundAsync(ct); return; }
         var club = (Query<string>("club", isRequired: false) ?? "").Trim().ToLowerInvariant();
         var state = Guid.NewGuid().ToString("N");
 
