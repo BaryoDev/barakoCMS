@@ -8,7 +8,7 @@
 
     <IsPackable>true</IsPackable>
     <PackageId>BarakoCMS.ExternalAuth</PackageId>
-    <Version>0.1.1</Version>
+    <Version>0.1.2</Version>
     <Description>External / social sign-in module for barakoCMS: "Continue with Facebook / Google / LinkedIn / GitHub" via OAuth, matched to a global user by verified email, issuing the same tenant-scoped, device-bound token as the built-in flows. Captures profile details (photo, birthday, location) per provider.</Description>
     <Company>BaryoDev</Company>
     <PackageLicenseExpression>MPL-2.0</PackageLicenseExpression>

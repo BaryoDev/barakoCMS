@@ -21,10 +21,19 @@ public static class ExternalAuthSupport
     };
 
     /// <summary>
-    /// Whether a provider is on: its client id/secret must be configured AND it must not be explicitly
-    /// disabled (<c>{section}:Enabled = false</c>). Lets a provider be wired up but kept dark until ready.
+    /// Whether all external/social logins are turned off by the master switch
+    /// (<c>ExternalAuth:Enabled = false</c>). Overrides every provider at once.
+    /// </summary>
+    public static bool ExternalAuthDisabled(IConfiguration config) =>
+        string.Equals(config["ExternalAuth:Enabled"], "false", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Whether a provider is on: the master switch must not be off, its client id/secret must be
+    /// configured, AND it must not be explicitly disabled (<c>{section}:Enabled = false</c>). Lets a
+    /// provider be wired up but kept dark until ready, or all providers be killed with one flag.
     /// </summary>
     public static bool ProviderEnabled(IConfiguration config, string section, string idKey) =>
+        !ExternalAuthDisabled(config) &&
         !string.IsNullOrWhiteSpace(config[$"{section}:{idKey}"]) &&
         !string.Equals(config[$"{section}:Enabled"], "false", StringComparison.OrdinalIgnoreCase);
 }
