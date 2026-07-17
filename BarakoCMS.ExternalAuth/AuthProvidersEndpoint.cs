@@ -16,13 +16,12 @@ public class AuthProvidersEndpoint : EndpointWithoutRequest
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        bool Has(string key) => !string.IsNullOrWhiteSpace(_config[key]);
         await SendOkAsync(new
         {
-            facebook = Has("Facebook:AppId"),
-            google = Has("Google:ClientId"),
-            linkedin = Has("LinkedIn:ClientId"),
-            github = Has("GitHub:ClientId"),
+            facebook = ExternalAuthSupport.ProviderEnabled(_config, "Facebook", "AppId"),
+            google = ExternalAuthSupport.ProviderEnabled(_config, "Google", "ClientId"),
+            linkedin = ExternalAuthSupport.ProviderEnabled(_config, "LinkedIn", "ClientId"),
+            github = ExternalAuthSupport.ProviderEnabled(_config, "GitHub", "ClientId"),
         }, ct);
     }
 }

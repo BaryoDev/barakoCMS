@@ -19,4 +19,12 @@ public static class ExternalAuthSupport
         MaxAge = TimeSpan.FromMinutes(10),
         Path = "/",
     };
+
+    /// <summary>
+    /// Whether a provider is on: its client id/secret must be configured AND it must not be explicitly
+    /// disabled (<c>{section}:Enabled = false</c>). Lets a provider be wired up but kept dark until ready.
+    /// </summary>
+    public static bool ProviderEnabled(IConfiguration config, string section, string idKey) =>
+        !string.IsNullOrWhiteSpace(config[$"{section}:{idKey}"]) &&
+        !string.Equals(config[$"{section}:Enabled"], "false", StringComparison.OrdinalIgnoreCase);
 }
