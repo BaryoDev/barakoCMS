@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>BarakoCMS.Portability</RootNamespace>
+
+    <IsPackable>true</IsPackable>
+    <PackageId>BarakoCMS.Portability</PackageId>
+    <Version>0.1.0</Version>
+    <Description>Content portability for barakoCMS: export content-type definitions and their content data as a JSON bundle, and import a bundle into another instance (upsert types by name, recreate content via events). For backup, migration, seeding, and sharing content-type templates.</Description>
+    <Company>BaryoDev</Company>
+    <PackageLicenseExpression>MPL-2.0</PackageLicenseExpression>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\barakoCMS\barakoCMS.csproj" />
+  </ItemGroup>
+
+</Project>
