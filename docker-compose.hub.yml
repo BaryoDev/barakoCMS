@@ -23,6 +23,8 @@ services:
       retries: 5
 
   app:
+    # Barako — the full suite (engine + all modules). For the lean core, swap in
+    # arnelirobles/barako-cms-decaf:latest and add only the modules you want in your own host.
     image: arnelirobles/barako-cms:latest
     container_name: barako-cms
     restart: unless-stopped
