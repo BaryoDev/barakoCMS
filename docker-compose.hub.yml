@@ -24,8 +24,8 @@ services:
 
   app:
     # Barako — the full suite (engine + all modules). For the lean core, swap in
-    # arnelirobles/barako-cms-decaf:latest and add only the modules you want in your own host.
-    image: arnelirobles/barako-cms:latest
+    # ghcr.io/baryodev/barako-cms-decaf:latest and add only the modules you want in your own host.
+    image: ghcr.io/baryodev/barako-cms:latest
     container_name: barako-cms
     restart: unless-stopped
     ports:
@@ -42,7 +42,7 @@ services:
         condition: service_healthy
 
   admin:
-    image: arnelirobles/barako-admin:latest
+    image: ghcr.io/baryodev/barako-admin:latest
     container_name: barako-admin
     restart: unless-stopped
     ports:

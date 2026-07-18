@@ -1,5 +1,5 @@
 # "Barako" — the full-suite image: the barakoCMS engine with every module registered.
-# Built and pushed as arnelirobles/barako-cms (the default, caffeinated pour).
+# Built and pushed as ghcr.io/baryodev/barako-cms (the default, caffeinated pour).
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
 COPY . .
