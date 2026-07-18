@@ -2,7 +2,6 @@ using BarakoCMS.Diagnostics;
 using BarakoCMS.Diagnostics.Features.Report;
 using FluentAssertions;
 using Marten;
-using Weasel.Core;
 using Xunit;
 
 namespace BarakoCMS.Tests.Features.Diagnostics;
@@ -20,7 +19,7 @@ public class ClientErrorRecorderTests
         opts.Connection(_fixture.ConnectionString);
         // Unique schema per test run keeps rows from bleeding across tests.
         opts.DatabaseSchemaName = "diag_test_" + Guid.NewGuid().ToString("N")[..8];
-        opts.AutoCreateSchemaObjects = AutoCreate.All; // create the schema/table on first use
+        // Default AutoCreate (CreateOrUpdate) builds the schema/table on first use.
         new DiagnosticsModule().ConfigureMarten(opts);
     });
 
