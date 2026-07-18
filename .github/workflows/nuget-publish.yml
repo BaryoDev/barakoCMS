@@ -89,7 +89,20 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to Docker Hub
+      # ghcr.io is the primary registry — authenticated with the built-in GITHUB_TOKEN, so there are
+      # no external secrets to expire (this job already grants packages: write).
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Docker Hub is an optional mirror. continue-on-error means missing/expired Docker Hub creds
+      # can't fail the publish — ghcr still gets every image.
+      - name: Login to Docker Hub (optional mirror)
+        id: dockerhub
+        continue-on-error: true
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
@@ -102,8 +115,9 @@ jobs:
           file: Dockerfile.suite
           push: true
           tags: |
-            arnelirobles/barako-cms:latest
-            arnelirobles/barako-cms:${{ github.event.inputs.version }}
+            ghcr.io/baryodev/barako-cms:latest
+            ghcr.io/baryodev/barako-cms:${{ github.event.inputs.version }}
+          labels: org.opencontainers.image.source=https://github.com/BaryoDev/barakoCMS
 
       - name: Build and push Decaf (core → barako-cms-decaf)
         uses: docker/build-push-action@v5
@@ -112,8 +126,9 @@ jobs:
           file: Dockerfile
           push: true
           tags: |
-            arnelirobles/barako-cms-decaf:latest
-            arnelirobles/barako-cms-decaf:${{ github.event.inputs.version }}
+            ghcr.io/baryodev/barako-cms-decaf:latest
+            ghcr.io/baryodev/barako-cms-decaf:${{ github.event.inputs.version }}
+          labels: org.opencontainers.image.source=https://github.com/BaryoDev/barakoCMS
 
       - name: Build and push Admin UI
         uses: docker/build-push-action@v5
@@ -122,5 +137,19 @@ jobs:
           file: admin/Dockerfile
           push: true
           tags: |
-            arnelirobles/barako-admin:latest
-            arnelirobles/barako-admin:${{ github.event.inputs.version }}
+            ghcr.io/baryodev/barako-admin:latest
+            ghcr.io/baryodev/barako-admin:${{ github.event.inputs.version }}
+          labels: org.opencontainers.image.source=https://github.com/BaryoDev/barakoCMS
+
+      # Mirror the freshly-pushed ghcr images to Docker Hub without rebuilding (imagetools copies the
+      # manifest + layers). Skipped automatically when the Docker Hub login above didn't succeed.
+      - name: Mirror images to Docker Hub
+        if: steps.dockerhub.outcome == 'success'
+        run: |
+          V="${{ github.event.inputs.version }}"
+          for img in barako-cms barako-cms-decaf barako-admin; do
+            docker buildx imagetools create \
+              --tag "arnelirobles/$img:latest" \
+              --tag "arnelirobles/$img:$V" \
+              "ghcr.io/baryodev/$img:$V"
+          done
