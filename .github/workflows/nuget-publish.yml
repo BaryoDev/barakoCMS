@@ -83,8 +83,12 @@ jobs:
             dotnet pack "$m/$m.csproj" --configuration Release -o out
           done
 
-      - name: Publish NuGet
+      - name: Publish to NuGet.org
         run: dotnet nuget push "out/*.nupkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+
+      # Mirror to GitHub Packages (authenticated with the built-in GITHUB_TOKEN — no external secret).
+      - name: Publish to GitHub Packages
+        run: dotnet nuget push "out/*.nupkg" --api-key ${{ secrets.GITHUB_TOKEN }} --source https://nuget.pkg.github.com/BaryoDev/index.json --skip-duplicate
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -153,3 +157,15 @@ jobs:
               --tag "arnelirobles/$img:$V" \
               "ghcr.io/baryodev/$img:$V"
           done
+
+  # Announce the release to the org discussions via the shared reusable workflow.
+  announce:
+    needs: publish
+    uses: BaryoDev/.github/.github/workflows/announce.yml@main
+    with:
+      package: "barakoCMS suite"
+      version: ${{ github.event.inputs.version }}
+      notes: "Published barakoCMS ${{ github.event.inputs.version }}: core + modules to NuGet.org and GitHub Packages, and Docker images (barako-cms, barako-cms-decaf, barako-admin) to ghcr.io."
+      install: "dotnet add package BarakoCMS.Accounting --version ${{ github.event.inputs.version }}"
+    secrets:
+      ANNOUNCE_TOKEN: ${{ secrets.ANNOUNCE_TOKEN }}
