@@ -8,6 +8,7 @@ import {
   IconRoles,
   IconGroups,
   IconHealth,
+  IconAnalytics,
   IconSettings,
 } from '@/components/icons';
 
@@ -45,6 +46,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'System',
     items: [
+      { title: 'Analytics', href: '/analytics', icon: IconAnalytics },
       { title: 'Health', href: '/ops/health', icon: IconHealth },
       { title: 'Settings', href: '/settings', icon: IconSettings },
     ],
@@ -60,6 +62,7 @@ const SEGMENT_TITLES: Record<string, string> = {
   'user-groups': 'Groups',
   ops: 'System',
   health: 'Health',
+  analytics: 'Analytics',
   settings: 'Settings',
   new: 'New',
 };
