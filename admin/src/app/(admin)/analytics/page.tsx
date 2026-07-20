@@ -11,14 +11,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Button } from '@/components/ui/button';
 import { AddWebsiteDialog } from '@/components/analytics/add-website-dialog';
 import { Sparkline } from '@/components/analytics/sparkline';
-import { IconAnalytics } from '@/components/icons';
+import { IconAnalytics, IconRefresh } from '@/components/icons';
 import {
   useAnalyticsWebsites,
   useAnalyticsSummary,
   useAnalyticsSeries,
   useAnalyticsMetric,
+  useSiteStatus,
   type AnalyticsRange,
   type MetricType,
   type StatValue,
@@ -110,6 +112,7 @@ export default function AnalyticsPage() {
             </div>
           )}
 
+          <InstallBanner websiteId={websiteId} />
           <Summary websiteId={websiteId} range={range} />
           <Trend websiteId={websiteId} range={range} />
 
@@ -117,6 +120,12 @@ export default function AnalyticsPage() {
             <MetricCard title="Top pages" websiteId={websiteId} range={range} type="path" mono />
             <MetricCard title="Referrers" websiteId={websiteId} range={range} type="referrer" empty="Direct visits only" />
             <MetricCard title="Countries" websiteId={websiteId} range={range} type="country" country />
+          </div>
+
+          <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <MetricCard title="Devices" websiteId={websiteId} range={range} type="device" />
+            <MetricCard title="Operating systems" websiteId={websiteId} range={range} type="os" />
+            <MetricCard title="Browsers" websiteId={websiteId} range={range} type="browser" />
           </div>
 
           {current && (
@@ -249,6 +258,39 @@ function MetricCard({
         ) : (
           <p className="text-muted-foreground py-2 text-sm">{empty}</p>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function InstallBanner({ websiteId }: { websiteId?: string }) {
+  const { data, isLoading, isRefetching, refetch } = useSiteStatus(websiteId);
+  // Only nag when Umami has genuinely received nothing for this site yet.
+  if (isLoading || !data || data.installed) return null;
+  return (
+    <Card className="mb-6 border-amber-300 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30">
+      <CardHeader>
+        <CardTitle className="text-sm font-medium text-amber-800 dark:text-amber-300">
+          Not sending data yet
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        <p className="text-muted-foreground">
+          Paste this into the <code className="text-xs">&lt;head&gt;</code> of every page on this site, then deploy.
+          Data shows up within a minute of the first visit.
+        </p>
+        <pre className="bg-muted overflow-x-auto rounded-md p-3 text-xs">{data.snippet}</pre>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button size="sm" variant="outline" onClick={() => refetch()} disabled={isRefetching}>
+            <IconRefresh className="size-4" />
+            {isRefetching ? 'Checking…' : 'Check again'}
+          </Button>
+          <span className="text-muted-foreground text-xs">
+            {data.activeNow > 0
+              ? `${data.activeNow} active now`
+              : 'No hits detected yet — open the site once, then check.'}
+          </span>
+        </div>
       </CardContent>
     </Card>
   );

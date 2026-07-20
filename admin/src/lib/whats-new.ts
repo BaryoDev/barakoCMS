@@ -17,9 +17,39 @@ export interface Release {
 }
 
 // Bumping this re-triggers the one-time auto-open for everyone.
-export const CURRENT_VERSION = '3.0.0';
+export const CURRENT_VERSION = '3.1.0';
 
 export const RELEASES: Release[] = [
+    {
+        version: '3.1.0',
+        date: 'July 2026',
+        items: [
+            {
+                type: 'feature',
+                title: 'Switch between tenants',
+                description:
+                    'On a multi-tenant deployment the admin scopes to your tenant automatically, and a switcher in the top bar lets you move between the tenants you belong to. All data reloads under the one you pick.',
+            },
+            {
+                type: 'feature',
+                title: 'Installed modules now show up in the admin',
+                description:
+                    'New sections surface the data from modules you have installed: Accounting (chart of accounts, balances, ledgers), Feature flags (view and toggle), Email events (Resend bounces and complaints), and Errors (the client-side error log with a resolve action).',
+            },
+            {
+                type: 'feature',
+                title: 'Analytics breaks visitors down by device, OS and browser',
+                description:
+                    'The Analytics page now shows devices, operating systems (including Android and iOS) and browsers, alongside pages, referrers and countries.',
+            },
+            {
+                type: 'improvement',
+                title: 'Add a website and confirm it is tracking',
+                description:
+                    'Adding a site in Analytics now gives step-by-step instructions and a Verify button that checks whether Umami is receiving data yet, so you know the snippet is live before you walk away.',
+            },
+        ],
+    },
     {
         version: '3.0.0',
         date: 'July 2026',

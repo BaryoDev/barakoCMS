@@ -52,11 +52,30 @@ export const api = axios.create({
     },
 });
 
+/** The tenant a token was minted for, read from its `tenant` claim (null for a legacy/global token). */
+export function tenantOfToken(token: string | null): string | null {
+    if (!token) return null;
+    try {
+        const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+        return typeof payload.tenant === 'string' ? payload.tenant : null;
+    } catch {
+        return null;
+    }
+}
+
 api.interceptors.request.use((config) => {
     config.baseURL = getApiUrl();
     const token = tokenStore.token;
     if (token) {
         config.headers.Authorization = `Bearer ${token}`;
+        // Multi-tenant deployments scope data by the X-Tenant header. Derive it from the token's own
+        // tenant claim so the header always matches what the token was minted for — the API's
+        // tenant-access guard rejects a mismatch. Switching tenants swaps the token (see useSwitchTenant),
+        // which automatically changes this header too.
+        const tenant = tenantOfToken(token);
+        if (tenant) {
+            config.headers['X-Tenant'] = tenant;
+        }
     }
     return config;
 });
@@ -70,7 +89,15 @@ async function refreshAccessToken(): Promise<string | null> {
     const refreshToken = tokenStore.refreshToken;
     if (!refreshToken) return null;
     try {
-        const { data } = await axios.post(`${getApiUrl()}/api/auth/refresh`, { refreshToken });
+        // Carry the current tenant into the refresh: the API mints the new token for the tenant in
+        // X-Tenant, so without it a refreshed token would silently revert to the default tenant and
+        // lose the club the user switched into.
+        const tenant = tenantOfToken(tokenStore.token);
+        const { data } = await axios.post(
+            `${getApiUrl()}/api/auth/refresh`,
+            { refreshToken },
+            tenant ? { headers: { 'X-Tenant': tenant } } : undefined,
+        );
         tokenStore.set(data.token, data.refreshToken);
         return data.token as string;
     } catch {

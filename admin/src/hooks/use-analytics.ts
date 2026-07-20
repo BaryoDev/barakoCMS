@@ -53,6 +53,23 @@ export interface CreatedWebsite {
   snippet: string;
 }
 
+export interface SiteStatus {
+  installed: boolean;
+  pageviews: number;
+  activeNow: number;
+  snippet: string;
+}
+
+/** Whether a site has started sending data to Umami yet (snippet live), plus a live active-visitor
+ * count for instant verification. `refetch()` powers the "Verify installation" button. */
+export function useSiteStatus(websiteId: string | undefined) {
+  return useQuery({
+    queryKey: ['analytics', 'status', websiteId],
+    queryFn: async () => (await api.get<SiteStatus>(`/api/analytics/${websiteId}/status`)).data,
+    enabled: !!websiteId,
+  });
+}
+
 /** Sites Umami tracks. `configured: false` means the module is installed but Umami isn't wired up. */
 export function useAnalyticsWebsites() {
   return useQuery({
