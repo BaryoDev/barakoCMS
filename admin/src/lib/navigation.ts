@@ -9,6 +9,10 @@ import {
   IconGroups,
   IconHealth,
   IconAnalytics,
+  IconCoins,
+  IconFlag,
+  IconBug,
+  IconEnvelope,
   IconSettings,
 } from '@/components/icons';
 
@@ -44,9 +48,18 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    label: 'Modules',
+    items: [
+      { title: 'Accounting', href: '/accounting', icon: IconCoins },
+      { title: 'Analytics', href: '/analytics', icon: IconAnalytics },
+      { title: 'Email events', href: '/email-events', icon: IconEnvelope },
+      { title: 'Feature flags', href: '/feature-flags', icon: IconFlag },
+    ],
+  },
+  {
     label: 'System',
     items: [
-      { title: 'Analytics', href: '/analytics', icon: IconAnalytics },
+      { title: 'Errors', href: '/errors', icon: IconBug },
       { title: 'Health', href: '/ops/health', icon: IconHealth },
       { title: 'Settings', href: '/settings', icon: IconSettings },
     ],
@@ -63,6 +76,10 @@ const SEGMENT_TITLES: Record<string, string> = {
   ops: 'System',
   health: 'Health',
   analytics: 'Analytics',
+  accounting: 'Accounting',
+  errors: 'Errors',
+  'email-events': 'Email events',
+  'feature-flags': 'Feature flags',
   settings: 'Settings',
   new: 'New',
 };

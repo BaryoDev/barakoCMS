@@ -293,3 +293,11 @@ export function IconAnalytics(props: IconProps) {
   return <svg {...base(props)}><path d="M 4 3 L 4 27 C 4 27.554688 4.445313 28 5 28 L 29 28 L 29 26 L 6 26 L 6 3 Z M 24 8 L 24 24 L 27 24 L 27 8 Z M 18 12 L 18 24 L 21 24 L 21 12 Z M 12 16 L 12 24 L 15 24 L 15 16 Z"/></svg>;
 }
 
+export function IconCoins(props: IconProps) {
+  return <svg {...base(props)}><path d="M 16 5 C 10.477 5 6 6.79 6 9 C 6 11.21 10.477 13 16 13 C 21.523 13 26 11.21 26 9 C 26 6.79 21.523 5 16 5 Z M 6 12 L 6 15 C 6 17.21 10.477 19 16 19 C 21.523 19 26 17.21 26 15 L 26 12 C 26 14.21 21.523 16 16 16 C 10.477 16 6 14.21 6 12 Z M 6 18 L 6 21 C 6 23.21 10.477 25 16 25 C 21.523 25 26 23.21 26 21 L 26 18 C 26 20.21 21.523 22 16 22 C 10.477 22 6 20.21 6 18 Z"/></svg>;
+}
+
+export function IconFlag(props: IconProps) {
+  return <svg {...base(props)}><path d="M 7 3 C 6.448 3 6 3.448 6 4 L 6 29 L 8 29 L 8 18 L 24 18 C 24.828 18 25.316 17.07 24.832 16.4 L 21.236 11.5 L 24.832 6.6 C 25.316 5.93 24.828 5 24 5 L 8 5 L 8 4 C 8 3.448 7.552 3 7 3 Z"/></svg>;
+}
+

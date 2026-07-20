@@ -14,8 +14,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { IconPlus, IconCopy } from '@/components/icons';
-import { useCreateWebsite, type CreatedWebsite } from '@/hooks/use-analytics';
+import { IconPlus, IconCopy, IconRefresh, IconCheckCircle } from '@/components/icons';
+import { useCreateWebsite, useSiteStatus, type CreatedWebsite } from '@/hooks/use-analytics';
 
 /** Registers a new site in Umami and shows the tracking snippet to paste — no leaving the admin. */
 export function AddWebsiteDialog({ onCreated }: { onCreated?: (id: string) => void }) {
@@ -24,6 +24,8 @@ export function AddWebsiteDialog({ onCreated }: { onCreated?: (id: string) => vo
   const [domain, setDomain] = useState('');
   const [created, setCreated] = useState<CreatedWebsite | null>(null);
   const create = useCreateWebsite();
+  // Only queries once a site exists (enabled by the id); refetch() drives "Verify installation".
+  const status = useSiteStatus(created?.id ?? undefined);
 
   function reset() {
     setName('');
@@ -108,21 +110,50 @@ export function AddWebsiteDialog({ onCreated }: { onCreated?: (id: string) => vo
         ) : (
           <>
             <DialogHeader>
-              <DialogTitle>{created.name} is ready</DialogTitle>
+              <DialogTitle>{created.name} is ready to track</DialogTitle>
               <DialogDescription>
-                Paste this into the <code className="text-xs">&lt;head&gt;</code> of {created.domain}. Data
-                appears within a minute of the first visit.
+                {created.domain} won&apos;t collect anything until this snippet is live on it. Three steps:
               </DialogDescription>
             </DialogHeader>
-            <div className="py-4">
+            <div className="space-y-3 py-4 text-sm">
+              <ol className="text-muted-foreground list-decimal space-y-1 pl-5">
+                <li>Copy the snippet below.</li>
+                <li>
+                  Paste it into the <code className="text-xs">&lt;head&gt;</code> of every page (or your
+                  site framework&apos;s root layout), and deploy the site.
+                </li>
+                <li>Open {created.domain} in a browser, then hit <strong>Verify</strong> here.</li>
+              </ol>
               <pre className="bg-muted overflow-x-auto rounded-md p-3 text-xs leading-relaxed">
                 {created.snippet}
               </pre>
+
+              {status.data?.installed ? (
+                <p className="flex items-center gap-2 font-medium text-emerald-600">
+                  <IconCheckCircle className="size-4" />
+                  Working — data is coming in
+                  {status.data.activeNow > 0 ? ` (${status.data.activeNow} active now)` : ''}.
+                </p>
+              ) : (
+                <p className="text-muted-foreground text-xs">
+                  {status.isFetching
+                    ? 'Checking…'
+                    : 'No data yet. Deploy the snippet and open the site, then verify.'}
+                </p>
+              )}
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={copySnippet}>
                 <IconCopy className="size-4" />
                 Copy snippet
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => status.refetch()}
+                disabled={status.isFetching}
+              >
+                <IconRefresh className="size-4" />
+                Verify
               </Button>
               <Button
                 onClick={() => {

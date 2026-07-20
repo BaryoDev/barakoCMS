@@ -40,6 +40,8 @@ public interface IUmamiClient
     Task<UmamiSummary> GetSummaryAsync(string websiteId, long startAt, long endAt, CancellationToken ct);
     Task<UmamiSeries> GetSeriesAsync(string websiteId, long startAt, long endAt, string unit, CancellationToken ct);
     Task<IReadOnlyList<UmamiMetric>> GetMetricsAsync(string websiteId, string type, long startAt, long endAt, int limit, CancellationToken ct);
+    /// <summary>Visitors active in the last few minutes — the fastest signal that the tracker is live.</summary>
+    Task<long> GetActiveAsync(string websiteId, CancellationToken ct);
     string TrackingSnippet(string websiteId);
 }
 
@@ -135,6 +137,18 @@ public sealed class UmamiClient : IUmamiClient
             foreach (var m in doc.RootElement.EnumerateArray())
                 list.Add(new UmamiMetric(Str(m, "x"), Num(m, "y")));
         return list;
+    }
+
+    public async Task<long> GetActiveAsync(string websiteId, CancellationToken ct)
+    {
+        using var doc = await GetJsonAsync($"api/websites/{Uri.EscapeDataString(websiteId)}/active", ct);
+        var r = doc.RootElement;
+        // Umami versions differ: { visitors: N } (v3), [{ x: N }] (v2), or a bare number.
+        if (r.ValueKind == JsonValueKind.Number) return r.GetInt64();
+        if (r.ValueKind == JsonValueKind.Object) return Num(r, "visitors");
+        if (r.ValueKind == JsonValueKind.Array && r.GetArrayLength() > 0)
+            return Num(r[0], "x");
+        return 0;
     }
 
     // --- HTTP plumbing -----------------------------------------------------------------------
