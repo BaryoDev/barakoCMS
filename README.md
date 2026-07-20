@@ -89,20 +89,29 @@ The API behind it is at `https://playground.baryo.dev/barakocms-api` (try
 
 ## 📦 Quick Start
 
-### Option A — Docker images (no build, no clone)
+### Option A — the quickstart bundle (no build, no clone)
 
-Prebuilt **multi-arch** images (amd64 + arm64) are on Docker Hub:
-[`arnelirobles/barako-cms`](https://hub.docker.com/r/arnelirobles/barako-cms) (API) and
-[`arnelirobles/barako-admin`](https://hub.docker.com/r/arnelirobles/barako-admin) (admin UI).
+A ready-to-run bundle lives in [`quickstart/`](quickstart/): the full suite (engine + every module),
+the admin UI, and Postgres, wired to a single documented `.env`. Every module ships in the image and
+stays off/mock until you add its keys, so you can grow into Umami analytics, Resend email, social
+sign-in, and the rest without changing the compose.
 
 ```bash
-curl -O https://raw.githubusercontent.com/BaryoDev/barakoCMS/master/docker-compose.hub.yml
-docker compose -f docker-compose.hub.yml up -d
+# grab the two files
+curl -O https://raw.githubusercontent.com/BaryoDev/barakoCMS/master/quickstart/docker-compose.yml
+curl -O https://raw.githubusercontent.com/BaryoDev/barakoCMS/master/quickstart/.env.example
+cp .env.example .env      # then edit: DB_PASSWORD, JWT_KEY (32+ chars), ADMIN_PASSWORD
+docker compose up -d
 ```
 
 That starts PostgreSQL, the API (<http://localhost:5005>), and the admin UI
-(<http://localhost:3000>). Sign in with `ADMIN_USER` / `ADMIN_PASSWORD` (default
-`admin` / `changeme-in-production`).
+(<http://localhost:3000>). Sign in with `ADMIN_USERNAME` / `ADMIN_PASSWORD` from your `.env`. See
+[`quickstart/README.md`](quickstart/README.md) for every variable, how to enable each module, and how
+to put it behind a domain with TLS.
+
+> [!IMPORTANT]
+> `JWT_KEY` must be 32+ characters. App ports publish on localhost only — put a TLS-terminating
+> reverse proxy in front, and never publish PostgreSQL to a public interface.
 
 > [!IMPORTANT]
 > Before exposing this anywhere real, set `JWT_SECRET` (32+ characters), `DB_PASSWORD`,
