@@ -29,6 +29,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BarakoCMS.Diagnostics", "Ba
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BarakoCMS.Analytics.Umami", "BarakoCMS.Analytics.Umami\BarakoCMS.Analytics.Umami.csproj", "{C0629D85-2E79-4147-BFEC-71C3D5B7C82A}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BarakoCMS.Pwa", "BarakoCMS.Pwa\BarakoCMS.Pwa.csproj", "{4B2AFA53-7A10-4345-8E98-75F56778CD04}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -87,6 +89,10 @@ Global
 		{C0629D85-2E79-4147-BFEC-71C3D5B7C82A}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{C0629D85-2E79-4147-BFEC-71C3D5B7C82A}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{C0629D85-2E79-4147-BFEC-71C3D5B7C82A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4B2AFA53-7A10-4345-8E98-75F56778CD04}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4B2AFA53-7A10-4345-8E98-75F56778CD04}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4B2AFA53-7A10-4345-8E98-75F56778CD04}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4B2AFA53-7A10-4345-8E98-75F56778CD04}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

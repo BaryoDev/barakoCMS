@@ -11,6 +11,7 @@ import {
   IconAnalytics,
   IconCoins,
   IconFlag,
+  IconMobile,
   IconBug,
   IconEnvelope,
   IconSettings,
@@ -54,6 +55,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { title: 'Analytics', href: '/analytics', icon: IconAnalytics },
       { title: 'Email events', href: '/email-events', icon: IconEnvelope },
       { title: 'Feature flags', href: '/feature-flags', icon: IconFlag },
+      { title: 'PWA installs', href: '/pwa', icon: IconMobile },
     ],
   },
   {
@@ -80,6 +82,7 @@ const SEGMENT_TITLES: Record<string, string> = {
   errors: 'Errors',
   'email-events': 'Email events',
   'feature-flags': 'Feature flags',
+  pwa: 'PWA installs',
   settings: 'Settings',
   new: 'New',
 };
