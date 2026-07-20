@@ -4,7 +4,7 @@ Umami web-analytics for the barakoCMS admin. The module proxies a self-hosted [U
 instance behind admin-only endpoints, so the CMS admin can show visitors, top pages, referrers and
 countries — and register new tracked sites — without ever exposing Umami credentials to the browser.
 
-![Analytics page in the barakoCMS admin](https://raw.githubusercontent.com/BaryoDev/barakoCMS/master/BarakoCMS.Analytics.Umami/docs/analytics.png)
+![Analytics page in the barakoCMS admin](https://raw.githubusercontent.com/BaryoDev/barakoCMS/master/BarakoCMS.Analytics.Umami/assets/analytics.png)
 
 ## Install
 
