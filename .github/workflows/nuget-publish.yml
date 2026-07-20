@@ -158,11 +158,12 @@ jobs:
               "ghcr.io/baryodev/$img:$V"
           done
 
-  # Announce the release to the org discussions via the shared reusable workflow. Best-effort:
-  # a failed announcement must never turn a successful publish + image push red.
+  # Announce the release to the org discussions via the shared reusable workflow. It's best-effort
+  # inside the reusable workflow (its post step is continue-on-error), so a failed announcement can't
+  # turn a successful publish + image push red. (A reusable-workflow job can't set continue-on-error
+  # itself — that key isn't allowed alongside `uses:`.)
   announce:
     needs: publish
-    continue-on-error: true
     uses: BaryoDev/.github/.github/workflows/announce.yml@main
     with:
       package: "barakoCMS suite"
