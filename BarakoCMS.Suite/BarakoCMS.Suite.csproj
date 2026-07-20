@@ -20,6 +20,7 @@
     <ProjectReference Include="..\BarakoCMS.ExternalAuth\BarakoCMS.ExternalAuth.csproj" />
     <ProjectReference Include="..\BarakoCMS.FeatureFlags\BarakoCMS.FeatureFlags.csproj" />
     <ProjectReference Include="..\BarakoCMS.Portability\BarakoCMS.Portability.csproj" />
+    <ProjectReference Include="..\BarakoCMS.Analytics.Umami\BarakoCMS.Analytics.Umami.csproj" />
   </ItemGroup>
 
 </Project>
