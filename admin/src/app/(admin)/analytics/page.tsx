@@ -57,6 +57,9 @@ export default function AnalyticsPage() {
   const websiteId = selectedId ?? websites.data?.websites?.[0]?.id;
   const setWebsiteId = setSelectedId;
 
+  // The endpoint 404s on a deployment without the Umami module (e.g. an app host that doesn't
+  // install it). Show a clear "not available here" state rather than a broken "add a website" flow.
+  const unavailable = websites.isError;
   const notConfigured = websites.data && !websites.data.configured;
   const hasSites = !!websites.data?.websites?.length;
   const current = websites.data?.websites?.find((w) => w.id === websiteId);
@@ -67,7 +70,7 @@ export default function AnalyticsPage() {
         title="Analytics"
         description="Visitor traffic from Umami — who's visiting, what they read, and where they come from."
         actions={
-          hasSites && (
+          !unavailable && hasSites && (
             <div className="flex items-center gap-2">
               <Select value={range} onValueChange={(v) => setRange(v as AnalyticsRange)}>
                 <SelectTrigger className="w-40" size="sm">
@@ -87,13 +90,15 @@ export default function AnalyticsPage() {
         }
       />
 
-      {notConfigured && <NotConfigured />}
+      {unavailable && <NotAvailable />}
 
-      {!notConfigured && !hasSites && !websites.isLoading && <NoSites />}
+      {!unavailable && notConfigured && <NotConfigured />}
 
-      {websites.isLoading && <Skeleton className="h-40 w-full" />}
+      {!unavailable && !notConfigured && !hasSites && !websites.isLoading && <NoSites />}
 
-      {hasSites && (
+      {!unavailable && websites.isLoading && <Skeleton className="h-40 w-full" />}
+
+      {!unavailable && hasSites && (
         <>
           {websites.data!.websites.length > 1 && (
             <div className="mb-4">
@@ -291,6 +296,28 @@ function InstallBanner({ websiteId }: { websiteId?: string }) {
               : 'No hits detected yet — open the site once, then check.'}
           </span>
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function NotAvailable() {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-sm font-medium">
+          <IconAnalytics className="text-primary size-4" />
+          Analytics isn&apos;t available here
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="text-muted-foreground space-y-2 text-sm">
+        <p>
+          This deployment doesn&apos;t have the Umami analytics module installed, so there&apos;s
+          nothing to show. Visitor analytics live on the platform admin that runs Umami.
+        </p>
+        <p>
+          To track a site, add it there, then paste its snippet into that site&apos;s pages.
+        </p>
       </CardContent>
     </Card>
   );
