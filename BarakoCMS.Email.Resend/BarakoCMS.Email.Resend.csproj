@@ -8,7 +8,7 @@
 
     <IsPackable>true</IsPackable>
     <PackageId>BarakoCMS.Email.Resend</PackageId>
-    <Version>0.2.0</Version>
+    <Version>0.3.0</Version>
     <Description>Resend email-provider module for barakoCMS: implements IEmailService via the Resend HTTP API, plus a delivery webhook that records bounces/complaints as EmailEvent documents.</Description>
     <Company>BaryoDev</Company>
     <PackageLicenseExpression>MPL-2.0</PackageLicenseExpression>
