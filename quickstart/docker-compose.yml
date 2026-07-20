@@ -1,0 +1,86 @@
+# barakoCMS quickstart — the full "Barako" suite (engine + every module) + admin UI + Postgres,
+# from prebuilt images. Nothing to build.
+#
+#   1.  cp .env.example .env
+#   2.  edit .env  (at minimum: DB_PASSWORD, JWT_KEY, ADMIN_PASSWORD)
+#   3.  docker compose up -d
+#
+# Admin UI:  http://localhost:${ADMIN_PORT:-3000}
+# CMS API:   http://localhost:${API_PORT:-5005}
+#
+# Every module ships in the image; each one stays off/mock until you fill in its keys below.
+# See README.md for what each variable does and how to put this behind a reverse proxy + TLS.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-barakocms}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    # Barako = core + all modules. For the lean core swap in ghcr.io/baryodev/barako-cms-decaf:latest.
+    image: ghcr.io/baryodev/barako-cms:${BARAKO_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${API_PORT:-5005}:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ConnectionStrings__DefaultConnection: "Host=postgres;Database=${DB_NAME:-barakocms};Username=${DB_USER:-postgres};Password=${DB_PASSWORD}"
+      # Must be 32+ characters or the API refuses to start.
+      JWT__Key: ${JWT_KEY:?set a 32+ char JWT_KEY in .env}
+      InitialAdmin__Username: ${ADMIN_USERNAME:-admin}
+      InitialAdmin__Password: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}
+      CORS__AllowedOrigins: ${ALLOWED_ORIGINS:-http://localhost:3000}
+
+      # ── Email (Resend module) — optional. Blank = built-in mock (logs instead of sending). ──
+      Resend__ApiKey: ${RESEND_API_KEY:-}
+      Resend__From: ${RESEND_FROM:-}
+      Resend__WebhookSecret: ${RESEND_WEBHOOK_SECRET:-}
+
+      # ── Analytics (Umami module) — optional. Set UMAMI_ENABLED=true to turn on. ──
+      Umami__Enabled: ${UMAMI_ENABLED:-false}
+      Umami__BaseUrl: ${UMAMI_BASEURL:-}
+      Umami__Username: ${UMAMI_USERNAME:-}
+      Umami__Password: ${UMAMI_PASSWORD:-}
+      Umami__PublicUrl: ${UMAMI_PUBLICURL:-}
+
+      # ── Social sign-in (ExternalAuth module) — optional. Master switch, then per-provider keys. ──
+      ExternalAuth__Enabled: ${EXTERNALAUTH_ENABLED:-false}
+      Google__ClientId: ${GOOGLE_CLIENT_ID:-}
+      Google__ClientSecret: ${GOOGLE_CLIENT_SECRET:-}
+      GitHub__ClientId: ${GITHUB_CLIENT_ID:-}
+      GitHub__ClientSecret: ${GITHUB_CLIENT_SECRET:-}
+      Facebook__AppId: ${FACEBOOK_APP_ID:-}
+      Facebook__AppSecret: ${FACEBOOK_APP_SECRET:-}
+      LinkedIn__ClientId: ${LINKEDIN_CLIENT_ID:-}
+      LinkedIn__ClientSecret: ${LINKEDIN_CLIENT_SECRET:-}
+
+      # ── Device trust — require new devices to be approved via an emailed code. ──
+      DeviceTrust__Enforce: ${DEVICETRUST_ENFORCE:-false}
+
+  admin:
+    image: ghcr.io/baryodev/barako-admin:${BARAKO_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "${ADMIN_PORT:-3000}:3000"
+    environment:
+      # Where the browser reaches the API. Injected at container start — no rebuild to repoint it.
+      NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:5005}
+
+volumes:
+  pgdata:
