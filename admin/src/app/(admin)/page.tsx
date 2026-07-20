@@ -18,6 +18,7 @@ import {
   IconPlus,
   IconWorkflows,
 } from '@/components/icons';
+import { OverviewAnalytics } from '@/components/analytics/overview-analytics';
 import { formatDistanceToNow } from 'date-fns';
 import { contentTitle } from '@/lib/content-title';
 
@@ -98,6 +99,8 @@ export default function DashboardPage() {
           isLoading={workflowsLoading}
         />
       </div>
+
+      <OverviewAnalytics />
 
       <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-5">
         <Card className="lg:col-span-3">
