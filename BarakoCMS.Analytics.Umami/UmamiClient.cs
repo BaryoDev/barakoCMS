@@ -110,9 +110,12 @@ public sealed class UmamiClient : IUmamiClient
         using var doc = await GetJsonAsync(
             $"api/websites/{Uri.EscapeDataString(websiteId)}/stats?startAt={startAt}&endAt={endAt}", ct);
         var r = doc.RootElement;
+        // Umami v3 returns bare counts plus a "comparison" object holding the previous period; v2
+        // returned each metric as { value, prev }. Stat() handles both.
+        var cmp = r.TryGetProperty("comparison", out var c) ? c : default;
         return new UmamiSummary(
-            Stat(r, "pageviews"), Stat(r, "visitors"), Stat(r, "visits"),
-            Stat(r, "bounces"), Stat(r, "totaltime"));
+            Stat(r, cmp, "pageviews"), Stat(r, cmp, "visitors"), Stat(r, cmp, "visits"),
+            Stat(r, cmp, "bounces"), Stat(r, cmp, "totaltime"));
     }
 
     public async Task<UmamiSeries> GetSeriesAsync(string websiteId, long startAt, long endAt, string unit, CancellationToken ct)
@@ -228,12 +231,15 @@ public sealed class UmamiClient : IUmamiClient
     private static long Num(JsonElement e, string prop)
         => e.TryGetProperty(prop, out var v) && v.TryGetInt64(out var n) ? n : 0;
 
-    private static UmamiStat Stat(JsonElement root, string prop)
+    private static UmamiStat Stat(JsonElement root, JsonElement comparison, string prop)
     {
         if (!root.TryGetProperty(prop, out var v)) return new UmamiStat(0, 0);
-        // { value, prev } (with the compare flag) or a bare number.
-        if (v.ValueKind == JsonValueKind.Number) return new UmamiStat(v.GetInt64(), 0);
-        return new UmamiStat(Num(v, "value"), Num(v, "prev"));
+        // v2: { value, prev }. v3: a bare number, with the previous period under comparison[prop].
+        if (v.ValueKind == JsonValueKind.Object)
+            return new UmamiStat(Num(v, "value"), Num(v, "prev"));
+        long value = v.TryGetInt64(out var n) ? n : 0;
+        long prev = comparison.ValueKind == JsonValueKind.Object ? Num(comparison, prop) : 0;
+        return new UmamiStat(value, prev);
     }
 
     private static IReadOnlyList<UmamiSeriesPoint> Points(JsonElement root, string prop)

@@ -6,8 +6,8 @@ public sealed class MetricRequest
 {
     public string WebsiteId { get; set; } = "";
     public string Range { get; set; } = "7d";
-    /// <summary>Umami metric type: url | referrer | country | browser | os | device.</summary>
-    public string Type { get; set; } = "url";
+    /// <summary>Umami metric type: path | referrer | country | browser | os | device.</summary>
+    public string Type { get; set; } = "path";
     public int Limit { get; set; } = 10;
 }
 
@@ -21,8 +21,9 @@ public sealed class MetricRow
 /// (pages, referrers, countries, …) for the window.</summary>
 public sealed class MetricEndpoint : Endpoint<MetricRequest, List<MetricRow>>
 {
+    // Umami v3 metric types. Pages are "path" (v2 called it "url").
     private static readonly HashSet<string> Allowed =
-        new(StringComparer.OrdinalIgnoreCase) { "url", "referrer", "country", "browser", "os", "device", "event" };
+        new(StringComparer.OrdinalIgnoreCase) { "path", "referrer", "country", "browser", "os", "device", "event" };
 
     private readonly IUmamiClient _umami;
 
@@ -36,7 +37,7 @@ public sealed class MetricEndpoint : Endpoint<MetricRequest, List<MetricRow>>
 
     public override async Task HandleAsync(MetricRequest req, CancellationToken ct)
     {
-        var type = Allowed.Contains(req.Type) ? req.Type.ToLowerInvariant() : "url";
+        var type = Allowed.Contains(req.Type) ? req.Type.ToLowerInvariant() : "path";
         var limit = Math.Clamp(req.Limit, 1, 50);
         var (startAt, endAt, _) = AnalyticsRange.Resolve(req.Range);
         var rows = await _umami.GetMetricsAsync(req.WebsiteId, type, startAt, endAt, limit, ct);

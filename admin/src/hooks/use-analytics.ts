@@ -4,7 +4,7 @@ import { api } from '@/lib/api';
 // Mirrors the BarakoCMS.Analytics.Umami module responses (camelCase over the wire).
 
 export type AnalyticsRange = '24h' | '7d' | '30d' | '90d';
-export type MetricType = 'url' | 'referrer' | 'country' | 'browser' | 'os' | 'device';
+export type MetricType = 'path' | 'referrer' | 'country' | 'browser' | 'os' | 'device';
 
 export interface AnalyticsWebsite {
   id: string;
