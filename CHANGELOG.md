@@ -37,6 +37,44 @@ A focused stabilization pass across authentication, the content write path, the 
 ### Added
 - SVG coffee-bean logo (`assets/logo.svg`) and README Security & Stability section.
 
+## [3.1.0] - 2026-07-20
+
+The admin becomes multi-tenant and module-aware.
+
+### Added
+- **Multi-tenant admin** — auto-scopes to your tenant on sign-in, plus a switcher to move between the
+  tenants you belong to (`/api/me/tenants`, `/api/me/switch`). The `X-Tenant` header is derived from
+  the token's own claim and survives refresh.
+- **Installed modules surface in the admin** — sections appear when their module is present:
+  Accounting (accounts/balances/ledgers), Feature flags (view/toggle), Email events (Resend
+  bounces/complaints), Errors (client-error log + resolve), Analytics, PWA installs.
+- **`BarakoCMS.Pwa` module** — `POST /api/pwa/report` (anonymous or tied to the signed-in user) and
+  `GET /api/pwa/installs`, so the admin shows who installed the app. Pairs with `@baryodev/pwa-kit`'s
+  `reportPwaStatus`.
+- **Analytics (Umami)** — device / OS / browser breakdowns; a site status endpoint powering install
+  detection (an "add the snippet" banner + a Verify step); a visitors panel on the dashboard.
+- **`Email.Resend`** — an `/api/email-events` list endpoint.
+- **Quickstart bundle** — `quickstart/` runs the full suite + admin + Postgres from one documented `.env`.
+
+### Fixed
+- **Global roles kept when switching tenants** — `MembershipRoles` now unions a user's global roles
+  with their tenant membership roles, so a platform SuperAdmin keeps Users/Roles access inside a tenant.
+
+## [3.0.0] - 2026-07
+
+Multi-tenancy and field-level sensitivity.
+
+### Added
+- **Multi-tenancy on a shared database** (Marten conjoined tenancy). Identity is global (users, roles,
+  tokens, settings, devices are single-tenanted); only domain content and event streams are
+  tenant-scoped. The default tenant maps to Marten's default partition — no data migration for
+  existing single-tenant deployments.
+- `Tenant` registry + `Membership` (a global user's roles within a tenant); tenant resolution via
+  `X-Tenant` header/subdomain; `TenantAccessMiddleware`. New endpoints: `/api/tenants*`,
+  `/api/me/tenants`, `/api/me/switch`, `/api/club/*`.
+- **Field-level sensitivity** — mark content-type fields Sensitive or Hidden; masked per role on read
+  (remove / redact / show last 4); a role that can't see a field can't write it either.
+
 ## [2.0.0] - 2025-12-11
 
 ### 🎉 Major Release: Advanced RBAC System (Phase 1)
