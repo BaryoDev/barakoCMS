@@ -37,11 +37,14 @@ jobs:
                   username: ${{ secrets.DOCKER_USERNAME }}
                   password: ${{ secrets.DOCKER_PASSWORD }}
 
-            - name: Build and push API
+            # barako-cms is the full "Barako" suite (core + every module). Build it from
+            # Dockerfile.suite, matching nuget-publish.yml — plain Dockerfile is core-only and would
+            # ship an image missing Accounting, Analytics, and the rest.
+            - name: Build and push API (full suite)
               uses: docker/build-push-action@v5
               with:
                   context: .
-                  file: Dockerfile
+                  file: Dockerfile.suite
                   push: true
                   tags: |
                       ghcr.io/baryodev/barako-cms:latest

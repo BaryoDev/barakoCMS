@@ -158,9 +158,11 @@ jobs:
               "ghcr.io/baryodev/$img:$V"
           done
 
-  # Announce the release to the org discussions via the shared reusable workflow.
+  # Announce the release to the org discussions via the shared reusable workflow. Best-effort:
+  # a failed announcement must never turn a successful publish + image push red.
   announce:
     needs: publish
+    continue-on-error: true
     uses: BaryoDev/.github/.github/workflows/announce.yml@main
     with:
       package: "barakoCMS suite"
