@@ -114,7 +114,7 @@ export default function AnalyticsPage() {
           <Trend websiteId={websiteId} range={range} />
 
           <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
-            <MetricCard title="Top pages" websiteId={websiteId} range={range} type="url" mono />
+            <MetricCard title="Top pages" websiteId={websiteId} range={range} type="path" mono />
             <MetricCard title="Referrers" websiteId={websiteId} range={range} type="referrer" empty="Direct visits only" />
             <MetricCard title="Countries" websiteId={websiteId} range={range} type="country" country />
           </div>
