@@ -21,6 +21,7 @@
     <ProjectReference Include="..\BarakoCMS.FeatureFlags\BarakoCMS.FeatureFlags.csproj" />
     <ProjectReference Include="..\BarakoCMS.Portability\BarakoCMS.Portability.csproj" />
     <ProjectReference Include="..\BarakoCMS.Analytics.Umami\BarakoCMS.Analytics.Umami.csproj" />
+    <ProjectReference Include="..\BarakoCMS.Pwa\BarakoCMS.Pwa.csproj" />
   </ItemGroup>
 
 </Project>

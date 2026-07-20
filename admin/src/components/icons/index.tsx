@@ -301,3 +301,7 @@ export function IconFlag(props: IconProps) {
   return <svg {...base(props)}><path d="M 7 3 C 6.448 3 6 3.448 6 4 L 6 29 L 8 29 L 8 18 L 24 18 C 24.828 18 25.316 17.07 24.832 16.4 L 21.236 11.5 L 24.832 6.6 C 25.316 5.93 24.828 5 24 5 L 8 5 L 8 4 C 8 3.448 7.552 3 7 3 Z"/></svg>;
 }
 
+export function IconMobile(props: IconProps) {
+  return <svg {...base(props)}><path d="M 10 2 C 8.355 2 7 3.355 7 5 L 7 27 C 7 28.645 8.355 30 10 30 L 22 30 C 23.645 30 25 28.645 25 27 L 25 5 C 25 3.355 23.645 2 22 2 Z M 10 4 L 22 4 C 22.565 4 23 4.435 23 5 L 23 27 C 23 27.565 22.565 28 22 28 L 10 28 C 9.435 28 9 27.565 9 27 L 9 5 C 9 4.435 9.435 4 10 4 Z M 14 25 L 18 25 L 18 27 L 14 27 Z"/></svg>;
+}
+
