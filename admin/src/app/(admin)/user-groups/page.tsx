@@ -15,6 +15,7 @@ import { apiErrorMessage } from '@/lib/api';
 import type { UserGroup } from '@/types/rbac';
 import { PageHeader } from '@/components/patterns/page-header';
 import { EmptyState } from '@/components/patterns/empty-state';
+import { ErrorState } from '@/components/patterns/error-state';
 import { TableSkeleton } from '@/components/patterns/table-skeleton';
 import { ConfirmDialog } from '@/components/patterns/confirm-dialog';
 import { Button } from '@/components/ui/button';
@@ -39,7 +40,7 @@ import {
 import { IconGroups, IconPen, IconPlus, IconTimes, IconTrash } from '@/components/icons';
 
 export default function UserGroupsPage() {
-  const { data: groups, isLoading } = useUserGroups();
+  const { data: groups, isLoading, isError, refetch } = useUserGroups();
   const { data: users } = useUsers({ pageSize: 100 });
   const createGroup = useCreateUserGroup();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -68,6 +69,8 @@ export default function UserGroupsPage() {
 
       {isLoading ? (
         <TableSkeleton />
+      ) : isError ? (
+        <ErrorState entity="groups" onRetry={() => refetch()} />
       ) : !groups?.length ? (
         <EmptyState
           icon={IconGroups}

@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { PageHeader } from '@/components/patterns/page-header';
+import { PaginationControls } from '@/components/patterns/pagination-controls';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
@@ -81,10 +82,11 @@ export default function ErrorsPage() {
   const [status, setStatus] = useState<StatusFilter>('unresolved');
   const [severity, setSeverity] = useState<SeverityFilter>('all');
   const [q, setQ] = useState('');
+  const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<ClientErrorDto | null>(null);
 
   const { data, isLoading, isError } = useClientErrors({
-    page: 1,
+    page,
     pageSize: 25,
     resolved: resolvedParam(status),
     severity: severity === 'all' ? undefined : severity,
@@ -104,11 +106,20 @@ export default function ErrorsPage() {
           <div className="flex flex-wrap items-center gap-2">
             <Input
               value={q}
-              onChange={(e) => setQ(e.target.value)}
+              onChange={(e) => {
+                setQ(e.target.value);
+                setPage(1);
+              }}
               placeholder="Search messages…"
               className="h-8 w-44"
             />
-            <Select value={status} onValueChange={(v) => setStatus(v as StatusFilter)}>
+            <Select
+              value={status}
+              onValueChange={(v) => {
+                setStatus(v as StatusFilter);
+                setPage(1);
+              }}
+            >
               <SelectTrigger className="w-36" size="sm">
                 <SelectValue />
               </SelectTrigger>
@@ -120,7 +131,13 @@ export default function ErrorsPage() {
                 ))}
               </SelectContent>
             </Select>
-            <Select value={severity} onValueChange={(v) => setSeverity(v as SeverityFilter)}>
+            <Select
+              value={severity}
+              onValueChange={(v) => {
+                setSeverity(v as SeverityFilter);
+                setPage(1);
+              }}
+            >
               <SelectTrigger className="w-40" size="sm">
                 <SelectValue />
               </SelectTrigger>
@@ -182,8 +199,17 @@ export default function ErrorsPage() {
                 {rows.map((row) => (
                   <TableRow
                     key={row.id}
-                    className="cursor-pointer"
+                    className="focus-visible:ring-ring cursor-pointer focus-visible:ring-2 focus-visible:outline-none"
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`View error details: ${row.message}`}
                     onClick={() => setSelected(row)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setSelected(row);
+                      }
+                    }}
                   >
                     <TableCell>
                       <SeverityBadge severity={row.severity} />
@@ -222,6 +248,7 @@ export default function ErrorsPage() {
                 ))}
               </TableBody>
             </Table>
+            {data && <PaginationControls page={data} onPageChange={setPage} />}
           </CardContent>
         </Card>
       )}
