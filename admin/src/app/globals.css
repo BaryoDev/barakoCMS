@@ -70,13 +70,16 @@
   --secondary: #eeeeee;
   --secondary-foreground: #333333;
   --muted: #f8f9fa;
-  --muted-foreground: #888888;
+  /* Yeti's #888 fails WCAG AA on white (~3.5:1). #6c757d is the same gray, ~4.7:1. */
+  --muted-foreground: #6c757d;
   --accent: #e9ecef;
   --accent-foreground: #222222;
   --destructive: #f04124;
   --success: #43ac6a;
   --success-foreground: #ffffff;
-  --warning: #e99002;
+  /* Darkened from Yeti's #e99002 (~2.3:1 as text) to ~4.7:1 — it is used as
+     `text-warning` on tinted backgrounds, not just as a fill. */
+  --warning: #a06800;
   --warning-foreground: #ffffff;
   --border: #dee2e6;
   --input: #dee2e6;
@@ -144,5 +147,20 @@
   /* Yeti: light, airy headings. */
   h1, h2, h3, h4, h5, h6 {
     font-weight: 300;
+  }
+}
+
+/* Honor the OS "reduce motion" setting: keep state changes instant rather than
+   animated. Radix drives enter/exit with animations, so these must be reduced to
+   a near-zero duration instead of `none` — the animationend events still need to
+   fire or dialogs and sheets never finish unmounting. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

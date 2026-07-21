@@ -7,6 +7,7 @@ import { useSchemas } from '@/hooks/use-schemas';
 import { useContents } from '@/hooks/use-contents';
 import { PageHeader } from '@/components/patterns/page-header';
 import { EmptyState } from '@/components/patterns/empty-state';
+import { ErrorState } from '@/components/patterns/error-state';
 import { TableSkeleton } from '@/components/patterns/table-skeleton';
 import { PaginationControls } from '@/components/patterns/pagination-controls';
 import { Button } from '@/components/ui/button';
@@ -38,7 +39,12 @@ function ContentListInner() {
   const [page, setPage] = useState(1);
 
   const { data: schemas } = useSchemas();
-  const { data: contents, isLoading } = useContents({ page, pageSize: 20, contentType });
+  const {
+    data: contents,
+    isLoading,
+    isError,
+    refetch,
+  } = useContents({ page, pageSize: 20, contentType });
 
   const setType = (value: string) => {
     setPage(1);
@@ -78,6 +84,8 @@ function ContentListInner() {
 
       {isLoading ? (
         <TableSkeleton />
+      ) : isError ? (
+        <ErrorState entity="content" onRetry={() => refetch()} />
       ) : !contents?.items.length ? (
         <EmptyState
           icon={IconContent}

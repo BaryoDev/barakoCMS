@@ -5,6 +5,9 @@ import { PageHeader } from '@/components/patterns/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Table,
   TableBody,
@@ -116,15 +119,52 @@ function EmptyCard({ children }: { children: React.ReactNode }) {
 }
 
 function BalancesTab() {
-  const { data, isLoading, isError } = useBalances();
+  const [asOf, setAsOf] = useState('');
+  const { data, isLoading, isError } = useBalances(asOf || undefined);
   const [selected, setSelected] = useState<AccountBalance | null>(null);
 
-  if (isLoading) return <TableSkeleton />;
+  const asOfControls = (
+    <div className="flex flex-wrap items-center gap-2 pb-3">
+      <Label htmlFor="as-of" className="text-muted-foreground text-sm">
+        Balances as at
+      </Label>
+      <Input
+        id="as-of"
+        type="date"
+        value={asOf}
+        max={new Date().toISOString().slice(0, 10)}
+        onChange={(e) => setAsOf(e.target.value)}
+        className="h-8 w-40"
+      />
+      {asOf ? (
+        <Button variant="ghost" size="sm" onClick={() => setAsOf('')}>
+          Today
+        </Button>
+      ) : (
+        <span className="text-muted-foreground text-xs">today</span>
+      )}
+    </div>
+  );
+
+  if (isLoading)
+    return (
+      <>
+        {asOfControls}
+        <TableSkeleton />
+      </>
+    );
   if (isError) return <ModuleUnavailable />;
-  if (!data || data.length === 0) return <EmptyCard>No accounts yet</EmptyCard>;
+  if (!data || data.length === 0)
+    return (
+      <>
+        {asOfControls}
+        <EmptyCard>No accounts yet</EmptyCard>
+      </>
+    );
 
   return (
     <>
+      {asOfControls}
       <Card className="py-0">
         <CardContent className="px-0">
           <Table>

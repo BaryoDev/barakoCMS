@@ -15,6 +15,7 @@ import { apiErrorMessage } from '@/lib/api';
 import type { User } from '@/types/rbac';
 import { PageHeader } from '@/components/patterns/page-header';
 import { EmptyState } from '@/components/patterns/empty-state';
+import { ErrorState } from '@/components/patterns/error-state';
 import { TableSkeleton } from '@/components/patterns/table-skeleton';
 import { PaginationControls } from '@/components/patterns/pagination-controls';
 import { Badge } from '@/components/ui/badge';
@@ -39,7 +40,7 @@ import { format } from 'date-fns';
 
 export default function UsersPage() {
   const [page, setPage] = useState(1);
-  const { data: users, isLoading } = useUsers({ page });
+  const { data: users, isLoading, isError, refetch } = useUsers({ page });
   const { data: roles } = useRoles({ pageSize: 100 });
   const { data: groups } = useUserGroups();
 
@@ -55,6 +56,8 @@ export default function UsersPage() {
 
       {isLoading ? (
         <TableSkeleton />
+      ) : isError ? (
+        <ErrorState entity="users" onRetry={() => refetch()} />
       ) : !users?.items.length ? (
         <EmptyState
           icon={IconUsers}

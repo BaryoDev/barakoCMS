@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useWorkflows } from '@/hooks/use-workflows';
 import { PageHeader } from '@/components/patterns/page-header';
 import { EmptyState } from '@/components/patterns/empty-state';
+import { ErrorState } from '@/components/patterns/error-state';
 import { TableSkeleton } from '@/components/patterns/table-skeleton';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -20,7 +21,7 @@ import { IconBolt, IconPlus, IconWorkflows } from '@/components/icons';
 
 export default function WorkflowsPage() {
   const router = useRouter();
-  const { data: workflows, isLoading } = useWorkflows();
+  const { data: workflows, isLoading, isError, refetch } = useWorkflows();
 
   return (
     <>
@@ -39,6 +40,8 @@ export default function WorkflowsPage() {
 
       {isLoading ? (
         <TableSkeleton />
+      ) : isError ? (
+        <ErrorState entity="workflows" onRetry={() => refetch()} />
       ) : !workflows?.length ? (
         <EmptyState
           icon={IconWorkflows}
