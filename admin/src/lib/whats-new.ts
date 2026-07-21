@@ -16,10 +16,58 @@ export interface Release {
     items: ChangeItem[];
 }
 
-// Bumping this re-triggers the one-time auto-open for everyone.
-export const CURRENT_VERSION = '3.1.0';
+// Bumping this puts the unseen dot back on the What's new button for everyone.
+export const CURRENT_VERSION = '3.1.2';
 
 export const RELEASES: Release[] = [
+    {
+        version: '3.1.2',
+        date: 'July 2026',
+        items: [
+            {
+                type: 'fix',
+                title: 'Failed lists no longer look empty',
+                description:
+                    'When the API could not be reached, Content, Users, Roles, Groups, Content types and Workflows showed their "nothing here yet" message — which read as though the data was gone. They now say the request failed and offer a retry.',
+            },
+            {
+                type: 'improvement',
+                title: 'Errors page paginates',
+                description:
+                    'The list was capped at the first 25 errors. It now pages through the full set, and changing a filter or the search box returns you to page one.',
+            },
+            {
+                type: 'improvement',
+                title: 'Balances as at any date',
+                description:
+                    'Accounting balances take an "as at" date, so you can see where the books stood at the end of any past day instead of only today.',
+            },
+            {
+                type: 'improvement',
+                title: 'Readable secondary text',
+                description:
+                    'Muted text and warning badges were too light to meet the WCAG AA contrast minimum. Both are darker now.',
+            },
+            {
+                type: 'fix',
+                title: 'Error rows open with the keyboard',
+                description:
+                    'Error detail could only be opened by clicking a row, leaving it unreachable by keyboard. Rows are now focusable and respond to Enter or Space.',
+            },
+            {
+                type: 'fix',
+                title: 'What’s new keeps its header while you scroll',
+                description:
+                    'The title scrolled away with the release notes. It stays put now, and the dialog no longer opens by itself — the dot on the toolbar button marks unread notes instead.',
+            },
+            {
+                type: 'improvement',
+                title: 'Animations respect your system settings',
+                description:
+                    'If your OS is set to reduce motion, the admin now skips its transitions and animations.',
+            },
+        ],
+    },
     {
         version: '3.1.0',
         date: 'July 2026',

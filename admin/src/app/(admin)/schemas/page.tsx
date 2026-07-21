@@ -5,13 +5,14 @@ import Link from 'next/link';
 import { useSchemas } from '@/hooks/use-schemas';
 import { PageHeader } from '@/components/patterns/page-header';
 import { EmptyState } from '@/components/patterns/empty-state';
+import { ErrorState } from '@/components/patterns/error-state';
 import { TableSkeleton } from '@/components/patterns/table-skeleton';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { IconContentTypes, IconPlus, IconSearch } from '@/components/icons';
 
 export default function SchemasPage() {
-  const { data: schemas, isLoading } = useSchemas();
+  const { data: schemas, isLoading, isError, refetch } = useSchemas();
   const [search, setSearch] = useState('');
 
   const filtered = schemas?.filter(
@@ -37,6 +38,8 @@ export default function SchemasPage() {
 
       {isLoading ? (
         <TableSkeleton />
+      ) : isError ? (
+        <ErrorState entity="content types" onRetry={() => refetch()} />
       ) : !schemas?.length ? (
         <EmptyState
           icon={IconContentTypes}

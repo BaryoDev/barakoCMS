@@ -64,11 +64,21 @@ export interface Ledger {
   [key: string]: unknown;
 }
 
-/** All accounts with their current running balance. */
-export function useBalances() {
+/**
+ * All accounts with their balance.
+ *
+ * `asOf` (yyyy-MM-dd) asks the server for balances as at the end of that day —
+ * only entries posted on or before it are counted. Omit it for current balances.
+ */
+export function useBalances(asOf?: string) {
   return useQuery({
-    queryKey: ['accounting', 'balances'],
-    queryFn: async () => (await api.get<AccountBalance[]>('/api/accounting/balances')).data,
+    queryKey: ['accounting', 'balances', asOf ?? 'current'],
+    queryFn: async () =>
+      (
+        await api.get<AccountBalance[]>('/api/accounting/balances', {
+          params: asOf ? { asOf } : undefined,
+        })
+      ).data,
   });
 }
 

@@ -9,6 +9,7 @@ import { apiErrorMessage } from '@/lib/api';
 import { SYSTEM_ROLE_NAMES } from '@/types/rbac';
 import { PageHeader } from '@/components/patterns/page-header';
 import { EmptyState } from '@/components/patterns/empty-state';
+import { ErrorState } from '@/components/patterns/error-state';
 import { TableSkeleton } from '@/components/patterns/table-skeleton';
 import { PaginationControls } from '@/components/patterns/pagination-controls';
 import { ConfirmDialog } from '@/components/patterns/confirm-dialog';
@@ -27,7 +28,7 @@ import { IconPlus, IconRoles, IconTrash } from '@/components/icons';
 export default function RolesPage() {
   const router = useRouter();
   const [page, setPage] = useState(1);
-  const { data: roles, isLoading } = useRoles({ page });
+  const { data: roles, isLoading, isError, refetch } = useRoles({ page });
   const deleteRole = useDeleteRole();
 
   return (
@@ -47,6 +48,8 @@ export default function RolesPage() {
 
       {isLoading ? (
         <TableSkeleton />
+      ) : isError ? (
+        <ErrorState entity="roles" onRetry={() => refetch()} />
       ) : !roles?.items.length ? (
         <EmptyState
           icon={IconRoles}
