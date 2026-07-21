@@ -8,7 +8,7 @@
 
     <IsPackable>true</IsPackable>
     <PackageId>BarakoCMS.Accounting</PackageId>
-    <Version>0.1.0</Version>
+    <Version>0.1.1</Version>
     <Description>Optional double-entry accounting module for barakoCMS: accounts, balanced journal entries, and reporting.</Description>
     <Company>BaryoDev</Company>
     <PackageLicenseExpression>MPL-2.0</PackageLicenseExpression>

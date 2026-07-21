@@ -8,7 +8,7 @@
 
     <IsPackable>true</IsPackable>
     <PackageId>BarakoCMS.FeatureFlags</PackageId>
-    <Version>0.1.0</Version>
+    <Version>0.1.1</Version>
     <Description>Lean feature-flag module for barakoCMS: create a flag, toggle it on/off, and target it ("true for this and that") by club, by user, or by percentage rollout. Global flags with per-tenant targeting, evaluated server-side and exposed at GET /api/feature-flags for the UI.</Description>
     <Company>BaryoDev</Company>
     <PackageLicenseExpression>MPL-2.0</PackageLicenseExpression>

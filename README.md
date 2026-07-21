@@ -186,7 +186,7 @@ reference, and architecture. Changelog: [CHANGELOG.md](CHANGELOG.md).
 
 ## Support
 
-BarakoCMS is free and open-source under [Apache-2.0](LICENSE). If it's useful to you:
+BarakoCMS is free and open-source under [MPL-2.0](LICENSE). If it's useful to you:
 
 - ⭐ **Star the repo** so others find it
 - ☕ **[Ko-fi](https://ko-fi.com/T6T01CQT4R)** (one-time) or **[GitHub Sponsors](https://github.com/sponsors/BaryoDev)** (monthly)
@@ -197,6 +197,11 @@ BarakoCMS is free and open-source under [Apache-2.0](LICENSE). If it's useful to
 
 ## License
 
-[Apache-2.0](LICENSE). Modules are published under MPL-2.0. Attribution required.
+[MPL-2.0](LICENSE) — the core and every module, so there is one licence across the suite.
+
+MPL is file-level copyleft: use it in commercial and closed-source products freely, and if you
+modify a barakoCMS source file, share that file's changes. Your own code stays yours.
+
+*Packages up to `BarakoCMS` 3.1.1 were released under Apache-2.0 and remain so; 3.2.0 onward is MPL-2.0.*
 
 **Author:** Arnel Robles · [@arnelirobles](https://github.com/arnelirobles) · [arnelirobles@gmail.com](mailto:arnelirobles@gmail.com)

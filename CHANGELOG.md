@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0] - 2026-07-21
+
+### ⚖️ One licence across the suite: MPL-2.0
+
+The core was Apache-2.0 while all eleven modules were MPL-2.0, and a stray `LICENSE.txt`
+carrying an unrelated BSD 3-Clause notice sat next to the Apache `LICENSE`. GitHub could not
+resolve which applied and reported the repository as having **no licence at all** — which is
+worse than either choice, since it leaves adopters with nothing to rely on.
+
+Everything is now **MPL-2.0**, matching the modules and Talaan.
+
+- `LICENSE` replaced with the Mozilla Public License 2.0
+- `LICENSE.txt` (BSD 3-Clause, left over from an unrelated 2023 project) removed
+- core switched from `PackageLicenseFile` to `PackageLicenseExpression`, so NuGet renders the
+  licence inline and it matches how the modules already declared theirs
+- README and CONTRIBUTING updated
+
+**What MPL-2.0 means for you:** file-level copyleft. Use barakoCMS in commercial and
+closed-source products freely; if you modify a barakoCMS *source file*, publish that file's
+changes. Your own application code stays yours. This is deliberately weaker than GPL — linking
+and bundling are unrestricted.
+
+**Already shipped versions are unaffected.** `BarakoCMS` 3.1.1 and earlier remain Apache-2.0
+under the terms they were released with; 3.2.0 onward is MPL-2.0.
+
+### 📦 All modules republished
+
+Eight modules were live on NuGet but missing from its search index — installable if you knew
+the exact ID, invisible if you didn't. Every module gets a patch release so the whole suite
+re-indexes and depends on core 3.2.0.
+
 ## [Unreleased]
 
 ### 🔒 Security & Stability Hardening

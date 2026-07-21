@@ -8,7 +8,7 @@
 
     <IsPackable>true</IsPackable>
     <PackageId>BarakoCMS.Diagnostics</PackageId>
-    <Version>0.1.0</Version>
+    <Version>0.1.1</Version>
     <Description>Client error logging for barakoCMS: apps POST captured browser errors (message, stack, page, user, club) to /api/client-errors; they're deduplicated by fingerprint with an occurrence count and browsable by Admin/SuperAdmin at GET /api/client-errors so you can retrieve and fix them later.</Description>
     <Company>BaryoDev</Company>
     <PackageLicenseExpression>MPL-2.0</PackageLicenseExpression>
