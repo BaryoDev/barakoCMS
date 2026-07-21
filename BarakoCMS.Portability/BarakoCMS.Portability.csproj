@@ -8,7 +8,7 @@
 
     <IsPackable>true</IsPackable>
     <PackageId>BarakoCMS.Portability</PackageId>
-    <Version>0.1.0</Version>
+    <Version>0.1.1</Version>
     <Description>Content portability for barakoCMS: export content-type definitions and their content data as a JSON bundle, and import a bundle into another instance (upsert types by name, recreate content via events). For backup, migration, seeding, and sharing content-type templates.</Description>
     <Company>BaryoDev</Company>
     <PackageLicenseExpression>MPL-2.0</PackageLicenseExpression>
