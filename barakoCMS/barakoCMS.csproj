@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <PackageId>BarakoCMS</PackageId>
-    <Version>3.1.1</Version>
+    <Version>3.2.0</Version>
 
     <Authors>Arnel Robles</Authors>
     <Company>BaryoDev</Company>
@@ -16,7 +16,10 @@
     <StaticWebAssetsEnabled>false</StaticWebAssetsEnabled>
     <GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
     <RepositoryUrl>https://github.com/baryodev/barakoCMS</RepositoryUrl>
-    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <!-- SPDX expression rather than a bundled file: it matches the modules and lets NuGet
+         render the licence inline. Versions up to 3.1.1 shipped under Apache-2.0 and stay
+         that way; 3.2.0 onward is MPL-2.0, so the whole suite is one licence. -->
+    <PackageLicenseExpression>MPL-2.0</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/baryodev/barakoCMS</PackageProjectUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
