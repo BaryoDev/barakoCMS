@@ -35,10 +35,13 @@ public class SwitchTenantEndpoint : Endpoint<SwitchTenantRequest, SwitchTenantRe
     private readonly IDocumentSession _session;
     private readonly IConfiguration _config;
 
-    public SwitchTenantEndpoint(IDocumentSession session, IConfiguration config)
+    private readonly barakoCMS.Infrastructure.Auth.ITokenIssuer _tokenIssuer;
+
+    public SwitchTenantEndpoint(IDocumentSession session, IConfiguration config, barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer)
     {
         _session = session;
         _config = config;
+        _tokenIssuer = tokenIssuer;
     }
 
     public override void Configure()
@@ -63,57 +66,24 @@ public class SwitchTenantEndpoint : Endpoint<SwitchTenantRequest, SwitchTenantRe
             return;
         }
 
-        var isDefault = target == Tenant.DefaultSlug;
-        if (!isDefault)
-        {
-            var tenant = await _session.Query<Tenant>()
-                .FirstOrDefaultAsync(t => t.Slug == target && t.IsActive, ct);
-            if (tenant is null)
-            {
-                await SendNotFoundAsync(ct);
-                return;
-            }
-
-            var isMember = await _session.Query<Membership>()
-                .AnyAsync(m => m.UserId == userId && m.TenantSlug == target
-                               && m.Status == MembershipStatus.Active, ct);
-            if (!isMember)
-            {
-                ThrowError(r => r.Club, "You are not a member of this club.");
-                return;
-            }
-        }
-
-        var roleIds = await MembershipRoles.EffectiveRoleIdsAsync(_session, user, target, ct);
-        var roles = await _session.Query<Role>()
-            .Where(r => roleIds.Contains(r.Id))
-            .Select(r => r.Name)
-            .ToListAsync(ct);
-
         // Carry the device binding forward so DeviceTrust enforcement keeps working after a switch.
         var did = User.FindFirst("did")?.Value;
         var device = DeviceContext.From(HttpContext);
+        var extraClaims = new List<Claim>();
+        if (!string.IsNullOrEmpty(did))
+            extraClaims.Add(new("did", did));
 
-        var jti = Guid.NewGuid().ToString();
-        var accessTokenExpiry = DateTime.UtcNow.AddMinutes(15);
-        var jwtToken = JWTBearer.CreateToken(
-            signingKey: _config["JWT:Key"]!,
-            expireAt: accessTokenExpiry,
-            issuer: _config["JWT:Issuer"],
-            audience: _config["JWT:Audience"],
-            privileges: u =>
-            {
-                u.Claims.Add(new(JwtRegisteredClaimNames.Jti, jti));
-                u.Claims.Add(new("UserId", user.Id.ToString()));
-                u.Claims.Add(new("Username", user.Username));
-                u.Claims.Add(new("tenant", target));
-                foreach (var role in roles)
-                    u.Claims.Add(new(ClaimTypes.Role, role));
-                if (roles.Count == 0)
-                    u.Claims.Add(new(ClaimTypes.Role, "User"));
-                if (!string.IsNullOrEmpty(did))
-                    u.Claims.Add(new("did", did));
-            });
+        // This endpoint already performed the membership check correctly and was the model for
+        // ITokenIssuer; it now delegates so there is exactly one implementation to keep right.
+        var issued = await _tokenIssuer.IssueAccessTokenAsync(user, target, extraClaims, ct);
+        if (!issued.Allowed)
+        {
+            ThrowError(r => r.Club, "You are not a member of this club.");
+            return;
+        }
+
+        var accessTokenExpiry = issued.ExpiresAt;
+        var jwtToken = issued.Token;
 
         var refreshTokenString = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
         var refreshTokenExpiry = DateTime.UtcNow.AddDays(7);
