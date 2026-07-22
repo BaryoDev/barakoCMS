@@ -22,7 +22,8 @@ public class Endpoint : Endpoint<Request, Response>
         IConfiguration config,
         ILogger<Endpoint> logger,
         barakoCMS.Infrastructure.Services.ITokenRevocationService tokenRevocation,
-        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
+        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
+        barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer)
     {
         _querySession = querySession;
         _documentSession = documentSession;
@@ -30,7 +31,10 @@ public class Endpoint : Endpoint<Request, Response>
         _logger = logger;
         _tokenRevocation = tokenRevocation;
         _tenant = tenant;
+        _tokenIssuer = tokenIssuer;
     }
+
+    private readonly barakoCMS.Infrastructure.Auth.ITokenIssuer _tokenIssuer;
 
     public override void Configure()
     {
@@ -94,43 +98,29 @@ public class Endpoint : Endpoint<Request, Response>
             return;
         }
 
-        // Roles from the user's membership in the current tenant (the client sends X-Tenant on refresh),
-        // so a refreshed token keeps the same per-club roles as the login/switch token — not the user's
-        // global roles. Falls back to global roles when there's no membership (e.g. the default tenant).
-        var roleIds = await barakoCMS.Infrastructure.Multitenancy.MembershipRoles
-            .EffectiveRoleIdsAsync(_documentSession, user, _tenant.Slug, ct);
-        var roles = await _querySession.Query<Role>()
-            .Where(r => r.Id.In(roleIds))
-            .Select(r => r.Name)
-            .ToListAsync(ct);
+        // The client sends X-Tenant on refresh, so without a membership check a refresh is a free
+        // tenant hop: present a legitimately-issued refresh token with a different X-Tenant and walk
+        // out with a token scoped to a tenant you never belonged to. The issuer re-checks every time,
+        // which also means a membership revoked mid-session stops working at the next refresh rather
+        // than lingering until the refresh token expires.
+        var extraClaims = new List<System.Security.Claims.Claim>();
+        // Preserve device binding so DeviceTrust enforcement still applies to refreshed tokens.
+        if (!string.IsNullOrEmpty(refreshToken.DeviceId))
+            extraClaims.Add(new("did", refreshToken.DeviceId));
 
-        // Generate new access token (15 minutes)
-        var jti = Guid.NewGuid().ToString();
-        var accessTokenExpiry = DateTime.UtcNow.AddMinutes(15);
+        var issued = await _tokenIssuer.IssueAccessTokenAsync(user, _tenant.Slug, extraClaims, ct);
+        if (!issued.Allowed)
+        {
+            _logger.LogWarning(
+                "Refresh refused for {UserId} on tenant {Tenant}: {Reason}",
+                user.Id, _tenant.Slug, issued.DenialReason);
+            ThrowError("Refresh token is not valid for this tenant. Please log in again.");
+            return;
+        }
 
-        var jwtToken = JWTBearer.CreateToken(
-            signingKey: _config["JWT:Key"]!,
-            expireAt: accessTokenExpiry,
-            issuer: _config["JWT:Issuer"],
-            audience: _config["JWT:Audience"],
-            privileges: u =>
-            {
-                u.Claims.Add(new(JwtRegisteredClaimNames.Jti, jti));
-                u.Claims.Add(new("UserId", user.Id.ToString()));
-                u.Claims.Add(new("Username", user.Username));
-                u.Claims.Add(new("tenant", _tenant.Slug));
-                foreach (var role in roles)
-                {
-                    u.Claims.Add(new(System.Security.Claims.ClaimTypes.Role, role));
-                }
-                if (!roles.Any())
-                {
-                    u.Claims.Add(new(System.Security.Claims.ClaimTypes.Role, "User"));
-                }
-                // Preserve device binding so DeviceTrust enforcement still applies to refreshed tokens.
-                if (!string.IsNullOrEmpty(refreshToken.DeviceId))
-                    u.Claims.Add(new("did", refreshToken.DeviceId));
-            });
+        var jti = issued.Jti;
+        var accessTokenExpiry = issued.ExpiresAt;
+        var jwtToken = issued.Token;
 
         // Generate new refresh token (rotation)
         var newRefreshTokenString = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));

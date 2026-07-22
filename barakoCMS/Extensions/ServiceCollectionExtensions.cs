@@ -160,6 +160,9 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IPermissionResolver, CachedPermissionResolver>(); // Cached decorator
         
         // Security Services
+        // The only place an access token is minted — it owns the "may this user hold a token for
+        // this tenant?" check, so no endpoint can skip it by omission. See ITokenIssuer.
+        services.AddScoped<barakoCMS.Infrastructure.Auth.ITokenIssuer, barakoCMS.Infrastructure.Auth.TokenIssuer>();
         services.AddScoped<ITokenRevocationService, TokenRevocationService>();
         services.AddScoped<IPasswordPolicyValidator, PasswordPolicyValidator>();
         
