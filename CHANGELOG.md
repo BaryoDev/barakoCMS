@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.1] - 2026-07-22
+
+### 🔐 Security: cross-tenant token issuance
+
+**Upgrade if you run more than one tenant.** Single-tenant deployments were never exposed.
+
+The tenant a token is scoped to comes from the client-supplied `X-Tenant` header. Login, OTP
+verify and refresh all trusted it and minted a matching `tenant` claim **without checking
+membership**; only `/api/me/switch` checked. Because role resolution falls back to a user's
+*global* roles when no membership exists, the resulting token was not merely scoped to another
+tenant — it carried working privileges there.
+
+Any registered user could authenticate against any tenant and receive a usable token for it,
+including one they had never joined. `BarakoCMS.ExternalAuth` had the same hole via its `club`
+parameter, so *Continue with Google* produced the same result.
+
+**Fixed** by routing every token through a single `ITokenIssuer` that owns the tenant-access
+check, so it cannot be skipped by omission. Access is granted when the tenant is the default
+(the single-tenant/global context), when the slug is unregistered (not a managed tenant, so no
+membership model applies), or when the user holds an **Active** membership in a registered,
+active tenant.
+
+Two consequences worth knowing:
+
+- **Refresh re-checks on every rotation**, so revoking a membership takes effect within ~15
+  minutes instead of lingering for the refresh token's 7-day life.
+- **Login denials return "Invalid credentials"** — the same message as a wrong password, since
+  "right password, wrong tenant" confirms both the account and the tenant exist.
+
+Covered by nine end-to-end regression tests, verified failing against the vulnerable build
+before the fix landed. Suite: 243 passing.
+
+`BarakoCMS.ExternalAuth` 0.1.3 → 0.1.4.
+
 ## [3.2.0] - 2026-07-21
 
 ### ⚖️ One licence across the suite: MPL-2.0
