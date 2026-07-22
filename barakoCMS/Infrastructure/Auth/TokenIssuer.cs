@@ -91,10 +91,23 @@ public sealed class TokenIssuer : ITokenIssuer
         if (slug == Tenant.DefaultSlug)
             return null;
 
-        var tenantExists = await _session.Query<Tenant>()
-            .AnyAsync(t => t.Slug == slug && t.IsActive, ct);
-        if (!tenantExists)
-            return "tenant does not exist or is inactive";
+        var tenant = await _session.Query<Tenant>()
+            .FirstOrDefaultAsync(t => t.Slug == slug, ct);
+
+        // An unregistered slug is not a managed tenant, so there is no membership model to enforce
+        // against. This is the ordinary shape of a single-tenant deployment reached over a
+        // subdomain: TenantResolutionMiddleware derives a slug from the host, nobody ever created a
+        // Tenant document, and every user legitimately works in that partition. Denying it locks
+        // out the whole deployment — which is exactly what happened to the public playground the
+        // first time this check shipped.
+        //
+        // The vulnerability this guards against is obtaining a token for someone else's *real*
+        // tenant, and those are registered by definition, so they stay covered below.
+        if (tenant is null)
+            return null;
+
+        if (!tenant.IsActive)
+            return "tenant is inactive";
 
         var isMember = await _session.Query<Membership>()
             .AnyAsync(m => m.UserId == user.Id
