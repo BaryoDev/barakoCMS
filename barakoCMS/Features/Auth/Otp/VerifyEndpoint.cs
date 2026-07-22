@@ -32,12 +32,15 @@ public class VerifyEndpoint : Endpoint<OtpVerifyRequest, OtpVerifyResponse>
     private readonly IDocumentSession _session;
     private readonly IConfiguration _config;
 
-    public VerifyEndpoint(IDocumentSession session, IConfiguration config, barakoCMS.Core.Interfaces.IDeviceGate deviceGate, barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
+    private readonly barakoCMS.Infrastructure.Auth.ITokenIssuer _tokenIssuer;
+
+    public VerifyEndpoint(IDocumentSession session, IConfiguration config, barakoCMS.Core.Interfaces.IDeviceGate deviceGate, barakoCMS.Infrastructure.Multitenancy.TenantContext tenant, barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer)
     {
         _session = session;
         _config = config;
         _deviceGate = deviceGate;
         _tenant = tenant;
+        _tokenIssuer = tokenIssuer;
     }
 
     private readonly barakoCMS.Core.Interfaces.IDeviceGate _deviceGate;
@@ -95,38 +98,24 @@ public class VerifyEndpoint : Endpoint<OtpVerifyRequest, OtpVerifyResponse>
             return;
         }
 
-        var roleIds = await barakoCMS.Infrastructure.Multitenancy.MembershipRoles
-            .EffectiveRoleIdsAsync(_session, user, _tenant.Slug, ct);
-        var roles = await _session.Query<Role>()
-            .Where(r => roleIds.Contains(r.Id))
-            .Select(r => r.Name)
-            .ToListAsync(ct);
-
         // OTP proves possession of this device, so trust it. The gate (DeviceTrust module, if
         // installed) records/trusts the device and returns claims to bind the token to it.
         var device = barakoCMS.Infrastructure.DeviceContext.From(HttpContext);
         var deviceClaims = await _deviceGate.TrustOnOtpAsync(user, device, ct);
 
-        var jti = Guid.NewGuid().ToString();
-        var accessTokenExpiry = DateTime.UtcNow.AddMinutes(15);
-        var jwtToken = JWTBearer.CreateToken(
-            signingKey: _config["JWT:Key"]!,
-            expireAt: accessTokenExpiry,
-            issuer: _config["JWT:Issuer"],
-            audience: _config["JWT:Audience"],
-            privileges: u =>
-            {
-                u.Claims.Add(new(JwtRegisteredClaimNames.Jti, jti));
-                u.Claims.Add(new("UserId", user.Id.ToString()));
-                u.Claims.Add(new("Username", user.Username));
-                u.Claims.Add(new("tenant", _tenant.Slug));
-                foreach (var role in roles)
-                    u.Claims.Add(new(System.Security.Claims.ClaimTypes.Role, role));
-                if (!roles.Any())
-                    u.Claims.Add(new(System.Security.Claims.ClaimTypes.Role, "User"));
-                foreach (var claim in deviceClaims)
-                    u.Claims.Add(claim);
-            });
+        // Proving control of the mailbox says who you are, not which tenants you belong to — the
+        // issuer still decides whether a token for this tenant may be minted.
+        var issued = await _tokenIssuer.IssueAccessTokenAsync(user, _tenant.Slug, deviceClaims, ct);
+        if (!issued.Allowed)
+        {
+            await _session.SaveChangesAsync(ct); // keep the code consumed
+            ThrowError("Invalid or expired code.");
+            return;
+        }
+
+        var jti = issued.Jti;
+        var accessTokenExpiry = issued.ExpiresAt;
+        var jwtToken = issued.Token;
 
         var refreshTokenString = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
         var refreshTokenExpiry = DateTime.UtcNow.AddDays(7);

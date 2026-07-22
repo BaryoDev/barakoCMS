@@ -18,6 +18,8 @@ public class Endpoint : Endpoint<Request, Response>
     private readonly barakoCMS.Core.Interfaces.IDeviceGate _deviceGate;
     private readonly barakoCMS.Core.Interfaces.IOtpService _otp;
 
+    private readonly barakoCMS.Infrastructure.Auth.ITokenIssuer _tokenIssuer;
+
     public Endpoint(
         barakoCMS.Repository.IUserRepository repo,
         IQuerySession session,
@@ -26,7 +28,8 @@ public class Endpoint : Endpoint<Request, Response>
         ILogger<Endpoint> logger,
         barakoCMS.Core.Interfaces.IDeviceGate deviceGate,
         barakoCMS.Core.Interfaces.IOtpService otp,
-        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
+        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
+        barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer)
     {
         _repo = repo;
         _session = session;
@@ -36,6 +39,7 @@ public class Endpoint : Endpoint<Request, Response>
         _deviceGate = deviceGate;
         _otp = otp;
         _tenant = tenant;
+        _tokenIssuer = tokenIssuer;
     }
 
     private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
@@ -132,43 +136,23 @@ public class Endpoint : Endpoint<Request, Response>
             return;
         }
 
-        // Load the user's roles in the current tenant (membership, or legacy user roles).
-        var roleIds = await barakoCMS.Infrastructure.Multitenancy.MembershipRoles
-            .EffectiveRoleIdsAsync(_session, user, _tenant.Slug, ct);
-        var roles = await _session.Query<Role>()
-            .Where(r => roleIds.Contains(r.Id))
-            .Select(r => r.Name)
-            .ToListAsync(ct);
+        // Mint through the issuer so the tenant-access check runs. `X-Tenant` is client-supplied, so
+        // valid credentials alone must not be enough to get a token scoped to an arbitrary tenant.
+        var issued = await _tokenIssuer.IssueAccessTokenAsync(user, _tenant.Slug, gate.Claims, ct);
+        if (!issued.Allowed)
+        {
+            // Same message as bad credentials on purpose: telling an attacker "right password,
+            // wrong tenant" confirms both the account and the tenant's existence.
+            _logger.LogWarning(
+                "Login refused for {Username}: not permitted on tenant {Tenant} ({Reason})",
+                user.Username, _tenant.Slug, issued.DenialReason);
+            ThrowError("Invalid credentials");
+            return;
+        }
 
-        // Generate JWT with 15-minute expiry
-        var jti = Guid.NewGuid().ToString(); // JWT ID for revocation tracking
-        var accessTokenExpiry = DateTime.UtcNow.AddMinutes(15);
-
-        var jwtToken = JWTBearer.CreateToken(
-            signingKey: _config["JWT:Key"]!,
-            expireAt: accessTokenExpiry,
-            issuer: _config["JWT:Issuer"],
-            audience: _config["JWT:Audience"],
-            privileges: u =>
-            {
-                u.Claims.Add(new(JwtRegisteredClaimNames.Jti, jti));
-                u.Claims.Add(new("UserId", user.Id.ToString()));
-                u.Claims.Add(new("Username", user.Username));
-                u.Claims.Add(new("tenant", _tenant.Slug));
-                foreach (var role in roles)
-                {
-                    u.Claims.Add(new(System.Security.Claims.ClaimTypes.Role, role));
-                }
-                // Fallback for backward compatibility or default
-                if (!roles.Any())
-                {
-                    u.Claims.Add(new(System.Security.Claims.ClaimTypes.Role, "User"));
-                }
-                foreach (var claim in gate.Claims)
-                {
-                    u.Claims.Add(claim);
-                }
-            });
+        var jti = issued.Jti;
+        var accessTokenExpiry = issued.ExpiresAt;
+        var jwtToken = issued.Token;
 
         // Generate refresh token (7-day expiry)
         var refreshTokenString = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));

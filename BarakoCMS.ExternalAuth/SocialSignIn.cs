@@ -18,7 +18,16 @@ namespace BarakoCMS.ExternalAuth;
 /// </summary>
 public static class SocialSignIn
 {
-    public sealed record Tokens(string Token, string Refresh);
+    /// <summary>
+    /// Tokens for a successful sign-in, or <see cref="Denied"/> when the person proved their email
+    /// but has no claim to the club they asked for.
+    /// </summary>
+    public sealed record Tokens(string Token, string Refresh)
+    {
+        public bool Allowed => Token.Length > 0;
+
+        public static Tokens Denied() => new(string.Empty, string.Empty);
+    }
 
     /// <summary>Profile fields a provider shared (any may be null). Only non-null values are stored.</summary>
     public sealed record ProfileData(
@@ -28,6 +37,7 @@ public static class SocialSignIn
         IDocumentSession session,
         IConfiguration config,
         barakoCMS.Core.Interfaces.IDeviceGate deviceGate,
+        barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer,
         HttpContext http,
         string email,
         string club,
@@ -57,29 +67,24 @@ public static class SocialSignIn
         }
 
         var tenantSlug = string.IsNullOrEmpty(club) ? Tenant.DefaultSlug : club;
-        var roleIds = await MembershipRoles.EffectiveRoleIdsAsync(session, user, tenantSlug, ct);
-        var roles = await session.Query<Role>().Where(r => roleIds.Contains(r.Id)).Select(r => r.Name).ToListAsync(ct);
 
         var device = DeviceContext.From(http);
         var deviceClaims = await deviceGate.TrustOnOtpAsync(user, device, ct);
 
-        var jti = Guid.NewGuid().ToString();
-        var accessTokenExpiry = DateTime.UtcNow.AddMinutes(15);
-        var jwt = JWTBearer.CreateToken(
-            signingKey: config["JWT:Key"]!,
-            expireAt: accessTokenExpiry,
-            issuer: config["JWT:Issuer"],
-            audience: config["JWT:Audience"],
-            privileges: u =>
-            {
-                u.Claims.Add(new(JwtRegisteredClaimNames.Jti, jti));
-                u.Claims.Add(new("UserId", user.Id.ToString()));
-                u.Claims.Add(new("Username", user.Username));
-                u.Claims.Add(new("tenant", tenantSlug));
-                foreach (var role in roles) u.Claims.Add(new(ClaimTypes.Role, role));
-                if (roles.Count == 0) u.Claims.Add(new(ClaimTypes.Role, "User"));
-                foreach (var claim in deviceClaims) u.Claims.Add(claim);
-            });
+        // A provider proving the person owns an email address says who they are, not which clubs
+        // they belong to — `club` arrives from the caller exactly like the X-Tenant header does.
+        // Mint through core's issuer so this module is held to the same membership check as the
+        // password and OTP flows rather than re-deciding it here.
+        var issued = await tokenIssuer.IssueAccessTokenAsync(user, tenantSlug, deviceClaims, ct);
+        if (!issued.Allowed)
+        {
+            // The user record and any profile merge above are still worth persisting; they are not
+            // sensitive and re-doing the provider round trip on a retry would be wasteful.
+            await session.SaveChangesAsync(ct);
+            return Tokens.Denied();
+        }
+
+        var jwt = issued.Token;
 
         var refresh = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
         session.Store(new RefreshToken

@@ -53,14 +53,17 @@ public class GoogleCallbackEndpoint : EndpointWithoutRequest
     private readonly IDocumentSession _session;
     private readonly IConfiguration _config;
     private readonly barakoCMS.Core.Interfaces.IDeviceGate _deviceGate;
+    private readonly barakoCMS.Infrastructure.Auth.ITokenIssuer _tokenIssuer;
 
     public GoogleCallbackEndpoint(IHttpClientFactory httpFactory, IDocumentSession session,
-        IConfiguration config, barakoCMS.Core.Interfaces.IDeviceGate deviceGate)
+        IConfiguration config, barakoCMS.Core.Interfaces.IDeviceGate deviceGate,
+        barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer)
     {
         _httpFactory = httpFactory;
         _session = session;
         _config = config;
         _deviceGate = deviceGate;
+        _tokenIssuer = tokenIssuer;
     }
 
     public override void Configure()
@@ -133,7 +136,12 @@ public class GoogleCallbackEndpoint : EndpointWithoutRequest
             return;
         }
 
-        var tokens = await SocialSignIn.IssueAsync(_session, _config, _deviceGate, HttpContext, email, club, ct, profile);
+        var tokens = await SocialSignIn.IssueAsync(_session, _config, _deviceGate, _tokenIssuer, HttpContext, email, club, ct, profile);
+        if (!tokens.Allowed)
+        {
+            await Fail("You are not a member of this club.");
+            return;
+        }
         await SendResultAsync(Results.Redirect(SocialSignIn.FrontendCallback(baseUrl, tokens.Token, tokens.Refresh, club)));
     }
 }
