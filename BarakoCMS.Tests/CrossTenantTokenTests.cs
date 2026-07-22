@@ -280,14 +280,52 @@ public class CrossTenantTokenTests
         ShouldBeRejectedOnMerits(resp, "a removed member must not be able to refresh into the club");
     }
 
+    /// <summary>
+    /// A slug with no Tenant document is not a managed tenant, so there is no membership model to
+    /// enforce and login must still work.
+    ///
+    /// This is the ordinary shape of a single-tenant deployment reached over a subdomain:
+    /// TenantResolutionMiddleware derives a slug from the host, nobody ever created a Tenant
+    /// document, and every user legitimately works in that partition.
+    ///
+    /// The first version of this fix required a registered Tenant and took the public playground
+    /// offline on deploy — every login there resolves to the slug "playground", which has no Tenant
+    /// document. The original tests all used registered tenants or the default slug, so none of
+    /// them caught it.
+    /// </summary>
     [Fact]
-    public async Task login_against_a_tenant_that_does_not_exist_is_refused()
+    public async Task login_on_an_unregistered_tenant_slug_still_works()
     {
         var (_, username) = await CreateUserAsync();
+        var unregistered = $"subdomain-{Guid.NewGuid():N}";
 
         var resp = await _client.SendAsync(
-            Post("/api/auth/login", new { Username = username, Password }, $"ghost-{Guid.NewGuid():N}"));
+            Post("/api/auth/login", new { Username = username, Password }, unregistered));
 
-        ShouldBeRejectedOnMerits(resp, "a token cannot be scoped to a tenant that does not exist");
+        resp.EnsureSuccessStatusCode();
+        var body = await resp.Content.ReadFromJsonAsync<barakoCMS.Features.Auth.Login.Response>();
+        TenantClaimOf(body!.Token!).Should().Be(unregistered);
+    }
+
+    [Fact]
+    public async Task login_on_a_registered_but_inactive_tenant_is_refused()
+    {
+        var (userId, username) = await CreateUserAsync();
+        var club = await CreateTenantAsync();
+        await GrantMembershipAsync(userId, club);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var tenant = await session.Query<Tenant>().FirstAsync(t => t.Slug == club);
+            tenant.IsActive = false;
+            session.Update(tenant);
+            await session.SaveChangesAsync();
+        }
+
+        var resp = await _client.SendAsync(
+            Post("/api/auth/login", new { Username = username, Password }, club));
+
+        ShouldBeRejectedOnMerits(resp, "a deactivated club must not issue tokens even to its members");
     }
 }
