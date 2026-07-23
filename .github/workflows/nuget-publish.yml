@@ -172,3 +172,4 @@ jobs:
       install: "dotnet add package BarakoCMS.Accounting --version ${{ github.event.inputs.version }}"
     secrets:
       ANNOUNCE_TOKEN: ${{ secrets.ANNOUNCE_TOKEN }}
+      DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
