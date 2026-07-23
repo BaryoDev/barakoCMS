@@ -1,14 +1,6 @@
 import { test, expect } from '@playwright/test';
+import { MOCK_TOKEN } from './helpers';
 
-// A structurally valid JWT the UI can decode (signature is never verified client-side).
-const payload = Buffer.from(
-    JSON.stringify({
-        UserId: '00000000-0000-0000-0000-000000000001',
-        Username: 'admin',
-        'http://schemas.microsoft.com/ws/2008/06/identity/claims/role': ['SuperAdmin'],
-    })
-).toString('base64url');
-export const MOCK_TOKEN = `eyJhbGciOiJIUzI1NiJ9.${payload}.sig`;
 
 test.describe('Login & Authentication', () => {
     test.beforeEach(async ({ page }) => {

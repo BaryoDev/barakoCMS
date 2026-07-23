@@ -17,8 +17,9 @@ export default defineConfig({
     reporter: 'html',
     /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
     use: {
-        /* Base URL to use in actions like `await page.goto('/')`. */
-        baseURL: 'http://localhost:3000',
+        /* Base URL to use in actions like `await page.goto('/')`. Port 3100 (not Next's default
+           3000) so the E2E server doesn't collide with an unrelated dev server on 3000. */
+        baseURL: 'http://127.0.0.1:3100',
 
         /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
         trace: 'on-first-retry',
@@ -50,10 +51,12 @@ export default defineConfig({
         },
     ],
 
-    /* Run your local dev server before starting the tests */
-    // webServer: {
-    //   command: 'npm run dev',
-    //   url: 'http://127.0.0.1:3000',
-    //   reuseExistingServer: !process.env.CI,
-    // },
+    /* Start the admin before running tests. Specs mock the API via page.route, so the server only
+       needs to boot — no backend required. reuseExistingServer keeps the local loop fast. */
+    webServer: {
+        command: 'npm run dev -- -p 3100',
+        url: 'http://127.0.0.1:3100',
+        reuseExistingServer: !process.env.CI,
+        timeout: 120_000,
+    },
 });

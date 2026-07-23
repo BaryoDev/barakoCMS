@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { MOCK_TOKEN } from './login.spec';
+import { MOCK_TOKEN } from './helpers';
 
 const SCHEMAS = [
     {

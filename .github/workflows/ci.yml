@@ -71,8 +71,17 @@ jobs:
       - name: Build
         run: npm run build
 
+      # End-to-end regression suite — drives the real UI (mocked API) to catch the class of bug unit
+      # tests miss: empty-vs-error states, routing, forms. Scoped to regressions.spec for now; the
+      # older e2e specs have drifted and are tracked separately.
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E (regressions)
+        run: npx playwright test regressions.spec.ts --project=chromium
+
       - name: Admin Summary
         if: always()
         run: |
           echo "## Admin UI" >> $GITHUB_STEP_SUMMARY
-          echo "✅ lint, typecheck, vitest, and production build completed" >> $GITHUB_STEP_SUMMARY
+          echo "✅ lint, typecheck, vitest, production build, and E2E regressions completed" >> $GITHUB_STEP_SUMMARY
