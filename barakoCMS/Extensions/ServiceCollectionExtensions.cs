@@ -179,6 +179,23 @@ public static class ServiceCollectionExtensions
             var options = new StoreOptions();
             options.Connection(connectionString);
 
+            // Schema management. Marten's default (CreateOrUpdate) attempts a migration whenever a
+            // write finds the schema out of date — so a schema mismatch surfaces as random 500s on
+            // user requests, in a loop, since the failed migration is retried every write. That is
+            // how a single→conjoined event-tenancy change (which is NOT a safe live migration) took
+            // down content creation on a live instance.
+            //
+            // In production: None ("trust the schema") + ApplyAllDatabaseChangesOnStartup (chained
+            // after AddMarten) applies changes ONCE at boot. A bad migration now fails the *deploy*
+            // loudly instead of silently breaking writes for users. Development keeps CreateOrUpdate
+            // for a frictionless local loop. NOTE: changing Events.TenancyStyle on an existing store
+            // is not auto-migratable — it requires an event-store rebuild, never a live migration.
+            var isDevelopment =
+                Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development";
+            options.AutoCreateSchemaObjects = isDevelopment
+                ? JasperFx.AutoCreate.CreateOrUpdate
+                : JasperFx.AutoCreate.None;
+
             // Conjoined multi-tenancy: every document and event stream is tagged with a tenant id and
             // auto-filtered by the session's tenant. Global identity/registry docs opt out below.
             options.Policies.AllDocumentsAreMultiTenanted();
@@ -261,7 +278,11 @@ public static class ServiceCollectionExtensions
             return options;
         })
         .BuildSessionsWith<barakoCMS.Infrastructure.Multitenancy.TenantSessionFactory>(Microsoft.Extensions.DependencyInjection.ServiceLifetime.Scoped)
-        .AddAsyncDaemon(JasperFx.Events.Daemon.DaemonMode.Solo);
+        .AddAsyncDaemon(JasperFx.Events.Daemon.DaemonMode.Solo)
+        // Apply schema changes once at boot (paired with AutoCreate.None in prod above) so a schema
+        // mismatch fails the deploy loudly instead of 500ing live writes. A no-op when the DB already
+        // matches the model. In Development this runs under CreateOrUpdate, so it's equally harmless.
+        .ApplyAllDatabaseChangesOnStartup();
 
         // services.AddHealthChecks()
         //    .AddNpgSql(configuration.GetConnectionString("DefaultConnection")!, tags: new[] { "db", "ready" });
