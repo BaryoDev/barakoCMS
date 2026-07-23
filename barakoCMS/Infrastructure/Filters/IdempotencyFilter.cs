@@ -1,67 +1,103 @@
 using FastEndpoints;
+using Marten;
 using Microsoft.Extensions.Logging;
 
 namespace barakoCMS.Infrastructure.Filters;
 
+/// <summary>
+/// Claims an idempotency key <em>before</em> the handler runs so a concurrent duplicate is rejected,
+/// then <see cref="IdempotencyFinalizer"/> either completes or releases the claim after.
+///
+/// <para>
+/// The key is stored as "in progress". A request that <b>fails</b> has its claim deleted by the
+/// finalizer, so a legitimate retry runs — the previous filter committed the key up front and never
+/// released it, so any failed request (a validation error, a business rejection) permanently answered
+/// the retry with 409. Only a request that <b>succeeds</b> keeps the key, which is what makes a
+/// genuine duplicate return 409.
+/// </para>
+/// </summary>
 public class IdempotencyFilter : IGlobalPreProcessor
 {
+    /// <summary>Key under which the pre-processor hands the scoped key to the finalizer.</summary>
+    public const string ScopedKeyItem = "__idempotency_scoped_key";
+
+    // An "in progress" record older than this is treated as orphaned — the process died between
+    // claiming the key and finalizing it — and may be reclaimed by a retry. Comfortably longer than
+    // any real request, short enough that a retry after a crash eventually succeeds.
+    private static readonly TimeSpan StaleAfter = TimeSpan.FromMinutes(10);
+
     public async Task PreProcessAsync(IPreProcessorContext context, CancellationToken ct)
     {
-        if (context.HttpContext.Request.Method != "POST" && context.HttpContext.Request.Method != "PUT" && context.HttpContext.Request.Method != "PATCH")
-        {
+        var http = context.HttpContext;
+        var method = http.Request.Method;
+        if (method != "POST" && method != "PUT" && method != "PATCH")
             return;
-        }
 
-        if (!context.HttpContext.Request.Headers.TryGetValue("Idempotency-Key", out var idempotencyKey))
-        {
+        if (!http.Request.Headers.TryGetValue("Idempotency-Key", out var rawKey) ||
+            string.IsNullOrWhiteSpace(rawKey))
             return;
-        }
 
-        var logger = context.HttpContext.RequestServices.GetService<ILogger<IdempotencyFilter>>();
-        logger?.LogDebug("Idempotency Key Found: {IdempotencyKey}", idempotencyKey);
+        var store = http.RequestServices.GetService<IDocumentStore>();
+        if (store is null)
+            return; // Marten not available — treat as no-op rather than blocking the request.
 
-        var session = context.HttpContext.RequestServices.GetService<Marten.IDocumentSession>();
-        if (session == null)
+        var logger = http.RequestServices.GetService<ILogger<IdempotencyFilter>>();
+        var scopedKey = IdempotencyKeyScope.Build(http, rawKey.ToString());
+
+        // A dedicated session, decoupled from the handler's transaction, so committing the claim
+        // here and releasing it in the finalizer never entangles with the handler's own writes (or
+        // its failure). IdempotencyRecord is SingleTenanted, so it lands in the default partition
+        // regardless of the request's tenant.
+        await using var session = store.LightweightSession();
+
+        var existing = await session.LoadAsync<Models.IdempotencyRecord>(scopedKey, ct);
+        if (existing is not null)
         {
-            logger?.LogWarning("IDocumentSession not available for idempotency check");
-            return;
-        }
-
-        var key = idempotencyKey.ToString();
-
-        // Use atomic insert with unique constraint to prevent race conditions
-        // The database unique index on IdempotencyRecord.Key will reject duplicates
-        // Using Insert (not Store) because Store does upsert which won't fail on duplicates
-        try
-        {
-            session.Insert(new barakoCMS.Models.IdempotencyRecord { Key = key });
-            await session.SaveChangesAsync(ct);
-            logger?.LogDebug("Idempotency key stored: {IdempotencyKey}", key);
-        }
-        catch (Exception ex)
-        {
-            // Check if this is a unique constraint violation
-            var isUniqueViolation =
-                ex.Message.Contains("duplicate", StringComparison.OrdinalIgnoreCase) ||
-                ex.Message.Contains("unique", StringComparison.OrdinalIgnoreCase) ||
-                ex.Message.Contains("constraint", StringComparison.OrdinalIgnoreCase) ||
-                ex.Message.Contains("23505") || // PostgreSQL unique violation error code
-                ex.InnerException?.Message.Contains("duplicate", StringComparison.OrdinalIgnoreCase) == true ||
-                ex.InnerException?.Message.Contains("unique", StringComparison.OrdinalIgnoreCase) == true ||
-                ex.InnerException?.Message.Contains("23505") == true;
-
-            if (isUniqueViolation)
+            var orphaned = !existing.Completed && DateTime.UtcNow - existing.CreatedAt > StaleAfter;
+            if (!orphaned)
             {
-                // Key already exists - this is a duplicate request
-                logger?.LogWarning("Duplicate idempotency key detected: {IdempotencyKey}", key);
-                context.HttpContext.Response.StatusCode = 409;
-                await context.HttpContext.Response.WriteAsync("Request with this Idempotency-Key already processed.", ct);
-                context.ValidationFailures.Add(new FluentValidation.Results.ValidationFailure("Idempotency-Key", "Duplicate Request"));
+                logger?.LogWarning("Duplicate idempotency key: {Key}", scopedKey);
+                await RejectAsync(context, ct);
                 return;
             }
 
-            // Re-throw non-duplicate exceptions
-            throw;
+            // Reclaim an orphaned in-progress record left by a crashed request.
+            session.Delete(existing);
+            await session.SaveChangesAsync(ct);
         }
+
+        try
+        {
+            // The unique identity insert is the concurrency guard: two simultaneous requests with the
+            // same key race here, and exactly one wins.
+            session.Insert(new Models.IdempotencyRecord { Key = scopedKey, Completed = false });
+            await session.SaveChangesAsync(ct);
+        }
+        catch (Exception ex) when (IsUniqueViolation(ex))
+        {
+            logger?.LogWarning("Concurrent duplicate idempotency key: {Key}", scopedKey);
+            await RejectAsync(context, ct);
+            return;
+        }
+
+        // Hand the claim to the finalizer, which completes it on success or deletes it on failure.
+        http.Items[ScopedKeyItem] = scopedKey;
     }
+
+    private static async Task RejectAsync(IPreProcessorContext context, CancellationToken ct)
+    {
+        var http = context.HttpContext;
+        http.Response.StatusCode = 409;
+        // Writing the body starts the response, which is what makes FastEndpoints skip the handler.
+        // Setting the status alone does not short-circuit; the endpoint would still run (and succeed),
+        // defeating the duplicate check.
+        await http.Response.WriteAsync("Request with this Idempotency-Key already processed.", ct);
+    }
+
+    internal static bool IsUniqueViolation(Exception ex) =>
+        ex.Message.Contains("duplicate", StringComparison.OrdinalIgnoreCase) ||
+        ex.Message.Contains("unique", StringComparison.OrdinalIgnoreCase) ||
+        ex.Message.Contains("23505") ||
+        ex.InnerException?.Message.Contains("duplicate", StringComparison.OrdinalIgnoreCase) == true ||
+        ex.InnerException?.Message.Contains("23505") == true;
 }

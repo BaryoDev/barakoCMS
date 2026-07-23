@@ -326,6 +326,9 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IBackupService, BackupService>();
 
         services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Filters.IdempotencyFilter>();
+        // The finalizer completes an idempotency claim on success or releases it on failure, so a
+        // failed request stays retryable. See IdempotencyFilter.
+        services.AddSingleton<FastEndpoints.IGlobalPostProcessor, barakoCMS.Infrastructure.Filters.IdempotencyFinalizer>();
         // Sensitivity is applied explicitly by the read endpoints (Get/List/History) via
         // ISensitivityService, not as a post-processor: a post-processor's edits did not reach the
         // serialized response, so field-level masking was silently dropped.
