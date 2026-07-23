@@ -10,45 +10,62 @@ import {
 } from '@/components/ui/select';
 import { useMyTenants, useCurrentTenant, useSwitchTenant } from '@/hooks/use-tenants';
 
+// Matches Tenant.DefaultSlug on the server. The default partition is the platform/home context; the
+// cross-tenant token guard always permits a token for it, so switching here never needs a membership.
+const DEFAULT_SLUG = 'default';
+
 /**
- * Tenant picker for multi-tenant deployments. Two behaviours:
+ * Tenant picker for multi-tenant deployments. Behaviours:
  *  - Auto-scope: if the session token isn't scoped to a tenant the user belongs to (e.g. login lands
- *    on the default tenant), switch into their first tenant automatically — so a single-club user
- *    lands on their club's data without any UI.
- *  - Manual switch: when the user belongs to more than one tenant, show a picker to move between them.
- * Single-tenant deployments (no memberships) render nothing and never auto-switch.
+ *    on the default partition), switch into their first tenant automatically — so a single-tenant
+ *    user lands on their data without any UI.
+ *  - Manual switch: a user with any membership can move between their tenants AND back to Home (the
+ *    default partition). Without the Home entry the default partition is unreachable once you've
+ *    switched away — which is how a deployment's data got stranded under *DEFAULT*.
+ * A user with no memberships (a plain single-tenant deployment) renders nothing and never auto-switches.
  */
 export function TenantSwitcher() {
-  const { data: tenants } = useMyTenants();
+  const { data: memberships } = useMyTenants();
   const current = useCurrentTenant();
   const switchTenant = useSwitchTenant();
   const autoSwitched = useRef(false);
 
-  const belongsToCurrent = !!tenants?.some((t) => t.slug === current);
-
+  // On first load, if the token isn't scoped to a tenant the user belongs to (login lands on the
+  // default partition), auto-switch into their first tenant so they see their data immediately.
+  // Only once per mount — a manual pick below sets the same ref so it never fights the user, which
+  // is what lets a deliberate switch to Home stick.
   useEffect(() => {
     if (autoSwitched.current || switchTenant.isPending) return;
-    if (tenants && tenants.length > 0 && !belongsToCurrent) {
+    const belongsToCurrent = !!memberships?.some((t) => t.slug === current);
+    if (memberships && memberships.length > 0 && !belongsToCurrent) {
       autoSwitched.current = true;
-      switchTenant.mutate(tenants[0].slug);
+      switchTenant.mutate(memberships[0].slug);
     }
-  }, [tenants, belongsToCurrent, switchTenant]);
+  }, [memberships, current, switchTenant]);
 
-  if (!tenants || tenants.length <= 1) return null;
+  // Nothing to switch on a single-tenant deployment (no memberships).
+  if (!memberships || memberships.length === 0) return null;
 
-  const value = belongsToCurrent ? current ?? undefined : undefined;
+  // Home (default) is always offered alongside the user's tenants.
+  const options = [{ slug: DEFAULT_SLUG, name: 'Home' }, ...memberships];
+  const value = options.some((o) => o.slug === current) ? current ?? undefined : undefined;
 
   return (
     <Select
       value={value}
-      onValueChange={(slug) => slug !== current && switchTenant.mutate(slug)}
+      onValueChange={(slug) => {
+        // A manual pick settles the tenant — stop the auto-switch effect from overriding it, so a
+        // deliberate switch to Home (default) isn't immediately bounced back to the user's club.
+        autoSwitched.current = true;
+        if (slug !== current) switchTenant.mutate(slug);
+      }}
       disabled={switchTenant.isPending}
     >
       <SelectTrigger size="sm" className="w-44" aria-label="Switch tenant">
         <SelectValue placeholder="Select tenant" />
       </SelectTrigger>
       <SelectContent>
-        {tenants.map((t) => (
+        {options.map((t) => (
           <SelectItem key={t.slug} value={t.slug}>
             {t.name}
           </SelectItem>
