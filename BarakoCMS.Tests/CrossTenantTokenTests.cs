@@ -328,4 +328,65 @@ public class CrossTenantTokenTests
 
         ShouldBeRejectedOnMerits(resp, "a deactivated club must not issue tokens even to its members");
     }
+
+    /// <summary>
+    /// Creating a tenant must provision the creator as an active member, or the H.1 guard would lock
+    /// them (and everyone) out of the tenant they just made. This is the safety property behind the
+    /// P.2 tenant-create UI.
+    /// </summary>
+    [Fact]
+    public async Task creating_a_tenant_lets_the_creator_log_into_it()
+    {
+        // POST /api/tenants requires the "SuperAdmin" role *name* on the token, which means a Role
+        // document with that name must exist and the user must hold its id. The shared test DB may
+        // already have a SuperAdmin role (seeded by another test) — reuse it rather than colliding on
+        // the unique name index.
+        Guid superRoleId;
+        var username = $"xtenant-{Guid.NewGuid():N}";
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var existing = await session.Query<barakoCMS.Models.Role>()
+                .FirstOrDefaultAsync(r => r.Name == "SuperAdmin");
+            if (existing is not null)
+            {
+                superRoleId = existing.Id;
+            }
+            else
+            {
+                superRoleId = barakoCMS.Data.DataSeeder.SuperAdminRoleId;
+                session.Store(new barakoCMS.Models.Role { Id = superRoleId, Name = "SuperAdmin" });
+            }
+
+            session.Store(new User
+            {
+                Id = Guid.NewGuid(),
+                Username = username,
+                Email = $"{username}@test.com",
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword(Password),
+                RoleIds = new List<Guid> { superRoleId },
+            });
+            await session.SaveChangesAsync();
+        }
+
+        var loginResp = await _client.SendAsync(Post("/api/auth/login", new { Username = username, Password }));
+        loginResp.EnsureSuccessStatusCode();
+        var superToken = (await loginResp.Content.ReadFromJsonAsync<barakoCMS.Features.Auth.Login.Response>())!.Token!;
+
+        var handle = $"made-{Guid.NewGuid():N}".Substring(0, 20);
+        var createReq = new HttpRequestMessage(HttpMethod.Post, "/api/tenants")
+        {
+            Content = JsonContent.Create(new { Handle = handle, Name = "Made In Test", IsActive = true }),
+        };
+        createReq.Headers.Add(TestRemoteIpFilter.Header, _clientIp);
+        createReq.Headers.Authorization = new("Bearer", superToken);
+        var createResp = await _client.SendAsync(createReq);
+        createResp.EnsureSuccessStatusCode();
+
+        // The creator can now log into the tenant they just made — proving a membership was provisioned.
+        var intoNew = await _client.SendAsync(Post("/api/auth/login", new { Username = username, Password }, handle));
+        intoNew.EnsureSuccessStatusCode();
+        var body = await intoNew.Content.ReadFromJsonAsync<barakoCMS.Features.Auth.Login.Response>();
+        TenantClaimOf(body!.Token!).Should().Be(handle);
+    }
 }
