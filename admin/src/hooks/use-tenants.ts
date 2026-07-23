@@ -18,6 +18,47 @@ interface SwitchResponse {
   refreshTokenExpiry: string;
 }
 
+/** A full tenant record from the platform-admin tenants API (SuperAdmin only). */
+export interface Tenant {
+  id: string;
+  slug: string;
+  name: string;
+  about?: string | null;
+  logoUrl?: string | null;
+  email?: string | null;
+  location?: string | null;
+  isActive: boolean;
+}
+
+export interface CreateTenantInput {
+  Handle: string;
+  Name: string;
+  About?: string;
+  IsActive: boolean;
+}
+
+/** Every tenant on the deployment (platform admin). Distinct from useMyTenants (only the caller's). */
+export function useTenants() {
+  return useQuery({
+    queryKey: ['tenants'],
+    queryFn: async () => (await api.get<Tenant[]>('/api/tenants')).data,
+  });
+}
+
+/** Create a tenant. The API also provisions the creator as an active admin member, so the new
+ * tenant is immediately usable (and login to it isn't blocked by the cross-tenant token guard). */
+export function useCreateTenant() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: CreateTenantInput) =>
+      (await api.post<Tenant>('/api/tenants', input)).data,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tenants'] });
+      queryClient.invalidateQueries({ queryKey: ['me', 'tenants'] });
+    },
+  });
+}
+
 /** The tenants the signed-in user belongs to (their active memberships). Empty on a single-tenant
  * deployment or for a user with no memberships. */
 export function useMyTenants() {

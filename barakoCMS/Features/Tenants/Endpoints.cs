@@ -105,6 +105,24 @@ public class CreateTenantEndpoint : Endpoint<TenantWriteRequest, Tenant>
             IsActive = req.IsActive,
         };
         _session.Store(tenant);
+
+        // Provision the creator as an Active admin member in the same transaction. Without this, a
+        // freshly-registered tenant has zero memberships — and the cross-tenant token guard (H.1)
+        // then denies login to it for everyone, including its creator. Atomic with the tenant so
+        // there is never a registered-but-memberless window.
+        if (Guid.TryParse(User.FindFirst("UserId")?.Value, out var creatorId))
+        {
+            _session.Store(new Membership
+            {
+                Id = Guid.NewGuid(),
+                UserId = creatorId,
+                TenantSlug = handle,
+                RoleIds = new List<Guid> { barakoCMS.Data.DataSeeder.AdminRoleId },
+                Status = MembershipStatus.Active,
+                JoinedAt = DateTime.UtcNow,
+            });
+        }
+
         await _session.SaveChangesAsync(ct);
         await SendOkAsync(tenant, ct);
     }
