@@ -1,15 +1,15 @@
-name: Deploy Playground
+name: Deploy Playground (admin only, manual)
 
+# Manual escape hatch for pushing JUST the admin image to playground without a
+# full release. The normal path is release.yml: bump <Version> in the csproj and
+# a master merge promotes the whole stack (API + admin) to playground, version-
+# gated. This workflow stays for the occasional admin-only hotfix.
+#
 # Playground only, on purpose. The club (club.baryo.dev) is deployed by hand:
 # it has real members on it and should not share a blast radius with a showcase
 # site. See docs/deployment for the manual club steps.
 
 on:
-  push:
-    branches: ["master"]
-    paths:
-      - "admin/**"
-      - ".github/workflows/deploy-playground.yml"
   workflow_dispatch:
 
 # One deploy at a time. Queue rather than cancel — a half-applied deploy is
