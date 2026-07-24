@@ -1,0 +1,159 @@
+name: Deploy dev-playground
+
+# The BREAKABLE staging tier. Every push to `dev` builds the :dev images and
+# ships them to dev-playground.baryo.dev. Break things here freely — master is
+# what promotes a verified build to playground.baryo.dev (see deploy-playground
+# + nuget-publish). No packages are published from this workflow.
+on:
+  push:
+    branches: ["dev"]
+  workflow_dispatch:
+
+# One deploy at a time. Queue rather than cancel — a half-applied deploy is
+# worse than a slow one.
+concurrency:
+  group: deploy-dev-playground
+  cancel-in-progress: false
+
+jobs:
+  # Gate the deploy on the test suite. dev is breakable, but shipping an image
+  # that fails its own tests defeats the point of verifying here before master.
+  verify:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Backend tests
+        run: dotnet test BarakoCMS.Tests/BarakoCMS.Tests.csproj --configuration Release
+        env:
+          DOCKER_HOST: unix:///var/run/docker.sock
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: admin/package-lock.json
+
+      - name: Admin checks
+        working-directory: admin
+        run: |
+          npm ci
+          npm run lint
+          npx tsc --noEmit
+          npx vitest run
+
+  # Native arm64 — the Oracle VM is Ampere. Free for public repos; QEMU emulation
+  # would make the .NET suite build painfully slow.
+  build-api:
+    name: Build API (suite) image
+    needs: verify
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push Barako (full suite)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.suite
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ghcr.io/baryodev/barako-cms:dev
+            ghcr.io/baryodev/barako-cms:dev-${{ github.sha }}
+          labels: org.opencontainers.image.source=https://github.com/BaryoDev/barakoCMS
+          cache-from: type=gha,scope=dev-api
+          cache-to: type=gha,mode=max,scope=dev-api
+
+  build-admin:
+    name: Build admin image
+    needs: verify
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # basePath is baked at build time; the dev admin points at the dev API host.
+      - name: Build and push admin
+        uses: docker/build-push-action@v5
+        with:
+          context: ./admin
+          file: admin/Dockerfile
+          platforms: linux/arm64
+          push: true
+          build-args: |
+            NEXT_BASE_PATH=/barakocms
+            NEXT_PUBLIC_API_URL=https://dev-playground.baryo.dev/barakocms-api
+          tags: |
+            ghcr.io/baryodev/barako-admin:dev
+            ghcr.io/baryodev/barako-admin:dev-${{ github.sha }}
+          labels: org.opencontainers.image.source=https://github.com/BaryoDev/barakoCMS
+          cache-from: type=gha,scope=dev-admin
+          cache-to: type=gha,mode=max,scope=dev-admin
+
+  deploy:
+    name: Deploy to dev-playground
+    needs: [build-api, build-admin]
+    runs-on: ubuntu-latest
+    environment:
+      name: dev-playground
+      url: https://dev-playground.baryo.dev/barakocms
+    steps:
+      # The key is pinned to a forced command (/home/opc/deploy-dev-playground.sh)
+      # in the VM's authorized_keys — whatever we send is ignored and that script
+      # runs. It pulls both :dev images, recreates the dev stack, and fails if the
+      # API or admin doesn't answer 200. A leaked key cannot open a shell.
+      - name: Pull and restart dev stack over SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.ORACLE_HOST }}
+          username: ${{ secrets.ORACLE_USER }}
+          key: ${{ secrets.DEV_DEPLOY_KEY }}
+          command_timeout: 8m
+          script: deploy
+
+      - name: Verify from the public URL
+        run: |
+          for i in $(seq 1 20); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
+              https://dev-playground.baryo.dev/barakocms-api/api/content-types || true)
+            if [ "$code" = "200" ]; then
+              echo "dev-playground API responded 200 after ${i} attempt(s)"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "dev-playground did not return 200 (last: ${code:-none})" >&2
+          exit 1
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## dev-playground deploy"
+            echo ""
+            echo "- API image: \`ghcr.io/baryodev/barako-cms:dev-${{ github.sha }}\`"
+            echo "- admin image: \`ghcr.io/baryodev/barako-admin:dev-${{ github.sha }}\`"
+            echo "- url: https://dev-playground.baryo.dev/barakocms"
+            echo "- result: ${{ job.status }}"
+          } >> "$GITHUB_STEP_SUMMARY"
