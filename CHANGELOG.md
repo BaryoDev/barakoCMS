@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.2] - 2026-07-24
+
+### Fixed: fresh installs boot on an empty database
+
+3.2.1 shipped with `AutoCreate.None`, which never creates schema on demand. Existing
+deployments already had their tables so nothing broke there, but a brand-new database had no
+tables and the seeder crashed on startup with `relation "mt_doc_roles" does not exist`. A
+fresh install is the first thing a new user does, so this needed fixing.
+
+Three changes:
+
+- Production now runs Marten's recommended `CreateOnly`: it creates missing objects (so a fresh
+  database and any unregistered document type work) but never updates or drops an existing one,
+  so it still won't attempt the failing single-to-conjoined event-store migration that `None`
+  was chosen to avoid.
+- The schema is applied explicitly at startup, before the seeders run, so their first query
+  always finds its tables.
+- The full-suite host now seeds the core roles and the initial admin. Previously it ran only the
+  module seeders, so a fresh suite install had no user to sign in as.
+
+Verified on a wiped database: schema created, admin seeded, login succeeds. Suite: 248 passing.
+
 ## [3.2.1] - 2026-07-22
 
 ### 🔐 Security: cross-tenant token issuance
