@@ -185,16 +185,18 @@ public static class ServiceCollectionExtensions
             // how a single→conjoined event-tenancy change (which is NOT a safe live migration) took
             // down content creation on a live instance.
             //
-            // In production: None ("trust the schema") + ApplyAllDatabaseChangesOnStartup (chained
-            // after AddMarten) applies changes ONCE at boot. A bad migration now fails the *deploy*
-            // loudly instead of silently breaking writes for users. Development keeps CreateOrUpdate
-            // for a frictionless local loop. NOTE: changing Events.TenancyStyle on an existing store
-            // is not auto-migratable — it requires an event-store rebuild, never a live migration.
+            // Production uses CreateOnly (Marten's recommended prod setting): it creates missing
+            // objects — so a fresh database and any document type not explicitly registered below
+            // still work — but NEVER updates or drops an existing object, so it can't attempt the
+            // failing live migration. None is too strict: it requires every document type to be
+            // pre-registered and can't stand up a fresh database. Development keeps CreateOrUpdate for
+            // a frictionless local loop. NOTE: changing Events.TenancyStyle on an existing store is
+            // still not auto-migratable — it requires an event-store rebuild, never a live migration.
             var isDevelopment =
                 Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development";
             options.AutoCreateSchemaObjects = isDevelopment
                 ? JasperFx.AutoCreate.CreateOrUpdate
-                : JasperFx.AutoCreate.None;
+                : JasperFx.AutoCreate.CreateOnly;
 
             // Conjoined multi-tenancy: every document and event stream is tagged with a tenant id and
             // auto-filtered by the session's tenant. Global identity/registry docs opt out below.
@@ -278,11 +280,11 @@ public static class ServiceCollectionExtensions
             return options;
         })
         .BuildSessionsWith<barakoCMS.Infrastructure.Multitenancy.TenantSessionFactory>(Microsoft.Extensions.DependencyInjection.ServiceLifetime.Scoped)
-        .AddAsyncDaemon(JasperFx.Events.Daemon.DaemonMode.Solo)
-        // Apply schema changes once at boot (paired with AutoCreate.None in prod above) so a schema
-        // mismatch fails the deploy loudly instead of 500ing live writes. A no-op when the DB already
-        // matches the model. In Development this runs under CreateOrUpdate, so it's equally harmless.
-        .ApplyAllDatabaseChangesOnStartup();
+        .AddAsyncDaemon(JasperFx.Events.Daemon.DaemonMode.Solo);
+        // Schema is applied explicitly at startup via host.ApplyMartenSchemaAsync() (below), called
+        // BEFORE the data seeders run. ApplyAllDatabaseChangesOnStartup() can't be used here: it
+        // registers a hosted service that runs during app.Run(), but the seeders run before that, so
+        // with AutoCreate.None they'd hit tables that don't exist yet on a fresh database.
 
         // services.AddHealthChecks()
         //    .AddNpgSql(configuration.GetConnectionString("DefaultConnection")!, tags: new[] { "db", "ready" });
@@ -560,5 +562,19 @@ public static class ServiceCollectionExtensions
         foreach (var module in modules)
             await module.SeedAsync(session, scope.ServiceProvider, ct);
         await session.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// Applies all outstanding Marten schema changes to the database, upfront. Call this at startup
+    /// BEFORE any seeder runs. It's the deliberate, ordered replacement for
+    /// ApplyAllDatabaseChangesOnStartup: because production runs AutoCreate.None (no on-demand DDL),
+    /// the schema must exist before the seeders query it — and the seeders run before app.Run(), so a
+    /// boot-time hosted service is too late. Idempotent: a no-op when the DB already matches the model.
+    /// A schema mismatch throws here, failing the deploy loudly instead of 500ing live writes.
+    /// </summary>
+    public static async Task ApplyMartenSchemaAsync(this IHost host)
+    {
+        var store = host.Services.GetRequiredService<Marten.IDocumentStore>();
+        await store.Storage.ApplyAllConfiguredChangesToDatabaseAsync();
     }
 }

@@ -60,6 +60,11 @@ try
 {
     Log.Information("Starting BarakoCMS Host...");
 
+    // Create/patch the schema up front, before anything reads it. Under AutoCreate.None (prod) tables
+    // aren't created on demand, so a fresh database would otherwise crash the seeder below with
+    // "relation does not exist". Idempotent; a no-op once the schema matches.
+    await app.ApplyMartenSchemaAsync();
+
     // Run Seeder in background to avoid blocking startup and timeouts.
     if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("SKIP_SEEDER")))
     {

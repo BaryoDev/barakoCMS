@@ -37,9 +37,17 @@ var app = builder.Build();
 
 app.UseBarakoCMS();
 
+// Create/patch the schema before anything reads it, so a fresh database has its tables before the
+// seeders query them.
+await app.ApplyMartenSchemaAsync();
+
 if (!string.Equals(Environment.GetEnvironmentVariable("SKIP_SEEDER"), "true", StringComparison.OrdinalIgnoreCase))
 {
-    await app.RunBarakoModuleSeedersAsync(); // module baseline data (roles, etc.)
+    // Core baseline first: system roles + the InitialAdmin user. Without this a fresh Suite install
+    // has no one to sign in as — the module seeders below only add module data, not an admin.
+    // Idempotent (seeds are guarded by existence checks).
+    await barakoCMS.Data.DataSeeder.SeedAsync(app);
+    await app.RunBarakoModuleSeedersAsync(); // module baseline data (accounting accounts, etc.)
 }
 
 app.Run();
