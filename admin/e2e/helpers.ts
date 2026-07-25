@@ -20,9 +20,19 @@ export function authed(page: Page) {
     }, MOCK_TOKEN);
 }
 
-/** Stub the always-loaded shell calls so an unrelated 500 doesn't disturb the page under test. */
+/** Stub the always-loaded shell calls so an unrelated 500 doesn't disturb the page under test.
+ *  Monitoring returns real-shaped objects (not {}), so a page that reads metric fields — the
+ *  dashboard formats errorRate/totalRequests — renders instead of crashing on undefined. */
 export async function stubShell(page: Page) {
+    // Register the generic monitoring stub first so the specific metrics/health routes below,
+    // registered later, take precedence for their URLs (Playwright checks newest routes first).
     await page.route('**/api/monitoring/**', (r) => r.fulfill({ json: {} }));
+    await page.route('**/api/monitoring/metrics**', (r) =>
+        r.fulfill({ json: { totalRequests: 0, totalErrors: 0, averageResponseTime: 0, errorRate: 0 } })
+    );
+    await page.route('**/api/monitoring/health**', (r) =>
+        r.fulfill({ json: { status: 'Healthy', totalDuration: '0', entries: {} } })
+    );
     await page.route('**/health**', (r) => r.fulfill({ json: { status: 'Healthy', entries: {} } }));
     await page.route('**/api/me/tenants**', (r) => r.fulfill({ json: [] }));
 }

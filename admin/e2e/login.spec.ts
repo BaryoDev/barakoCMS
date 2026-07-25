@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { MOCK_TOKEN } from './helpers';
+import { MOCK_TOKEN, stubShell, EMPTY_PAGE } from './helpers';
 
 
 test.describe('Login & Authentication', () => {
@@ -26,7 +26,7 @@ test.describe('Login & Authentication', () => {
 
         await page.goto('/login');
         await page.getByLabel('Username').fill('wronguser');
-        await page.getByLabel('Password').fill('wrongpass');
+        await page.getByLabel('Password', { exact: true }).fill('wrongpass');
         await page.getByRole('button', { name: 'Sign in' }).click();
 
         // Errors surface as a sonner toast with the API's message.
@@ -46,15 +46,17 @@ test.describe('Login & Authentication', () => {
                 }),
             });
         });
-        // Dashboard queries can fail silently; the shell should still render.
-        await page.route('**/api/**', async (route) => {
-            if (route.request().url().includes('/api/auth/login')) return route.fallback();
-            await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
-        });
+        // Stub the shell (monitoring/health/tenants return objects, not arrays) and the
+        // dashboard's own queries so the authenticated page renders. A blanket [] for every
+        // endpoint crashes it — some hooks read object fields off the response.
+        await stubShell(page);
+        await page.route('**/api/schemas**', (r) => r.fulfill({ json: [] }));
+        await page.route('**/api/workflows**', (r) => r.fulfill({ json: [] }));
+        await page.route('**/api/contents**', (r) => r.fulfill({ json: EMPTY_PAGE }));
 
         await page.goto('/login');
         await page.getByLabel('Username').fill('admin');
-        await page.getByLabel('Password').fill('admin');
+        await page.getByLabel('Password', { exact: true }).fill('admin');
         await page.getByRole('button', { name: 'Sign in' }).click();
 
         await expect(page).toHaveURL('/', { timeout: 10000 });
