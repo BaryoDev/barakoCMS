@@ -9,29 +9,11 @@ namespace barakoCMS.Core.Validation;
 public static class FieldTypeValidator
 {
     /// <summary>
-    /// Allowed field types as documented in DEVELOPMENT_STANDARDS.md
+    /// Validates if a field type is allowed. Delegates to <see cref="FieldTypeRegistry"/>,
+    /// the single source of truth, so this helper can never diverge from the two
+    /// runtime validators again.
     /// </summary>
-    private static readonly HashSet<string> AllowedTypes = new()
-    {
-        "string",
-        "int",
-        "bool",
-        "datetime",
-        "decimal",
-        "array",
-        "object"
-    };
-
-    /// <summary>
-    /// Validates if a field type is allowed
-    /// </summary>
-    public static bool IsValidFieldType(string type)
-    {
-        if (string.IsNullOrWhiteSpace(type))
-            return false;
-
-        return AllowedTypes.Contains(type.ToLower());
-    }
+    public static bool IsValidFieldType(string type) => FieldTypeRegistry.IsKnownType(type);
 
     /// <summary>
     /// Validates if a field name follows PascalCase convention
@@ -51,7 +33,7 @@ public static class FieldTypeValidator
     /// </summary>
     public static string GetFieldTypeError(string type)
     {
-        return $"Invalid field type '{type}'. Allowed types: {string.Join(", ", AllowedTypes)}. " +
+        return $"Invalid field type '{type}'. Allowed types: {string.Join(", ", FieldTypeRegistry.AllowedTypeNames)}. " +
                "See DEVELOPMENT_STANDARDS.md for details.";
     }
 
@@ -107,7 +89,8 @@ public static class FieldTypeValidator
     }
 
     /// <summary>
-    /// Gets all allowed field types
+    /// Gets all allowed field types (from the shared registry).
     /// </summary>
-    public static IReadOnlySet<string> GetAllowedTypes() => AllowedTypes;
+    public static IReadOnlySet<string> GetAllowedTypes() =>
+        FieldTypeRegistry.AllowedTypeNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
 }

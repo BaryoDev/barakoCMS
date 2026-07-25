@@ -17,7 +17,11 @@ public class FieldDefinition
 {
     public string Name { get; set; } = string.Empty; // e.g., "title", "sku"
     public string DisplayName { get; set; } = string.Empty;
-    public string Type { get; set; } = "text"; // text, number, date, boolean, richtext, reference
+    // Field type. The accepted set lives in FieldTypeRegistry (the single source of
+    // truth both validators read from): string/text, int, decimal, money, bool,
+    // date/datetime, time, email, url, slug, uuid, richtext, markdown, json, array,
+    // object. (reference/blob are planned — see roadmap F.4/F.6 — not yet accepted.)
+    public string Type { get; set; } = "text";
     public bool IsRequired { get; set; }
     public object? DefaultValue { get; set; }
     public Dictionary<string, object> ValidationRules { get; set; } = new(); // min, max, regex, etc.

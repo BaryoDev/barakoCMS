@@ -1,3 +1,4 @@
+using barakoCMS.Core.Validation;
 using barakoCMS.Models;
 using System.Text.RegularExpressions;
 
@@ -10,17 +11,6 @@ public interface IContentTypeValidatorService
 
 public class ContentTypeValidatorService : IContentTypeValidatorService
 {
-    private static readonly HashSet<string> AllowedTypes = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "string", "text",
-        "int", "integer", "number",
-        "bool", "boolean",
-        "datetime", "date",
-        "decimal",
-        "array",
-        "object"
-    };
-
     public (bool IsValid, List<string> Errors) Validate(string name, string displayName, List<FieldDefinition> fields)
     {
         var errors = new List<string>();
@@ -60,14 +50,14 @@ public class ContentTypeValidatorService : IContentTypeValidatorService
                     errors.Add($"Field name '{field.Name}' must be in PascalCase. Did you mean '{suggestion}'?");
                 }
 
-                // Validate field type
+                // Validate field type against the shared registry (single source of truth).
                 if (string.IsNullOrWhiteSpace(field.Type))
                 {
                     errors.Add($"Field '{field.Name}' must have a type.");
                 }
-                else if (!AllowedTypes.Contains(field.Type))
+                else if (!FieldTypeRegistry.IsKnownType(field.Type))
                 {
-                    var allowedList = string.Join(", ", AllowedTypes.OrderBy(t => t));
+                    var allowedList = string.Join(", ", FieldTypeRegistry.AllowedTypeNames);
                     errors.Add($"Field '{field.Name}' has invalid type '{field.Type}'. Allowed types: {allowedList}");
                 }
             }
