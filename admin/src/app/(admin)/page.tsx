@@ -173,7 +173,7 @@ export default function DashboardPage() {
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">Error rate</span>
               <span className="font-mono text-xs">
-                {metrics ? `${metrics.errorRate.toFixed(2)}%` : '—'}
+                {metrics?.errorRate != null ? `${metrics.errorRate.toFixed(2)}%` : '—'}
               </span>
             </div>
             <Button asChild variant="outline" size="sm" className="w-full">

@@ -119,6 +119,8 @@ jobs:
       name: dev-playground
       url: https://dev-playground.baryo.dev/barakocms
     steps:
+      - uses: actions/checkout@v4 # for scripts/smoke-test.sh
+
       # The key is pinned to a forced command (/home/opc/deploy-dev-playground.sh)
       # in the VM's authorized_keys — whatever we send is ignored and that script
       # runs. It pulls both :dev images, recreates the dev stack, and fails if the
@@ -132,19 +134,15 @@ jobs:
           command_timeout: 8m
           script: deploy
 
-      - name: Verify from the public URL
-        run: |
-          for i in $(seq 1 20); do
-            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
-              https://dev-playground.baryo.dev/barakocms-api/api/content-types || true)
-            if [ "$code" = "200" ]; then
-              echo "dev-playground API responded 200 after ${i} attempt(s)"
-              exit 0
-            fi
-            sleep 3
-          done
-          echo "dev-playground did not return 200 (last: ${code:-none})" >&2
-          exit 1
+      # Deeper than an HTTP 200: log in, create a content type, post a valid value and a malformed
+      # one, and confirm validation still rejects the bad one. SMOKE_WRITE=1 because dev-playground
+      # is the breakable tier where writing test data is fine.
+      - name: Smoke test
+        env:
+          SMOKE_USER: ${{ secrets.SMOKE_DEV_USER }}
+          SMOKE_PASS: ${{ secrets.SMOKE_DEV_PASS }}
+          SMOKE_WRITE: "1"
+        run: bash scripts/smoke-test.sh https://dev-playground.baryo.dev/barakocms-api
 
       - name: Summary
         if: always()
@@ -157,3 +155,18 @@ jobs:
             echo "- url: https://dev-playground.baryo.dev/barakocms"
             echo "- result: ${{ job.status }}"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # A red pipeline should ping, not just a green one. Best-effort; never fails the run itself.
+  notify-failure:
+    needs: [verify, build-api, build-admin, deploy]
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Discord
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          [ -z "${DISCORD_WEBHOOK:-}" ] && { echo "no webhook; skipping"; exit 0; }
+          payload=$(jq -n --arg u "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            '{content: ("⚠️ dev-playground deploy failed — <" + $u + ">")}')
+          curl -s -o /dev/null -H "Content-Type: application/json" -X POST -d "$payload" "$DISCORD_WEBHOOK" || true

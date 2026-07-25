@@ -71,17 +71,47 @@ jobs:
       - name: Build
         run: npm run build
 
-      # End-to-end regression suite — drives the real UI (mocked API) to catch the class of bug unit
-      # tests miss: empty-vs-error states, routing, forms. Scoped to regressions.spec for now; the
-      # older e2e specs have drifted and are tracked separately.
+      # End-to-end suite — drives the real UI (mocked API) to catch the class of bug unit tests miss:
+      # empty-vs-error states, routing, forms, per-field-type controls. The whole e2e/ folder runs
+      # (chromium), so every feature spec is enforced here, not just honour-checked locally.
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
 
-      - name: E2E (regressions)
-        run: npx playwright test regressions.spec.ts --project=chromium
+      - name: E2E (full pack)
+        run: npx playwright test --project=chromium
 
       - name: Admin Summary
         if: always()
         run: |
           echo "## Admin UI" >> $GITHUB_STEP_SUMMARY
-          echo "✅ lint, typecheck, vitest, production build, and E2E regressions completed" >> $GITHUB_STEP_SUMMARY
+          echo "✅ lint, typecheck, vitest, production build, and the full E2E pack completed" >> $GITHUB_STEP_SUMMARY
+
+  security:
+    name: Security scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Catch secrets being ADDED. Report-only for now: dev-only secrets still live in git history
+      # (an appsettings.Development.json removed from HEAD earlier), so a hard gate would fail on
+      # those until history is scrubbed (roadmap 0.4). Flip continue-on-error off after that.
+      - name: Secret scan (gitleaks)
+        continue-on-error: true
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      # Vulnerable-dependency report. Informational for now (there's a known backlog to burn down),
+      # so it surfaces findings in the summary without blocking every build.
+      - name: Vulnerable dependencies
+        run: |
+          dotnet restore
+          echo '## Vulnerable dependencies' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          dotnet list package --vulnerable --include-transitive 2>&1 | tee -a "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
