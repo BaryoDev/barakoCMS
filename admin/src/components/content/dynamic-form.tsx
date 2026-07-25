@@ -15,8 +15,9 @@ interface DynamicFormProps {
     errors?: Record<string, string>;
 }
 
-// Renders a form for the backend's enforced field types:
-// string, int, decimal, bool, datetime, array, object.
+// Renders a form control per field type. The accepted set is defined server-side
+// in FieldTypeRegistry; each type here maps to a sensible input (native pickers
+// for dates/times, typed inputs for email/url, a JSON editor for structured data).
 export function DynamicForm({ fields, values, onChange, errors }: DynamicFormProps) {
     const setField = (name: string, value: unknown) => {
         onChange({ ...values, [name]: value });
@@ -78,6 +79,7 @@ function FieldControl({
 
         case 'int':
         case 'decimal':
+        case 'money':
             return (
                 <div className="space-y-2">
                     {label}
@@ -85,24 +87,29 @@ function FieldControl({
                         id={field.name}
                         type="number"
                         step={field.type === 'int' ? 1 : 'any'}
+                        inputMode={field.type === 'int' ? 'numeric' : 'decimal'}
                         value={value === null || value === undefined ? '' : String(value)}
                         onChange={(e) => {
                             const raw = e.target.value;
                             if (raw === '') return onChange(null);
                             onChange(field.type === 'int' ? parseInt(raw, 10) : parseFloat(raw));
                         }}
+                        className="w-fit"
                     />
                     <FieldError message={error} />
                 </div>
             );
 
+        // Native pickers for the temporal types.
+        case 'date':
         case 'datetime':
+        case 'time':
             return (
                 <div className="space-y-2">
                     {label}
                     <Input
                         id={field.name}
-                        type="datetime-local"
+                        type={field.type === 'datetime' ? 'datetime-local' : field.type}
                         value={(value as string) || ''}
                         onChange={(e) => onChange(e.target.value)}
                         className="w-fit"
@@ -111,6 +118,47 @@ function FieldControl({
                 </div>
             );
 
+        // Single-line inputs. email/url get the matching native keyboard + hint;
+        // format is enforced server-side by FieldTypeRegistry.
+        case 'email':
+        case 'url':
+        case 'slug':
+        case 'uuid':
+            return (
+                <div className="space-y-2">
+                    {label}
+                    <Input
+                        id={field.name}
+                        type={field.type === 'email' ? 'email' : field.type === 'url' ? 'url' : 'text'}
+                        inputMode={field.type === 'email' ? 'email' : field.type === 'url' ? 'url' : 'text'}
+                        placeholder={PLACEHOLDERS[field.type]}
+                        value={(value as string) || ''}
+                        onChange={(e) => onChange(e.target.value)}
+                        className={field.type === 'uuid' || field.type === 'slug' ? 'font-mono' : undefined}
+                    />
+                    <FieldError message={error} />
+                </div>
+            );
+
+        // Longer free text. No rich editor bundled yet — a roomy textarea; the
+        // value is stored/served as-is (HTML for richtext, Markdown for markdown).
+        case 'richtext':
+        case 'markdown':
+            return (
+                <div className="space-y-2">
+                    {label}
+                    <Textarea
+                        id={field.name}
+                        rows={6}
+                        value={(value as string) || ''}
+                        onChange={(e) => onChange(e.target.value)}
+                        className={field.type === 'markdown' ? 'font-mono text-sm' : undefined}
+                    />
+                    <FieldError message={error} />
+                </div>
+            );
+
+        case 'json':
         case 'array':
         case 'object':
             return (
@@ -139,6 +187,13 @@ function FieldControl({
             );
     }
 }
+
+const PLACEHOLDERS: Partial<Record<FieldDefinition['type'], string>> = {
+    email: 'name@example.com',
+    url: 'https://example.com',
+    slug: 'my-post-title',
+    uuid: '00000000-0000-0000-0000-000000000000',
+};
 
 function JsonField({
     field,

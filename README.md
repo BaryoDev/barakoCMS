@@ -182,6 +182,9 @@ reference for building a real product on BarakoCMS.
 Full docs: **<https://baryo.dev/barakoCMS>** — getting started, guides, module references, API
 reference, and architecture. Changelog: [CHANGELOG.md](CHANGELOG.md).
 
+How this project is built and shipped: [AI Development Lifecycle](AI_DEVELOPMENT_LIFECYCLE.md) —
+the breakable-staging discipline, version-gated releases, and how tests gate every promotion.
+
 ---
 
 ## Support

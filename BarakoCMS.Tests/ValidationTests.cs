@@ -43,18 +43,17 @@ public class ValidationTests
     
     [Theory]
     [InlineData("varchar")]
-    [InlineData("text")]
-    [InlineData("number")]
     [InlineData("double")]
     [InlineData("float")]
-    [InlineData("richtext")]
+    [InlineData("reference")] // planned (roadmap F.6) but not yet an accepted type
+    [InlineData("blob")]      // planned (roadmap F.4) but not yet an accepted type
     [InlineData("")]
     [InlineData(null)]
     public void FieldTypeValidator_ShouldRejectInvalidTypes(string? type)
     {
         // Act
         var result = FieldTypeValidator.IsValidFieldType(type);
-        
+
         // Assert
         result.Should().BeFalse($"'{type}' is not a valid field type");
     }

@@ -1,5 +1,6 @@
 // Types for Content Type Schema management.
-// Field types mirror the backend's enforced set (Core/Validation/FieldTypeValidator.cs).
+// Field types mirror the backend's enforced set (Core/Validation/FieldTypeRegistry.cs —
+// the single source of truth every backend validator reads from).
 
 import { SensitivityLevel } from './content';
 
@@ -34,7 +35,24 @@ export const FIELD_MASKS: { value: FieldMask; label: string }[] = [
     { value: FieldMask.Last4, label: 'Show last 4 only' },
 ];
 
-export type FieldType = 'string' | 'int' | 'bool' | 'datetime' | 'decimal' | 'array' | 'object';
+export type FieldType =
+    | 'string'
+    | 'int'
+    | 'decimal'
+    | 'money'
+    | 'bool'
+    | 'date'
+    | 'datetime'
+    | 'time'
+    | 'email'
+    | 'url'
+    | 'slug'
+    | 'uuid'
+    | 'richtext'
+    | 'markdown'
+    | 'json'
+    | 'array'
+    | 'object';
 
 export interface ContentTypeDefinition {
     id?: string;
@@ -54,11 +72,27 @@ export interface CreateSchemaRequest {
 }
 
 export const FIELD_TYPES: { value: FieldType; label: string; description: string }[] = [
+    // Text
     { value: 'string', label: 'Text', description: 'A line or block of text' },
+    { value: 'richtext', label: 'Rich text', description: 'Formatted content (HTML)' },
+    { value: 'markdown', label: 'Markdown', description: 'Markdown-formatted text' },
+    // Numbers
     { value: 'int', label: 'Whole number', description: 'Counts and quantities' },
-    { value: 'decimal', label: 'Decimal number', description: 'Prices, ratings, measurements' },
+    { value: 'decimal', label: 'Decimal number', description: 'Ratings, measurements' },
+    { value: 'money', label: 'Money', description: 'A monetary amount' },
+    // Boolean
     { value: 'bool', label: 'Yes / No', description: 'A true-or-false toggle' },
+    // Date & time
+    { value: 'date', label: 'Date', description: 'A calendar date' },
     { value: 'datetime', label: 'Date & time', description: 'A point in time' },
+    { value: 'time', label: 'Time', description: 'A time of day' },
+    // Validated formats
+    { value: 'email', label: 'Email', description: 'A valid email address' },
+    { value: 'url', label: 'URL', description: 'A web link (http/https)' },
+    { value: 'slug', label: 'Slug', description: 'URL-friendly identifier, e.g. my-post' },
+    { value: 'uuid', label: 'UUID', description: 'A unique identifier' },
+    // Structured
+    { value: 'json', label: 'JSON', description: 'An arbitrary JSON object or array' },
     { value: 'array', label: 'List', description: 'Multiple values in one field' },
     { value: 'object', label: 'Nested object', description: 'Structured JSON data' },
 ];

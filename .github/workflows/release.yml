@@ -1,0 +1,273 @@
+name: Release (master)
+
+# Version-gated release on every master merge. The single source of truth is
+# <Version> in barakoCMS/barakoCMS.csproj:
+#   * bump it in your PR  -> merging publishes that version (NuGet + GitHub
+#     Packages + Docker images) and promotes it to playground.baryo.dev.
+#   * leave it unchanged  -> the gate sees the version is already on NuGet and
+#     the whole pipeline is a no-op. No accidental re-publishes, no surprise
+#     deploys. To ship, bump the version.
+#
+# The breakable dev-playground tier (deploy-dev-playground.yml) is where you
+# iterate; this is the deliberate, versioned promotion to production.
+on:
+  push:
+    branches: ["master"]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - ".github/workflows/deploy-dev-playground.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  # Read the version and decide whether there's anything to release. Everything
+  # downstream is guarded on should_release, so an unchanged version costs one
+  # cheap job and nothing else.
+  gate:
+    name: Version gate
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      should_release: ${{ steps.check.outputs.should_release }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        run: |
+          set -euo pipefail
+          VERSION=$(sed -n 's/.*<Version>\(.*\)<\/Version>.*/\1/p' barakoCMS/barakoCMS.csproj | head -1)
+          if [ -z "$VERSION" ]; then
+            echo "Could not read <Version> from barakoCMS/barakoCMS.csproj" >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          # NuGet flat-container lists every published version of a package
+          # (id lowercased). If this version is already there, there's nothing
+          # to release.
+          PUBLISHED=$(curl -s "https://api.nuget.org/v3-flatcontainer/barakocms/index.json" \
+            | grep -o "\"$VERSION\"" || true)
+          if [ -n "$PUBLISHED" ]; then
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::BarakoCMS $VERSION is already on NuGet — nothing to release. Bump <Version> to ship."
+          else
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Releasing BarakoCMS $VERSION."
+          fi
+
+  test:
+    name: Test
+    needs: gate
+    if: needs.gate.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Backend tests
+        run: dotnet test BarakoCMS.Tests/BarakoCMS.Tests.csproj --configuration Release
+        env:
+          DOCKER_HOST: unix:///var/run/docker.sock
+
+  # NuGet + GitHub Packages + the public (amd64) Docker images, mirrored to
+  # Docker Hub. Same steps the manual nuget-publish.yml runs, minus the version
+  # bump — here the csproj version is already the release version.
+  publish:
+    name: Publish packages + public images
+    needs: [gate, test]
+    if: needs.gate.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      VERSION: ${{ needs.gate.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore and build
+        run: |
+          dotnet restore
+          dotnet build barakoCMS/barakoCMS.csproj --no-restore --configuration Release
+
+      - name: Pack core
+        run: dotnet pack barakoCMS/barakoCMS.csproj --no-build --configuration Release -o out
+
+      - name: Pack modules
+        # Modules reference barakoCMS by project, so they inherit its version.
+        run: |
+          for m in BarakoCMS.Accounting BarakoCMS.Import BarakoCMS.Files BarakoCMS.Email.Resend BarakoCMS.DeviceTrust BarakoCMS.ExternalAuth BarakoCMS.FeatureFlags BarakoCMS.Portability BarakoCMS.Diagnostics BarakoCMS.Analytics.Umami BarakoCMS.Pwa; do
+            dotnet pack "$m/$m.csproj" --configuration Release -o out
+          done
+
+      - name: Publish to NuGet.org
+        run: dotnet nuget push "out/*.nupkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+
+      - name: Publish to GitHub Packages
+        run: dotnet nuget push "out/*.nupkg" --api-key ${{ secrets.GITHUB_TOKEN }} --source https://nuget.pkg.github.com/BaryoDev/index.json --skip-duplicate
+
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Login to Docker Hub (optional mirror)
+        id: dockerhub
+        continue-on-error: true
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push Barako (full suite → barako-cms)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.suite
+          push: true
+          tags: |
+            ghcr.io/baryodev/barako-cms:latest
+            ghcr.io/baryodev/barako-cms:${{ env.VERSION }}
+          labels: org.opencontainers.image.source=https://github.com/BaryoDev/barakoCMS
+
+      - name: Build and push Decaf (core → barako-cms-decaf)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: |
+            ghcr.io/baryodev/barako-cms-decaf:latest
+            ghcr.io/baryodev/barako-cms-decaf:${{ env.VERSION }}
+          labels: org.opencontainers.image.source=https://github.com/BaryoDev/barakoCMS
+
+      - name: Build and push Admin UI
+        uses: docker/build-push-action@v5
+        with:
+          context: ./admin
+          file: admin/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/baryodev/barako-admin:latest
+            ghcr.io/baryodev/barako-admin:${{ env.VERSION }}
+          labels: org.opencontainers.image.source=https://github.com/BaryoDev/barakoCMS
+
+      - name: Mirror images to Docker Hub
+        if: steps.dockerhub.outcome == 'success'
+        run: |
+          V="${{ env.VERSION }}"
+          for img in barako-cms barako-cms-decaf barako-admin; do
+            docker buildx imagetools create \
+              --tag "arnelirobles/$img:latest" \
+              --tag "arnelirobles/$img:$V" \
+              "ghcr.io/baryodev/$img:$V"
+          done
+
+  # Native arm64 :playground images for the Ampere VM — built on an arm runner so
+  # the suite compiles natively (no QEMU). The playground runs these directly.
+  build-playground-images:
+    name: Build arm64 playground images
+    needs: [gate, test]
+    if: needs.gate.outputs.should_release == 'true'
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      packages: write
+    env:
+      VERSION: ${{ needs.gate.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push suite (arm64)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.suite
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ghcr.io/baryodev/barako-cms:playground
+            ghcr.io/baryodev/barako-cms:playground-${{ env.VERSION }}
+          labels: org.opencontainers.image.source=https://github.com/BaryoDev/barakoCMS
+          cache-from: type=gha,scope=pg-api
+          cache-to: type=gha,mode=max,scope=pg-api
+
+      - name: Build and push admin (arm64)
+        uses: docker/build-push-action@v5
+        with:
+          context: ./admin
+          file: admin/Dockerfile
+          platforms: linux/arm64
+          push: true
+          build-args: |
+            NEXT_BASE_PATH=/barakocms
+            NEXT_PUBLIC_API_URL=https://playground.baryo.dev/barakocms-api
+          tags: |
+            ghcr.io/baryodev/barako-admin:playground
+            ghcr.io/baryodev/barako-admin:playground-${{ env.VERSION }}
+          labels: org.opencontainers.image.source=https://github.com/BaryoDev/barakoCMS
+          cache-from: type=gha,scope=pg-admin
+          cache-to: type=gha,mode=max,scope=pg-admin
+
+  deploy-playground:
+    name: Deploy to playground
+    needs: [gate, publish, build-playground-images]
+    if: needs.gate.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: playground
+      url: https://playground.baryo.dev/barakocms
+    steps:
+      # Forced-command key (/home/opc/deploy-playground.sh) — pulls both
+      # :playground images, recreates app + admin, fails if either doesn't
+      # answer 200. A leaked key cannot open a shell.
+      - name: Pull and restart over SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.ORACLE_HOST }}
+          username: ${{ secrets.ORACLE_USER }}
+          key: ${{ secrets.PLAYGROUND_DEPLOY_KEY }}
+          command_timeout: 8m
+          script: deploy
+
+      - name: Verify from the public URL
+        run: |
+          for i in $(seq 1 20); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
+              https://playground.baryo.dev/barakocms-api/api/content-types || true)
+            if [ "$code" = "200" ]; then
+              echo "playground API responded 200 after ${i} attempt(s)"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "playground did not return 200 (last: ${code:-none})" >&2
+          exit 1
+
+  announce:
+    name: Announce
+    needs: [gate, publish]
+    if: needs.gate.outputs.should_release == 'true'
+    uses: BaryoDev/.github/.github/workflows/announce.yml@main
+    with:
+      package: "barakoCMS suite"
+      version: ${{ needs.gate.outputs.version }}
+      notes: "Published barakoCMS ${{ needs.gate.outputs.version }}: core + modules to NuGet.org and GitHub Packages, Docker images (barako-cms, barako-cms-decaf, barako-admin) to ghcr.io, and promoted to playground.baryo.dev."
+      install: "dotnet add package BarakoCMS.Accounting --version ${{ needs.gate.outputs.version }}"
+    secrets:
+      ANNOUNCE_TOKEN: ${{ secrets.ANNOUNCE_TOKEN }}
+      DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
