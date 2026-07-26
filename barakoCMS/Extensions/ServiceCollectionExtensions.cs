@@ -121,6 +121,31 @@ public static class ServiceCollectionExtensions
             // Strict token expiration - no clock skew tolerance
             p.ClockSkew = TimeSpan.Zero;
         });
+
+        // Second auth scheme for machine callers: `Authorization: Bearer bcms_...` API keys. A policy
+        // scheme sniffs the bearer token and forwards bcms_ tokens to the API-key handler, everything
+        // else to the JWT handler — so both credential types work on the same endpoints and all
+        // existing Roles()/permission checks apply to whichever principal comes out.
+        const string smartScheme = "JwtOrApiKey";
+        services.AddAuthentication(options =>
+            {
+                options.DefaultAuthenticateScheme = smartScheme;
+                options.DefaultChallengeScheme = smartScheme;
+            })
+            .AddScheme<barakoCMS.Infrastructure.Auth.ApiKeyAuthenticationOptions, barakoCMS.Infrastructure.Auth.ApiKeyAuthenticationHandler>(
+                barakoCMS.Infrastructure.Auth.ApiKeyAuthenticationHandler.SchemeName, _ => { })
+            .AddPolicyScheme(smartScheme, smartScheme, options =>
+            {
+                options.ForwardDefaultSelector = ctx =>
+                {
+                    var header = ctx.Request.Headers.Authorization.ToString();
+                    return header.StartsWith("Bearer " + barakoCMS.Infrastructure.Auth.ApiKeyService.Prefix, StringComparison.Ordinal)
+                        ? barakoCMS.Infrastructure.Auth.ApiKeyAuthenticationHandler.SchemeName
+                        : Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerDefaults.AuthenticationScheme;
+                };
+            });
+        services.AddSingleton<barakoCMS.Infrastructure.Auth.ApiKeyService>();
+
         services.AddAuthorization();
         services.AddCors(options =>
         {
@@ -259,6 +284,13 @@ public static class ServiceCollectionExtensions
                 .Index(x => x.Email)
                 .Index(x => x.ExpiresAt);
 
+            options.Schema.For<ApiKey>()
+                .SingleTenanted() // credentials are global, like users and tokens
+                .DocumentAlias("api_keys")
+                .Index(x => x.KeyHash, idx => idx.IsUnique = true) // hash lookup at auth time
+                .Index(x => x.UserId)
+                .Index(x => x.TenantSlug);
+
             // Multi-tenancy registry (global documents — not tenant-scoped).
             options.Schema.For<Models.Tenant>()
                 .SingleTenanted() // the tenant registry itself is global
@@ -326,6 +358,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IKubernetesMonitorService, KubernetesMonitorService>();
         services.AddSingleton<IMetricsService, MetricsService>();
         services.AddScoped<IBackupService, BackupService>();
+
+        // Confines API-key callers to the content surface and enforces their scopes. A no-op for JWT
+        // callers (they carry no scope claims).
+        services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Auth.ApiKeyScopeProcessor>();
 
         services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Filters.IdempotencyFilter>();
         // The finalizer completes an idempotency claim on success or releases it on failure, so a

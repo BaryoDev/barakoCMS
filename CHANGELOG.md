@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.0] - 2026-07-26
+
+### Added: API keys for machine callers
+
+Long-lived credentials so an SDK, a CI job, or an integration can call the API without holding a
+human's password or minting short-lived JWTs. A key is `bcms_` followed by 256 bits of entropy, shown
+once when you create it. Only its SHA-256 hash is stored, so a database leak never yields a usable
+key. Manage them under Access, then API keys, in the admin: create with a name, scopes and optional
+expiry; copy the secret once; revoke any time.
+
+Keys are deliberately confined:
+
+- **Content surface only.** A key can read and write content, content types and schemas, and nothing
+  else. It can never manage users, roles, tenants, or other keys. That stays behind a human sign-in,
+  so a leaked key can't escalate into platform administration.
+- **Scoped.** `content:read`, `content:write`, `contenttype:read`, `contenttype:write`, or `*`. A
+  read-only key is refused when it tries to write.
+- **Tenant-bound.** A key operates in one tenant and can't reach another's data. It stops working
+  the moment its owner's membership is removed or the tenant is deactivated, the same check the login
+  path uses.
+- **Revocable immediately.** Revoking a key refuses it on its next request, not at expiry.
+
+Sent as `Authorization: Bearer bcms_...`, alongside the existing JWT auth on the same endpoints.
+
+This shipped through the development process with an adversarial security review of the auth code,
+which caught and fixed a flaw where a best-effort "last used" write could have silently reverted a
+revocation. Covered by unit, integration, and abuse-case tests (forged, revoked, expired, wrong
+scope, cross-surface) against the real API over a real database.
+
 ## [3.2.4] - 2026-07-25
 
 ### Fixed: dashboard crash on partial metrics

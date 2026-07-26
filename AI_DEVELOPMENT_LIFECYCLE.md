@@ -89,6 +89,26 @@ npx playwright test                 # full pack, all viewports
 
 Rule of thumb: **whatever you'll later verify by hand on dev-playground, pin it in a test first.**
 
+#### Security-sensitive changes get an extra gate
+
+When a change touches **authentication, tokens, permissions, tenancy, secrets, or crypto**, functional
+tests aren't enough — they prove it works, not that it can't be abused. These changes additionally
+require:
+
+- **Abuse-case tests, not just edge cases.** Write them from an attacker's seat: a forged or expired
+  credential, a revoked one still being used, a scope escalation, a request crossing into another
+  tenant, a timing side-channel on a secret comparison. The H.1 token fix is the cautionary tale — a
+  test "passed" on a rate-limit 429 without ever exercising the check, and a bypass was found by grep,
+  not by design. Assert on the *merits* (the actual rejection reason), never just a non-200.
+- **An adversarial review before merge.** Run `/security-review` on the diff and act on what it finds.
+  A second, skeptical pass over auth logic catches what the author's mental model misses.
+- **SAST clean.** CodeQL (`codeql.yml`) scans every PR for code-level flaws — injection, auth-logic
+  bugs, unsafe deserialization. Check its findings on the PR, don't just let them sit in the Security
+  tab.
+
+The principle from the top of this doc applies double here: the AI writes the auth code, but the
+process — abuse tests + adversarial review + SAST — is what earns the right to ship it.
+
 ### 1. Branch, PR, CI
 
 Work on a branch off `dev`. Push it and open a PR. CI (`ci.yml`) runs on every push (except master)
