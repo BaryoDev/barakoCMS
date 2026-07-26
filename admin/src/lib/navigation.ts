@@ -8,6 +8,7 @@ import {
   IconRoles,
   IconGroups,
   IconServer,
+  IconKey,
   IconHealth,
   IconAnalytics,
   IconCoins,
@@ -48,6 +49,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { title: 'Users', href: '/users', icon: IconUsers },
       { title: 'Roles', href: '/roles', icon: IconRoles },
       { title: 'Groups', href: '/user-groups', icon: IconGroups },
+      { title: 'API keys', href: '/api-keys', icon: IconKey },
     ],
   },
   {

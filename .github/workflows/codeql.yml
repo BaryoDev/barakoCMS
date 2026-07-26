@@ -1,0 +1,51 @@
+name: CodeQL
+
+# Static analysis (SAST) for code-level vulnerabilities — injection, auth-logic flaws, unsafe
+# deserialization, and the like — that gitleaks (secrets) and the dependency scan (supply chain)
+# don't catch. Findings land in the repo's Security tab and as PR annotations. Especially relevant
+# for security-sensitive changes (auth, tokens, permissions); see AI_DEVELOPMENT_LIFECYCLE.md.
+on:
+  push:
+    branches: ["master", "dev"]
+    paths-ignore: ["**/*.md", "docs/**"]
+  pull_request:
+    branches: ["master"]
+    paths-ignore: ["**/*.md", "docs/**"]
+  schedule:
+    - cron: "27 3 * * 1" # weekly, so drift is caught even without a push
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write # upload results to the Security tab
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: csharp
+            build-mode: autobuild # C# is compiled; CodeQL builds it to analyze
+          - language: javascript-typescript
+            build-mode: none # interpreted; no build needed
+    steps:
+      - uses: actions/checkout@v4
+
+      - if: matrix.language == 'csharp'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          # security-and-quality is the broadest query pack; use security-extended if this gets noisy.
+          queries: security-extended
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
