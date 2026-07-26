@@ -29,6 +29,32 @@ const SCHEMA = {
     ],
 };
 
+test('api keys page', async ({ page }, testInfo) => {
+    await authed(page);
+    await stubShell(page);
+    await page.route('**/api/api-keys**', (r) =>
+        r.fulfill({
+            json: [
+                {
+                    id: 'k1', name: 'CI deploy', prefix: 'bcms_ab12cd34', scopes: ['content:read', 'content:write'],
+                    tenantSlug: 'default', expiresAt: null, lastUsedAt: new Date().toISOString(), revoked: false,
+                    createdAt: new Date().toISOString(),
+                },
+                {
+                    id: 'k2', name: 'Analytics export', prefix: 'bcms_99ff00aa', scopes: ['content:read'],
+                    tenantSlug: 'default', expiresAt: null, lastUsedAt: null, revoked: false,
+                    createdAt: new Date().toISOString(),
+                },
+            ],
+        })
+    );
+
+    await page.goto('/api-keys');
+    await expect(page.getByRole('heading', { name: 'API keys' })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText('CI deploy')).toBeVisible();
+    await page.screenshot({ path: `${testInfo.project.outputDir}/screenshots/api-keys.png`, fullPage: true });
+});
+
 test('entry form with the new field types', async ({ page }, testInfo) => {
     await authed(page);
     await stubShell(page);
