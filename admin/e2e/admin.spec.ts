@@ -39,11 +39,15 @@ test.describe('Admin flows (mocked API)', () => {
         );
     });
 
-    test('sidebar navigates between feature pages', async ({ page }) => {
+    test('sidebar navigates between feature pages', async ({ page }, testInfo) => {
+        // The persistent sidebar is a desktop layout; on mobile it collapses into a drawer behind a
+        // trigger, so this navigation path is desktop-only.
+        test.skip(testInfo.project.name.includes('Mobile'), 'sidebar is a drawer on mobile');
         await page.goto('/');
         await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible();
 
-        await page.getByRole('link', { name: 'Content types' }).click();
+        // exact: the dashboard also has a "Content types N" stat-card link; we want the sidebar one.
+        await page.getByRole('link', { name: 'Content types', exact: true }).click();
         await expect(page).toHaveURL('/schemas');
         await expect(page.getByText('Blog post')).toBeVisible();
     });

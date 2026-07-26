@@ -232,6 +232,8 @@ jobs:
       name: playground
       url: https://playground.baryo.dev/barakocms
     steps:
+      - uses: actions/checkout@v4 # for scripts/smoke-test.sh
+
       # Forced-command key (/home/opc/deploy-playground.sh) — pulls both
       # :playground images, recreates app + admin, fails if either doesn't
       # answer 200. A leaked key cannot open a shell.
@@ -251,12 +253,16 @@ jobs:
               https://playground.baryo.dev/barakocms-api/api/content-types || true)
             if [ "$code" = "200" ]; then
               echo "playground API responded 200 after ${i} attempt(s)"
-              exit 0
+              break
             fi
             sleep 3
           done
-          echo "playground did not return 200 (last: ${code:-none})" >&2
-          exit 1
+          [ "${code:-}" = "200" ] || { echo "playground did not return 200 (last: ${code:-none})" >&2; exit 1; }
+
+      # Read-only smoke on the public demo (no writes — no SMOKE_WRITE, no creds), so we confirm the
+      # app is live and its DB reachable without leaving test content on playground.
+      - name: Smoke test (read-only)
+        run: bash scripts/smoke-test.sh https://playground.baryo.dev/barakocms-api
 
   announce:
     name: Announce
@@ -271,3 +277,18 @@ jobs:
     secrets:
       ANNOUNCE_TOKEN: ${{ secrets.ANNOUNCE_TOKEN }}
       DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+
+  # A failed release (bad publish, deploy, or smoke) should ping. Best-effort; never fails the run.
+  notify-failure:
+    needs: [gate, test, publish, build-playground-images, deploy-playground]
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Discord
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          [ -z "${DISCORD_WEBHOOK:-}" ] && { echo "no webhook; skipping"; exit 0; }
+          payload=$(jq -n --arg u "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            '{content: ("🔴 barakoCMS release failed — <" + $u + ">")}')
+          curl -s -o /dev/null -H "Content-Type: application/json" -X POST -d "$payload" "$DISCORD_WEBHOOK" || true

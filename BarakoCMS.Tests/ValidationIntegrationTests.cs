@@ -704,4 +704,101 @@ public class ValidationIntegrationTests
     }
 
     #endregion
+
+    #region F.1 — validation-shaped field types (email, money, slug, time)
+
+    // The API-level counterpart of the admin Playwright test and the dev-playground curl check:
+    // the real endpoint, over a real Postgres, accepts the new field types and enforces their
+    // format on content values.
+
+    private async Task AuthAsAdminAsync()
+    {
+        var token = await CreateTokenAsync("Admin", "SuperAdmin");
+        _client.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+    }
+
+    // The create endpoint binds `fields` as a list of field objects (not a name→type map).
+    private static object Field(string name, string type) => new
+    {
+        name,
+        displayName = name,
+        type,
+        isRequired = false,
+        defaultValue = (object?)null,
+        validationRules = new Dictionary<string, object>()
+    };
+
+    private async Task CreateTypeAsync(string name, params object[] fields)
+    {
+        var res = await _client.PostAsJsonAsync("/api/content-types",
+            new { name, displayName = name, description = "F.1 test", fields = fields.ToList() });
+        res.StatusCode.Should().Be(HttpStatusCode.OK,
+            because: "the type must exist or content validation falls back to loose mode: "
+                     + await res.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task CreateContentType_ShouldSucceed_WithValidationShapedTypes()
+    {
+        await AuthAsAdminAsync();
+        await CreateTypeAsync("memberftx",
+            Field("Email", "email"), Field("Dues", "money"), Field("Handle", "slug"), Field("JoinTime", "time"));
+    }
+
+    [Fact]
+    public async Task CreateContent_ShouldSucceed_WithValidEmailAndMoney()
+    {
+        await AuthAsAdminAsync();
+        await CreateTypeAsync("memberftvalid", Field("Email", "email"), Field("Dues", "money"));
+
+        var res = await _client.PostAsJsonAsync("/api/contents", new
+        {
+            contentType = "memberftvalid",
+            status = 1,
+            sensitivity = 0,
+            data = new Dictionary<string, object> { { "Email", "arnel@baryo.dev" }, { "Dues", 250.50 } }
+        });
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK,
+            because: await res.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task CreateContent_ShouldFail_WithMalformedEmail()
+    {
+        await AuthAsAdminAsync();
+        await CreateTypeAsync("memberftbademail", Field("Email", "email"));
+
+        var res = await _client.PostAsJsonAsync("/api/contents", new
+        {
+            contentType = "memberftbademail",
+            status = 1,
+            sensitivity = 0,
+            data = new Dictionary<string, object> { { "Email", "not-an-email" } }
+        });
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await res.Content.ReadAsStringAsync()).Should().Contain("email");
+    }
+
+    [Fact]
+    public async Task CreateContent_ShouldFail_WithNonNumericMoney()
+    {
+        await AuthAsAdminAsync();
+        await CreateTypeAsync("memberftbadmoney", Field("Dues", "money"));
+
+        var res = await _client.PostAsJsonAsync("/api/contents", new
+        {
+            contentType = "memberftbadmoney",
+            status = 1,
+            sensitivity = 0,
+            data = new Dictionary<string, object> { { "Dues", "expensive" } }
+        });
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await res.Content.ReadAsStringAsync()).Should().Contain("money");
+    }
+
+    #endregion
 }

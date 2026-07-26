@@ -1,0 +1,71 @@
+name: Rollback playground
+
+# One-button rollback. Every release pushes immutable :playground-<version> images; this repoints
+# the moving :playground tag back at a chosen version and redeploys. Boring and fast on the day you
+# need it, instead of an improvised VM session.
+#
+#   Actions → Rollback playground → Run workflow → version: 3.2.2
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to roll back to (a released :playground-<version>, e.g. 3.2.2)"
+        required: true
+
+concurrency:
+  group: deploy-playground # share the release/deploy lane so they can't overlap
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    environment:
+      name: playground
+      url: https://playground.baryo.dev/barakocms
+    steps:
+      - uses: actions/checkout@v4 # for scripts/smoke-test.sh
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Confirm the target images exist, then repoint :playground at them (imagetools copies the
+      # manifest — no rebuild). Fails loudly if the version was never released.
+      - name: Repoint :playground to ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          V='${{ inputs.version }}'
+          for img in barako-cms barako-admin; do
+            src="ghcr.io/baryodev/$img:playground-$V"
+            docker buildx imagetools inspect "$src" >/dev/null \
+              || { echo "::error::$src not found — was $V released?"; exit 1; }
+            docker buildx imagetools create --tag "ghcr.io/baryodev/$img:playground" "$src"
+            echo "repointed $img:playground -> playground-$V"
+          done
+
+      # Same forced-command deploy the release uses: pulls :playground (now the old version) and
+      # recreates the stack.
+      - name: Redeploy over SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.ORACLE_HOST }}
+          username: ${{ secrets.ORACLE_USER }}
+          key: ${{ secrets.PLAYGROUND_DEPLOY_KEY }}
+          command_timeout: 8m
+          script: deploy
+
+      - name: Smoke test (read-only)
+        run: bash scripts/smoke-test.sh https://playground.baryo.dev/barakocms-api
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Rollback"
+            echo "- playground repointed to \`${{ inputs.version }}\`"
+            echo "- result: ${{ job.status }}"
+          } >> "$GITHUB_STEP_SUMMARY"
