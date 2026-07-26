@@ -11,19 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Long-lived credentials so an SDK, a CI job, or an integration can call the API without holding a
 human's password or minting short-lived JWTs. A key is `bcms_` followed by 256 bits of entropy, shown
-once when you create it; only its SHA-256 hash is stored, so a database leak never yields a usable
-key. Manage them under **Access → API keys** in the admin: create with a name, scopes and optional
+once when you create it. Only its SHA-256 hash is stored, so a database leak never yields a usable
+key. Manage them under Access, then API keys, in the admin: create with a name, scopes and optional
 expiry; copy the secret once; revoke any time.
 
 Keys are deliberately confined:
 
 - **Content surface only.** A key can read and write content, content types and schemas, and nothing
-  else. It can never manage users, roles, tenants, or other keys — that stays behind a human sign-in,
+  else. It can never manage users, roles, tenants, or other keys. That stays behind a human sign-in,
   so a leaked key can't escalate into platform administration.
 - **Scoped.** `content:read`, `content:write`, `contenttype:read`, `contenttype:write`, or `*`. A
   read-only key is refused when it tries to write.
-- **Tenant-bound.** A key operates in one tenant and can't reach another's data, and it stops working
-  the moment its owner's membership is removed or the tenant is deactivated — the same check the login
+- **Tenant-bound.** A key operates in one tenant and can't reach another's data. It stops working
+  the moment its owner's membership is removed or the tenant is deactivated, the same check the login
   path uses.
 - **Revocable immediately.** Revoking a key refuses it on its next request, not at expiry.
 

@@ -33,6 +33,7 @@ jobs:
     outputs:
       version: ${{ steps.check.outputs.version }}
       should_release: ${{ steps.check.outputs.should_release }}
+      notes: ${{ steps.check.outputs.notes }}
     steps:
       - uses: actions/checkout@v4
       - id: check
@@ -44,6 +45,20 @@ jobs:
             exit 1
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          # Pull THIS version's CHANGELOG section so the announcement says what actually changed
+          # instead of a generic line — everything between "## [VERSION]" and the next "## [".
+          NOTES=$(awk -v v="## [$VERSION]" '
+            index($0, v) == 1 { f = 1; next }
+            f && /^## \[/ { exit }
+            f && seen == 0 && /^[[:space:]]*$/ { next }  # drop leading blank lines
+            f { seen = 1; print }
+          ' CHANGELOG.md)
+          {
+            echo "notes<<__BARAKO_NOTES__"
+            echo "$NOTES"
+            echo "__BARAKO_NOTES__"
+          } >> "$GITHUB_OUTPUT"
 
           # NuGet flat-container lists every published version of a package
           # (id lowercased). If this version is already there, there's nothing
@@ -272,7 +287,13 @@ jobs:
     with:
       package: "barakoCMS suite"
       version: ${{ needs.gate.outputs.version }}
-      notes: "Published barakoCMS ${{ needs.gate.outputs.version }}: core + modules to NuGet.org and GitHub Packages, Docker images (barako-cms, barako-cms-decaf, barako-admin) to ghcr.io, and promoted to playground.baryo.dev."
+      # The actual CHANGELOG section for this version (what changed), with the publish summary
+      # appended. Falls back to a one-liner in the reusable workflow if the notes are empty.
+      notes: |
+        ${{ needs.gate.outputs.notes }}
+
+        ---
+        Published to NuGet.org + GitHub Packages, Docker images (barako-cms, barako-cms-decaf, barako-admin) on ghcr.io, and promoted to playground.baryo.dev.
       install: "dotnet add package BarakoCMS.Accounting --version ${{ needs.gate.outputs.version }}"
     secrets:
       ANNOUNCE_TOKEN: ${{ secrets.ANNOUNCE_TOKEN }}
