@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <PackageId>BarakoCMS</PackageId>
-    <Version>3.2.3</Version>
+    <Version>3.2.4</Version>
 
     <Authors>Arnel Robles</Authors>
     <Company>BaryoDev</Company>

@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.4] - 2026-07-25
+
+### Fixed: dashboard crash on partial metrics
+
+The admin overview formatted the error-rate metric without guarding for a missing value, so if the
+monitoring endpoint returned a partial object the whole dashboard threw
+(`Cannot read properties of undefined (reading 'toFixed')`) and rendered a blank error page. Guarded
+it — a missing metric shows `—`, like the other cards already did. Found while writing the end-to-end
+tests, not in production.
+
+### Pipeline and tests (internal)
+
+Not user-facing, but part of the same release: CI now runs the whole browser end-to-end pack (not a
+subset) plus a secret and dependency scan; every deploy runs a smoke test that logs in, creates
+content, and confirms validation still rejects bad input; a one-button rollback workflow was added;
+and the field types from 3.2.3 gained backend integration tests that exercise the real API over a
+real database.
+
+## [3.2.3] - 2026-07-24
+
+### Added: richer content-type field types
+
+Content types now support properly-typed fields instead of everything being text: `email`, `url`,
+`slug`, `uuid`, `money`, `time`, plus `richtext`, `markdown`, and `json` (and a `date`/`datetime`
+split). Each is validated at the API — an `email` field rejects a value that isn't an email rather
+than silently storing it — and the admin renders a matching control for each type (date/time pickers,
+number input for money, a JSON editor for structured data).
+
+Behind it, the allowed field types now live in one `FieldTypeRegistry` that every validator reads
+from. Three validators had drifted apart — one accepted `text`/`number`, another rejected them, and a
+doc comment advertised types no validator accepted — and a parity test now fails the build if they
+ever diverge again.
+
 ## [3.2.2] - 2026-07-24
 
 ### Fixed: fresh installs boot on an empty database
