@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.5.0] - 2026-07-27
+
+### Added: site navigation menus
+
+A tenant-scoped menu (a slug like "main" or "footer", a name, and an ordered list of items with one
+level of nesting) so a site frontend can render its navigation from the CMS instead of hardcoding it.
+Admins manage menus through `GET/POST/PUT/DELETE /api/menus`, and the frontend reads them anonymously:
+
+- `GET /api/public/menus/{slug}` returns a menu for public rendering.
+
+Menus carry only navigation data (labels and URLs), are scoped to one site, and are cacheable. This
+pairs with the public content delivery API to cover a site's chrome as well as its content.
+
 ## [3.4.0] - 2026-07-27
 
 ### Added: public content delivery API
