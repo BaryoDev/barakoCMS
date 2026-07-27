@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>BarakoCMS.Files.S3</RootNamespace>
+
+    <IsPackable>true</IsPackable>
+    <PackageId>BarakoCMS.Files.S3</PackageId>
+    <Version>0.1.0</Version>
+    <Description>S3-compatible object storage provider for the barakoCMS Files module. Works with AWS S3, Cloudflare R2, and MinIO. Public files get a direct, CDN-friendly URL; private files are proxied through the API.</Description>
+    <Company>BaryoDev</Company>
+    <PackageLicenseExpression>MPL-2.0</PackageLicenseExpression>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AWSSDK.S3" Version="3.7.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\BarakoCMS.Files\BarakoCMS.Files.csproj" />
+  </ItemGroup>
+
+</Project>

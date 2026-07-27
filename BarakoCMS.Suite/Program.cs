@@ -24,6 +24,7 @@ builder.Services.AddBarakoCMS(builder.Configuration, modules =>
     modules.Add(new AccountingModule());
     modules.Add(new ImportModule());
     modules.Add(new FilesModule());
+    modules.Add(new BarakoCMS.Files.S3.S3FilesModule()); // dormant unless Files:S3 is configured
     modules.Add(new ResendEmailModule());
     modules.Add(new BarakoCMS.DeviceTrust.DeviceTrustModule());
     modules.Add(new ExternalAuthModule());
