@@ -237,6 +237,12 @@ public static class ServiceCollectionExtensions
                 .Index(x => x.Status)
                 .Index(x => new { x.ContentType, x.CreatedAt })
                 .Index(x => new { x.ContentType, x.Status }); // Composite for status filtering
+                // NOTE: no GinIndexJsonData() here. Adding an index to this existing table is a schema
+                // delta that production's AutoCreate.CreateOnly refuses to apply (it creates missing
+                // objects but never alters existing ones), which crash-loops the app at boot. The
+                // public slug lookup filters by the indexed (ContentType, Status) then matches the slug
+                // in memory over that small set, so no JSONB index is needed. If a JSONB slug query is
+                // ever added, ship the index via an explicit migration, not a Marten schema change.
             
             options.Schema.For<User>()
                 .SingleTenanted() // global identity — a user exists once across all tenants

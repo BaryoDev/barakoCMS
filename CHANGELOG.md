@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.0] - 2026-07-27
+
+### Added: public content delivery API
+
+A read-only, anonymous surface for serving published content to a website frontend, separate from the
+authenticated authoring API. Two endpoints:
+
+- `GET /api/public/{type}` returns a paged list of Published entries of a content type.
+- `GET /api/public/{type}/{slug}` returns a single Published entry addressed by its slug.
+
+This is what makes barakoCMS able to back a public site (a blog, a docs site, a marketing page)
+without the frontend holding credentials. It is deliberately safe by construction, independent of the
+authoring API's sensitivity mode:
+
+- Only Published entries are ever returned. Drafts and archived content are never exposed.
+- A document marked Sensitive or Hidden is never delivered, even when Published.
+- Only fields the content type marks Public leave the API. Field masking is an allowlist, so a field
+  removed or renamed in the schema, or a value stored under a differently-cased key, cannot leak.
+- Each request is scoped to one tenant, resolved from the X-Tenant header or host.
+- Responses carry `Cache-Control: public`, so a CDN can absorb traffic.
+
+Built through the development process with an adversarial security review, which caught and fixed two
+data-exposure bugs before merge (the field masking was a denylist that leaked orphan and mis-cased
+keys). Covered by abuse-case tests against the real API over a real database.
+
 ## [3.3.0] - 2026-07-26
 
 ### Added: API keys for machine callers

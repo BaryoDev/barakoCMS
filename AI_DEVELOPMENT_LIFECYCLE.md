@@ -91,23 +91,36 @@ Rule of thumb: **whatever you'll later verify by hand on dev-playground, pin it 
 
 #### Security-sensitive changes get an extra gate
 
-When a change touches **authentication, tokens, permissions, tenancy, secrets, or crypto**, functional
-tests aren't enough — they prove it works, not that it can't be abused. These changes additionally
-require:
+A change is security-sensitive when it touches **authentication, tokens, permissions, tenancy,
+secrets, or crypto**, OR when it **exposes data anonymously or publicly**: a new unauthenticated
+endpoint, or any change to which fields or documents leave the API. That last trigger is easy to miss
+because it isn't "auth" in the usual sense, but the public content delivery API was exactly this, and
+the review caught two high-severity data leaks in it. If a change widens what an untrusted caller can
+read, it gets this gate. Functional tests aren't enough here; they prove it works, not that it can't
+be abused. These changes additionally require:
 
 - **Abuse-case tests, not just edge cases.** Write them from an attacker's seat: a forged or expired
   credential, a revoked one still being used, a scope escalation, a request crossing into another
-  tenant, a timing side-channel on a secret comparison. The H.1 token fix is the cautionary tale — a
-  test "passed" on a rate-limit 429 without ever exercising the check, and a bypass was found by grep,
-  not by design. Assert on the *merits* (the actual rejection reason), never just a non-200.
+  tenant, a draft or a sensitive field reaching an anonymous caller. The H.1 token fix is the
+  cautionary tale, where a test "passed" on a rate-limit 429 without ever exercising the check. Assert
+  on the *merits* (the actual rejection reason or the exact field that must be absent), never just a
+  non-200.
+- **Fail closed, allowlist not denylist.** For anything that decides what data leaves the API, start
+  from nothing and add back only what is explicitly allowed. A denylist ("return everything, then
+  strip the sensitive parts") leaks the moment something new appears that the strip step doesn't know
+  about. The public delivery review found exactly this: a field-stripping denylist leaked orphan and
+  mis-cased keys, and the fix was to emit only fields the schema marks Public.
 - **An adversarial review before merge.** Run `/security-review` on the diff and act on what it finds.
-  A second, skeptical pass over auth logic catches what the author's mental model misses.
-- **SAST clean.** CodeQL (`codeql.yml`) scans every PR for code-level flaws — injection, auth-logic
-  bugs, unsafe deserialization. Check its findings on the PR, don't just let them sit in the Security
+  A second, skeptical pass catches what the author's mental model misses. It has earned its place:
+  every security-sensitive feature so far (the API-key revocation race, the public delivery leaks) had
+  a real, shippable bug that this pass caught and no functional test would have.
+- **SAST clean.** CodeQL (`codeql.yml`) scans every PR for code-level flaws: injection, auth-logic
+  bugs, unsafe deserialization. Read its findings on the PR, don't just let them sit in the Security
   tab.
 
-The principle from the top of this doc applies double here: the AI writes the auth code, but the
-process — abuse tests + adversarial review + SAST — is what earns the right to ship it.
+The principle from the top of this doc applies double here. The AI writes the code, but the process,
+abuse tests plus fail-closed design plus adversarial review plus SAST, is what earns the right to
+ship it.
 
 ### 1. Branch, PR, CI
 
