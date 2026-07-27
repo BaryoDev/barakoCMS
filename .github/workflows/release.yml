@@ -33,7 +33,6 @@ jobs:
     outputs:
       version: ${{ steps.check.outputs.version }}
       should_release: ${{ steps.check.outputs.should_release }}
-      notes: ${{ steps.check.outputs.notes }}
     steps:
       - uses: actions/checkout@v4
       - id: check
@@ -45,20 +44,6 @@ jobs:
             exit 1
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
-          # Pull THIS version's CHANGELOG section so the announcement says what actually changed
-          # instead of a generic line — everything between "## [VERSION]" and the next "## [".
-          NOTES=$(awk -v v="## [$VERSION]" '
-            index($0, v) == 1 { f = 1; next }
-            f && /^## \[/ { exit }
-            f && seen == 0 && /^[[:space:]]*$/ { next }  # drop leading blank lines
-            f { seen = 1; print }
-          ' CHANGELOG.md)
-          {
-            echo "notes<<__BARAKO_NOTES__"
-            echo "$NOTES"
-            echo "__BARAKO_NOTES__"
-          } >> "$GITHUB_OUTPUT"
 
           # NuGet flat-container lists every published version of a package
           # (id lowercased). If this version is already there, there's nothing
@@ -279,25 +264,31 @@ jobs:
       - name: Smoke test (read-only)
         run: bash scripts/smoke-test.sh https://playground.baryo.dev/barakocms-api
 
+  # Org discussions (best-effort). Discord is handled by announce-discord below, NOT here: passing the
+  # multiline changelog through a job-output into a reusable-workflow input silently emptied it, so
+  # every Discord post fell back to a generic line. No DISCORD_WEBHOOK is passed here on purpose.
   announce:
-    name: Announce
+    name: Announce (discussions)
     needs: [gate, publish]
     if: needs.gate.outputs.should_release == 'true'
     uses: BaryoDev/.github/.github/workflows/announce.yml@main
     with:
       package: "barakoCMS suite"
       version: ${{ needs.gate.outputs.version }}
-      # The actual CHANGELOG section for this version (what changed), with the publish summary
-      # appended. Falls back to a one-liner in the reusable workflow if the notes are empty.
-      notes: |
-        ${{ needs.gate.outputs.notes }}
-
-        ---
-        Published to NuGet.org + GitHub Packages, Docker images (barako-cms, barako-cms-decaf, barako-admin) on ghcr.io, and promoted to playground.baryo.dev.
       install: "dotnet add package BarakoCMS.Accounting --version ${{ needs.gate.outputs.version }}"
     secrets:
       ANNOUNCE_TOKEN: ${{ secrets.ANNOUNCE_TOKEN }}
-      DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+
+  # Detailed Discord announcement, via the reusable workflow that reads CHANGELOG in-job. Only the
+  # version (a single-line string) crosses the boundary, so the notes can't be emptied in transit.
+  announce-discord:
+    name: Announce (Discord)
+    needs: [gate, publish]
+    if: needs.gate.outputs.should_release == 'true'
+    uses: ./.github/workflows/discord-announce.yml
+    with:
+      version: ${{ needs.gate.outputs.version }}
+    secrets: inherit
 
   # A failed release (bad publish, deploy, or smoke) should ping. Best-effort; never fails the run.
   notify-failure:
