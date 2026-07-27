@@ -1,0 +1,60 @@
+name: Discord announce
+
+# Posts a detailed release announcement to Discord. The notes are read from the CHANGELOG section for
+# the given version IN THIS JOB, so the multiline text never crosses a job-output/reusable-input hop
+# (which silently emptied it before, making every post generic).
+#
+# Two ways in:
+#   - workflow_call from release.yml (automatic on a release)
+#   - workflow_dispatch to re-post or backfill a version by hand
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to announce, e.g. 3.3.0"
+        required: true
+        type: string
+
+jobs:
+  discord:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Post to Discord
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DISCORD_WEBHOOK:-}" ]; then echo "no DISCORD_WEBHOOK; skipping"; exit 0; fi
+
+          # This version's CHANGELOG section: everything between "## [VERSION]" and the next "## [".
+          NOTES=$(awk -v v="## [$VERSION]" '
+            index($0, v) == 1 { f = 1; next }
+            f && /^## \[/ { exit }
+            f && seen == 0 && /^[[:space:]]*$/ { next }
+            f { seen = 1; print }
+          ' CHANGELOG.md)
+          [ -z "$NOTES" ] && NOTES="Released barakoCMS suite v$VERSION."
+
+          DESC="$NOTES
+
+          Published to NuGet + GitHub Packages, Docker images on ghcr.io, and promoted to playground.baryo.dev."
+          DESC="${DESC:0:3900}" # Discord embed descriptions cap at 4096 chars
+
+          # jq --arg encodes newlines/quotes/backticks safely.
+          jq -n \
+            --arg t "barakoCMS suite v$VERSION" \
+            --arg d "$DESC" \
+            '{content: ("**" + $t + "** released"), embeds: [{title: $t, description: $d, color: 35514}]}' \
+            > payload.json
+
+          code=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Content-Type: application/json" -X POST --data @payload.json "$DISCORD_WEBHOOK")
+          echo "Discord responded $code"
+          [ "$code" = "204" ] || { echo "Non-204 from Discord: $code" >&2; exit 1; }
