@@ -39,6 +39,16 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
                 { "JWT:Audience", "BarakoClient" }
             });
         });
+
+        // The test project references the Files module, so FastEndpoints discovers its endpoints.
+        // Register the module's services + schema so those endpoints can activate (Postgres storage;
+        // S3 stays dormant with no Files:S3 config). This also gives us a host that can test the
+        // Files endpoints end to end.
+        builder.ConfigureServices((ctx, services) =>
+        {
+            new BarakoCMS.Files.FilesModule().ConfigureServices(services, ctx.Configuration);
+            services.ConfigureMarten(opts => new BarakoCMS.Files.FilesModule().ConfigureMarten(opts));
+        });
     }
 
     public async Task InitializeAsync()

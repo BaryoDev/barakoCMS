@@ -15,6 +15,7 @@
     <ProjectReference Include="..\BarakoCMS.Accounting\BarakoCMS.Accounting.csproj" />
     <ProjectReference Include="..\BarakoCMS.Import\BarakoCMS.Import.csproj" />
     <ProjectReference Include="..\BarakoCMS.Files\BarakoCMS.Files.csproj" />
+    <ProjectReference Include="..\BarakoCMS.Files.S3\BarakoCMS.Files.S3.csproj" />
     <ProjectReference Include="..\BarakoCMS.Email.Resend\BarakoCMS.Email.Resend.csproj" />
     <ProjectReference Include="..\BarakoCMS.DeviceTrust\BarakoCMS.DeviceTrust.csproj" />
     <ProjectReference Include="..\BarakoCMS.ExternalAuth\BarakoCMS.ExternalAuth.csproj" />

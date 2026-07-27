@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.6.0] - 2026-07-27
+
+### Added: pluggable file storage, an S3 provider, and public media
+
+Files can now be stored in Postgres (the built-in default, no configuration) or in any S3-compatible
+object store, and both work: the CMS user picks by whether they add the S3 provider and configure it.
+
+- A storage abstraction (`IFileStorage`) moves file bytes behind an interface while metadata stays in
+  Postgres. The default keeps bytes in the database.
+- A new opt-in `BarakoCMS.Files.S3` provider stores bytes in a bucket. One code path serves AWS S3,
+  Cloudflare R2, and MinIO; only the endpoint and public URL differ. Configure it under `Files:S3`;
+  with no bucket set it stays dormant and Postgres keeps serving.
+- Public media for a website frontend: uploads can be marked public, and `GET /api/public/files/{id}`
+  serves a file anonymously only when it is public. Private and missing files are both a plain 404, so
+  ids cannot be probed. A public file on an object store is served from its own direct, CDN-friendly
+  URL; a public file in Postgres is proxied through the API.
+
+Uploaded SVGs are rejected (they can carry script), and proxied public responses send `nosniff` plus a
+sandbox content-security-policy. Built through the process with a security review of the new anonymous
+surface (no high-severity findings) and covered by tests against a real MinIO container and the real
+API, including the fail-closed public download.
+
 ## [3.5.0] - 2026-07-27
 
 ### Added: site navigation menus
