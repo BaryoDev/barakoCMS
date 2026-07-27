@@ -237,6 +237,12 @@ public static class ServiceCollectionExtensions
                 .Index(x => x.Status)
                 .Index(x => new { x.ContentType, x.CreatedAt })
                 .Index(x => new { x.ContentType, x.Status }); // Composite for status filtering
+
+            // Site navigation menus, tenant-scoped (each site has its own). Slug uniqueness per tenant
+            // is enforced in the endpoint rather than a conjoined unique index.
+            options.Schema.For<Menu>()
+                .DocumentAlias("menus")
+                .Index(x => x.Slug);
                 // NOTE: no GinIndexJsonData() here. Adding an index to this existing table is a schema
                 // delta that production's AutoCreate.CreateOnly refuses to apply (it creates missing
                 // objects but never alters existing ones), which crash-loops the app at boot. The
