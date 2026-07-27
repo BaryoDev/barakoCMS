@@ -236,7 +236,8 @@ public static class ServiceCollectionExtensions
                 .Index(x => x.UpdatedAt)
                 .Index(x => x.Status)
                 .Index(x => new { x.ContentType, x.CreatedAt })
-                .Index(x => new { x.ContentType, x.Status }); // Composite for status filtering
+                .Index(x => new { x.ContentType, x.Status }) // Composite for status filtering
+                .GinIndexJsonData(); // index the JSONB Data so public slug lookups don't scan
             
             options.Schema.For<User>()
                 .SingleTenanted() // global identity — a user exists once across all tenants
