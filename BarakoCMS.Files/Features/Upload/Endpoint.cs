@@ -9,20 +9,38 @@ public class Response
     public string FileName { get; set; } = string.Empty;
     public string ContentType { get; set; } = string.Empty;
     public long Size { get; set; }
+    public bool IsPublic { get; set; }
+
+    /// <summary>Direct public URL for a public file on an object store; null for Postgres-stored files
+    /// (fetch those via GET /api/public/files/{id}).</summary>
+    public string? PublicUrl { get; set; }
 }
 
 /// <summary>
-/// POST /api/files — upload a single file (image or PDF), stored in the database.
-/// Returns the file id, which callers attach to their own records.
+/// POST /api/files — upload a single file (image or PDF). Bytes go through the configured
+/// <see cref="IFileStorage"/> (Postgres or S3); metadata is recorded in Postgres. Pass a form field
+/// <c>isPublic=true</c> to make it anonymously readable; the default is private (fail closed).
 /// </summary>
 public class Endpoint : EndpointWithoutRequest<Response>
 {
-    // Keep DB-stored files small; matches the CMS's default request body limit.
     private const long MaxBytes = 10L * 1024 * 1024;
-    private static readonly string[] Allowed = { "image/", "application/pdf" };
+
+    // Explicit allow-list of raster image types + PDF. SVG is deliberately excluded: it is XML that can
+    // carry <script>, so a public SVG opened directly would run JS on the API origin. Callers who need
+    // vector art can reference an external URL instead.
+    private static readonly string[] Allowed =
+    {
+        "image/png", "image/jpeg", "image/gif", "image/webp", "image/avif", "application/pdf",
+    };
 
     private readonly IDocumentSession _session;
-    public Endpoint(IDocumentSession session) => _session = session;
+    private readonly IFileStorage _storage;
+
+    public Endpoint(IDocumentSession session, IFileStorage storage)
+    {
+        _session = session;
+        _storage = storage;
+    }
 
     public override void Configure()
     {
@@ -60,25 +78,38 @@ public class Endpoint : EndpointWithoutRequest<Response>
             return;
         }
 
-        using var ms = new MemoryStream();
-        await file.CopyToAsync(ms, ct);
-        var stored = new StoredFile
+        var isPublic = HttpContext.Request.Form.TryGetValue("isPublic", out var pub)
+                       && string.Equals(pub.ToString(), "true", StringComparison.OrdinalIgnoreCase);
+
+        /* Key keeps the extension so an object store serves the right content type via the URL. */
+        var ext = Path.GetExtension(file.FileName);
+        var key = $"{Guid.NewGuid():N}{ext}";
+
+        await using var stream = file.OpenReadStream();
+        var stored = await _storage.PutAsync(stream, key, contentType, isPublic, ct);
+
+        var record = new StoredFile
         {
             FileName = Path.GetFileName(file.FileName),
             ContentType = contentType,
             Size = file.Length,
-            Data = ms.ToArray(),
+            Provider = _storage.Provider,
+            StorageKey = stored.Key,
+            IsPublic = isPublic,
+            PublicUrl = stored.PublicUrl,
             UploadedBy = userId,
         };
-        _session.Store(stored);
+        _session.Store(record);
         await _session.SaveChangesAsync(ct);
 
         await SendAsync(new Response
         {
-            Id = stored.Id,
-            FileName = stored.FileName,
-            ContentType = stored.ContentType,
-            Size = stored.Size,
+            Id = record.Id,
+            FileName = record.FileName,
+            ContentType = record.ContentType,
+            Size = record.Size,
+            IsPublic = record.IsPublic,
+            PublicUrl = record.PublicUrl,
         }, 201, ct);
     }
 }
