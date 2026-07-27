@@ -1,0 +1,170 @@
+using barakoCMS.Models;
+using FastEndpoints;
+using Marten;
+using ContentDoc = barakoCMS.Models.Content; /* distinct alias; avoids the Features.Content namespace clash */
+
+namespace barakoCMS.Features.Public;
+
+/*
+ * The public delivery surface: anonymous, published-only, slug-addressable, cacheable reads for a
+ * website frontend. Distinct from /api/contents (the authenticated authoring API, which returns
+ * drafts and permission-filters per user). Here there is no user: the tenant is resolved from the
+ * X-Tenant header or host as usual, and delivery is deliberately self-contained about what is public:
+ *
+ *   - only Status == Published,
+ *   - only document Sensitivity == Public (a Sensitive/Hidden document is never delivered), and
+ *   - any field the content type marks non-Public is stripped from the payload.
+ *
+ * It does NOT depend on the ISensitivityService masking mode (which governs the authoring API and can
+ * be turned off). A public endpoint must be safe regardless of that setting.
+ */
+
+public sealed record PublicContentResponse(
+    Guid Id,
+    string ContentType,
+    string? Slug,
+    Dictionary<string, object> Data,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt);
+
+internal static class PublicDelivery
+{
+    /// <summary>
+    /// The field holding an entry's slug: a field of type "slug", else a field literally named "slug"
+    /// (case-insensitive). Null if the type has no slug field, so it isn't slug-addressable.
+    /// </summary>
+    public static string? SlugField(ContentTypeDefinition def)
+    {
+        var byType = def.Fields.FirstOrDefault(f => string.Equals(f.Type, "slug", StringComparison.OrdinalIgnoreCase));
+        if (byType is not null) return byType.Name;
+        return def.Fields.FirstOrDefault(f => string.Equals(f.Name, "slug", StringComparison.OrdinalIgnoreCase))?.Name;
+    }
+
+    public static string? SlugValue(ContentDoc c, string? slugField) =>
+        slugField is not null && c.Data.TryGetValue(slugField, out var v) ? v?.ToString() : null;
+
+    /// <summary>
+    /// Projects a Published, document-Public entry for anonymous delivery, exposing ONLY the fields the
+    /// content type marks Public, or null if it must not be exposed at all. Robust to a missing content
+    /// type definition: with no schema to say which fields are Public, nothing is delivered (fail closed).
+    /// </summary>
+    public static PublicContentResponse? ToPublic(ContentDoc c, ContentTypeDefinition? def, string? slugField)
+    {
+        if (c.Status != ContentStatus.Published) return null;
+        if (c.Sensitivity != SensitivityLevel.Public) return null; /* doc-level: never public */
+        if (def is null) return null;                              /* no schema -> fail closed */
+
+        /*
+         * Allowlist, not denylist: emit only keys that match a schema field explicitly marked Public.
+         * A denylist ("start with all Data, remove the sensitive ones") fails open on any key with no
+         * matching current field — an orphan left by a renamed/removed field, or a value stored under a
+         * differently-cased key than the schema (validation matches names case-insensitively) — and
+         * would leak it. Case-insensitive comparison closes the casing gap too.
+         */
+        var publicNames = def.Fields
+            .Where(f => f.Sensitivity == SensitivityLevel.Public)
+            .Select(f => f.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var data = c.Data
+            .Where(kv => publicNames.Contains(kv.Key))
+            .ToDictionary(kv => kv.Key, kv => kv.Value);
+
+        return new PublicContentResponse(c.Id, c.ContentType, SlugValue(c, slugField), data, c.CreatedAt, c.UpdatedAt);
+    }
+
+    /*
+     * Short cache window: long enough for a CDN to absorb bursts, short enough that a publish shows up
+     * quickly. A publish-triggered rebuild (SSG) is the real freshness mechanism.
+     */
+    public static void SetCache(HttpContext http) =>
+        http.Response.Headers.CacheControl = "public, max-age=60";
+}
+
+public sealed class PublicListRequest : PaginatedRequest { }
+
+/// <summary>GET /api/public/{type} — paged Published entries of a content type, masked and cacheable.</summary>
+public class ListPublishedEndpoint : Endpoint<PublicListRequest, PaginatedResponse<PublicContentResponse>>
+{
+    private readonly IQuerySession _session;
+    public ListPublishedEndpoint(IQuerySession session) => _session = session;
+
+    public override void Configure()
+    {
+        Get("/api/public/{type}");
+        AllowAnonymous();
+    }
+
+    public override async Task HandleAsync(PublicListRequest req, CancellationToken ct)
+    {
+        var type = Route<string>("type") ?? string.Empty;
+        var def = await _session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
+        var slugField = def is null ? null : PublicDelivery.SlugField(def);
+
+        /* Published + document-Public only; the DB filters the rest out. */
+        var baseQuery = _session.Query<ContentDoc>()
+            .Where(c => c.ContentType == type
+                        && c.Status == ContentStatus.Published
+                        && c.Sensitivity == SensitivityLevel.Public);
+
+        var total = await baseQuery.CountAsync(ct);
+        var page = await baseQuery
+            .OrderByDescending(c => c.CreatedAt)
+            .Skip(req.Skip)
+            .Take(req.Take)
+            .ToListAsync(ct);
+
+        var items = page
+            .Select(c => PublicDelivery.ToPublic(c, def, slugField))
+            .Where(r => r is not null)
+            .Select(r => r!)
+            .ToList();
+
+        PublicDelivery.SetCache(HttpContext);
+        await SendAsync(new PaginatedResponse<PublicContentResponse>
+        {
+            Items = items,
+            Page = req.Page,
+            PageSize = req.PageSize,
+            TotalItems = total,
+        }, cancellation: ct);
+    }
+}
+
+/// <summary>GET /api/public/{type}/{slug} — a single Published entry by slug; 404 if draft/archived/sensitive/missing.</summary>
+public class GetBySlugEndpoint : EndpointWithoutRequest<PublicContentResponse>
+{
+    private readonly IQuerySession _session;
+    public GetBySlugEndpoint(IQuerySession session) => _session = session;
+
+    public override void Configure()
+    {
+        Get("/api/public/{type}/{slug}");
+        AllowAnonymous();
+    }
+
+    public override async Task HandleAsync(CancellationToken ct)
+    {
+        var type = Route<string>("type") ?? string.Empty;
+        var slug = Route<string>("slug") ?? string.Empty;
+
+        var def = await _session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
+        var slugField = def is null ? null : PublicDelivery.SlugField(def);
+        if (slugField is null) { await SendNotFoundAsync(ct); return; } /* not slug-addressable */
+
+        var candidates = await _session.Query<ContentDoc>()
+            .Where(c => c.ContentType == type
+                        && c.Status == ContentStatus.Published
+                        && c.Sensitivity == SensitivityLevel.Public)
+            .ToListAsync(ct);
+
+        var match = candidates.FirstOrDefault(c =>
+            string.Equals(PublicDelivery.SlugValue(c, slugField), slug, StringComparison.OrdinalIgnoreCase));
+
+        var projected = match is null ? null : PublicDelivery.ToPublic(match, def, slugField);
+        if (projected is null) { await SendNotFoundAsync(ct); return; }
+
+        PublicDelivery.SetCache(HttpContext);
+        await SendOkAsync(projected, ct);
+    }
+}
