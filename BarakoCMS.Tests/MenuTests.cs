@@ -1,8 +1,6 @@
 using Xunit;
 using FluentAssertions;
 using System.Net;
-using System.Net.Http.Json;
-using System.Net.Http.Headers;
 using barakoCMS.Models;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
@@ -10,15 +8,16 @@ using Microsoft.Extensions.DependencyInjection;
 namespace BarakoCMS.Tests;
 
 /// <summary>
-/// Site navigation menus: admin CRUD (JWT) and anonymous public read, against the real API over real
-/// Postgres. Also pins the route precedence (public menus route must win over the content route) and
-/// the one-level nesting cap.
+/// Navigation menus are now a "menu" content type served through public delivery, not a bespoke CRUD
+/// surface. These tests pin that a menu with a nested <c>json</c> items field round-trips through the
+/// anonymous public endpoint, and that draft/Sensitive/missing menus are not exposed (same rules as any
+/// other content type).
 /// </summary>
 [Collection("Sequential")]
 public class MenuTests
 {
     private readonly IntegrationTestFixture _factory;
-    private readonly HttpClient _client;
+    private readonly HttpClient _client; // anonymous — public delivery needs no auth
 
     public MenuTests(IntegrationTestFixture factory)
     {
@@ -26,115 +25,88 @@ public class MenuTests
         _client = factory.CreateClient();
     }
 
-    private async Task<string> AdminTokenAsync()
+    /* A "menu" content type with a Name string and an Items json field holding a nested nav tree. */
+    private async Task SeedMenuAsync(string slug, ContentStatus status = ContentStatus.Published,
+        SensitivityLevel sensitivity = SensitivityLevel.Public)
     {
         using var scope = _factory.Services.CreateScope();
         var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-        var role = await s.Query<Role>().FirstOrDefaultAsync(r => r.Name == "SuperAdmin")
-                   ?? new Role { Id = Guid.NewGuid(), Name = "SuperAdmin", Permissions = new() };
-        s.Store(role);
-        var userId = Guid.NewGuid();
-        s.Store(new User { Id = userId, Username = $"admin-{userId}", Email = $"admin-{userId}@example.com", RoleIds = new() { role.Id } });
-        await s.SaveChangesAsync();
-        return _factory.CreateToken(new[] { "SuperAdmin" }, userId.ToString());
-    }
 
-    private void AsAdmin(string token) =>
-        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-
-    [Fact]
-    public async Task Admin_CanCreate_AndPublicCanReadAnonymously()
-    {
-        AsAdmin(await AdminTokenAsync());
-        var create = await _client.PostAsJsonAsync("/api/menus", new
+        if (!await s.Query<ContentTypeDefinition>().AnyAsync(t => t.Name == "menu"))
         {
-            slug = "main",
-            name = "Main nav",
-            items = new object[]
+            s.Store(new ContentTypeDefinition
             {
-                new { label = "Blog", url = "/blog", openInNewTab = false, children = new object[0] },
-                new { label = "GitHub", url = "https://github.com/BaryoDev", openInNewTab = true, children = new object[0] },
-            },
-        });
-        create.StatusCode.Should().Be(HttpStatusCode.OK, because: await create.Content.ReadAsStringAsync());
-
-        /* Anonymous read: the literal "menus" route must win over /api/public/{type}/{slug}. */
-        _client.DefaultRequestHeaders.Authorization = null;
-        var pub = await _client.GetAsync("/api/public/menus/main");
-        pub.StatusCode.Should().Be(HttpStatusCode.OK, "the public menus route resolves, not the content route");
-        var body = await pub.Content.ReadAsStringAsync();
-        body.Should().Contain("Blog");
-        body.Should().Contain("/blog");
-        pub.Headers.CacheControl?.Public.Should().BeTrue();
-    }
-
-    [Fact]
-    public async Task Create_RejectsDuplicateSlug()
-    {
-        AsAdmin(await AdminTokenAsync());
-        await _client.PostAsJsonAsync("/api/menus", new { slug = "footer", name = "Footer", items = new object[0] });
-        var dup = await _client.PostAsJsonAsync("/api/menus", new { slug = "footer", name = "Footer 2", items = new object[0] });
-        dup.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-    }
-
-    [Fact]
-    public async Task Update_ReplacesItems_AndDelete_Removes()
-    {
-        AsAdmin(await AdminTokenAsync());
-        await _client.PostAsJsonAsync("/api/menus", new { slug = "edit-me", name = "Edit", items = new[] { new { label = "Old", url = "/old", openInNewTab = false, children = new object[0] } } });
-
-        var upd = await _client.PutAsJsonAsync("/api/menus/edit-me", new { slug = "edit-me", name = "Edit", items = new[] { new { label = "New", url = "/new", openInNewTab = false, children = new object[0] } } });
-        upd.StatusCode.Should().Be(HttpStatusCode.OK);
-        (await upd.Content.ReadAsStringAsync()).Should().Contain("New").And.NotContain("/old");
-
-        var del = await _client.DeleteAsync("/api/menus/edit-me");
-        del.StatusCode.Should().Be(HttpStatusCode.NoContent);
-
-        _client.DefaultRequestHeaders.Authorization = null;
-        var gone = await _client.GetAsync("/api/public/menus/edit-me");
-        gone.StatusCode.Should().Be(HttpStatusCode.NotFound);
-    }
-
-    [Fact]
-    public async Task Nesting_IsCappedAtOneLevel()
-    {
-        AsAdmin(await AdminTokenAsync());
-        var create = await _client.PostAsJsonAsync("/api/menus", new
-        {
-            slug = "deep",
-            name = "Deep",
-            items = new object[]
-            {
-                new
+                Id = Guid.NewGuid(),
+                Name = "menu",
+                DisplayName = "Menu",
+                Fields = new()
                 {
-                    label = "Parent", url = "/p", openInNewTab = false,
-                    children = new object[]
+                    new FieldDefinition { Name = "Name", DisplayName = "Name", Type = "string" },
+                    new FieldDefinition { Name = "Slug", DisplayName = "Slug", Type = "slug" },
+                    new FieldDefinition { Name = "Items", DisplayName = "Items", Type = "json" },
+                },
+            });
+        }
+
+        s.Store(new Content
+        {
+            Id = Guid.NewGuid(), ContentType = "menu", Status = status, Sensitivity = sensitivity,
+            Data = new()
+            {
+                ["Name"] = "Main",
+                ["Slug"] = slug,
+                ["Items"] = new object[]
+                {
+                    new Dictionary<string, object> { ["Label"] = "Blog", ["Url"] = "/blog", ["OpenInNewTab"] = false },
+                    new Dictionary<string, object>
                     {
-                        new { label = "Child", url = "/c", openInNewTab = false,
-                              children = new object[] { new { label = "Grandchild", url = "/g", openInNewTab = false, children = new object[0] } } },
+                        ["Label"] = "Docs", ["Url"] = "/docs", ["OpenInNewTab"] = false,
+                        ["Children"] = new object[]
+                        {
+                            new Dictionary<string, object> { ["Label"] = "Guide", ["Url"] = "/docs/guide" },
+                        },
                     },
                 },
             },
         });
-        create.StatusCode.Should().Be(HttpStatusCode.OK);
-        var body = await create.Content.ReadAsStringAsync();
-        body.Should().Contain("Child", "one level of nesting is kept");
-        body.Should().NotContain("Grandchild", "deeper nesting is dropped on write");
+        await s.SaveChangesAsync();
     }
 
     [Fact]
-    public async Task PublicMenu_Missing_Is404()
+    public async Task PublishedMenu_IsDelivered_WithNestedItems_Anonymously()
     {
-        _client.DefaultRequestHeaders.Authorization = null;
-        var res = await _client.GetAsync("/api/public/menus/does-not-exist");
+        await SeedMenuAsync("main");
+
+        var res = await _client.GetAsync("/api/public/menu/main");
+        res.StatusCode.Should().Be(HttpStatusCode.OK, because: "a menu is a content type served publicly");
+        var body = await res.Content.ReadAsStringAsync();
+
+        body.Should().Contain("Blog").And.Contain("/blog");
+        body.Should().Contain("Docs");
+        body.Should().Contain("Guide", "a nested json items array round-trips through public delivery");
+        res.Headers.CacheControl?.Public.Should().BeTrue("public reads are CDN-cacheable");
+    }
+
+    [Fact]
+    public async Task DraftMenu_IsNotExposed()
+    {
+        await SeedMenuAsync("draft-menu", status: ContentStatus.Draft);
+        var res = await _client.GetAsync("/api/public/menu/draft-menu");
+        res.StatusCode.Should().Be(HttpStatusCode.NotFound, "a draft menu is not addressable publicly");
+    }
+
+    [Fact]
+    public async Task SensitiveMenu_IsNotExposed()
+    {
+        await SeedMenuAsync("secret-menu", sensitivity: SensitivityLevel.Sensitive);
+        var res = await _client.GetAsync("/api/public/menu/secret-menu");
+        res.StatusCode.Should().Be(HttpStatusCode.NotFound, "a Sensitive menu is not public");
+    }
+
+    [Fact]
+    public async Task MissingMenu_Is404()
+    {
+        var res = await _client.GetAsync("/api/public/menu/does-not-exist");
         res.StatusCode.Should().Be(HttpStatusCode.NotFound);
-    }
-
-    [Fact]
-    public async Task Menus_RequireAdmin()
-    {
-        _client.DefaultRequestHeaders.Authorization = null;
-        var res = await _client.PostAsJsonAsync("/api/menus", new { slug = "x", name = "x", items = new object[0] });
-        res.StatusCode.Should().BeOneOf(HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden);
     }
 }
