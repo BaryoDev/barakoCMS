@@ -31,6 +31,11 @@ export const metadata: Metadata = {
   description: "Headless CMS Admin Dashboard",
 };
 
+// The app is served under this basePath (set at build). The runtime env-config.js is a static asset
+// under it, so the script src must include the basePath — otherwise, when the admin is hosted on a
+// different origin than it was built for, the config 404s and getApiUrl() falls back to the baked URL.
+const basePath = process.env.NEXT_BASE_PATH || "";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -41,7 +46,7 @@ export default function RootLayout({
       <head>
         {/* Runtime env must load before hydration so getApiUrl() sees overrides. */}
         {/* eslint-disable-next-line @next/next/no-sync-scripts */}
-        <script src="/env-config.js" />
+        <script src={`${basePath}/env-config.js`} />
       </head>
       <body
         className={`${openSans.variable} ${geistMono.variable} antialiased`}
