@@ -238,18 +238,11 @@ public static class ServiceCollectionExtensions
                 .Index(x => new { x.ContentType, x.CreatedAt })
                 .Index(x => new { x.ContentType, x.Status }); // Composite for status filtering
 
-            // Site navigation menus, tenant-scoped (each site has its own). Slug uniqueness per tenant
-            // is enforced in the endpoint rather than a conjoined unique index.
-            options.Schema.For<Menu>()
-                .DocumentAlias("menus")
-                .Index(x => x.Slug);
-                // NOTE: no GinIndexJsonData() here. Adding an index to this existing table is a schema
-                // delta that production's AutoCreate.CreateOnly refuses to apply (it creates missing
-                // objects but never alters existing ones), which crash-loops the app at boot. The
-                // public slug lookup filters by the indexed (ContentType, Status) then matches the slug
-                // in memory over that small set, so no JSONB index is needed. If a JSONB slug query is
-                // ever added, ship the index via an explicit migration, not a Marten schema change.
-            
+            // Navigation menus are a "menu" content type served through public delivery, not a bespoke
+            // doc. Keeping them as content keeps them pluggable and drops a whole CRUD surface. The old
+            // Menu document + /api/menus endpoints were removed; existing "menus" tables are just left
+            // orphaned (safe under AutoCreate.CreateOnly, which never alters or drops them).
+
             options.Schema.For<User>()
                 .SingleTenanted() // global identity — a user exists once across all tenants
                 .DocumentAlias("users")
