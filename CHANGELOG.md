@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.7.0] - 2026-07-28
+
+### Changed: navigation menus are now a content type
+
+Menus are no longer a bespoke document with their own CRUD endpoints. A menu is a `menu` content type,
+edited like any other content and delivered through the existing public API. Modeling it as content
+keeps it pluggable and removes a whole hand-written surface.
+
+- Removed the `Menu` document and the `/api/menus` admin endpoints (create/update/delete/list) and the
+  `/api/public/menus/{slug}` read endpoint.
+- A menu is a `menu` content type with a `Name` and an `Items` field of type `json` that holds the nav
+  tree (`{ label, url, openInNewTab, children[] }`). It is served by the generic public delivery at
+  `GET /api/public/menu/{slug}`, so the same published-and-Public rules and field allowlist apply.
+- Existing `menus` tables are left orphaned and untouched (safe under `AutoCreate.CreateOnly`).
+
+**Breaking:** clients calling `/api/menus*` or `/api/public/menus/{slug}` must move to the `menu`
+content type and `GET /api/public/menu/{slug}`. The `@baryodev/barako-client` `public.menu()` method
+keeps the same signature and return shape; it now reads the content type under the hood.
+
 ## [3.6.0] - 2026-07-27
 
 ### Added: pluggable file storage, an S3 provider, and public media
