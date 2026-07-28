@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.8.0] - 2026-07-28
+
+### Added: password change and admin reset
+
+Passwords could be set only at registration or by the initial-admin seeder, so there was no way to
+rotate an account's password. Two endpoints close that gap:
+
+- `POST /api/me/password` — the signed-in user changes their own password. It re-verifies the current
+  password, enforces the password policy, and rejects a no-op change.
+- `POST /api/users/{userId}/password` — a SuperAdmin resets another user's password (recovery or
+  rotation), enforcing the same policy.
+
+Both revoke the user's active refresh tokens, so a session established before the change can't be
+refreshed afterwards (outstanding short-lived access tokens still expire on their own).
+
 ## [3.7.0] - 2026-07-28
 
 ### Changed: navigation menus are now a content type

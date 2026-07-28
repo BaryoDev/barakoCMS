@@ -27,6 +27,33 @@ database is what surfaced the boot crash (`relation "mt_doc_roles" does not exis
 user hit it. Writing the field-types e2e is what surfaced a dashboard crash on partial metrics data.
 The process finds the bugs; that is the point of it.
 
+## Production-readiness review
+
+A generated endpoint compiles, returns 200, and looks complete. That is where the review starts, not
+where it ends. "Working" and "production-ready" are different claims, and the gap is always the same
+short list of things the first draft leaves out. Every change runs against this checklist — some by an
+adversarial review sub-agent, some by tests, some by a human looking at the real artifact.
+
+| What the draft usually omits | How we catch it | Caught here, for real |
+| --- | --- | --- |
+| Input validation | A FluentValidation validator plus a test that sends bad input and asserts it is rejected | Weak/empty/duplicate inputs are explicit test cases (menu dup-slug, change-password weak/empty/same) |
+| Authorization | An adversarial review that asks "can another user / a non-admin reach this?" and abuse-case tests | The change-password review verified no cross-user targeting and that the SuperAdmin gate is real |
+| Transactions / partial state | One atomic `SaveChangesAsync`; the review asks what happens if it throws mid-way | The refresh-token revocation is all-or-nothing; a concurrency failure leaves nothing half-written |
+| Fail-closed defaults | Allowlist, never denylist, for anything user-facing | Public delivery moved from denylist to allowlist after review found two ways fields could leak |
+| Exception handling | The review looks for the swallowed error and the 500 that leaks state | The API-key touch race and the SVG stored-XSS were both sub-threshold review notes, hardened anyway |
+| Schema / migration safety | A breakable tier on an empty database, before anything users see | The GIN index crash-looped boot under `CreateOnly`; dev-playground caught it, not review |
+| Rate limiting, logging, caching | Present in the platform, checked as part of review, not assumed | Public reads are `Cache-Control`d; auth endpoints are throttled; Serilog is structured |
+| The thing actually rendering | A human looks at the live page/DOM/API response, not the status code | A stale service worker, an empty docs sidebar, and leaked VitePress markup all passed `200` and only showed up on screen |
+
+Two rules hold the checklist together:
+
+- **A 200 is not a pass.** "It deployed" and "the endpoint answers" are the beginning of verification.
+  Look at what the user actually gets: the rendered DOM, the JSON body, the tenant the data came from.
+  Several real bugs this project shipped past HTTP 200 and were only caught by looking.
+- **Review adversarially, and write the abuse case as a test.** A finding that is not pinned by a
+  test comes back. Every security-sensitive change gets a sub-agent whose job is to break it, and its
+  confirmed findings become tests before the change merges.
+
 ## The environments
 
 | Tier | URL | Purpose | Deploy trigger |
