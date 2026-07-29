@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.9.0] - 2026-07-28
+
+### Added: public content search
+
+`GET /api/public/{type}/search?q=…&limit=…` returns the top public matches for a query. It projects
+each entry to its public shape first and only then matches, so it searches exclusively over allowlisted
+Public fields — a draft, a document-Sensitive entry, or a value in a Sensitive field can never surface
+a result. A title/name hit outranks a body hit. It scans a bounded recent window (swap in Postgres
+full-text search for larger corpora). Anonymous and cacheable, like the rest of public delivery.
+
+### Fixed: admin runtime config under a basePath
+
+The admin loaded its runtime `env-config.js` from the origin root, so when hosted under a basePath on
+a different origin than it was built for, the config 404'd and the admin fell back to the build-time
+API URL — sending auth cross-origin. The script now loads from the basePath.
+
 ## [3.8.0] - 2026-07-28
 
 ### Added: password change and admin reset
