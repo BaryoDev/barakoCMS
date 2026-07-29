@@ -32,6 +32,7 @@ builder.Services.AddBarakoCMS(builder.Configuration, modules =>
     modules.Add(new BarakoCMS.Portability.PortabilityModule());
     modules.Add(new UmamiAnalyticsModule());
     modules.Add(new BarakoCMS.Pwa.PwaModule());
+    modules.Add(new BarakoCMS.AI.AiModule()); // dormant unless Ai:Enabled is true
 });
 
 var app = builder.Build();

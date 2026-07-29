@@ -103,7 +103,7 @@ jobs:
       - name: Pack modules
         # Modules reference barakoCMS by project, so they inherit its version.
         run: |
-          for m in BarakoCMS.Accounting BarakoCMS.Import BarakoCMS.Files BarakoCMS.Files.S3 BarakoCMS.Email.Resend BarakoCMS.DeviceTrust BarakoCMS.ExternalAuth BarakoCMS.FeatureFlags BarakoCMS.Portability BarakoCMS.Diagnostics BarakoCMS.Analytics.Umami BarakoCMS.Pwa; do
+          for m in BarakoCMS.Accounting BarakoCMS.Import BarakoCMS.Files BarakoCMS.Files.S3 BarakoCMS.Email.Resend BarakoCMS.DeviceTrust BarakoCMS.ExternalAuth BarakoCMS.FeatureFlags BarakoCMS.Portability BarakoCMS.Diagnostics BarakoCMS.Analytics.Umami BarakoCMS.Pwa BarakoCMS.AI; do
             dotnet pack "$m/$m.csproj" --configuration Release -o out
           done
 

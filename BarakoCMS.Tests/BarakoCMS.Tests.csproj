@@ -34,6 +34,7 @@
     <ProjectReference Include="..\barakoCMS\barakoCMS.csproj" />
     <ProjectReference Include="..\BarakoCMS.Diagnostics\BarakoCMS.Diagnostics.csproj" />
     <ProjectReference Include="..\BarakoCMS.Files.S3\BarakoCMS.Files.S3.csproj" />
+    <ProjectReference Include="..\BarakoCMS.AI\BarakoCMS.AI.csproj" />
   </ItemGroup>
 
 </Project>

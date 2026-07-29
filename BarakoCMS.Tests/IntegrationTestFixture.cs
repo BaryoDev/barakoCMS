@@ -3,6 +3,7 @@ using Testcontainers.PostgreSql;
 using Xunit;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Marten;
 using barakoCMS.Extensions;
 using Microsoft.Extensions.Configuration;
@@ -48,6 +49,13 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         {
             new BarakoCMS.Files.FilesModule().ConfigureServices(services, ctx.Configuration);
             services.ConfigureMarten(opts => new BarakoCMS.Files.FilesModule().ConfigureMarten(opts));
+
+            // AI module: register its schema/endpoints, but swap the Ollama client for a deterministic
+            // fake so the search tests run without an embedding backend.
+            new BarakoCMS.AI.AiModule().ConfigureServices(services, ctx.Configuration);
+            services.ConfigureMarten(opts => new BarakoCMS.AI.AiModule().ConfigureMarten(opts));
+            services.RemoveAll<BarakoCMS.AI.IEmbeddingClient>();
+            services.AddSingleton<BarakoCMS.AI.IEmbeddingClient, FakeEmbeddingClient>();
         });
     }
 

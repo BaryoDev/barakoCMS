@@ -33,6 +33,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BarakoCMS.Pwa", "BarakoCMS.
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BarakoCMS.Files.S3", "BarakoCMS.Files.S3\BarakoCMS.Files.S3.csproj", "{F21CE85B-9C90-4C22-B886-BB54B11D6C40}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BarakoCMS.AI", "BarakoCMS.AI\BarakoCMS.AI.csproj", "{77F7CE14-A706-4658-B7B6-F1ADAB6FCFFD}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -99,6 +101,10 @@ Global
 		{F21CE85B-9C90-4C22-B886-BB54B11D6C40}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{F21CE85B-9C90-4C22-B886-BB54B11D6C40}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{F21CE85B-9C90-4C22-B886-BB54B11D6C40}.Release|Any CPU.Build.0 = Release|Any CPU
+		{77F7CE14-A706-4658-B7B6-F1ADAB6FCFFD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{77F7CE14-A706-4658-B7B6-F1ADAB6FCFFD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{77F7CE14-A706-4658-B7B6-F1ADAB6FCFFD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{77F7CE14-A706-4658-B7B6-F1ADAB6FCFFD}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

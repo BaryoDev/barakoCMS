@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>BarakoCMS.AI</RootNamespace>
+
+    <IsPackable>true</IsPackable>
+    <PackageId>BarakoCMS.AI</PackageId>
+    <Version>0.1.0</Version>
+    <Description>AI module for barakoCMS: semantic (vector) search over published content using a self-hosted embedding model (Ollama by default). Indexes only public fields, searches only published, document-Public entries, and needs no third-party API key.</Description>
+    <Company>BaryoDev</Company>
+    <PackageLicenseExpression>MPL-2.0</PackageLicenseExpression>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\barakoCMS\barakoCMS.csproj" />
+  </ItemGroup>
+
+</Project>

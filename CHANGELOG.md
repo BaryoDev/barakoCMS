@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.10.0] - 2026-07-28
+
+### Added: AI semantic search (BarakoCMS.AI module)
+
+A new opt-in module adds vector search over published content using a self-hosted embedding model
+(Ollama by default) — no third-party API key.
+
+- `POST /api/ai/index/{type}` (admin) builds a type's vector index in the current tenant, embedding each
+  Published, document-Public entry from its Public fields only.
+- `GET /api/public/{type}/semantic?q=…&limit=…` (anonymous, cacheable) ranks the index by cosine
+  similarity, then re-verifies each hit is still Published and document-Public before returning it — so a
+  draft, a Sensitive document, a Sensitive field, or an entry unpublished since indexing never surfaces.
+
+Enable with `Ai:Enabled=true` and point `Ai:EmbeddingBaseUrl` at an Ollama-style endpoint. Inert
+otherwise. Bundled in the suite image; published as `BarakoCMS.AI` on NuGet.
+
 ## [3.9.0] - 2026-07-28
 
 ### Added: public content search
