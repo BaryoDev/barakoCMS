@@ -131,6 +131,82 @@ public class ListPublishedEndpoint : Endpoint<PublicListRequest, PaginatedRespon
     }
 }
 
+public sealed record PublicSearchResponse(IReadOnlyList<PublicContentResponse> Results, int Count, string Query);
+
+/// <summary>
+/// GET /api/public/{type}/search?q=…&amp;limit=… — top public matches for a query. The literal "search"
+/// segment wins over the {slug} route. Matching runs ONLY over allowlisted public fields (the entry is
+/// projected to its public shape first), so a draft, a document-Sensitive entry, or a non-Public field
+/// can never surface a result. A title/name hit outranks a body hit. Scans a bounded, recent window;
+/// swap in Postgres full-text search for larger corpora.
+/// </summary>
+public class PublicSearchEndpoint : EndpointWithoutRequest<PublicSearchResponse>
+{
+    private readonly IQuerySession _session;
+    public PublicSearchEndpoint(IQuerySession session) => _session = session;
+
+    private const int ScanCap = 1000;
+    private const int MaxResults = 50;
+
+    public override void Configure()
+    {
+        Get("/api/public/{type}/search");
+        AllowAnonymous();
+    }
+
+    public override async Task HandleAsync(CancellationToken ct)
+    {
+        var type = Route<string>("type") ?? string.Empty;
+        var q = (Query<string>("q", isRequired: false) ?? string.Empty).Trim();
+        var limit = Math.Clamp(Query<int?>("limit", isRequired: false) ?? 20, 1, MaxResults);
+
+        if (q.Length < 2)
+        {
+            await SendOkAsync(new PublicSearchResponse(Array.Empty<PublicContentResponse>(), 0, q), ct);
+            return;
+        }
+
+        var def = await _session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
+        var slugField = def is null ? null : PublicDelivery.SlugField(def);
+
+        var candidates = await _session.Query<ContentDoc>()
+            .Where(c => c.ContentType == type
+                        && c.Status == ContentStatus.Published
+                        && c.Sensitivity == SensitivityLevel.Public)
+            .OrderByDescending(c => c.CreatedAt)
+            .Take(ScanCap)
+            .ToListAsync(ct);
+
+        var results = candidates
+            .Select(c => PublicDelivery.ToPublic(c, def, slugField)) /* project first: only public fields remain */
+            .Where(r => r is not null).Select(r => r!)
+            .Select(r => new { r, score = Score(r, q) })
+            .Where(x => x.score > 0)
+            .OrderByDescending(x => x.score)
+            .Take(limit)
+            .Select(x => x.r)
+            .ToList();
+
+        PublicDelivery.SetCache(HttpContext);
+        await SendOkAsync(new PublicSearchResponse(results, results.Count, q), ct);
+    }
+
+    private static int Score(PublicContentResponse r, string q)
+    {
+        var score = 0;
+        foreach (var (key, value) in r.Data)
+        {
+            var text = value?.ToString();
+            if (string.IsNullOrEmpty(text)) continue;
+            if (text.IndexOf(q, StringComparison.OrdinalIgnoreCase) < 0) continue;
+            var isTitle = key.Equals("Title", StringComparison.OrdinalIgnoreCase)
+                          || key.Equals("Name", StringComparison.OrdinalIgnoreCase);
+            score += isTitle ? 10 : 1;
+        }
+        return score;
+    }
+}
+
 /// <summary>GET /api/public/{type}/{slug} — a single Published entry by slug; 404 if draft/archived/sensitive/missing.</summary>
 public class GetBySlugEndpoint : EndpointWithoutRequest<PublicContentResponse>
 {
