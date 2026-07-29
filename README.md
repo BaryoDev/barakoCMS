@@ -114,6 +114,7 @@ project — the same `IBarakoModule` contract you can implement yourself.
 | **Diagnostics** | [`BarakoCMS.Diagnostics`](https://www.nuget.org/packages/BarakoCMS.Diagnostics) | Captures client-side (browser) errors and shows a deduped, resolvable **error log** in the admin. |
 | **Analytics.Umami** | [`BarakoCMS.Analytics.Umami`](https://www.nuget.org/packages/BarakoCMS.Analytics.Umami) | A server-side proxy over self-hosted [Umami](https://umami.is): visitors, pages, referrers, countries, devices — plus registering sites and verifying install. |
 | **Pwa** | [`BarakoCMS.Pwa`](https://www.nuget.org/packages/BarakoCMS.Pwa) | Tracks PWA installs / installed-app launches (anonymous or tied to the signed-in user) so the admin shows **who** installed the app. |
+| **AI** | [`BarakoCMS.AI`](https://www.nuget.org/packages/BarakoCMS.AI) | **Semantic search** over published content using a self-hosted embedding model ([Ollama](https://ollama.com) by default) — no third-party API key. Indexes only public fields; results are re-checked as published + public at query time. |
 
 Enable the ones you want when you register the CMS:
 
@@ -124,6 +125,7 @@ builder.Services.AddBarakoCMS(builder.Configuration, modules =>
     modules.Add(new BarakoCMS.Email.Resend.ResendEmailModule());
     modules.Add(new BarakoCMS.Analytics.Umami.UmamiAnalyticsModule());
     modules.Add(new BarakoCMS.Pwa.PwaModule());
+    modules.Add(new BarakoCMS.AI.AiModule()); // semantic search (Ollama)
     // …add only what you need
 });
 
@@ -161,6 +163,9 @@ BarakoCMS is headless — you build the frontend. These BaryoDev packages help:
 - **Multi-tenant** — conjoined tenancy: one deployment, many tenants; data scoped by tenant, with
   global users/roles and per-tenant memberships.
 - **RBAC** — roles, groups, and per-content-type permissions, with field-level sensitivity/masking.
+- **Public delivery** — anonymous, cacheable, published-only reads for any content type, with
+  **keyword search** (`/api/public/{type}/search`) and, via the AI module, **semantic search**
+  (`/api/public/{type}/semantic`). It emits only allowlisted public fields — fail-closed by design.
 - **FastEndpoints + Kestrel** — minimal-overhead HTTP; **health checks** and Prometheus **metrics**
   built in.
 
