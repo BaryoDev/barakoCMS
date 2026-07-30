@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="https://www.nuget.org/packages/BarakoCMS"><img src="https://img.shields.io/nuget/v/BarakoCMS.svg" alt="NuGet" /></a>
-  <a href="https://baryo.dev/barakoCMS"><img src="https://img.shields.io/badge/docs-baryo.dev-blue" alt="Documentation" /></a>
+  <a href="https://baryo.dev/docs"><img src="https://img.shields.io/badge/docs-baryo.dev-blue" alt="Documentation" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/BaryoDev/barakoCMS" alt="License" /></a>
   <a href="https://playground.baryo.dev/barakocms"><img src="https://img.shields.io/badge/demo-live-brightgreen" alt="Live demo" /></a>
 </p>
@@ -59,7 +59,7 @@ docker compose up -d
 
 See **[quickstart/README.md](quickstart/README.md)** for every variable, enabling modules, and going
 behind a domain with TLS. To build from source instead, see the
-[getting-started guide](https://baryo.dev/barako-cms/guide/getting-started).
+[getting-started guide](https://baryo.dev/docs/).
 
 ---
 
@@ -133,7 +133,7 @@ await app.RunBarakoModuleSeedersAsync(); // module baseline data (roles, referen
 ```
 
 A module contributes DI services, its own Marten documents, FastEndpoints endpoints, and seed data,
-implementing only the hooks it needs. See each module's page in the [docs](https://baryo.dev/barako-cms/).
+implementing only the hooks it needs. See each module's page in the [docs](https://baryo.dev/docs/).
 Want every module in one image? Use **`ghcr.io/baryodev/barako-cms`** (Barako, full suite); for the
 lean core, **`ghcr.io/baryodev/barako-cms-decaf`** (Decaf) and add your own.
 
@@ -169,7 +169,7 @@ BarakoCMS is headless — you build the frontend. These BaryoDev packages help:
 - **FastEndpoints + Kestrel** — minimal-overhead HTTP; **health checks** and Prometheus **metrics**
   built in.
 
-Deep dives live in the [docs](https://baryo.dev/barako-cms/): event sourcing, concurrency,
+Deep dives live in the [docs](https://baryo.dev/docs/): event sourcing, concurrency,
 content modeling, extending BarakoCMS, and deployment.
 
 ---
@@ -184,7 +184,7 @@ reference for building a real product on BarakoCMS.
 
 ## Documentation
 
-Full docs: **<https://baryo.dev/barakoCMS>** — getting started, guides, module references, API
+Full docs: **<https://baryo.dev/docs>** — getting started, guides, module references, API
 reference, and architecture. Changelog: [CHANGELOG.md](CHANGELOG.md).
 
 How this project is built and shipped: [AI Development Lifecycle](AI_DEVELOPMENT_LIFECYCLE.md) —
