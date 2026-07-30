@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.11.0] - 2026-07-30
+
+### Added: draft preview
+
+Editors can now preview an unpublished entry on the real frontend without publishing it.
+
+- `POST /api/preview` — an authenticated editor mints a short-lived (30 min) signed token for one draft.
+  The caller must have read access to that content type (the same permission check as the authoring read
+  endpoint), so you can only mint a link for a draft you're allowed to see.
+- `GET /api/public/{type}/{slug}?preview=<token>` returns the draft when the token is valid. The token is
+  signed with the JWT key and bound to the exact tenant + type + slug, so it can't be forged or reused for
+  another entry. Preview lifts **only** the published gate: a document-Sensitive entry is still refused, only
+  Public fields are emitted, and the response is `no-store`. An invalid or expired token falls back to the
+  normal published-only behavior, revealing nothing.
+
 ## [3.10.0] - 2026-07-28
 
 ### Added: AI semantic search (BarakoCMS.AI module)
