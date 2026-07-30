@@ -48,9 +48,12 @@ internal static class PublicDelivery
     /// content type marks Public, or null if it must not be exposed at all. Robust to a missing content
     /// type definition: with no schema to say which fields are Public, nothing is delivered (fail closed).
     /// </summary>
-    public static PublicContentResponse? ToPublic(ContentDoc c, ContentTypeDefinition? def, string? slugField)
+    public static PublicContentResponse? ToPublic(ContentDoc c, ContentTypeDefinition? def, string? slugField, bool allowUnpublished = false)
     {
-        if (c.Status != ContentStatus.Published) return null;
+        /* Draft preview (allowUnpublished) skips ONLY the Published gate — a valid, tenant-scoped
+         * preview token has already authorized it. The document-Sensitivity gate and the field
+         * allowlist below still apply, so a preview never exposes a Sensitive doc or a non-Public field. */
+        if (!allowUnpublished && c.Status != ContentStatus.Published) return null;
         if (c.Sensitivity != SensitivityLevel.Public) return null; /* doc-level: never public */
         if (def is null) return null;                              /* no schema -> fail closed */
 
@@ -207,11 +210,24 @@ public class PublicSearchEndpoint : EndpointWithoutRequest<PublicSearchResponse>
     }
 }
 
-/// <summary>GET /api/public/{type}/{slug} — a single Published entry by slug; 404 if draft/archived/sensitive/missing.</summary>
+/// <summary>
+/// GET /api/public/{type}/{slug} — a single Published entry by slug; 404 if draft/archived/sensitive/missing.
+/// With a valid <c>?preview=&lt;token&gt;</c> (see <see cref="barakoCMS.Infrastructure.Preview.PreviewToken"/>),
+/// an unpublished entry is returned too — the token authorizes only that one entry, and the response is
+/// still projected to Public fields and marked no-store. An invalid token falls back to published-only.
+/// </summary>
 public class GetBySlugEndpoint : EndpointWithoutRequest<PublicContentResponse>
 {
     private readonly IQuerySession _session;
-    public GetBySlugEndpoint(IQuerySession session) => _session = session;
+    private readonly IConfiguration _config;
+    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
+
+    public GetBySlugEndpoint(IQuerySession session, IConfiguration config, barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
+    {
+        _session = session;
+        _config = config;
+        _tenant = tenant;
+    }
 
     public override void Configure()
     {
@@ -228,19 +244,42 @@ public class GetBySlugEndpoint : EndpointWithoutRequest<PublicContentResponse>
         var slugField = def is null ? null : PublicDelivery.SlugField(def);
         if (slugField is null) { await SendNotFoundAsync(ct); return; } /* not slug-addressable */
 
-        var candidates = await _session.Query<ContentDoc>()
-            .Where(c => c.ContentType == type
-                        && c.Status == ContentStatus.Published
-                        && c.Sensitivity == SensitivityLevel.Public)
-            .ToListAsync(ct);
+        /* A preview token valid for exactly this tenant+type+slug identifies ONE entry by id, lifting only
+         * the Published gate. Binding to the id (not just the slug) means a duplicate-slug draft can't be
+         * substituted for the one the token was minted for. */
+        var previewToken = Query<string>(barakoCMS.Infrastructure.Preview.PreviewToken.QueryParam, isRequired: false);
+        var previewId = string.IsNullOrEmpty(previewToken)
+            ? null
+            : barakoCMS.Infrastructure.Preview.PreviewToken.ValidatedEntryId(_config, previewToken!, _tenant.Slug, type, slug);
 
-        var match = candidates.FirstOrDefault(c =>
-            string.Equals(PublicDelivery.SlugValue(c, slugField), slug, StringComparison.OrdinalIgnoreCase));
+        ContentDoc? match;
+        if (previewId is Guid id)
+        {
+            /* Serve exactly the authorized entry (tenant-scoped session), and re-check it still matches. */
+            var entry = await _session.LoadAsync<ContentDoc>(id, ct);
+            match = entry is not null
+                    && entry.ContentType == type
+                    && string.Equals(PublicDelivery.SlugValue(entry, slugField), slug, StringComparison.OrdinalIgnoreCase)
+                ? entry : null;
+        }
+        else
+        {
+            var candidates = await _session.Query<ContentDoc>()
+                .Where(c => c.ContentType == type
+                            && c.Status == ContentStatus.Published
+                            && c.Sensitivity == SensitivityLevel.Public)
+                .ToListAsync(ct);
+            match = candidates.FirstOrDefault(c =>
+                string.Equals(PublicDelivery.SlugValue(c, slugField), slug, StringComparison.OrdinalIgnoreCase));
+        }
 
-        var projected = match is null ? null : PublicDelivery.ToPublic(match, def, slugField);
+        var projected = match is null ? null : PublicDelivery.ToPublic(match, def, slugField, allowUnpublished: previewId is not null);
         if (projected is null) { await SendNotFoundAsync(ct); return; }
 
-        PublicDelivery.SetCache(HttpContext);
+        if (previewId is not null)
+            HttpContext.Response.Headers.CacheControl = "no-store"; /* never cache a draft */
+        else
+            PublicDelivery.SetCache(HttpContext);
         await SendOkAsync(projected, ct);
     }
 }
