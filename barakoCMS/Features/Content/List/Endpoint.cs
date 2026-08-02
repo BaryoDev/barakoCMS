@@ -65,29 +65,25 @@ public class Endpoint : Endpoint<Request, PaginatedResponse<ContentResponse>>
             query = query.Where(c => c.ContentType == req.ContentType);
         }
 
-        // 3. Get Total Count (before pagination)
-        var totalCount = await query.CountAsync(ct);
-
-        // 4. Apply Sorting
+        // 3. Apply Sorting
         query = req.SortOrder.ToLower() == "asc"
             ? query.OrderBy(c => c.CreatedAt)
             : query.OrderByDescending(c => c.CreatedAt);
 
-        // 5. Apply Pagination (CRITICAL: Limits result set size)
-        var items = await query
-            .Skip(req.Skip)
-            .Take(req.Take)
-            .ToListAsync(ct);
+        // 4. Load every row matching the content-type filter, in order. Permission can be
+        // conditional on the specific item (PermissionResolver.CanPerformActionAsync's `content`
+        // param), so there is no cheaper query-level filter that is safe to apply before this check —
+        // a per-content-type check with no item would grant access based on rules that are only
+        // supposed to hold for SOME items of that type. Pagination has to run over the permitted set,
+        // not the raw one, or a restricted user's page boundaries and total count are both wrong.
+        var allMatching = await query.ToListAsync(ct);
 
-        _logger.LogInformation(
-            "Content list query: Page={Page}, PageSize={PageSize}, TotalCount={TotalCount}, Retrieved={Retrieved}",
-            req.Page, req.PageSize, totalCount, items.Count);
-
-        // 6. Filter by Permission (now O(pageSize) not O(total))
-        // This is much more efficient - only checking permissions for items on current page
+        // 5. Filter by Permission over the WHOLE matching set (not just one page of it), so a run of
+        // denied items can never produce a short or empty page while permitted items exist further
+        // down the raw ordering.
         var sensitivity = Resolve<barakoCMS.Core.Interfaces.ISensitivityService>();
         var permittedItems = new List<ContentResponse>();
-        foreach (var item in items)
+        foreach (var item in allMatching)
         {
             if (await _permissionResolver.CanPerformActionAsync(user, item.ContentType, "read", item, ct))
             {
@@ -108,15 +104,22 @@ public class Endpoint : Endpoint<Request, PaginatedResponse<ContentResponse>>
 
         _logger.LogInformation(
             "Permission filtering: Retrieved={Retrieved}, Permitted={Permitted}",
-            items.Count, permittedItems.Count);
+            allMatching.Count, permittedItems.Count);
+
+        // 6. Paginate the PERMITTED set (order is already applied and preserved from step 3).
+        var pagedItems = permittedItems.Skip(req.Skip).Take(req.Take).ToList();
+
+        _logger.LogInformation(
+            "Content list query: Page={Page}, PageSize={PageSize}, VisibleTotal={VisibleTotal}, Returned={Returned}",
+            req.Page, req.PageSize, permittedItems.Count, pagedItems.Count);
 
         // 7. Return Paginated Response
         await SendAsync(new PaginatedResponse<ContentResponse>
         {
-            Items = permittedItems,
+            Items = pagedItems,
             Page = req.Page,
             PageSize = req.PageSize,
-            TotalItems = totalCount // Note: This is total before permission filtering
+            TotalItems = permittedItems.Count // Honest: counts only what this user can see.
         }, cancellation: ct);
     }
 }
