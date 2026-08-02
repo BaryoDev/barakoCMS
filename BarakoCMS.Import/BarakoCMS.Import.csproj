@@ -20,6 +20,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="8.0.1" />
+    <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" Version="8.22.0" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.22.0" />
     <ProjectReference Include="..\barakoCMS\barakoCMS.csproj" />
     <!-- Talaan is consumed as a published NuGet package so this module builds standalone (CI, NuGet). -->
     <PackageReference Include="Talaan" Version="0.1.0" />
