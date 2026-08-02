@@ -64,7 +64,7 @@ public class ConditionEvaluator : IConditionEvaluator
         };
     }
 
-    private bool EvaluateOperator(string op, object? actualValue, object expectedValue, Models.User user)
+    private bool EvaluateOperator(string op, object? actualValue, object? expectedValue, Models.User user)
     {
         // Replace $CURRENT_USER placeholder
         if (expectedValue is string strValue && strValue == "$CURRENT_USER")
