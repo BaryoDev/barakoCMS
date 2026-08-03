@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.12.2] - 2026-08-03
+
+### Fixed: every module rebuilt against current core
+
+All module packages are republished so they are compiled against 3.12.x. They had drifted badly —
+most were last built against core **3.2.x**, nine minor versions back — because a module is only
+rebuilt when its own `<Version>` changes, and none had.
+
+This was not theoretical. A host taking new core with the previously published modules got real
+failures: import endpoints returning 403, and ledger and file-attachment posts returning 400. The same
+host built against matching source passed. If you are on core 3.12.x, take these module versions too;
+mixing 3.12.x core with the older module packages is not a supported combination.
+
+No functional changes in this release beyond the rebuild. See H.40 in the roadmap for the pipeline
+gap that let the drift accumulate silently.
+
 ## [3.12.1] - 2026-08-03
 
 ### Fixed
