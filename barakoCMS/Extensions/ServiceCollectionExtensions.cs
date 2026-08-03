@@ -296,6 +296,15 @@ public static class ServiceCollectionExtensions
                 .Index(x => x.UserId)
                 .Index(x => x.TenantSlug);
 
+            options.Schema.For<Models.AuditEvent>()
+                .SingleTenanted() // one global chain per tenant, kept as data like ApiKey.TenantSlug
+                .DocumentAlias("audit_events")
+                .Index(x => x.TenantSlug)
+                .Index(x => x.CreatedAt)
+                .Index(x => x.Action)
+                .Index(x => x.ActorUserId)
+                .Index(x => new { x.TenantSlug, x.CreatedAt }); // the RecordAsync "latest entry" lookup
+
             // Multi-tenancy registry (global documents — not tenant-scoped).
             options.Schema.For<Models.Tenant>()
                 .SingleTenanted() // the tenant registry itself is global

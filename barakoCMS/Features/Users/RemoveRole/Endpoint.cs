@@ -1,5 +1,6 @@
 using FastEndpoints;
 using Marten;
+using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Models;
 
 namespace barakoCMS.Features.Users.RemoveRole;
@@ -8,11 +9,16 @@ public class Endpoint : Endpoint<Request, Response>
 {
     private readonly IDocumentSession _session;
     private readonly barakoCMS.Infrastructure.Services.IPermissionResolver _permissionResolver;
+    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
 
-    public Endpoint(IDocumentSession session, barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver)
+    public Endpoint(
+        IDocumentSession session,
+        barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver,
+        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
     {
         _session = session;
         _permissionResolver = permissionResolver;
+        _tenant = tenant;
     }
 
     public override void Configure()
@@ -33,6 +39,9 @@ public class Endpoint : Endpoint<Request, Response>
 
         user.RoleIds.Remove(req.RoleId);
         _session.Store(user);
+        Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
+        await AuditLog.RecordAsync(_session, _tenant.Slug, "user.role.removed", actorId, User.FindFirst("Username")?.Value,
+            targetType: "User", targetId: req.UserId.ToString(), metadata: new() { ["roleId"] = req.RoleId.ToString() }, ct: ct);
         await _session.SaveChangesAsync(ct);
 
         // Removing a role narrows the user's access — evict cached decisions so it applies now.

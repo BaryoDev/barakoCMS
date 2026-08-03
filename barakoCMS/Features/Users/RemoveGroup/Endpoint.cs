@@ -1,5 +1,6 @@
 using FastEndpoints;
 using Marten;
+using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Models;
 
 namespace barakoCMS.Features.Users.RemoveGroup;
@@ -7,10 +8,12 @@ namespace barakoCMS.Features.Users.RemoveGroup;
 public class Endpoint : Endpoint<Request, Response>
 {
     private readonly IDocumentSession _session;
+    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
 
-    public Endpoint(IDocumentSession session)
+    public Endpoint(IDocumentSession session, barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
     {
         _session = session;
+        _tenant = tenant;
     }
 
     public override void Configure()
@@ -31,6 +34,9 @@ public class Endpoint : Endpoint<Request, Response>
 
         user.GroupIds.Remove(req.GroupId);
         _session.Store(user);
+        Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
+        await AuditLog.RecordAsync(_session, _tenant.Slug, "user.group.removed", actorId, User.FindFirst("Username")?.Value,
+            targetType: "User", targetId: req.UserId.ToString(), metadata: new() { ["groupId"] = req.GroupId.ToString() }, ct: ct);
         await _session.SaveChangesAsync(ct);
 
         await SendOkAsync(new Response { Message = "User removed from group successfully" }, ct);

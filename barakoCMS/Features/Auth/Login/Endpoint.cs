@@ -2,6 +2,7 @@ using FastEndpoints;
 using FastEndpoints.Security;
 using Marten;
 using Marten.Patching;
+using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Models;
 using System.Security.Cryptography;
 using System.IdentityModel.Tokens.Jwt;
@@ -56,6 +57,7 @@ public class Endpoint : Endpoint<Request, Response>
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
+        var device = barakoCMS.Infrastructure.DeviceContext.From(HttpContext);
         var user = await _repo.GetByUsernameAsync(req.Username, ct);
 
         if (user == null)
@@ -65,6 +67,9 @@ public class Endpoint : Endpoint<Request, Response>
             BCrypt.Net.BCrypt.Verify(req.Password, DummyPasswordHash);
 
             _logger.LogWarning("Login attempt for non-existent user: {Username}", req.Username);
+            await AuditLog.RecordAsync(_documentSession, _tenant.Slug, "auth.login.failed", null, req.Username,
+                metadata: new() { ["reason"] = "unknown_user" }, ipAddress: device.IpAddress, ct: ct);
+            await _documentSession.SaveChangesAsync(ct);
             ThrowError("Invalid credentials");
             return;
         }
@@ -76,7 +81,10 @@ public class Endpoint : Endpoint<Request, Response>
             _logger.LogWarning(
                 "Login attempt for locked account: {Username}, Lockout until: {LockoutUntil}",
                 req.Username, user.LockoutUntil.Value);
-            
+
+            await AuditLog.RecordAsync(_documentSession, _tenant.Slug, "auth.login.blocked", user.Id, user.Username,
+                metadata: new() { ["reason"] = "locked_out", ["lockoutUntil"] = user.LockoutUntil.Value }, ipAddress: device.IpAddress, ct: ct);
+            await _documentSession.SaveChangesAsync(ct);
             ThrowError($"Account is locked due to multiple failed login attempts. Please try again in {remainingMinutes} minute(s).");
             return;
         }
@@ -100,11 +108,17 @@ public class Endpoint : Endpoint<Request, Response>
                 _logger.LogWarning(
                     "Account locked due to failed login attempts: {Username}",
                     req.Username);
+                await AuditLog.RecordAsync(_documentSession, _tenant.Slug, "auth.account.locked", user.Id, user.Username,
+                    metadata: new() { ["attempts"] = attempts }, ipAddress: device.IpAddress, ct: ct);
+                await _documentSession.SaveChangesAsync(ct);
             }
 
             _logger.LogWarning(
                 "Failed login attempt for user: {Username}, Attempts: {Attempts}",
                 req.Username, attempts);
+            await AuditLog.RecordAsync(_documentSession, _tenant.Slug, "auth.login.failed", user.Id, user.Username,
+                metadata: new() { ["reason"] = "bad_password", ["attempts"] = attempts }, ipAddress: device.IpAddress, ct: ct);
+            await _documentSession.SaveChangesAsync(ct);
 
             ThrowError("Invalid credentials");
             return;
@@ -121,7 +135,6 @@ public class Endpoint : Endpoint<Request, Response>
 
         // Device trust: if this password sign-in comes from an unknown device, don't issue tokens —
         // send an OTP so the user can approve the device (which trusts it on verify).
-        var device = barakoCMS.Infrastructure.DeviceContext.From(HttpContext);
         var gate = await _deviceGate.EvaluatePasswordAsync(user, device, ct);
         if (gate.Decision == barakoCMS.Core.Interfaces.DeviceDecision.ApprovalRequired)
         {
@@ -146,6 +159,9 @@ public class Endpoint : Endpoint<Request, Response>
             _logger.LogWarning(
                 "Login refused for {Username}: not permitted on tenant {Tenant} ({Reason})",
                 user.Username, _tenant.Slug, issued.DenialReason);
+            await AuditLog.RecordAsync(_documentSession, _tenant.Slug, "auth.login.failed", user.Id, user.Username,
+                metadata: new() { ["reason"] = "tenant_denied", ["denialReason"] = issued.DenialReason ?? "" }, ipAddress: device.IpAddress, ct: ct);
+            await _documentSession.SaveChangesAsync(ct);
             ThrowError("Invalid credentials");
             return;
         }
@@ -170,6 +186,8 @@ public class Endpoint : Endpoint<Request, Response>
         };
 
         _documentSession.Store(refreshToken);
+        await AuditLog.RecordAsync(_documentSession, _tenant.Slug, "auth.login.succeeded", user.Id, user.Username,
+            ipAddress: device.IpAddress, ct: ct);
         await _documentSession.SaveChangesAsync(ct);
 
         _logger.LogInformation(

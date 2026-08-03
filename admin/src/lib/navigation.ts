@@ -15,6 +15,7 @@ import {
   IconFlag,
   IconMobile,
   IconBug,
+  IconHistory,
   IconEnvelope,
   IconSettings,
 } from '@/components/icons';
@@ -65,6 +66,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'System',
     items: [
+      { title: 'Audit log', href: '/audit', icon: IconHistory },
       { title: 'Errors', href: '/errors', icon: IconBug },
       { title: 'Health', href: '/ops/health', icon: IconHealth },
       { title: 'Settings', href: '/settings', icon: IconSettings },
@@ -84,6 +86,7 @@ const SEGMENT_TITLES: Record<string, string> = {
   analytics: 'Analytics',
   accounting: 'Accounting',
   errors: 'Errors',
+  audit: 'Audit log',
   'email-events': 'Email events',
   'feature-flags': 'Feature flags',
   pwa: 'PWA installs',

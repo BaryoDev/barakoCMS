@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
@@ -8,7 +9,18 @@ namespace BarakoCMS.Portability;
 public class ExportEndpoint : Endpoint<ExportEndpoint.Req, PortabilityBundle>
 {
     private readonly IQuerySession _session;
-    public ExportEndpoint(IQuerySession session) => _session = session;
+    private readonly IDocumentSession _documentSession;
+    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
+
+    public ExportEndpoint(
+        IQuerySession session,
+        IDocumentSession documentSession,
+        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
+    {
+        _session = session;
+        _documentSession = documentSession;
+        _tenant = tenant;
+    }
 
     public class Req { public string? Types { get; set; } }
 
@@ -30,6 +42,11 @@ public class ExportEndpoint : Endpoint<ExportEndpoint.Req, PortabilityBundle>
 
         var contents = await _session.Query<barakoCMS.Models.Content>().ToListAsync(ct);
         if (filter != null) contents = contents.Where(c => filter.Contains(c.ContentType.ToLowerInvariant())).ToList();
+
+        Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
+        await AuditLog.RecordAsync(_documentSession, _tenant.Slug, "portability.exported", actorId, User.FindFirst("Username")?.Value,
+            metadata: new() { ["contentTypes"] = types.Count, ["contents"] = contents.Count }, ct: ct);
+        await _documentSession.SaveChangesAsync(ct);
 
         await SendAsync(new PortabilityBundle
         {

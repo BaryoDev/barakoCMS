@@ -1,5 +1,6 @@
 using FastEndpoints;
 using Marten;
+using barakoCMS.Infrastructure.Audit;
 using System.Security.Claims;
 
 namespace barakoCMS.Features.Content.ChangeStatus;
@@ -8,13 +9,16 @@ public class Endpoint : Endpoint<Request, Response>
 {
     private readonly IDocumentSession _session;
     private readonly barakoCMS.Infrastructure.Services.IPermissionResolver _permissionResolver;
+    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
 
     public Endpoint(
         IDocumentSession session,
-        barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver)
+        barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver,
+        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
     {
         _session = session;
         _permissionResolver = permissionResolver;
+        _tenant = tenant;
     }
 
     public override void Configure()
@@ -62,6 +66,16 @@ public class Endpoint : Endpoint<Request, Response>
         // diverge. Workflows fire out-of-band via the async WorkflowProjection.
         content.Apply(@event);
         _session.Store(content);
+
+        // There's no content-delete endpoint in barakoCMS today — archiving is the closest
+        // destructive-equivalent action, so it's what gets audited here rather than every routine
+        // draft→published transition, which would just be noise.
+        if (req.NewStatus == barakoCMS.Models.ContentStatus.Archived)
+        {
+            await AuditLog.RecordAsync(_session, _tenant.Slug, "content.archived", userId, user.Username,
+                targetType: content.ContentType, targetId: content.Id.ToString(), ct: ct);
+        }
+
         await _session.SaveChangesAsync(ct);
 
         await SendAsync(new Response

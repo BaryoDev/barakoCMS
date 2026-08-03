@@ -1,4 +1,5 @@
 using barakoCMS.Events;
+using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
@@ -12,7 +13,13 @@ namespace BarakoCMS.Portability;
 public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
 {
     private readonly IDocumentSession _session;
-    public ImportEndpoint(IDocumentSession session) => _session = session;
+    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
+
+    public ImportEndpoint(IDocumentSession session, barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
+    {
+        _session = session;
+        _tenant = tenant;
+    }
 
     public override void Configure()
     {
@@ -78,7 +85,17 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
             }
         }
 
-        if (!req.DryRun) await _session.SaveChangesAsync(ct);
+        if (!req.DryRun)
+        {
+            await AuditLog.RecordAsync(_session, _tenant.Slug, "portability.imported", userId, User.FindFirst("Username")?.Value,
+                metadata: new()
+                {
+                    ["contentTypesCreated"] = report.ContentTypesCreated,
+                    ["contentTypesUpdated"] = report.ContentTypesUpdated,
+                    ["contentsCreated"] = report.ContentsCreated,
+                }, ct: ct);
+            await _session.SaveChangesAsync(ct);
+        }
         await SendAsync(report, cancellation: ct);
     }
 }

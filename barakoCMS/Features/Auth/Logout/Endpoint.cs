@@ -1,4 +1,6 @@
 using FastEndpoints;
+using Marten;
+using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Infrastructure.Services;
 using System.IdentityModel.Tokens.Jwt;
 
@@ -8,13 +10,19 @@ public class Endpoint : EndpointWithoutRequest<Response>
 {
     private readonly ITokenRevocationService _revocationService;
     private readonly ILogger<Endpoint> _logger;
+    private readonly IDocumentSession _documentSession;
+    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
 
     public Endpoint(
         ITokenRevocationService revocationService,
-        ILogger<Endpoint> logger)
+        ILogger<Endpoint> logger,
+        IDocumentSession documentSession,
+        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
     {
         _revocationService = revocationService;
         _logger = logger;
+        _documentSession = documentSession;
+        _tenant = tenant;
     }
 
     public override void Configure()
@@ -52,6 +60,11 @@ public class Endpoint : EndpointWithoutRequest<Response>
 
         // Revoke all refresh tokens for the user
         await _revocationService.RevokeAllUserTokensAsync(userId, "logout", ct);
+
+        var device = barakoCMS.Infrastructure.DeviceContext.From(HttpContext);
+        await AuditLog.RecordAsync(_documentSession, _tenant.Slug, "auth.logout", userId, User.FindFirst("Username")?.Value,
+            ipAddress: device.IpAddress, ct: ct);
+        await _documentSession.SaveChangesAsync(ct);
 
         _logger.LogInformation("User logged out: UserId={UserId}", userId);
 

@@ -1,6 +1,7 @@
 using FastEndpoints;
 using FastEndpoints.Security;
 using Marten;
+using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Models;
 using System.Security.Cryptography;
 using System.IdentityModel.Tokens.Jwt;
@@ -68,6 +69,9 @@ public class Endpoint : Endpoint<Request, Response>
                     "Refresh token reuse detected. Revoking all tokens for UserId: {UserId}",
                     refreshToken.UserId);
                 await _tokenRevocation.RevokeAllUserTokensAsync(refreshToken.UserId, "reuse_detected", ct);
+                await AuditLog.RecordAsync(_documentSession, _tenant.Slug, "auth.token.reuse_detected", refreshToken.UserId, null,
+                    ipAddress: barakoCMS.Infrastructure.DeviceContext.From(HttpContext).IpAddress, ct: ct);
+                await _documentSession.SaveChangesAsync(ct);
             }
             else
             {
@@ -143,6 +147,8 @@ public class Endpoint : Endpoint<Request, Response>
 
         _documentSession.Update(refreshToken);
         _documentSession.Store(newRefreshToken);
+        await AuditLog.RecordAsync(_documentSession, _tenant.Slug, "auth.token.refreshed", user.Id, user.Username,
+            ipAddress: barakoCMS.Infrastructure.DeviceContext.From(HttpContext).IpAddress, ct: ct);
 
         try
         {

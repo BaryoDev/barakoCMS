@@ -1,5 +1,6 @@
 using FastEndpoints;
 using Marten;
+using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Models;
 
 namespace barakoCMS.Features.UserGroups.Delete;
@@ -7,10 +8,12 @@ namespace barakoCMS.Features.UserGroups.Delete;
 public class Endpoint : Endpoint<Request, Response>
 {
     private readonly IDocumentSession _session;
+    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
 
-    public Endpoint(IDocumentSession session)
+    public Endpoint(IDocumentSession session, barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
     {
         _session = session;
+        _tenant = tenant;
     }
 
     public override void Configure()
@@ -43,6 +46,9 @@ public class Endpoint : Endpoint<Request, Response>
         }
 
         _session.Delete(group);
+        Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
+        await AuditLog.RecordAsync(_session, _tenant.Slug, "usergroup.deleted", actorId, User.FindFirst("Username")?.Value,
+            targetType: "UserGroup", targetId: group.Id.ToString(), metadata: new() { ["name"] = group.Name }, ct: ct);
         await _session.SaveChangesAsync(ct);
 
         await SendOkAsync(new Response { Message = "User group deleted successfully" }, ct);
