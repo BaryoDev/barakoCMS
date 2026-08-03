@@ -223,6 +223,15 @@ public static class ServiceCollectionExtensions
                 ? JasperFx.AutoCreate.CreateOrUpdate
                 : JasperFx.AutoCreate.CreateOnly;
 
+            // Every `object`-typed JSON value (content Data bags, permission Conditions, audit
+            // Metadata, workflow parameters) goes through ObjectJsonConverter so fractional numbers
+            // land as decimal instead of double, and nested values are plain CLR types at every depth
+            // rather than raw JsonElement. See that converter for the two real bugs this prevents.
+            options.UseSystemTextJsonForSerialization(configure: json =>
+            {
+                json.Converters.Add(new barakoCMS.Infrastructure.Serialization.ObjectJsonConverter());
+            });
+
             // Conjoined multi-tenancy: every document and event stream is tagged with a tenant id and
             // auto-filtered by the session's tenant. Global identity/registry docs opt out below.
             options.Policies.AllDocumentsAreMultiTenanted();
