@@ -26,18 +26,15 @@ public class ReportingService
 
     public ReportingService(IQuerySession session) => _session = session;
 
-    private async Task<List<JournalEntry>> PostedEntriesAsync(DateOnly? asOf, CancellationToken ct)
-    {
-        var q = _session.Query<JournalEntry>().Where(e => e.Status == JournalStatus.Posted);
-        if (asOf is { } d) q = q.Where(e => e.Date <= d);
-        var list = await q.ToListAsync(ct);
-        return list.ToList();
-    }
+    // Accounts and entries are content types now; AccountingContentReader projects them back into
+    // the domain shapes so all the aggregation below is unchanged and still exact-decimal.
+    private Task<List<JournalEntry>> PostedEntriesAsync(DateOnly? asOf, CancellationToken ct) =>
+        AccountingContentReader.PostedEntriesAsync(_session, asOf, ct);
 
     /// <summary>Signed balance per account, using each account's normal side. A trial balance.</summary>
     public async Task<List<AccountBalance>> BalancesAsync(DateOnly? asOf, CancellationToken ct)
     {
-        var accounts = await _session.Query<Account>().ToListAsync(ct);
+        var accounts = await AccountingContentReader.AccountsAsync(_session, ct);
         var entries = await PostedEntriesAsync(asOf, ct);
 
         var debit = new Dictionary<string, decimal>();
@@ -63,7 +60,8 @@ public class ReportingService
     /// <summary>A single account's ledger with a running balance (e.g. a member's receivable).</summary>
     public async Task<AccountLedger?> AccountLedgerAsync(string accountCode, CancellationToken ct)
     {
-        var account = await _session.Query<Account>().FirstOrDefaultAsync(a => a.Code == accountCode, ct);
+        var account = (await AccountingContentReader.AccountsAsync(_session, ct))
+            .FirstOrDefault(a => string.Equals(a.Code, accountCode, StringComparison.OrdinalIgnoreCase));
         if (account is null) return null;
 
         var entries = await PostedEntriesAsync(null, ct);

@@ -41,21 +41,32 @@ public class CreateAccountEndpoint : Endpoint<CreateAccountEndpoint.Request, Cre
             return;
         }
 
-        var existing = await _session.Query<Account>().FirstOrDefaultAsync(a => a.Code == req.Code, ct);
-        if (existing is not null)
+        // Accounts are a content type now. Written here as content so this endpoint and the generic
+        // /api/contents endpoint share one store — otherwise an account created through this route
+        // would be invisible to reporting, which reads content.
+        var chart = await AccountingContentReader.AccountsAsync(_session, ct);
+        if (chart.Any(a => string.Equals(a.Code, req.Code, StringComparison.OrdinalIgnoreCase)))
         {
             await SendAsync(new Result { Code = req.Code, Created = false }, cancellation: ct);
             return;
         }
 
-        _session.Store(new Account
+        _session.Store(new barakoCMS.Models.Content
         {
-            Code = req.Code.Trim(),
-            Name = req.Name.Trim(),
-            Type = req.Type,
-            ParentCode = req.ParentCode,
-            MemberId = req.MemberId,
-            PayeeName = req.PayeeName
+            Id = Guid.NewGuid(),
+            ContentType = AccountingContentTypes.Account,
+            Status = barakoCMS.Models.ContentStatus.Published,
+            Sensitivity = barakoCMS.Models.SensitivityLevel.Public,
+            Data = new Dictionary<string, object>
+            {
+                ["Code"] = req.Code.Trim(),
+                ["Name"] = req.Name.Trim(),
+                ["Type"] = req.Type.ToString(),
+                ["ParentCode"] = req.ParentCode ?? string.Empty,
+                ["MemberId"] = req.MemberId?.ToString() ?? string.Empty,
+                ["PayeeName"] = req.PayeeName ?? string.Empty,
+                ["IsActive"] = true,
+            },
         });
         await _session.SaveChangesAsync(ct);
 
@@ -77,7 +88,7 @@ public class ListAccountsEndpoint : EndpointWithoutRequest<IReadOnlyList<Account
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        var accounts = await _session.Query<Account>().OrderBy(a => a.Code).ToListAsync(ct);
-        await SendAsync(accounts.ToList(), cancellation: ct);
+        var accounts = await AccountingContentReader.AccountsAsync(_session, ct);
+        await SendAsync(accounts.OrderBy(a => a.Code).ToList(), cancellation: ct);
     }
 }

@@ -25,6 +25,12 @@ public sealed class AccountingModule : IBarakoModule
     {
         services.AddScoped<LedgerService>();
         services.AddScoped<ReportingService>();
+
+        // The accounting invariants, contributed into the generic content write pipeline. This is
+        // what lets accounts and journal entries be ordinary content types (the project's
+        // content-type-first rule) without giving up the balance and chart guarantees.
+        services.AddScoped<barakoCMS.Core.Interfaces.IContentLifecycleHook, AccountHook>();
+        services.AddScoped<barakoCMS.Core.Interfaces.IContentLifecycleHook, JournalEntryHook>();
     }
 
     public void ConfigureMarten(StoreOptions options)
@@ -60,5 +66,20 @@ public sealed class AccountingModule : IBarakoModule
                 Description = "Can post journal entries and view the ledger."
             });
         }
+
+        // Accounts and journal entries are content types (content-type-first). Seed their
+        // definitions so the schema validator and the admin's generic content UI know their shape.
+        // Idempotent: only inserted when absent, so a host that has customised them is left alone.
+        await SeedContentTypeAsync(session, AccountingContentTypes.AccountDefinition(), ct);
+        await SeedContentTypeAsync(session, AccountingContentTypes.JournalEntryDefinition(), ct);
+    }
+
+    private static async Task SeedContentTypeAsync(
+        IDocumentSession session, ContentTypeDefinition definition, CancellationToken ct)
+    {
+        var existing = await session.Query<ContentTypeDefinition>()
+            .FirstOrDefaultAsync(t => t.Name == definition.Name, ct);
+        if (existing is null)
+            session.Store(definition);
     }
 }

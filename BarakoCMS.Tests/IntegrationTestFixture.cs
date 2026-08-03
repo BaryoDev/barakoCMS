@@ -56,6 +56,12 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             services.ConfigureMarten(opts => new BarakoCMS.AI.AiModule().ConfigureMarten(opts));
             services.RemoveAll<BarakoCMS.AI.IEmbeddingClient>();
             services.AddSingleton<BarakoCMS.AI.IEmbeddingClient, FakeEmbeddingClient>();
+
+            // Accounting: registers its content lifecycle hooks (the balance invariant and the
+            // chart-of-accounts rules), so the generic /api/contents endpoint can be tested with
+            // real domain rules attached — the whole point of modelling accounting as content.
+            new BarakoCMS.Accounting.AccountingModule().ConfigureServices(services, ctx.Configuration);
+            services.ConfigureMarten(opts => new BarakoCMS.Accounting.AccountingModule().ConfigureMarten(opts));
         });
     }
 

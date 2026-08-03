@@ -24,96 +24,92 @@ public record PostResult(JournalEntry? Entry, IReadOnlyList<string> Errors)
 }
 
 /// <summary>
-/// Posts balanced double-entry journal entries. The balance invariant (total debits == total
-/// credits) and account existence are enforced here, in the backend, before anything is written —
-/// this is the one accounting rule barakoCMS's generic content validation cannot express.
+/// Posts balanced double-entry journal entries.
+///
+/// Journal entries are content now (the project's content-type-first rule), so this service no
+/// longer owns either the storage or the rules: it builds the entry's data bag and runs it through
+/// <see cref="JournalEntryHook"/> — the very same hook the generic <c>/api/contents</c> endpoint
+/// runs — then stores it as content. That keeps one source of truth for the balance invariant and
+/// the entry numbering, and means a post through this service and a post through the generic
+/// endpoint cannot diverge.
+///
+/// It exists at all only so the module's existing <c>POST /api/accounting/journal-entries</c> keeps
+/// working for consumers already calling it (BaryoClub). New callers should prefer the generic
+/// content endpoint.
 /// </summary>
 public class LedgerService
 {
     private readonly IDocumentSession _session;
+    private readonly JournalEntryHook _hook = new();
 
     public LedgerService(IDocumentSession session) => _session = session;
 
     public async Task<PostResult> PostAsync(PostEntryCommand cmd, Guid userId, CancellationToken ct)
     {
-        var errors = new List<string>();
-
-        if (cmd.Lines.Count < 2)
-            errors.Add("A journal entry needs at least two lines.");
-
-        foreach (var (line, i) in cmd.Lines.Select((l, i) => (l, i)))
+        var data = new Dictionary<string, object>
         {
-            if (line.Debit < 0 || line.Credit < 0)
-                errors.Add($"Line {i + 1}: debit and credit must be non-negative.");
-            if (line.Debit > 0 && line.Credit > 0)
-                errors.Add($"Line {i + 1}: a line cannot have both a debit and a credit.");
-            if (line.Debit == 0 && line.Credit == 0)
-                errors.Add($"Line {i + 1}: a line must have either a debit or a credit.");
-            if (string.IsNullOrWhiteSpace(line.AccountCode))
-                errors.Add($"Line {i + 1}: account code is required.");
-        }
+            ["Date"] = cmd.Date.ToString("yyyy-MM-dd"),
+            ["Memo"] = cmd.Memo,
+            ["Reference"] = cmd.Reference ?? string.Empty,
+            ["Status"] = JournalStatus.Posted.ToString(),
+            ["VoidsEntryId"] = cmd.VoidsEntryId?.ToString() ?? string.Empty,
+            ["Attachments"] = (cmd.Attachments ?? Array.Empty<string>()).Cast<object>().ToList(),
+            ["Lines"] = cmd.Lines
+                .Select(l => (object)new Dictionary<string, object>
+                {
+                    ["AccountCode"] = l.AccountCode,
+                    ["Debit"] = l.Debit,
+                    ["Credit"] = l.Credit,
+                    ["Memo"] = l.Memo ?? string.Empty,
+                })
+                .ToList(),
+        };
 
-        var totalDebit = cmd.Lines.Sum(l => l.Debit);
-        var totalCredit = cmd.Lines.Sum(l => l.Credit);
-        if (totalDebit != totalCredit)
-            errors.Add($"Entry is not balanced: debits {totalDebit:0.00} != credits {totalCredit:0.00}.");
-        if (totalDebit == 0)
-            errors.Add("Entry total must be greater than zero.");
-
-        // Verify every referenced account exists and is active.
-        var codes = cmd.Lines.Select(l => l.AccountCode).Where(c => !string.IsNullOrWhiteSpace(c)).Distinct().ToList();
-        if (codes.Count > 0)
-        {
-            var accounts = await _session.Query<Account>()
-                .Where(a => codes.Contains(a.Code))
-                .ToListAsync(ct);
-            var found = accounts.ToDictionary(a => a.Code);
-            foreach (var code in codes)
+        // The hook both validates and stamps EntryNumber/Amount. A rejected post never reaches the
+        // store and never consumes a sequence number.
+        var errors = await _hook.OnBeforeSaveAsync(
+            new barakoCMS.Core.Interfaces.ContentLifecycleContext
             {
-                if (!found.TryGetValue(code, out var acct))
-                    errors.Add($"Account '{code}' does not exist.");
-                else if (!acct.IsActive)
-                    errors.Add($"Account '{code}' is inactive.");
-            }
-        }
+                ContentType = AccountingContentTypes.JournalEntry,
+                Data = data,
+                Existing = null,
+                Session = _session,
+                UserId = userId,
+            }, ct);
 
         if (errors.Count > 0)
-            return new PostResult(null, errors);
+            return new PostResult(null, errors.ToList());
 
-        var entry = new JournalEntry
+        // Start the event stream as well as storing the read model — exactly what the generic
+        // content endpoint does. Without this an entry posted through this route would have no
+        // history, and traceability is the entire point of a ledger.
+        var contentId = Guid.NewGuid();
+        var created = new barakoCMS.Events.ContentCreated(
+            contentId, AccountingContentTypes.JournalEntry, data,
+            barakoCMS.Models.ContentStatus.Published, userId);
+
+        _session.Events.StartStream<barakoCMS.Models.Content>(contentId, created);
+        var content = new barakoCMS.Models.Content();
+        content.Apply(created);
+        _session.Store(content);
+
+        // The entry and the sequence increment the hook made commit in one transaction.
+        await _session.SaveChangesAsync(ct);
+
+        return PostResult.Success(new JournalEntry
         {
-            EntryNumber = await NextEntryNumberAsync(cmd.Date, ct),
+            EntryNumber = ContentData.AsString(ContentData.Get(data, "EntryNumber")) ?? string.Empty,
             Date = cmd.Date,
             Memo = cmd.Memo,
             Reference = cmd.Reference,
             VoidsEntryId = cmd.VoidsEntryId,
             Status = JournalStatus.Posted,
-            Amount = totalDebit,
-            Attachments = cmd.Attachments?.ToList() ?? new List<string>(),
+            Amount = ContentData.AsDecimal(ContentData.Get(data, "Amount")),
+            Attachments = (cmd.Attachments ?? Array.Empty<string>()).ToList(),
             CreatedBy = userId,
             Lines = cmd.Lines
                 .Select(l => new JournalLine { AccountCode = l.AccountCode, Debit = l.Debit, Credit = l.Credit, Memo = l.Memo })
-                .ToList()
-        };
-
-        _session.Store(entry);
-        // The entry and the sequence increment commit together; a concurrency clash on the
-        // sequence rolls back the whole post so no number is ever skipped or duplicated.
-        await _session.SaveChangesAsync(ct);
-
-        return PostResult.Success(entry);
-    }
-
-    private async Task<string> NextEntryNumberAsync(DateOnly date, CancellationToken ct)
-    {
-        var key = $"JE-{date.Year}";
-        var seq = await _session.LoadAsync<NumberSequence>(key, ct);
-        if (seq is null)
-        {
-            seq = new NumberSequence { Id = key, Value = 0 };
-        }
-        seq.Value += 1;
-        _session.Store(seq);
-        return $"{key}-{seq.Value:000000}";
+                .ToList(),
+        });
     }
 }
