@@ -5,6 +5,7 @@ using BarakoCMS.Files;
 using BarakoCMS.Email.Resend;
 using BarakoCMS.ExternalAuth;
 using BarakoCMS.Analytics.Umami;
+using BarakoCMS.Diagnostics;
 
 // "Barako" — the full-suite barakoCMS host: the core engine with every module on. Configure it with
 // just a DATABASE_URL (or ConnectionStrings__DefaultConnection) and a 32+ char JWT__Key; every
@@ -33,6 +34,7 @@ builder.Services.AddBarakoCMS(builder.Configuration, modules =>
     modules.Add(new UmamiAnalyticsModule());
     modules.Add(new BarakoCMS.Pwa.PwaModule());
     modules.Add(new BarakoCMS.AI.AiModule()); // dormant unless Ai:Enabled is true
+    modules.Add(new DiagnosticsModule());
 });
 
 var app = builder.Build();

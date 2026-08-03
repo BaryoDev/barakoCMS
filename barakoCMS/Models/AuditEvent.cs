@@ -39,7 +39,7 @@ public class AuditEvent
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>The previous entry's <see cref="Hash"/> in this tenant's chain, or
-    /// <see cref="AuditChain.GenesisHash"/> for the first entry.</summary>
+    /// <see cref="Infrastructure.Audit.AuditChain.GenesisHash"/> for the first entry.</summary>
     public string PrevHash { get; set; } = string.Empty;
 
     /// <summary>SHA-256 (hex) over <see cref="PrevHash"/> and this entry's own fields.</summary>
