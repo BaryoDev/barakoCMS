@@ -5,6 +5,82 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.12.0] - 2026-08-03
+
+### Added: audit log
+
+A queryable "who did what, when", available in core (no module to install).
+
+- `GET /api/audit` (Admin) — filter by actor, action, date range and tenant, paginated.
+- Captures auth events (login succeeded/failed/blocked, account lockout, logout, token refresh and
+  refresh-token reuse detection) and sensitive administrative actions (role and user-group deletion,
+  role/group assignment and removal, content archival, portability export/import).
+- Entries are hash-chained: each one carries the previous entry's hash, so editing or removing a past
+  entry breaks every hash after it. This is tamper-**evidence**, not tamper-prevention — someone with
+  direct database access can still rewrite the chain forward. Known limitation: the previous-hash
+  lookup and the insert are not one atomic operation, so two audit-worthy actions racing in the same
+  tenant can chain off the same previous hash. That shows up as a detectable fork, and no entry is
+  lost.
+- Admin gains an "Audit log" page with the same shape as the Errors page.
+
+### Added: per-content-type domain rules (`IContentLifecycleHook`)
+
+Schema validation can express "Amount is a decimal"; it cannot express "total debits must equal total
+credits", or "assign the next sequence number". Previously a domain with real invariants had to be
+given its own bespoke write endpoint, which put it outside the generic content pipeline.
+
+A module now registers an `IContentLifecycleHook` the way it registers a workflow action, and core
+runs it on create **and** update without knowing the module exists. Hooks can reject a write or enrich
+it, and they receive the request's Marten session, so anything they store commits in the same
+transaction as the entry.
+
+### Changed: decimals in schemaless data are no longer doubles
+
+**Behaviour change — read this if you consume `Content.Data` from .NET.**
+
+Values inside the `Dictionary<string, object>` bags (a content entry's `Data`, a permission rule's
+`Conditions`, an audit entry's `Metadata`) previously came back from storage as `System.Double` at the
+top level and as raw `JsonElement` when nested. Fractional numbers now come back as `decimal`, and
+nested values are plain CLR types at every depth.
+
+- Whole numbers still come back as `long`, so ids and counts are unaffected.
+- Values outside `decimal`'s range still fall back to `double` rather than throwing.
+- **If your code casts a stored number straight to `double`, it will now throw `InvalidCastException`.**
+  Use `Convert.ToDecimal`/`Convert.ToDouble` instead.
+
+This was a correctness fix, not a preference: summing money that round-tripped through binary floating
+point accumulates drift, and a plausible-but-wrong accounting total is the worst failure mode this
+codebase has. The same change also makes nesting consistent, which retires a class of bug where code
+type-checking for `Dictionary<string, object>` silently received a `JsonElement` instead.
+
+### Changed: `BarakoCMS.Accounting` 0.2.0 — accounts and journal entries are content types
+
+**Breaking for hosts using the accounting module.**
+
+`Account` and `JournalEntry` were bespoke Marten documents; they are now ordinary barakoCMS content
+types, so they are queryable, permissioned and deliverable through the same generic endpoints as
+everything else. The rules a schema cannot express moved into content lifecycle hooks, so posting an
+unbalanced entry through plain `POST /api/contents` is rejected, entry numbers are allocated
+server-side, and a rejected post does not consume a number. A posted entry is immutable — correct it
+by posting a reversing entry.
+
+- New `AccountService` so hosts keep working with the `Account` domain type instead of hand-building
+  content dictionaries. Replace `session.Query<Account>()` and `session.Store(new Account { … })` with
+  `AccountService.GetAllAsync`/`GetByCodeAsync`/`UpsertAsync`.
+- The `/api/accounting/*` endpoints are unchanged for callers, but now read and write content.
+- `AccountingMigration.RunAsync` copies existing typed `Account`/`JournalEntry` documents into content.
+  It copies rather than moves and is idempotent, so the originals stay on disk and a bad run can be
+  repeated rather than being the step that loses a ledger.
+
+### Fixed
+
+- `BarakoCMS.Diagnostics` is wired into the Suite image, so the shipped Suite's admin "Errors" page has
+  a backend instead of returning 404.
+- CI now fails on Critical/High vulnerable dependencies instead of only reporting them, and Dependabot
+  is configured for NuGet, npm and GitHub Actions.
+- CSP no longer allows `'unsafe-inline'` in `script-src` outside Development. `style-src` still does —
+  see the roadmap for the remaining nonce work.
+
 ## [3.11.0] - 2026-07-30
 
 ### Added: draft preview
