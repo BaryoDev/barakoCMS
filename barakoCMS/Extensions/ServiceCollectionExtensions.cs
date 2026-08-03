@@ -502,6 +502,8 @@ public static class ServiceCollectionExtensions
         }
 
         // Security Headers
+        var csp = barakoCMS.Infrastructure.Security.SecurityHeaders.ContentSecurityPolicy(env);
+
         app.Use(async (context, next) =>
         {
             // Prevent XSS attacks
@@ -511,8 +513,7 @@ public static class ServiceCollectionExtensions
             context.Response.Headers.Append("Referrer-Policy", "strict-origin-when-cross-origin");
 
             // Content Security Policy
-            context.Response.Headers.Append("Content-Security-Policy",
-            "default-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:;");
+            context.Response.Headers.Append("Content-Security-Policy", csp);
 
             // HSTS (HTTP Strict Transport Security)
             if (context.Request.IsHttps)
