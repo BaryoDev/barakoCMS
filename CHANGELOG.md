@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.12.1] - 2026-08-03
+
+### Fixed
+
+- `BarakoCMS.Portability` 0.1.2 — ships the audit-log capture for export and import that was written
+  for 3.12.0 but never published: the module's version was unchanged, and the release pushes with
+  `--skip-duplicate`, so the package was silently skipped and stayed at 0.1.1. Core is bumped only to
+  get past the release gate, which reads core's version alone; there are no core changes in 3.12.1.
+
 ## [3.12.0] - 2026-08-03
 
 ### Added: audit log
