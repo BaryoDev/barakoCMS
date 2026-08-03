@@ -23,6 +23,10 @@ public sealed class AccountingModule : IBarakoModule
 
     public void ConfigureServices(IServiceCollection services, IConfiguration configuration)
     {
+        // Explicit factory, not AddScoped<AccountService>(): the service has both a read/write
+        // (IDocumentSession) and a read-only (IQuerySession) constructor, and the container cannot
+        // choose between them — it throws at startup validation. Hosts get the writable one.
+        services.AddScoped(sp => new AccountService(sp.GetRequiredService<IDocumentSession>()));
         services.AddScoped<LedgerService>();
         services.AddScoped<ReportingService>();
 
