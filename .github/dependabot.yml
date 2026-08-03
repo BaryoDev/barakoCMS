@@ -1,0 +1,22 @@
+version: 2
+updates:
+  # All *.csproj projects live under the repo root; Dependabot's NuGet ecosystem discovers them
+  # from here without listing each one individually.
+  - package-ecosystem: "nuget"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+
+  - package-ecosystem: "npm"
+    directory: "/admin"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+
+  # Keep the Actions themselves current — the same "insufficient logging/CVE surfaces late" concern
+  # the NuGet/npm gates exist for applies to third-party Actions too.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

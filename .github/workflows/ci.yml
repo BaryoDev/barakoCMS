@@ -106,12 +106,26 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
-      # Vulnerable-dependency report. Informational for now (there's a known backlog to burn down),
-      # so it surfaces findings in the summary without blocking every build.
+      # Vulnerable-dependency gate. The backlog was burned down to zero (roadmap 0.3), so this now
+      # actually fails the build on Critical/High findings instead of only reporting them — Moderate/Low
+      # still surface in the summary but don't block. Uses --format json rather than grepping the
+      # console table, since the JSON schema is stable and the console layout isn't a contract.
       - name: Vulnerable dependencies
         run: |
           dotnet restore
+
           echo '## Vulnerable dependencies' >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
-          dotnet list package --vulnerable --include-transitive 2>&1 | tee -a "$GITHUB_STEP_SUMMARY" || true
+          dotnet list package --vulnerable --include-transitive 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+          dotnet list package --vulnerable --include-transitive --format json --output-version 1 > vuln-report.json
+
+          if jq -e '[.projects[].frameworks[]? // empty
+                     | (.topLevelPackages // []) + (.transitivePackages // [])
+                     | .[] | .vulnerabilities[]?
+                     | select(.severity == "Critical" or .severity == "High")] | length > 0' \
+               vuln-report.json > /dev/null; then
+            echo "::error::Critical or High severity vulnerable dependencies found — see the summary above."
+            exit 1
+          fi
