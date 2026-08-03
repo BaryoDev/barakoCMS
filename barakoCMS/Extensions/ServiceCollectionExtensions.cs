@@ -352,6 +352,9 @@ public static class ServiceCollectionExtensions
         services.TryAddScoped<barakoCMS.Core.Interfaces.IEmailService, barakoCMS.Infrastructure.Services.MockEmailService>();
         services.TryAddScoped<barakoCMS.Core.Interfaces.ISmsService, barakoCMS.Infrastructure.Services.MockSmsService>();
         services.AddScoped<barakoCMS.Core.Interfaces.ISensitivityService, barakoCMS.Infrastructure.Services.SensitivityService>();
+        // Runs any per-content-type domain rules a module registered (IContentLifecycleHook), so a
+        // domain with real invariants can still be modelled as ordinary content.
+        services.AddScoped<barakoCMS.Infrastructure.Services.IContentLifecycleRunner, barakoCMS.Infrastructure.Services.ContentLifecycleRunner>();
         services.AddScoped<barakoCMS.Core.Interfaces.IOtpService, barakoCMS.Infrastructure.Services.OtpService>();
         // Device trust is opt-in: the default gate does nothing. The DeviceTrust module overrides it.
         services.TryAddScoped<barakoCMS.Core.Interfaces.IDeviceGate, barakoCMS.Core.Interfaces.NoopDeviceGate>();
@@ -566,6 +569,16 @@ public static class ServiceCollectionExtensions
         app.UseFastEndpoints(c =>
         {
             c.Errors.UseProblemDetails();
+
+            // Deserialize incoming Dictionary<string, object> bodies (a content entry's Data, a
+            // permission rule's Conditions) exactly the way they are stored — see ObjectJsonConverter.
+            // Without this the two halves disagree: money in a request body would arrive as double
+            // while the same value round-trips from Postgres as decimal, and nested values would
+            // arrive as raw JsonElement, so a lifecycle hook validating a request could not read the
+            // payload it is meant to be guarding.
+            c.Serializer.Options.Converters.Add(
+                new barakoCMS.Infrastructure.Serialization.ObjectJsonConverter());
+
             c.Endpoints.Configurator = ep =>
             {
                 if (globalPreProcessors.Length > 0)

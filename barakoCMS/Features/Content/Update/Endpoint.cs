@@ -55,6 +55,16 @@ public class Endpoint : Endpoint<Request, Response>
             return;
         }
 
+        // DOMAIN RULES — must run on update too, or an invariant enforced at create (a balanced
+        // journal entry) could simply be edited into an illegal state afterwards.
+        var hookErrors = await Resolve<barakoCMS.Infrastructure.Services.IContentLifecycleRunner>()
+            .RunBeforeSaveAsync(existingContent.ContentType, req.Data, existingContent.Data, userId, ct);
+        if (hookErrors.Count > 0)
+        {
+            await SendAsync(new Response { Message = "Validation Failed: " + string.Join(", ", hookErrors) }, 400, ct);
+            return;
+        }
+
         var events = new List<object>();
 
         // 1. Data Update Event

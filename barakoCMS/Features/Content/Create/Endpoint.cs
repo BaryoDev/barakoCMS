@@ -66,6 +66,18 @@ public class Endpoint : Endpoint<Request, Response>
             return;
         }
 
+        // DOMAIN RULES. Schema validation answers "is this the right shape"; a module's lifecycle hook
+        // answers "is this legal" (e.g. a journal entry's debits must equal its credits) and may
+        // enrich the entry (e.g. stamp the next sequence number). Runs after validation so a hook can
+        // trust the field types it reads.
+        var hookErrors = await Resolve<barakoCMS.Infrastructure.Services.IContentLifecycleRunner>()
+            .RunBeforeSaveAsync(req.ContentType, req.Data, existing: null, userId, ct);
+        if (hookErrors.Count > 0)
+        {
+            await SendAsync(new Response { Message = "Validation Failed: " + string.Join(", ", hookErrors) }, 400, ct);
+            return;
+        }
+
         var contentId = Guid.NewGuid();
         var @event = new barakoCMS.Events.ContentCreated(contentId, req.ContentType, req.Data, req.Status, userId);
 
