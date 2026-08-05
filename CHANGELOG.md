@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.14.1] - 2026-08-05
+
+### Fixed: 3.14.0 startup crash on existing databases
+
+3.14.0 added two Marten indexes (on the new scheduled-publish fields) to the `Content` document. On a
+fresh database that is harmless, but on an existing one it is a delta to `mt_doc_contents`, which the
+prod/playground `AutoCreate.CreateOnly` policy refuses at startup — so the container crash-looped
+(`Cannot derive schema migrations for TableDelta`). The indexes are removed: the scheduler sweep leads
+with `Status` (already indexed), so they were never load-bearing. No API or behavior change from 3.14.0.
+See H.40 for the missing online-migration step that would let index additions ship safely.
+
 ## [3.14.0] - 2026-08-05
 
 ### Added: scheduled publish / unpublish

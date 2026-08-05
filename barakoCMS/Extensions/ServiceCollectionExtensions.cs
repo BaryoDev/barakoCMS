@@ -245,9 +245,12 @@ public static class ServiceCollectionExtensions
                 .Index(x => x.UpdatedAt)
                 .Index(x => x.Status)
                 .Index(x => new { x.ContentType, x.CreatedAt })
-                .Index(x => new { x.ContentType, x.Status }) // Composite for status filtering
-                .Index(x => x.ScheduledPublishAt)   // scheduler sweep: due Drafts
-                .Index(x => x.ScheduledUnpublishAt); // scheduler sweep: due Published
+                .Index(x => new { x.ContentType, x.Status }); // Composite for status filtering
+                // NOTE: no dedicated index on ScheduledPublishAt/ScheduledUnpublishAt. The scheduler
+                // sweep leads with Status (indexed above), which is the selective predicate; the
+                // schedule-time comparison is a cheap secondary filter. Adding indexes here would be a
+                // delta on the existing mt_doc_contents table, which the prod/playground AutoCreate.
+                // CreateOnly policy refuses at startup (there is no online-migration step yet — H.40).
 
             // Navigation menus are a "menu" content type served through public delivery, not a bespoke
             // doc. Keeping them as content keeps them pluggable and drops a whole CRUD surface. The old
