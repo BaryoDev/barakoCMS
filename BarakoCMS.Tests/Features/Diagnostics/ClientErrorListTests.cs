@@ -1,0 +1,105 @@
+using Xunit;
+using FluentAssertions;
+using System.Net;
+using System.Net.Http.Headers;
+using BarakoCMS.Diagnostics;
+using Marten;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace BarakoCMS.Tests.Features.Diagnostics;
+
+/// <summary>
+/// GET /api/client-errors over real HTTP. The search filter (?q=) is the point: it was written with the
+/// StringComparison overload of string.Contains, which Marten's LINQ provider cannot translate, so any
+/// search threw at runtime. Nothing covered it because the module's schema was never registered in the
+/// test fixture. Also covers the resolved/severity filters and the admin-only gate.
+/// </summary>
+[Collection("Sequential")]
+public class ClientErrorListTests
+{
+    private readonly IntegrationTestFixture _factory;
+
+    public ClientErrorListTests(IntegrationTestFixture factory) => _factory = factory;
+
+    private HttpClient AdminClient()
+    {
+        var c = _factory.CreateClient();
+        c.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", _factory.CreateToken(new[] { "Admin" }));
+        return c;
+    }
+
+    private async Task SeedAsync(params (string Message, string Severity, bool Resolved)[] rows)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        foreach (var (message, severity, resolved) in rows)
+        {
+            s.Store(new ClientError
+            {
+                Id = Guid.NewGuid(),
+                Fingerprint = Guid.NewGuid().ToString("N"),
+                Message = message,
+                Severity = severity,
+                Resolved = resolved,
+            });
+        }
+        await s.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task Search_ByMessage_Works()
+    {
+        await SeedAsync(
+            ("TypeError: cannot read property of undefined", "error", false),
+            ("NetworkError when fetching resource", "error", false));
+
+        var res = await AdminClient().GetAsync("/api/client-errors?q=TypeError");
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, "a search must not throw a LINQ translation error");
+        var body = await res.Content.ReadAsStringAsync();
+        body.Should().Contain("TypeError");
+        body.Should().NotContain("NetworkError", "the search filters the result set");
+    }
+
+    [Fact]
+    public async Task Search_IsCaseInsensitive()
+    {
+        await SeedAsync(("Uncaught ReferenceError in checkout", "error", false));
+
+        var res = await AdminClient().GetAsync("/api/client-errors?q=referenceerror");
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await res.Content.ReadAsStringAsync()).Should().Contain("ReferenceError");
+    }
+
+    [Fact]
+    public async Task Filters_ByResolvedAndSeverity()
+    {
+        var tag = Guid.NewGuid().ToString("N")[..8];
+        await SeedAsync(
+            ($"open-{tag}", "error", false),
+            ($"done-{tag}", "error", true),
+            ($"warn-{tag}", "warning", false));
+
+        var open = await (await AdminClient().GetAsync($"/api/client-errors?resolved=false&q={tag}")).Content.ReadAsStringAsync();
+        open.Should().Contain($"open-{tag}").And.Contain($"warn-{tag}");
+        open.Should().NotContain($"done-{tag}");
+
+        var warnings = await (await AdminClient().GetAsync($"/api/client-errors?severity=warning&q={tag}")).Content.ReadAsStringAsync();
+        warnings.Should().Contain($"warn-{tag}");
+        warnings.Should().NotContain($"open-{tag}");
+    }
+
+    [Fact]
+    public async Task RequiresAdminRole()
+    {
+        var anon = _factory.CreateClient();
+        (await anon.GetAsync("/api/client-errors")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+
+        var editor = _factory.CreateClient();
+        editor.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", _factory.CreateToken(new[] { "Editor" }));
+        (await editor.GetAsync("/api/client-errors")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+}

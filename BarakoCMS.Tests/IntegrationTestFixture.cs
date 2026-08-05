@@ -62,6 +62,10 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             // real domain rules attached — the whole point of modelling accounting as content.
             new BarakoCMS.Accounting.AccountingModule().ConfigureServices(services, ctx.Configuration);
             services.ConfigureMarten(opts => new BarakoCMS.Accounting.AccountingModule().ConfigureMarten(opts));
+
+            // Diagnostics: the test project references it, so FastEndpoints already discovers
+            // /api/client-errors — register its schema too so those endpoints can actually run.
+            services.ConfigureMarten(opts => new BarakoCMS.Diagnostics.DiagnosticsModule().ConfigureMarten(opts));
         });
     }
 
