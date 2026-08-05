@@ -1,5 +1,7 @@
 using FastEndpoints;
 using Marten;
+// RequireRateLimiting lives here; this project is not a Web SDK project, so it is not implicitly used.
+using Microsoft.AspNetCore.Builder;
 
 namespace BarakoCMS.Diagnostics.Features.Report;
 
@@ -37,6 +39,9 @@ public class Endpoint : Endpoint<ReportRequest>
     {
         Post("/api/client-errors");
         AllowAnonymous();
+        // Unauthenticated ingest that fans out to one lookup per batch item, so it gets a tighter
+        // budget than the global per-IP limit.
+        Options(x => x.RequireRateLimiting("telemetry"));
     }
 
     public override async Task HandleAsync(ReportRequest req, CancellationToken ct)

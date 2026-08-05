@@ -2,6 +2,8 @@ using Xunit;
 using FluentAssertions;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Text.Json;
 using BarakoCMS.Diagnostics;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
@@ -89,6 +91,41 @@ public class ClientErrorListTests
         var warnings = await (await AdminClient().GetAsync($"/api/client-errors?severity=warning&q={tag}")).Content.ReadAsStringAsync();
         warnings.Should().Contain($"warn-{tag}");
         warnings.Should().NotContain($"open-{tag}");
+    }
+
+    [Fact]
+    public async Task ReportedError_ShowsUpInTheList()
+    {
+        // The capture half posts here anonymously; the admin's Errors page reads the list. This is the
+        // round trip that proves the two halves actually meet.
+        var marker = $"capture-{Guid.NewGuid():N}"[..20];
+        var anon = _factory.CreateClient();
+
+        var post = await anon.PostAsJsonAsync("/api/client-errors", new
+        {
+            items = new[]
+            {
+                new { kind = "error", severity = "error", message = marker, source = "app.js", url = "/admin" },
+            },
+        });
+        post.IsSuccessStatusCode.Should().BeTrue();
+
+        var listed = await (await AdminClient().GetAsync($"/api/client-errors?q={marker}")).Content.ReadAsStringAsync();
+        listed.Should().Contain(marker);
+    }
+
+    [Fact]
+    public async Task RepeatedReport_IsDedupedByFingerprint()
+    {
+        var marker = $"dupe-{Guid.NewGuid():N}"[..18];
+        var anon = _factory.CreateClient();
+        object Body() => new { items = new[] { new { kind = "error", severity = "error", message = marker, source = "app.js" } } };
+
+        await anon.PostAsJsonAsync("/api/client-errors", Body());
+        await anon.PostAsJsonAsync("/api/client-errors", Body());
+
+        var json = await (await AdminClient().GetAsync($"/api/client-errors?q={marker}")).Content.ReadFromJsonAsync<JsonElement>();
+        json.GetProperty("totalItems").GetInt32().Should().Be(1, "the same fault is one row with a count, not two rows");
     }
 
     [Fact]

@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.16.0] - 2026-08-05
+
+### Added: browser error capture (the other half of Diagnostics)
+
+The Diagnostics module could always serve captured errors, and the admin has had an Errors page — but
+nothing ever sent anything, so the page was permanently empty. The admin now reports:
+
+- Uncaught errors and unhandled promise rejections, via global listeners installed in the root layout.
+- React render errors, via a root `global-error` boundary (those never surface through `window.onerror`,
+  so they were invisible to any listener-only approach).
+
+Reports are batched, deduplicated client-side, and sent with `keepalive` so a fault on a page being
+navigated away from still arrives. The reporter is built so it can never become a source of errors: it
+sends with plain `fetch` rather than the shared axios client (whose 401-refresh interceptor could
+re-enter), swallows every send failure, and caps sends per page session so a render loop cannot flood
+the API. Identity is attached when signed in, so errors can be attributed.
+
+### Added: `telemetry` rate-limit policy
+
+`POST /api/client-errors` is anonymous by design (faults happen before sign-in) and fans out to one
+lookup per item in the batch, so under the global 100/min budget it allowed roughly a 20x amplification
+against the database. It now has its own tighter policy: 20 batches per minute per IP, far above real
+client behaviour. `BarakoCMS.Diagnostics` 0.1.3 applies it.
+
 ## [3.15.0] - 2026-08-05
 
 ### Added: TOTP multi-factor authentication

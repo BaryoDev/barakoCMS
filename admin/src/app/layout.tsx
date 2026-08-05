@@ -24,6 +24,7 @@ declare global {
 
 import QueryProvider from "@/components/query-provider";
 import { ThemeProvider } from "@/components/theme-provider";
+import ErrorReporter from "@/components/error-reporter";
 import { Toaster } from "sonner";
 
 export const metadata: Metadata = {
@@ -53,6 +54,7 @@ export default function RootLayout({
       >
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           <QueryProvider>
+            <ErrorReporter />
             {children}
             <Toaster richColors position="top-right" />
           </QueryProvider>

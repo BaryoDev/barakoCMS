@@ -450,6 +450,21 @@ public static class ServiceCollectionExtensions
                     });
             });
             
+            // Anonymous telemetry ingestion (browser error reports). Deliberately tighter than the
+            // global limit: the endpoint is unauthenticated and each request fans out to one lookup per
+            // item in the batch, so the global 100/min would allow a 20x amplification against the DB.
+            options.AddPolicy("telemetry", context =>
+            {
+                var ipAddress = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+                return RateLimitPartition.GetFixedWindowLimiter($"telemetry-{ipAddress}", _ =>
+                    new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 20,  // 20 batches per minute is far above real client behaviour
+                        Window = TimeSpan.FromMinutes(1)
+                    });
+            });
+
             // Registration rate limit: 5 per hour
             options.AddPolicy("registration", context =>
             {
