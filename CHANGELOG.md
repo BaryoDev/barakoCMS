@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.13.0] - 2026-08-05
+
+### Added: RSS feeds for public content
+
+Any content type now exposes an RSS 2.0 feed at `GET /api/public/{type}/feed.xml` — the newest 50
+Published, document-Public entries. It reuses the same projection as the rest of public delivery, so
+drafts, Sensitive documents, and non-Public fields never appear; the feed is anonymous and cached the
+same way the other public endpoints are.
+
+Because the CMS is headless, item links point at the caller's frontend, configured (all optional):
+
+- `Feeds:SiteUrl` — the site the links resolve against (falls back to the request host).
+- `Feeds:Paths:{type}` — a per-type link template like `/blog/{slug}` (defaults to `/{type}/{slug}`).
+- `Feeds:Titles:{type}` — the channel title (defaults to the type name).
+
+Item title, description and date are taken from the usual public fields (Title/Name, then
+Excerpt/Summary/Description/Body, then a Date/PublishedAt field falling back to created-at).
+
 ## [3.12.2] - 2026-08-03
 
 ### Fixed: every module rebuilt against current core

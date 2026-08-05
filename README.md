@@ -164,8 +164,9 @@ BarakoCMS is headless — you build the frontend. These BaryoDev packages help:
   global users/roles and per-tenant memberships.
 - **RBAC** — roles, groups, and per-content-type permissions, with field-level sensitivity/masking.
 - **Public delivery** — anonymous, cacheable, published-only reads for any content type, with
-  **keyword search** (`/api/public/{type}/search`) and, via the AI module, **semantic search**
-  (`/api/public/{type}/semantic`). It emits only allowlisted public fields — fail-closed by design.
+  **keyword search** (`/api/public/{type}/search`), an **RSS feed** (`/api/public/{type}/feed.xml`),
+  and, via the AI module, **semantic search** (`/api/public/{type}/semantic`). It emits only
+  allowlisted public fields — fail-closed by design.
 - **FastEndpoints + Kestrel** — minimal-overhead HTTP; **health checks** and Prometheus **metrics**
   built in.
 
