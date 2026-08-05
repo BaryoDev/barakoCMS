@@ -23,6 +23,13 @@ public class Content
     public SensitivityLevel Sensitivity { get; set; } = SensitivityLevel.Public;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
+    // Scheduling. Forward-looking intent held on the read model (not the event stream): the scheduler
+    // promotes a Draft to Published at/after ScheduledPublishAt, and Archives a Published item at/after
+    // ScheduledUnpublishAt. Each transition emits a real ContentStatusChanged event, so workflows fire
+    // and history stays correct; the consumed field is then cleared. Both are UTC.
+    public DateTime? ScheduledPublishAt { get; set; }
+    public DateTime? ScheduledUnpublishAt { get; set; }
     
     // Versioning is handled by Marten, but we can track who updated it
     public Guid LastModifiedBy { get; set; }

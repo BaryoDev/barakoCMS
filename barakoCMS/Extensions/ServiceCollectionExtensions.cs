@@ -245,7 +245,9 @@ public static class ServiceCollectionExtensions
                 .Index(x => x.UpdatedAt)
                 .Index(x => x.Status)
                 .Index(x => new { x.ContentType, x.CreatedAt })
-                .Index(x => new { x.ContentType, x.Status }); // Composite for status filtering
+                .Index(x => new { x.ContentType, x.Status }) // Composite for status filtering
+                .Index(x => x.ScheduledPublishAt)   // scheduler sweep: due Drafts
+                .Index(x => x.ScheduledUnpublishAt); // scheduler sweep: due Published
 
             // Navigation menus are a "menu" content type served through public delivery, not a bespoke
             // doc. Keeping them as content keeps them pluggable and drops a whole CRUD surface. The old
@@ -399,6 +401,9 @@ public static class ServiceCollectionExtensions
 
         // Background service for cleaning up expired tokens
         services.AddHostedService<TokenCleanupService>();
+
+        // Background service that applies scheduled publish/unpublish across all tenants
+        services.AddHostedService<barakoCMS.Infrastructure.Services.ScheduledContentService>();
 
         // Rate Limiting
         services.AddRateLimiter(options =>

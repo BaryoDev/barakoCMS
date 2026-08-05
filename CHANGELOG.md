@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.14.0] - 2026-08-05
+
+### Added: scheduled publish / unpublish
+
+Content can now be armed to go live or retire on its own. Two optional UTC times on a content item:
+
+- `ScheduledPublishAt` — a Draft is promoted to Published at/after this time.
+- `ScheduledUnpublishAt` — a Published item is Archived at/after this time.
+
+Set them with `PUT /api/contents/{id}/schedule` (`{ scheduledPublishAt, scheduledUnpublishAt }`, either
+optional, null clears; an unpublish time must be after the publish time). A background service,
+`ScheduledContentService`, sweeps every minute across the default partition and each active tenant,
+applies the due transitions, and clears the consumed time (a future unpublish window survives the
+publish). Because public delivery and the RSS feed already gate on `Status == Published`, a scheduled
+item simply appears — and later disappears — on its own.
+
+Each transition emits a real `ContentStatusChanged` event, so history is correct and workflows fire.
+
+### Fixed: publish workflows now actually fire
+
+`PUT /api/contents/{id}/status` constructed a `ContentStatusChanged` event and updated the read model
+but never appended the event to the stream, so the async `WorkflowProjection` — which is driven off the
+stream and already maps a Published transition to the `Published` trigger — never ran. The endpoint now
+appends the event (matching the Update and rollback endpoints), so workflows configured on `Published`
+finally execute. Scheduled transitions go through the same path.
+
 ## [3.13.0] - 2026-08-05
 
 ### Added: RSS feeds for public content

@@ -63,8 +63,10 @@ public class Endpoint : Endpoint<Request, Response>
         var @event = new barakoCMS.Events.ContentStatusChanged(req.Id, req.NewStatus, userId);
 
         // Append the event AND update the read-model document in one transaction so they can't
-        // diverge. Workflows fire out-of-band via the async WorkflowProjection.
+        // diverge. Workflows fire out-of-band via the async WorkflowProjection, which is driven off the
+        // event stream — so the append is what makes "Published" workflows actually run.
         content.Apply(@event);
+        _session.Events.Append(req.Id, @event);
         _session.Store(content);
 
         // There's no content-delete endpoint in barakoCMS today — archiving is the closest

@@ -167,6 +167,8 @@ BarakoCMS is headless — you build the frontend. These BaryoDev packages help:
   **keyword search** (`/api/public/{type}/search`), an **RSS feed** (`/api/public/{type}/feed.xml`),
   and, via the AI module, **semantic search** (`/api/public/{type}/semantic`). It emits only
   allowlisted public fields — fail-closed by design.
+- **Scheduled publishing** — arm any item with a publish and/or unpublish time; a background sweep
+  promotes and retires content on schedule, per tenant, emitting real events so workflows fire.
 - **FastEndpoints + Kestrel** — minimal-overhead HTTP; **health checks** and Prometheus **metrics**
   built in.
 
