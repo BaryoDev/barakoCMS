@@ -303,6 +303,13 @@ public static class ServiceCollectionExtensions
                 .Index(x => x.Email)
                 .Index(x => x.ExpiresAt);
 
+            options.Schema.For<MfaSecret>()
+                .SingleTenanted() // second factor is per global identity, like the user and OTP codes
+                .DocumentAlias("mfa_secrets")
+                // Serialize concurrent verifies so the replay guard can't be beaten by a race: two
+                // requests with the same code can't both read the old LastUsedTimeStep and both win.
+                .UseOptimisticConcurrency(true);
+
             options.Schema.For<ApiKey>()
                 .SingleTenanted() // credentials are global, like users and tokens
                 .DocumentAlias("api_keys")
@@ -361,6 +368,10 @@ public static class ServiceCollectionExtensions
         // domain with real invariants can still be modelled as ordinary content.
         services.AddScoped<barakoCMS.Infrastructure.Services.IContentLifecycleRunner, barakoCMS.Infrastructure.Services.ContentLifecycleRunner>();
         services.AddScoped<barakoCMS.Core.Interfaces.IOtpService, barakoCMS.Infrastructure.Services.OtpService>();
+
+        // MFA (TOTP): secret protection (AES-GCM) + enrollment/verification.
+        services.AddSingleton<barakoCMS.Infrastructure.Auth.Mfa.IMfaSecretProtector, barakoCMS.Infrastructure.Auth.Mfa.MfaSecretProtector>();
+        services.AddScoped<barakoCMS.Infrastructure.Auth.Mfa.IMfaService, barakoCMS.Infrastructure.Auth.Mfa.MfaService>();
         // Device trust is opt-in: the default gate does nothing. The DeviceTrust module overrides it.
         services.TryAddScoped<barakoCMS.Core.Interfaces.IDeviceGate, barakoCMS.Core.Interfaces.NoopDeviceGate>();
         // Per-request tenant, resolved from the subdomain by TenantResolutionMiddleware.

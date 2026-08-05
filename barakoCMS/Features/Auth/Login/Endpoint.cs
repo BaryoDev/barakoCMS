@@ -30,7 +30,8 @@ public class Endpoint : Endpoint<Request, Response>
         barakoCMS.Core.Interfaces.IDeviceGate deviceGate,
         barakoCMS.Core.Interfaces.IOtpService otp,
         barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
-        barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer)
+        barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer,
+        barakoCMS.Infrastructure.Auth.Mfa.IMfaService mfa)
     {
         _repo = repo;
         _session = session;
@@ -41,7 +42,10 @@ public class Endpoint : Endpoint<Request, Response>
         _otp = otp;
         _tenant = tenant;
         _tokenIssuer = tokenIssuer;
+        _mfa = mfa;
     }
+
+    private readonly barakoCMS.Infrastructure.Auth.Mfa.IMfaService _mfa;
 
     private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
 
@@ -131,6 +135,25 @@ public class Endpoint : Endpoint<Request, Response>
             user.LockoutUntil = null;
             _documentSession.Update(user);
             await _documentSession.SaveChangesAsync(ct);
+        }
+
+        // MFA: if the account has a second factor enrolled, the password alone is not enough. Issue a
+        // short-lived challenge bound to this user instead of tokens; the client completes the sign-in at
+        // /api/auth/mfa/verify. This takes precedence over device approval — MFA is the stronger factor.
+        if (await _mfa.IsEnabledAsync(user.Id, ct))
+        {
+            var (challenge, _) = barakoCMS.Infrastructure.Auth.Mfa.MfaChallengeToken.Create(_config, user.Id);
+            await AuditLog.RecordAsync(_documentSession, _tenant.Slug, "auth.mfa.challenge", user.Id, user.Username,
+                ipAddress: device.IpAddress, ct: ct);
+            await _documentSession.SaveChangesAsync(ct);
+            _logger.LogInformation("Password OK for {Username}; MFA required", user.Username);
+            await SendAsync(new Response
+            {
+                RequiresMfa = true,
+                MfaChallengeToken = challenge,
+                Message = "Enter the code from your authenticator app.",
+            });
+            return;
         }
 
         // Device trust: if this password sign-in comes from an unknown device, don't issue tokens —

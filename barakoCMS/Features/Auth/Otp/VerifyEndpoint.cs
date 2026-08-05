@@ -19,6 +19,14 @@ public class OtpVerifyResponse
     public DateTime Expiry { get; set; }
     public string RefreshToken { get; set; } = string.Empty;
     public DateTime RefreshTokenExpiry { get; set; }
+
+    /// <summary>
+    /// True when the email code was correct but the account has MFA enabled: no tokens are issued. The
+    /// client collects a TOTP/recovery code and calls /api/auth/mfa/verify with <see cref="MfaChallengeToken"/>.
+    /// Mailbox possession is a first factor here, so it cannot stand in for the enrolled second factor.
+    /// </summary>
+    public bool RequiresMfa { get; set; }
+    public string? MfaChallengeToken { get; set; }
 }
 
 /// <summary>
@@ -34,17 +42,19 @@ public class VerifyEndpoint : Endpoint<OtpVerifyRequest, OtpVerifyResponse>
 
     private readonly barakoCMS.Infrastructure.Auth.ITokenIssuer _tokenIssuer;
 
-    public VerifyEndpoint(IDocumentSession session, IConfiguration config, barakoCMS.Core.Interfaces.IDeviceGate deviceGate, barakoCMS.Infrastructure.Multitenancy.TenantContext tenant, barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer)
+    public VerifyEndpoint(IDocumentSession session, IConfiguration config, barakoCMS.Core.Interfaces.IDeviceGate deviceGate, barakoCMS.Infrastructure.Multitenancy.TenantContext tenant, barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer, barakoCMS.Infrastructure.Auth.Mfa.IMfaService mfa)
     {
         _session = session;
         _config = config;
         _deviceGate = deviceGate;
         _tenant = tenant;
         _tokenIssuer = tokenIssuer;
+        _mfa = mfa;
     }
 
     private readonly barakoCMS.Core.Interfaces.IDeviceGate _deviceGate;
     private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
+    private readonly barakoCMS.Infrastructure.Auth.Mfa.IMfaService _mfa;
 
     public override void Configure()
     {
@@ -95,6 +105,17 @@ public class VerifyEndpoint : Endpoint<OtpVerifyRequest, OtpVerifyResponse>
         {
             await _session.SaveChangesAsync(ct);
             ThrowError("Invalid or expired code.");
+            return;
+        }
+
+        // Mailbox possession is only a first factor. If the account has MFA enrolled, a valid email code
+        // must NOT mint tokens on its own — otherwise an inbox compromise defeats the second factor.
+        // Return the same challenge the password path does; the client completes /api/auth/mfa/verify.
+        if (await _mfa.IsEnabledAsync(user.Id, ct))
+        {
+            await _session.SaveChangesAsync(ct); // keep the code consumed
+            var (challenge, _) = barakoCMS.Infrastructure.Auth.Mfa.MfaChallengeToken.Create(_config, user.Id);
+            await SendAsync(new OtpVerifyResponse { RequiresMfa = true, MfaChallengeToken = challenge });
             return;
         }
 

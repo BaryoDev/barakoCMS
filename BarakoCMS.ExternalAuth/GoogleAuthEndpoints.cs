@@ -136,7 +136,13 @@ public class GoogleCallbackEndpoint : EndpointWithoutRequest
             return;
         }
 
-        var tokens = await SocialSignIn.IssueAsync(_session, _config, _deviceGate, _tokenIssuer, HttpContext, email, club, ct, profile);
+        var mfa = Resolve<barakoCMS.Infrastructure.Auth.Mfa.IMfaService>();
+        var tokens = await SocialSignIn.IssueAsync(_session, _config, _deviceGate, _tokenIssuer, mfa, HttpContext, email, club, ct, profile);
+        if (tokens.RequiresMfa)
+        {
+            await SendResultAsync(Results.Redirect(SocialSignIn.FrontendMfaCallback(baseUrl, tokens.MfaChallenge!, club)));
+            return;
+        }
         if (!tokens.Allowed)
         {
             await Fail("You are not a member of this club.");

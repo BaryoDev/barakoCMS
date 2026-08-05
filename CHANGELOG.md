@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.15.0] - 2026-08-05
+
+### Added: TOTP multi-factor authentication
+
+Accounts can enroll an authenticator app (Google Authenticator, 1Password, etc.) as a second factor.
+
+- `POST /api/auth/mfa/setup` (auth) — start enrollment; returns a secret + `otpauth://` URI to show as a
+  QR code, once.
+- `POST /api/auth/mfa/enable` (auth) — confirm with a code; returns one-time recovery codes, once.
+- `POST /api/auth/mfa/verify` — complete a two-step login: exchange the challenge from `/login` plus a
+  TOTP (or recovery code) for the usual access + refresh tokens.
+- `POST /api/auth/mfa/disable` (auth) — requires a current code, so a hijacked session can't strip it.
+- `GET /api/auth/mfa/status` (auth).
+
+When MFA is enabled, `POST /api/auth/login` returns `RequiresMfa: true` with a short-lived, single-purpose
+challenge token (signed on a distinct `:mfa` audience, so it can never act as an access token) instead of
+tokens. Secrets are stored AES-GCM-encrypted at rest; recovery codes are stored only as BCrypt hashes and
+are single-use; a per-time-step replay guard (with optimistic concurrency) prevents reusing a code, and
+wrong codes count toward the same lockout as password failures.
+
+The feature was security-reviewed before release. The review's headline finding is fixed here:
+
+### Fixed: every sign-in path honors MFA
+
+Enrolling MFA now protects **every** way to obtain tokens, not just password login. The email one-time-code
+path (`/api/auth/otp/verify`) and all four social providers (`BarakoCMS.ExternalAuth`: Google, GitHub,
+Facebook, LinkedIn) treated mailbox/provider possession as a complete login and minted tokens without the
+second factor — an inbox or OAuth-account compromise would have sidestepped MFA entirely. They now return
+the same MFA challenge and require `/api/auth/mfa/verify` to finish. MFA-issued tokens also carry the
+device-binding claim, matching the password and OTP paths.
+
+Note: the AES key for MFA secrets derives from `Mfa:Key` if set, otherwise the JWT signing key. Set a
+dedicated `Mfa:Key` in production and do not rotate it without re-encrypting stored secrets.
+
 ## [3.14.1] - 2026-08-05
 
 ### Fixed: 3.14.0 startup crash on existing databases

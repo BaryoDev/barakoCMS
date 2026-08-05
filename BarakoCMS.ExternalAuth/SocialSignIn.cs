@@ -22,11 +22,14 @@ public static class SocialSignIn
     /// Tokens for a successful sign-in, or <see cref="Denied"/> when the person proved their email
     /// but has no claim to the club they asked for.
     /// </summary>
-    public sealed record Tokens(string Token, string Refresh)
+    public sealed record Tokens(string Token, string Refresh, bool RequiresMfa = false, string? MfaChallenge = null)
     {
         public bool Allowed => Token.Length > 0;
 
         public static Tokens Denied() => new(string.Empty, string.Empty);
+
+        /// <summary>Email proven, but the account has MFA enrolled — finish at /api/auth/mfa/verify.</summary>
+        public static Tokens MfaRequired(string challenge) => new(string.Empty, string.Empty, true, challenge);
     }
 
     /// <summary>Profile fields a provider shared (any may be null). Only non-null values are stored.</summary>
@@ -38,6 +41,7 @@ public static class SocialSignIn
         IConfiguration config,
         barakoCMS.Core.Interfaces.IDeviceGate deviceGate,
         barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer,
+        barakoCMS.Infrastructure.Auth.Mfa.IMfaService mfa,
         HttpContext http,
         string email,
         string club,
@@ -67,6 +71,16 @@ public static class SocialSignIn
         }
 
         var tenantSlug = string.IsNullOrEmpty(club) ? Tenant.DefaultSlug : club;
+
+        // A provider proving email ownership is a first factor. If the account enrolled MFA, do not mint
+        // tokens here — return a challenge so the flow completes at /api/auth/mfa/verify. Otherwise a
+        // provider account takeover would sidestep the second factor.
+        if (await mfa.IsEnabledAsync(user.Id, ct))
+        {
+            await session.SaveChangesAsync(ct); // persist the user/profile created above
+            var (challenge, _) = barakoCMS.Infrastructure.Auth.Mfa.MfaChallengeToken.Create(config, user.Id);
+            return Tokens.MfaRequired(challenge);
+        }
 
         var device = DeviceContext.From(http);
         var deviceClaims = await deviceGate.TrustOnOtpAsync(user, device, ct);
@@ -106,6 +120,10 @@ public static class SocialSignIn
     public static string FrontendCallback(string baseUrl, string token, string refresh, string club) =>
         $"{baseUrl}/auth/social#token={Uri.EscapeDataString(token)}" +
         $"&refresh={Uri.EscapeDataString(refresh)}&club={Uri.EscapeDataString(club)}";
+
+    /// <summary>Callback when the account needs MFA: carries the challenge for the SPA to complete /mfa/verify.</summary>
+    public static string FrontendMfaCallback(string baseUrl, string challenge, string club) =>
+        $"{baseUrl}/auth/social#mfa_challenge={Uri.EscapeDataString(challenge)}&club={Uri.EscapeDataString(club)}";
 }
 
 /// <summary>

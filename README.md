@@ -163,6 +163,8 @@ BarakoCMS is headless — you build the frontend. These BaryoDev packages help:
 - **Multi-tenant** — conjoined tenancy: one deployment, many tenants; data scoped by tenant, with
   global users/roles and per-tenant memberships.
 - **RBAC** — roles, groups, and per-content-type permissions, with field-level sensitivity/masking.
+- **MFA** — optional TOTP second factor (authenticator app) with one-time recovery codes; enforced on
+  every sign-in path (password, email code, social), with encrypted secrets and replay protection.
 - **Public delivery** — anonymous, cacheable, published-only reads for any content type, with
   **keyword search** (`/api/public/{type}/search`), an **RSS feed** (`/api/public/{type}/feed.xml`),
   and, via the AI module, **semantic search** (`/api/public/{type}/semantic`). It emits only

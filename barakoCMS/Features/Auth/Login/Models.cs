@@ -38,4 +38,13 @@ public class Response
     /// /api/auth/otp/verify. Only returned after the correct password was supplied.
     /// </summary>
     public string? Email { get; set; }
+
+    /// <summary>
+    /// True when the password was correct but the account has MFA enabled: no tokens are issued. The
+    /// client collects a TOTP/recovery code and calls /api/auth/mfa/verify with <see cref="MfaChallengeToken"/>.
+    /// </summary>
+    public bool RequiresMfa { get; set; }
+
+    /// <summary>Short-lived token that authorizes completing the MFA step for this account.</summary>
+    public string? MfaChallengeToken { get; set; }
 }
