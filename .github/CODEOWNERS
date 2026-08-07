@@ -1,0 +1,20 @@
+# Review is required from the listed owner for changes to these paths.
+# Needs branch protection with "Require review from Code Owners" enabled to be enforced.
+
+# Anything under .claude/ runs on a contributor's machine during a session.
+# A change here is an execution-surface change, so it never merges unreviewed.
+/.claude/                   @arnelirobles
+
+# Shared build configuration: a mistake here affects every project at once.
+/Directory.Build.props      @arnelirobles
+/Directory.Packages.props   @arnelirobles
+/.editorconfig              @arnelirobles
+
+# CI, release and deployment.
+/.github/                   @arnelirobles
+
+# The working agreement itself.
+/CLAUDE.md                  @arnelirobles
+/AGENTS.md                  @arnelirobles
+/CONTRIBUTING.md            @arnelirobles
+/.cursorrules               @arnelirobles

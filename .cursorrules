@@ -1,3 +1,6 @@
+# NOTE: The authoritative rules for this repo are in CLAUDE.md (see also AGENTS.md).
+# Keep this file in sync, or prefer CLAUDE.md when the two disagree.
+
 # BarakoCMS AI Context Rules
 
 You are working on BarakoCMS, a .NET 8 Headless CMS using FastEndpoints and MartenDB.

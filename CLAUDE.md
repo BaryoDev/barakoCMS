@@ -23,6 +23,37 @@ k8s/, scripts/          Deployment
 Modules depend on the core, never the reverse. If a module needs something from the core, the core
 exposes it; do not add a reference back from `barakoCMS/` to a module.
 
+## 1a. Architecture
+
+**Vertical slices, not technical layers.** Code is organised by feature:
+`Features/<FeatureName>/<Action>/`, for example `Features/Content/Create/`. A slice holds its own
+`Endpoint.cs`, `Models.cs` (request and response records) and `Validator.cs`. Resist the urge to
+add a shared `Services/` or `Handlers/` folder that every feature reaches into.
+
+**REPR, not controllers.** Endpoints follow Request-Endpoint-Response via FastEndpoints. There are
+no MVC controllers here.
+
+**No repository pattern.** Inject Marten's `IDocumentSession` directly in the endpoint. Introduce a
+service only when logic is genuinely shared or complex enough to test on its own, not reflexively.
+
+```csharp
+session.Store(entity);                    // save
+session.Query<T>().Where(...);            // query
+await session.SaveChangesAsync(ct);       // commit
+```
+
+**Validation** uses FluentValidation through the FastEndpoints `Validator<T>` base class, not
+hand-rolled checks inside `HandleAsync`.
+
+### Adding an endpoint
+
+1. Create `Features/<FeatureName>/<ActionName>/`.
+2. Define `Request` and `Response` records.
+3. Add an `Endpoint` class inheriting `Endpoint<Request, Response>`.
+4. Implement `Configure()` for the route and permissions.
+5. Implement `HandleAsync()` for the logic.
+6. Add tests. Authorisation is part of the behaviour, so test it.
+
 ## 2. Stack
 
 - **.NET 8**, one target framework for every project (set in `Directory.Build.props`)

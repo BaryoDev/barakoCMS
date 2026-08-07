@@ -400,7 +400,9 @@ output.txt
 # Oracle deployment files (local only)
 docker-compose.oracle.yml
 # AI Agent Implementations
-.claude/
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
 .gemini/
 .cursor/
 .copilot/
