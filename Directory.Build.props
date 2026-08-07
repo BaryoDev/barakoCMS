@@ -1,0 +1,34 @@
+<Project>
+
+  <!-- Settings shared by every project. A project may still override any of these locally,
+       but nothing here should need to be repeated in a .csproj. -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Authors>Arnel Robles</Authors>
+    <Company>BaryoDev</Company>
+    <Product>BarakoCMS</Product>
+    <PackageLicenseExpression>MPL-2.0</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/baryodev/barakoCMS</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/baryodev/barakoCMS</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+  </PropertyGroup>
+
+  <!-- Deterministic paths on the build server so binaries are reproducible.
+       https://github.com/clairernovotny/DeterministicBuilds -->
+  <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+
+</Project>

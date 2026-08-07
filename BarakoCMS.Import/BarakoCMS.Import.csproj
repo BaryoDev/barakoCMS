@@ -1,17 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>BarakoCMS.Import</RootNamespace>
 
     <IsPackable>true</IsPackable>
     <PackageId>BarakoCMS.Import</PackageId>
     <Version>0.1.2</Version>
     <Description>Optional bulk-import module for barakoCMS: analyze .xlsx/CSV uploads and bulk-create content. Zero-dependency parsing via Talaan.</Description>
-    <Company>BaryoDev</Company>
-    <PackageLicenseExpression>MPL-2.0</PackageLicenseExpression>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
 
@@ -20,12 +15,12 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="8.0.1" />
-    <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" Version="8.22.0" />
-    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.22.0" />
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" />
+    <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
     <ProjectReference Include="..\barakoCMS\barakoCMS.csproj" />
     <!-- Talaan is consumed as a published NuGet package so this module builds standalone (CI, NuGet). -->
-    <PackageReference Include="Talaan" Version="0.1.0" />
+    <PackageReference Include="Talaan" />
   </ItemGroup>
 
 </Project>
