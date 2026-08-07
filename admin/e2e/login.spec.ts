@@ -62,4 +62,67 @@ test.describe('Login & Authentication', () => {
         await expect(page).toHaveURL('/', { timeout: 10000 });
         await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible();
     });
+
+    test('two-factor: password step asks for a code instead of signing in', async ({ page }) => {
+        // The API answers a correct password with 200 and NO tokens when MFA is enrolled.
+        await page.route('**/api/auth/login', (route) =>
+            route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    token: '',
+                    refreshToken: '',
+                    requiresMfa: true,
+                    mfaChallengeToken: 'challenge-abc',
+                }),
+            })
+        );
+
+        await page.goto('/login');
+        await page.getByLabel('Username').fill('admin');
+        await page.getByLabel('Password', { exact: true }).fill('correct-password');
+        await page.getByRole('button', { name: 'Sign in' }).click();
+
+        // Must stay on /login showing the code step — not navigate, and not store a session.
+        await expect(page.getByLabel('Authentication code')).toBeVisible({ timeout: 10000 });
+        await expect(page).toHaveURL(/\/login/);
+        expect(await page.evaluate(() => window.localStorage.getItem('barako_token'))).toBeFalsy();
+    });
+
+    test('two-factor: a valid code completes the sign-in', async ({ page }) => {
+        await page.route('**/api/auth/login', (route) =>
+            route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({ token: '', refreshToken: '', requiresMfa: true, mfaChallengeToken: 'challenge-abc' }),
+            })
+        );
+        await page.route('**/api/auth/mfa/verify', (route) =>
+            route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    token: MOCK_TOKEN,
+                    expiry: new Date(Date.now() + 900_000).toISOString(),
+                    refreshToken: 'mock-refresh',
+                    refreshTokenExpiry: new Date(Date.now() + 7 * 86400_000).toISOString(),
+                }),
+            })
+        );
+        await stubShell(page);
+        await page.route('**/api/schemas**', (r) => r.fulfill({ json: [] }));
+        await page.route('**/api/workflows**', (r) => r.fulfill({ json: [] }));
+        await page.route('**/api/contents**', (r) => r.fulfill({ json: EMPTY_PAGE }));
+
+        await page.goto('/login');
+        await page.getByLabel('Username').fill('admin');
+        await page.getByLabel('Password', { exact: true }).fill('correct-password');
+        await page.getByRole('button', { name: 'Sign in' }).click();
+
+        await page.getByLabel('Authentication code').fill('123456');
+        await page.getByRole('button', { name: 'Verify' }).click();
+
+        await expect(page).toHaveURL('/', { timeout: 10000 });
+        await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible();
+    });
 });

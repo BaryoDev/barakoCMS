@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.17.0] - 2026-08-06
+
+### Added: MFA in the admin UI
+
+The TOTP backend shipped in 3.15.0, but the admin had no interface for it — which made the feature
+unusable in practice and, worse, risky: anyone who enrolled through the API could not get back in,
+because the login page treated the MFA challenge like a normal login and stored its empty token as if
+it were a session. That is fixed, and the flow now exists end to end:
+
+- **Settings → Security** — enroll with a QR code (rendered locally, so the secret never travels to a
+  third-party QR service) or by typing the key, confirm with a code, and get the one-time recovery
+  codes with a copy button. Turning MFA off requires a current code, so a hijacked session can't
+  silently remove it.
+- **Login** — a second step that accepts an authenticator code or a recovery code. The field uses
+  `autocomplete="one-time-code"`, so password managers and iOS autofill offer the code directly.
+
+There are no core code changes in this release; the version bump is what releases the admin image (the
+release gate reads core's version alone), same as 3.12.1.
+
 ## [3.16.0] - 2026-08-05
 
 ### Added: browser error capture (the other half of Diagnostics)

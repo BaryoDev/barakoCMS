@@ -18,6 +18,7 @@ import {
   IconHistory,
   IconEnvelope,
   IconSettings,
+  IconShield,
 } from '@/components/icons';
 
 export interface NavItem {
@@ -69,6 +70,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { title: 'Audit log', href: '/audit', icon: IconHistory },
       { title: 'Errors', href: '/errors', icon: IconBug },
       { title: 'Health', href: '/ops/health', icon: IconHealth },
+      { title: 'Security', href: '/settings/security', icon: IconShield },
       { title: 'Settings', href: '/settings', icon: IconSettings },
     ],
   },

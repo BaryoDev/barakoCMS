@@ -10,6 +10,14 @@ interface LoginResponse {
     expiry: string;
     refreshToken: string;
     refreshTokenExpiry: string;
+    /** True when the password was right but the account needs a second factor. No tokens are issued. */
+    requiresMfa?: boolean;
+    /** Short-lived grant to complete the second step at /api/auth/mfa/verify. */
+    mfaChallengeToken?: string;
+    /** True when the device needs email approval instead (a separate second step). */
+    requiresDeviceApproval?: boolean;
+    message?: string;
+    email?: string;
 }
 
 export interface SessionUser {
@@ -82,6 +90,22 @@ export function useLogin() {
     return useMutation({
         mutationFn: async (credentials: { username: string; password: string }) => {
             const { data } = await api.post<LoginResponse>('/api/auth/login', credentials);
+            // A second-factor challenge is a successful response that carries NO tokens. Storing the
+            // empty string here would look like a session and lock the user out of the UI, so only
+            // persist when a real token came back; the caller drives the second step.
+            if (data.token) {
+                tokenStore.set(data.token, data.refreshToken);
+            }
+            return data;
+        },
+    });
+}
+
+/** Completes a two-step sign-in: challenge token + a TOTP or recovery code, in exchange for tokens. */
+export function useVerifyMfa() {
+    return useMutation({
+        mutationFn: async (input: { challengeToken: string; code: string }) => {
+            const { data } = await api.post<LoginResponse>('/api/auth/mfa/verify', input);
             tokenStore.set(data.token, data.refreshToken);
             return data;
         },
