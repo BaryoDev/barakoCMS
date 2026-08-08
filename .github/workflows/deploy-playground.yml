@@ -99,7 +99,7 @@ jobs:
       # :playground, recreates the container, and fails if it does not answer
       # with 200 within 30s.
       - name: Pull and restart admin over SSH
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.ORACLE_HOST }}
           username: ${{ secrets.ORACLE_USER }}
