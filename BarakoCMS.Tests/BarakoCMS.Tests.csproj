@@ -35,6 +35,7 @@
     <ProjectReference Include="..\BarakoCMS.Files.S3\BarakoCMS.Files.S3.csproj" />
     <ProjectReference Include="..\BarakoCMS.AI\BarakoCMS.AI.csproj" />
     <ProjectReference Include="..\BarakoCMS.Accounting\BarakoCMS.Accounting.csproj" />
+    <ProjectReference Include="..\BarakoCMS.Pwa\BarakoCMS.Pwa.csproj" />
   </ItemGroup>
 
 </Project>

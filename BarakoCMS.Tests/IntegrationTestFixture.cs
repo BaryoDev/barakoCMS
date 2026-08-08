@@ -66,6 +66,10 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             // Diagnostics: the test project references it, so FastEndpoints already discovers
             // /api/client-errors — register its schema too so those endpoints can actually run.
             services.ConfigureMarten(opts => new BarakoCMS.Diagnostics.DiagnosticsModule().ConfigureMarten(opts));
+
+            // Pwa: same reason — the assembly is referenced, so /api/pwa/* is discovered; register the
+            // schema so those endpoints can run.
+            services.ConfigureMarten(opts => new BarakoCMS.Pwa.PwaModule().ConfigureMarten(opts));
         });
     }
 
