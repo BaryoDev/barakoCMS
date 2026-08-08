@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.17.1] - 2026-08-08
+
+### Fixed: the social sign-in MFA gate was never published
+
+`BarakoCMS.ExternalAuth` 0.1.6 ships the change written for 3.15.0 that stops Google, GitHub,
+Facebook and LinkedIn sign-in from minting tokens for an account that has MFA enrolled. The code
+landed in 3.15.0 but the module's own `<Version>` was left at 0.1.5, and the release pushes with
+`--skip-duplicate`, so the package was silently skipped — anyone consuming 0.1.5 still has the
+bypass, where a provider-account takeover sidesteps the second factor entirely.
+
+If you use `BarakoCMS.ExternalAuth` with MFA, take 0.1.6. Core is bumped only to get past the
+release gate, which reads core's version alone; there are no core changes in 3.17.1.
+
+This is the second time an unbumped module version has swallowed a shipped fix (see 3.12.1). The
+underlying gap is that nothing checks whether a module's source changed without its version moving.
+
 ## [3.17.0] - 2026-08-06
 
 ### Added: MFA in the admin UI
