@@ -35,7 +35,7 @@
   </ItemGroup>
 
   <ItemGroup Label="Observability">
-    <PackageVersion Include="AspNetCore.HealthChecks.Npgsql" Version="8.0.0" />
+    <PackageVersion Include="AspNetCore.HealthChecks.Npgsql" Version="9.0.0" />
     <PackageVersion Include="AspNetCore.HealthChecks.System" Version="9.0.0" />
     <PackageVersion Include="AspNetCore.HealthChecks.UI" Version="8.0.0" />
     <PackageVersion Include="AspNetCore.HealthChecks.UI.Client" Version="8.0.0" />
