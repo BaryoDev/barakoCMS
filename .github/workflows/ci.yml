@@ -124,7 +124,7 @@ jobs:
       # those until history is scrubbed (roadmap 0.4). Flip continue-on-error off after that.
       - name: Secret scan (gitleaks)
         continue-on-error: true
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
