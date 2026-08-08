@@ -91,7 +91,7 @@ jobs:
         run: dotnet nuget push "out/*.nupkg" --api-key ${{ secrets.GITHUB_TOKEN }} --source https://nuget.pkg.github.com/BaryoDev/index.json --skip-duplicate
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       # ghcr.io is the primary registry — authenticated with the built-in GITHUB_TOKEN, so there are
       # no external secrets to expire (this job already grants packages: write).
