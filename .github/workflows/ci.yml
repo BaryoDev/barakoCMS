@@ -15,7 +15,17 @@ jobs:
     name: Backend (.NET)
     runs-on: ubuntu-latest
     steps:
+      # Full history: the module-version check walks each .csproj's history to find when its
+      # current <Version> was set. The default shallow clone would make it silently find nothing.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Catches a module whose code changed without its <Version> moving. Releases push with
+      # --skip-duplicate, so such a module is skipped and its changes never ship — that has
+      # swallowed a fix twice, most recently a security fix (see CHANGELOG 3.12.1 and 3.17.1).
+      - name: Check module versions
+        run: bash scripts/check-module-versions.sh
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
