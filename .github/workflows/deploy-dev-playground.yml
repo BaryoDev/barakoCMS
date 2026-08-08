@@ -126,7 +126,7 @@ jobs:
       # runs. It pulls both :dev images, recreates the dev stack, and fails if the
       # API or admin doesn't answer 200. A leaked key cannot open a shell.
       - name: Pull and restart dev stack over SSH
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.ORACLE_HOST }}
           username: ${{ secrets.ORACLE_USER }}

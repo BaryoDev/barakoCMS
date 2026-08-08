@@ -50,7 +50,7 @@ jobs:
       # Same forced-command deploy the release uses: pulls :playground (now the old version) and
       # recreates the stack.
       - name: Redeploy over SSH
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.ORACLE_HOST }}
           username: ${{ secrets.ORACLE_USER }}
