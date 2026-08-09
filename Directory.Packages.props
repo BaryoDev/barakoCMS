@@ -22,7 +22,7 @@
     <PackageVersion Include="Marten" Version="8.37.0" />
     <!-- Was floating (3.7.*) before central management, so two builds of the same commit could
          resolve different versions. Pinned to what it last resolved to. -->
-    <PackageVersion Include="AWSSDK.S3" Version="3.7.511.8" />
+    <PackageVersion Include="AWSSDK.S3" Version="4.0.102" />
     <PackageVersion Include="Talaan" Version="0.1.0" />
   </ItemGroup>
 
