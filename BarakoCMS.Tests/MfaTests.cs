@@ -221,6 +221,45 @@ public class MfaTests
     }
 
     [Fact]
+    public async Task EnablingMfa_RevokesSessionsThatPredateIt()
+    {
+        // The risk this closes: an attacker who has hijacked a session on an account without MFA can
+        // enrol their own authenticator and hold the account. Sessions established before MFA existed
+        // must not survive it, or the enrolment is silent and permanent.
+        var (id, _) = await SeedUserAsync();
+        var authed = AuthedClient(id);
+
+        Guid tokenId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            tokenId = Guid.NewGuid();
+            s.Store(new RefreshToken
+            {
+                Id = tokenId,
+                Token = $"pre-mfa-{Guid.NewGuid():N}",
+                UserId = id,
+                ExpiresAt = DateTime.UtcNow.AddDays(7),
+                CreatedAt = DateTime.UtcNow,
+                IsRevoked = false,
+            });
+            await s.SaveChangesAsync();
+        }
+
+        var setup = await (await authed.PostAsync("/api/auth/mfa/setup", null))
+            .Content.ReadFromJsonAsync<MfaModels.SetupResponse>();
+        var totp = new Totp(Base32Encoding.ToBytes(setup!.Secret));
+        var res = await authed.PostAsJsonAsync("/api/auth/mfa/enable", new MfaModels.CodeRequest { Code = totp.ComputeTotp() });
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var check = _factory.Services.CreateScope();
+        var q = check.ServiceProvider.GetRequiredService<IQuerySession>();
+        var stored = await q.LoadAsync<RefreshToken>(tokenId);
+        stored!.IsRevoked.Should().BeTrue("a session opened before MFA was enabled must not outlive it");
+        stored.RevokedReason.Should().NotBeNullOrEmpty();
+    }
+
+    [Fact]
     public async Task Setup_RequiresAuthentication()
     {
         var res = await _client.PostAsync("/api/auth/mfa/setup", null);
