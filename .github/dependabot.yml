@@ -18,6 +18,23 @@ updates:
       dotnet-major:
         patterns: ["*"]
         update-types: ["major"]
+    ignore:
+      # FastEndpoints 5.22+ moves its testing package to xunit v3, which cannot coexist with the
+      # xunit v2 this suite uses — every test file fails with CS0433 duplicate types. Taking it needs
+      # the xunit v2 to v3 migration first.
+      #
+      # Held by update-type rather than by a `versions:` range on purpose. A version range suppresses
+      # security updates as well as version updates, so a fix released above the held line would
+      # never be offered. `version-update:` types only hold the routine bumps; a security update still
+      # comes through.
+      - dependency-name: "FastEndpoints"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      - dependency-name: "FastEndpoints.Security"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      - dependency-name: "FastEndpoints.Swagger"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      - dependency-name: "FastEndpoints.Testing"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
 
   - package-ecosystem: "npm"
     directory: "/admin"
@@ -31,6 +48,18 @@ updates:
       admin-major:
         patterns: ["*"]
         update-types: ["major"]
+    ignore:
+      # Next 16.1+ breaks this admin's end-to-end suite: 28 failures where a mocked action leaves the
+      # URL at /login? instead of navigating. Reverted once before on the same symptom, so it is the
+      # upgrade that is wrong for us, not the tests.
+      #
+      # Held by update-type, never by a `versions:` range. A range suppresses security updates too,
+      # and the three advisories standing in SECURITY.md all trace back to this very pin — holding
+      # the routine bumps must not also hold the fix for them.
+      - dependency-name: "next"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      - dependency-name: "eslint-config-next"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
 
   # Keep the Actions themselves current — the same "insufficient logging/CVE surfaces late" concern
   # the NuGet/npm gates exist for applies to third-party Actions too.
