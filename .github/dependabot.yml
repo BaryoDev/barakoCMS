@@ -18,6 +18,19 @@ updates:
       dotnet-major:
         patterns: ["*"]
         update-types: ["major"]
+    ignore:
+      # FastEndpoints 5.22+ moves its testing package to xunit v3, which cannot coexist with the
+      # xunit v2 this suite uses — every test file fails with CS0433 duplicate types. Taking it needs
+      # the xunit v2 to v3 migration first. Held at the current line rather than ignored outright, so
+      # a patch on 5.21 still comes through.
+      - dependency-name: "FastEndpoints"
+        versions: [">=5.22.0"]
+      - dependency-name: "FastEndpoints.Security"
+        versions: [">=5.22.0"]
+      - dependency-name: "FastEndpoints.Swagger"
+        versions: [">=5.22.0"]
+      - dependency-name: "FastEndpoints.Testing"
+        versions: [">=5.22.0"]
 
   - package-ecosystem: "npm"
     directory: "/admin"
@@ -31,6 +44,16 @@ updates:
       admin-major:
         patterns: ["*"]
         update-types: ["major"]
+    ignore:
+      # Next 16.1+ breaks this admin's end-to-end suite: 28 failures where a mocked action leaves the
+      # URL at /login? instead of navigating. Reverted once before on the same symptom, so it is the
+      # upgrade that is wrong for us, not the tests. Held above the current line only — a patch on
+      # 16.0.x still comes through, including a security one, which matters because the three
+      # standing advisories in SECURITY.md all trace back to this pin.
+      - dependency-name: "next"
+        versions: [">=16.1.0"]
+      - dependency-name: "eslint-config-next"
+        versions: [">=16.1.0"]
 
   # Keep the Actions themselves current — the same "insufficient logging/CVE surfaces late" concern
   # the NuGet/npm gates exist for applies to third-party Actions too.

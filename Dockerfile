@@ -1,7 +1,13 @@
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
 
-# Copy csproj and restore as distinct layers
+# Copy the manifests and restore as a distinct layer, so the cache survives a source-only change.
+#
+# The two props files are not optional here. Central package management keeps every package version in
+# Directory.Packages.props, and the shared MSBuild settings — TargetFramework among them — live in
+# Directory.Build.props. Restoring with only the .csproj present gives NETSDK1013 ("The TargetFramework
+# value '' was not recognized"), which is what broke the Decaf image on the 3.18.0 release.
+COPY ["Directory.Build.props", "Directory.Packages.props", "./"]
 COPY ["barakoCMS/barakoCMS.csproj", "barakoCMS/"]
 RUN dotnet restore "barakoCMS/barakoCMS.csproj"
 
