@@ -21,16 +21,20 @@ updates:
     ignore:
       # FastEndpoints 5.22+ moves its testing package to xunit v3, which cannot coexist with the
       # xunit v2 this suite uses — every test file fails with CS0433 duplicate types. Taking it needs
-      # the xunit v2 to v3 migration first. Held at the current line rather than ignored outright, so
-      # a patch on 5.21 still comes through.
+      # the xunit v2 to v3 migration first.
+      #
+      # Held by update-type rather than by a `versions:` range on purpose. A version range suppresses
+      # security updates as well as version updates, so a fix released above the held line would
+      # never be offered. `version-update:` types only hold the routine bumps; a security update still
+      # comes through.
       - dependency-name: "FastEndpoints"
-        versions: [">=5.22.0"]
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
       - dependency-name: "FastEndpoints.Security"
-        versions: [">=5.22.0"]
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
       - dependency-name: "FastEndpoints.Swagger"
-        versions: [">=5.22.0"]
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
       - dependency-name: "FastEndpoints.Testing"
-        versions: [">=5.22.0"]
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
 
   - package-ecosystem: "npm"
     directory: "/admin"
@@ -47,13 +51,15 @@ updates:
     ignore:
       # Next 16.1+ breaks this admin's end-to-end suite: 28 failures where a mocked action leaves the
       # URL at /login? instead of navigating. Reverted once before on the same symptom, so it is the
-      # upgrade that is wrong for us, not the tests. Held above the current line only — a patch on
-      # 16.0.x still comes through, including a security one, which matters because the three
-      # standing advisories in SECURITY.md all trace back to this pin.
+      # upgrade that is wrong for us, not the tests.
+      #
+      # Held by update-type, never by a `versions:` range. A range suppresses security updates too,
+      # and the three advisories standing in SECURITY.md all trace back to this very pin — holding
+      # the routine bumps must not also hold the fix for them.
       - dependency-name: "next"
-        versions: [">=16.1.0"]
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
       - dependency-name: "eslint-config-next"
-        versions: [">=16.1.0"]
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
 
   # Keep the Actions themselves current — the same "insufficient logging/CVE surfaces late" concern
   # the NuGet/npm gates exist for applies to third-party Actions too.
