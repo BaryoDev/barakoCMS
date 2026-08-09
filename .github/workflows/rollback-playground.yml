@@ -25,9 +25,9 @@ jobs:
       name: playground
       url: https://playground.baryo.dev/barakocms
     steps:
-      - uses: actions/checkout@v4 # for scripts/smoke-test.sh
+      - uses: actions/checkout@v7 # for scripts/smoke-test.sh
 
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -50,7 +50,7 @@ jobs:
       # Same forced-command deploy the release uses: pulls :playground (now the old version) and
       # recreates the stack.
       - name: Redeploy over SSH
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.ORACLE_HOST }}
           username: ${{ secrets.ORACLE_USER }}
