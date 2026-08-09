@@ -47,7 +47,7 @@
   </ItemGroup>
 
   <ItemGroup Label="Infrastructure">
-    <PackageVersion Include="KubernetesClient" Version="18.0.13" />
+    <PackageVersion Include="KubernetesClient" Version="19.0.2" />
   </ItemGroup>
 
   <ItemGroup Label="Testing">
