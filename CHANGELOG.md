@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.18.0] - 2026-08-09
+
+### Changed: enabling MFA now ends other sessions and tells the account owner
+
+Closes the last two findings from the MFA security review.
+
+Turning on two-factor authentication revokes the account's other refresh tokens, and sends the owner
+an email saying it happened. Both exist for the same case: an attacker who has hijacked a session on
+an account *without* MFA could enrol their own authenticator and keep the account — the enrolment was
+silent, and their session survived it. Now no session that predates MFA outlives it, and if the owner
+did not do this, they hear about it through a channel the attacker does not control.
+
+The email is best-effort: a send failure is logged, not surfaced, since failing the request would undo
+an enrolment the user did ask for. Users will be asked to sign in again after enabling, which is also
+a useful confirmation that their authenticator works.
+
 ## [3.17.1] - 2026-08-08
 
 ### Fixed: the social sign-in MFA gate was never published
