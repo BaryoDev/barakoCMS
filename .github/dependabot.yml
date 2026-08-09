@@ -8,12 +8,16 @@ updates:
       interval: "weekly"
     open-pull-requests-limit: 5
     groups:
-      # Minor and patch bumps arrive as one reviewable pull request. Ungrouped, a repo this size
-      # opens one per package and the routine noise buries anything that actually matters.
-      # Majors are deliberately left out, so they arrive alone and get read.
+      # Two pull requests per ecosystem, never one per package: routine bumps in one, majors in
+      # another. Majors are kept separate because they are the ones that need reading, not because
+      # they need to arrive individually — eight separate major PRs is just the same noise wearing
+      # a different hat.
       dotnet:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+      dotnet-major:
+        patterns: ["*"]
+        update-types: ["major"]
 
   - package-ecosystem: "npm"
     directory: "/admin"
@@ -24,6 +28,9 @@ updates:
       admin:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+      admin-major:
+        patterns: ["*"]
+        update-types: ["major"]
 
   # Keep the Actions themselves current — the same "insufficient logging/CVE surfaces late" concern
   # the NuGet/npm gates exist for applies to third-party Actions too.
