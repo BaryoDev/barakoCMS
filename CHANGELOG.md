@@ -21,6 +21,15 @@ The email is best-effort: a send failure is logged, not surfaced, since failing 
 an enrolment the user did ask for. Users will be asked to sign in again after enabling, which is also
 a useful confirmation that their authenticator works.
 
+**A bounded gap remains, stated plainly.** Revoking refresh tokens stops a session being renewed; it
+does not invalidate an access token already issued, which stays valid until it expires — at most 15
+minutes. So an attacker's stolen session ends within 15 minutes of MFA being enabled rather than
+immediately. Closing that properly needs a user-level "tokens issued before this moment are invalid"
+timestamp checked during authentication. That is worth doing — it would also close the same window on
+password change and on logout-everywhere, where `RevokeAllUserTokensAsync` has always been
+refresh-token-only — but it belongs in its own change, because it runs on every authenticated request
+and a mistake there locks everybody out.
+
 ## [3.17.1] - 2026-08-08
 
 ### Fixed: the social sign-in MFA gate was never published
