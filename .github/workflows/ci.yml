@@ -69,20 +69,24 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Dependency vulnerability gate for the npm side, mirroring the NuGet one below. It fails on
-      # Critical only, deliberately: `admin/` carries three known High advisories rooted in the pinned
-      # `next` release that have no upstream fix (see SECURITY.md, "Known advisories we accept"), so
-      # gating on High would mean a permanently red build that everyone learns to ignore. Criticals are
-      # currently zero, so this catches a genuinely new one — the failure mode worth blocking on.
-      - name: Audit dependencies (fail on Critical)
+      # Dependency vulnerability gate for the npm side, matching the NuGet one below: Critical or High
+      # fails the build.
+      #
+      # This used to fail on Critical only, because three High advisories in `next` had no fix we could
+      # take and a permanently red gate is one everybody learns to ignore. Taking Next 16.3 cleared
+      # them, so the gate now holds the same line as the .NET side. Keep them the same: a gate that is
+      # weaker than its documentation is worse than no gate, because it is trusted anyway.
+      - name: Audit dependencies (fail on Critical or High)
         run: |
           npm audit --json > audit.json || true
           CRIT=$(jq -r '.metadata.vulnerabilities.critical' audit.json)
           HIGH=$(jq -r '.metadata.vulnerabilities.high' audit.json)
           echo "npm audit: critical=$CRIT high=$HIGH" >> "$GITHUB_STEP_SUMMARY"
-          if [ "$CRIT" -gt 0 ]; then
-            echo "::error::npm audit found $CRIT critical vulnerabilities"
-            jq -r '.vulnerabilities | to_entries[] | select(.value.severity=="critical") | .key' audit.json
+          if [ "$CRIT" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
+            echo "::error::npm audit found $CRIT critical and $HIGH high severity vulnerabilities"
+            jq -r '.vulnerabilities | to_entries[]
+                   | select(.value.severity == "critical" or .value.severity == "high")
+                   | "\(.value.severity)\t\(.key)"' audit.json
             exit 1
           fi
 
