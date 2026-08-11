@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.19.0] - 2026-08-09
+
+### Fixed: the Next.js upgrade that was never actually broken
+
+The admin moves to Next 16.3, and `npm audit` now reports **zero** vulnerabilities — the `next`,
+`postcss` and `sharp` advisories that SECURITY.md had listed as unfixable are all gone.
+
+They were never unfixable. Upgrading Next had been reverted once because it "broke" 28 end-to-end
+tests, and the failures looked like a routing regression: after a mocked action the URL stayed at
+`/login?`. The real cause is that Next 16.1 began blocking cross-origin requests for dev-server
+assets. The end-to-end suite drives `http://127.0.0.1:3100` while the dev server treats `localhost`
+as its origin, so every `/_next/*` chunk was refused, the app never hydrated, and any test that
+clicked something failed. One line — `allowedDevOrigins: ["127.0.0.1"]` in `next.config.ts` — and the
+full pack passes on 16.3.
+
+Development only; a production build serves its own assets and is unaffected. No product code
+changed, which is the point: the harness was misconfigured, not the application.
+
 ## [3.18.1] - 2026-08-09
 
 ### Fixed: 3.18.0 shipped only half its images
