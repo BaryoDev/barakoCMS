@@ -41,20 +41,17 @@ When deploying BarakoCMS:
 
 ## Known advisories we accept
 
-`dotnet list package --vulnerable` is clean and gated in CI. On the npm side, `admin/` carries three
-High advisories that have no upstream fix, all rooted in the pinned `next` release:
+None, currently. Both gates are clean: `dotnet list package --vulnerable` and `npm audit` in `admin/`
+each report zero, and CI fails the build on a Critical or High finding.
 
-| Package   | Why it is not fixed                                                              |
-| --------- | -------------------------------------------------------------------------------- |
-| `next`    | Upgrading past the current pin introduces a redirect regression (51 e2e failures) |
-| `postcss` | Nested inside `next`; build-time only, runs on this app's own trusted source      |
-| `sharp`   | Nested inside `next`; Next's peer range excludes the patched release              |
-
-Exposure is narrower than the raw advisory list suggests: the admin declares no `middleware`, no
-Server Actions, and no `next/image`, so the middleware/proxy-bypass, Server-Action CSRF, and image
-optimizer/`sharp` advisories do not apply to it. The residual is denial-of-service and cache-poisoning
-on server-rendered paths, behind authentication. Revisit when Next ships a stable release that both
-bumps the nested dependencies and clears the redirect regression.
+For a while this section listed three High advisories in `next`, `postcss` and `sharp` as unfixable,
+because upgrading Next appeared to break 28 end-to-end tests. It did not. Next 16.1 began refusing
+cross-origin requests for dev-server assets, and the test suite drives `127.0.0.1` while the dev server
+treats `localhost` as its origin — so the chunks were blocked, the app never hydrated, and every test
+that clicked something failed. One line of `allowedDevOrigins` in `next.config.ts` fixed it and the
+upgrade went through. Worth remembering the next time a dependency looks like it broke the product:
+here the product was fine and the harness was misconfigured, and reading it the other way cost weeks of
+carrying advisories that had a fix available all along.
 
 Note that a raw GitHub Dependabot alert count for this repo overstates the real picture: alerts remain
 open for `examples/nextjs-starter`, a scaffold deleted in `7cfa43c`, and for `admin/` packages that

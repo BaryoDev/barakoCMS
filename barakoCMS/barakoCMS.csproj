@@ -3,7 +3,7 @@
   <PropertyGroup>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <PackageId>BarakoCMS</PackageId>
-    <Version>3.18.1</Version>
+    <Version>3.19.0</Version>
 
     <Description>The AI-Native, High-Performance Headless CMS for .NET 8. Plugin-based workflow system with 6 built-in actions, advanced RBAC, event sourcing, and production-grade security.</Description>
     <IsPackable>true</IsPackable>
