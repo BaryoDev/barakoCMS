@@ -78,9 +78,22 @@ jobs:
       # weaker than its documentation is worse than no gate, because it is trusted anyway.
       - name: Audit dependencies (fail on Critical or High)
         run: |
+          # `npm audit` exits non-zero when it finds anything, so its status cannot distinguish
+          # "found vulnerabilities" from "could not run". The report itself is the signal, and an
+          # unreadable one fails the build rather than passing: a gate that cannot see must not wave
+          # things through.
           npm audit --json > audit.json || true
-          CRIT=$(jq -r '.metadata.vulnerabilities.critical' audit.json)
-          HIGH=$(jq -r '.metadata.vulnerabilities.high' audit.json)
+
+          CRIT=$(jq -r '.metadata.vulnerabilities.critical // empty' audit.json 2>/dev/null || true)
+          HIGH=$(jq -r '.metadata.vulnerabilities.high // empty' audit.json 2>/dev/null || true)
+          case "${CRIT}|${HIGH}" in
+            *[!0-9]\|*|*\|*[!0-9]*|\|*|*\|)
+              echo "::error::npm audit did not return a usable report — failing closed"
+              head -c 500 audit.json || true
+              exit 1
+              ;;
+          esac
+
           echo "npm audit: critical=$CRIT high=$HIGH" >> "$GITHUB_STEP_SUMMARY"
           if [ "$CRIT" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
             echo "::error::npm audit found $CRIT critical and $HIGH high severity vulnerabilities"
@@ -126,6 +139,11 @@ jobs:
       # Catch secrets being ADDED. Report-only for now: dev-only secrets still live in git history
       # (an appsettings.Development.json removed from HEAD earlier), so a hard gate would fail on
       # those until history is scrubbed (roadmap 0.4). Flip continue-on-error off after that.
+      # The gates are code, so they get tested too. Both used to pass when they had not actually
+      # checked anything — an unreadable report read as "clean". These cases pin that shut.
+      - name: Test the vulnerability gates
+        run: bash scripts/test-ci-gates.sh
+
       - name: Secret scan (gitleaks)
         continue-on-error: true
         uses: gitleaks/gitleaks-action@v3
@@ -152,11 +170,23 @@ jobs:
 
           dotnet list package --vulnerable --include-transitive --format json --output-version 1 > vuln-report.json
 
-          if jq -e '[.projects[].frameworks[]? // empty
-                     | (.topLevelPackages // []) + (.transitivePackages // [])
-                     | .[] | .vulnerabilities[]?
-                     | select(.severity == "Critical" or .severity == "High")] | length > 0' \
-               vuln-report.json > /dev/null; then
-            echo "::error::Critical or High severity vulnerable dependencies found — see the summary above."
+          # Fail closed. Previously an unreadable report made `jq -e` exit non-zero, which the `if`
+          # read as "no findings" and the build passed as though clean — the one outcome a security
+          # gate must never produce by accident.
+          if ! jq -e 'has("projects")' vuln-report.json > /dev/null 2>&1; then
+            echo "::error::vulnerability report missing or unreadable — failing closed"
+            head -c 500 vuln-report.json || true
+            exit 1
+          fi
+
+          FOUND=$(jq '[.projects[].frameworks[]? // empty
+                       | (.topLevelPackages // []) + (.transitivePackages // [])
+                       | .[] | .vulnerabilities[]?
+                       | select(.severity == "Critical" or .severity == "High")] | length' \
+                    vuln-report.json)
+          case "$FOUND" in ''|*[!0-9]*) echo "::error::could not count findings — failing closed"; exit 1 ;; esac
+
+          if [ "$FOUND" -gt 0 ]; then
+            echo "::error::$FOUND Critical or High severity vulnerable dependencies found — see the summary above."
             exit 1
           fi
