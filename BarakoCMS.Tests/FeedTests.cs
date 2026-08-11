@@ -4,6 +4,7 @@ using System.Net;
 using barakoCMS.Models;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
+using BarakoCMS.Tests.Builders;
 
 namespace BarakoCMS.Tests;
 
@@ -28,25 +29,25 @@ public class FeedTests
     {
         using var scope = _factory.Services.CreateScope();
         var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-        s.Store(new ContentTypeDefinition
-        {
-            Id = Guid.NewGuid(), Name = type, DisplayName = type,
-            Fields = new()
-            {
-                new FieldDefinition { Name = "Title", DisplayName = "Title", Type = "string" },
-                new FieldDefinition { Name = "Slug", DisplayName = "Slug", Type = "slug" },
-                new FieldDefinition { Name = "Excerpt", DisplayName = "Excerpt", Type = "string" },
-                new FieldDefinition { Name = "Secret", DisplayName = "Secret", Type = "string", Sensitivity = SensitivityLevel.Sensitive },
-            },
-        });
-        void Doc(string slug, string title, ContentStatus st, SensitivityLevel sev, DateTime created) =>
-            s.Store(new Content { Id = Guid.NewGuid(), ContentType = type, Status = st, Sensitivity = sev, CreatedAt = created,
-                Data = new() { ["Title"] = title, ["Slug"] = slug, ["Excerpt"] = $"excerpt of {slug}", ["Secret"] = "topsecret" } });
+        s.Store(new ContentTypeBuilder()
+            .Named(type)
+            .WithTitleAndSlug()
+            .WithField("Excerpt")
+            .WithSensitiveField()
+            .Build());
 
-        Doc("older", "Older Post", ContentStatus.Published, SensitivityLevel.Public, new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
-        Doc("newer", "Newer Post", ContentStatus.Published, SensitivityLevel.Public, new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc));
-        Doc("wip", "Draft Post", ContentStatus.Draft, SensitivityLevel.Public, new DateTime(2026, 3, 1, 0, 0, 0, DateTimeKind.Utc));
-        Doc("hidden", "Hidden Post", ContentStatus.Published, SensitivityLevel.Sensitive, new DateTime(2026, 3, 2, 0, 0, 0, DateTimeKind.Utc));
+        ContentBuilder Post(string slug, string title, DateTime created) => new ContentBuilder()
+            .OfType(type)
+            .WithTitleAndSlug(title, slug)
+            .With("Excerpt", $"excerpt of {slug}")
+            .With("Secret", "topsecret")
+            .CreatedAt(created);
+
+        var jan = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        s.Store(Post("older", "Older Post", jan).Published().Build());
+        s.Store(Post("newer", "Newer Post", jan.AddMonths(1)).Published().Build());
+        s.Store(Post("wip", "Draft Post", jan.AddMonths(2)).Build());          // a draft is never delivered
+        s.Store(Post("hidden", "Hidden Post", jan.AddMonths(2).AddDays(1)).Sensitive().Published().Build());
         await s.SaveChangesAsync();
     }
 
