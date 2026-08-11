@@ -44,7 +44,8 @@ npm_gate() {
 # Mirrors the .NET gate body in .github/workflows/ci.yml.
 dotnet_gate() {
   local rep=$1 FOUND
-  jq -e 'has("projects")' "$rep" > /dev/null 2>&1 || return 1
+  jq -e '(.projects | type) == "array"
+         and all(.projects[]; (.frameworks // []) | type == "array")' "$rep" > /dev/null 2>&1 || return 1
   FOUND=$(jq '[.projects[].frameworks[]? // empty
                | (.topLevelPackages // []) + (.transitivePackages // [])
                | .[] | .vulnerabilities[]?
@@ -68,6 +69,8 @@ echo '{"projects":[]}'                                                   > "$d/n
 echo '{"projects":[{"frameworks":[{"topLevelPackages":[{"vulnerabilities":[{"severity":"High"}]}]}]}]}'      > "$d/net-high.json"
 echo '{"projects":[{"frameworks":[{"transitivePackages":[{"vulnerabilities":[{"severity":"Critical"}]}]}]}]}' > "$d/net-crit.json"
 echo '{"projects":[{"frameworks":[{"topLevelPackages":[{"vulnerabilities":[{"severity":"Moderate"}]}]}]}]}'  > "$d/net-moderate.json"
+echo '{"projects":{"project-a":{"frameworks":[]}}}'                       > "$d/net-objshape.json"
+echo '{"projects":[{"frameworks":{"net8.0":{}}}]}'                       > "$d/net-objframeworks.json"
 echo 'MSBuild error, no json here'                                       > "$d/net-garbage.json"
 : > "$d/net-empty.json"
 
@@ -84,6 +87,8 @@ dotnet_gate "$d/net-clean.json";    check "clean report"       pass $?
 dotnet_gate "$d/net-high.json";     check "high findings"      fail $?
 dotnet_gate "$d/net-crit.json";     check "critical, nested"   fail $?
 dotnet_gate "$d/net-moderate.json"; check "moderate only"      pass $?
+dotnet_gate "$d/net-objshape.json"; check "projects is an object"      fail $?
+dotnet_gate "$d/net-objframeworks.json"; check "frameworks is an object" fail $?
 dotnet_gate "$d/net-garbage.json";  check "unparseable output" fail $?
 dotnet_gate "$d/net-empty.json";    check "empty report"       fail $?
 

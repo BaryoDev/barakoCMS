@@ -173,8 +173,13 @@ jobs:
           # Fail closed. Previously an unreadable report made `jq -e` exit non-zero, which the `if`
           # read as "no findings" and the build passed as though clean — the one outcome a security
           # gate must never produce by accident.
-          if ! jq -e 'has("projects")' vuln-report.json > /dev/null 2>&1; then
-            echo "::error::vulnerability report missing or unreadable — failing closed"
+          # Check the shape, not merely that a key exists. `has("projects")` is satisfied by an
+          # object-valued `projects`, which then counts zero findings and passes — a differently
+          # shaped report would sail through as clean.
+          if ! jq -e '(.projects | type) == "array"
+                      and all(.projects[]; (.frameworks // []) | type == "array")' \
+                 vuln-report.json > /dev/null 2>&1; then
+            echo "::error::vulnerability report missing, unreadable or not the expected shape — failing closed"
             head -c 500 vuln-report.json || true
             exit 1
           fi
