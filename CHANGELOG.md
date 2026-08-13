@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed: seeding a chart of accounts could create two accounts sharing one code
+
+`AccountService.UpsertAsync` looked for an existing account with a database query, so accounts stored
+earlier in the *same uncommitted* unit of work were invisible to it. `UpsertManyAsync` is a loop over
+that method and is how a host seeds a whole chart in one transaction — precisely where a repeated
+code is most likely to appear. The second appearance became a second account: one code split across
+two documents, with lookups picking between them arbitrarily and balances divided between them.
+
+It now checks the session's pending changes before the database. Accounting module `0.2.1`.
+
+### Accounting test coverage: 49.6% → 77.7%
+
+The module's own HTTP surface (`POST /api/accounting/journal-entries`, the accounts endpoints), the
+one-shot `AccountingMigration`, and `AccountService` had no tests between them, while carrying the
+money. Three new suites cover them, each checked by reintroducing the bug it claims to catch —
+balance tolerance, totals accumulated through `double`, a migration that moves instead of copies, a
+dropped idempotency guard, and a widened role gate.
+
+Two of those checks found weak tests rather than weak code, and both were rewritten: a one-line
+journal entry is rejected for being unbalanced, not for having too few lines, so the line-minimum
+rule was only pinned once an entry with *no* lines was tested.
+
 ## [3.19.0] - 2026-08-09
 
 ### Fixed: the Next.js upgrade that was never actually broken
