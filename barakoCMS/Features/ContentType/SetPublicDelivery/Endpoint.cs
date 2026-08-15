@@ -4,17 +4,6 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.ContentType.SetPublicDelivery;
 
-public class Request
-{
-    public bool Enabled { get; set; }
-}
-
-public class Response
-{
-    public string Name { get; set; } = string.Empty;
-    public bool IsPubliclyDeliverable { get; set; }
-}
-
 /// <summary>
 /// PUT /api/content-types/{name}/public-delivery — turn anonymous public delivery on or off for one
 /// content type.
