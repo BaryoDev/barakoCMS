@@ -408,7 +408,8 @@ docker-compose.oracle.yml
 .copilot/
 
 # Documentation (generated/internal)
-docs/
+docs/*
+!docs/marketplace-and-contribution-plan.md
 
 # POC/Experimental Projects
 AttendancePOC/
