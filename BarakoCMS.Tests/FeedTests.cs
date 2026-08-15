@@ -31,6 +31,7 @@ public class FeedTests
         var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
         s.Store(new ContentTypeBuilder()
             .Named(type)
+            .PubliclyDeliverable()
             .WithTitleAndSlug()
             .WithField("Excerpt")
             .WithSensitiveField()
@@ -87,12 +88,12 @@ public class FeedTests
     }
 
     [Fact]
-    public async Task Feed_UnknownType_IsEmptyButValidRss()
+    public async Task Feed_UnknownOrUndeliverableType_Is404()
     {
+        // This used to answer 200 with an empty but valid feed. It now refuses, because delivery is
+        // opt-in and an unknown type and an un-opted-in one must be indistinguishable — answering
+        // differently would confirm which types exist.
         var res = await _client.GetAsync("/api/public/nosuchtype/feed.xml");
-        res.StatusCode.Should().Be(HttpStatusCode.OK);
-        var xml = await res.Content.ReadAsStringAsync();
-        xml.Should().Contain("<rss").And.Contain("</rss>");
-        xml.Should().NotContain("<item>");
+        res.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 }

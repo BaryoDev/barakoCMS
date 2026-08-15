@@ -17,6 +17,8 @@ public sealed class ContentTypeBuilder : BuilderBase<ContentTypeDefinition>
     private Guid? _id;
 
     /// <summary>Names the type. Left unset, a unique one is generated so tests cannot collide.</summary>
+    private bool _deliverable;
+
     public ContentTypeBuilder Named(string name)
     {
         _name = name;
@@ -59,11 +61,23 @@ public sealed class ContentTypeBuilder : BuilderBase<ContentTypeDefinition>
     public ContentTypeBuilder WithSensitiveField(string name = "Secret")
         => WithField(name, "string", SensitivityLevel.Sensitive);
 
+    /// <summary>
+    /// Opt the type into the anonymous public delivery API. Not the default here, deliberately: the
+    /// production default is off, and a builder that quietly opted every test type in would hide the
+    /// very regression the gate exists to prevent.
+    /// </summary>
+    public ContentTypeBuilder PubliclyDeliverable(bool value = true)
+    {
+        _deliverable = value;
+        return this;
+    }
+
     public override ContentTypeDefinition Build()
     {
         var name = _name ?? Unique("type");
         return new ContentTypeDefinition
         {
+            IsPubliclyDeliverable = _deliverable,
             Id = _id ?? Guid.NewGuid(),
             Name = name,
             DisplayName = _displayName ?? name,

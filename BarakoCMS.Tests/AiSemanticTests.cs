@@ -31,6 +31,7 @@ public class AiSemanticTests
         var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
         s.Store(new ContentTypeDefinition
         {
+            IsPubliclyDeliverable = true,
             Id = Guid.NewGuid(), Name = type, DisplayName = type,
             Fields = new()
             {

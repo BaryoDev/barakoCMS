@@ -41,7 +41,9 @@ public class FeedEndpoint : EndpointWithoutRequest
         var type = Route<string>("type") ?? string.Empty;
 
         var def = await _session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
-        var slugField = def is null ? null : PublicDelivery.SlugField(def);
+        /* A feed is public delivery in another format, so it answers to the same opt-in. */
+        if (!PublicDelivery.IsDeliverable(def)) { await SendNotFoundAsync(ct); return; }
+        var slugField = PublicDelivery.SlugField(def!);
 
         var entries = await _session.Query<ContentDoc>()
             .Where(c => c.ContentType == type
