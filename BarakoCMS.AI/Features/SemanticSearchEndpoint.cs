@@ -40,6 +40,13 @@ public class SemanticSearchEndpoint : EndpointWithoutRequest<SemanticResponse>
         var limit = Math.Clamp(Query<int?>("limit", isRequired: false) ?? 5, 1, MaxResults);
 
         var empty = new SemanticResponse(Array.Empty<SemanticHit>(), 0, q);
+
+        // Semantic search is public delivery in another form, so it answers to the same type-level
+        // opt-in. Checked before anything else: embedding an unserviceable query would still spend a
+        // model call, which makes an ungated endpoint a free compute endpoint as well as a leak.
+        var def = await _session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
+        if (def is not { IsPubliclyDeliverable: true }) { await SendNotFoundAsync(ct); return; }
+
         if (q.Length < 2 || !_embed.IsConfigured) { await SendOkAsync(empty, ct); return; }
 
         var queryVector = await _embed.EmbedAsync(q, ct);

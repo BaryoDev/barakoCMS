@@ -44,6 +44,13 @@ internal static class PublicDelivery
         slugField is not null && c.Data.TryGetValue(slugField, out var v) ? v?.ToString() : null;
 
     /// <summary>
+    /// Whether anonymous delivery may serve this type at all. An unknown type and a type that has
+    /// not opted in are treated identically on purpose: answering differently would confirm which
+    /// types exist.
+    /// </summary>
+    public static bool IsDeliverable(ContentTypeDefinition? def) => def is { IsPubliclyDeliverable: true };
+
+    /// <summary>
     /// Projects a Published, document-Public entry for anonymous delivery, exposing ONLY the fields the
     /// content type marks Public, or null if it must not be exposed at all. Robust to a missing content
     /// type definition: with no schema to say which fields are Public, nothing is delivered (fail closed).
@@ -56,6 +63,9 @@ internal static class PublicDelivery
         if (!allowUnpublished && c.Status != ContentStatus.Published) return null;
         if (c.Sensitivity != SensitivityLevel.Public) return null; /* doc-level: never public */
         if (def is null) return null;                              /* no schema -> fail closed */
+        /* Type-level opt-in. Endpoints refuse an un-opted-in type outright; this is the backstop, so
+         * that a delivery path added later cannot leak by forgetting the check. */
+        if (!def.IsPubliclyDeliverable) return null;
 
         /*
          * Allowlist, not denylist: emit only keys that match a schema field explicitly marked Public.
@@ -102,7 +112,8 @@ public class ListPublishedEndpoint : Endpoint<PublicListRequest, PaginatedRespon
     {
         var type = Route<string>("type") ?? string.Empty;
         var def = await _session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
-        var slugField = def is null ? null : PublicDelivery.SlugField(def);
+        if (!PublicDelivery.IsDeliverable(def)) { await SendNotFoundAsync(ct); return; }
+        var slugField = PublicDelivery.SlugField(def!);
 
         /* Published + document-Public only; the DB filters the rest out. */
         var baseQuery = _session.Query<ContentDoc>()
@@ -163,14 +174,18 @@ public class PublicSearchEndpoint : EndpointWithoutRequest<PublicSearchResponse>
         var q = (Query<string>("q", isRequired: false) ?? string.Empty).Trim();
         var limit = Math.Clamp(Query<int?>("limit", isRequired: false) ?? 20, 1, MaxResults);
 
+        /* Eligibility first. Answering the short-query case before this gate returned 200 for a type
+         * that is not deliverable, which confirms the type exists — the existence oracle the 404 is
+         * meant to close. */
+        var def = await _session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
+        if (!PublicDelivery.IsDeliverable(def)) { await SendNotFoundAsync(ct); return; }
+        var slugField = PublicDelivery.SlugField(def!);
+
         if (q.Length < 2)
         {
             await SendOkAsync(new PublicSearchResponse(Array.Empty<PublicContentResponse>(), 0, q), ct);
             return;
         }
-
-        var def = await _session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
-        var slugField = def is null ? null : PublicDelivery.SlugField(def);
 
         var candidates = await _session.Query<ContentDoc>()
             .Where(c => c.ContentType == type
@@ -241,7 +256,8 @@ public class GetBySlugEndpoint : EndpointWithoutRequest<PublicContentResponse>
         var slug = Route<string>("slug") ?? string.Empty;
 
         var def = await _session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
-        var slugField = def is null ? null : PublicDelivery.SlugField(def);
+        if (!PublicDelivery.IsDeliverable(def)) { await SendNotFoundAsync(ct); return; }
+        var slugField = PublicDelivery.SlugField(def!);
         if (slugField is null) { await SendNotFoundAsync(ct); return; } /* not slug-addressable */
 
         /* A preview token valid for exactly this tenant+type+slug identifies ONE entry by id, lifting only

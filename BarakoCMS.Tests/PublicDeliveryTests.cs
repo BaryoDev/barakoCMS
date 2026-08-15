@@ -35,6 +35,7 @@ public class PublicDeliveryTests
 
         s.Store(new ContentTypeDefinition
         {
+            IsPubliclyDeliverable = true,
             Id = Guid.NewGuid(),
             Name = type,
             DisplayName = type,
@@ -159,6 +160,7 @@ public class PublicDeliveryTests
             var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
             s.Store(new ContentTypeDefinition
             {
+            IsPubliclyDeliverable = true,
                 Id = Guid.NewGuid(), Name = "postpub_b", DisplayName = "b",
                 Fields = new() { new FieldDefinition { Name = "Slug", DisplayName = "Slug", Type = "slug" } },
             });

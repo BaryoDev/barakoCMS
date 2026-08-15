@@ -9,6 +9,22 @@ public class ContentTypeDefinition
     public string DisplayName { get; set; } = string.Empty; // e.g., "Blog Post"
     public string Description { get; set; } = string.Empty;
     public List<FieldDefinition> Fields { get; set; } = new();
+
+    /// <summary>
+    /// Whether this type is served by the anonymous public delivery API (<c>/api/public/{type}</c>,
+    /// its search and slug routes, and the RSS feed).
+    /// </summary>
+    /// <remarks>
+    /// Off by default, and deliberately so. Delivery used to be opt-out: any type was served as long
+    /// as the content was Published with Public sensitivity, which are the defaults for documents and
+    /// fields alike. Modelling members or a ledger as content therefore produced an anonymous endpoint
+    /// for them that nobody asked for — and on a live deployment it did exactly that.
+    ///
+    /// Publishing is a decision, so it has to be made explicitly. Field-level sensitivity still
+    /// applies on top of this: opting a type in never implies every field on it is public.
+    /// </remarks>
+    public bool IsPubliclyDeliverable { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 }

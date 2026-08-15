@@ -60,6 +60,8 @@ export interface ContentTypeDefinition {
     displayName: string;
     description?: string;
     fields: FieldDefinition[];
+    /** Served anonymously at /api/public/{name}. Off unless someone turns it on. */
+    isPubliclyDeliverable?: boolean;
     createdAt?: string;
     updatedAt?: string;
 }
@@ -69,6 +71,7 @@ export interface CreateSchemaRequest {
     displayName: string;
     description?: string;
     fields: FieldDefinition[];
+    isPubliclyDeliverable?: boolean;
 }
 
 export const FIELD_TYPES: { value: FieldType; label: string; description: string }[] = [
