@@ -21,8 +21,8 @@ export default async function Home() {
           <p className="mt-6 text-lg text-ink-2 max-w-[60ch] leading-relaxed">
             Content, users, roles, permissions, workflow, audit history, multi-tenancy. Every project
             needs them and nobody wants to write them again. BarakoCMS is an open-source .NET 8 base
-            that brings them along on day one, so the only thing left to build is the part that is
-            actually yours.
+            that brings them along on day one, so you spend your time on what the customer actually
+            asked for.
           </p>
 
           <div className="mt-9 flex flex-wrap items-center gap-3">
@@ -103,6 +103,57 @@ export default async function Home() {
             .
           </p>
         </div>
+      </section>
+
+      {/* Comparison. Checked against Umbraco's own docs, and deliberately fair about what they get
+          right — the point is what a licence covers, not that charging is wrong. */}
+      <section className="mx-auto max-w-5xl px-6 py-20">
+        <h2 className="font-display text-3xl tracking-tight">What tends to sit behind a licence</h2>
+        <p className="mt-4 text-ink-2 max-w-[64ch] leading-relaxed">
+          Umbraco is the closest thing to a reference point in .NET, and it is a good one — the CMS
+          itself is MIT and genuinely free. What an agency runs into is that several of the pieces a
+          client project needs are separate commercial products.
+        </p>
+
+        <div className="mt-8 overflow-x-auto">
+          <table className="w-full text-[15px] border-collapse">
+            <thead>
+              <tr className="border-b border-rule text-left">
+                <th className="py-2.5 pr-6 font-mono text-[10.5px] tracking-[.11em] uppercase text-muted font-normal">
+                  Capability
+                </th>
+                <th className="py-2.5 pr-6 font-mono text-[10.5px] tracking-[.11em] uppercase text-muted font-normal">
+                  Umbraco
+                </th>
+                <th className="py-2.5 font-mono text-[10.5px] tracking-[.11em] uppercase text-muted font-normal">
+                  BarakoCMS
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {[
+                ['The CMS itself', 'Free, MIT', 'Free, MPL-2.0'],
+                ['Editorial workflow', 'Licensed add-on', 'In the core'],
+                ['Environment / content transfer', 'Licensed add-on', 'Portability module'],
+                ['Analytics', 'Licensed add-on', 'Analytics module'],
+                ['Forms', 'Licensed add-on', 'Planned, and it will be free'],
+              ].map(([cap, umb, ours]) => (
+                <tr key={cap} className="border-b border-rule align-top">
+                  <td className="py-3 pr-6">{cap}</td>
+                  <td className="py-3 pr-6 text-ink-2">{umb}</td>
+                  <td className="py-3 text-ink-2">{ours}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <p className="mt-7 text-[15px] text-muted max-w-[64ch] leading-relaxed">
+          To be fair about it: those licences are how Umbraco funds a mature product with real
+          support behind it, and their add-ons are further along than ours. BarakoCMS is younger and
+          comes with no support contract. The trade is a real one — this is simply the side of it
+          where everything is free and you can read all of it.
+        </p>
       </section>
 
       {/* Setup, shown rather than described. */}
