@@ -114,6 +114,11 @@ export default async function Home() {
           itself is MIT and genuinely free. What an agency runs into is that several of the pieces a
           client project needs are separate commercial products.
         </p>
+        <p className="mt-4 text-[15px] text-muted max-w-[64ch] leading-relaxed">
+          Comparing <strong className="font-medium text-ink-2">self-hosted</strong> Umbraco, which is
+          the like-for-like case. Umbraco Cloud is a paid platform that bundles Forms and Deploy into
+          its plans, so those two rows do not apply if you are hosting there.
+        </p>
 
         <div className="mt-8 overflow-x-auto">
           <table className="w-full text-[15px] border-collapse">
@@ -133,10 +138,10 @@ export default async function Home() {
             <tbody>
               {[
                 ['The CMS itself', 'Free, MIT', 'Free, MPL-2.0'],
-                ['Editorial workflow', 'Licensed add-on', 'In the core'],
-                ['Environment / content transfer', 'Licensed add-on', 'Portability module'],
-                ['Analytics', 'Licensed add-on', 'Analytics module'],
-                ['Forms', 'Licensed add-on', 'Planned, and it will be free'],
+                ['Editorial workflow', 'Umbraco Workflow — licensed', 'In the core'],
+                ['Environment / content transfer', 'Umbraco Deploy — licensed', 'Portability module'],
+                ['Analytics', 'Umbraco Engage — licensed', 'Analytics module'],
+                ['Forms', 'Umbraco Forms — licensed', 'Planned, and it will be free'],
               ].map(([cap, umb, ours]) => (
                 <tr key={cap} className="border-b border-rule align-top">
                   <td className="py-3 pr-6">{cap}</td>
@@ -152,7 +157,8 @@ export default async function Home() {
           To be fair about it: those licences are how Umbraco funds a mature product with real
           support behind it, and their add-ons are further along than ours. BarakoCMS is younger and
           comes with no support contract. The trade is a real one — this is simply the side of it
-          where everything is free and you can read all of it.
+          where everything is free and you can read all of it. Licensing details are from Umbraco's
+          own documentation and can change; check theirs before you decide.
         </p>
       </section>
 
