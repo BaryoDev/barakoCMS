@@ -60,14 +60,28 @@ public class AccountService
     public async Task UpsertAsync(Account account, CancellationToken ct = default)
     {
         var session = WriteSession;
+        var data = ToData(account);
+
+        // Accounts staged earlier in this same unit of work are not in the database yet, so a query
+        // cannot see them. Seeding a whole chart in one transaction is the ordinary way to reach
+        // that, and without this the second appearance of a code becomes a second account — one code
+        // split across two documents, with lookups picking between them arbitrarily.
+        var staged = session.PendingChanges.AllChangedFor<barakoCMS.Models.Content>()
+            .FirstOrDefault(c => c.ContentType == AccountingContentTypes.Account && HasCode(c, account.Code));
+
+        if (staged is not null)
+        {
+            staged.Data = data;
+            staged.UpdatedAt = DateTime.UtcNow;
+            session.Store(staged);
+            return;
+        }
+
         var existing = await session.Query<barakoCMS.Models.Content>()
             .Where(c => c.ContentType == AccountingContentTypes.Account)
             .ToListAsync(ct);
 
-        var match = existing.FirstOrDefault(c => string.Equals(
-            ContentData.AsString(ContentData.Get(c.Data, "Code")), account.Code, StringComparison.OrdinalIgnoreCase));
-
-        var data = ToData(account);
+        var match = existing.FirstOrDefault(c => HasCode(c, account.Code));
 
         if (match is not null)
         {
@@ -95,6 +109,9 @@ public class AccountService
         foreach (var account in accounts)
             await UpsertAsync(account, ct);
     }
+
+    private static bool HasCode(barakoCMS.Models.Content c, string code) => string.Equals(
+        ContentData.AsString(ContentData.Get(c.Data, "Code")), code, StringComparison.OrdinalIgnoreCase);
 
     private static Dictionary<string, object> ToData(Account a) => new()
     {
