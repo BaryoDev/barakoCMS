@@ -5,7 +5,7 @@
 
     <IsPackable>true</IsPackable>
     <PackageId>BarakoCMS.Files.S3</PackageId>
-    <Version>0.1.2</Version>
+    <Version>0.1.3</Version>
     <Description>S3-compatible object storage provider for the barakoCMS Files module. Works with AWS S3, Cloudflare R2, and MinIO. Public files get a direct, CDN-friendly URL; private files are proxied through the API.</Description>
   </PropertyGroup>
 
