@@ -1,0 +1,53 @@
+name: Feature or module proposal
+description: Suggest something new, or propose a module
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Worth reading first: barakoCMS tries hard to stay generic. Anything specific to one kind of
+        site usually belongs in a **module** rather than the core, and modules can live in your own
+        repository and still work identically for the people installing them.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: |
+        Describe the situation you're actually in, not the solution you have in mind. It's the
+        fastest way for us to spot that there's already a way to do it, or a better one.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like to happen?
+      description: Sketch the API, endpoint or behaviour. Mockups and screenshots welcome.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: shape
+    attributes:
+      label: Where does this belong?
+      options:
+        - In the core
+        - In an existing module
+        - In a new module
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What have you tried or considered?
+      description: Including "I worked around it by ..." — a workaround tells us how much this hurts.
+
+  - type: checkboxes
+    id: help
+    attributes:
+      label: Would you like to build it?
+      options:
+        - label: I'd be up for submitting a pull request for this

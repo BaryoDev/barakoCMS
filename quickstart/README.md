@@ -96,3 +96,5 @@ docker compose exec postgres pg_dump -U postgres barakocms > backup.sql
 Want only some modules? Swap the API image for the core-only build
 (`ghcr.io/baryodev/barako-cms-decaf`) and register just the modules you need in your own host. The
 suite here is the batteries-included default.
+
+If barakoCMS is useful to you, a star on the [repository](https://github.com/BaryoDev/barakoCMS) helps other people find it.

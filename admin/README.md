@@ -111,3 +111,5 @@ src/
   lib/api.ts            # axios client, token store, refresh rotation, pagination types
   types/                # API models mirroring the backend
 ```
+
+If barakoCMS is useful to you, a star on the [repository](https://github.com/BaryoDev/barakoCMS) helps other people find it.

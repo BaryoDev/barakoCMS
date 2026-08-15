@@ -7,7 +7,6 @@
     <PackageId>BarakoCMS.Accounting</PackageId>
     <Version>0.2.0</Version>
     <Description>Optional double-entry accounting module for barakoCMS: accounts, balanced journal entries, and reporting.</Description>
-    <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
 
   <ItemGroup>

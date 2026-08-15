@@ -7,7 +7,6 @@
     <PackageId>BarakoCMS.Files</PackageId>
     <Version>0.1.2</Version>
     <Description>Optional file-attachment module for barakoCMS: upload and retrieve files (receipts, photos, documents) stored in Postgres via Marten.</Description>
-    <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
 
   <ItemGroup>

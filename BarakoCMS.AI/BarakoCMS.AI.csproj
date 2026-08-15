@@ -7,7 +7,6 @@
     <PackageId>BarakoCMS.AI</PackageId>
     <Version>0.1.1</Version>
     <Description>AI module for barakoCMS: semantic (vector) search over published content using a self-hosted embedding model (Ollama by default). Indexes only public fields, searches only published, document-Public entries, and needs no third-party API key.</Description>
-    <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
 
   <ItemGroup>

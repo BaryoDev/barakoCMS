@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/logo.svg" width="96" height="96" alt="BarakoCMS.Import logo" />
+  <img src="https://raw.githubusercontent.com/BaryoDev/barakoCMS/master/assets/icon.png" width="96" height="96" alt="BarakoCMS.Import logo" />
   <h1>BarakoCMS.Import</h1>
   <p><em>Optional bulk-import module for barakoCMS — .xlsx &amp; CSV into content.</em></p>
 </div>
@@ -63,3 +63,5 @@ barakoCMS ≥ 2.2.0 and Talaan. Targets .NET 8.
 ## License
 
 [MPL-2.0](LICENSE) © BaryoDev
+
+If barakoCMS is useful to you, a star on the [repository](https://github.com/BaryoDev/barakoCMS) helps other people find it.

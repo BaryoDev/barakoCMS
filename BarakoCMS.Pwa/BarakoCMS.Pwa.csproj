@@ -7,7 +7,6 @@
     <PackageId>BarakoCMS.Pwa</PackageId>
     <Version>0.1.2</Version>
     <Description>PWA install tracking for barakoCMS: records when the app is added to the home screen / run as an installed app, anonymously or tied to the signed-in user, so the admin can see adoption and who installed it.</Description>
-    <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
 
   <ItemGroup>

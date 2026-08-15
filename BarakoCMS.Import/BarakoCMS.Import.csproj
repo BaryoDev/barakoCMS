@@ -7,7 +7,6 @@
     <PackageId>BarakoCMS.Import</PackageId>
     <Version>0.1.2</Version>
     <Description>Optional bulk-import module for barakoCMS: analyze .xlsx/CSV uploads and bulk-create content. Zero-dependency parsing via Talaan.</Description>
-    <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
 
   <ItemGroup>
