@@ -7,9 +7,9 @@ namespace BarakoCMS.Tests;
 public class TenantResolutionTests
 {
     [Theory]
-    [InlineData("rotary.example.com", "rotary")]
+    [InlineData("acme.example.com", "acme")]
     [InlineData("a-club.example.com", "a-club")]
-    [InlineData("ROTARY.example.com", "rotary")] // lower-cased
+    [InlineData("ACME.example.com", "acme")] // lower-cased
     [InlineData("example.com", null)]            // apex -> default
     [InlineData("localhost", null)]
     [InlineData("127.0.0.1", null)]

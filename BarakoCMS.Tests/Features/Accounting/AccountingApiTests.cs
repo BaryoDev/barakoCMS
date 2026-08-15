@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests.Features.Accounting;
 /// <summary>
 /// The module's own HTTP surface: POST /api/accounting/journal-entries and the accounts endpoints.
 ///
-/// These had no tests at all, while carrying real money: BaryoClub posts a treasurer's entries through
+/// These had no tests at all, while carrying real money: a host posts a treasurer's entries through
 /// the journal-entries route. Accounting moved to content types, and the content path is well covered,
 /// but this route is still live, still registered, and still what an existing consumer calls — so a
 /// change that satisfied the content tests could break the thing actually in use.

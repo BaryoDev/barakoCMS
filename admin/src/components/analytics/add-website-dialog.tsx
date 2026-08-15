@@ -81,7 +81,7 @@ export function AddWebsiteDialog({ onCreated }: { onCreated?: (id: string) => vo
                 <Label htmlFor="site-name">Name</Label>
                 <Input
                   id="site-name"
-                  placeholder="BaryoClub"
+                  placeholder="My site"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   required
@@ -91,7 +91,7 @@ export function AddWebsiteDialog({ onCreated }: { onCreated?: (id: string) => vo
                 <Label htmlFor="site-domain">Domain</Label>
                 <Input
                   id="site-domain"
-                  placeholder="club.baryo.dev"
+                  placeholder="example.com"
                   value={domain}
                   onChange={(e) => setDomain(e.target.value)}
                   required
