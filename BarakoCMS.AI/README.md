@@ -47,14 +47,16 @@ The boundaries are deliberate, because a search index is an easy place to leak s
 ```json
 {
   "Ai": {
-    "Provider": "ollama",
-    "BaseUrl": "http://localhost:11434",
-    "Model": "nomic-embed-text"
+    "Enabled": true,
+    "EmbeddingBaseUrl": "http://localhost:11434",
+    "EmbeddingModel": "nomic-embed-text"
   }
 }
 ```
 
-Point `BaseUrl` at your own Ollama instance. Keep it on a private network — an embedding endpoint
+The module ships **inert**: without `Ai:Enabled` it registers and does nothing, so adding the
+package cannot change how an existing site behaves. Point `EmbeddingBaseUrl` at your own Ollama
+instance. Keep it on a private network — an embedding endpoint
 exposed publicly is an open compute endpoint for anyone who finds it.
 
 ## Part of barakoCMS

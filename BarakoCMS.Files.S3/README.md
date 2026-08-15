@@ -18,7 +18,7 @@ Register it alongside the Files module, which owns the upload endpoints:
 builder.Services.AddBarakoCMS(builder.Configuration, modules =>
 {
     modules.Add(new BarakoCMS.Files.FilesModule());
-    modules.Add(new BarakoCMS.Files.S3.S3StorageModule());
+    modules.Add(new BarakoCMS.Files.S3.S3FilesModule());
 });
 ```
 
@@ -26,18 +26,24 @@ builder.Services.AddBarakoCMS(builder.Configuration, modules =>
 
 ```json
 {
-  "S3": {
-    "Bucket": "my-bucket",
-    "Region": "us-east-1",
-    "AccessKey": "...",
-    "SecretKey": "...",
-    "ServiceUrl": null,
-    "ForcePathStyle": false,
-    "PublicBaseUrl": null,
-    "UsePublicReadAcl": false
+  "Files": {
+    "S3": {
+      "Bucket": "my-bucket",
+      "Region": "us-east-1",
+      "AccessKey": "...",
+      "SecretKey": "...",
+      "ServiceUrl": null,
+      "ForcePathStyle": false,
+      "PublicBaseUrl": null,
+      "UsePublicReadAcl": false
+    }
   }
 }
 ```
+
+The section is `Files:S3`. With no `Files:S3:Bucket` set the provider stays dormant and the default
+storage keeps serving, so a typo here shows up as "uploads still work but nothing reaches the
+bucket" rather than as an error.
 
 | Key | Notes |
 |---|---|
