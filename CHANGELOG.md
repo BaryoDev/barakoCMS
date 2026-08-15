@@ -17,7 +17,7 @@ two documents, with lookups picking between them arbitrarily and balances divide
 
 It now checks the session's pending changes before the database. Accounting module `0.2.2`.
 
-### Accounting test coverage: 49.6% → 77.7%
+### Accounting test coverage: 49.6% → 85.4%
 
 The module's own HTTP surface (`POST /api/accounting/journal-entries`, the accounts endpoints), the
 one-shot `AccountingMigration`, and `AccountService` had no tests between them, while carrying the
@@ -27,7 +27,12 @@ dropped idempotency guard, and a widened role gate.
 
 Two of those checks found weak tests rather than weak code, and both were rewritten: a one-line
 journal entry is rejected for being unbalanced, not for having too few lines, so the line-minimum
-rule was only pinned once an entry with *no* lines was tested.
+rule was only pinned once an entry with *no* lines was tested; and a `(decimal)(double)` round trip
+is lossless at these magnitudes, so the shape that actually bites — the running totals declared as
+`double` — is what the fractional-amount test now pins.
+
+`AccountService` was the surprise. Nothing inside barakoCMS calls it, so it read as dead code, but
+BaryoClub uses it in seven places. Whole suite: 71.1% → 74.4%.
 
 ## [3.19.0] - 2026-08-09
 
