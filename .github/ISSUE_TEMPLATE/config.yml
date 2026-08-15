@@ -1,0 +1,14 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/BaryoDev/barakoCMS/security/advisories/new
+    about: Report privately. Please do not open a public issue for anything exploitable.
+  - name: Chat on Discord
+    url: https://discord.gg/M2BuZn6X3
+    about: Ask a quick question, say hello, or talk through an idea before opening an issue.
+  - name: Question or idea
+    url: https://github.com/BaryoDev/barakoCMS/discussions
+    about: For anything open-ended, or to sound out a large change before building it.
+  - name: How to contribute
+    url: https://github.com/BaryoDev/barakoCMS/blob/master/CONTRIBUTING.md
+    about: Branch naming, the test requirement for bug fixes, and how to publish a module.

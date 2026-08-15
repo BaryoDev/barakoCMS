@@ -20,3 +20,5 @@ services.AddBarakoCMS(config, m => m.Add(new PwaModule()));
 The client posts `{ deviceId, displayMode, platform, installed }`. Deduped per `deviceId` (repeat
 launches bump `lastSeenAt` / `launchCount`). Records are stored globally; the reporting tenant is kept
 as data. Pair it with `@baryodev/pwa-kit`'s reporter on the frontend.
+
+If barakoCMS is useful to you, a star on the [repository](https://github.com/BaryoDev/barakoCMS) helps other people find it.

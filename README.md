@@ -218,3 +218,9 @@ modify a barakoCMS source file, share that file's changes. Your own code stays y
 *Packages up to `BarakoCMS` 3.1.1 were released under Apache-2.0 and remain so; 3.2.0 onward is MPL-2.0.*
 
 **Author:** Arnel Robles · [@arnelirobles](https://github.com/arnelirobles) · [arnelirobles@gmail.com](mailto:arnelirobles@gmail.com)
+
+---
+
+Come say hello on [Discord](https://discord.gg/M2BuZn6X3) — questions, ideas, or just to tell us what you're building.
+
+If barakoCMS is useful to you, a star helps other people find it. Contributions are welcome — code, documentation, module icons and artwork all count. See [CONTRIBUTING.md](CONTRIBUTING.md).

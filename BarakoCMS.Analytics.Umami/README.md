@@ -41,3 +41,5 @@ When disabled or unconfigured the module stays inert: `GET /api/analytics/websit
 
 `range` is one of `24h`, `7d` (default), `30d`, `90d`. The module persists nothing — every read is
 live from Umami — so it registers no Marten documents.
+
+If barakoCMS is useful to you, a star on the [repository](https://github.com/BaryoDev/barakoCMS) helps other people find it.

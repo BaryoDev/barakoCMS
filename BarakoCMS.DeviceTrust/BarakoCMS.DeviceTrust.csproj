@@ -5,9 +5,8 @@
 
     <IsPackable>true</IsPackable>
     <PackageId>BarakoCMS.DeviceTrust</PackageId>
-    <Version>0.1.3</Version>
+    <Version>0.1.4</Version>
     <Description>Optional trusted-device module for barakoCMS: records the device behind each sign-in, binds sessions to devices, and can require OTP approval for new devices.</Description>
-    <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
 
   <ItemGroup>

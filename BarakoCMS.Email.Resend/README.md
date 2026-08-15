@@ -38,3 +38,5 @@ barakoCMS ≥ 2.2.0. Targets .NET 8.
 ## License
 
 [MPL-2.0](LICENSE) © BaryoDev
+
+If barakoCMS is useful to you, a star on the [repository](https://github.com/BaryoDev/barakoCMS) helps other people find it.

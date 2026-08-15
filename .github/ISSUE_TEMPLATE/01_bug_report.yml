@@ -1,0 +1,80 @@
+name: Bug report
+description: Something behaves differently than it should
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. A report we can reproduce is worth more than
+        most patches, so the questions below are the ones that usually decide whether we can.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you saw, and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: |
+        Smallest sequence that shows the problem. A failing test, a curl command, or a minimal
+        project all work well.
+      placeholder: |
+        1. Configure ...
+        2. POST /api/... with ...
+        3. Response is ... , expected ...
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: barakoCMS version
+      description: The `BarakoCMS` package version, plus any module versions involved.
+      placeholder: "BarakoCMS 3.19.0, BarakoCMS.Accounting 0.2.1"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Core (content, content types, delivery)
+        - Auth / RBAC / MFA
+        - Multi-tenancy
+        - Workflow
+        - Admin UI
+        - A module (say which below)
+        - Build, packaging or release
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: .NET version, PostgreSQL version, OS, container or not.
+      placeholder: ".NET 8.0.x, PostgreSQL 16, Docker on Linux arm64"
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or stack trace
+      description: |
+        Paste anything relevant. **Check it first** — do not include tokens, connection strings,
+        passwords, or real user data.
+      render: text
+
+  - type: checkboxes
+    id: security
+    attributes:
+      label: Before you post
+      options:
+        - label: This is not a security vulnerability. (If it is, follow [SECURITY.md](https://github.com/BaryoDev/barakoCMS/blob/master/SECURITY.md) instead of filing publicly.)
+          required: true
