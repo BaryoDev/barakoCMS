@@ -12,7 +12,7 @@ namespace BarakoCMS.Tests.Features.Accounting;
 /// The chart-of-accounts API that hosts actually use.
 ///
 /// It had no tests at all, which is the wrong way round: nothing inside barakoCMS calls it, so it
-/// looked like dead code, but BaryoClub uses it in seven places — seeding the chart, creating member
+/// looked like dead code, but a host application uses it in seven places — seeding the chart, creating member
 /// accounts, batch charging, delisting, and reminders. Being consumer-only means a break here shows
 /// up in someone else's repository, after a release, rather than in this one's CI.
 /// </summary>
@@ -137,7 +137,7 @@ public class AccountServiceTests
         });
         await s.SaveChangesAsync();
 
-        // BaryoClub keys a member's statement off MemberId. Losing it detaches the member from their
+        // A host keys a member's statement off MemberId. Losing it detaches the member from their
         // own receivable account, which is the cross-member read the project treats as a security bug.
         var found = (await new AccountService(s).GetByCodeAsync($"1200-{tag}"))!;
         found.MemberId.Should().Be(memberId);

@@ -28,7 +28,7 @@ public class ResendEmailService : IEmailService
         if (string.IsNullOrWhiteSpace(apiKey))
             throw new InvalidOperationException("Resend:ApiKey (or RESEND_API_KEY) is not configured.");
 
-        var from = _config["Resend:From"] ?? "BaryoClub <onboarding@resend.dev>";
+        var from = _config["Resend:From"] ?? "BarakoCMS <onboarding@resend.dev>";
 
         using var request = new HttpRequestMessage(HttpMethod.Post, Endpoint);
         request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);

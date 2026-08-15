@@ -32,7 +32,7 @@ is lossless at these magnitudes, so the shape that actually bites — the runnin
 `double` — is what the fractional-amount test now pins.
 
 `AccountService` was the surprise. Nothing inside barakoCMS calls it, so it read as dead code, but
-BaryoClub uses it in seven places. Whole suite: 71.1% → 74.4%.
+a host application uses it in seven places. Whole suite: 71.1% → 74.4%.
 
 ## [3.20.0] - 2026-08-15
 

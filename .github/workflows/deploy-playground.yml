@@ -5,9 +5,8 @@ name: Deploy Playground (admin only, manual)
 # a master merge promotes the whole stack (API + admin) to playground, version-
 # gated. This workflow stays for the occasional admin-only hotfix.
 #
-# Playground only, on purpose. The club (club.baryo.dev) is deployed by hand:
-# it has real members on it and should not share a blast radius with a showcase
-# site. See docs/deployment for the manual club steps.
+# Playground only, on purpose. Production sites are deployed by hand: they carry
+# real user data and should not share a blast radius with a showcase site.
 
 on:
   workflow_dispatch:

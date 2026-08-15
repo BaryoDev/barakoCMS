@@ -44,8 +44,8 @@ both should land before inviting anyone to build against the core.
 Public sensitivity — and both are the defaults. A host modelling members or orders as content gets a
 public endpoint for them without ever asking.
 
-This is not theoretical. On club.baryo.dev it exposed a member roster and a chart of accounts to
-anonymous callers; that deployment is now blocked at nginx as a stopgap. The real fix is an explicit
+This is not theoretical. On a live deployment it exposed a member roster and a chart of accounts to
+anonymous callers; that deployment was blocked at nginx as a stopgap. The real fix is an explicit
 per-content-type flag, defaulting to off. Tracked in [#81](https://github.com/BaryoDev/barakoCMS/issues/81).
 
 > **Breaking change — ship it deliberately.** baryo.dev serves its blog through this same endpoint,

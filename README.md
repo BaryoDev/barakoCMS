@@ -179,14 +179,6 @@ content modeling, extending BarakoCMS, and deployment.
 
 ---
 
-## Sample app
-
-**[BaryoClub](https://github.com/BaryoDev/BaryoClub)** composes the suite into a club membership and
-treasury manager — members, a double-entry ledger, statements, OTP sign-in, and a full PWA. It's the
-reference for building a real product on BarakoCMS.
-
----
-
 ## Documentation
 
 Full docs: **<https://baryo.dev/docs>** — getting started, guides, module references, API

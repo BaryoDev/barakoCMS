@@ -34,7 +34,7 @@ public record PostResult(JournalEntry? Entry, IReadOnlyList<string> Errors)
 /// endpoint cannot diverge.
 ///
 /// It exists at all only so the module's existing <c>POST /api/accounting/journal-entries</c> keeps
-/// working for consumers already calling it (BaryoClub). New callers should prefer the generic
+/// working for consumers already calling it. New callers should prefer the generic
 /// content endpoint.
 /// </summary>
 public class LedgerService

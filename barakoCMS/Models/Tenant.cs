@@ -23,7 +23,7 @@ public class Tenant
     /// <summary>Optional absolute URL that opens the location in a maps app.</summary>
     public string? LocationUrl { get; set; }
 
-    /// <summary>A social handle, e.g. "@rckoronadal".</summary>
+    /// <summary>A social handle, e.g. "@acmeclub".</summary>
     public string? SocialHandle { get; set; }
 
     public string? Email { get; set; }
