@@ -1,0 +1,107 @@
+import fallback from '@/data/modules.json';
+
+/**
+ * The marketplace is a view over NuGet, not a registry of its own.
+ *
+ * Every barakoCMS package carries the `barakocms-module` tag, so one search returns the whole set —
+ * including modules published by other people, with no submission step. Umbraco's marketplace works
+ * the same way off `umbraco-marketplace`.
+ */
+export const DISCOVERY_TAG = 'barakocms-module';
+
+const SERVICE_INDEX = 'https://api.nuget.org/v3/index.json';
+
+export type Module = {
+  id: string;
+  version: string;
+  description: string;
+  iconUrl?: string;
+  totalDownloads?: number;
+  authors?: string[];
+  projectUrl?: string;
+  tags?: string[];
+  /** Published by the project itself, rather than by the wider community. */
+  official: boolean;
+  /** True when this came from the bundled manifest because NuGet had nothing to show. */
+  pending?: boolean;
+};
+
+/** Owners we publish under. Checked against package ownership, not the authors field. */
+const OFFICIAL_PREFIX = 'BarakoCMS';
+
+/**
+ * Resolve the search endpoint from the service index rather than hardcoding it — NuGet moves it,
+ * and a hardcoded host is how a marketplace quietly goes blank a year later.
+ */
+async function searchEndpoint(): Promise<string> {
+  const res = await fetch(SERVICE_INDEX, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`service index: ${res.status}`);
+  const body = (await res.json()) as { resources: { '@id': string; '@type': string }[] };
+  const svc = body.resources.find((r) => r['@type'].startsWith('SearchQueryService'));
+  if (!svc) throw new Error('no SearchQueryService in the service index');
+  return svc['@id'];
+}
+
+type NuGetHit = {
+  id: string;
+  version: string;
+  description?: string;
+  iconUrl?: string;
+  totalDownloads?: number;
+  authors?: string[];
+  projectUrl?: string;
+  tags?: string[];
+};
+
+/**
+ * Everything published under the discovery tag. Falls back to the bundled manifest rather than
+ * rendering an empty page: a marketplace that intermittently shows nothing reads as a dead project,
+ * and until the first tagged release lands there is genuinely nothing on NuGet to show.
+ */
+export async function fetchModules(): Promise<{ modules: Module[]; live: boolean }> {
+  try {
+    const endpoint = await searchEndpoint();
+    const url = `${endpoint}?q=${encodeURIComponent(`tags:${DISCOVERY_TAG}`)}&take=100&prerelease=false`;
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`search: ${res.status}`);
+    const body = (await res.json()) as { data: NuGetHit[] };
+
+    if (body.data?.length) {
+      const modules = body.data
+        .map((p) => ({
+          id: p.id,
+          version: p.version,
+          description: p.description ?? '',
+          iconUrl: p.iconUrl,
+          totalDownloads: p.totalDownloads,
+          authors: p.authors,
+          projectUrl: p.projectUrl,
+          tags: p.tags,
+          official: p.id === OFFICIAL_PREFIX || p.id.startsWith(`${OFFICIAL_PREFIX}.`),
+        }))
+        // Downloads first: the one signal that is honest and that nobody here controls.
+        .sort((a, b) => (b.totalDownloads ?? 0) - (a.totalDownloads ?? 0));
+      return { modules, live: true };
+    }
+  } catch {
+    /* fall through to the manifest */
+  }
+
+  return {
+    modules: (fallback.modules as Module[]).map((m) => ({ ...m, pending: true })),
+    live: false,
+  };
+}
+
+export function formatDownloads(n?: number): string {
+  if (n === undefined) return '—';
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
+}
+
+/** "BarakoCMS.Analytics.Umami" -> "Analytics · Umami"; the core package keeps its name. */
+export function displayName(id: string): string {
+  if (id === 'BarakoCMS') return 'BarakoCMS';
+  return id.replace(/^BarakoCMS\./, '').split('.').join(' · ');
+}

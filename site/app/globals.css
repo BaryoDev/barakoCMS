@@ -1,0 +1,70 @@
+@import "tailwindcss";
+
+/*
+ * The identity comes from the project's own logo — a roasted coffee bean, #A9744F → #6F4E37 →
+ * #3E2418. Deliberately cooled off the usual cream-and-terracotta pairing: the ground is a
+ * barely-warm white rather than cream, the neutrals carry a brown bias so they read as chosen, and
+ * the bean brown is the single accent.
+ */
+@theme {
+  --color-ground: #FBFAF9;
+  --color-surface: #F3F0ED;
+  --color-raised: #EAE5E0;
+  --color-ink: #1A1614;
+  --color-ink-2: #4A423C;
+  --color-muted: #7A6E66;
+  --color-rule: #DED7D1;
+  --color-bean: #6F4E37;
+  --color-bean-soft: #A9744F;
+  --color-good: #2E6F4E;
+  --color-warn: #8A6D1F;
+
+  --font-display: ui-serif, Georgia, "Times New Roman", serif;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-ground: #141110;
+    --color-surface: #1D1917;
+    --color-raised: #262120;
+    --color-ink: #EFEAE6;
+    --color-ink-2: #C4B9B1;
+    --color-muted: #9A8D84;
+    --color-rule: #332C29;
+    --color-bean: #C79A72;
+    --color-bean-soft: #A9744F;
+    --color-good: #63B98A;
+    --color-warn: #D2AE4E;
+  }
+}
+
+html { color-scheme: light dark; }
+
+body {
+  background: var(--color-ground);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection { background: var(--color-bean); color: var(--color-ground); }
+
+:where(a, button, summary):focus-visible {
+  outline: 2px solid var(--color-bean);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+
+/* The bean rotates in on load — one small nod to the subject, and only for people who want it. */
+@keyframes bean-in {
+  from { opacity: 0; transform: rotate(-70deg) scale(.9); }
+  to   { opacity: 1; transform: rotate(-32deg) scale(1); }
+}
+.bean-in { animation: bean-in .7s cubic-bezier(.22,.9,.3,1) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .bean-in { animation: none; }
+  * { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+}
