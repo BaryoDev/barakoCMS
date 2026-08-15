@@ -21,7 +21,8 @@ export default async function Home() {
           <p className="mt-6 text-lg text-ink-2 max-w-[60ch] leading-relaxed">
             Content, users, roles, permissions, workflow, audit history, multi-tenancy. Every project
             needs them and nobody wants to write them again. BarakoCMS is an open-source .NET 8 base
-            that brings them along, so you build the part that is actually yours.
+            that brings them along on day one, so the only thing left to build is the part that is
+            actually yours.
           </p>
 
           <div className="mt-9 flex flex-wrap items-center gap-3">
@@ -61,15 +62,58 @@ export default async function Home() {
         </div>
       </section>
 
-      {/* Setup, shown rather than described. */}
+      {/* The agency case: the same foundations, one deployment, many customers. */}
       <section className="border-t border-rule bg-surface">
+        <div className="mx-auto max-w-5xl px-6 py-20">
+          <h2 className="font-display text-3xl tracking-tight">Especially if you build for other people</h2>
+          <p className="mt-4 text-ink-2 max-w-[64ch] leading-relaxed">
+            An agency starts most projects the same way: a database, an admin, logins, roles, who may
+            edit what, and an API for the frontend. It is weeks of work that no client ever asked for
+            and none of them can tell apart.
+          </p>
+          <p className="mt-4 text-ink-2 max-w-[64ch] leading-relaxed">
+            Run one deployment and give each customer a tenant. Model what they actually asked for as
+            content types, without a rebuild. Point whatever frontend you like at the delivery API,
+            and hand the whole thing over as an export when the engagement ends.
+          </p>
+
+          <ul className="mt-9 grid gap-x-10 gap-y-5 sm:grid-cols-2 text-[15px]">
+            {[
+              ['One deployment, many customers', 'Tenants share a database and stay scoped apart.'],
+              ['A new client is an API call', 'POST /api/tenants, then model their content.'],
+              ['Their site, their content', 'Editors work in the admin; you never become the bottleneck.'],
+              ['Leaving is not a hostage situation', 'Export content and schema as JSON, any time.'],
+            ].map(([h, p]) => (
+              <li key={h}>
+                <span className="font-medium">{h}</span>
+                <span className="block text-ink-2 mt-0.5 leading-relaxed">{p}</span>
+              </li>
+            ))}
+          </ul>
+
+          <p className="mt-9 text-[15px] text-muted max-w-[64ch] leading-relaxed">
+            Blueprints, form submissions, SEO fields and redirects are the pieces still missing from
+            that story, and they are{' '}
+            <a
+              href={`${GITHUB}/issues/108`}
+              className="text-bean hover:underline"
+            >
+              tracked in the open
+            </a>
+            .
+          </p>
+        </div>
+      </section>
+
+      {/* Setup, shown rather than described. */}
+      <section className="border-t border-rule">
         <div className="mx-auto max-w-5xl px-6 py-20">
           <h2 className="font-display text-3xl tracking-tight">Three lines to start</h2>
           <p className="mt-3 text-muted max-w-[62ch]">
             No scaffolding step and no generated project to maintain. It is a service registration in
             an ASP.NET app you already have.
           </p>
-          <pre className="mt-7 overflow-x-auto rounded-lg border border-rule bg-ground p-5">
+          <pre className="mt-7 overflow-x-auto rounded-lg border border-rule bg-surface p-5">
             <code className="font-mono text-[13.5px] leading-relaxed">{`builder.Services.AddBarakoCMS(builder.Configuration);
 
 var app = builder.Build();
