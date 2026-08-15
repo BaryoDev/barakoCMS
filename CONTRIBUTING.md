@@ -35,8 +35,12 @@ that's the fastest place to find out.
 ## Finding something to work on
 
 Issues labelled [`good first issue`][gfi] and [`help wanted`][hw] are ones we'd genuinely like help
-with, and they carry enough context to start without asking. If you pick one up, leave a comment
-saying so — that way nobody duplicates your work.
+with, and they carry enough context to start without asking.
+
+**To claim one, comment `/take`.** A bot assigns it to you straight away, so you don't have to wait
+for a maintainer to be awake. If it's already taken, it'll tell you that instead of quietly adding
+you alongside someone else. Changed your mind? Say so on the issue and we'll unassign it — that is
+genuinely fine and much better than an issue sitting claimed for a month.
 
 You don't have to stick to labelled issues. If you've hit a bug, dive in.
 
