@@ -36,11 +36,12 @@ public class PublicDeliveryOptInTests
     }
 
     /// <summary>Seeds a type plus one Published, Public document carrying a findable marker.</summary>
-    private async Task<(string type, string marker)> SeedAsync(bool deliverable)
+    private async Task<(string type, string marker, string slug)> SeedAsync(bool deliverable)
     {
         var tag = Guid.NewGuid().ToString("N")[..8];
         var type = $"probe{tag}";
         var marker = $"MARKER-{tag}";
+        var slug = $"s-{tag}";
 
         using var scope = _factory.Services.CreateScope();
         var store = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
@@ -65,19 +66,19 @@ public class PublicDeliveryOptInTests
             ContentType = type,
             Status = ContentStatus.Published,
             Sensitivity = SensitivityLevel.Public,
-            Data = new Dictionary<string, object> { ["Title"] = marker, ["Slug"] = $"s-{tag}" },
+            Data = new Dictionary<string, object> { ["Title"] = marker, ["Slug"] = slug },
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
         });
         await s.SaveChangesAsync();
 
-        return (type, marker);
+        return (type, marker, slug);
     }
 
     [Fact]
     public async Task A_type_that_has_not_opted_in_is_not_listed()
     {
-        var (type, marker) = await SeedAsync(deliverable: false);
+        var (type, marker, slug) = await SeedAsync(deliverable: false);
 
         var res = await _anon.GetAsync($"/api/public/{type}");
         var body = await res.Content.ReadAsStringAsync();
@@ -91,7 +92,7 @@ public class PublicDeliveryOptInTests
     [Fact]
     public async Task A_type_that_has_opted_in_is_listed_exactly_as_before()
     {
-        var (type, marker) = await SeedAsync(deliverable: true);
+        var (type, marker, slug) = await SeedAsync(deliverable: true);
 
         var res = await _anon.GetAsync($"/api/public/{type}");
         res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
@@ -100,30 +101,43 @@ public class PublicDeliveryOptInTests
         body.GetProperty("totalItems").GetInt32().Should().Be(1);
         (await res.Content.ReadAsStringAsync()).Should().Contain(marker,
             "opting in must deliver the same content it always did");
+
+        var bySlug = await _anon.GetAsync($"/api/public/{type}/{slug}");
+        bySlug.StatusCode.Should().Be(HttpStatusCode.OK, "the slug route works again once opted in");
     }
 
     [Fact]
     public async Task The_gate_covers_search_and_the_slug_route_too()
     {
-        var (type, marker) = await SeedAsync(deliverable: false);
+        var (type, marker, slug) = await SeedAsync(deliverable: false);
 
-        // One endpoint left ungated is the whole hole: they read from the same documents.
-        foreach (var url in new[] { $"/api/public/{type}/search?q=MARKER", $"/api/public/{type}/s-x" })
+        // One endpoint left ungated is the whole hole: they read from the same documents. The slug
+        // request uses the real seeded slug — asking for one that does not exist would 404 for the
+        // ordinary reason and never reach the gate.
+        //
+        // The one-character query is deliberate too: search answered the short-query case with 200
+        // before checking eligibility, which confirmed the type existed.
+        foreach (var url in new[]
+                 {
+                     $"/api/public/{type}/search?q=MARKER",
+                     $"/api/public/{type}/search?q=x",
+                     $"/api/public/{type}/{slug}",
+                 })
         {
             var res = await _anon.GetAsync(url);
+            res.StatusCode.Should().Be(HttpStatusCode.NotFound, $"{url} should refuse a type that has not opted in");
             (await res.Content.ReadAsStringAsync()).Should().NotContain(marker, $"{url} must not deliver it");
-            res.IsSuccessStatusCode.Should().BeFalse($"{url} should refuse a type that has not opted in");
         }
     }
 
     [Fact]
     public async Task The_feed_covers_it_too()
     {
-        var (type, marker) = await SeedAsync(deliverable: false);
+        var (type, marker, slug) = await SeedAsync(deliverable: false);
 
         var res = await _anon.GetAsync($"/api/public/{type}/feed.xml");
+        res.StatusCode.Should().Be(HttpStatusCode.NotFound, "an RSS feed is public delivery in another format");
         (await res.Content.ReadAsStringAsync()).Should().NotContain(marker);
-        res.IsSuccessStatusCode.Should().BeFalse("an RSS feed is public delivery in another format");
     }
 
     [Fact]
@@ -171,7 +185,7 @@ public class PublicDeliveryOptInTests
     [Fact]
     public async Task An_admin_can_turn_delivery_on_and_off_again()
     {
-        var (type, marker) = await SeedAsync(deliverable: false);
+        var (type, marker, slug) = await SeedAsync(deliverable: false);
 
         var admin = _factory.CreateClient();
         admin.DefaultRequestHeaders.Authorization =
@@ -195,7 +209,7 @@ public class PublicDeliveryOptInTests
     [Fact]
     public async Task Turning_delivery_on_requires_an_admin()
     {
-        var (type, _) = await SeedAsync(deliverable: false);
+        var (type, _, _) = await SeedAsync(deliverable: false);
 
         // Anonymous, and a signed-in Editor, must both be refused — otherwise the gate is decorative.
         (await _anon.PutAsJsonAsync($"/api/content-types/{type}/public-delivery", new { enabled = true }))

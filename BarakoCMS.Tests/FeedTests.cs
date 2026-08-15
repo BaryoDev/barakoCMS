@@ -88,7 +88,7 @@ public class FeedTests
     }
 
     [Fact]
-    public async Task Feed_UnknownOrUndeliverableType_Is404()
+    public async Task An_unknown_type_returns_404_for_rss()
     {
         // This used to answer 200 with an empty but valid feed. It now refuses, because delivery is
         // opt-in and an unknown type and an un-opted-in one must be indistinguishable — answering

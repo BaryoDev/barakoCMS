@@ -64,7 +64,7 @@ field on it is public.
 Existing types deserialize with the flag `false`, so **anything you currently serve publicly stops
 being served** until you turn it on. For each type your site reads anonymously:
 
-```
+```http
 PUT /api/content-types/{name}/public-delivery
 { "enabled": true }
 ```

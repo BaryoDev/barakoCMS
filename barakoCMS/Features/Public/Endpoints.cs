@@ -174,15 +174,18 @@ public class PublicSearchEndpoint : EndpointWithoutRequest<PublicSearchResponse>
         var q = (Query<string>("q", isRequired: false) ?? string.Empty).Trim();
         var limit = Math.Clamp(Query<int?>("limit", isRequired: false) ?? 20, 1, MaxResults);
 
+        /* Eligibility first. Answering the short-query case before this gate returned 200 for a type
+         * that is not deliverable, which confirms the type exists — the existence oracle the 404 is
+         * meant to close. */
+        var def = await _session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
+        if (!PublicDelivery.IsDeliverable(def)) { await SendNotFoundAsync(ct); return; }
+        var slugField = PublicDelivery.SlugField(def!);
+
         if (q.Length < 2)
         {
             await SendOkAsync(new PublicSearchResponse(Array.Empty<PublicContentResponse>(), 0, q), ct);
             return;
         }
-
-        var def = await _session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
-        if (!PublicDelivery.IsDeliverable(def)) { await SendNotFoundAsync(ct); return; }
-        var slugField = PublicDelivery.SlugField(def!);
 
         var candidates = await _session.Query<ContentDoc>()
             .Where(c => c.ContentType == type
