@@ -1,0 +1,62 @@
+# Let a contributor claim an issue themselves by commenting `/take`.
+#
+# GitHub's UI only offers collaborators in the assignee dropdown, and the "can this user be
+# assigned" API returns 404 for everyone else — so assigning an outside contributor looks impossible
+# from the web interface. The REST API allows it once the person has commented on the issue, which
+# this workflow uses. That removes a round trip: nobody has to wait for a maintainer to be awake.
+name: Self-assign
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  issues: write
+
+jobs:
+  take:
+    # Issues only, and only when the comment is a claim. `startsWith` rather than an exact match so
+    # `/take` on its own line still works when someone adds a sentence after it.
+    if: >
+      !github.event.issue.pull_request &&
+      (startsWith(github.event.comment.body, '/take') || startsWith(github.event.comment.body, '.take'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v9
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const who = context.payload.comment.user.login;
+
+            const { data: issue } = await github.rest.issues.get({ owner, repo, issue_number });
+            const current = issue.assignees.map(a => a.login);
+
+            if (current.includes(who)) {
+              core.info(`${who} already has it; nothing to do.`);
+              return;
+            }
+
+            // Someone else is already on it. Say so rather than silently piling on — two people
+            // discovering they duplicated a weekend's work is the outcome this is meant to prevent.
+            if (current.length > 0) {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number,
+                body: `@${who} this one is already with @${current.join(', @')}. ` +
+                      `Worth checking in with them before starting — they may be glad of the help, ` +
+                      `or it may be further along than it looks. There are other issues going spare ` +
+                      `under [help wanted](https://github.com/${owner}/${repo}/issues?q=is%3Aopen+label%3A%22help+wanted%22).`,
+              });
+              return;
+            }
+
+            await github.rest.issues.addAssignees({ owner, repo, issue_number, assignees: [who] });
+            await github.rest.issues.createComment({
+              owner, repo, issue_number,
+              body: `Assigned to @${who} — it's yours. 🎉\n\n` +
+                    `No deadline, and no hard feelings if you change your mind; just say so and ` +
+                    `someone else can pick it up. A draft PR early is very welcome if you'd like ` +
+                    `eyes on the direction before polishing it.\n\n` +
+                    `CLA Assistant will ask you to sign on your first pull request. It takes about ` +
+                    `thirty seconds and you keep copyright of your work.`,
+            });
