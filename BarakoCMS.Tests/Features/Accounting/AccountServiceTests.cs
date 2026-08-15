@@ -68,7 +68,9 @@ public class AccountServiceTests
     public async Task Upserting_an_existing_code_updates_in_place_rather_than_duplicating()
     {
         var tag = Tag();
-        var code = $"4000-{tag}";
+        // Letters, so the second write can differ only in case and actually exercise the
+        // case-insensitive match. A digits-only code would compare equal either way.
+        var code = $"dues-{tag}";
 
         using (var s1 = Store().LightweightSession())
         {
@@ -78,7 +80,8 @@ public class AccountServiceTests
 
         using (var s2 = Store().LightweightSession())
         {
-            await new AccountService(s2).UpsertAsync(Acct(code, "Membership dues", AccountType.Income));
+            await new AccountService(s2).UpsertAsync(
+                Acct(code.ToUpperInvariant(), "Membership dues", AccountType.Income));
             await s2.SaveChangesAsync();
         }
 
@@ -86,8 +89,9 @@ public class AccountServiceTests
         // documents, and which one a lookup returns is arbitrary.
         using var q = Store().QuerySession();
         var all = await new AccountService(q).GetAllAsync();
-        all.Where(a => a.Code == code).Should().HaveCount(1);
-        all.Single(a => a.Code == code).Name.Should().Be("Membership dues");
+        var matching = all.Where(a => string.Equals(a.Code, code, StringComparison.OrdinalIgnoreCase)).ToList();
+        matching.Should().HaveCount(1, "a code differing only in case is the same account");
+        matching.Single().Name.Should().Be("Membership dues", "the later write wins");
     }
 
     [Fact]
@@ -182,18 +186,21 @@ public class AccountServiceTests
     public async Task Repeating_a_code_within_one_unit_of_work_does_not_create_two_accounts()
     {
         var tag = Tag();
-        var code = $"6000-{tag}";
+        var code = $"levy-{tag}";
 
         using var s = Store().LightweightSession();
         await new AccountService(s).UpsertManyAsync(new[]
         {
             Acct(code, "First spelling"),
-            Acct(code, "Second spelling"),
+            Acct(code.ToUpperInvariant(), "Second spelling"),
         });
         await s.SaveChangesAsync();
 
         using var q = Store().QuerySession();
-        var matching = (await new AccountService(q).GetAllAsync()).Where(a => a.Code == code).ToList();
+        var matching = (await new AccountService(q).GetAllAsync())
+            .Where(a => string.Equals(a.Code, code, StringComparison.OrdinalIgnoreCase)).ToList();
         matching.Should().HaveCount(1, "one code is one account, whichever transaction it arrived in");
+        matching.Single().Name.Should().Be("Second spelling",
+            "the staged account must be replaced, not merely left alone");
     }
 }

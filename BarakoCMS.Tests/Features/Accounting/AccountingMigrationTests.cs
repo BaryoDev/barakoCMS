@@ -190,8 +190,14 @@ public class AccountingMigrationTests
 
         // A migrated ledger that landed as Draft would be invisible to every report, which reads as
         // "the migration lost my data" even though it is all there.
-        (await ContentAsync(AccountingContentTypes.JournalEntry, tag)).Single()
-            .Status.Should().Be(ContentStatus.Published);
+        var migrated = (await ContentAsync(AccountingContentTypes.JournalEntry, tag)).Single();
+        migrated.Status.Should().Be(ContentStatus.Published);
+
+        // The other half of the name, which went unchecked at first: sensitivity decides who may
+        // read the record at all, so a migration that changed it would move the whole ledger across
+        // an access boundary without anything reporting a failure.
+        migrated.Sensitivity.Should().Be(SensitivityLevel.Public,
+            "the migration must not alter who can read an entry");
     }
 
     // ContentData is internal to the module, so the bag is read directly here rather than widening
