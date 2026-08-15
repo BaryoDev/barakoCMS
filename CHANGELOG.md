@@ -15,7 +15,7 @@ that method and is how a host seeds a whole chart in one transaction — precise
 code is most likely to appear. The second appearance became a second account: one code split across
 two documents, with lookups picking between them arbitrarily and balances divided between them.
 
-It now checks the session's pending changes before the database. Accounting module `0.2.1`.
+It now checks the session's pending changes before the database. Accounting module `0.2.2`.
 
 ### Accounting test coverage: 49.6% → 77.7%
 
