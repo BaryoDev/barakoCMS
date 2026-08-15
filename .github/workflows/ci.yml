@@ -130,6 +130,62 @@ jobs:
           echo "## Admin UI" >> $GITHUB_STEP_SUMMARY
           echo "✅ lint, typecheck, vitest, production build, and the full E2E pack completed" >> $GITHUB_STEP_SUMMARY
 
+  site:
+    name: Site (barakocms.baryo.dev)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Same line as the admin and .NET gates: Critical or High fails, and an unreadable report fails
+      # closed rather than waving things through.
+      - name: Audit dependencies (fail on Critical or High)
+        run: |
+          npm audit --json > audit.json || true
+
+          CRIT=$(jq -r '.metadata.vulnerabilities.critical // empty' audit.json 2>/dev/null || true)
+          HIGH=$(jq -r '.metadata.vulnerabilities.high // empty' audit.json 2>/dev/null || true)
+          case "${CRIT}|${HIGH}" in
+            *[!0-9]\|*|*\|*[!0-9]*|\|*|*\|)
+              echo "::error::npm audit did not return a usable report — failing closed"
+              head -c 500 audit.json || true
+              exit 1
+              ;;
+          esac
+
+          echo "site npm audit: critical=$CRIT high=$HIGH" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$CRIT" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
+            echo "::error::npm audit found $CRIT critical and $HIGH high severity vulnerabilities"
+            exit 1
+          fi
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      # The build renders the marketplace from NuGet. It must also succeed when that call fails —
+      # the fallback manifest exists for exactly that — so a NuGet outage cannot break the build.
+      - name: Build (static export)
+        run: npm run build
+
+      - name: Check both pages exported
+        run: |
+          test -f out/index.html || { echo "::error::landing page missing from the export"; exit 1; }
+          test -f out/marketplace/index.html || { echo "::error::marketplace missing from the export"; exit 1; }
+          grep -q "barakocms-module" out/marketplace/index.html \
+            || { echo "::error::the marketplace did not render the discovery tag"; exit 1; }
+
   security:
     name: Security scan
     runs-on: ubuntu-latest
