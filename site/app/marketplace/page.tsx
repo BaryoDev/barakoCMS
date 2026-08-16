@@ -111,6 +111,7 @@ function Group({
                   width={32}
                   height={32}
                   loading="lazy"
+                  referrerPolicy="no-referrer"
                   className="mt-0.5 size-8 shrink-0 rounded"
                 />
               ) : (
