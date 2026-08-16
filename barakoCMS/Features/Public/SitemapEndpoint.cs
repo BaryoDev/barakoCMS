@@ -45,9 +45,13 @@ public class SitemapEndpoint : EndpointWithoutRequest
                             && c.Sensitivity == SensitivityLevel.Public)
                 .ToListAsync(ct);
 
-            var siteUrl = (_config["Feeds:SiteUrl"]
-                        ?? $"{HttpContext.Request.Scheme}://{HttpContext.Request.Host}")
-                        .TrimEnd('/');
+            var siteUrl = _config["Feeds:SiteUrl"]?.TrimEnd('/');
+
+            if (string.IsNullOrWhiteSpace(siteUrl))
+            {
+                await SendErrorsAsync(500, ct);
+                return;
+            }
 
             var pathTemplate = _config[$"Feeds:Paths:{type}"]
                             ?? $"/{type}/{{slug}}";
