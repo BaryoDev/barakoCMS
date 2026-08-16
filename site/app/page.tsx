@@ -258,7 +258,11 @@ app.Run();`}</code>
             <ul className="mt-6 flex flex-wrap gap-x-8 gap-y-5">
               {people.map((p) => (
                 <li key={p.login}>
-                  <a href={p.profile} className="flex items-center gap-3 group">
+                  <a
+                    href={p.profile}
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-3 group"
+                  >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={`https://avatars.githubusercontent.com/${encodeURIComponent(p.login)}?s=72`}

@@ -32,10 +32,31 @@ const LABELS: Record<string, string> = {
   example: 'Examples',
 };
 
+/**
+ * A contributor profile link, or undefined if it is not a plain GitHub profile URL.
+ *
+ * `.all-contributorsrc` is edited by the all-contributors bot in response to a comment on an issue,
+ * so its contents are influenced by anyone who can comment. React does not sanitize `href`, so a
+ * `javascript:` URL in that file would execute on click. Same lesson as the package icons on the
+ * marketplace: validate the URL where the data is read, not where it is rendered.
+ */
+export function safeProfileUrl(raw: string | undefined, login: string): string {
+  const fallback = `https://github.com/${encodeURIComponent(login)}`;
+  if (!raw) return fallback;
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== 'https:') return fallback;
+    return url.host === 'github.com' ? url.toString() : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export function contributors(): Contributor[] {
   try {
     const raw = readFileSync(join(process.cwd(), '..', '.all-contributorsrc'), 'utf8');
-    return (JSON.parse(raw).contributors ?? []) as Contributor[];
+    const list = (JSON.parse(raw).contributors ?? []) as Contributor[];
+    return list.map((c) => ({ ...c, profile: safeProfileUrl(c.profile, c.login) }));
   } catch {
     // A missing or unreadable file must not fail the build. The section simply does not render.
     return [];
