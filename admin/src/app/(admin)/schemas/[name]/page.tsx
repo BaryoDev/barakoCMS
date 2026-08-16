@@ -2,13 +2,16 @@
 
 import { use } from 'react';
 import Link from 'next/link';
-import { useSchema } from '@/hooks/use-schemas';
+import { useSchema, useSetPublicDelivery } from '@/hooks/use-schemas';
 import { FIELD_TYPES } from '@/types/schema';
 import { PageHeader } from '@/components/patterns/page-header';
 import { TableSkeleton } from '@/components/patterns/table-skeleton';
 import { EmptyState } from '@/components/patterns/empty-state';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
+import { toast } from 'sonner';
 import {
   Table,
   TableBody,
@@ -22,6 +25,7 @@ import { IconContent, IconContentTypes, IconInfo, IconPlus } from '@/components/
 export default function SchemaDetailPage({ params }: { params: Promise<{ name: string }> }) {
   const { name } = use(params);
   const { data: schema, isLoading } = useSchema(name);
+  const setPublicDelivery = useSetPublicDelivery(name);
 
   if (isLoading) return <TableSkeleton />;
 
@@ -68,9 +72,47 @@ export default function SchemaDetailPage({ params }: { params: Promise<{ name: s
       <div className="text-muted-foreground mb-4 flex items-start gap-2 rounded-lg border px-4 py-3 text-sm">
         <IconInfo className="mt-0.5 size-4 shrink-0" />
         <p>
-          Content types are permanent: the API has no update or delete for them. To change the shape,
-          create a new type and migrate entries.
+          A content type&rsquo;s fields are permanent: the API has no update or delete for them. To
+          change the shape, create a new type and migrate entries. Public delivery, below, is the one
+          setting you can change afterwards.
         </p>
+      </div>
+
+      <div className="mb-6 flex items-start justify-between gap-6 rounded-lg border p-4">
+        <div className="space-y-1">
+          <Label htmlFor="publicDelivery">Serve this type publicly</Label>
+          <p className="text-muted-foreground text-sm">
+            {schema.isPubliclyDeliverable ? (
+              <>
+                Anyone can read published entries of this type without signing in, at{' '}
+                <code className="text-xs">/api/public/{schema.name}</code>. Fields marked sensitive
+                stay hidden.
+              </>
+            ) : (
+              <>
+                Entries of this type are not served anonymously. Requests to{' '}
+                <code className="text-xs">/api/public/{schema.name}</code> return 404. Turn this on
+                for content meant for the public, like posts or pages — not for people or payments.
+              </>
+            )}
+          </p>
+        </div>
+        <Switch
+          id="publicDelivery"
+          checked={schema.isPubliclyDeliverable ?? false}
+          disabled={setPublicDelivery.isPending}
+          onCheckedChange={(enabled) =>
+            setPublicDelivery.mutate(enabled, {
+              onSuccess: () =>
+                toast.success(
+                  enabled
+                    ? `“${schema.displayName}” is now served publicly`
+                    : `“${schema.displayName}” is no longer served publicly`,
+                ),
+              onError: () => toast.error('Could not change public delivery'),
+            })
+          }
+        />
       </div>
 
       <div className="rounded-lg border">

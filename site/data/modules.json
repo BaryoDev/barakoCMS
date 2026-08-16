@@ -3,7 +3,7 @@
   "modules": [
     {
       "id": "BarakoCMS",
-      "version": "3.20.0",
+      "version": "3.20.1",
       "description": "The AI-Native, High-Performance Headless CMS for .NET 8. Plugin-based workflow system with 6 built-in actions, advanced RBAC, event sourcing, and production-grade security.",
       "official": true
     },
@@ -21,8 +21,8 @@
     },
     {
       "id": "BarakoCMS.Analytics.Umami",
-      "version": "0.2.4",
-      "description": "Umami web-analytics module for barakoCMS: proxies a self-hosted Umami instance behind admin-only endpoints so the CMS admin can show visitors, top pages, referrers and countries \u2014 and register new tracked sites \u2014 without exposing Umami credentials to the browser.",
+      "version": "0.2.5",
+      "description": "Umami web-analytics module for barakoCMS: proxies a self-hosted Umami instance behind admin-only endpoints so the CMS admin can show visitors, top pages, referrers and countries, and register new tracked sites, without exposing an Umami API key to the browser.",
       "official": true
     },
     {

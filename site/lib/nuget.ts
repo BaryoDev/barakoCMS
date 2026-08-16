@@ -30,6 +30,29 @@ export type Module = {
 const OFFICIAL_PREFIX = 'BarakoCMS';
 
 /**
+ * Icons are rendered from package metadata, and anyone can publish a package carrying our discovery
+ * tag — that openness is the point of the marketplace, and it means `iconUrl` is attacker-controlled.
+ * An arbitrary URL in an `<img src>` makes every visitor's browser call a host of the publisher's
+ * choosing, which leaks visitor IP and user agent and works as a tracking pixel.
+ *
+ * NuGet re-hosts embedded icons on its own CDN, so every icon worth showing is already there:
+ * checked across our packages and forty third-party ones, all of them serve from api.nuget.org.
+ * Anything else gets no icon and falls back to a placeholder, which costs nothing.
+ */
+const ICON_HOSTS = new Set(['api.nuget.org']);
+
+export function safeIconUrl(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== 'https:') return undefined;
+    return ICON_HOSTS.has(url.host) ? url.toString() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Resolve the search endpoint from the service index rather than hardcoding it — NuGet moves it,
  * and a hardcoded host is how a marketplace quietly goes blank a year later.
  */
@@ -75,7 +98,7 @@ export async function fetchModules(): Promise<{ modules: Module[]; live: boolean
           id: p.id,
           version: p.version,
           description: p.description ?? '',
-          iconUrl: p.iconUrl,
+          iconUrl: safeIconUrl(p.iconUrl),
           totalDownloads: p.totalDownloads,
           authors: p.authors,
           projectUrl: p.projectUrl,

@@ -51,6 +51,23 @@ body {
 
 ::selection { background: var(--color-bean); color: var(--color-ground); }
 
+/* The serif display face sets a touch loose at large sizes; pull it in so headings read as set
+   rather than typed. */
+h1, h2 { font-feature-settings: "liga" 1, "kern" 1; }
+
+/* Keyboard users land here first and should be able to skip the nav. */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  background: var(--color-bean);
+  color: var(--color-ground);
+  padding: 10px 16px;
+  border-radius: 0 0 6px 0;
+  z-index: 50;
+}
+.skip-link:focus { left: 0; }
+
 :where(a, button, summary):focus-visible {
   outline: 2px solid var(--color-bean);
   outline-offset: 3px;
