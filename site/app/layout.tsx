@@ -55,7 +55,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </nav>
         </header>
 
-        <main id="main" className="flex-1">{children}</main>
+        {/* tabIndex allows the skip link to move focus here without adding main to the tab order. */}
+        <main id="main" tabIndex={-1} className="flex-1 focus:outline-none">{children}</main>
 
         <footer className="border-t border-rule mt-24">
           <div className="mx-auto max-w-5xl px-6 py-10 text-sm text-muted flex flex-wrap gap-x-8 gap-y-3">

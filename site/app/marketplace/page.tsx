@@ -117,7 +117,7 @@ function Group({
               ) : (
                 <span className="mt-0.5 size-8 shrink-0 rounded bg-raised" aria-hidden="true" />
               )}
-              <h3 className="font-medium leading-snug flex-1">{displayName(m.id)}</h3>
+              <h3 className="font-medium leading-snug flex-1 min-w-0 break-words">{displayName(m.id)}</h3>
               <span className="font-mono text-[11px] text-muted tabular-nums whitespace-nowrap pt-1">
                 {m.version}
               </span>
