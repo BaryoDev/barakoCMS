@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { Bean } from './bean';
 import { fetchModules } from '@/lib/nuget';
+import { contributors, describe } from '@/lib/contributors';
 
 const GITHUB = 'https://github.com/BaryoDev/barakoCMS';
 const BARYOVM = 'https://github.com/BaryoDev/BaryoVM';
@@ -8,6 +9,7 @@ const BARYOVM = 'https://github.com/BaryoDev/BaryoVM';
 export default async function Home() {
   const { modules } = await fetchModules();
   const moduleCount = modules.filter((m) => m.id !== 'BarakoCMS').length;
+  const people = contributors();
 
   return (
     <>
@@ -246,6 +248,38 @@ app.Run();`}</code>
           </code>{' '}
           tag and it appears in the marketplace on its own. There is no submission queue.
         </p>
+        {people.length > 0 && (
+          <div className="mt-10 rounded-lg border border-rule bg-surface p-6">
+            <h3 className="font-medium">People who have made this better</h3>
+            <p className="mt-1.5 text-[15px] text-ink-2 leading-relaxed">
+              Not only code. A bug report that stops the wrong thing being built counts as much here
+              as a pull request, and so far it has counted for more.
+            </p>
+            <ul className="mt-6 flex flex-wrap gap-x-8 gap-y-5">
+              {people.map((p) => (
+                <li key={p.login}>
+                  <a href={p.profile} className="flex items-center gap-3 group">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={`https://avatars.githubusercontent.com/${encodeURIComponent(p.login)}?s=72`}
+                      alt=""
+                      width={36}
+                      height={36}
+                      loading="lazy"
+                      referrerPolicy="no-referrer"
+                      className="size-9 rounded-full"
+                    />
+                    <span className="text-[15px]">
+                      <span className="font-medium group-hover:text-bean">{p.name}</span>
+                      <span className="block text-[13px] text-muted">{describe(p.contributions)}</span>
+                    </span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         <div className="mt-7 flex flex-wrap gap-3">
           {[
             ['Good first issues', `${GITHUB}/issues?q=is%3Aopen+label%3A%22good+first+issue%22`],
