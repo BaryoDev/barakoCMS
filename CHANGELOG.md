@@ -34,6 +34,18 @@ is lossless at these magnitudes, so the shape that actually bites — the runnin
 `AccountService` was the surprise. Nothing inside barakoCMS calls it, so it read as dead code, but
 a host application uses it in seven places. Whole suite: 71.1% → 74.4%.
 
+## [3.20.1] - 2026-08-15
+
+### Fixed: the opt-in had no way to be turned on for a type that already existed
+
+3.20.0 made public delivery opt-in and added the endpoint to change it, but the admin only offered
+the toggle when *creating* a content type. Every existing type — which is every type anyone upgrading
+has — had no interface at all, so the documented upgrade step was "call the API by hand".
+
+The content type screen now has the switch, with copy that says what each state means and names the
+exact URL that will or will not answer. There are no core code changes; this releases the admin
+image.
+
 ## [3.20.0] - 2026-08-15
 
 ### Changed (breaking): public delivery is now opt-in per content type

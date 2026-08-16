@@ -21,7 +21,27 @@ export function useSchema(name: string) {
     };
 }
 
-// Content types are create-only on the API — no update or delete endpoints exist.
+// Public delivery is the one property of an existing content type that can be changed. Everything
+// else about a type is create-only, which is why this is its own endpoint rather than part of a
+// general update: turning on anonymous access to a whole type is a decision worth making on purpose.
+export function useSetPublicDelivery(name: string) {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async (enabled: boolean) => {
+            const response = await api.put<{ name: string; isPubliclyDeliverable: boolean }>(
+                `/api/content-types/${encodeURIComponent(name)}/public-delivery`,
+                { enabled },
+            );
+            return response.data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['schemas'] });
+        },
+    });
+}
+
+// Content types are otherwise create-only on the API — no general update or delete endpoints exist.
 export function useCreateSchema() {
     const queryClient = useQueryClient();
 

@@ -30,11 +30,37 @@ export type Module = {
 const OFFICIAL_PREFIX = 'BarakoCMS';
 
 /**
+ * Icons are rendered from package metadata, and anyone can publish a package carrying our discovery
+ * tag — that openness is the point of the marketplace, and it means `iconUrl` is attacker-controlled.
+ * An arbitrary URL in an `<img src>` makes every visitor's browser call a host of the publisher's
+ * choosing, which leaks visitor IP and user agent and works as a tracking pixel.
+ *
+ * NuGet re-hosts embedded icons on its own CDN, so every icon worth showing is already there:
+ * checked across our packages and forty third-party ones, all of them serve from api.nuget.org.
+ * Anything else gets no icon and falls back to a placeholder, which costs nothing.
+ */
+const ICON_HOSTS = new Set(['api.nuget.org']);
+
+export function safeIconUrl(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== 'https:') return undefined;
+    return ICON_HOSTS.has(url.host) ? url.toString() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Resolve the search endpoint from the service index rather than hardcoding it — NuGet moves it,
  * and a hardcoded host is how a marketplace quietly goes blank a year later.
  */
 async function searchEndpoint(): Promise<string> {
-  const res = await fetch(SERVICE_INDEX, { cache: 'no-store' });
+  // Not `no-store`: that marks the fetch dynamic, which `output: 'export'` refuses, so the whole
+  // call throws and the page silently falls back to the manifest. deploy.sh clears .next before
+  // building, which is what actually keeps this fresh.
+  const res = await fetch(SERVICE_INDEX);
   if (!res.ok) throw new Error(`service index: ${res.status}`);
   const body = (await res.json()) as { resources: { '@id': string; '@type': string }[] };
   const svc = body.resources.find((r) => r['@type'].startsWith('SearchQueryService'));
@@ -62,7 +88,7 @@ export async function fetchModules(): Promise<{ modules: Module[]; live: boolean
   try {
     const endpoint = await searchEndpoint();
     const url = `${endpoint}?q=${encodeURIComponent(`tags:${DISCOVERY_TAG}`)}&take=100&prerelease=false`;
-    const res = await fetch(url, { cache: 'no-store' });
+    const res = await fetch(url);
     if (!res.ok) throw new Error(`search: ${res.status}`);
     const body = (await res.json()) as { data: NuGetHit[] };
 
@@ -72,7 +98,7 @@ export async function fetchModules(): Promise<{ modules: Module[]; live: boolean
           id: p.id,
           version: p.version,
           description: p.description ?? '',
-          iconUrl: p.iconUrl,
+          iconUrl: safeIconUrl(p.iconUrl),
           totalDownloads: p.totalDownloads,
           authors: p.authors,
           projectUrl: p.projectUrl,
@@ -83,8 +109,18 @@ export async function fetchModules(): Promise<{ modules: Module[]; live: boolean
         .sort((a, b) => (b.totalDownloads ?? 0) - (a.totalDownloads ?? 0));
       return { modules, live: true };
     }
-  } catch {
-    /* fall through to the manifest */
+    console.warn(
+      `[marketplace] NuGet returned no packages for tags:${DISCOVERY_TAG}; using the bundled manifest.`,
+    );
+  } catch (err) {
+    // Falling back is intentional and must not fail the build — NuGet being unreachable should not
+    // stop the site deploying. But it has to be visible: this catch previously hid a bug where
+    // every build fell back and nobody could tell from the output.
+    console.warn(
+      `[marketplace] NuGet lookup failed, using the bundled manifest: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
   }
 
   return {
