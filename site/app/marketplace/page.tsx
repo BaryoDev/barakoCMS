@@ -4,7 +4,7 @@ import { fetchModules, formatDownloads, displayName, DISCOVERY_TAG } from '@/lib
 export const metadata: Metadata = {
   title: 'Modules',
   description:
-    'Optional packages that extend BarakoCMS — accounting, semantic search, feature flags, file storage, social sign-in and more. Anything published to NuGet with the barakocms-module tag appears here.',
+    'Optional packages that extend BarakoCMS: accounting, semantic search, feature flags, file storage, social sign-in and more. Anything published to NuGet with the barakocms-module tag appears here.',
 };
 
 const GITHUB = 'https://github.com/BaryoDev/barakoCMS';
@@ -22,8 +22,8 @@ export default async function Marketplace() {
             Modules
           </h1>
           <p className="mt-5 text-lg text-ink-2 max-w-[62ch] leading-relaxed">
-            Add a capability without growing the core. Each module is a separate package: install it,
-            register it, and it wires in its own endpoints, storage and permissions.
+            Add a capability without growing the core. Each module is a separate package. Install
+            it, register it, and it wires in its own endpoints, storage and permissions.
           </p>
           <p className="mt-4 text-[15px] text-muted max-w-[62ch] leading-relaxed">
             This list is NuGet. Anything published with the{' '}
@@ -54,7 +54,7 @@ export default async function Marketplace() {
         {community.length > 0 ? (
           <Group
             title="Community"
-            blurb="Published by other people. Listed as found, with no endorsement implied — read the source before you trust it with your data."
+            blurb="Published by other people. Listed as found, with no endorsement implied. Read the source before you trust it with your data."
             modules={community}
           />
         ) : (
@@ -65,7 +65,7 @@ export default async function Marketplace() {
               <code className="font-mono text-[13px] bg-surface border border-rule rounded px-1.5 py-0.5">
                 {DISCOVERY_TAG}
               </code>{' '}
-              tag and it will be listed automatically — you keep it in your own repository and
+              tag and it will be listed automatically. You keep it in your own repository and
               control its releases.
             </p>
             <a
@@ -101,10 +101,24 @@ function Group({
 
       <ul className="mt-8 grid gap-px bg-rule border border-rule rounded-lg overflow-hidden sm:grid-cols-2">
         {modules.map((m) => (
-          <li key={m.id} className="bg-ground p-5 flex flex-col">
-            <div className="flex items-start justify-between gap-3">
-              <h3 className="font-medium leading-snug">{displayName(m.id)}</h3>
-              <span className="font-mono text-[11px] text-muted tabular-nums whitespace-nowrap pt-0.5">
+          <li key={m.id} className="bg-ground p-5 flex flex-col transition-colors hover:bg-surface">
+            <div className="flex items-start gap-3">
+              {m.iconUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={m.iconUrl}
+                  alt=""
+                  width={32}
+                  height={32}
+                  loading="lazy"
+                  referrerPolicy="no-referrer"
+                  className="mt-0.5 size-8 shrink-0 rounded"
+                />
+              ) : (
+                <span className="mt-0.5 size-8 shrink-0 rounded bg-raised" aria-hidden="true" />
+              )}
+              <h3 className="font-medium leading-snug flex-1 min-w-0 break-words">{displayName(m.id)}</h3>
+              <span className="font-mono text-[11px] text-muted tabular-nums whitespace-nowrap pt-1">
                 {m.version}
               </span>
             </div>

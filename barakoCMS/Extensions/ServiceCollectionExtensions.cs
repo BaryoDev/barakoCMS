@@ -72,7 +72,7 @@ public static class ServiceCollectionExtensions
         {
             o.MultipartBodyLengthLimit = maxBodyBytes;
         });
-        if (Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development")
+        if (configuration.GetValue<bool>("Swagger:Enabled"))
         {
             services.SwaggerDocument();
         }
@@ -645,7 +645,7 @@ public static class ServiceCollectionExtensions
             });
         }
 
-        if (env == "Development")
+        if (configuration.GetValue<bool>("Swagger:Enabled"))
         {
             app.UseSwaggerGen();
         }
