@@ -90,7 +90,12 @@ Postgres data lives in the `pgdata` volume. Back it up with `pg_dump`, e.g.:
 ```bash
 docker compose exec postgres pg_dump -U postgres barakocms > backup.sql
 ```
-
+## Enable Swagger in appsettings.Development.json 
+```
+"Swagger": {
+    "Enabled": true
+  }
+```
 ## Lean core instead of the full suite
 
 Want only some modules? Swap the API image for the core-only build
