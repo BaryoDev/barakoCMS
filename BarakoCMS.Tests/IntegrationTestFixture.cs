@@ -37,7 +37,9 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
                 { "ConnectionStrings:DefaultConnection", ConnectionString },
                 { "JWT:Key", "test-super-secret-key-that-is-at-least-32-chars-long" },
                 { "JWT:Issuer", "BarakoTest" },
-                { "JWT:Audience", "BarakoClient" }
+                { "JWT:Audience", "BarakoClient" },
+                { "Feeds:SiteUrl", "https://test.example.com" },
+                { "Feeds:Paths:sitemap_paths", "/articles/{slug}" },
             });
         });
 

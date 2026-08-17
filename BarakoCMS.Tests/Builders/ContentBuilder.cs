@@ -18,6 +18,7 @@ public sealed class ContentBuilder : BuilderBase<Content>
     private SensitivityLevel _sensitivity = SensitivityLevel.Public;
     private Guid? _id;
     private DateTime? _createdAt;
+    private DateTime? _updatedAt;
     private DateTime? _scheduledPublishAt;
     private DateTime? _scheduledUnpublishAt;
 
@@ -78,6 +79,12 @@ public sealed class ContentBuilder : BuilderBase<Content>
         return this;
     }
 
+    public ContentBuilder UpdatedAt(DateTime when)
+    {
+        _updatedAt = when;
+        return this;
+    }
+
     public ContentBuilder ScheduledToPublishAt(DateTime when)
     {
         _scheduledPublishAt = when;
@@ -101,7 +108,7 @@ public sealed class ContentBuilder : BuilderBase<Content>
             Sensitivity = _sensitivity,
             Data = _data,
             CreatedAt = _createdAt ?? now,
-            UpdatedAt = _createdAt ?? now,
+            UpdatedAt = _updatedAt ?? _createdAt ?? now,
             ScheduledPublishAt = _scheduledPublishAt,
             ScheduledUnpublishAt = _scheduledUnpublishAt,
         };
