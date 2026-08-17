@@ -60,9 +60,9 @@ Two rules hold the checklist together:
 |---|---|---|---|
 | **dev-playground** | dev-playground.baryo.dev | Breakable staging. Break it freely. | Push to `dev` |
 | **playground** | playground.baryo.dev | Public demo. Released versions only. | Version-gated `master` release |
-| **club** | club.baryo.dev | Real members. | By hand, on purpose |
+| **production** | (private) | Real user data. | By hand, on purpose |
 
-The club is never in the automated pipeline — real people, separate blast radius. Do not wire it in.
+Production is never in the automated pipeline — real people, separate blast radius. Do not wire it in.
 
 ## The loop
 

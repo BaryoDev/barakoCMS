@@ -36,6 +36,7 @@ public class MenuTests
         {
             s.Store(new ContentTypeDefinition
             {
+            IsPubliclyDeliverable = true,
                 Id = Guid.NewGuid(),
                 Name = "menu",
                 DisplayName = "Menu",

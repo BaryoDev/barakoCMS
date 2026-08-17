@@ -174,7 +174,7 @@ public class GitHubCallbackEndpoint : EndpointWithoutRequest
         using var req = new HttpRequestMessage(System.Net.Http.HttpMethod.Get, url);
         req.Headers.Authorization = new("Bearer", token);
         req.Headers.Accept.Add(new("application/vnd.github+json"));
-        req.Headers.UserAgent.Add(new("BaryoClub", "1.0")); // GitHub requires a User-Agent
+        req.Headers.UserAgent.Add(new("BarakoCMS", "1.0")); // GitHub requires a User-Agent
         var resp = await http.SendAsync(req, ct);
         resp.EnsureSuccessStatusCode();
         return JsonSerializer.Deserialize<JsonElement>(await resp.Content.ReadAsStringAsync(ct));

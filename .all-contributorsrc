@@ -1,0 +1,29 @@
+{
+  "projectName": "barakoCMS",
+  "projectOwner": "BaryoDev",
+  "repoType": "github",
+  "repoHost": "https://github.com",
+  "files": ["README.md"],
+  "imageSize": 90,
+  "commit": true,
+  "commitConvention": "none",
+  "contributorsPerLine": 7,
+  "contributorsSortAlphabetically": false,
+  "badgeTemplate": "[![All Contributors](https://img.shields.io/badge/all_contributors-<%= contributors.length %>-6F4E37.svg)](#contributors)",
+  "contributors": [
+    {
+      "login": "BabuBahir",
+      "name": "BabuBahir",
+      "avatar_url": "https://avatars.githubusercontent.com/BabuBahir",
+      "profile": "https://github.com/BabuBahir",
+      "contributions": ["bug", "review", "ideas"]
+    },
+    {
+      "login": "ahmdkaml",
+      "name": "ahmdkaml",
+      "avatar_url": "https://avatars.githubusercontent.com/ahmdkaml",
+      "profile": "https://github.com/ahmdkaml",
+      "contributions": ["ideas"]
+    }
+  ]
+}

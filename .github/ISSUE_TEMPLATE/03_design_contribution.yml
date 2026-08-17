@@ -1,0 +1,39 @@
+name: Design, icon or documentation
+description: Offer artwork, a module icon, or a documentation improvement
+labels: ["documentation", "help wanted"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Not every useful contribution is C#. Module icons, diagrams, screenshots and clearer docs
+        all make the project more usable, and a README is the package page on nuget.org — so
+        improving one is a real change, not a cosmetic one.
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What are you offering?
+      options:
+        - A module icon
+        - Other artwork or a diagram
+        - A documentation fix or rewrite
+        - An example or starter project
+        - Something else
+    validations:
+      required: true
+
+  - type: input
+    id: target
+    attributes:
+      label: Which module or page?
+      placeholder: "BarakoCMS.FeatureFlags, or docs/deployment.md"
+
+  - type: textarea
+    id: detail
+    attributes:
+      label: Details
+      description: |
+        For artwork, attach a preview. Icons want an SVG source plus a 128×128 PNG, both in the
+        module's `assets/` — NuGet needs a raster icon under 1MB, and the packaging tests check it.
+    validations:
+      required: true

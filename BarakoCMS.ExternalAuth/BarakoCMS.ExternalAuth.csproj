@@ -5,9 +5,8 @@
 
     <IsPackable>true</IsPackable>
     <PackageId>BarakoCMS.ExternalAuth</PackageId>
-    <Version>0.1.6</Version>
+    <Version>0.1.8</Version>
     <Description>External / social sign-in module for barakoCMS: "Continue with Facebook / Google / LinkedIn / GitHub" via OAuth, matched to a global user by verified email, issuing the same tenant-scoped, device-bound token as the built-in flows. Captures profile details (photo, birthday, location) per provider.</Description>
-    <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
 
   <ItemGroup>

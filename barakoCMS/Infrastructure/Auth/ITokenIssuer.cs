@@ -33,6 +33,7 @@ public interface ITokenIssuer
     /// (<c>jti</c>, <c>UserId</c>, <c>Username</c>, <c>tenant</c>, role) are set here and cannot be
     /// overridden by this collection.
     /// </param>
+    /// <param name="ct">Cancellation token.</param>
     Task<TokenIssueResult> IssueAccessTokenAsync(
         User user,
         string tenantSlug,

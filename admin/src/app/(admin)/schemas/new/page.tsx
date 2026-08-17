@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Separator } from '@/components/ui/separator';
+import { Switch } from '@/components/ui/switch';
 import type { FieldDefinition } from '@/types/schema';
 
 function slugify(input: string): string {
@@ -25,6 +26,7 @@ export default function NewSchemaPage() {
   const [name, setName] = useState('');
   const [nameEdited, setNameEdited] = useState(false);
   const [description, setDescription] = useState('');
+  const [publiclyDeliverable, setPubliclyDeliverable] = useState(false);
   const [fields, setFields] = useState<FieldDefinition[]>([]);
 
   const canSave = displayName.trim() && name.trim() && fields.length > 0;
@@ -33,7 +35,7 @@ export default function NewSchemaPage() {
     e.preventDefault();
     if (!canSave) return;
     createSchema.mutate(
-      { name, displayName, description: description || undefined, fields },
+      { name, displayName, description: description || undefined, fields, isPubliclyDeliverable: publiclyDeliverable },
       {
         onSuccess: () => {
           toast.success(`Content type “${displayName}” created`);
@@ -90,6 +92,25 @@ export default function NewSchemaPage() {
             rows={2}
             placeholder="What this type is for (optional)"
             onChange={(e) => setDescription(e.target.value)}
+          />
+        </div>
+
+        <Separator />
+
+        <div className="flex items-start justify-between gap-6 rounded-lg border p-4">
+          <div className="space-y-1">
+            <Label htmlFor="publicDelivery">Serve this type publicly</Label>
+            <p className="text-sm text-muted-foreground">
+              Anyone can read published entries of this type without signing in, at{' '}
+              <code className="text-xs">/api/public/{name || 'type'}</code>. Leave this off for
+              anything private, like people or payments. Fields marked sensitive stay hidden either
+              way, and you can change this later.
+            </p>
+          </div>
+          <Switch
+            id="publicDelivery"
+            checked={publiclyDeliverable}
+            onCheckedChange={setPubliclyDeliverable}
           />
         </div>
 

@@ -72,7 +72,12 @@ public static class ServiceCollectionExtensions
         {
             o.MultipartBodyLengthLimit = maxBodyBytes;
         });
-        if (Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development")
+        // Config wins, and the environment supplies the default, so Development keeps Swagger with
+        // no configuration at all while production stays off unless it is asked for. Defaulting to
+        // false everywhere would have removed it for every developer.
+        var swaggerOnByDefault =
+            Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development";
+        if (configuration.GetValue("Swagger:Enabled", swaggerOnByDefault))
         {
             services.SwaggerDocument();
         }
@@ -645,7 +650,7 @@ public static class ServiceCollectionExtensions
             });
         }
 
-        if (env == "Development")
+        if (configuration.GetValue("Swagger:Enabled", env == "Development"))
         {
             app.UseSwaggerGen();
         }

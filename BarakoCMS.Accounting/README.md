@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/logo.svg" width="96" height="96" alt="BarakoCMS.Accounting logo" />
+  <img src="https://raw.githubusercontent.com/BaryoDev/barakoCMS/master/assets/icon.png" width="96" height="96" alt="BarakoCMS.Accounting logo" />
   <h1>BarakoCMS.Accounting</h1>
   <p><em>An optional double-entry accounting module for barakoCMS.</em></p>
 </div>
@@ -60,3 +60,5 @@ barakoCMS ≥ 2.2.0 (for the module system). Targets .NET 8.
 ## License
 
 [MPL-2.0](LICENSE) © BaryoDev
+
+If barakoCMS is useful to you, a star on the [repository](https://github.com/BaryoDev/barakoCMS) helps other people find it.

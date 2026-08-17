@@ -14,11 +14,50 @@
     <Authors>Arnel Robles</Authors>
     <Company>BaryoDev</Company>
     <Product>BarakoCMS</Product>
+    <Copyright>Copyright © BaryoDev</Copyright>
     <PackageLicenseExpression>MPL-2.0</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/baryodev/barakoCMS</PackageProjectUrl>
     <RepositoryUrl>https://github.com/baryodev/barakoCMS</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
+
+    <!-- Every package carries the bean, so the modules read as one family on nuget.org rather than
+         as a dozen unrelated packages sharing a prefix. -->
+    <PackageIcon>icon.png</PackageIcon>
+
+    <!-- `barakocms-module` is the discovery tag: one search on nuget.org returns the whole module
+         set. Umbraco does the same with `umbraco-marketplace`, which is what gets a community
+         package listed rather than merely published. A module may append its own tags. -->
+    <PackageTags>barakocms;barakocms-module;headless-cms;cms;dotnet;aspnetcore;marten</PackageTags>
   </PropertyGroup>
+
+  <!-- A package with no README renders as an empty page on nuget.org, which is where most people
+       decide whether to install it. Conditional so adding a project never breaks the build; the
+       packaging test asserts every packable project actually has one. -->
+  <PropertyGroup Condition="Exists('$(MSBuildProjectDirectory)/README.md')">
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <!-- Ship XML docs so consumers get IntelliSense on the public API. The doc comments in this
+       codebase carry most of the "why", and without this they stop at the assembly boundary.
+       CS1591 is silenced: warning on every undocumented public member would bury real warnings. -->
+  <PropertyGroup>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <!-- Source Link + symbols: a consumer debugging into a module steps into real source instead of
+       decompiled output. -->
+  <PropertyGroup>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)assets/icon.png" Pack="true" PackagePath="/" Visible="false" />
+    <None Include="README.md" Pack="true" PackagePath="/" Condition="Exists('$(MSBuildProjectDirectory)/README.md')" />
+  </ItemGroup>
 
   <PropertyGroup>
     <AnalysisLevel>latest</AnalysisLevel>

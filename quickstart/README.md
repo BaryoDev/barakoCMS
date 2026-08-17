@@ -90,9 +90,25 @@ Postgres data lives in the `pgdata` volume. Back it up with `pg_dump`, e.g.:
 ```bash
 docker compose exec postgres pg_dump -U postgres barakocms > backup.sql
 ```
+## Enable Swagger
 
+Swagger is on automatically in Development and off in Production. To turn it on anywhere else, set
+it in configuration or as an environment variable:
+
+```
+Swagger__Enabled=true
+```
+
+Or in `appsettings.json`:
+```
+"Swagger": {
+    "Enabled": true
+  }
+```
 ## Lean core instead of the full suite
 
 Want only some modules? Swap the API image for the core-only build
 (`ghcr.io/baryodev/barako-cms-decaf`) and register just the modules you need in your own host. The
 suite here is the batteries-included default.
+
+If barakoCMS is useful to you, a star on the [repository](https://github.com/BaryoDev/barakoCMS) helps other people find it.

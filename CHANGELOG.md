@@ -5,6 +5,92 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed: seeding a chart of accounts could create two accounts sharing one code
+
+`AccountService.UpsertAsync` looked for an existing account with a database query, so accounts stored
+earlier in the *same uncommitted* unit of work were invisible to it. `UpsertManyAsync` is a loop over
+that method and is how a host seeds a whole chart in one transaction — precisely where a repeated
+code is most likely to appear. The second appearance became a second account: one code split across
+two documents, with lookups picking between them arbitrarily and balances divided between them.
+
+It now checks the session's pending changes before the database. Accounting module `0.2.2`.
+
+### Accounting test coverage: 49.6% → 85.4%
+
+The module's own HTTP surface (`POST /api/accounting/journal-entries`, the accounts endpoints), the
+one-shot `AccountingMigration`, and `AccountService` had no tests between them, while carrying the
+money. Three new suites cover them, each checked by reintroducing the bug it claims to catch —
+balance tolerance, totals accumulated through `double`, a migration that moves instead of copies, a
+dropped idempotency guard, and a widened role gate.
+
+Two of those checks found weak tests rather than weak code, and both were rewritten: a one-line
+journal entry is rejected for being unbalanced, not for having too few lines, so the line-minimum
+rule was only pinned once an entry with *no* lines was tested; and a `(decimal)(double)` round trip
+is lossless at these magnitudes, so the shape that actually bites — the running totals declared as
+`double` — is what the fractional-amount test now pins.
+
+`AccountService` was the surprise. Nothing inside barakoCMS calls it, so it read as dead code, but
+a host application uses it in seven places. Whole suite: 71.1% → 74.4%.
+
+## [3.20.1] - 2026-08-15
+
+### Fixed: the opt-in had no way to be turned on for a type that already existed
+
+3.20.0 made public delivery opt-in and added the endpoint to change it, but the admin only offered
+the toggle when *creating* a content type. Every existing type — which is every type anyone upgrading
+has — had no interface at all, so the documented upgrade step was "call the API by hand".
+
+The content type screen now has the switch, with copy that says what each state means and names the
+exact URL that will or will not answer. There are no core code changes; this releases the admin
+image.
+
+## [3.20.0] - 2026-08-15
+
+### Changed (breaking): public delivery is now opt-in per content type
+
+**Read this before upgrading. Content served at `/api/public/*` goes dark until you opt each type in.**
+
+Public delivery used to be opt-out. `GET /api/public/{type}` served *any* content type as long as the
+entry was Published and its sensitivity Public — and both of those are the defaults, for documents and
+for fields alike. So modelling members, orders or a ledger as content handed you an anonymous,
+unauthenticated endpoint for them without anyone ever deciding to publish anything.
+
+That is the wrong way round. Publishing is a decision, and it should have to be made.
+
+It was not hypothetical either: on a live deployment this served a club's member roster — names,
+member numbers, emails, phone numbers, addresses — and its chart of accounts, including per-member
+receivables, to anyone who supplied the club's handle. No token required.
+
+`ContentTypeDefinition` gains `IsPubliclyDeliverable`, defaulting to **false**. The gate covers every
+anonymous read path — the list, search and slug routes, the RSS feed, and semantic search in
+`BarakoCMS.AI` 0.1.4. An un-opted-in type and an unknown type both answer `404`, deliberately: a
+different answer would confirm which types exist.
+
+Field-level sensitivity is unchanged and still applies on top. Opting a type in never implies every
+field on it is public.
+
+#### Upgrading
+
+Existing types deserialize with the flag `false`, so **anything you currently serve publicly stops
+being served** until you turn it on. For each type your site reads anonymously:
+
+```http
+PUT /api/content-types/{name}/public-delivery
+{ "enabled": true }
+```
+
+Admin or SuperAdmin. There is also a toggle on the content type screen in the admin.
+
+That endpoint is new, and it is why this could ship at all: content types had no update endpoint, so
+without it the opt-in would have been a one-way door — every existing type undeliverable, with no
+supported way back short of editing the database.
+
+If you are unsure which types are affected, the honest answer is every type your frontend fetches from
+`/api/public/`. There is no safe way for the CMS to infer that for you, which is exactly why this is a
+major-flagged change rather than a silent default flip.
+
 ## [3.19.0] - 2026-08-09
 
 ### Fixed: the Next.js upgrade that was never actually broken

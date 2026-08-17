@@ -10,6 +10,12 @@ public class Request
     public string DisplayName { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public List<FieldDefinition> Fields { get; set; } = new();
+
+    /// <summary>
+    /// Serve this type from the anonymous public delivery API. Defaults to false: a type is not
+    /// published to the world because someone forgot to say otherwise.
+    /// </summary>
+    public bool IsPubliclyDeliverable { get; set; }
 }
 
 public class Response
@@ -66,6 +72,7 @@ public class Endpoint : Endpoint<Request, Response>
             DisplayName = req.DisplayName,
             Description = req.Description,
             Fields = req.Fields,
+            IsPubliclyDeliverable = req.IsPubliclyDeliverable,
             CreatedAt = DateTimeOffset.UtcNow,
             UpdatedAt = DateTimeOffset.UtcNow
         };

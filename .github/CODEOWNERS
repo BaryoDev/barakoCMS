@@ -1,20 +1,35 @@
-# Review is required from the listed owner for changes to these paths.
-# Needs branch protection with "Require review from Code Owners" enabled to be enforced.
+# Every path here requires review from the listed owner before it can merge.
+# Enforced by branch protection: "Require review from Code Owners" on master.
+#
+# arnelirobles holds a bypass allowance, so this does not block the maintainer's own
+# pull requests. It means nothing from a fork merges without the maintainer's approval.
+
+# Default: everything.
+*                           @arnelirobles
+
+# The rest of this file is redundant while the line above exists. It is kept so that if
+# the default is ever narrowed, the paths where a mistake is most expensive stay covered
+# explicitly rather than silently losing their owner.
 
 # Anything under .claude/ runs on a contributor's machine during a session.
-# A change here is an execution-surface change, so it never merges unreviewed.
+# A change here is an execution-surface change.
 /.claude/                   @arnelirobles
 
-# Shared build configuration: a mistake here affects every project at once.
+# Shared build configuration: a mistake affects every project at once.
 /Directory.Build.props      @arnelirobles
 /Directory.Packages.props   @arnelirobles
-/.editorconfig              @arnelirobles
 
-# CI, release and deployment.
-/.github/                   @arnelirobles
+# Authentication and authorisation. A wrong change here is a breach, not a bug.
+/barakoCMS/Features/Auth/           @arnelirobles
+/barakoCMS/Infrastructure/Auth/     @arnelirobles
+/barakoCMS/Infrastructure/Middleware/ @arnelirobles
 
-# The working agreement itself.
-/CLAUDE.md                  @arnelirobles
-/AGENTS.md                  @arnelirobles
-/CONTRIBUTING.md            @arnelirobles
-/.cursorrules               @arnelirobles
+# Public delivery is the anonymous surface. Everything here is reachable without a token.
+/barakoCMS/Features/Public/         @arnelirobles
+
+# Multi-tenancy: a mistake crosses one customer's data into another's.
+/barakoCMS/Infrastructure/Multitenancy/ @arnelirobles
+
+# CI, releases and anything that runs with repository credentials.
+/.github/workflows/         @arnelirobles
+/scripts/                   @arnelirobles

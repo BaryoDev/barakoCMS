@@ -7,7 +7,7 @@ namespace BarakoCMS.Tests;
 public class TenantHandlesTests
 {
     [Theory]
-    [InlineData("rckoronadal", true)]
+    [InlineData("acmeclub", true)]
     [InlineData("a-club", true)]
     [InlineData("club123", true)]
     [InlineData("ab", false)]        // too short
@@ -22,7 +22,7 @@ public class TenantHandlesTests
         TenantHandles.IsValidHandle(handle).Should().Be(expected);
 
     [Theory]
-    [InlineData("https://facebook.com/rckoronadal", true)]
+    [InlineData("https://facebook.com/acmeclub", true)]
     [InlineData("http://example.com", true)]
     [InlineData("facebook.com/x", false)]   // not absolute
     [InlineData("ftp://x.com", false)]      // wrong scheme

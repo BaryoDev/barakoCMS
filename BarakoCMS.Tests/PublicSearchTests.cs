@@ -33,6 +33,7 @@ public class PublicSearchTests
 
         s.Store(new ContentTypeDefinition
         {
+            IsPubliclyDeliverable = true,
             Id = Guid.NewGuid(), Name = type, DisplayName = type,
             Fields = new()
             {

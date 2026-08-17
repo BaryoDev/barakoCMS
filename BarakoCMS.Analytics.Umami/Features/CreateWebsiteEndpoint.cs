@@ -15,7 +15,7 @@ public sealed class CreateWebsiteValidator : Validator<CreateWebsiteRequest>
     {
         RuleFor(x => x.Name).NotEmpty().MaximumLength(100);
         RuleFor(x => x.Domain).NotEmpty().MaximumLength(500)
-            .Must(d => !d.Contains("://")).WithMessage("Enter a bare domain (e.g. club.baryo.dev), not a full URL.");
+            .Must(d => !d.Contains("://")).WithMessage("Enter a bare domain (e.g. example.com), not a full URL.");
     }
 }
 
