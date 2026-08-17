@@ -42,7 +42,13 @@ public class SitemapEndpoint : EndpointWithoutRequest
             .Take(50000)
             .ToListAsync(ct);
 
-        var siteUrl = (_config["Feeds:SiteUrl"] ?? string.Empty).TrimEnd('/');
+        var siteUrl = _config["Feeds:SiteUrl"]?.TrimEnd('/');
+        if (string.IsNullOrWhiteSpace(siteUrl)
+            || !Uri.TryCreate(siteUrl, UriKind.Absolute, out _))
+        {
+            await SendErrorsAsync(500, ct);
+            return;
+        }
 
         var sb = new StringBuilder();
         sb.Append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
