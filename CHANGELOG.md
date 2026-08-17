@@ -688,7 +688,7 @@ Eight modules were live on NuGet but missing from its search index — installab
 the exact ID, invisible if you didn't. Every module gets a patch release so the whole suite
 re-indexes and depends on core 3.2.0.
 
-## [Unreleased]
+## [3.1.1] - 2026-07-20
 
 ### 🔒 Security & Stability Hardening
 

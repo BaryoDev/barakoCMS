@@ -24,6 +24,48 @@ const CHANGELOG_PATH = join(process.cwd(), '..', 'CHANGELOG.md');
 const renderer = new marked.Renderer();
 renderer.html = () => '';
 
+/*
+ * Link destinations are allowlisted by protocol. Dropping raw HTML is not enough on its own:
+ * `[text](javascript:...)` is ordinary markdown, so it survives that and marked emits the href
+ * untouched — it does not sanitise, by design, and says so.
+ *
+ * Resolving against a base URL rather than string-matching the prefix is deliberate. It normalises
+ * case, leading whitespace and embedded control characters, so `JaVaScRiPt:` and ` javascript:` are
+ * the same thing to this check, and relative paths come back as https because they inherit the base.
+ */
+const SAFE_PROTOCOLS = new Set(['http:', 'https:', 'mailto:']);
+
+export function isSafeHref(href: string): boolean {
+  const raw = href.trim();
+  if (raw.startsWith('#')) return true; // in-page anchor
+  try {
+    return SAFE_PROTOCOLS.has(new URL(raw, 'https://barakocms.baryo.dev/').protocol);
+  } catch {
+    return false;
+  }
+}
+
+const renderLink = renderer.link.bind(renderer);
+renderer.link = function (token) {
+  // Unsafe destination: keep the visible text, lose the link. Nothing silently disappears.
+  if (!isSafeHref(token.href)) return this.parser.parseInline(token.tokens);
+  return renderLink(token);
+};
+
+const renderImage = renderer.image.bind(renderer);
+renderer.image = function (token) {
+  if (!isSafeHref(token.href)) return token.text ?? '';
+  return renderImage(token);
+};
+
+/**
+ * Renders a changelog fragment to HTML with raw HTML dropped and link destinations allowlisted.
+ * Exported so the tests exercise this exact path rather than a reconstruction of it.
+ */
+export function renderMarkdown(md: string): string {
+  return marked.parse(md, { async: false, renderer }) as string;
+}
+
 export type Release = {
   version: string;
   /** ISO date from the heading, or null for the Unreleased section. */

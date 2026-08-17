@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev -p 3200",
     "build": "next build",
-    "start": "next start -p 3200"
+    "start": "next start -p 3200",
+    "test": "vitest run"
   },
   "dependencies": {
     "marked": "^18.0.9",
@@ -19,6 +20,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "tailwindcss": "^4.3.3",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.10"
   }
 }
