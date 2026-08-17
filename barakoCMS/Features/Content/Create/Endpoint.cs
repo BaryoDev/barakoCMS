@@ -78,8 +78,24 @@ public class Endpoint : Endpoint<Request, Response>
             return;
         }
 
+        var definition = await _session.Query<ContentTypeDefinition>()
+            .FirstOrDefaultAsync(d => d.Name == req.ContentType, ct);
+
+        var publicFields = definition?.Fields
+            .Where(f => f.Sensitivity == SensitivityLevel.Public)
+            .Select(f => f.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase)
+            ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        var searchText = string.Join(
+            ' ',
+            req.Data
+                .Where(kv => publicFields.Contains(kv.Key))
+                .Select(kv => kv.Value?.ToString())
+                .Where(v => !string.IsNullOrWhiteSpace(v)));
+
         var contentId = Guid.NewGuid();
-        var @event = new barakoCMS.Events.ContentCreated(contentId, req.ContentType, req.Data, req.Status, userId);
+        var @event = new barakoCMS.Events.ContentCreated(contentId, req.ContentType, req.Data, req.Status, userId, searchText);
 
         // Start the event stream AND store the read-model document in one transaction so they
         // can't diverge on a partial failure. Unhandled errors flow to the global exception handler.

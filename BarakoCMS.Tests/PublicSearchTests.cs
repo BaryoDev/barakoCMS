@@ -25,7 +25,6 @@ public class PublicSearchTests
     }
 
     private const string Needle = "zephyrium"; // unlikely token so matches are unambiguous
-
     private async Task SeedAsync(string type)
     {
         using var scope = _factory.Services.CreateScope();
@@ -37,26 +36,34 @@ public class PublicSearchTests
             Id = Guid.NewGuid(), Name = type, DisplayName = type,
             Fields = new()
             {
-                new FieldDefinition { Name = "Title", DisplayName = "Title", Type = "string" },
-                new FieldDefinition { Name = "Slug", DisplayName = "Slug", Type = "slug" },
-                new FieldDefinition { Name = "Body", DisplayName = "Body", Type = "markdown" },
-                new FieldDefinition { Name = "Secret", DisplayName = "Secret", Type = "string", Sensitivity = SensitivityLevel.Sensitive },
-            },
+                new() { Name = "Title", DisplayName = "Title", Type = "string" },
+                new() { Name = "Slug", DisplayName = "Slug", Type = "slug" },
+                new() { Name = "Body", DisplayName = "Body", Type = "markdown" },
+                new() { Name = "Secret", DisplayName = "Secret", Type = "string", Sensitivity = SensitivityLevel.Sensitive }
+            }
         });
-        // title match, body match, a draft, a Sensitive doc, and a Sensitive-field-only match.
-        s.Store(new Content { Id = Guid.NewGuid(), ContentType = type, Status = ContentStatus.Published, Sensitivity = SensitivityLevel.Public,
-            Data = new() { ["Title"] = $"About {Needle}", ["Slug"] = "title-hit", ["Body"] = "plain" } });
-        s.Store(new Content { Id = Guid.NewGuid(), ContentType = type, Status = ContentStatus.Published, Sensitivity = SensitivityLevel.Public,
-            Data = new() { ["Title"] = "Nothing special", ["Slug"] = "body-hit", ["Body"] = $"a paragraph mentioning {Needle} once" } });
-        s.Store(new Content { Id = Guid.NewGuid(), ContentType = type, Status = ContentStatus.Draft, Sensitivity = SensitivityLevel.Public,
-            Data = new() { ["Title"] = $"Draft {Needle}", ["Slug"] = "draft-hit", ["Body"] = Needle } });
-        s.Store(new Content { Id = Guid.NewGuid(), ContentType = type, Status = ContentStatus.Published, Sensitivity = SensitivityLevel.Sensitive,
-            Data = new() { ["Title"] = $"Sensitive {Needle}", ["Slug"] = "sens-hit", ["Body"] = Needle } });
-        s.Store(new Content { Id = Guid.NewGuid(), ContentType = type, Status = ContentStatus.Published, Sensitivity = SensitivityLevel.Public,
-            Data = new() { ["Title"] = "Clean title", ["Slug"] = "field-hit", ["Body"] = "clean body", ["Secret"] = Needle } });
+
+        var publicKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Title", "Slug", "Body" };
+
+        void AddContent(Dictionary<string, object> data, ContentStatus status = ContentStatus.Published, SensitivityLevel sens = SensitivityLevel.Public) =>
+            s.Store(new Content
+            {
+                Id = Guid.NewGuid(),
+                ContentType = type,
+                Status = status,
+                Sensitivity = sens,
+                Data = data,
+                SearchText = string.Join(' ', data.Where(kv => publicKeys.Contains(kv.Key) && kv.Value is string v && !string.IsNullOrWhiteSpace(v)).Select(kv => kv.Value))
+            });
+
+        AddContent(new() { ["Title"] = $"About {Needle}", ["Slug"] = "title-hit", ["Body"] = "plain" });
+        AddContent(new() { ["Title"] = "Nothing special", ["Slug"] = "body-hit", ["Body"] = $"a paragraph mentioning {Needle} once" });
+        AddContent(new() { ["Title"] = $"Draft {Needle}", ["Slug"] = "draft-hit", ["Body"] = Needle }, status: ContentStatus.Draft);
+        AddContent(new() { ["Title"] = $"Sensitive {Needle}", ["Slug"] = "sens-hit", ["Body"] = Needle }, sens: SensitivityLevel.Sensitive);
+        AddContent(new() { ["Title"] = "Clean title", ["Slug"] = "field-hit", ["Body"] = "clean body", ["Secret"] = Needle });
+
         await s.SaveChangesAsync();
     }
-
     [Fact]
     public async Task Search_ReturnsPublishedPublicMatches_ExcludingDraftsSensitiveAndHiddenFields()
     {
@@ -96,4 +103,5 @@ public class PublicSearchTests
         res.StatusCode.Should().Be(HttpStatusCode.OK);
         (await res.Content.ReadAsStringAsync()).Should().Contain("\"count\":0");
     }
+
 }

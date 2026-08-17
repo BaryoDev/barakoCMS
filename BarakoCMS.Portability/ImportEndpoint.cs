@@ -77,7 +77,23 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
             {
                 var status = Enum.TryParse<ContentStatus>(rec.Status, ignoreCase: true, out var s) ? s : ContentStatus.Published;
                 var contentId = Guid.NewGuid();
-                var evt = new ContentCreated(contentId, rec.ContentType, rec.Data, status, userId);
+                var definition = existing.FirstOrDefault(t =>
+                    t.Name.Equals(rec.ContentType, StringComparison.OrdinalIgnoreCase));
+
+                var publicFields = definition?.Fields
+                    .Where(f => f.Sensitivity == SensitivityLevel.Public)
+                    .Select(f => f.Name)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase)
+                    ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                var searchText = string.Join(
+                    ' ',
+                    rec.Data
+                        .Where(kv => publicFields.Contains(kv.Key))
+                        .Select(kv => kv.Value?.ToString())
+                        .Where(v => !string.IsNullOrWhiteSpace(v)));
+
+                var evt = new ContentCreated(contentId, rec.ContentType, rec.Data, status, userId, searchText);
                 _session.Events.StartStream<barakoCMS.Models.Content>(contentId, evt);
                 var content = new barakoCMS.Models.Content();
                 content.Apply(evt);

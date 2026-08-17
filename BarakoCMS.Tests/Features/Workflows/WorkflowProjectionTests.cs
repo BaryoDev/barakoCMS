@@ -45,7 +45,7 @@ public class WorkflowProjectionTests
         // Arrange
         var contentId = Guid.NewGuid();
         var streamId = Guid.NewGuid();
-        var updatedEvent = new barakoCMS.Events.ContentUpdated(contentId, new Dictionary<string, object>(), Guid.NewGuid());
+        var updatedEvent = new barakoCMS.Events.ContentUpdated(contentId, new Dictionary<string, object>(), Guid.NewGuid(), String.Empty);
 
         // Mock Event Envelope
         var eventEnvelope = Substitute.For<IEvent<barakoCMS.Events.ContentUpdated>>();
