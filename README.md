@@ -200,6 +200,42 @@ BarakoCMS is free and open-source under [MPL-2.0](LICENSE). If it's useful to yo
 
 ---
 
+---
+
+## Contributors
+
+People who have made barakoCMS better. Not only code: a bug report that saves a weekend, or a review
+that stops a wrong issue being built, counts as much here as a pull request.
+
+<!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
+<table>
+  <tbody>
+    <tr>
+      <td align="center" valign="top" width="14.28%">
+        <a href="https://github.com/BabuBahir">
+          <img src="https://avatars.githubusercontent.com/BabuBahir?s=90" width="90px;" alt="BabuBahir"/><br />
+          <sub><b>BabuBahir</b></sub>
+        </a><br />
+        <a href="https://github.com/BaryoDev/barakoCMS/issues?q=author%3ABabuBahir" title="Bug reports">🐛</a>
+        <a href="#review-BabuBahir" title="Reviewed issues">👀</a>
+        <a href="#ideas-BabuBahir" title="Ideas and planning">🤔</a>
+      </td>
+      <td align="center" valign="top" width="14.28%">
+        <a href="https://github.com/ahmdkaml">
+          <img src="https://avatars.githubusercontent.com/ahmdkaml?s=90" width="90px;" alt="ahmdkaml"/><br />
+          <sub><b>ahmdkaml</b></sub>
+        </a><br />
+        <a href="#ideas-ahmdkaml" title="Ideas and planning">🤔</a>
+      </td>
+    </tr>
+  </tbody>
+</table>
+<!-- ALL-CONTRIBUTORS-LIST:END -->
+
+Follows the [all-contributors](https://allcontributors.org) specification. To add someone, comment
+`@all-contributors please add @username for bug, code` on any issue or pull request.
+
+
 ## License
 
 [MPL-2.0](LICENSE) — the core and every module, so there is one licence across the suite.
