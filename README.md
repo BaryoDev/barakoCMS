@@ -249,6 +249,6 @@ modify a barakoCMS source file, share that file's changes. Your own code stays y
 
 ---
 
-Come say hello on [Discord](https://discord.gg/M2BuZn6X3) — questions, ideas, or just to tell us what you're building.
+Come say hello on [Discord](https://discord.gg/7GYKzDx7Z2) — questions, ideas, or just to tell us what you're building.
 
 If barakoCMS is useful to you, a star helps other people find it. Contributions are welcome — code, documentation, module icons and artwork all count. See [CONTRIBUTING.md](CONTRIBUTING.md).

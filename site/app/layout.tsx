@@ -21,7 +21,7 @@ export const metadata: Metadata = {
 };
 
 const GITHUB = 'https://github.com/BaryoDev/barakoCMS';
-const DISCORD = 'https://discord.gg/M2BuZn6X3';
+const DISCORD = 'https://discord.gg/7GYKzDx7Z2';
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -31,14 +31,23 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           Skip to content
         </a>
         <header className="border-b border-rule">
-          <nav className="mx-auto max-w-5xl px-6 h-16 flex items-center gap-7">
+          {/*
+            Wraps on narrow screens. Fixed at h-16 with no wrapping, the five links ran to 506px
+            against a 360px viewport, so the whole page scrolled sideways on a phone. The spacer
+            that pushes the links right only exists from sm up, because in a wrapping row it would
+            force a break of its own.
+          */}
+          <nav className="mx-auto max-w-5xl px-6 py-3 sm:py-0 sm:h-16 flex flex-wrap items-center gap-x-5 gap-y-2 sm:gap-x-7">
             <Link href="/" className="flex items-center gap-2.5 font-display text-[19px] tracking-tight">
               <Bean size={26} />
               BarakoCMS
             </Link>
-            <div className="flex-1" />
+            <div className="hidden sm:block flex-1" />
             <Link href="/marketplace/" className="text-sm hover:text-bean">
               Modules
+            </Link>
+            <Link href="/changelog/" className="text-sm hover:text-bean">
+              Changelog
             </Link>
             <a href={`${GITHUB}#quick-start`} className="text-sm hover:text-bean">
               Docs
@@ -64,6 +73,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <a href={GITHUB} className="hover:text-bean">
               Source
             </a>
+            <Link href="/changelog/" className="hover:text-bean">
+              Changelog
+            </Link>
             <a href={`${GITHUB}/blob/master/CONTRIBUTING.md`} className="hover:text-bean">
               Contributing
             </a>

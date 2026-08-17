@@ -288,7 +288,7 @@ app.Run();`}</code>
           {[
             ['Good first issues', `${GITHUB}/issues?q=is%3Aopen+label%3A%22good+first+issue%22`],
             ['How to contribute', `${GITHUB}/blob/master/CONTRIBUTING.md`],
-            ['Ask on Discord', 'https://discord.gg/M2BuZn6X3'],
+            ['Ask on Discord', 'https://discord.gg/7GYKzDx7Z2'],
           ].map(([label, href]) => (
             <a
               key={label}

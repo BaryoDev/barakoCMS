@@ -174,15 +174,41 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
+      # Covers the changelog renderer, which drops raw HTML and allowlists link protocols. The
+      # changelog is edited by pull request, so this is the gate between a CHANGELOG.md diff and a
+      # script running on every visitor of a static page.
+      - name: Unit tests
+        run: |
+          set -o pipefail
+          npm test -- --reporter=default --reporter=json --outputFile.json=test-results.json
+
+          # A run that discovers no test files exits zero, so the count is asserted rather than
+          # the status. Read from the JSON reporter, not the console output: the human output is
+          # ANSI-coloured under CI and not under a local pipe, so a grep for "Test Files  1" passes
+          # on a laptop and fails on the runner.
+          COUNT=$(jq -r '.numTotalTests // 0' test-results.json)
+          [ "$COUNT" -gt 0 ] 2>/dev/null || {
+            echo "::error::vitest discovered no tests (numTotalTests=$COUNT)"; exit 1; }
+          echo "site unit tests: $COUNT" >> "$GITHUB_STEP_SUMMARY"
+
       # The build renders the marketplace from NuGet. It must also succeed when that call fails —
       # the fallback manifest exists for exactly that — so a NuGet outage cannot break the build.
       - name: Build (static export)
         run: npm run build
 
-      - name: Check both pages exported
+      - name: Check every page exported
         run: |
           test -f out/index.html || { echo "::error::landing page missing from the export"; exit 1; }
           test -f out/marketplace/index.html || { echo "::error::marketplace missing from the export"; exit 1; }
+          test -f out/changelog/index.html || { echo "::error::changelog missing from the export"; exit 1; }
+
+          # The changelog is rendered from CHANGELOG.md at build time. If the build context ever
+          # stops including the repository root, or the heading format changes, the page would
+          # export as a valid but empty shell — so assert the newest version actually rendered.
+          VERSION=$(grep -m1 -oE '^## \[[0-9][^]]*\]' ../CHANGELOG.md | tr -d '#[] ')
+          grep -q "$VERSION" out/changelog/index.html || {
+            echo "::error::changelog exported without its newest release ($VERSION)"; exit 1; }
+          echo "changelog exported, newest release $VERSION" >> "$GITHUB_STEP_SUMMARY"
           grep -q "barakocms-module" out/marketplace/index.html \
             || { echo "::error::the marketplace did not render the discovery tag"; exit 1; }
 
