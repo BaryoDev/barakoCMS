@@ -179,10 +179,17 @@ jobs:
       # script running on every visitor of a static page.
       - name: Unit tests
         run: |
-          npm test -- --reporter=verbose 2>&1 | tee test.log
-          # A run that discovers no test files exits zero, which would read as a pass forever.
-          grep -qE 'Test Files +[1-9]' test.log || {
-            echo "::error::vitest discovered no test files"; exit 1; }
+          set -o pipefail
+          npm test -- --reporter=default --reporter=json --outputFile.json=test-results.json
+
+          # A run that discovers no test files exits zero, so the count is asserted rather than
+          # the status. Read from the JSON reporter, not the console output: the human output is
+          # ANSI-coloured under CI and not under a local pipe, so a grep for "Test Files  1" passes
+          # on a laptop and fails on the runner.
+          COUNT=$(jq -r '.numTotalTests // 0' test-results.json)
+          [ "$COUNT" -gt 0 ] 2>/dev/null || {
+            echo "::error::vitest discovered no tests (numTotalTests=$COUNT)"; exit 1; }
+          echo "site unit tests: $COUNT" >> "$GITHUB_STEP_SUMMARY"
 
       # The build renders the marketplace from NuGet. It must also succeed when that call fails —
       # the fallback manifest exists for exactly that — so a NuGet outage cannot break the build.
