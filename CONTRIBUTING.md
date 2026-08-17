@@ -32,6 +32,19 @@ There's a [Discord server](https://discord.gg/M2BuZn6X3) for questions, ideas, a
 conversation than in an issue thread. If you're weighing up whether something is worth building,
 that's the fastest place to find out.
 
+## These projects do not pay for work
+
+Contributions here are voluntary and unpaid. There is no budget, no bounty programme, and no
+commissioning of work on issues.
+
+That is worth saying plainly rather than leaving people to find out. If you are looking for paid
+work, this is not the place, and you should know that before you spend a weekend on something. It is
+not a judgement on asking. It is a straight answer so nobody wastes their time.
+
+Offering to do an issue for a fee will get the comment labelled and left for a maintainer to read.
+Nothing is blocked or deleted, and a genuine question about sponsorship is welcome, it just needs a
+person rather than a bot to answer it.
+
 ## Before you file an issue
 
 **Check it does not already exist, and say where you looked.**
