@@ -179,10 +179,19 @@ jobs:
       - name: Build (static export)
         run: npm run build
 
-      - name: Check both pages exported
+      - name: Check every page exported
         run: |
           test -f out/index.html || { echo "::error::landing page missing from the export"; exit 1; }
           test -f out/marketplace/index.html || { echo "::error::marketplace missing from the export"; exit 1; }
+          test -f out/changelog/index.html || { echo "::error::changelog missing from the export"; exit 1; }
+
+          # The changelog is rendered from CHANGELOG.md at build time. If the build context ever
+          # stops including the repository root, or the heading format changes, the page would
+          # export as a valid but empty shell — so assert the newest version actually rendered.
+          VERSION=$(grep -m1 -oE '^## \[[0-9][^]]*\]' ../CHANGELOG.md | tr -d '#[] ')
+          grep -q "$VERSION" out/changelog/index.html || {
+            echo "::error::changelog exported without its newest release ($VERSION)"; exit 1; }
+          echo "changelog exported, newest release $VERSION" >> "$GITHUB_STEP_SUMMARY"
           grep -q "barakocms-module" out/marketplace/index.html \
             || { echo "::error::the marketplace did not render the discovery tag"; exit 1; }
 
