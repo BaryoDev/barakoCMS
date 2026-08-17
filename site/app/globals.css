@@ -85,3 +85,72 @@ h1, h2 { font-feature-settings: "liga" 1, "kern" 1; }
   .bean-in { animation: none; }
   * { animation-duration: .001ms !important; transition-duration: .001ms !important; }
 }
+
+/*
+ * Rendered changelog markdown. The source is CHANGELOG.md, so the shapes here are whatever the
+ * entries actually use: h3 for the "Fixed:" / "Added:" headings, prose, lists, inline code and the
+ * occasional fenced block.
+ */
+.changelog-body { color: var(--color-ink-2); line-height: 1.7; }
+
+.changelog-body h3 {
+  font-family: var(--font-display);
+  font-size: 19px;
+  letter-spacing: -0.01em;
+  color: var(--color-ink);
+  margin: 1.9rem 0 .7rem;
+}
+.changelog-body h3:first-child { margin-top: 0; }
+
+.changelog-body h4 {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-ink);
+  margin: 1.4rem 0 .5rem;
+}
+
+.changelog-body p { margin: .85rem 0; max-width: 74ch; }
+
+.changelog-body ul, .changelog-body ol { margin: .85rem 0; padding-left: 1.3rem; max-width: 74ch; }
+.changelog-body ul { list-style: disc; }
+.changelog-body ol { list-style: decimal; }
+.changelog-body li { margin: .35rem 0; }
+
+.changelog-body a { color: var(--color-bean); text-decoration: underline; text-underline-offset: 2px; }
+.changelog-body strong { color: var(--color-ink); font-weight: 600; }
+
+.changelog-body code {
+  font-family: var(--font-mono);
+  font-size: .86em;
+  background: var(--color-surface);
+  border: 1px solid var(--color-rule);
+  border-radius: 4px;
+  padding: .1em .35em;
+  /* Entries name long identifiers inline, e.g. `AccountService.UpsertAsync`. Without this they
+     refuse to break and push the page wider than a phone screen. */
+  overflow-wrap: anywhere;
+}
+
+/* Fenced blocks scroll on their own so a long line never widens the page. */
+.changelog-body pre {
+  background: var(--color-surface);
+  border: 1px solid var(--color-rule);
+  border-radius: 8px;
+  padding: 1rem 1.1rem;
+  margin: 1rem 0;
+  overflow-x: auto;
+}
+.changelog-body pre code { background: none; border: 0; padding: 0; font-size: 13px; }
+
+.changelog-body blockquote {
+  border-left: 3px solid var(--color-rule);
+  padding-left: 1rem;
+  margin: 1rem 0;
+  color: var(--color-muted);
+}
+
+.changelog-body table { width: 100%; margin: 1rem 0; border-collapse: collapse; font-size: 15px; display: block; overflow-x: auto; }
+.changelog-body th, .changelog-body td { border: 1px solid var(--color-rule); padding: .5rem .7rem; text-align: left; }
+.changelog-body th { background: var(--color-surface); font-weight: 600; color: var(--color-ink); }
+
+.changelog-body hr { border: 0; border-top: 1px solid var(--color-rule); margin: 1.5rem 0; }

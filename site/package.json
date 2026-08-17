@@ -6,9 +6,10 @@
     "dev": "next dev -p 3200",
     "build": "next build",
     "start": "next start -p 3200",
-    "lint": "next lint"
+    "test": "vitest run"
   },
   "dependencies": {
+    "marked": "^18.0.9",
     "next": "16.3.0",
     "react": "19.2.0",
     "react-dom": "19.2.0"
@@ -19,6 +20,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "tailwindcss": "^4.3.3",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.10"
   }
 }
