@@ -185,4 +185,36 @@ public class SitemapTests
         xml.Should().NotContain("/sitemap_filtering/draft");
         xml.Should().NotContain("/sitemap_filtering/sensitive");
     }
+
+    [Fact]
+    public async Task Sitemap_LastMod_UsesUpdatedAt()
+    {
+        var type = "sitemap_lastmod";
+
+        using var scope = _factory.Services.CreateScope();
+        var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+
+        s.Store(new ContentTypeBuilder()
+            .Named(type)
+            .PubliclyDeliverable()
+            .WithTitleAndSlug()
+            .Build());
+
+        s.Store(new ContentBuilder()
+            .OfType(type)
+            .WithTitleAndSlug("Updated Post", "updated-post")
+            .CreatedAt(new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc))
+            .UpdatedAt(new DateTime(2026, 6, 15, 0, 0, 0, DateTimeKind.Utc))
+            .Published()
+            .Build());
+
+        await s.SaveChangesAsync();
+
+        var response = await _client.GetAsync("/api/public/sitemap.xml");
+        var xml = await response.Content.ReadAsStringAsync();
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        xml.Should().Contain("<lastmod>2026-06-15</lastmod>");
+        xml.Should().NotContain("<lastmod>2020-01-01</lastmod>");
+    }
 }

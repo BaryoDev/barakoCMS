@@ -27,6 +27,23 @@ public class SitemapEndpoint : EndpointWithoutRequest
         var definitions = await _session.Query<ContentTypeDefinition>()
             .ToListAsync(ct);
 
+        var deliverableDefinitions = definitions
+            .Where(PublicDelivery.IsDeliverable)
+            .ToList();
+
+        var deliverableTypes = deliverableDefinitions
+            .Select(d => d.Name)
+            .ToList();
+
+        var entries = await _session.Query<ContentDoc>()
+            .Where(c => deliverableTypes.Contains(c.ContentType)
+                        && c.Status == ContentStatus.Published
+                        && c.Sensitivity == SensitivityLevel.Public)
+            .Take(50000)
+            .ToListAsync(ct);
+
+        var siteUrl = (_config["Feeds:SiteUrl"] ?? string.Empty).TrimEnd('/');
+
         var sb = new StringBuilder();
         sb.Append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
         sb.Append("<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n");
@@ -39,37 +56,30 @@ public class SitemapEndpoint : EndpointWithoutRequest
             var type = def.Name;
             var slugField = PublicDelivery.SlugField(def);
 
-            var entries = await _session.Query<ContentDoc>()
-                .Where(c => c.ContentType == type
-                            && c.Status == ContentStatus.Published
-                            && c.Sensitivity == SensitivityLevel.Public)
-                .ToListAsync(ct);
+            var typeEntries = entries
+                .Where(c => c.ContentType == type);
 
-            var siteUrl = _config["Feeds:SiteUrl"]?.TrimEnd('/');
-
-            if (string.IsNullOrWhiteSpace(siteUrl))
-            {
-                await SendErrorsAsync(500, ct);
-                return;
-            }
 
             var pathTemplate = _config[$"Feeds:Paths:{type}"]
                             ?? $"/{type}/{{slug}}";
 
-            foreach (var entry in entries)
+            foreach (var entry in typeEntries)
             {
                 var pub = PublicDelivery.ToPublic(entry, def, slugField);
                 if (pub is null)
                     continue;
 
-                var slug = pub.Slug ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(pub.Slug))
+                    continue;
+
+                var slug = pub.Slug;
                 var link = siteUrl + pathTemplate.Replace(
                     "{slug}",
                     Uri.EscapeDataString(slug));
 
                 sb.Append("  <url>\n");
                 sb.Append($"    <loc>{Esc(link)}</loc>\n");
-                sb.Append($"    <lastmod>{pub.CreatedAt:yyyy-MM-dd}</lastmod>\n");
+                sb.Append($"    <lastmod>{pub.UpdatedAt:yyyy-MM-dd}</lastmod>\n");
                 sb.Append("  </url>\n");
             }
         }
