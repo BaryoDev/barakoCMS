@@ -102,7 +102,25 @@ public class Endpoint : Endpoint<Request, Response>
         foreach (var (_, data) in valid)
         {
             var id = Guid.NewGuid();
-            var @event = new ContentCreated(id, req.ContentType, data, req.Status, userId);
+
+            var definition = await _session.Query<ContentTypeDefinition>()
+                .FirstOrDefaultAsync(d => d.Name == req.ContentType, ct);
+
+            var publicFields = definition?.Fields
+                .Where(f => f.Sensitivity == SensitivityLevel.Public)
+                .Select(f => f.Name)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase)
+                ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            var searchText = string.Join(
+                ' ',
+                data
+                    .Where(kv => publicFields.Contains(kv.Key))
+                    .Select(kv => kv.Value?.ToString())
+                    .Where(v => !string.IsNullOrWhiteSpace(v)));
+
+            var @event = new ContentCreated(id, req.ContentType, data, req.Status, userId, searchText);
+
             _session.Events.StartStream<Content>(id, @event);
             var content = new Content();
             content.Apply(@event);
