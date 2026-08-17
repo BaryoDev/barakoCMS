@@ -127,9 +127,9 @@ Watch for coincidental passes. Default ordering, seed data or an empty collectio
 broken path return the right answer for your specific input. Choose inputs where the broken and
 fixed behaviour differ visibly.
 
-## Verification, and two traps worth naming
+## Verification, and three traps worth naming
 
-The rule above about a failing test has two cousins that have each caused a real problem here.
+The rule above about a failing test has three cousins, each of which has caused a real problem here.
 
 **A pattern being existing is not evidence it is correct.**
 
