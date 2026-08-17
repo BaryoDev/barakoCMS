@@ -32,6 +32,21 @@ There's a [Discord server](https://discord.gg/M2BuZn6X3) for questions, ideas, a
 conversation than in an issue thread. If you're weighing up whether something is worth building,
 that's the fastest place to find out.
 
+## Before you file an issue
+
+**Check it does not already exist, and say where you looked.**
+
+An issue claiming something is missing should name the file or the search that showed it missing. Not
+as bureaucracy: four issues were filed on this repository in one week for features that were already
+built, including one asking someone to implement idempotency, which turned out to be one of the
+better-engineered parts of the codebase. Each would have been caught by a single grep.
+
+Two of those four were caught by a contributor who checked before starting work, after they had
+already spent time reading. That is the cost this rule exists to avoid.
+
+So: `git grep` for the thing, and put what you searched for in the issue. If you find it half-built,
+that is a better issue than the one you were going to write.
+
 ## Finding something to work on
 
 Issues labelled [`good first issue`][gfi] and [`help wanted`][hw] are ones we'd genuinely like help
@@ -111,6 +126,40 @@ separates a test that catches the bug from one that merely runs the code.
 Watch for coincidental passes. Default ordering, seed data or an empty collection can make a
 broken path return the right answer for your specific input. Choose inputs where the broken and
 fixed behaviour differ visibly.
+
+## Verification, and two traps worth naming
+
+The rule above about a failing test has two cousins that have each caused a real problem here.
+
+**A pattern being existing is not evidence it is correct.**
+
+A contributor was told to make a new endpoint match the behaviour of the one next to it. He declined,
+because a review had flagged that behaviour as a security problem. He was right: the neighbouring
+endpoint builds a URL from the request `Host` header, and `AllowedHosts` is `"*"`, so the value is
+attacker-controlled. Copying it would have spread the problem to a second endpoint.
+
+If you are matching an existing pattern, check the pattern first. If you are asked to match one and
+it looks wrong, say so. Being new is not a reason to defer.
+
+**An assertion over a collection must first assert the collection is not empty.**
+
+```csharp
+locs.Should().OnlyHaveUniqueItems();   // passes on an empty list, proving nothing
+```
+
+Add the count first:
+
+```csharp
+locs.Should().HaveCount(3);
+locs.Should().OnlyHaveUniqueItems();
+```
+
+This is written down because it was got wrong in a test whose whole purpose was to catch a bug, by
+someone who had spent that same day warning others about coincidental passes. Knowing the rule does
+not make you apply it. Writing it down might.
+
+**Before you claim something works, run it.** "Tests pass" means you ran them on the branch you are
+proposing, not on a similar one, and not before your last change.
 
 ## Build and dependency conventions
 
