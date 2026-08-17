@@ -52,11 +52,33 @@ export function safeProfileUrl(raw: string | undefined, login: string): string {
   }
 }
 
+/**
+ * A parsed entry is only usable if it actually has the fields the page reads. The file is edited by
+ * the all-contributors bot in response to an issue comment, so a malformed record is a realistic
+ * input rather than a hypothetical one, and one bad entry should not fail the whole build.
+ */
+function isContributor(v: unknown): v is Contributor {
+  if (typeof v !== 'object' || v === null) return false;
+  const c = v as Record<string, unknown>;
+  return (
+    typeof c.login === 'string' &&
+    c.login.length > 0 &&
+    Array.isArray(c.contributions) &&
+    c.contributions.every((x) => typeof x === 'string')
+  );
+}
+
 export function contributors(): Contributor[] {
   try {
     const raw = readFileSync(join(process.cwd(), '..', '.all-contributorsrc'), 'utf8');
-    const list = (JSON.parse(raw).contributors ?? []) as Contributor[];
-    return list.map((c) => ({ ...c, profile: safeProfileUrl(c.profile, c.login) }));
+    const parsed: unknown = JSON.parse(raw).contributors;
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed.filter(isContributor).map((c) => ({
+      ...c,
+      name: typeof c.name === 'string' && c.name.length > 0 ? c.name : c.login,
+      profile: safeProfileUrl(c.profile, c.login),
+    }));
   } catch {
     // A missing or unreadable file must not fail the build. The section simply does not render.
     return [];
