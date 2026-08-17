@@ -90,7 +90,16 @@ Postgres data lives in the `pgdata` volume. Back it up with `pg_dump`, e.g.:
 ```bash
 docker compose exec postgres pg_dump -U postgres barakocms > backup.sql
 ```
-## Enable Swagger in appsettings.Development.json 
+## Enable Swagger
+
+Swagger is on automatically in Development and off in Production. To turn it on anywhere else, set
+it in configuration or as an environment variable:
+
+```
+Swagger__Enabled=true
+```
+
+Or in `appsettings.json`:
 ```
 "Swagger": {
     "Enabled": true
