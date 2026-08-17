@@ -39,6 +39,18 @@ body:
     validations:
       required: true
 
+  - type: input
+    id: checked
+    attributes:
+      label: Where did you check that this does not already exist?
+      description: |
+        A file you read, or a search you ran. Four issues were filed here in one week for things
+        that were already built, so this question is not bureaucracy. If you found it half-done,
+        say what is there.
+      placeholder: "git grep -i 'webhook' -- '*.cs', and looked at Features/Workflows/"
+    validations:
+      required: true
+
   - type: textarea
     id: alternatives
     attributes:
