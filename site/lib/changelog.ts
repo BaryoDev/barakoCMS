@@ -52,9 +52,18 @@ renderer.link = function (token) {
   return renderLink(token);
 };
 
+/*
+ * Alt text is a raw string, not tokens, so it has to be escaped on the way out. Returning it
+ * unescaped reopened everything the html override closes: the alt text of an image with a rejected
+ * destination is a straight path into the HTML stream, and
+ * `![x <script>alert(1)</script> y](javascript:...)` emitted a live script tag through it.
+ */
+const escapeHtml = (s: string): string =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
 const renderImage = renderer.image.bind(renderer);
 renderer.image = function (token) {
-  if (!isSafeHref(token.href)) return token.text ?? '';
+  if (!isSafeHref(token.href)) return escapeHtml(token.text ?? '');
   return renderImage(token);
 };
 

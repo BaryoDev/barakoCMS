@@ -39,6 +39,27 @@ describe('changelog rendering drops hostile markup', () => {
     expect(renderMarkdown(`[click me](javascript:alert(1))`)).toContain('click me');
   });
 
+  /*
+   * The alt text of a rejected image is a raw string rather than tokens, so it went straight into
+   * the output and carried markup with it. This bypassed the raw-HTML override entirely.
+   */
+  it.each([
+    ['script tag', '![x <script>alert(1)</script> y](javascript:x)', /<script/i],
+    ['svg onload', '![<svg onload=alert(1)>](javascript:x)', /<svg/i],
+    ['bold tags', '![a<b>c</b>d](javascript:x)', /<b>/i],
+  ])('escapes %s in the alt text of a rejected image', (_label, md, forbidden) => {
+    const html = renderMarkdown(md);
+    expect(html).not.toMatch(forbidden);
+  });
+
+  it('keeps rejected image alt text readable once escaped', () => {
+    expect(renderMarkdown('![the alt text](javascript:x)')).toContain('the alt text');
+  });
+
+  it('escapes markup in the text of a rejected link too', () => {
+    expect(renderMarkdown('[a <script>alert(1)</script> b](javascript:x)')).not.toMatch(/<script/i);
+  });
+
   it('leaves safe destinations alone', () => {
     const html = renderMarkdown(
       `[a](https://example.com/x) [b](/docs/x) [c](#v3-20-1) [d](mailto:x@example.com)`,
