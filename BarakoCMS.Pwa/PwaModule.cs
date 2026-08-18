@@ -14,9 +14,9 @@ public sealed class PwaModule : IBarakoModule
 {
     public string Name => "Pwa";
 
-    public void ConfigureMarten(StoreOptions options)
+    public void ConfigureSchema(IModuleSchema schema)
     {
-        options.Schema.For<PwaInstall>()
+        schema.For<PwaInstall>()
             .SingleTenanted()
             .DocumentAlias("pwa_installs")
             .Index(x => x.DeviceId)

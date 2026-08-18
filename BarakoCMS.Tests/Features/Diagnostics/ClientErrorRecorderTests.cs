@@ -1,3 +1,5 @@
+using static BarakoCMS.Tests.ModuleSchemaTestHelper;
+using barakoCMS.Modules;
 using BarakoCMS.Diagnostics;
 using BarakoCMS.Diagnostics.Features.Report;
 using FluentAssertions;
@@ -20,7 +22,7 @@ public class ClientErrorRecorderTests
         // Unique schema per test run keeps rows from bleeding across tests.
         opts.DatabaseSchemaName = "diag_test_" + Guid.NewGuid().ToString("N")[..8];
         // Default AutoCreate (CreateOrUpdate) builds the schema/table on first use.
-        new DiagnosticsModule().ConfigureMarten(opts);
+        ConfigureVia(new DiagnosticsModule(), opts);
     });
 
     private static ReportItem Fault() =>

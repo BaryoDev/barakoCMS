@@ -22,10 +22,10 @@ public sealed class ResendEmailModule : IBarakoModule
         services.AddHttpClient<IEmailService, ResendEmailService>();
     }
 
-    public void ConfigureMarten(StoreOptions options)
+    public void ConfigureSchema(IModuleSchema schema)
     {
         // Delivery problems Resend reports. Global (no tenant): the recipient email is the key.
-        options.Schema.For<EmailEvent>()
+        schema.For<EmailEvent>()
             .SingleTenanted()
             .DocumentAlias("email_events")
             .Index(x => x.Email);

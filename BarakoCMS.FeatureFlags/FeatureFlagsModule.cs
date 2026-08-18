@@ -21,9 +21,9 @@ public sealed class FeatureFlagsModule : IBarakoModule
         services.AddScoped<FeatureFlagService>();
     }
 
-    public void ConfigureMarten(StoreOptions options)
+    public void ConfigureSchema(IModuleSchema schema)
     {
-        options.Schema.For<FeatureFlag>()
+        schema.For<FeatureFlag>()
             .SingleTenanted()
             .DocumentAlias("feature_flags")
             .Index(x => x.Key, i => i.IsUnique = true);

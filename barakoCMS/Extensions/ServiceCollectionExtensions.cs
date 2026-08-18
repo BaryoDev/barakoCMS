@@ -41,7 +41,11 @@ public static class ServiceCollectionExtensions
         // available when we wire up FastEndpoints and Marten below.
         var moduleBuilder = new BarakoModuleBuilder();
         configureModules?.Invoke(moduleBuilder);
-        var modules = moduleBuilder.Modules;
+
+        // Sorted before anything runs, so DI registration, schema and seeding all see the same
+        // order and a module that must configure after another actually does. Independent modules
+        // keep their declared order.
+        var modules = ModuleOrder.Sort(moduleBuilder.Modules);
 
         foreach (var module in modules)
         {
@@ -346,9 +350,25 @@ public static class ServiceCollectionExtensions
             // Register Workflow Projection (Async)
             options.Projections.Add(new WorkflowProjection(sp), JasperFx.Events.Projections.ProjectionLifecycle.Async);
 
-            // Let each opted-in module register its own document types / indexes on the shared store.
+            // Each module registers its own document types through a surface that only accepts
+            // types it ships. ConfigureMarten still runs for modules that predate ConfigureSchema,
+            // and is warned about, because removing it inside a major would break them silently.
             foreach (var module in modules)
+            {
+                module.ConfigureSchema(new ModuleSchema(options, module));
+
+#pragma warning disable CS0618 // deliberately calling the obsolete hook during its deprecation window
+                if (OverridesConfigureMarten(module))
+                {
+                    Log.Warning(
+                        "Module {Module} uses the deprecated ConfigureMarten(StoreOptions), which can "
+                        + "reach core's documents and the event store. Move to ConfigureSchema(IModuleSchema); "
+                        + "ConfigureMarten is removed in barakoCMS 5.0.",
+                        module.Name);
+                }
                 module.ConfigureMarten(options);
+#pragma warning restore CS0618
+            }
 
             return options;
         })
@@ -660,21 +680,69 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Runs <see cref="IBarakoModule.SeedAsync"/> for every registered module inside a single shared
-    /// session, committing once at the end. Call after <c>UseBarakoCMS</c> during startup. No-op when
-    /// no modules are registered.
+    /// Runs <see cref="IBarakoModule.SeedAsync"/> for every registered module, each in its own scope,
+    /// session and transaction. Call after <c>UseBarakoCMS</c> during startup. No-op when no modules
+    /// are registered.
     /// </summary>
+    /// <remarks>
+    /// A session per module, not one shared session, and the difference matters in three ways.
+    ///
+    /// One module throwing used to lose every module's seed, including the ones that had already
+    /// succeeded, because a single <c>SaveChangesAsync</c> committed the lot at the end.
+    ///
+    /// A module calling <c>SaveChangesAsync</c> itself used to commit every other module's
+    /// half-finished work, and nothing in the contract said it must not.
+    ///
+    /// A module could read and modify every other module's uncommitted seed data, because they
+    /// shared one identity map. Harmless between first-party modules; not something to leave in
+    /// place before third-party ones exist.
+    ///
+    /// Failures are isolated so one module cannot stop the others, and then rethrown together, so
+    /// a host that does nothing fails loudly rather than starting up quietly half-seeded. A host
+    /// that would rather continue catches it, which is what the Suite does.
+    ///
+    /// Cancellation is never treated as a module failure: it propagates immediately.
+    /// </remarks>
+    /// <exception cref="AggregateException">One or more modules threw. Every other module still ran.</exception>
     public static async Task RunBarakoModuleSeedersAsync(this IHost host, CancellationToken ct = default)
     {
-        using var scope = host.Services.CreateScope();
-        var modules = scope.ServiceProvider.GetServices<IBarakoModule>().ToList();
+        List<IBarakoModule> modules;
+        using (var probe = host.Services.CreateScope())
+        {
+            modules = probe.ServiceProvider.GetServices<IBarakoModule>().ToList();
+        }
         if (modules.Count == 0)
             return;
 
-        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var failures = new List<Exception>();
+
         foreach (var module in modules)
-            await module.SeedAsync(session, scope.ServiceProvider, ct);
-        await session.SaveChangesAsync(ct);
+        {
+            ct.ThrowIfCancellationRequested();
+
+            // A fresh scope per module: IDocumentSession is scoped, so this is what actually gives
+            // each module its own session rather than a shared identity map.
+            using var scope = host.Services.CreateScope();
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+
+            try
+            {
+                await module.SeedAsync(session, scope.ServiceProvider, ct);
+                await session.SaveChangesAsync(ct);
+            }
+            catch (OperationCanceledException)
+            {
+                throw; // shutting down is not a module fault
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Module {Module} failed to seed. Other modules were unaffected.", module.Name);
+                failures.Add(new InvalidOperationException($"Module '{module.Name}' failed to seed.", ex));
+            }
+        }
+
+        if (failures.Count > 0)
+            throw new AggregateException($"{failures.Count} module seeder(s) failed.", failures);
     }
 
     /// <summary>
@@ -748,4 +816,28 @@ public static class ServiceCollectionExtensions
 
     /// <summary>Root key under which every module's own settings live.</summary>
     internal const string ModulesConfigurationSection = "Modules";
+
+    /// <summary>
+    /// Whether a module actually implements the deprecated hook, rather than inheriting the
+    /// interface's no-op default.
+    /// </summary>
+    /// <remarks>
+    /// Checked through the interface map rather than <c>GetMethod</c>: a default interface
+    /// implementation is not a member of the implementing type, so <c>GetMethod("ConfigureMarten")</c>
+    /// returns null both for a module that did not override it and for one that implemented it
+    /// explicitly. The map says which method actually runs.
+    ///
+    /// Only decides whether to warn. Getting it wrong costs a log line, never behaviour.
+    /// </remarks>
+    internal static bool OverridesConfigureMarten(IBarakoModule module)
+    {
+        var map = module.GetType().GetInterfaceMap(typeof(IBarakoModule));
+        for (var i = 0; i < map.InterfaceMethods.Length; i++)
+        {
+            if (map.InterfaceMethods[i].Name != nameof(IBarakoModule.ConfigureMarten))
+                continue;
+            return map.TargetMethods[i].DeclaringType != typeof(IBarakoModule);
+        }
+        return false;
+    }
 }

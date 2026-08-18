@@ -37,23 +37,23 @@ public sealed class AccountingModule : IBarakoModule
         services.AddScoped<barakoCMS.Core.Interfaces.IContentLifecycleHook, JournalEntryHook>();
     }
 
-    public void ConfigureMarten(StoreOptions options)
+    public void ConfigureSchema(IModuleSchema schema)
     {
-        options.Schema.For<Account>()
+        schema.For<Account>()
             .DocumentAlias("accounting_accounts")
             .Index(x => x.Code, idx => idx.IsUnique = true)
             .Index(x => x.Type)
             .Index(x => x.ParentCode)
             .Index(x => x.MemberId);
 
-        options.Schema.For<JournalEntry>()
+        schema.For<JournalEntry>()
             .DocumentAlias("accounting_journal_entries")
             .Index(x => x.Date)
             .Index(x => x.EntryNumber, idx => idx.IsUnique = true)
             .Index(x => x.Status)
             .Index(x => x.Reference);
 
-        options.Schema.For<NumberSequence>()
+        schema.For<NumberSequence>()
             .DocumentAlias("accounting_number_sequences")
             .UseOptimisticConcurrency(true);
     }
