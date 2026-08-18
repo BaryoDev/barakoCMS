@@ -211,7 +211,7 @@ BarakoCMS is headless — you build the frontend. These BaryoDev packages help:
 ```
 
 A module contributes services, its own document types, its own endpoints and its own seed data.
-Core knows none of them by name. See [docs/MODULES.md](docs/MODULES.md) for the contract.
+Core knows none of them by name. See [MODULES.md](MODULES.md) for the contract.
 
 ### Module, or core?
 
