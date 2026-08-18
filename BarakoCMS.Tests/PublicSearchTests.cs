@@ -1,47 +1,60 @@
-using System.Net;
-using System.Net.Http.Headers;
-using System.Net.Http.Json;
-using barakoCMS.Features.Content.Create;
-using barakoCMS.Models;
 using FluentAssertions;
+using System.Net;
+
+using barakoCMS.Models;
 using Marten;
-using Microsoft.Extensions.DependencyInjection;
-using Xunit;
 
 namespace BarakoCMS.Tests;
 
+/// <summary>
+/// Public search (GET /api/public/{type}/search) over an ANONYMOUS client. Adversarial: it must match
+/// only Published, document-Public entries, only over Public fields — a draft, a Sensitive document, and
+/// a value stored in a Sensitive field must never surface. Title hits outrank body hits.
+/// </summary>
 [Collection("Sequential")]
-public class PublicSearchTests(IntegrationTestFixture factory)
+public class PublicSearchTests
 {
-    private const string Needle = "zephyrium";
-    private readonly HttpClient _client = factory.CreateClient();
-
+    private readonly IntegrationTestFixture _factory;
+    private readonly HttpClient _client;
     private async Task StoreContentTypeAsync(string type)
     {
-        using var scope = factory.Services.CreateScope();
+        using var scope = _factory.Services.CreateScope();
         var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
 
         s.Store(new ContentTypeDefinition
         {
             IsPubliclyDeliverable = true,
-            Id = Guid.NewGuid(), Name = type, DisplayName = type,
+            Id = Guid.NewGuid(),
+            Name = type,
+            DisplayName = type,
             Fields = new()
             {
                 new() { Name = "Title", DisplayName = "Title", Type = "string" },
                 new() { Name = "Slug", DisplayName = "Slug", Type = "slug" },
                 new() { Name = "Body", DisplayName = "Body", Type = "markdown" },
-                new() { Name = "Secret", DisplayName = "Secret", Type = "string", Sensitivity = SensitivityLevel.Sensitive }
+                new()
+                {
+                    Name = "Secret",
+                    DisplayName = "Secret",
+                    Type = "string",
+                    Sensitivity = SensitivityLevel.Sensitive
+                }
             }
         });
 
         await s.SaveChangesAsync();
     }
+    public PublicSearchTests(IntegrationTestFixture factory)
+    {
+        _factory = factory;
+        _client = factory.CreateClient(); // anonymous
+    }
 
+    private const string Needle = "zephyrium"; // unlikely token so matches are unambiguous
     private async Task SeedAsync(string type)
     {
         await StoreContentTypeAsync(type);
-
-        using var scope = factory.Services.CreateScope();
+        using var scope = _factory.Services.CreateScope();
         var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
         var publicKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Title", "Slug", "Body" };
 
@@ -68,24 +81,75 @@ public class PublicSearchTests(IntegrationTestFixture factory)
     [Fact]
     public async Task Search_ReturnsPublishedPublicMatches_ExcludingDraftsSensitiveAndHiddenFields()
     {
-        var type = $"searchpub_{Guid.NewGuid():N}";
-        await StoreContentTypeAsync(type);
-
-        var (adminToken, _) = await TestHelpers.CreateAdminUserAsync(factory);
-        var adminClient = factory.CreateClient();
-        adminClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
-
-        var createRes = await adminClient.PostAsJsonAsync("/api/contents", new Request
-        {
-            ContentType = type,
-            Status = ContentStatus.Published,
-            Data = new() { ["Title"] = $"About {Needle}", ["Slug"] = "title-hit", ["Body"] = "plain" }
-        });
-        createRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var type = "searchpub_a";
+        await SeedAsync(type);
 
         var res = await _client.GetAsync($"/api/public/{type}/search?q={Needle}");
         res.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await res.Content.ReadAsStringAsync();
 
-        (await res.Content.ReadAsStringAsync()).Should().Contain("title-hit");
+        body.Should().Contain("title-hit").And.Contain("body-hit", "published public matches are returned");
+        body.Should().NotContain("draft-hit", "drafts are never searchable");
+        body.Should().NotContain("sens-hit", "a document-Sensitive entry never surfaces");
+        body.Should().NotContain("field-hit", "a match only in a Sensitive field must not surface");
+        body.Should().NotContain(Needle + "\",\"Secret", "the Sensitive field value is never emitted");
     }
+
+    [Fact]
+    public async Task Search_RanksTitleAboveBody()
+    {
+        var type = "searchpub_rank";
+        await SeedAsync(type);
+
+        var res = await _client.GetAsync($"/api/public/{type}/search?q={Needle}");
+        var body = await res.Content.ReadAsStringAsync();
+        body.IndexOf("title-hit", StringComparison.Ordinal)
+            .Should().BeLessThan(body.IndexOf("body-hit", StringComparison.Ordinal), "a title hit ranks first");
+    }
+
+    [Fact]
+    public async Task Search_ShortQuery_ReturnsEmpty()
+    {
+        var type = "searchpub_short";
+        await SeedAsync(type);
+
+        var res = await _client.GetAsync($"/api/public/{type}/search?q=z");
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await res.Content.ReadAsStringAsync()).Should().Contain("\"count\":0");
+    }
+    [Fact]
+    public async Task Search_ContentCreatedThroughEndpoint_IsSearchable()
+    {
+        var type = $"searchpub_endpoint_{Guid.NewGuid():N}";
+        await StoreContentTypeAsync(type);
+
+        var (adminToken, _) = await TestHelpers.CreateAdminUserAsync(_factory);
+        var adminClient = _factory.CreateClient();
+        adminClient.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", adminToken);
+
+        var createRes = await adminClient.PostAsJsonAsync("/api/contents",
+            new barakoCMS.Features.Content.Create.Request
+            {
+                ContentType = type,
+                Status = ContentStatus.Published,
+                Data = new()
+                {
+                    ["Title"] = $"About {Needle}",
+                    ["Slug"] = "endpoint-hit",
+                    ["Body"] = "plain"
+                }
+            });
+
+        createRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var searchRes = await _client.GetAsync(
+            $"/api/public/{type}/search?q={Needle}");
+
+        searchRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        (await searchRes.Content.ReadAsStringAsync())
+            .Should().Contain("endpoint-hit");
+    }
+
 }
