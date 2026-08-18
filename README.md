@@ -35,7 +35,7 @@ modules** you compose per project. It comes with a Next.js **admin UI** that sur
 ## Contents
 
 - [Quick start](#quick-start) · [Live demo](#live-demo) · [The admin](#the-admin) · [Modules](#modules)
-- [Frontend kit](#frontend-kit) · [Architecture](#architecture) · [Sample app](#sample-app)
+- [Frontend kit](#frontend-kit) · [Architecture](#architecture)
 - [How the pieces fit](#how-the-pieces-fit) · [Module, or core?](#module-or-core) · [Why this and not that](#why-this-and-not-that)
 - [Docs](#documentation) · [Support](#support) · [License](#license)
 
