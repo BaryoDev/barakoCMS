@@ -35,7 +35,7 @@ public class Content
     public Guid LastModifiedBy { get; set; }
 
     // Derived public search text used for full-text search.
-    public string SearchText { get; set; } = string.Empty;
+    public string? SearchText { get; set; }
 
     public void Apply(barakoCMS.Events.ContentCreated @event)
     {
@@ -63,10 +63,5 @@ public class Content
         UpdatedAt = DateTime.UtcNow;
         LastModifiedBy = @event.UpdatedBy;
     }
-    public void Apply(barakoCMS.Events.ContentFieldSensitivityChanged @event)
-    {
-        SearchText = @event.SearchText;
-        UpdatedAt = DateTime.UtcNow;
-        LastModifiedBy = @event.UpdatedBy;
-    }
+
 }

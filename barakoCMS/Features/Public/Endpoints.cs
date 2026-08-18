@@ -177,6 +177,7 @@ public class PublicSearchEndpoint : EndpointWithoutRequest<PublicSearchResponse>
     public PublicSearchEndpoint(IQuerySession session) => _session = session;
 
     private const int MaxResults = 50;
+    private const int ScanCap = 1000;
 
     public override void Configure()
     {
@@ -202,13 +203,13 @@ public class PublicSearchEndpoint : EndpointWithoutRequest<PublicSearchResponse>
             await SendOkAsync(new PublicSearchResponse(Array.Empty<PublicContentResponse>(), 0, q), ct);
             return;
         }
-
         var candidates = await _session.Query<ContentDoc>()
             .Where(c => c.ContentType == type
                         && c.Status == ContentStatus.Published
                         && c.Sensitivity == SensitivityLevel.Public
                         && c.SearchText.ToLower().Contains(q.ToLower()))
             .OrderByDescending(c => c.CreatedAt)
+            .Take(ScanCap)
             .ToListAsync(ct);
 
         var results = candidates
