@@ -94,6 +94,21 @@ public interface IBarakoModule
     IEnumerable<Assembly> EndpointAssemblies => new[] { GetType().Assembly };
 
     /// <summary>
+    /// Assemblies whose document types this module may configure through <see cref="ConfigureSchema"/>.
+    /// Defaults to the module's own assembly.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <see cref="EndpointAssemblies"/> on purpose, and it used to be the same list.
+    /// Sharing them meant a module could add <c>barakoCMS</c> to its endpoint assemblies and then
+    /// legally configure core's documents, which is the exact thing the schema restriction exists to
+    /// prevent. Two declarations, two questions: where are my endpoints, and what data do I own.
+    ///
+    /// Override this only for a module that ships its document types in a separate assembly, which
+    /// the endpoint list would not cover because that assembly contains no endpoints.
+    /// </remarks>
+    IEnumerable<Assembly> SchemaAssemblies => new[] { GetType().Assembly };
+
+    /// <summary>
     /// Seed idempotent baseline data (roles, reference data). Runs only when the host invokes
     /// <c>RunBarakoModuleSeedersAsync</c>.
     ///

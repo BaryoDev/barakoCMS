@@ -125,4 +125,46 @@ public class ModuleSchemaOwnershipTests
                 .Should().BeFalse($"{module.Name} should have moved to ConfigureSchema");
         }
     }
+
+    /// <summary>
+    /// A module that lists core in EndpointAssemblies still cannot configure core's documents.
+    ///
+    /// The ownership check used to union EndpointAssemblies into the owned set, so declaring
+    /// barakoCMS there, which a module might do for entirely innocent reasons, silently granted it
+    /// permission to re-map Content. Endpoint scanning and schema ownership are now separate
+    /// questions with separate declarations.
+    /// </summary>
+    private sealed class ClaimsCoreViaEndpoints : IBarakoModule
+    {
+        public string Name => "ClaimsCore";
+        public IEnumerable<System.Reflection.Assembly> EndpointAssemblies =>
+            new[] { GetType().Assembly, typeof(Content).Assembly };
+    }
+
+    [Fact]
+    public void EndpointAssemblies_cannot_widen_what_a_module_may_configure()
+    {
+        var act = () => SchemaFor(new ClaimsCoreViaEndpoints()).For<Content>();
+
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*ClaimsCore*")
+            .WithMessage("*Content*");
+    }
+
+    /// <summary>A module whose document types ship in a separate assembly it owns.</summary>
+    private sealed class SplitModule : IBarakoModule
+    {
+        public string Name => "Split";
+        public IEnumerable<System.Reflection.Assembly> SchemaAssemblies =>
+            new[] { GetType().Assembly, typeof(Marten.StoreOptions).Assembly };
+    }
+
+    [Fact]
+    public void A_module_may_declare_a_separate_assembly_for_its_document_types()
+    {
+        // Stands in for a module that keeps its models in a second assembly it ships. The endpoint
+        // list would not cover it, because that assembly contains no endpoints.
+        var act = () => SchemaFor(new SplitModule()).For<Marten.StoreOptions>();
+        act.Should().NotThrow();
+    }
 }

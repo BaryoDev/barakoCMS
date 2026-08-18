@@ -18,6 +18,30 @@ AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Serilog, configured before anything can log.
+//
+// This host had none. Serilog's static Log.Logger defaults to a silent logger, so every
+// Log.Warning and Log.Error in core wrote to nothing when running as the Suite: the deprecated
+// ConfigureMarten warning, the legacy module configuration warning, and, worst, the module seed
+// failure report. A module could fail to seed, the container would start normally, and the only
+// evidence would be discarded on its way to a logger nobody had built.
+//
+// Same shape as barakoCMS/Program.cs so both hosts read the same Serilog configuration section.
+Log.Logger = new LoggerConfiguration()
+    .ReadFrom.Configuration(builder.Configuration)
+    .Enrich.FromLogContext()
+    .WriteTo.Console()
+    .CreateLogger();
+
+builder.Host.UseSerilog((context, services, configuration) =>
+{
+    configuration
+        .ReadFrom.Configuration(context.Configuration)
+        .ReadFrom.Services(services)
+        .Enrich.FromLogContext()
+        .WriteTo.Console();
+});
+
 // Outbound HTTP for the ExternalAuth OAuth token exchange + profile lookups.
 builder.Services.AddHttpClient();
 
