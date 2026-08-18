@@ -53,4 +53,11 @@
     <Folder Include="wwwroot\" />
   </ItemGroup>
 
+
+  <ItemGroup>
+    <!-- ModuleConfigurationScopeTests asserts on ModuleConfiguration, which is deliberately
+         internal: it is how the host scopes a module's settings, not public API, and CLAUDE.md
+         section 6 means anything public here is a compatibility commitment. -->
+    <InternalsVisibleTo Include="BarakoCMS.Tests" />
+  </ItemGroup>
 </Project>

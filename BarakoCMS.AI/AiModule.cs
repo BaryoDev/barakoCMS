@@ -17,9 +17,14 @@ public sealed class AiModule : IBarakoModule
 {
     public string Name => "AI";
 
+    /// <summary>Settings used to live at the root "Ai" section. See IBarakoModule.</summary>
+    public string? LegacyConfigurationSection => AiOptions.SectionName;
+
     public void ConfigureServices(IServiceCollection services, IConfiguration configuration)
     {
-        services.Configure<AiOptions>(configuration.GetSection(AiOptions.SectionName));
+        // `configuration` is already this module's own section (Modules:AI), so bind it whole
+        // rather than reaching for a root-level key.
+        services.Configure<AiOptions>(configuration);
         services.AddHttpClient<IEmbeddingClient, OllamaEmbeddingClient>();
     }
 

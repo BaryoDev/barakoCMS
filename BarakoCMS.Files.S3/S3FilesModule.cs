@@ -18,9 +18,13 @@ public sealed class S3FilesModule : IBarakoModule
 {
     public string Name => "Files.S3";
 
+    /// <summary>Settings used to live at the root "Files:S3" section. See IBarakoModule.</summary>
+    public string? LegacyConfigurationSection => "Files:S3";
+
     public void ConfigureServices(IServiceCollection services, IConfiguration configuration)
     {
-        var section = configuration.GetSection("Files:S3");
+        // `configuration` is already this module's own section (Modules:Files.S3).
+        var section = configuration;
 
         /* Only take over when actually configured. This lets the Suite always include the module; with
          * no Files:S3:Bucket set it stays dormant and the Postgres default keeps serving. */

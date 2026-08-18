@@ -1,3 +1,4 @@
+using Serilog;
 using FastEndpoints;
 using FastEndpoints.Swagger;
 using FastEndpoints.Security;
@@ -46,7 +47,7 @@ public static class ServiceCollectionExtensions
         {
             // Keep the instance discoverable at runtime (used by the seed runner).
             services.AddSingleton<IBarakoModule>(module);
-            module.ConfigureServices(services, configuration);
+            module.ConfigureServices(services, ModuleConfiguration(configuration, module));
         }
 
         // FastEndpoints scans the entry (host) assembly by default; add each module's assembly so
@@ -689,4 +690,46 @@ public static class ServiceCollectionExtensions
         var store = host.Services.GetRequiredService<Marten.IDocumentStore>();
         await store.Storage.ApplyAllConfiguredChangesToDatabaseAsync();
     }
+
+    /// <summary>
+    /// The configuration a module is allowed to see: its own <c>Modules:{Name}</c> section.
+    /// </summary>
+    /// <remarks>
+    /// A module used to receive the application root, which carries <c>ConnectionStrings</c>,
+    /// <c>JWT</c> and <c>InitialAdmin</c>. Nothing about the module contract needs any of those, so
+    /// handing them over was authority granted by accident rather than on purpose.
+    ///
+    /// This does not make a hostile module impossible. In-process code can read the environment or
+    /// the filesystem whatever this returns. It means a module that wants a core secret has to reach
+    /// around the API to get it, which is both a signal and something a reviewer can grep for.
+    ///
+    /// The legacy fallback exists so upgrading does not silently un-configure a module that reads a
+    /// root section today. It warns rather than failing, because failing to start is a worse outcome
+    /// than running with a deprecation notice, and it names both keys so the fix is obvious.
+    /// </remarks>
+    internal static IConfiguration ModuleConfiguration(IConfiguration root, IBarakoModule module)
+    {
+        var scoped = root.GetSection($"{ModulesConfigurationSection}:{module.Name}");
+        if (scoped.Exists())
+            return scoped;
+
+        var legacy = module.LegacyConfigurationSection;
+        if (string.IsNullOrWhiteSpace(legacy))
+            return scoped; // empty section: the module simply has no configuration
+
+        var legacySection = root.GetSection(legacy);
+        if (!legacySection.Exists())
+            return scoped;
+
+        Log.Warning(
+            "Module {Module} is reading configuration from the deprecated root section {Legacy}. "
+            + "Move those settings under {Scoped}. The root section will stop being read in a future "
+            + "major version.",
+            module.Name, legacy, $"{ModulesConfigurationSection}:{module.Name}");
+
+        return legacySection;
+    }
+
+    /// <summary>Root key under which every module's own settings live.</summary>
+    internal const string ModulesConfigurationSection = "Modules";
 }
