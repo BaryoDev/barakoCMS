@@ -95,7 +95,7 @@ reach into its services.
 core type, or another module's, throws at registration and names the module, the type and where it
 came from.
 
-```
+```text
 Module 'Pwa' tried to configure the schema for 'barakoCMS.Models.Content', which ships in
 'barakoCMS'. A module may only configure document types from its own assemblies (BarakoCMS.Pwa).
 ```
@@ -134,7 +134,8 @@ once your seed returns.
 - **Do not call `SaveChangesAsync` yourself.** Committing early gives up the all-or-nothing property
   your seed relies on.
 - **You cannot see another module's seed data**, committed or not, and it cannot see yours. If your
-  module needs data another module seeds, that is a dependency, and modules cannot declare one yet.
+  module needs data another module seeds, `DependsOn` will run that module first, but the sessions are
+  isolated so you still cannot read what it wrote. `DependsOn` orders execution; it does not share data.
 - **Throwing fails your seed and nobody else's.** It is logged against your module name and rethrown
   to the host once every module has had its turn. A module that fails leaves the others intact.
 - **Seeds must be idempotent.** They run on every start.
@@ -183,7 +184,9 @@ Under the hood `AddBarakoCMS` collects the modules and:
 
 - calls each `ConfigureServices`,
 - adds each module's `EndpointAssemblies` to FastEndpoints discovery (additive to the host scan),
-- applies each `ConfigureMarten` to the shared Marten store,
+- calls each `ConfigureSchema` with an `IModuleSchema` restricted to the module's own document types,
+- calls each `ConfigureMarten` as well, for modules written before `ConfigureSchema` existed, logging
+  a warning naming any module that still uses it,
 - registers each module as a singleton `IBarakoModule` so `RunBarakoModuleSeedersAsync` can seed it.
 
 Default services (e.g. the mock `IEmailService`) are registered with `TryAdd`, so a module can

@@ -166,7 +166,8 @@ BarakoCMS is headless, so you build the frontend. These BaryoDev packages help:
 - **RBAC.** Roles, groups, and per-content-type permissions, with field-level sensitivity/masking.
 - **MFA.** Optional TOTP second factor (authenticator app) with one-time recovery codes; enforced on
   every sign-in path (password, email code, social), with encrypted secrets and replay protection.
-- **Public delivery.** Anonymous, cacheable, published-only reads for any content type, with
+- **Public delivery.** Anonymous, cacheable, published-only reads for content types explicitly
+  opted in to public delivery, with
   **keyword search** (`/api/public/{type}/search`), an **RSS feed** (`/api/public/{type}/feed.xml`),
   and, via the AI module, **semantic search** (`/api/public/{type}/semantic`). It emits only
   allowlisted public fields, fail-closed by design.
