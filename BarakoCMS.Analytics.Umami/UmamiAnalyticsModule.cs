@@ -16,9 +16,13 @@ public sealed class UmamiAnalyticsModule : IBarakoModule
 {
     public string Name => "Analytics.Umami";
 
+    /// <summary>Settings used to live at the root "Umami" section. See IBarakoModule.</summary>
+    public string? LegacyConfigurationSection => UmamiOptions.SectionName;
+
     public void ConfigureServices(IServiceCollection services, IConfiguration configuration)
     {
-        services.Configure<UmamiOptions>(configuration.GetSection(UmamiOptions.SectionName));
+        // `configuration` is already this module's own section (Modules:Analytics.Umami).
+        services.Configure<UmamiOptions>(configuration);
         services.AddHttpClient<IUmamiClient, UmamiClient>();
     }
 }
