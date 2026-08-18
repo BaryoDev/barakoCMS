@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.svg" alt="BarakoCMS logo — a coffee bean" width="120" height="120" />
+  <img src="assets/logo.svg" alt="BarakoCMS logo, a coffee bean" width="120" height="120" />
 </p>
 
 <h1 align="center">BarakoCMS</h1>
@@ -15,15 +15,15 @@
 
 BarakoCMS is a headless, API-first CMS built on [FastEndpoints](https://fast-endpoints.com/) and
 [Marten](https://martendb.io/) (event sourcing over PostgreSQL). The core stays small and generic;
-everything else — accounting, analytics, email, file storage, auth providers — ships as **opt-in
+everything else, from accounting and analytics to email, file storage and auth providers, ships as **opt-in
 modules** you compose per project. It comes with a Next.js **admin UI** that surfaces your content
 *and* every installed module, and it's **multi-tenant** out of the box.
 
-> The name **Barako** comes from *kapeng barako*, a bold Philippine coffee varietal — hence the
+> The name **Barako** comes from *kapeng barako*, a bold Philippine coffee varietal, hence the
 > coffee-bean mark. The full-module image is "Barako"; the lean core is "Decaf".
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/BaryoDev/barakoCMS/master/assets/screenshots/overview.png" alt="BarakoCMS admin — Overview" width="900" />
+  <img src="https://raw.githubusercontent.com/BaryoDev/barakoCMS/master/assets/screenshots/overview.png" alt="BarakoCMS admin, Overview" width="900" />
 </p>
 
 > [!NOTE]
@@ -43,7 +43,7 @@ modules** you compose per project. It comes with a Next.js **admin UI** that sur
 
 ## Quick start
 
-The fastest path is the **[quickstart bundle](quickstart/)** — the full suite (core + every module),
+The fastest path is the **[quickstart bundle](quickstart/)**, the full suite (core + every module),
 the admin UI, and PostgreSQL, from prebuilt images, driven by one documented `.env`. No build, no
 clone.
 
@@ -66,7 +66,7 @@ behind a domain with TLS. To build from source instead, see the
 
 ## Live demo
 
-**<https://playground.baryo.dev/barakocms>** — sign in as `demo_admin` / `BarakoDemo2026!`. The API
+**<https://playground.baryo.dev/barakocms>**. Sign in as `demo_admin` / `BarakoDemo2026!`. The API
 is at `https://playground.baryo.dev/barakocms-api` ([health](https://playground.baryo.dev/barakocms-api/health)).
 
 ---
@@ -74,14 +74,14 @@ is at `https://playground.baryo.dev/barakocms-api` ([health](https://playground.
 ## The admin
 
 A Next.js admin for modeling content, managing access, and running the system. Installed modules
-appear automatically as their own sections — the admin is a window into your whole deployment.
+appear automatically as their own sections, so the admin is a window into your whole deployment.
 
-- **Content** — define content types with typed fields (including per-field sensitivity/masking),
+- **Content.** Define content types with typed fields (including per-field sensitivity/masking),
   write and version entries, and automate with workflows.
-- **Access** — users, roles, and groups with fine-grained RBAC.
-- **Multi-tenancy** — auto-scopes to your tenant on sign-in, with a switcher to move between the
+- **Access.** Users, roles, and groups with fine-grained RBAC.
+- **Multi-tenancy.** Auto-scopes to your tenant on sign-in, with a switcher to move between the
   tenants you belong to; all data reloads under the one you pick.
-- **Module sections** — Accounting, Analytics, Email events, Feature flags, PWA installs, and more,
+- **Module sections.** Accounting, Analytics, Email events, Feature flags, PWA installs, and more,
   each shown only when its module is installed.
 
 <table>
@@ -100,22 +100,22 @@ appear automatically as their own sections — the admin is a window into your w
 ## Modules
 
 Core stays lean and generic. Capabilities ship as **optional NuGet modules** you opt into per
-project — the same `IBarakoModule` contract you can implement yourself.
+project, through the same `IBarakoModule` contract you can implement yourself.
 
 | Module | Package | What it adds |
 | --- | --- | --- |
-| **Accounting** | [`BarakoCMS.Accounting`](https://www.nuget.org/packages/BarakoCMS.Accounting) | A double-entry **ledger** — chart of accounts, balanced journal entries, balances, and per-account ledgers. |
+| **Accounting** | [`BarakoCMS.Accounting`](https://www.nuget.org/packages/BarakoCMS.Accounting) | A double-entry **ledger**: chart of accounts, balanced journal entries, balances, and per-account ledgers. |
 | **Import** | [`BarakoCMS.Import`](https://www.nuget.org/packages/BarakoCMS.Import) | **Bulk import** `.xlsx`/CSV into content via [Talaan](https://github.com/BaryoDev/Talaan), through the CMS's own validation, permissions, and event sourcing. |
-| **Files** | [`BarakoCMS.Files`](https://www.nuget.org/packages/BarakoCMS.Files) | **File upload/download** stored in Postgres via Marten — receipts, photos, documents. |
+| **Files** | [`BarakoCMS.Files`](https://www.nuget.org/packages/BarakoCMS.Files) | **File upload/download** stored in Postgres via Marten: receipts, photos, documents. |
 | **Email.Resend** | [`BarakoCMS.Email.Resend`](https://www.nuget.org/packages/BarakoCMS.Email.Resend) | An `IEmailService` over the [Resend](https://resend.com) API, plus a delivery webhook and an **email-events** feed (bounces/complaints). |
 | **DeviceTrust** | [`BarakoCMS.DeviceTrust`](https://www.nuget.org/packages/BarakoCMS.DeviceTrust) | Remembers trusted devices; step-up OTP when a new one signs in. |
 | **ExternalAuth** | [`BarakoCMS.ExternalAuth`](https://www.nuget.org/packages/BarakoCMS.ExternalAuth) | "Continue with Google / GitHub / Facebook / LinkedIn" via OAuth, behind one master switch. |
-| **FeatureFlags** | [`BarakoCMS.FeatureFlags`](https://www.nuget.org/packages/BarakoCMS.FeatureFlags) | Create, toggle, and target flags by tenant, user, or percentage — viewable/toggleable in the admin. |
+| **FeatureFlags** | [`BarakoCMS.FeatureFlags`](https://www.nuget.org/packages/BarakoCMS.FeatureFlags) | Create, toggle, and target flags by tenant, user, or percentage: viewable/toggleable in the admin. |
 | **Portability** | [`BarakoCMS.Portability`](https://www.nuget.org/packages/BarakoCMS.Portability) | Export/import content-type definitions and data as a JSON bundle, for backup, migration, and seeding. |
 | **Diagnostics** | [`BarakoCMS.Diagnostics`](https://www.nuget.org/packages/BarakoCMS.Diagnostics) | Captures client-side (browser) errors and shows a deduped, resolvable **error log** in the admin. |
-| **Analytics.Umami** | [`BarakoCMS.Analytics.Umami`](https://www.nuget.org/packages/BarakoCMS.Analytics.Umami) | A server-side proxy over self-hosted [Umami](https://umami.is): visitors, pages, referrers, countries, devices — plus registering sites and verifying install. |
+| **Analytics.Umami** | [`BarakoCMS.Analytics.Umami`](https://www.nuget.org/packages/BarakoCMS.Analytics.Umami) | A server-side proxy over self-hosted [Umami](https://umami.is): visitors, pages, referrers, countries, devices, plus registering sites and verifying install. |
 | **Pwa** | [`BarakoCMS.Pwa`](https://www.nuget.org/packages/BarakoCMS.Pwa) | Tracks PWA installs / installed-app launches (anonymous or tied to the signed-in user) so the admin shows **who** installed the app. |
-| **AI** | [`BarakoCMS.AI`](https://www.nuget.org/packages/BarakoCMS.AI) | **Semantic search** over published content using a self-hosted embedding model ([Ollama](https://ollama.com) by default) — no third-party API key. Indexes only public fields; results are re-checked as published + public at query time. |
+| **AI** | [`BarakoCMS.AI`](https://www.nuget.org/packages/BarakoCMS.AI) | **Semantic search** over published content using a self-hosted embedding model ([Ollama](https://ollama.com) by default), with no third-party API key. Indexes only public fields; results are re-checked as published + public at query time. |
 
 Enable the ones you want when you register the CMS:
 
@@ -142,37 +142,37 @@ lean core, **`ghcr.io/baryodev/barako-cms-decaf`** (Decaf) and add your own.
 
 ## Frontend kit
 
-BarakoCMS is headless — you build the frontend. These BaryoDev packages help:
+BarakoCMS is headless, so you build the frontend. These BaryoDev packages help:
 
-- **[@baryodev/pwa-kit](https://github.com/BaryoDev/pwa-kit)** — service-worker registration + versioned
+- **[@baryodev/pwa-kit](https://github.com/BaryoDev/pwa-kit).** Service-worker registration + versioned
   caching, install hints, standalone viewport handling, and a PWA-install reporter that pairs with the
   `Pwa` module (`reportPwaStatus`).
-- **[@baryodev/read-aloud](https://github.com/BaryoDev/read-aloud)** — "listen to this" using Microsoft
+- **[@baryodev/read-aloud](https://github.com/BaryoDev/read-aloud).** A "listen to this" control using Microsoft
   Edge's free neural voices: a Node TTS endpoint plus a framework-free browser reader with word
   highlighting. Drop it into any frontend for accessible, read-aloud content.
-- **[Talaan](https://github.com/BaryoDev/Talaan)** — a zero-dependency `.xlsx`/CSV reader used by the
+- **[Talaan](https://github.com/BaryoDev/Talaan).** A zero-dependency `.xlsx`/CSV reader used by the
   Import module.
 
 ---
 
 ## Architecture
 
-- **Event-sourced** — content changes are events in Marten; you get full version history, rollback,
+- **Event-sourced.** Content changes are events in Marten; you get full version history, rollback,
   and async projections for free.
-- **Modular** — core knows nothing about any module; the `IBarakoModule` contract wires services,
+- **Modular.** Core knows nothing about any module; the `IBarakoModule` contract wires services,
   documents, endpoints, and seeders. Build your own the same way.
-- **Multi-tenant** — conjoined tenancy: one deployment, many tenants; data scoped by tenant, with
+- **Multi-tenant.** Conjoined tenancy: one deployment, many tenants; data scoped by tenant, with
   global users/roles and per-tenant memberships.
-- **RBAC** — roles, groups, and per-content-type permissions, with field-level sensitivity/masking.
-- **MFA** — optional TOTP second factor (authenticator app) with one-time recovery codes; enforced on
+- **RBAC.** Roles, groups, and per-content-type permissions, with field-level sensitivity/masking.
+- **MFA.** Optional TOTP second factor (authenticator app) with one-time recovery codes; enforced on
   every sign-in path (password, email code, social), with encrypted secrets and replay protection.
-- **Public delivery** — anonymous, cacheable, published-only reads for any content type, with
+- **Public delivery.** Anonymous, cacheable, published-only reads for any content type, with
   **keyword search** (`/api/public/{type}/search`), an **RSS feed** (`/api/public/{type}/feed.xml`),
   and, via the AI module, **semantic search** (`/api/public/{type}/semantic`). It emits only
-  allowlisted public fields — fail-closed by design.
-- **Scheduled publishing** — arm any item with a publish and/or unpublish time; a background sweep
+  allowlisted public fields, fail-closed by design.
+- **Scheduled publishing.** Arm any item with a publish and/or unpublish time; a background sweep
   promotes and retires content on schedule, per tenant, emitting real events so workflows fire.
-- **FastEndpoints + Kestrel** — minimal-overhead HTTP; **health checks** and Prometheus **metrics**
+- **FastEndpoints + Kestrel.** Minimal-overhead HTTP; **health checks** and Prometheus **metrics**
   built in.
 
 ### How the pieces fit
@@ -339,10 +339,10 @@ content modeling, extending BarakoCMS, and deployment.
 
 ## Documentation
 
-Full docs: **<https://baryo.dev/docs>** — getting started, guides, module references, API
+Full docs at **<https://baryo.dev/docs>**: getting started, guides, module references, API
 reference, and architecture. Changelog: [CHANGELOG.md](CHANGELOG.md).
 
-How this project is built and shipped: [AI Development Lifecycle](AI_DEVELOPMENT_LIFECYCLE.md) —
+How this project is built and shipped: [AI Development Lifecycle](AI_DEVELOPMENT_LIFECYCLE.md),
 the breakable-staging discipline, version-gated releases, and how tests gate every promotion.
 
 ---
@@ -353,7 +353,7 @@ BarakoCMS is free and open-source under [MPL-2.0](LICENSE). If it's useful to yo
 
 - ⭐ **Star the repo** so others find it
 - ☕ **[Ko-fi](https://ko-fi.com/T6T01CQT4R)** (one-time) or **[GitHub Sponsors](https://github.com/sponsors/BaryoDev)** (monthly)
-- 🐛 **Contribute** — issues, PRs, docs
+- 🐛 **Contribute.** Issues, PRs, docs
 - 📧 Commercial/enterprise support: [arnelirobles@gmail.com](mailto:arnelirobles@gmail.com)
 
 ---
@@ -396,7 +396,7 @@ Follows the [all-contributors](https://allcontributors.org) specification. To ad
 
 ## License
 
-[MPL-2.0](LICENSE) — the core and every module, so there is one licence across the suite.
+[MPL-2.0](LICENSE) for the core and every module, so there is one licence across the suite.
 
 MPL is file-level copyleft: use it in commercial and closed-source products freely, and if you
 modify a barakoCMS source file, share that file's changes. Your own code stays yours.
@@ -407,6 +407,6 @@ modify a barakoCMS source file, share that file's changes. Your own code stays y
 
 ---
 
-Come say hello on [Discord](https://discord.gg/7GYKzDx7Z2) — questions, ideas, or just to tell us what you're building.
+Come say hello on [Discord](https://discord.gg/7GYKzDx7Z2) for questions, ideas, or just to tell us what you're building.
 
-If barakoCMS is useful to you, a star helps other people find it. Contributions are welcome — code, documentation, module icons and artwork all count. See [CONTRIBUTING.md](CONTRIBUTING.md).
+If barakoCMS is useful to you, a star helps other people find it. Contributions are welcome: code, documentation, module icons and artwork all count. See [CONTRIBUTING.md](CONTRIBUTING.md).

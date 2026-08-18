@@ -29,7 +29,7 @@ app.UseBarakoCMS();
 await app.RunBarakoModuleSeedersAsync();  // runs each module's SeedAsync
 ```
 
-Calling `AddBarakoCMS(config)` with no modules behaves exactly as before — modules are purely additive
+Calling `AddBarakoCMS(config)` with no modules behaves exactly as before, because modules are purely additive
 and backward-compatible.
 
 You can also discover modules by reflection:
