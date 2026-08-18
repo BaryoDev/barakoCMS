@@ -16,6 +16,12 @@ internal static class ModuleOrder
     /// <exception cref="InvalidOperationException">
     /// A declared dependency is not registered, or the graph contains a cycle.
     /// </exception>
+    /// <remarks>
+    /// The traversal is recursive, so dependency depth is bounded by the stack rather than by
+    /// anything this method checks. A deep enough chain overflows instead of reporting a cycle or a
+    /// missing dependency. An iterative traversal is needed before module registration stops being
+    /// a hand-written list.
+    /// </remarks>
     public static IReadOnlyList<IBarakoModule> Sort(IReadOnlyList<IBarakoModule> modules)
     {
         var byName = new Dictionary<string, IBarakoModule>(StringComparer.OrdinalIgnoreCase);

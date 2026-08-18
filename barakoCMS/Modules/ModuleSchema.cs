@@ -18,11 +18,18 @@ internal sealed class ModuleSchema : IModuleSchema
         _options = options;
         _module = module;
 
-        // The module's own assembly, plus any it declares for endpoints. A module that splits its
-        // models into a second assembly it ships is legitimate; one reaching into barakoCMS.dll or
-        // another module's assembly is not.
+        // SchemaAssemblies, deliberately NOT EndpointAssemblies.
+        //
+        // This used to union both. A module could then list barakoCMS in its endpoint assemblies and
+        // legally configure core's documents, which defeats the whole restriction: the guard asked
+        // the module what it owned and believed the answer, using a property that exists for an
+        // unrelated purpose and that a module has every reason to widen.
+        //
+        // Still a declaration the module makes, so still not a defence against a hostile module.
+        // What it stops is the accident: widening endpoint scanning no longer silently widens what
+        // a module may re-map.
         _owned = new HashSet<Assembly> { module.GetType().Assembly };
-        foreach (var asm in module.EndpointAssemblies)
+        foreach (var asm in module.SchemaAssemblies)
             _owned.Add(asm);
     }
 

@@ -18,6 +18,24 @@ AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Before any registration, because core writes to Serilog's static Log during AddBarakoCMS and
+// during module seeding. Without a logger assigned here those calls reach Serilog's silent default
+// and are discarded, so a module seed failure would report to nothing.
+Log.Logger = new LoggerConfiguration()
+    .ReadFrom.Configuration(builder.Configuration)
+    .Enrich.FromLogContext()
+    .WriteTo.Console()
+    .CreateLogger();
+
+builder.Host.UseSerilog((context, services, configuration) =>
+{
+    configuration
+        .ReadFrom.Configuration(context.Configuration)
+        .ReadFrom.Services(services)
+        .Enrich.FromLogContext()
+        .WriteTo.Console();
+});
+
 // Outbound HTTP for the ExternalAuth OAuth token exchange + profile lookups.
 builder.Services.AddHttpClient();
 
