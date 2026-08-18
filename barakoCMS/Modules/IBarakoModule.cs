@@ -42,7 +42,31 @@ public interface IBarakoModule
     /// </summary>
     string? LegacyConfigurationSection => null;
 
-    /// <summary>Register the module's document types / indexes on the shared Marten store.</summary>
+    /// <summary>
+    /// Register the module's own document types and indexes.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="schema"/> accepts only types from assemblies this module ships. Everything
+    /// chains as before; only the entry point changed:
+    /// <code>
+    /// schema.For&lt;MyDocument&gt;().Index(x =&gt; x.SomeField);
+    /// </code>
+    /// </remarks>
+    void ConfigureSchema(IModuleSchema schema) { }
+
+    /// <summary>
+    /// Register document types directly on the shared Marten store.
+    /// </summary>
+    /// <remarks>
+    /// Superseded by <see cref="ConfigureSchema"/>. This receives the same <see cref="StoreOptions"/>
+    /// core configured, so it can re-map core documents, change tenancy or alter the event store.
+    /// That was never intended and is not something a module needs.
+    ///
+    /// Still called, so existing modules keep working, and the host logs a warning naming any module
+    /// that overrides it.
+    /// </remarks>
+    [Obsolete("Use ConfigureSchema(IModuleSchema), which restricts a module to its own document types. "
+              + "ConfigureMarten will be removed in barakoCMS 5.0.")]
     void ConfigureMarten(StoreOptions options) { }
 
     /// <summary>
