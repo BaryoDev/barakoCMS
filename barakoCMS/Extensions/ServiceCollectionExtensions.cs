@@ -709,25 +709,41 @@ public static class ServiceCollectionExtensions
     /// </remarks>
     internal static IConfiguration ModuleConfiguration(IConfiguration root, IBarakoModule module)
     {
-        var scoped = root.GetSection($"{ModulesConfigurationSection}:{module.Name}");
-        if (scoped.Exists())
+        var scopedKey = $"{ModulesConfigurationSection}:{module.Name}";
+        var scoped = root.GetSection(scopedKey);
+
+        var legacyKey = module.LegacyConfigurationSection;
+        if (string.IsNullOrWhiteSpace(legacyKey))
             return scoped;
 
-        var legacy = module.LegacyConfigurationSection;
-        if (string.IsNullOrWhiteSpace(legacy))
-            return scoped; // empty section: the module simply has no configuration
-
-        var legacySection = root.GetSection(legacy);
-        if (!legacySection.Exists())
+        var legacy = root.GetSection(legacyKey);
+        if (!legacy.Exists())
             return scoped;
 
+        if (!scoped.Exists())
+        {
+            Log.Warning(
+                "Module {Module} is reading configuration from the deprecated root section {Legacy}. "
+                + "Move those settings under {Scoped}. The root section stops being read in a future "
+                + "major version.",
+                module.Name, legacyKey, scopedKey);
+
+            return legacy;
+        }
+
+        // Both present: a half-finished migration. Picking one whole section would silently discard
+        // every key left behind in the other, and the module would run misconfigured with nothing
+        // said. Layered instead, so each key resolves and the scoped value wins where both define it.
         Log.Warning(
-            "Module {Module} is reading configuration from the deprecated root section {Legacy}. "
-            + "Move those settings under {Scoped}. The root section will stop being read in a future "
-            + "major version.",
-            module.Name, legacy, $"{ModulesConfigurationSection}:{module.Name}");
+            "Module {Module} has settings in both {Scoped} and the deprecated {Legacy}. Keys are being "
+            + "merged with {Scoped} winning. Finish moving them: the root section stops being read in "
+            + "a future major version.",
+            module.Name, scopedKey, legacyKey);
 
-        return legacySection;
+        return new ConfigurationBuilder()
+            .AddConfiguration(legacy)
+            .AddConfiguration(scoped)  // added last, so it wins per key
+            .Build();
     }
 
     /// <summary>Root key under which every module's own settings live.</summary>

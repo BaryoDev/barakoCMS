@@ -126,9 +126,41 @@ public class ModuleConfigurationScopeTests
         probe.Seen.Should().NotBeNull("the module must have been configured at all");
         probe.Seen!["ApiKey"].Should().Be("the-module-key", "its own settings must arrive");
         probe.Seen["ConnectionStrings:Postgres"].Should()
-            .BeNull("AddBarakoCMS handed the module the application root, so every referenced package can read the database password");
+            .BeNull("a module must never receive the database password");
         probe.Seen["JWT:Key"].Should()
             .BeNull("a module that can read the signing key can mint a token for any user");
         probe.Seen["InitialAdmin:Password"].Should().BeNull();
+    }
+
+    [Fact]
+    public void A_half_finished_migration_keeps_keys_from_both_sections()
+    {
+        // The case that made picking one whole section wrong: an operator moves Enabled across and
+        // leaves BaseUrl behind. Choosing the scoped section outright silently discarded BaseUrl and
+        // the module ran misconfigured with nothing said.
+        var root = Root(
+            ("Modules:Analytics.Umami:Enabled", "true"),   // moved
+            ("Umami:BaseUrl", "https://umami.example"),    // not moved yet
+            ("ConnectionStrings:Postgres", "Host=db;Password=hunter2"));
+
+        var seen = Host.ModuleConfiguration(root, new Probe("Analytics.Umami", "Umami"));
+
+        seen["Enabled"].Should().Be("true");
+        seen["BaseUrl"].Should().Be("https://umami.example", "a key left in the old section must still be read");
+        seen["ConnectionStrings:Postgres"].Should().BeNull("merging must not widen to the root");
+    }
+
+    [Fact]
+    public void Where_both_sections_define_a_key_the_scoped_one_wins()
+    {
+        var root = Root(
+            ("Umami:ApiKey", "old"),
+            ("Modules:Analytics.Umami:ApiKey", "new"),
+            ("Umami:BaseUrl", "https://old.example"));
+
+        var seen = Host.ModuleConfiguration(root, new Probe("Analytics.Umami", "Umami"));
+
+        seen["ApiKey"].Should().Be("new", "the migrated value is the intended one");
+        seen["BaseUrl"].Should().Be("https://old.example");
     }
 }

@@ -9,9 +9,9 @@ namespace BarakoCMS.AI;
 /// <summary>
 /// Adds semantic (vector) search over published content. Register with:
 /// <code>services.AddBarakoCMS(config, m =&gt; m.Add(new AiModule()));</code>
-/// It binds the "Ai" section, registers a typed embedding client, and stores one vector per published
+/// It binds its own "Modules:AI" section, registers a typed embedding client, and stores one vector per published
 /// entry (multi-tenanted). Endpoints: POST /api/ai/index/{type} (admin) to (re)build a type's index,
-/// and GET /api/public/{type}/semantic?q=… (anonymous) to search it. Off until "Ai:Enabled" is true.
+/// and GET /api/public/{type}/semantic?q=… (anonymous) to search it. Off until "Modules:AI:Enabled" is true.
 /// </summary>
 public sealed class AiModule : IBarakoModule
 {
