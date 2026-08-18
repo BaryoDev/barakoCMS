@@ -98,10 +98,10 @@ public interface IBarakoModule
     /// Defaults to the module's own assembly.
     /// </summary>
     /// <remarks>
-    /// Separate from <see cref="EndpointAssemblies"/> on purpose, and it used to be the same list.
-    /// Sharing them meant a module could add <c>barakoCMS</c> to its endpoint assemblies and then
-    /// legally configure core's documents, which is the exact thing the schema restriction exists to
-    /// prevent. Two declarations, two questions: where are my endpoints, and what data do I own.
+    /// Separate from <see cref="EndpointAssemblies"/> on purpose. Sharing one list means widening
+    /// endpoint scanning also widens what a module may configure, so listing <c>barakoCMS</c> to have
+    /// its endpoints scanned would grant permission to re-map core's documents. Two declarations, two
+    /// questions: where are my endpoints, and what data do I own.
     ///
     /// Override this only for a module that ships its document types in a separate assembly, which
     /// the endpoint list would not cover because that assembly contains no endpoints.
@@ -117,8 +117,9 @@ public interface IBarakoModule
     /// all-or-nothing property your own seed relies on.
     ///
     /// You cannot see another module's seed data here, committed or not, and it cannot see yours.
-    /// If your module needs data another module seeds, that is a dependency, and modules cannot yet
-    /// declare one (see issue #176).
+    /// <see cref="DependsOn"/> does order seeding as well as configuration, but the sessions are
+    /// isolated, so a module that ran earlier has committed data you still cannot read from here.
+    /// Seed only what your own module owns.
     ///
     /// Throwing fails your module's seed and nobody else's. It is logged against your module name
     /// and rethrown to the host once every module has had its turn.

@@ -17,10 +17,10 @@ internal static class ModuleOrder
     /// A declared dependency is not registered, or the graph contains a cycle.
     /// </exception>
     /// <remarks>
-    /// The traversal is recursive, so a very deep dependency chain would overflow the stack rather
-    /// than reporting a useful error. Fine for a hand-registered module set; worth making iterative
-    /// before assembly discovery (issue #172) lets an arbitrary number of modules declare arbitrary
-    /// chains.
+    /// The traversal is recursive, so dependency depth is bounded by the stack rather than by
+    /// anything this method checks. A deep enough chain overflows instead of reporting a cycle or a
+    /// missing dependency. An iterative traversal is needed before module registration stops being
+    /// a hand-written list.
     /// </remarks>
     public static IReadOnlyList<IBarakoModule> Sort(IReadOnlyList<IBarakoModule> modules)
     {
