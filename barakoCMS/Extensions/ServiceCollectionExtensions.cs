@@ -676,21 +676,69 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Runs <see cref="IBarakoModule.SeedAsync"/> for every registered module inside a single shared
-    /// session, committing once at the end. Call after <c>UseBarakoCMS</c> during startup. No-op when
-    /// no modules are registered.
+    /// Runs <see cref="IBarakoModule.SeedAsync"/> for every registered module, each in its own scope,
+    /// session and transaction. Call after <c>UseBarakoCMS</c> during startup. No-op when no modules
+    /// are registered.
     /// </summary>
+    /// <remarks>
+    /// A session per module, not one shared session, and the difference matters in three ways.
+    ///
+    /// One module throwing used to lose every module's seed, including the ones that had already
+    /// succeeded, because a single <c>SaveChangesAsync</c> committed the lot at the end.
+    ///
+    /// A module calling <c>SaveChangesAsync</c> itself used to commit every other module's
+    /// half-finished work, and nothing in the contract said it must not.
+    ///
+    /// A module could read and modify every other module's uncommitted seed data, because they
+    /// shared one identity map. Harmless between first-party modules; not something to leave in
+    /// place before third-party ones exist.
+    ///
+    /// Failures are isolated so one module cannot stop the others, and then rethrown together, so
+    /// a host that does nothing fails loudly rather than starting up quietly half-seeded. A host
+    /// that would rather continue catches it, which is what the Suite does.
+    ///
+    /// Cancellation is never treated as a module failure: it propagates immediately.
+    /// </remarks>
+    /// <exception cref="AggregateException">One or more modules threw. Every other module still ran.</exception>
     public static async Task RunBarakoModuleSeedersAsync(this IHost host, CancellationToken ct = default)
     {
-        using var scope = host.Services.CreateScope();
-        var modules = scope.ServiceProvider.GetServices<IBarakoModule>().ToList();
+        List<IBarakoModule> modules;
+        using (var probe = host.Services.CreateScope())
+        {
+            modules = probe.ServiceProvider.GetServices<IBarakoModule>().ToList();
+        }
         if (modules.Count == 0)
             return;
 
-        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var failures = new List<Exception>();
+
         foreach (var module in modules)
-            await module.SeedAsync(session, scope.ServiceProvider, ct);
-        await session.SaveChangesAsync(ct);
+        {
+            ct.ThrowIfCancellationRequested();
+
+            // A fresh scope per module: IDocumentSession is scoped, so this is what actually gives
+            // each module its own session rather than a shared identity map.
+            using var scope = host.Services.CreateScope();
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+
+            try
+            {
+                await module.SeedAsync(session, scope.ServiceProvider, ct);
+                await session.SaveChangesAsync(ct);
+            }
+            catch (OperationCanceledException)
+            {
+                throw; // shutting down is not a module fault
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Module {Module} failed to seed. Other modules were unaffected.", module.Name);
+                failures.Add(new InvalidOperationException($"Module '{module.Name}' failed to seed.", ex));
+            }
+        }
+
+        if (failures.Count > 0)
+            throw new AggregateException($"{failures.Count} module seeder(s) failed.", failures);
     }
 
     /// <summary>

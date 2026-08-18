@@ -76,8 +76,19 @@ public interface IBarakoModule
     IEnumerable<Assembly> EndpointAssemblies => new[] { GetType().Assembly };
 
     /// <summary>
-    /// Seed idempotent baseline data (roles, reference data). Runs inside a shared session; the
-    /// caller commits. Runs only when the host invokes <c>RunBarakoModuleSeedersAsync</c>.
+    /// Seed idempotent baseline data (roles, reference data). Runs only when the host invokes
+    /// <c>RunBarakoModuleSeedersAsync</c>.
+    ///
+    /// The session is yours alone and the host commits it. Do not call <c>SaveChangesAsync</c>
+    /// yourself: the host does it once your seed returns, and committing early gives up the
+    /// all-or-nothing property your own seed relies on.
+    ///
+    /// You cannot see another module's seed data here, committed or not, and it cannot see yours.
+    /// If your module needs data another module seeds, that is a dependency, and modules cannot yet
+    /// declare one (see issue #176).
+    ///
+    /// Throwing fails your module's seed and nobody else's. It is logged against your module name
+    /// and rethrown to the host once every module has had its turn.
     /// </summary>
     Task SeedAsync(IDocumentSession session, IServiceProvider services, CancellationToken ct) => Task.CompletedTask;
 }
