@@ -20,6 +20,24 @@ public interface IBarakoModule
     string Name { get; }
 
     /// <summary>
+    /// Names of modules that must be configured before this one.
+    /// </summary>
+    /// <remarks>
+    /// Registration order decides who configures services first, and therefore who wins when two
+    /// modules touch the same registration. That order is currently whatever the host wrote by
+    /// hand, and assembly discovery does not have one to offer.
+    ///
+    /// Declaring the dependency makes the requirement explicit and enforced: modules are sorted
+    /// before anything runs, a missing dependency is refused by name, and a cycle is refused with
+    /// the cycle printed. Modules that do not depend on each other keep their declared order, so a
+    /// build stays reproducible.
+    ///
+    /// Only ordering. It does not register the dependency for you, and it does not let you reach
+    /// into another module's services.
+    /// </remarks>
+    IEnumerable<string> DependsOn => Array.Empty<string>();
+
+    /// <summary>
     /// Register the module's services in the container.
     /// </summary>
     /// <param name="configuration">
