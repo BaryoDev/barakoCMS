@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.svg" alt="BarakoCMS logo — a coffee bean" width="120" height="120" />
+  <img src="assets/logo.svg" alt="BarakoCMS logo, a coffee bean" width="120" height="120" />
 </p>
 
 <h1 align="center">BarakoCMS</h1>
@@ -15,15 +15,15 @@
 
 BarakoCMS is a headless, API-first CMS built on [FastEndpoints](https://fast-endpoints.com/) and
 [Marten](https://martendb.io/) (event sourcing over PostgreSQL). The core stays small and generic;
-everything else — accounting, analytics, email, file storage, auth providers — ships as **opt-in
+everything else, from accounting and analytics to email, file storage and auth providers, ships as **opt-in
 modules** you compose per project. It comes with a Next.js **admin UI** that surfaces your content
 *and* every installed module, and it's **multi-tenant** out of the box.
 
-> The name **Barako** comes from *kapeng barako*, a bold Philippine coffee varietal — hence the
+> The name **Barako** comes from *kapeng barako*, a bold Philippine coffee varietal, hence the
 > coffee-bean mark. The full-module image is "Barako"; the lean core is "Decaf".
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/BaryoDev/barakoCMS/master/assets/screenshots/overview.png" alt="BarakoCMS admin — Overview" width="900" />
+  <img src="https://raw.githubusercontent.com/BaryoDev/barakoCMS/master/assets/screenshots/overview.png" alt="BarakoCMS admin, Overview" width="900" />
 </p>
 
 > [!NOTE]
@@ -35,14 +35,15 @@ modules** you compose per project. It comes with a Next.js **admin UI** that sur
 ## Contents
 
 - [Quick start](#quick-start) · [Live demo](#live-demo) · [The admin](#the-admin) · [Modules](#modules)
-- [Frontend kit](#frontend-kit) · [Architecture](#architecture) · [Sample app](#sample-app)
+- [Frontend kit](#frontend-kit) · [Architecture](#architecture)
+- [How the pieces fit](#how-the-pieces-fit) · [Module, or core?](#module-or-core) · [Why this and not that](#why-this-and-not-that)
 - [Docs](#documentation) · [Support](#support) · [License](#license)
 
 ---
 
 ## Quick start
 
-The fastest path is the **[quickstart bundle](quickstart/)** — the full suite (core + every module),
+The fastest path is the **[quickstart bundle](quickstart/)**, the full suite (core + every module),
 the admin UI, and PostgreSQL, from prebuilt images, driven by one documented `.env`. No build, no
 clone.
 
@@ -65,7 +66,7 @@ behind a domain with TLS. To build from source instead, see the
 
 ## Live demo
 
-**<https://playground.baryo.dev/barakocms>** — sign in as `demo_admin` / `BarakoDemo2026!`. The API
+**<https://playground.baryo.dev/barakocms>**. Sign in as `demo_admin` / `BarakoDemo2026!`. The API
 is at `https://playground.baryo.dev/barakocms-api` ([health](https://playground.baryo.dev/barakocms-api/health)).
 
 ---
@@ -73,14 +74,14 @@ is at `https://playground.baryo.dev/barakocms-api` ([health](https://playground.
 ## The admin
 
 A Next.js admin for modeling content, managing access, and running the system. Installed modules
-appear automatically as their own sections — the admin is a window into your whole deployment.
+appear automatically as their own sections, so the admin is a window into your whole deployment.
 
-- **Content** — define content types with typed fields (including per-field sensitivity/masking),
+- **Content.** Define content types with typed fields (including per-field sensitivity/masking),
   write and version entries, and automate with workflows.
-- **Access** — users, roles, and groups with fine-grained RBAC.
-- **Multi-tenancy** — auto-scopes to your tenant on sign-in, with a switcher to move between the
+- **Access.** Users, roles, and groups with fine-grained RBAC.
+- **Multi-tenancy.** Auto-scopes to your tenant on sign-in, with a switcher to move between the
   tenants you belong to; all data reloads under the one you pick.
-- **Module sections** — Accounting, Analytics, Email events, Feature flags, PWA installs, and more,
+- **Module sections.** Accounting, Analytics, Email events, Feature flags, PWA installs, and more,
   each shown only when its module is installed.
 
 <table>
@@ -99,22 +100,22 @@ appear automatically as their own sections — the admin is a window into your w
 ## Modules
 
 Core stays lean and generic. Capabilities ship as **optional NuGet modules** you opt into per
-project — the same `IBarakoModule` contract you can implement yourself.
+project, through the same `IBarakoModule` contract you can implement yourself.
 
 | Module | Package | What it adds |
 | --- | --- | --- |
-| **Accounting** | [`BarakoCMS.Accounting`](https://www.nuget.org/packages/BarakoCMS.Accounting) | A double-entry **ledger** — chart of accounts, balanced journal entries, balances, and per-account ledgers. |
+| **Accounting** | [`BarakoCMS.Accounting`](https://www.nuget.org/packages/BarakoCMS.Accounting) | A double-entry **ledger**: chart of accounts, balanced journal entries, balances, and per-account ledgers. |
 | **Import** | [`BarakoCMS.Import`](https://www.nuget.org/packages/BarakoCMS.Import) | **Bulk import** `.xlsx`/CSV into content via [Talaan](https://github.com/BaryoDev/Talaan), through the CMS's own validation, permissions, and event sourcing. |
-| **Files** | [`BarakoCMS.Files`](https://www.nuget.org/packages/BarakoCMS.Files) | **File upload/download** stored in Postgres via Marten — receipts, photos, documents. |
+| **Files** | [`BarakoCMS.Files`](https://www.nuget.org/packages/BarakoCMS.Files) | **File upload/download** stored in Postgres via Marten: receipts, photos, documents. |
 | **Email.Resend** | [`BarakoCMS.Email.Resend`](https://www.nuget.org/packages/BarakoCMS.Email.Resend) | An `IEmailService` over the [Resend](https://resend.com) API, plus a delivery webhook and an **email-events** feed (bounces/complaints). |
 | **DeviceTrust** | [`BarakoCMS.DeviceTrust`](https://www.nuget.org/packages/BarakoCMS.DeviceTrust) | Remembers trusted devices; step-up OTP when a new one signs in. |
 | **ExternalAuth** | [`BarakoCMS.ExternalAuth`](https://www.nuget.org/packages/BarakoCMS.ExternalAuth) | "Continue with Google / GitHub / Facebook / LinkedIn" via OAuth, behind one master switch. |
-| **FeatureFlags** | [`BarakoCMS.FeatureFlags`](https://www.nuget.org/packages/BarakoCMS.FeatureFlags) | Create, toggle, and target flags by tenant, user, or percentage — viewable/toggleable in the admin. |
+| **FeatureFlags** | [`BarakoCMS.FeatureFlags`](https://www.nuget.org/packages/BarakoCMS.FeatureFlags) | Create, toggle, and target flags by tenant, user, or percentage: viewable/toggleable in the admin. |
 | **Portability** | [`BarakoCMS.Portability`](https://www.nuget.org/packages/BarakoCMS.Portability) | Export/import content-type definitions and data as a JSON bundle, for backup, migration, and seeding. |
 | **Diagnostics** | [`BarakoCMS.Diagnostics`](https://www.nuget.org/packages/BarakoCMS.Diagnostics) | Captures client-side (browser) errors and shows a deduped, resolvable **error log** in the admin. |
-| **Analytics.Umami** | [`BarakoCMS.Analytics.Umami`](https://www.nuget.org/packages/BarakoCMS.Analytics.Umami) | A server-side proxy over self-hosted [Umami](https://umami.is): visitors, pages, referrers, countries, devices — plus registering sites and verifying install. |
+| **Analytics.Umami** | [`BarakoCMS.Analytics.Umami`](https://www.nuget.org/packages/BarakoCMS.Analytics.Umami) | A server-side proxy over self-hosted [Umami](https://umami.is): visitors, pages, referrers, countries, devices, plus registering sites and verifying install. |
 | **Pwa** | [`BarakoCMS.Pwa`](https://www.nuget.org/packages/BarakoCMS.Pwa) | Tracks PWA installs / installed-app launches (anonymous or tied to the signed-in user) so the admin shows **who** installed the app. |
-| **AI** | [`BarakoCMS.AI`](https://www.nuget.org/packages/BarakoCMS.AI) | **Semantic search** over published content using a self-hosted embedding model ([Ollama](https://ollama.com) by default) — no third-party API key. Indexes only public fields; results are re-checked as published + public at query time. |
+| **AI** | [`BarakoCMS.AI`](https://www.nuget.org/packages/BarakoCMS.AI) | **Semantic search** over published content using a self-hosted embedding model ([Ollama](https://ollama.com) by default), with no third-party API key. Indexes only public fields; results are re-checked as published + public at query time. |
 
 Enable the ones you want when you register the CMS:
 
@@ -141,38 +142,196 @@ lean core, **`ghcr.io/baryodev/barako-cms-decaf`** (Decaf) and add your own.
 
 ## Frontend kit
 
-BarakoCMS is headless — you build the frontend. These BaryoDev packages help:
+BarakoCMS is headless, so you build the frontend. These BaryoDev packages help:
 
-- **[@baryodev/pwa-kit](https://github.com/BaryoDev/pwa-kit)** — service-worker registration + versioned
+- **[@baryodev/pwa-kit](https://github.com/BaryoDev/pwa-kit).** Service-worker registration + versioned
   caching, install hints, standalone viewport handling, and a PWA-install reporter that pairs with the
   `Pwa` module (`reportPwaStatus`).
-- **[@baryodev/read-aloud](https://github.com/BaryoDev/read-aloud)** — "listen to this" using Microsoft
+- **[@baryodev/read-aloud](https://github.com/BaryoDev/read-aloud).** A "listen to this" control using Microsoft
   Edge's free neural voices: a Node TTS endpoint plus a framework-free browser reader with word
   highlighting. Drop it into any frontend for accessible, read-aloud content.
-- **[Talaan](https://github.com/BaryoDev/Talaan)** — a zero-dependency `.xlsx`/CSV reader used by the
+- **[Talaan](https://github.com/BaryoDev/Talaan).** A zero-dependency `.xlsx`/CSV reader used by the
   Import module.
 
 ---
 
 ## Architecture
 
-- **Event-sourced** — content changes are events in Marten; you get full version history, rollback,
+- **Event-sourced.** Content changes are events in Marten; you get full version history, rollback,
   and async projections for free.
-- **Modular** — core knows nothing about any module; the `IBarakoModule` contract wires services,
+- **Modular.** Core knows nothing about any module; the `IBarakoModule` contract wires services,
   documents, endpoints, and seeders. Build your own the same way.
-- **Multi-tenant** — conjoined tenancy: one deployment, many tenants; data scoped by tenant, with
+- **Multi-tenant.** Conjoined tenancy: one deployment, many tenants; data scoped by tenant, with
   global users/roles and per-tenant memberships.
-- **RBAC** — roles, groups, and per-content-type permissions, with field-level sensitivity/masking.
-- **MFA** — optional TOTP second factor (authenticator app) with one-time recovery codes; enforced on
+- **RBAC.** Roles, groups, and per-content-type permissions, with field-level sensitivity/masking.
+- **MFA.** Optional TOTP second factor (authenticator app) with one-time recovery codes; enforced on
   every sign-in path (password, email code, social), with encrypted secrets and replay protection.
-- **Public delivery** — anonymous, cacheable, published-only reads for any content type, with
+- **Public delivery.** Anonymous, cacheable, published-only reads for content types explicitly
+  opted in to public delivery, with
   **keyword search** (`/api/public/{type}/search`), an **RSS feed** (`/api/public/{type}/feed.xml`),
   and, via the AI module, **semantic search** (`/api/public/{type}/semantic`). It emits only
-  allowlisted public fields — fail-closed by design.
-- **Scheduled publishing** — arm any item with a publish and/or unpublish time; a background sweep
+  allowlisted public fields, fail-closed by design.
+- **Scheduled publishing.** Arm any item with a publish and/or unpublish time; a background sweep
   promotes and retires content on schedule, per tenant, emitting real events so workflows fire.
-- **FastEndpoints + Kestrel** — minimal-overhead HTTP; **health checks** and Prometheus **metrics**
+- **FastEndpoints + Kestrel.** Minimal-overhead HTTP; **health checks** and Prometheus **metrics**
   built in.
+
+### How the pieces fit
+
+```text
+                      ┌──────────────────────────────────────────┐
+   admin UI ─────────▶│  /api/contents  /api/content-types       │
+   (Next.js)          │  /api/users  /api/roles  /api/workflows  │  authenticated
+   barako-client ────▶│  /api/api-keys  /api/tenants  /api/audit │
+                      └──────────────────────────────────────────┘
+                                        │
+   any browser ──────▶  /api/public/{type}  ──┐                     anonymous, and only
+                        /feed.xml  /search    │                     for types opted in
+                                        ┌─────▼──────┐
+                                        │    CORE    │
+                                        │            │
+                                        │  content   │  a document bag + a runtime
+                                        │  types     │  type definition, not classes
+                                        │  auth      │  JWT, API keys, MFA, RBAC
+                                        │  tenancy   │  conjoined: one database, many tenants
+                                        │  delivery  │  opt-in, field-masked, fail-closed
+                                        │  workflows │  events in, actions out
+                                        └─────┬──────┘
+                                              │ IBarakoModule
+                    ┌─────────────────────────┼─────────────────────────┐
+                    ▼                         ▼                         ▼
+              Accounting                    Files ◀── Files.S3        AI
+              FeatureFlags                  Import                    Analytics.Umami
+              Portability                   Email.Resend              Pwa
+              ExternalAuth                  DeviceTrust               Diagnostics
+                    │                         │                         │
+                    └─────────────────────────┼─────────────────────────┘
+                                              ▼
+                                       PostgreSQL (Marten)
+                                  documents + event streams, one store
+```
+
+A module contributes services, its own document types, its own endpoints and its own seed data.
+Core knows none of them by name. See [MODULES.md](MODULES.md) for the contract.
+
+### Module, or core?
+
+The question every contribution runs into, so here is the answer we use.
+
+**It is a module if any of these is true:**
+
+| Test | Because |
+| --- | --- |
+| Two sensible projects would disagree about wanting it | Core is what nobody gets a choice about, and every choice belongs to the person deploying |
+| It names a vendor, a product or a business domain | `Resend`, `Umami`, `S3`, `Accounting`. Core's vocabulary is content, users, tenants, permissions and nothing else |
+| It brings a dependency core does not already carry | An SDK, an API client, a file format. Core's dependency list is a promise to everyone who installs it |
+| Removing it still leaves a working CMS | If content, auth, tenancy and delivery survive without it, it was never core |
+
+These tests assume the module contract can express what you are building. Where it cannot, the
+answer is core by necessity rather than by principle, and it should say so out loud: `Workflows`
+below is exactly that case.
+
+**It is core if any of these is true:**
+
+| Test | Because |
+| --- | --- |
+| Something else cannot work without it | Content, content types, auth, tenancy, permissions. Everything stands on these |
+| Core would need to know it exists | A module registers itself. The moment core needs an `if` for your feature, it is not a module |
+| It changes the shape of content, auth, tenancy or delivery | These are contracts other people's modules depend on, so they are not extendable from outside |
+
+When it is genuinely borderline, build it as a module. Moving a module into core later is additive.
+Pulling a feature out of core is a breaking change for everyone who installed it.
+
+#### Where core stands against its own rules
+
+Rules are easier to trust when someone has applied them to their own work, so here is the result of
+doing that.
+
+**`Features/Club/` failed the naming test and has been removed.** It was per-club membership
+management at `/api/club/*`, added during the multi-tenancy rollout and never called by the admin UI,
+`barako-client`, or anything else in the repo. "Club" is product vocabulary rather than CMS
+vocabulary, and core had no business carrying it.
+
+Worth separating two things it was easy to conflate. The **endpoints** were product-shaped and are
+gone. The **`Membership` model** they operated on is emphatically core: it is the join between a user
+and a tenant carrying their roles and status there, and `TokenIssuer` reads it to decide which roles
+go into a token, `PermissionResolver` reads it to answer every authorisation question, and
+`CheckTenantAccessAsync` uses it to decide whether a token may be minted for a tenant at all. Multi
+tenancy and authorisation both stop working without it.
+
+The lesson is the one that generalises: **a feature failing the rules does not mean the model under
+it is wrong.** Ask what the endpoints are called and what the data actually is, separately. If tenant
+member management is wanted back, it belongs in `Features/Tenants/` under `/api/tenants/members`,
+built deliberately rather than inherited from a product that needed it once.
+
+**`Features/Workflows/` looks like a module and is correctly core.** It is the largest feature here,
+plenty of deployments would not want it, and it names no vendor. By the first and fourth tests it
+looks like an obvious module. It is core for a specific reason: it runs as a Marten **projection**,
+registered in core's store setup, and `IModuleSchema` deliberately exposes only `For<T>()`. A module
+can add document types; it cannot add a projection. So workflows could not be a module today even if
+we wanted it to be. That is a real limit of the contract rather than a judgement about workflows, and
+if a module ever needs a projection, that is the thing to change first.
+
+**`Features/Audit/` looks optional and is correctly core.** One endpoint, and a CMS runs fine without
+anyone reading the audit log. But fifteen core files across auth, content and permissions *write*
+audit entries. The reading endpoint is the visible tip of something core produces continuously.
+Making it a module would leave core writing records that nothing could read, which is worse than
+either alternative.
+
+**`Features/ApiKeys/`, `Me/`, `Settings/`, `Monitoring/` all stay.** They are thin, but each is part
+of a contract other things stand on: API keys are an authentication method, `Me` is the self-service
+half of auth, settings are read by core, and health and metrics are how a container is judged alive.
+
+### Why this and not that
+
+**Marten, not EF Core.** Content is a `Dictionary<string, object>` whose shape comes from a
+`ContentTypeDefinition` created at runtime by a user. There are no compile-time entities for an ORM
+to map, and migrations cannot describe a type somebody invents after deployment. Marten stores each
+document as JSONB and queries into it, which is the same shape as the problem. With EF Core we would
+be building a document store on top of an ORM built to avoid one.
+
+**Marten, not a plain document store.** Version history and rollback are features, not extras.
+`/api/contents/{id}/history` reads the event stream directly (`Events.FetchStreamAsync`), so history
+is the source of truth rather than an audit table kept alongside and hoped to agree with it. Reading
+a past version applies today's field-sensitivity rules on the way out, so a field made private since
+is masked in history too rather than being readable by anyone who knows the version endpoint.
+
+**PostgreSQL, not SQL Server.** Partly forced: Marten is built on Postgres and its event store uses
+Postgres features, so choosing Marten chooses Postgres. Independently right though. JSONB with GIN
+indexing is what makes a runtime-defined content bag queryable at all, and PostgreSQL can be
+self-hosted on most platforms with no database licence fee, which matters for something people
+deploy themselves.
+
+**FastEndpoints, not Minimal API.** The module system is the reason.
+`services.AddFastEndpoints(o => o.Assemblies = moduleAssemblies)` discovers endpoints inside module
+DLLs, which is what lets a module ship its own routes without core knowing they exist. With Minimal
+API every module's endpoints would have to be hand-registered by the host, and "install the package,
+restart, done" stops being true. The rest is a bonus: route, roles and validator sit together in one
+class, so an endpoint's authorisation is visible in the same file as its handler rather than in a
+policy table somewhere else.
+
+**FastEndpoints, not MVC controllers.** One class per operation, so a change to one endpoint touches
+one file. Controllers accumulate: a `ContentController` with eight actions is eight reasons to open
+the same file and eight chances to break something unrelated.
+
+**No repository pattern.** `IDocumentSession` is injected directly into endpoints. A repository over
+Marten would be a thin pass-through that hides the query capabilities we actually use, and the usual
+argument for one, swapping the database, is not a swap we plan or could make cheaply.
+
+**Conjoined tenancy, not database-per-tenant.** One database, tenant-scoped rows. A database per
+tenant means migrations to run N times and N connection pools, for isolation that row-level scoping
+plus a token check already gives. It is also not reversible: conjoined to separate is a data
+migration, and separate to conjoined is worse.
+
+**Public delivery opt-in, not opt-out.** It used to be opt-out, and modelling members or a ledger as
+content produced an anonymous endpoint for them that nobody asked for. On a live deployment it did
+exactly that. Publishing is a decision, so it is made explicitly, and field-level sensitivity still
+applies on top.
+
+**`AutoCreate.CreateOnly` in production, not `CreateOrUpdate`.** It creates missing objects so a
+fresh database works, and never alters an existing one, so it cannot attempt a live migration that
+is not safe. A single-to-conjoined event tenancy change is exactly such a migration, and it took down
+content creation on a live instance once. Development keeps `CreateOrUpdate` for a fast local loop.
 
 Deep dives live in the [docs](https://baryo.dev/docs/): event sourcing, concurrency,
 content modeling, extending BarakoCMS, and deployment.
@@ -181,10 +340,10 @@ content modeling, extending BarakoCMS, and deployment.
 
 ## Documentation
 
-Full docs: **<https://baryo.dev/docs>** — getting started, guides, module references, API
+Full docs at **<https://baryo.dev/docs>**: getting started, guides, module references, API
 reference, and architecture. Changelog: [CHANGELOG.md](CHANGELOG.md).
 
-How this project is built and shipped: [AI Development Lifecycle](AI_DEVELOPMENT_LIFECYCLE.md) —
+How this project is built and shipped: [AI Development Lifecycle](AI_DEVELOPMENT_LIFECYCLE.md),
 the breakable-staging discipline, version-gated releases, and how tests gate every promotion.
 
 ---
@@ -195,7 +354,7 @@ BarakoCMS is free and open-source under [MPL-2.0](LICENSE). If it's useful to yo
 
 - ⭐ **Star the repo** so others find it
 - ☕ **[Ko-fi](https://ko-fi.com/T6T01CQT4R)** (one-time) or **[GitHub Sponsors](https://github.com/sponsors/BaryoDev)** (monthly)
-- 🐛 **Contribute** — issues, PRs, docs
+- 🐛 **Contribute.** Issues, PRs, docs
 - 📧 Commercial/enterprise support: [arnelirobles@gmail.com](mailto:arnelirobles@gmail.com)
 
 ---
@@ -238,7 +397,7 @@ Follows the [all-contributors](https://allcontributors.org) specification. To ad
 
 ## License
 
-[MPL-2.0](LICENSE) — the core and every module, so there is one licence across the suite.
+[MPL-2.0](LICENSE) for the core and every module, so there is one licence across the suite.
 
 MPL is file-level copyleft: use it in commercial and closed-source products freely, and if you
 modify a barakoCMS source file, share that file's changes. Your own code stays yours.
@@ -249,6 +408,6 @@ modify a barakoCMS source file, share that file's changes. Your own code stays y
 
 ---
 
-Come say hello on [Discord](https://discord.gg/7GYKzDx7Z2) — questions, ideas, or just to tell us what you're building.
+Come say hello on [Discord](https://discord.gg/7GYKzDx7Z2) for questions, ideas, or just to tell us what you're building.
 
-If barakoCMS is useful to you, a star helps other people find it. Contributions are welcome — code, documentation, module icons and artwork all count. See [CONTRIBUTING.md](CONTRIBUTING.md).
+If barakoCMS is useful to you, a star helps other people find it. Contributions are welcome: code, documentation, module icons and artwork all count. See [CONTRIBUTING.md](CONTRIBUTING.md).

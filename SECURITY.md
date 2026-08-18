@@ -47,7 +47,7 @@ each report zero, and CI fails the build on a Critical or High finding.
 For a while this section listed three High advisories in `next`, `postcss` and `sharp` as unfixable,
 because upgrading Next appeared to break 28 end-to-end tests. It did not. Next 16.1 began refusing
 cross-origin requests for dev-server assets, and the test suite drives `127.0.0.1` while the dev server
-treats `localhost` as its origin — so the chunks were blocked, the app never hydrated, and every test
+treats `localhost` as its origin, so the chunks were blocked, the app never hydrated, and every test
 that clicked something failed. One line of `allowedDevOrigins` in `next.config.ts` fixed it and the
 upgrade went through. Worth remembering the next time a dependency looks like it broke the product:
 here the product was fine and the harness was misconfigured, and reading it the other way cost weeks of
