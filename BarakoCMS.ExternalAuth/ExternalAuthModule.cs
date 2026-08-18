@@ -26,10 +26,10 @@ public sealed class ExternalAuthModule : IBarakoModule
         services.AddHttpClient();
     }
 
-    public void ConfigureMarten(StoreOptions options)
+    public void ConfigureSchema(IModuleSchema schema)
     {
         // Profile details belong to the global user identity, not a single tenant.
-        options.Schema.For<SocialProfile>()
+        schema.For<SocialProfile>()
             .SingleTenanted()
             .DocumentAlias("social_profiles")
             .Index(x => x.UserId, i => i.IsUnique = true);

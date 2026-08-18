@@ -346,9 +346,25 @@ public static class ServiceCollectionExtensions
             // Register Workflow Projection (Async)
             options.Projections.Add(new WorkflowProjection(sp), JasperFx.Events.Projections.ProjectionLifecycle.Async);
 
-            // Let each opted-in module register its own document types / indexes on the shared store.
+            // Each module registers its own document types through a surface that only accepts
+            // types it ships. ConfigureMarten still runs for modules that predate ConfigureSchema,
+            // and is warned about, because removing it inside a major would break them silently.
             foreach (var module in modules)
+            {
+                module.ConfigureSchema(new ModuleSchema(options, module));
+
+#pragma warning disable CS0618 // deliberately calling the obsolete hook during its deprecation window
+                if (OverridesConfigureMarten(module))
+                {
+                    Log.Warning(
+                        "Module {Module} uses the deprecated ConfigureMarten(StoreOptions), which can "
+                        + "reach core's documents and the event store. Move to ConfigureSchema(IModuleSchema); "
+                        + "ConfigureMarten is removed in barakoCMS 5.0.",
+                        module.Name);
+                }
                 module.ConfigureMarten(options);
+#pragma warning restore CS0618
+            }
 
             return options;
         })
@@ -748,4 +764,28 @@ public static class ServiceCollectionExtensions
 
     /// <summary>Root key under which every module's own settings live.</summary>
     internal const string ModulesConfigurationSection = "Modules";
+
+    /// <summary>
+    /// Whether a module actually implements the deprecated hook, rather than inheriting the
+    /// interface's no-op default.
+    /// </summary>
+    /// <remarks>
+    /// Checked through the interface map rather than <c>GetMethod</c>: a default interface
+    /// implementation is not a member of the implementing type, so <c>GetMethod("ConfigureMarten")</c>
+    /// returns null both for a module that did not override it and for one that implemented it
+    /// explicitly. The map says which method actually runs.
+    ///
+    /// Only decides whether to warn. Getting it wrong costs a log line, never behaviour.
+    /// </remarks>
+    internal static bool OverridesConfigureMarten(IBarakoModule module)
+    {
+        var map = module.GetType().GetInterfaceMap(typeof(IBarakoModule));
+        for (var i = 0; i < map.InterfaceMethods.Length; i++)
+        {
+            if (map.InterfaceMethods[i].Name != nameof(IBarakoModule.ConfigureMarten))
+                continue;
+            return map.TargetMethods[i].DeclaringType != typeof(IBarakoModule);
+        }
+        return false;
+    }
 }

@@ -28,9 +28,9 @@ public sealed class AiModule : IBarakoModule
         services.AddHttpClient<IEmbeddingClient, OllamaEmbeddingClient>();
     }
 
-    public void ConfigureMarten(StoreOptions options)
+    public void ConfigureSchema(IModuleSchema schema)
     {
-        options.Schema.For<ContentEmbedding>()
+        schema.For<ContentEmbedding>()
             .DocumentAlias("content_embeddings")
             .Index(x => x.ContentType);
     }
