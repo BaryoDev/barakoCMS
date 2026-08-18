@@ -242,10 +242,22 @@ Pulling a feature out of core is a breaking change for everyone who installed it
 Rules are easier to trust when someone has applied them to their own work, so here is the result of
 doing that.
 
-**`Features/Club/` is in core and should be a module.** Per-club membership management, one file,
-referenced by nothing else in core. It fails the naming test outright: "club" is product vocabulary,
-not CMS vocabulary, and a CMS that is not running a club has no use for it. It is there because the
-rule was not written down when it was added. Stated here rather than left for someone to find.
+**`Features/Club/` failed the naming test and has been removed.** It was per-club membership
+management at `/api/club/*`, added during the multi-tenancy rollout and never called by the admin UI,
+`barako-client`, or anything else in the repo. "Club" is product vocabulary rather than CMS
+vocabulary, and core had no business carrying it.
+
+Worth separating two things it was easy to conflate. The **endpoints** were product-shaped and are
+gone. The **`Membership` model** they operated on is emphatically core: it is the join between a user
+and a tenant carrying their roles and status there, and `TokenIssuer` reads it to decide which roles
+go into a token, `PermissionResolver` reads it to answer every authorisation question, and
+`CheckTenantAccessAsync` uses it to decide whether a token may be minted for a tenant at all. Multi
+tenancy and authorisation both stop working without it.
+
+The lesson is the one that generalises: **a feature failing the rules does not mean the model under
+it is wrong.** Ask what the endpoints are called and what the data actually is, separately. If tenant
+member management is wanted back, it belongs in `Features/Tenants/` under `/api/tenants/members`,
+built deliberately rather than inherited from a product that needed it once.
 
 **`Features/Workflows/` looks like a module and is correctly core.** It is the largest feature here,
 plenty of deployments would not want it, and it names no vendor. By the first and fourth tests it
