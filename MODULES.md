@@ -100,6 +100,16 @@ Module 'Pwa' tried to configure the schema for 'barakoCMS.Models.Content', which
 'barakoCMS'. A module may only configure document types from its own assemblies (BarakoCMS.Pwa).
 ```
 
+If your document types live in a **separate assembly** you ship, declare it:
+
+```csharp
+public IEnumerable<Assembly> SchemaAssemblies => new[] { GetType().Assembly, typeof(MyDocument).Assembly };
+```
+
+`SchemaAssemblies` is separate from `EndpointAssemblies` deliberately. One list would mean widening
+endpoint scanning also widens what you may configure, so listing an assembly to have its endpoints
+found would grant permission to re-map that assembly's documents.
+
 The older `ConfigureMarten(StoreOptions)` received the same options object core configured, so a
 module could re-map core documents, change tenancy or alter the event store. It still runs so
 existing modules keep working, it is `[Obsolete]`, the host logs a warning naming any module using

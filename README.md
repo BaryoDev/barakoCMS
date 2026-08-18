@@ -184,8 +184,8 @@ BarakoCMS is headless — you build the frontend. These BaryoDev packages help:
    barako-client ────▶│  /api/api-keys  /api/tenants  /api/audit │
                       └──────────────────────────────────────────┘
                                         │
-   any browser ──────▶  /api/public/{type}  ──┐                     anonymous,
-                        /feed.xml  /search    │                     published only
+   any browser ──────▶  /api/public/{type}  ──┐                     anonymous, and only
+                        /feed.xml  /search    │                     for types opted in
                                         ┌─────▼──────┐
                                         │    CORE    │
                                         │            │
@@ -225,6 +225,10 @@ The question every contribution runs into, so here is the answer we use.
 | It names a vendor, a product or a business domain | `Resend`, `Umami`, `S3`, `Accounting`. Core's vocabulary is content, users, tenants, permissions and nothing else |
 | It brings a dependency core does not already carry | An SDK, an API client, a file format. Core's dependency list is a promise to everyone who installs it |
 | Removing it still leaves a working CMS | If content, auth, tenancy and delivery survive without it, it was never core |
+
+These tests assume the module contract can express what you are building. Where it cannot, the
+answer is core by necessity rather than by principle, and it should say so out loud: `Workflows`
+below is exactly that case.
 
 **It is core if any of these is true:**
 
@@ -293,8 +297,9 @@ is masked in history too rather than being readable by anyone who knows the vers
 
 **PostgreSQL, not SQL Server.** Partly forced: Marten is built on Postgres and its event store uses
 Postgres features, so choosing Marten chooses Postgres. Independently right though. JSONB with GIN
-indexing is what makes a runtime-defined content bag queryable at all, and Postgres runs free on any
-host, which matters for something people self-deploy.
+indexing is what makes a runtime-defined content bag queryable at all, and PostgreSQL can be
+self-hosted on most platforms with no database licence fee, which matters for something people
+deploy themselves.
 
 **FastEndpoints, not Minimal API.** The module system is the reason.
 `services.AddFastEndpoints(o => o.Assemblies = moduleAssemblies)` discovers endpoints inside module
