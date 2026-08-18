@@ -25,15 +25,15 @@ public sealed class FilesModule : IBarakoModule
         services.TryAddScoped<IFileStorage, PostgresFileStorage>();
     }
 
-    public void ConfigureMarten(StoreOptions options)
+    public void ConfigureSchema(IModuleSchema schema)
     {
-        options.Schema.For<StoredFile>()
+        schema.For<StoredFile>()
             .DocumentAlias("stored_files")
             .Index(x => x.CreatedAt)
             .Index(x => x.UploadedBy);
 
         /* Blob bytes for the Postgres provider, keyed by the storage key (a string id). */
-        options.Schema.For<FileBlob>()
+        schema.For<FileBlob>()
             .DocumentAlias("file_blobs");
     }
 }

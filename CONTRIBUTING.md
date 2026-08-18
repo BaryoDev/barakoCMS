@@ -67,12 +67,12 @@ with, and they carry enough context to start without asking.
 
 **To claim one, comment `/take`.** A bot assigns it to you straight away, so you don't have to wait
 for a maintainer to be awake. If it's already taken, it'll tell you that instead of quietly adding
-you alongside someone else. Changed your mind? Say so on the issue and we'll unassign it — that is
+you alongside someone else. Changed your mind? Say so on the issue and we'll unassign it. That is
 genuinely fine and much better than an issue sitting claimed for a month.
 
 You don't have to stick to labelled issues. If you've hit a bug, dive in.
 
-**For anything large — a new module, a new feature, a refactor that touches many files — open an
+**For anything large, a new module, a new feature, or a refactor that touches many files, open an
 issue or a discussion first.** Not to gatekeep, but because the worst outcome is you spending a
 weekend on something we then have to turn down. Sketch the idea, we'll tell you quickly whether it
 fits and how we'd like to see it done.
@@ -94,7 +94,7 @@ Plenty of what makes this project usable isn't C#:
 - **Translations**, once the admin has the hooks for them.
 
 Design and documentation contributions go through the same pull request process as code. They skip
-the test requirements below, for obvious reasons — but the packaging guardrails still apply, so an
+the test requirements below, for obvious reasons, but the packaging guardrails still apply, so an
 icon has to be a real PNG under 1MB, and `dotnet test` will tell you if it isn't.
 
 ## Writing a module
@@ -103,8 +103,8 @@ Modules are how barakoCMS grows without the core growing. A module is an ordinar
 implements the module interface, registers its own services, endpoints and schema, and is published
 as its own NuGet package.
 
-If you publish one, tag it **`barakocms-module`**. That tag is the discovery mechanism — one search
-on nuget.org returns every module, yours included — and it is what a future marketplace would index.
+If you publish one, tag it **`barakocms-module`**. That tag is the discovery mechanism, since one search
+on nuget.org returns every module, yours included, and it is what a future marketplace would index.
 Umbraco does the same thing with `umbraco-marketplace`.
 
 A module belongs in this repository if it's broadly useful and we can maintain it. Otherwise publish
