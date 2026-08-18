@@ -18,6 +18,17 @@ public sealed class S3FilesModule : IBarakoModule
 {
     public string Name => "Files.S3";
 
+    /// <summary>
+    /// Files first. This module replaces the storage FilesModule registers, and RemoveAll only
+    /// removes what is already there.
+    /// </summary>
+    /// <remarks>
+    /// Benign today by accident: FilesModule uses TryAddScoped, so S3 wins whichever order they run
+    /// in. It stops being benign the moment that becomes a plain AddScoped, and nothing would say
+    /// so. Declared rather than left to the order someone happened to write in Program.cs.
+    /// </remarks>
+    public IEnumerable<string> DependsOn => ["Files"];
+
     /// <summary>Settings used to live at the root "Files:S3" section. See IBarakoModule.</summary>
     public string? LegacyConfigurationSection => "Files:S3";
 

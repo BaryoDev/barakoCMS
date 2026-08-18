@@ -41,7 +41,11 @@ public static class ServiceCollectionExtensions
         // available when we wire up FastEndpoints and Marten below.
         var moduleBuilder = new BarakoModuleBuilder();
         configureModules?.Invoke(moduleBuilder);
-        var modules = moduleBuilder.Modules;
+
+        // Sorted before anything runs, so DI registration, schema and seeding all see the same
+        // order and a module that must configure after another actually does. Independent modules
+        // keep their declared order.
+        var modules = ModuleOrder.Sort(moduleBuilder.Modules);
 
         foreach (var module in modules)
         {
