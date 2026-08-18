@@ -36,6 +36,7 @@ modules** you compose per project. It comes with a Next.js **admin UI** that sur
 
 - [Quick start](#quick-start) · [Live demo](#live-demo) · [The admin](#the-admin) · [Modules](#modules)
 - [Frontend kit](#frontend-kit) · [Architecture](#architecture) · [Sample app](#sample-app)
+- [How the pieces fit](#how-the-pieces-fit) · [Module, or core?](#module-or-core) · [Why this and not that](#why-this-and-not-that)
 - [Docs](#documentation) · [Support](#support) · [License](#license)
 
 ---
@@ -173,6 +174,146 @@ BarakoCMS is headless — you build the frontend. These BaryoDev packages help:
   promotes and retires content on schedule, per tenant, emitting real events so workflows fire.
 - **FastEndpoints + Kestrel** — minimal-overhead HTTP; **health checks** and Prometheus **metrics**
   built in.
+
+### How the pieces fit
+
+```text
+                      ┌──────────────────────────────────────────┐
+   admin UI ─────────▶│  /api/contents  /api/content-types       │
+   (Next.js)          │  /api/users  /api/roles  /api/workflows  │  authenticated
+   barako-client ────▶│  /api/api-keys  /api/tenants  /api/audit │
+                      └──────────────────────────────────────────┘
+                                        │
+   any browser ──────▶  /api/public/{type}  ──┐                     anonymous,
+                        /feed.xml  /search    │                     published only
+                                        ┌─────▼──────┐
+                                        │    CORE    │
+                                        │            │
+                                        │  content   │  a document bag + a runtime
+                                        │  types     │  type definition, not classes
+                                        │  auth      │  JWT, API keys, MFA, RBAC
+                                        │  tenancy   │  conjoined: one database, many tenants
+                                        │  delivery  │  opt-in, field-masked, fail-closed
+                                        │  workflows │  events in, actions out
+                                        └─────┬──────┘
+                                              │ IBarakoModule
+                    ┌─────────────────────────┼─────────────────────────┐
+                    ▼                         ▼                         ▼
+              Accounting                    Files ◀── Files.S3        AI
+              FeatureFlags                  Import                    Analytics.Umami
+              Portability                   Email.Resend              Pwa
+              ExternalAuth                  DeviceTrust               Diagnostics
+                    │                         │                         │
+                    └─────────────────────────┼─────────────────────────┘
+                                              ▼
+                                       PostgreSQL (Marten)
+                                  documents + event streams, one store
+```
+
+A module contributes services, its own document types, its own endpoints and its own seed data.
+Core knows none of them by name. See [docs/MODULES.md](docs/MODULES.md) for the contract.
+
+### Module, or core?
+
+The question every contribution runs into, so here is the answer we use.
+
+**It is a module if any of these is true:**
+
+| Test | Because |
+| --- | --- |
+| Two sensible projects would disagree about wanting it | Core is what nobody gets a choice about, and every choice belongs to the person deploying |
+| It names a vendor, a product or a business domain | `Resend`, `Umami`, `S3`, `Accounting`. Core's vocabulary is content, users, tenants, permissions and nothing else |
+| It brings a dependency core does not already carry | An SDK, an API client, a file format. Core's dependency list is a promise to everyone who installs it |
+| Removing it still leaves a working CMS | If content, auth, tenancy and delivery survive without it, it was never core |
+
+**It is core if any of these is true:**
+
+| Test | Because |
+| --- | --- |
+| Something else cannot work without it | Content, content types, auth, tenancy, permissions. Everything stands on these |
+| Core would need to know it exists | A module registers itself. The moment core needs an `if` for your feature, it is not a module |
+| It changes the shape of content, auth, tenancy or delivery | These are contracts other people's modules depend on, so they are not extendable from outside |
+
+When it is genuinely borderline, build it as a module. Moving a module into core later is additive.
+Pulling a feature out of core is a breaking change for everyone who installed it.
+
+#### Where core stands against its own rules
+
+Rules are easier to trust when someone has applied them to their own work, so here is the result of
+doing that.
+
+**`Features/Club/` is in core and should be a module.** Per-club membership management, one file,
+referenced by nothing else in core. It fails the naming test outright: "club" is product vocabulary,
+not CMS vocabulary, and a CMS that is not running a club has no use for it. It is there because the
+rule was not written down when it was added. Stated here rather than left for someone to find.
+
+**`Features/Workflows/` looks like a module and is correctly core.** It is the largest feature here,
+plenty of deployments would not want it, and it names no vendor. By the first and fourth tests it
+looks like an obvious module. It is core for a specific reason: it runs as a Marten **projection**,
+registered in core's store setup, and `IModuleSchema` deliberately exposes only `For<T>()`. A module
+can add document types; it cannot add a projection. So workflows could not be a module today even if
+we wanted it to be. That is a real limit of the contract rather than a judgement about workflows, and
+if a module ever needs a projection, that is the thing to change first.
+
+**`Features/Audit/` looks optional and is correctly core.** One endpoint, and a CMS runs fine without
+anyone reading the audit log. But fifteen core files across auth, content and permissions *write*
+audit entries. The reading endpoint is the visible tip of something core produces continuously.
+Making it a module would leave core writing records that nothing could read, which is worse than
+either alternative.
+
+**`Features/ApiKeys/`, `Me/`, `Settings/`, `Monitoring/` all stay.** They are thin, but each is part
+of a contract other things stand on: API keys are an authentication method, `Me` is the self-service
+half of auth, settings are read by core, and health and metrics are how a container is judged alive.
+
+### Why this and not that
+
+**Marten, not EF Core.** Content is a `Dictionary<string, object>` whose shape comes from a
+`ContentTypeDefinition` created at runtime by a user. There are no compile-time entities for an ORM
+to map, and migrations cannot describe a type somebody invents after deployment. Marten stores each
+document as JSONB and queries into it, which is the same shape as the problem. With EF Core we would
+be building a document store on top of an ORM built to avoid one.
+
+**Marten, not a plain document store.** Version history and rollback are features, not extras.
+`/api/contents/{id}/history` reads the event stream directly (`Events.FetchStreamAsync`), so history
+is the source of truth rather than an audit table kept alongside and hoped to agree with it. Reading
+a past version applies today's field-sensitivity rules on the way out, so a field made private since
+is masked in history too rather than being readable by anyone who knows the version endpoint.
+
+**PostgreSQL, not SQL Server.** Partly forced: Marten is built on Postgres and its event store uses
+Postgres features, so choosing Marten chooses Postgres. Independently right though. JSONB with GIN
+indexing is what makes a runtime-defined content bag queryable at all, and Postgres runs free on any
+host, which matters for something people self-deploy.
+
+**FastEndpoints, not Minimal API.** The module system is the reason.
+`services.AddFastEndpoints(o => o.Assemblies = moduleAssemblies)` discovers endpoints inside module
+DLLs, which is what lets a module ship its own routes without core knowing they exist. With Minimal
+API every module's endpoints would have to be hand-registered by the host, and "install the package,
+restart, done" stops being true. The rest is a bonus: route, roles and validator sit together in one
+class, so an endpoint's authorisation is visible in the same file as its handler rather than in a
+policy table somewhere else.
+
+**FastEndpoints, not MVC controllers.** One class per operation, so a change to one endpoint touches
+one file. Controllers accumulate: a `ContentController` with eight actions is eight reasons to open
+the same file and eight chances to break something unrelated.
+
+**No repository pattern.** `IDocumentSession` is injected directly into endpoints. A repository over
+Marten would be a thin pass-through that hides the query capabilities we actually use, and the usual
+argument for one, swapping the database, is not a swap we plan or could make cheaply.
+
+**Conjoined tenancy, not database-per-tenant.** One database, tenant-scoped rows. A database per
+tenant means migrations to run N times and N connection pools, for isolation that row-level scoping
+plus a token check already gives. It is also not reversible: conjoined to separate is a data
+migration, and separate to conjoined is worse.
+
+**Public delivery opt-in, not opt-out.** It used to be opt-out, and modelling members or a ledger as
+content produced an anonymous endpoint for them that nobody asked for. On a live deployment it did
+exactly that. Publishing is a decision, so it is made explicitly, and field-level sensitivity still
+applies on top.
+
+**`AutoCreate.CreateOnly` in production, not `CreateOrUpdate`.** It creates missing objects so a
+fresh database works, and never alters an existing one, so it cannot attempt a live migration that
+is not safe. A single-to-conjoined event tenancy change is exactly such a migration, and it took down
+content creation on a live instance once. Development keeps `CreateOrUpdate` for a fast local loop.
 
 Deep dives live in the [docs](https://baryo.dev/docs/): event sourcing, concurrency,
 content modeling, extending BarakoCMS, and deployment.
