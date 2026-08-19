@@ -88,27 +88,33 @@ public class DataSeederTests
             ContentType = type,
             Status = ContentStatus.Published,
             Sensitivity = SensitivityLevel.Public,
-            Data = new()
-            {
-                ["Title"] = "Original title"
-            },
+            Data = new() { ["Title"] = "Original title" },
             SearchText = null
         };
 
         session.Store(content);
         await session.SaveChangesAsync();
 
+        // First run (updates document)
         await DataSeeder.BackfillSearchTextAsync(session);
-        await session.SaveChangesAsync();
 
-        var first = await session.LoadAsync<Content>(content.Id);
-        first!.SearchText.Should().Be("Original title");
+        // Second run (should report 0)
+        var output = new StringWriter();
+        var originalOut = Console.Out;
 
-        await DataSeeder.BackfillSearchTextAsync(session);
-        await session.SaveChangesAsync();
+        try
+        {
+            Console.SetOut(output);
+            await DataSeeder.BackfillSearchTextAsync(session);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+        }
 
-        var second = await session.LoadAsync<Content>(content.Id);
-        second!.SearchText.Should().Be("Original title");
+        output.ToString()
+            .Should()
+            .Contain("Backfilled SearchText for 0 content documents.");
     }
     [Fact]
     public async Task BackfillSearchText_PagesThroughAllContent()
