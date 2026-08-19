@@ -17,6 +17,12 @@ on:
 permissions:
   issues: write
 
+# Two issue-close events can otherwise read the same release ticket before either
+# marks it, and both announce. Serialised, the second run sees the first's label.
+concurrency:
+  group: release-ready
+  cancel-in-progress: false
+
 jobs:
   check:
     name: Is a release unblocked
@@ -30,37 +36,46 @@ jobs:
           set -euo pipefail
           OWNER="${REPO%%/*}"; NAME="${REPO##*/}"
 
-          # Open issues labelled `release`, with their sub-issues. Keyed on the label
-          # rather than a hard-coded number so the next release inherits this for free.
+          # Open issues labelled `release` and not yet announced, with their sub-issues.
+          # Keyed on labels rather than a hard-coded number so the next release inherits
+          # this for free, and so "already announced" is a fact about the issue rather
+          # than something inferred by scanning a comment list that keeps growing.
           gh api graphql -f owner="$OWNER" -f name="$NAME" -f query='
             query($owner:String!, $name:String!) {
               repository(owner:$owner, name:$name) {
-                issues(first:20, states:OPEN, labels:["release"]) {
+                issues(first:100, states:OPEN, labels:["release"]) {
                   nodes {
                     number
                     title
-                    subIssues(first:50) { totalCount nodes { number state title } }
-                    comments(last:30) { nodes { body } }
+                    labels(first:100) { nodes { name } }
+                    subIssues(first:100) { totalCount nodes { number state title } }
                   }
                 }
               }
             }' > /tmp/release-tickets.json
 
           python3 - <<'PY' > /tmp/actions.txt
-          import json
-          MARKER = "<!-- release-ready -->"
+          import json, sys
           data = json.load(open("/tmp/release-tickets.json"))
           for it in data["data"]["repository"]["issues"]["nodes"]:
-              subs = it["subIssues"]["nodes"]
-              # A release ticket with no sub-issues has nothing to be unblocked by.
-              if not subs:
-                  continue
-              still_open = [s for s in subs if s["state"] == "OPEN"]
-              if still_open:
-                  continue
+              labels = {l["name"] for l in it["labels"]["nodes"]}
               # Announce once. Re-announcing on every later close is how a useful
               # notification becomes one people filter out.
-              if any(MARKER in c["body"] for c in it["comments"]["nodes"]):
+              if "release-announced" in labels:
+                  continue
+              subs = it["subIssues"]["nodes"]
+              # A release ticket with no sub-issues has nothing to be unblocked by,
+              # so treating it as ready would be a pass on an empty set.
+              if not subs:
+                  continue
+              # Refuse to decide on truncated data rather than paginate for a case that
+              # should never arise. A release with more than 100 blockers is a different
+              # problem, and announcing from a partial list would be worse than silence.
+              if it["subIssues"]["totalCount"] != len(subs):
+                  print(f"::warning::#{it['number']} has {it['subIssues']['totalCount']} "
+                        f"sub-issues but only {len(subs)} were read; not deciding.", file=sys.stderr)
+                  continue
+              if [s for s in subs if s["state"] == "OPEN"]:
                   continue
               done = "\n".join(f"- #{s['number']} {s['title']}" for s in subs)
               print(json.dumps({"number": it["number"], "done": done}))
@@ -74,8 +89,11 @@ jobs:
           while read -r line; do
             NUM=$(echo "$line" | python3 -c 'import json,sys; print(json.load(sys.stdin)["number"])')
             DONE=$(echo "$line" | python3 -c 'import json,sys; print(json.load(sys.stdin)["done"])')
-            printf '%s\n\n**Every blocker on this release is now closed.**\n\n%s\n\nNothing ships until the version is bumped. The release gate reads `<Version>` from `barakoCMS/barakoCMS.csproj` and no-ops when that version is already on NuGet, so master can sit finished and unreleased indefinitely without anything failing.\n\nThe steps are in the description of this issue.\n' \
-              "<!-- release-ready -->" "$DONE" > /tmp/body.md
+            printf '**Every blocker on this release is now closed.**\n\n%s\n\nNothing ships until the version is bumped. The release gate reads `<Version>` from `barakoCMS/barakoCMS.csproj` and no-ops when that version is already on NuGet, so master can sit finished and unreleased indefinitely without anything failing.\n\nThe steps are in the description of this issue.\n' \
+              "$DONE" > /tmp/body.md
             gh issue comment "$NUM" --repo "$REPO" --body-file /tmp/body.md
-            echo "Commented on #$NUM"
+            # Label after commenting. If the comment fails the label is not applied, so the
+            # next run retries rather than recording an announcement that never happened.
+            gh issue edit "$NUM" --repo "$REPO" --add-label "release-announced"
+            echo "Announced on #$NUM"
           done < /tmp/actions.txt
