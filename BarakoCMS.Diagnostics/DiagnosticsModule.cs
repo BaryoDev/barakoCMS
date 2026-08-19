@@ -16,9 +16,9 @@ public sealed class DiagnosticsModule : IBarakoModule
 {
     public string Name => "Diagnostics";
 
-    public void ConfigureMarten(StoreOptions options)
+    public void ConfigureSchema(IModuleSchema schema)
     {
-        options.Schema.For<ClientError>()
+        schema.For<ClientError>()
             .SingleTenanted()
             .DocumentAlias("client_errors")
             .Index(x => x.Fingerprint)

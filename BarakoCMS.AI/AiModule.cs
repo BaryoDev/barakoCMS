@@ -9,23 +9,28 @@ namespace BarakoCMS.AI;
 /// <summary>
 /// Adds semantic (vector) search over published content. Register with:
 /// <code>services.AddBarakoCMS(config, m =&gt; m.Add(new AiModule()));</code>
-/// It binds the "Ai" section, registers a typed embedding client, and stores one vector per published
+/// It binds its own "Modules:AI" section, registers a typed embedding client, and stores one vector per published
 /// entry (multi-tenanted). Endpoints: POST /api/ai/index/{type} (admin) to (re)build a type's index,
-/// and GET /api/public/{type}/semantic?q=… (anonymous) to search it. Off until "Ai:Enabled" is true.
+/// and GET /api/public/{type}/semantic?q=… (anonymous) to search it. Off until "Modules:AI:Enabled" is true.
 /// </summary>
 public sealed class AiModule : IBarakoModule
 {
     public string Name => "AI";
 
+    /// <summary>Settings used to live at the root "Ai" section. See IBarakoModule.</summary>
+    public string? LegacyConfigurationSection => AiOptions.SectionName;
+
     public void ConfigureServices(IServiceCollection services, IConfiguration configuration)
     {
-        services.Configure<AiOptions>(configuration.GetSection(AiOptions.SectionName));
+        // `configuration` is already this module's own section (Modules:AI), so bind it whole
+        // rather than reaching for a root-level key.
+        services.Configure<AiOptions>(configuration);
         services.AddHttpClient<IEmbeddingClient, OllamaEmbeddingClient>();
     }
 
-    public void ConfigureMarten(StoreOptions options)
+    public void ConfigureSchema(IModuleSchema schema)
     {
-        options.Schema.For<ContentEmbedding>()
+        schema.For<ContentEmbedding>()
             .DocumentAlias("content_embeddings")
             .Index(x => x.ContentType);
     }

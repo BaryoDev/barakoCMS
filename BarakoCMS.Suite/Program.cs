@@ -1,3 +1,4 @@
+using Serilog;
 using barakoCMS.Extensions;
 using BarakoCMS.Accounting;
 using BarakoCMS.Import;
@@ -16,6 +17,24 @@ using BarakoCMS.Diagnostics;
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Before any registration, because core writes to Serilog's static Log during AddBarakoCMS and
+// during module seeding. Without a logger assigned here those calls reach Serilog's silent default
+// and are discarded, so a module seed failure would report to nothing.
+Log.Logger = new LoggerConfiguration()
+    .ReadFrom.Configuration(builder.Configuration)
+    .Enrich.FromLogContext()
+    .WriteTo.Console()
+    .CreateLogger();
+
+builder.Host.UseSerilog((context, services, configuration) =>
+{
+    configuration
+        .ReadFrom.Configuration(context.Configuration)
+        .ReadFrom.Services(services)
+        .Enrich.FromLogContext()
+        .WriteTo.Console();
+});
 
 // Outbound HTTP for the ExternalAuth OAuth token exchange + profile lookups.
 builder.Services.AddHttpClient();
@@ -51,7 +70,19 @@ if (!string.Equals(Environment.GetEnvironmentVariable("SKIP_SEEDER"), "true", St
     // has no one to sign in as — the module seeders below only add module data, not an admin.
     // Idempotent (seeds are guarded by existence checks).
     await barakoCMS.Data.DataSeeder.SeedAsync(app);
-    await app.RunBarakoModuleSeedersAsync(); // module baseline data (accounting accounts, etc.)
+    // Module seeds are isolated from each other, so a failure here means one module has no baseline
+    // data while the rest are fine. Logged rather than fatal: a broken module should not stop an
+    // otherwise working CMS from starting, and the alternative is an image that will not boot
+    // because of something optional.
+    try
+    {
+        await app.RunBarakoModuleSeedersAsync(); // module baseline data (accounting accounts, etc.)
+    }
+    catch (AggregateException ex)
+    {
+        Log.Error(ex, "{Count} module seeder(s) failed. Those modules are running without their "
+                      + "baseline data; every other module seeded normally.", ex.InnerExceptions.Count);
+    }
 }
 
 app.Run();
