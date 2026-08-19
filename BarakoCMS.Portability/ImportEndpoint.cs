@@ -33,14 +33,18 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
         Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId);
         var report = new ImportReport { DryRun = req.DryRun };
 
-        var existing = await _session.Query<ContentTypeDefinition>().ToListAsync(ct);
+        var existing = (await _session.Query<ContentTypeDefinition>().ToListAsync(ct)).ToList();
         foreach (var type in req.ContentTypes)
         {
             if (string.IsNullOrWhiteSpace(type.Name)) continue;
-            var match = existing.FirstOrDefault(t => t.Name.Equals(type.Name, StringComparison.OrdinalIgnoreCase));
+
+            var match = existing.FirstOrDefault(t =>
+                t.Name.Equals(type.Name, StringComparison.OrdinalIgnoreCase));
+
             if (match is not null)
             {
                 report.ContentTypesUpdated++;
+
                 if (!req.DryRun)
                 {
                     match.DisplayName = type.DisplayName;
@@ -53,9 +57,10 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
             else
             {
                 report.ContentTypesCreated++;
+
                 if (!req.DryRun)
                 {
-                    _session.Store(new ContentTypeDefinition
+                    var definition = new ContentTypeDefinition
                     {
                         Id = Guid.NewGuid(),
                         Name = type.Name,
@@ -64,7 +69,10 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
                         Fields = type.Fields,
                         CreatedAt = DateTimeOffset.UtcNow,
                         UpdatedAt = DateTimeOffset.UtcNow,
-                    });
+                    };
+
+                    _session.Store(definition);
+                    existing.Add(definition);
                 }
             }
         }
