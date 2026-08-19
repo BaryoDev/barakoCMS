@@ -28,6 +28,9 @@ public static class DataSeeder
         // 5. Seed Sample Attendance Records
         await SeedAttendanceRecordsAsync(session);
 
+        // 6. Backfill SearchText for existing content
+        await BackfillSearchTextAsync(session);
+
         await session.SaveChangesAsync();
         Console.WriteLine("[DataSeeder] ✅ Seeding complete!");
     }
@@ -286,5 +289,37 @@ public static class DataSeeder
             session.Store(record);
             Console.WriteLine($"[DataSeeder] Created attendance record: {record.Data["FirstName"]} {record.Data["LastName"]}");
         }
+    }
+    private static async Task BackfillSearchTextAsync(IDocumentSession session)
+    {
+        var definitions = await session.Query<ContentTypeDefinition>().ToListAsync();
+        var contents = await session.Query<Content>()
+            .Where(c => c.SearchText == null)
+            .ToListAsync();
+
+        foreach (var content in contents)
+        {
+            var definition = definitions.FirstOrDefault(d =>
+                string.Equals(d.Name, content.ContentType, StringComparison.OrdinalIgnoreCase));
+
+            if (definition is null)
+                continue;
+
+            var publicFields = definition.Fields
+                .Where(f => f.Sensitivity == SensitivityLevel.Public)
+                .Select(f => f.Name)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            content.SearchText = string.Join(
+                ' ',
+                content.Data
+                    .Where(kv => publicFields.Contains(kv.Key))
+                    .Select(kv => kv.Value?.ToString())
+                    .Where(v => !string.IsNullOrWhiteSpace(v)));
+
+            session.Store(content);
+        }
+
+        Console.WriteLine($"[DataSeeder] Backfilled SearchText for {contents.Count} content documents.");
     }
 }
