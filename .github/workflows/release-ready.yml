@@ -92,8 +92,24 @@ jobs:
             printf '**Every blocker on this release is now closed.**\n\n%s\n\nNothing ships until the version is bumped. The release gate reads `<Version>` from `barakoCMS/barakoCMS.csproj` and no-ops when that version is already on NuGet, so master can sit finished and unreleased indefinitely without anything failing.\n\nThe steps are in the description of this issue.\n' \
               "$DONE" > /tmp/body.md
             gh issue comment "$NUM" --repo "$REPO" --body-file /tmp/body.md
-            # Label after commenting. If the comment fails the label is not applied, so the
-            # next run retries rather than recording an announcement that never happened.
-            gh issue edit "$NUM" --repo "$REPO" --add-label "release-announced"
+
+            # Label after commenting, so a failed comment retries rather than recording an
+            # announcement that never happened. The narrow window is the other way round:
+            # comment succeeds, label does not, and the next run announces twice. Retried,
+            # then made loud, because a visibly failed run is a better outcome than a silent
+            # duplicate later, and the whole point of this workflow is that silence is what
+            # goes unnoticed.
+            labelled=0
+            for attempt in 1 2 3; do
+              if gh issue edit "$NUM" --repo "$REPO" --add-label "release-announced"; then
+                labelled=1
+                break
+              fi
+              sleep $((attempt * 3))
+            done
+            if [ "$labelled" -ne 1 ]; then
+              echo "::error::Announced #$NUM but could not label it. Apply release-announced by hand, or the next issue close announces again."
+              exit 1
+            fi
             echo "Announced on #$NUM"
           done < /tmp/actions.txt
