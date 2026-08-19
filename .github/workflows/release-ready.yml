@@ -1,0 +1,115 @@
+name: Release ready
+
+# Says out loud when a release ticket's blockers are all closed.
+#
+# The gap this fills is small and specific. Merging feels like finishing, so the
+# release step is the one that gets forgotten: on 19 Aug three pull requests
+# landed on master and the version was never bumped, so every release run since
+# skipped straight past Test and Publish. Nothing was broken and nothing said so.
+#
+# A checklist in an issue body cannot notice that. This can.
+
+on:
+  issues:
+    types: [closed]
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+# Two issue-close events can otherwise read the same release ticket before either
+# marks it, and both announce. Serialised, the second run sees the first's label.
+concurrency:
+  group: release-ready
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Is a release unblocked
+    runs-on: ubuntu-latest
+    steps:
+      - name: Comment on any release ticket whose sub-issues are all closed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          OWNER="${REPO%%/*}"; NAME="${REPO##*/}"
+
+          # Open issues labelled `release` and not yet announced, with their sub-issues.
+          # Keyed on labels rather than a hard-coded number so the next release inherits
+          # this for free, and so "already announced" is a fact about the issue rather
+          # than something inferred by scanning a comment list that keeps growing.
+          gh api graphql -f owner="$OWNER" -f name="$NAME" -f query='
+            query($owner:String!, $name:String!) {
+              repository(owner:$owner, name:$name) {
+                issues(first:100, states:OPEN, labels:["release"]) {
+                  nodes {
+                    number
+                    title
+                    labels(first:100) { nodes { name } }
+                    subIssues(first:100) { totalCount nodes { number state title } }
+                  }
+                }
+              }
+            }' > /tmp/release-tickets.json
+
+          python3 - <<'PY' > /tmp/actions.txt
+          import json, sys
+          data = json.load(open("/tmp/release-tickets.json"))
+          for it in data["data"]["repository"]["issues"]["nodes"]:
+              labels = {l["name"] for l in it["labels"]["nodes"]}
+              # Announce once. Re-announcing on every later close is how a useful
+              # notification becomes one people filter out.
+              if "release-announced" in labels:
+                  continue
+              subs = it["subIssues"]["nodes"]
+              # A release ticket with no sub-issues has nothing to be unblocked by,
+              # so treating it as ready would be a pass on an empty set.
+              if not subs:
+                  continue
+              # Refuse to decide on truncated data rather than paginate for a case that
+              # should never arise. A release with more than 100 blockers is a different
+              # problem, and announcing from a partial list would be worse than silence.
+              if it["subIssues"]["totalCount"] != len(subs):
+                  print(f"::warning::#{it['number']} has {it['subIssues']['totalCount']} "
+                        f"sub-issues but only {len(subs)} were read; not deciding.", file=sys.stderr)
+                  continue
+              if [s for s in subs if s["state"] == "OPEN"]:
+                  continue
+              done = "\n".join(f"- #{s['number']} {s['title']}" for s in subs)
+              print(json.dumps({"number": it["number"], "done": done}))
+          PY
+
+          if [ ! -s /tmp/actions.txt ]; then
+            echo "No release ticket is newly unblocked."
+            exit 0
+          fi
+
+          while read -r line; do
+            NUM=$(echo "$line" | python3 -c 'import json,sys; print(json.load(sys.stdin)["number"])')
+            DONE=$(echo "$line" | python3 -c 'import json,sys; print(json.load(sys.stdin)["done"])')
+            printf '**Every blocker on this release is now closed.**\n\n%s\n\nNothing ships until the version is bumped. The release gate reads `<Version>` from `barakoCMS/barakoCMS.csproj` and no-ops when that version is already on NuGet, so master can sit finished and unreleased indefinitely without anything failing.\n\nThe steps are in the description of this issue.\n' \
+              "$DONE" > /tmp/body.md
+            gh issue comment "$NUM" --repo "$REPO" --body-file /tmp/body.md
+
+            # Label after commenting, so a failed comment retries rather than recording an
+            # announcement that never happened. The narrow window is the other way round:
+            # comment succeeds, label does not, and the next run announces twice. Retried,
+            # then made loud, because a visibly failed run is a better outcome than a silent
+            # duplicate later, and the whole point of this workflow is that silence is what
+            # goes unnoticed.
+            labelled=0
+            for attempt in 1 2 3; do
+              if gh issue edit "$NUM" --repo "$REPO" --add-label "release-announced"; then
+                labelled=1
+                break
+              fi
+              sleep $((attempt * 3))
+            done
+            if [ "$labelled" -ne 1 ]; then
+              echo "::error::Announced #$NUM but could not label it. Apply release-announced by hand, or the next issue close announces again."
+              exit 1
+            fi
+            echo "Announced on #$NUM"
+          done < /tmp/actions.txt
