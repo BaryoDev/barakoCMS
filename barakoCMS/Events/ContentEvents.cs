@@ -1,5 +1,8 @@
+using System.Text.Json.Serialization;
+
 namespace barakoCMS.Events;
 
+[method: JsonConstructor]
 public record ContentCreated(
     Guid Id,
     string ContentType,
@@ -30,6 +33,7 @@ public record ContentCreated(
             (Id, ContentType, Data, Status, CreatedBy);
 }
 
+[method: JsonConstructor]
 public record ContentUpdated(
     Guid Id,
     Dictionary<string, object> Data,
