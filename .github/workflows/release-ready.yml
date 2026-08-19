@@ -1,0 +1,81 @@
+name: Release ready
+
+# Says out loud when a release ticket's blockers are all closed.
+#
+# The gap this fills is small and specific. Merging feels like finishing, so the
+# release step is the one that gets forgotten: on 19 Aug three pull requests
+# landed on master and the version was never bumped, so every release run since
+# skipped straight past Test and Publish. Nothing was broken and nothing said so.
+#
+# A checklist in an issue body cannot notice that. This can.
+
+on:
+  issues:
+    types: [closed]
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  check:
+    name: Is a release unblocked
+    runs-on: ubuntu-latest
+    steps:
+      - name: Comment on any release ticket whose sub-issues are all closed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          OWNER="${REPO%%/*}"; NAME="${REPO##*/}"
+
+          # Open issues labelled `release`, with their sub-issues. Keyed on the label
+          # rather than a hard-coded number so the next release inherits this for free.
+          gh api graphql -f owner="$OWNER" -f name="$NAME" -f query='
+            query($owner:String!, $name:String!) {
+              repository(owner:$owner, name:$name) {
+                issues(first:20, states:OPEN, labels:["release"]) {
+                  nodes {
+                    number
+                    title
+                    subIssues(first:50) { totalCount nodes { number state title } }
+                    comments(last:30) { nodes { body } }
+                  }
+                }
+              }
+            }' > /tmp/release-tickets.json
+
+          python3 - <<'PY' > /tmp/actions.txt
+          import json
+          MARKER = "<!-- release-ready -->"
+          data = json.load(open("/tmp/release-tickets.json"))
+          for it in data["data"]["repository"]["issues"]["nodes"]:
+              subs = it["subIssues"]["nodes"]
+              # A release ticket with no sub-issues has nothing to be unblocked by.
+              if not subs:
+                  continue
+              still_open = [s for s in subs if s["state"] == "OPEN"]
+              if still_open:
+                  continue
+              # Announce once. Re-announcing on every later close is how a useful
+              # notification becomes one people filter out.
+              if any(MARKER in c["body"] for c in it["comments"]["nodes"]):
+                  continue
+              done = "\n".join(f"- #{s['number']} {s['title']}" for s in subs)
+              print(json.dumps({"number": it["number"], "done": done}))
+          PY
+
+          if [ ! -s /tmp/actions.txt ]; then
+            echo "No release ticket is newly unblocked."
+            exit 0
+          fi
+
+          while read -r line; do
+            NUM=$(echo "$line" | python3 -c 'import json,sys; print(json.load(sys.stdin)["number"])')
+            DONE=$(echo "$line" | python3 -c 'import json,sys; print(json.load(sys.stdin)["done"])')
+            printf '%s\n\n**Every blocker on this release is now closed.**\n\n%s\n\nNothing ships until the version is bumped. The release gate reads `<Version>` from `barakoCMS/barakoCMS.csproj` and no-ops when that version is already on NuGet, so master can sit finished and unreleased indefinitely without anything failing.\n\nThe steps are in the description of this issue.\n' \
+              "<!-- release-ready -->" "$DONE" > /tmp/body.md
+            gh issue comment "$NUM" --repo "$REPO" --body-file /tmp/body.md
+            echo "Commented on #$NUM"
+          done < /tmp/actions.txt
