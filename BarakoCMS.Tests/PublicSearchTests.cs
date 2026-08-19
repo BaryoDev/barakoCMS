@@ -38,7 +38,9 @@ public class PublicSearchTests
                     DisplayName = "Secret",
                     Type = "string",
                     Sensitivity = SensitivityLevel.Sensitive
-                }
+                },
+                new() { Name = "Views", DisplayName = "Views", Type = "number" },
+
             }
         });
 
@@ -56,7 +58,7 @@ public class PublicSearchTests
         await StoreContentTypeAsync(type);
         using var scope = _factory.Services.CreateScope();
         var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-        var publicKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Title", "Slug", "Body" };
+        var publicKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Title", "Slug", "Body", "Views" };
 
         void AddContent(Dictionary<string, object> data, ContentStatus status = ContentStatus.Published, SensitivityLevel sens = SensitivityLevel.Public) =>
             s.Store(new Content
@@ -66,7 +68,9 @@ public class PublicSearchTests
                 Status = status,
                 Sensitivity = sens,
                 Data = data,
-                SearchText = string.Join(' ', data.Where(kv => publicKeys.Contains(kv.Key) && kv.Value is string v && !string.IsNullOrWhiteSpace(v)).Select(kv => kv.Value))
+                SearchText = string.Join(' ', data.Where(kv => publicKeys.Contains(kv.Key))
+                    .Select(kv => kv.Value?.ToString())
+                    .Where(v => !string.IsNullOrWhiteSpace(v)))
             });
 
         AddContent(new() { ["Title"] = $"About {Needle}", ["Slug"] = "title-hit", ["Body"] = "plain" });
@@ -74,7 +78,7 @@ public class PublicSearchTests
         AddContent(new() { ["Title"] = $"Draft {Needle}", ["Slug"] = "draft-hit", ["Body"] = Needle }, status: ContentStatus.Draft);
         AddContent(new() { ["Title"] = $"Sensitive {Needle}", ["Slug"] = "sens-hit", ["Body"] = Needle }, sens: SensitivityLevel.Sensitive);
         AddContent(new() { ["Title"] = "Clean title", ["Slug"] = "field-hit", ["Body"] = "clean body", ["Secret"] = Needle });
-
+        AddContent(new() { ["Title"] = "Numeric field", ["Slug"] = "numeric-hit", ["Body"] = "plain", ["Views"] = 12345 });
         await s.SaveChangesAsync();
     }
 
@@ -151,5 +155,21 @@ public class PublicSearchTests
         (await searchRes.Content.ReadAsStringAsync())
             .Should().Contain("endpoint-hit");
     }
+
+    [Fact]
+    public async Task Search_PublicNumericField_IsSearchable()
+    {
+        var type = $"searchpub_numeric_{Guid.NewGuid():N}";
+        await SeedAsync(type);
+
+        var res = await _client.GetAsync(
+            $"/api/public/{type}/search?q=12345");
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var body = await res.Content.ReadAsStringAsync();
+        body.Should().Contain("numeric-hit");
+    }
+
 
 }
