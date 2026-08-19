@@ -15,17 +15,23 @@ public class DataSeederTests
         _factory = factory;
     }
 
+    // Asserts on this document rather than on the run's total. The fixture database is shared, so
+    // any other test that left a Content with a null SearchText is picked up by the same backfill
+    // and counted. Reading the console total made this test depend on what else had already run:
+    // in a full-suite run it saw 8 rather than 0 and failed for a reason that had nothing to do
+    // with the behaviour under test.
     [Fact]
-    public async Task BackfillSearchText_DoesNotCountContentWithoutDefinitionAsUpdated()
+    public async Task BackfillSearchText_LeavesContentWithNoDefinitionUnindexed()
     {
         var type = $"missing_definition_{Guid.NewGuid():N}";
+        var id = Guid.NewGuid();
 
         using var scope = _factory.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
 
         session.Store(new Content
         {
-            Id = Guid.NewGuid(),
+            Id = id,
             ContentType = type,
             Status = ContentStatus.Published,
             Sensitivity = SensitivityLevel.Public,
@@ -38,23 +44,15 @@ public class DataSeederTests
 
         await session.SaveChangesAsync();
 
-        var output = new StringWriter();
-        var originalOut = Console.Out;
+        await DataSeeder.BackfillSearchTextAsync(session);
 
-        try
-        {
-            Console.SetOut(output);
+        var after = await session.LoadAsync<Content>(id);
 
-            await DataSeeder.BackfillSearchTextAsync(session);
-        }
-        finally
-        {
-            Console.SetOut(originalOut);
-        }
-
-        output.ToString()
+        after.Should().NotBeNull();
+        after!.SearchText
             .Should()
-            .Contain("Backfilled SearchText for 0 content documents.");
+            .BeNull("a content type with no definition has no public fields to index, so the "
+                  + "backfill must leave the document alone rather than write an empty string");
     }
 
     [Fact]

@@ -294,10 +294,16 @@ public static class DataSeeder
 
     internal static async Task BackfillSearchTextAsync(IDocumentSession session)
     {
+        // Grouped rather than ToDictionary. Name is not unique: ContentType/Create/Endpoint.cs:59
+        // enforces uniqueness by reading before writing, with no unique index behind it, so two
+        // definitions can share a name. ToDictionary throws ArgumentException on the second one,
+        // and this runs inside the seeder's catch, so the backfill would silently never happen.
+        // First wins, which is what the FirstOrDefault this replaced already did.
         var defMap = (await session.Query<ContentTypeDefinition>().ToListAsync())
+            .GroupBy(d => d.Name, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(
-                d => d.Name,
-                d => d.Fields
+                g => g.Key,
+                g => g.First().Fields
                     .Where(f => f.Sensitivity == SensitivityLevel.Public)
                     .Select(f => f.Name)
                     .ToHashSet(StringComparer.OrdinalIgnoreCase),
