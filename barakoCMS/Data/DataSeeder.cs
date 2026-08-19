@@ -5,6 +5,7 @@ namespace barakoCMS.Data;
 
 public static class DataSeeder
 {
+    private const int batchSize = 1000;
     public static async Task SeedAsync(IHost host)
     {
         using var scope = host.Services.CreateScope();
@@ -27,6 +28,9 @@ public static class DataSeeder
 
         // 5. Seed Sample Attendance Records
         await SeedAttendanceRecordsAsync(session);
+
+        // 6. Backfill SearchText for existing content
+        await BackfillSearchTextAsync(session);
 
         await session.SaveChangesAsync();
         Console.WriteLine("[DataSeeder] ✅ Seeding complete!");
@@ -287,4 +291,66 @@ public static class DataSeeder
             Console.WriteLine($"[DataSeeder] Created attendance record: {record.Data["FirstName"]} {record.Data["LastName"]}");
         }
     }
+
+    internal static async Task BackfillSearchTextAsync(IDocumentSession session)
+    {
+        // Grouped rather than ToDictionary. Name is not unique: ContentType/Create/Endpoint.cs:59
+        // enforces uniqueness by reading before writing, with no unique index behind it, so two
+        // definitions can share a name. ToDictionary throws ArgumentException on the second one,
+        // and this runs inside the seeder's catch, so the backfill would silently never happen.
+        // First wins, which is what the FirstOrDefault this replaced already did.
+        var defMap = (await session.Query<ContentTypeDefinition>().ToListAsync())
+            .GroupBy(d => d.Name, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                g => g.Key,
+                g => g.First().Fields
+                    .Where(f => f.Sensitivity == SensitivityLevel.Public)
+                    .Select(f => f.Name)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase),
+                StringComparer.OrdinalIgnoreCase);
+
+        var updatedCount = 0;
+        Guid? lastId = null;
+
+        while (true)
+        {
+            var query = session.Query<Content>()
+                .Where(c => c.SearchText == null);
+
+            if (lastId.HasValue)
+                query = query.Where(c => c.Id > lastId.Value);
+
+            var contents = await query
+                .OrderBy(c => c.Id)
+                .Take(batchSize)
+                .ToListAsync();
+
+            if (contents.Count == 0)
+                break;
+
+            foreach (var content in contents)
+            {
+                if (!defMap.TryGetValue(content.ContentType, out var publicFields))
+                    continue;
+
+                content.SearchText = string.Join(
+                    ' ',
+                    content.Data
+                        .Where(kv => publicFields.Contains(kv.Key))
+                        .Select(kv => kv.Value?.ToString())
+                        .Where(v => !string.IsNullOrWhiteSpace(v)));
+
+                session.Store(content);
+                updatedCount++;
+            }
+
+            lastId = contents[^1].Id;
+
+            await session.SaveChangesAsync();
+        }
+
+        Console.WriteLine(
+            $"[DataSeeder] Backfilled SearchText for {updatedCount} content documents.");
+    }
+
 }

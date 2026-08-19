@@ -1,3 +1,4 @@
+using barakoCMS.Models;
 using BarakoCMS.Accounting.Domain;
 using Marten;
 
@@ -84,9 +85,24 @@ public class LedgerService
         // content endpoint does. Without this an entry posted through this route would have no
         // history, and traceability is the entire point of a ledger.
         var contentId = Guid.NewGuid();
+        var definition = await _session.Query<barakoCMS.Models.ContentTypeDefinition>()
+            .FirstOrDefaultAsync(d => d.Name == AccountingContentTypes.JournalEntry, ct);
+
+        var publicFields = definition?.Fields
+            .Where(f => f.Sensitivity == SensitivityLevel.Public)
+            .Select(f => f.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase)
+            ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        var searchText = string.Join(
+            ' ',
+            data
+                .Where(kv => publicFields.Contains(kv.Key))
+                .Select(kv => kv.Value?.ToString())
+                .Where(v => !string.IsNullOrWhiteSpace(v)));
         var created = new barakoCMS.Events.ContentCreated(
             contentId, AccountingContentTypes.JournalEntry, data,
-            barakoCMS.Models.ContentStatus.Published, userId);
+            barakoCMS.Models.ContentStatus.Published, userId, searchText);
 
         _session.Events.StartStream<barakoCMS.Models.Content>(contentId, created);
         var content = new barakoCMS.Models.Content();

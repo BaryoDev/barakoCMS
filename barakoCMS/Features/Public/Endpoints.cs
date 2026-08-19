@@ -50,6 +50,23 @@ internal static class PublicDelivery
     /// </summary>
     public static bool IsDeliverable(ContentTypeDefinition? def) => def is { IsPubliclyDeliverable: true };
 
+    public static Dictionary<string, object> PublicData(
+        ContentDoc c,
+        ContentTypeDefinition? def)
+    {
+        if (def is null)
+            return new();
+
+        var publicNames = def.Fields
+            .Where(f => f.Sensitivity == SensitivityLevel.Public)
+            .Select(f => f.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        return c.Data
+            .Where(kv => publicNames.Contains(kv.Key))
+            .ToDictionary(kv => kv.Key, kv => kv.Value);
+    }
+
     /// <summary>
     /// Projects a Published, document-Public entry for anonymous delivery, exposing ONLY the fields the
     /// content type marks Public, or null if it must not be exposed at all. Robust to a missing content
@@ -159,8 +176,8 @@ public class PublicSearchEndpoint : EndpointWithoutRequest<PublicSearchResponse>
     private readonly IQuerySession _session;
     public PublicSearchEndpoint(IQuerySession session) => _session = session;
 
-    private const int ScanCap = 1000;
     private const int MaxResults = 50;
+    private const int ScanCap = 1000;
 
     public override void Configure()
     {
@@ -186,11 +203,11 @@ public class PublicSearchEndpoint : EndpointWithoutRequest<PublicSearchResponse>
             await SendOkAsync(new PublicSearchResponse(Array.Empty<PublicContentResponse>(), 0, q), ct);
             return;
         }
-
         var candidates = await _session.Query<ContentDoc>()
             .Where(c => c.ContentType == type
                         && c.Status == ContentStatus.Published
-                        && c.Sensitivity == SensitivityLevel.Public)
+                        && c.Sensitivity == SensitivityLevel.Public
+                        && c.SearchText.ToLower().Contains(q.ToLower()))
             .OrderByDescending(c => c.CreatedAt)
             .Take(ScanCap)
             .ToListAsync(ct);

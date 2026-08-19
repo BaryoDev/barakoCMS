@@ -25,7 +25,7 @@ public class RollbackEndpoint : Endpoint<RollbackRequest, barakoCMS.Models.Conte
         Post("/api/contents/{id}/rollback/{versionId}");
         Roles("SuperAdmin", "Admin");
     }
-
+    
     public override async Task HandleAsync(RollbackRequest req, CancellationToken ct)
     {
         // Extract userId from claims for audit trail
@@ -58,6 +58,7 @@ public class RollbackEndpoint : Endpoint<RollbackRequest, barakoCMS.Models.Conte
 
         // 3. Extract data from the event
         Dictionary<string, object> data = new();
+
         if (targetEvent.Data is ContentCreated created)
         {
             data = created.Data;
@@ -73,30 +74,46 @@ public class RollbackEndpoint : Endpoint<RollbackRequest, barakoCMS.Models.Conte
             return;
         }
 
-        // 4. Create a new update event with the old data
-        var rollbackEvent = new ContentUpdated(req.Id, data, userId);
-
-        // 5. Append the new event
-        _session.Events.Append(req.Id, rollbackEvent);
-
-        // 6. Apply rollback to the document in same transaction
+        // 4. Load the current content
         var content = await _session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct);
-        if (content != null)
-        {
-            content.Apply(rollbackEvent);
-            _session.Store(content);
-        }
-
-        await _session.SaveChangesAsync(ct);
-
-        // 7. Return the new state
         if (content == null)
         {
-            AddError("Content not found after rollback");
+            AddError("Content not found");
             await SendErrorsAsync(cancellation: ct);
             return;
         }
 
+        // Rebuild SearchText using the current field-sensitivity definition so a rollback
+        // cannot reintroduce values that are no longer Public into the searchable text.
+        var definition = await _session.Query<ContentTypeDefinition>()
+            .FirstOrDefaultAsync(d => d.Name == content.ContentType, ct);
+
+        var publicFields = definition?.Fields
+            .Where(f => f.Sensitivity == SensitivityLevel.Public)
+            .Select(f => f.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase)
+            ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        var searchText = string.Join(
+            ' ',
+            data
+                .Where(kv => publicFields.Contains(kv.Key))
+                .Select(kv => kv.Value?.ToString())
+                .Where(v => !string.IsNullOrWhiteSpace(v)));
+
+        // 5. Create a new update event with the old data and rebuilt SearchText
+        var rollbackEvent = new ContentUpdated(req.Id, data, userId, searchText);
+
+        // 6. Append the new event
+        _session.Events.Append(req.Id, rollbackEvent);
+
+        // 7. Apply the rollback to the document
+        content.Apply(rollbackEvent);
+        _session.Store(content);
+
+        await _session.SaveChangesAsync(ct);
+
+        // 8. Return the new state
         await SendAsync(content, cancellation: ct);
     }
 }

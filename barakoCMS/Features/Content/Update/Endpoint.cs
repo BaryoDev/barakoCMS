@@ -64,11 +64,26 @@ public class Endpoint : Endpoint<Request, Response>
             await SendAsync(new Response { Message = "Validation Failed: " + string.Join(", ", hookErrors) }, 400, ct);
             return;
         }
+        var definition = await _session.Query<ContentTypeDefinition>()
+            .FirstOrDefaultAsync(d => d.Name == existingContent.ContentType, ct);
+
+        var publicFields = definition?.Fields
+            .Where(f => f.Sensitivity == SensitivityLevel.Public)
+            .Select(f => f.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase)
+            ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        var searchText = string.Join(
+            ' ',
+            req.Data
+                .Where(kv => publicFields.Contains(kv.Key))
+                .Select(kv => kv.Value?.ToString())
+                .Where(v => !string.IsNullOrWhiteSpace(v)));
 
         var events = new List<object>();
 
         // 1. Data Update Event
-        var updateEvent = new barakoCMS.Events.ContentUpdated(req.Id, req.Data, userId);
+        var updateEvent = new barakoCMS.Events.ContentUpdated(req.Id, req.Data, userId, searchText);
         events.Add(updateEvent);
 
         bool statusChanged = existingContent.Status != req.Status;

@@ -30,9 +30,12 @@ public class Content
     // and history stays correct; the consumed field is then cleared. Both are UTC.
     public DateTime? ScheduledPublishAt { get; set; }
     public DateTime? ScheduledUnpublishAt { get; set; }
-    
+
     // Versioning is handled by Marten, but we can track who updated it
     public Guid LastModifiedBy { get; set; }
+
+    // Derived public search text used for full-text search.
+    public string? SearchText { get; set; }
 
     public void Apply(barakoCMS.Events.ContentCreated @event)
     {
@@ -43,6 +46,7 @@ public class Content
         CreatedAt = DateTime.UtcNow;
         UpdatedAt = DateTime.UtcNow;
         LastModifiedBy = @event.CreatedBy;
+        SearchText = @event.SearchText;
     }
 
     public void Apply(barakoCMS.Events.ContentUpdated @event)
@@ -50,6 +54,7 @@ public class Content
         Data = @event.Data;
         UpdatedAt = DateTime.UtcNow;
         LastModifiedBy = @event.UpdatedBy;
+        SearchText = @event.SearchText;
     }
 
     public void Apply(barakoCMS.Events.ContentStatusChanged @event)
@@ -58,4 +63,5 @@ public class Content
         UpdatedAt = DateTime.UtcNow;
         LastModifiedBy = @event.UpdatedBy;
     }
+
 }
