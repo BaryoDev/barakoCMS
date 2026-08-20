@@ -19,4 +19,9 @@
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
   </ItemGroup>
 
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="BarakoCMS.Tests" />
+  </ItemGroup>
+
 </Project>

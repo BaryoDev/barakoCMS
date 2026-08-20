@@ -4,6 +4,7 @@ using System.Text.Json;
 using FastEndpoints;
 using Marten;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 
 namespace BarakoCMS.Email.Resend;
 
@@ -34,8 +35,24 @@ public sealed class ResendWebhookEndpoint : EndpointWithoutRequest
         using var reader = new StreamReader(HttpContext.Request.Body, Encoding.UTF8);
         var body = await reader.ReadToEndAsync(ct);
 
+        // Fail closed. This used to read `if (secret is set && signature is bad) reject`, which
+        // short-circuits to "accept" when no secret is configured, so an unconfigured deployment
+        // took forged webhooks from anyone. The payload writes EmailEvent documents that mark an
+        // address bounced or complained, so a forged post can get a real recipient suppressed.
+        //
+        // An unconfigured receiver is refused rather than trusted: useless is a better failure
+        // than forgeable, and the 401 says which setting is missing.
         var secret = _config["Resend:WebhookSecret"] ?? Environment.GetEnvironmentVariable("RESEND_WEBHOOK_SECRET");
-        if (!string.IsNullOrWhiteSpace(secret) && !VerifySvix(secret, body))
+        if (string.IsNullOrWhiteSpace(secret))
+        {
+            Logger.LogError(
+                "Resend webhook received but no signing secret is configured. Set Resend:WebhookSecret "
+                + "or RESEND_WEBHOOK_SECRET. Refusing the request rather than trusting it.");
+            await SendUnauthorizedAsync(ct);
+            return;
+        }
+
+        if (!VerifySvix(secret, body))
         {
             await SendUnauthorizedAsync(ct);
             return;
@@ -109,13 +126,22 @@ public sealed class ResendWebhookEndpoint : EndpointWithoutRequest
     }
 
     /// <summary>Svix signature check: HMAC-SHA256 of "{id}.{timestamp}.{body}" with the whsec key.</summary>
-    private bool VerifySvix(string secret, string body)
+    private bool VerifySvix(string secret, string body) => VerifySvix(
+        secret,
+        body,
+        HttpContext.Request.Headers["svix-id"].ToString(),
+        HttpContext.Request.Headers["svix-timestamp"].ToString(),
+        HttpContext.Request.Headers["svix-signature"].ToString());
+
+    /// <summary>
+    /// The signature check, separated from HttpContext so it can be tested directly. This is the
+    /// only thing standing between a stranger and a write on an anonymous endpoint, so it wants a
+    /// test that does not depend on standing up a web host.
+    /// </summary>
+    internal static bool VerifySvix(string secret, string body, string id, string ts, string sigHeader)
     {
         try
         {
-            var id = HttpContext.Request.Headers["svix-id"].ToString();
-            var ts = HttpContext.Request.Headers["svix-timestamp"].ToString();
-            var sigHeader = HttpContext.Request.Headers["svix-signature"].ToString();
             if (string.IsNullOrEmpty(id) || string.IsNullOrEmpty(ts) || string.IsNullOrEmpty(sigHeader))
                 return false;
 
