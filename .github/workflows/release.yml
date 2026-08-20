@@ -188,6 +188,10 @@ jobs:
           context: ./admin
           file: admin/Dockerfile
           push: true
+          # Stamped from the release version rather than read from package.json, which has said
+          # 0.1.0 since the beginning. One source of truth, and nobody has to remember to bump it.
+          build-args: |
+            BARAKO_VERSION=${{ env.VERSION }}
           tags: |
             ghcr.io/baryodev/barako-admin:latest
             ghcr.io/baryodev/barako-admin:${{ env.VERSION }}
@@ -249,6 +253,7 @@ jobs:
           build-args: |
             NEXT_BASE_PATH=/barakocms
             NEXT_PUBLIC_API_URL=https://playground.baryo.dev/barakocms-api
+            BARAKO_VERSION=${{ env.VERSION }}
           tags: |
             ghcr.io/baryodev/barako-admin:playground
             ghcr.io/baryodev/barako-admin:playground-${{ env.VERSION }}
