@@ -1,0 +1,66 @@
+# Secret scanning config.
+#
+# This repository had a "Secret scan (gitleaks)" step reporting success since it was added, and it
+# had never scanned anything: the hosted Action refuses to run for a GitHub organization without a
+# paid licence, and `continue-on-error: true` swallowed the refusal. The binary is MIT licensed and
+# free, so CI now runs that instead and is allowed to fail.
+#
+# The default rules catch provider tokens (AWS keys, GitHub PATs and so on). The realistic failure
+# for a self-hostable CMS is different: a working credential left in a config file that ships in a
+# Docker image or a published NuGet package. Those get explicit rules.
+
+title = "barakoCMS"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "jwt-signing-key"
+description = "JWT signing key committed in configuration"
+regex = '''(?i)"(JWT__Key|JWT:Key)"\s*:\s*"[^"]{16,}"'''
+tags = ["key", "jwt"]
+
+[[rules]]
+id = "seeded-admin-password"
+description = "Seeded or unattended admin password in configuration or code"
+regex = '''(?i)"(AdminPassword|SeedPassword|UnattendedUserPassword|DefaultPassword)"\s*:\s*"[^"]{6,}"'''
+tags = ["password"]
+
+[[rules]]
+id = "provider-api-key"
+description = "Third-party provider key committed in configuration"
+regex = '''(?i)"(Resend:ApiKey|Resend:WebhookSecret|Files:S3:SecretKey|NUGET_API_KEY)"\s*:\s*"[^"]{8,}"'''
+tags = ["key", "provider"]
+
+[allowlist]
+description = "Placeholders, test fixtures, and two historical commits that cannot be un-published."
+
+# Two JWT signing keys reached this public repository and are permanent in its history. Rewriting
+# history on a repo people have cloned costs more than it buys, and a key that reached a public
+# repo is disclosed whether or not the commit is removed. They are exempted BY COMMIT so anything
+# new still fails, and they are named here rather than deleted so the exposure stays on the record.
+#   6922698d  2026-08-17  appsettings.Development.json, 64-char dev key
+#   97fb29cb  2023-01-08  appsettings.json, 24-char key
+# Both are absent from the working tree; JWT:Key is empty and read from the environment.
+commits = ["6922698d1563e1ee4c1c67b58641ee711dee51c6", "97fb29cb7e30547757c95261648217a35b0c4692"]
+paths = [
+  '''(^|/)BarakoCMS\.Tests/''',
+  '''(^|/)admin/e2e/''',
+  '''(^|/)docs/''',
+  '''\.md$''',
+]
+regexes = [
+  # Anchored. These match the WHOLE secret, not a substring of it. An unanchored `example` exempted
+  # AKIAIOSFODNN7EXAMPLE..., which is a real-shaped AWS key, so the planted-secret control below
+  # passed while the gate was blind. A placeholder announces itself as the entire value or it is
+  # not a placeholder.
+  '''(?i)^(change[-_ ]?me|placeholder|dummy|sample|test|secret|password|xxx+)[-_a-z0-9 ]*$''',
+  '''(?i)^your[-_ ][-_a-z0-9 ]*$''',
+  '''(?i)^change[-_ ]?me[-_a-z0-9 ]*$''',
+  '''(?i)^[-_a-z0-9 ]*(in[-_ ]production|to[-_ ]a[-_ ]strong[-_ ]password)$''',
+  '''^\$\{?[A-Z_][A-Z0-9_]*\}?$''',
+  # The local development compose/test connection strings.
+  '''(?i)Password\s*=\s*(postgres|password|test|localonly)\b''',
+  # The documented DEV ONLY imaging key, which says so in its own value.
+  '''REVWIE9OTFk''',
+]

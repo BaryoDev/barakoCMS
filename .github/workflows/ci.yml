@@ -249,11 +249,66 @@ jobs:
       - name: Test the vulnerability gates
         run: bash scripts/test-ci-gates.sh
 
+      # The hosted Action refuses to run for a GitHub organization without a paid licence, and this
+      # step carried continue-on-error, so it reported success and had never scanned anything:
+      #   [BaryoDev] is an organization. License key is required.
+      # The binary is MIT licensed and free. Same scanner, no licence, and allowed to fail.
+      - name: Install gitleaks
+        run: |
+          VERSION=8.28.0
+          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+
       - name: Secret scan (gitleaks)
+        run: gitleaks detect --source . --config .gitleaks.toml --redact --verbose
+
+      # Advisory only, and continue-on-error is correct here precisely because it is not the gate.
+      # The Action annotates findings inline on the diff, which the binary cannot do. It needs an
+      # org licence, so it is also the step that can lapse: if the licence expires or the secret is
+      # missing on a fork, this goes yellow and the blocking scan above is unaffected. That split is
+      # deliberate. Putting the gate on the licensed step is how this repo ended up with a green
+      # secret scan that had never scanned anything.
+      - name: Annotate findings on the diff (advisory)
         continue-on-error: true
         uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+
+      # A scanner that finds nothing is indistinguishable from a scanner that is not running, which
+      # is exactly how the previous step went unnoticed. Plant a secret, confirm it is caught,
+      # remove it. Runs against a scratch copy so the working tree is never touched.
+      - name: Prove the scan can fail
+        run: |
+          set -euo pipefail
+          TMP=$(mktemp -d)
+          git clone --quiet --no-hardlinks . "$TMP/probe"
+          cd "$TMP/probe"
+          # Generated here rather than written literally, for two reasons this control found the
+          # hard way. AKIAIOSFODNN7EXAMPLE is AWS's own documentation placeholder and gitleaks
+          # exempts it by design, so planting it proved nothing. Replacing it with a realistic
+          # literal then made the scan flag THIS FILE, correctly: a token-shaped string committed
+          # in a workflow is exactly what the gate is for. Building the value at runtime keeps the
+          # gate strict on workflow files and still gives the control something real to catch.
+          # Prefixes assembled from halves. Written whole, even as "ghp_$(...)", the prefix sits
+          # next to the substitution and matches the github-pat rule, so the scan flags this file.
+          # That is the gate behaving correctly, so the fixture bends rather than the rule.
+          AWS_P="AK"; AWS_P="${AWS_P}IA"
+          GH_P="gh"; GH_P="${GH_P}p_"
+          AWS_ID="${AWS_P}$(LC_ALL=C tr -dc 'A-Z0-9' < /dev/urandom | head -c 16)"
+          GH_TOK="${GH_P}$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 36)"
+          {
+            printf 'aws_access_key_id = "%s"\n' "$AWS_ID"
+            printf 'gh_token = "%s"\n' "$GH_TOK"
+          } > planted.txt
+          git -c user.email=ci@local -c user.name=ci add planted.txt
+          git -c user.email=ci@local -c user.name=ci commit --quiet -m "planted secret, CI control"
+          if gitleaks detect --source . --config .gitleaks.toml --redact --no-banner; then
+            echo "::error::The secret scan did not catch a planted credential. The gate is not working."
+            exit 1
+          fi
+          echo "Planted secret was caught. The scan is live."
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
