@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import {
     Dialog,
     DialogContent,
@@ -11,13 +11,20 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { IconBolt } from '@/components/icons';
-import { CHANGE_META, CURRENT_VERSION, RELEASES } from '@/lib/whats-new';
+import { CHANGE_META, RELEASES } from '@/lib/whats-new';
+import { useApiMeta } from '@/hooks/use-meta';
 
 const SEEN_KEY = 'barako_whats_new_seen';
 
+// Returned instead of the stored value when localStorage is unavailable. It can never equal a real
+// version, so every comparison against it has to be made explicitly rather than accidentally
+// passing — see `unseen` below, which treats it as "seen" on purpose.
+const STORAGE_BLOCKED = Symbol('storage-blocked');
+
 // The last version this browser acknowledged, read through useSyncExternalStore so it
-// survives SSR without a hydration mismatch. The server snapshot claims "already seen"
-// so the dot only appears once the real localStorage value is known on the client.
+// survives SSR without a hydration mismatch. The server snapshot is null, which reads as
+// "nothing acknowledged yet"; the dot still stays off during SSR because the API version
+// is not known until the client has fetched it.
 let listeners: Array<() => void> = [];
 
 function subscribeSeen(onChange: () => void) {
@@ -27,33 +34,62 @@ function subscribeSeen(onChange: () => void) {
     };
 }
 
-function seenSnapshot() {
+function seenSnapshot(): string | null | typeof STORAGE_BLOCKED {
     try {
         return localStorage.getItem(SEEN_KEY);
     } catch {
-        return CURRENT_VERSION; // storage blocked — don't nag
+        return STORAGE_BLOCKED; // can't remember a dismissal, so don't nag
     }
 }
 
-const seenServerSnapshot = () => CURRENT_VERSION;
+const seenServerSnapshot = (): string | null | typeof STORAGE_BLOCKED => null;
+
+// Lets the About dialog open these release notes. Same module-listener shape as `listeners` above,
+// rather than a context, because there is exactly one WhatsNew mounted and it lives in the header
+// while About lives in the sidebar footer.
+let openRequests: Array<() => void> = [];
+
+export function requestOpenWhatsNew() {
+    openRequests.forEach((f) => f());
+}
 
 export function WhatsNew() {
     const [open, setOpen] = useState(false);
     const seen = useSyncExternalStore(subscribeSeen, seenSnapshot, seenServerSnapshot);
+    const { data: meta } = useApiMeta();
+    const apiVersion = meta?.version ?? null;
 
-    // Flag the button when the deployed version is newer than what this browser last saw.
+    // Flag the button when the running API reports a version this browser has not acknowledged.
+    // While the version is unknown (still loading, or /api/meta failed) there is no dot at all,
+    // rather than a dot that appears and then disappears.
+    //
     // Deliberately does not auto-open — a first-time admin should land on their dashboard,
     // not on release notes. The dot is the invitation.
-    const unseen = seen !== CURRENT_VERSION;
+    const unseen = apiVersion !== null && seen !== STORAGE_BLOCKED && seen !== apiVersion;
 
-    const markSeen = () => {
+    // useCallback so the effect below can depend on it honestly: markSeen closes over apiVersion,
+    // and the registered handler has to be replaced when that arrives. Otherwise opening from
+    // About before /api/meta resolves would never clear the dot.
+    const markSeen = useCallback(() => {
+        if (apiVersion === null) return; // nothing to record yet
         try {
-            localStorage.setItem(SEEN_KEY, CURRENT_VERSION);
+            localStorage.setItem(SEEN_KEY, apiVersion);
         } catch {
             /* ignore */
         }
         listeners.forEach((l) => l());
-    };
+    }, [apiVersion]);
+
+    useEffect(() => {
+        const openFromAbout = () => {
+            setOpen(true);
+            markSeen();
+        };
+        openRequests = [...openRequests, openFromAbout];
+        return () => {
+            openRequests = openRequests.filter((f) => f !== openFromAbout);
+        };
+    }, [markSeen]);
 
     return (
         <>

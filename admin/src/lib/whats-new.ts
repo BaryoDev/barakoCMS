@@ -1,6 +1,11 @@
-// "What's new" changelog shown in the admin. Bundled with the build so it always matches the
-// deployed version. Add a new entry at the TOP of RELEASES and bump CURRENT_VERSION when you ship;
-// editors see the dialog auto-open once per new version.
+// "What's new" changelog shown in the admin. Add a new entry at the TOP of RELEASES when you ship.
+//
+// There is deliberately no CURRENT_VERSION constant here any more. The unseen dot is driven off the
+// version the running API reports from /api/meta, because the hand-maintained constant that used to
+// drive it sat at 3.1.2 while the product was at 3.20.1 — nineteen minor versions of the dot never
+// appearing for anyone. A number somebody has to remember to bump is not a mechanism.
+//
+// The dialog never opens on its own. The dot is the only proactive element.
 
 export type ChangeType = 'feature' | 'fix' | 'improvement';
 
@@ -16,10 +21,59 @@ export interface Release {
     items: ChangeItem[];
 }
 
-// Bumping this puts the unseen dot back on the What's new button for everyone.
-export const CURRENT_VERSION = '3.1.2';
-
 export const RELEASES: Release[] = [
+    {
+        version: '3.21.0',
+        date: 'August 2026',
+        items: [
+            {
+                type: 'fix',
+                title: 'Content marked Sensitive was stored as Public',
+                description:
+                    'Sensitivity chosen when creating an entry was dropped on the way to storage, so entries posted as Sensitive or Hidden were saved as Public and the redaction rules never applied to them.',
+            },
+            {
+                type: 'fix',
+                title: 'Unsigned Resend webhooks are refused',
+                description:
+                    'When no signing secret was configured, inbound email webhooks were accepted without verification. An unconfigured instance now rejects them instead of trusting them.',
+            },
+            {
+                type: 'fix',
+                title: 'The PWA report endpoint is rate limited',
+                description: 'It accepted unlimited anonymous submissions.',
+            },
+            {
+                type: 'improvement',
+                title: 'The sidebar shows only what your role can open',
+                description:
+                    'Every account used to see all nineteen destinations, and most of them answered with a permission error on arrival. The navigation now matches what you can actually reach.',
+            },
+            {
+                type: 'feature',
+                title: 'About dialog, and a version you can read',
+                description:
+                    'The sidebar footer shows the version of the API this admin is connected to, and opens an About dialog with the API address, documentation, release notes and where to report an issue.',
+            },
+            {
+                type: 'improvement',
+                title: 'Releases ship the build that was tested',
+                description:
+                    'The pipeline now compiles once and publishes that exact output, and installs every package into a scratch project before pushing it, so a package that cannot be consumed never reaches NuGet.',
+            },
+            {
+                type: 'feature',
+                title: 'Modules declare a contract version',
+                description:
+                    'A module built against an incompatible core is now refused at startup with a clear message, rather than failing later in a way that is hard to trace.',
+            },
+            {
+                type: 'improvement',
+                title: 'Node 22 in the admin image',
+                description: 'Node 20 reached end of life and no longer receives security updates.',
+            },
+        ],
+    },
     {
         version: '3.1.2',
         date: 'July 2026',

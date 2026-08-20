@@ -30,7 +30,11 @@ public class Endpoint : Endpoint<Request, TemplateVariableCollection>
     public override void Configure()
     {
         Get("/api/workflows/variables");
-        AllowAnonymous(); // Allow for testing
+        // Was AllowAnonymous "for testing". This reads a real stored document of the requested
+        // content type to derive its data fields, so anonymously it disclosed both the field names
+        // and, until the change in TemplateVariableExtractor, their stored values — bypassing both
+        // the role restriction on /api/schemas and field-level sensitivity entirely.
+        Roles("SuperAdmin", "Admin");
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
