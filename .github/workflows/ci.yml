@@ -240,6 +240,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # gitleaks scans history, and the default depth of 1 gives it one commit: historical
+          # secrets are invisible and the commit-based allowlist entries below can never match.
+          # The scan was running against almost nothing.
+          fetch-depth: 0
+
 
       # Catch secrets being ADDED. Report-only for now: dev-only secrets still live in git history
       # (an appsettings.Development.json removed from HEAD earlier), so a hard gate would fail on
@@ -255,13 +261,20 @@ jobs:
       # The binary is MIT licensed and free. Same scanner, no licence, and allowed to fail.
       - name: Install gitleaks
         run: |
+          set -euo pipefail
           VERSION=8.28.0
-          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz" \
-            | tar -xz -C /usr/local/bin gitleaks
+          SHA256=a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb
+          curl -sSL --fail -o /tmp/gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz"
+          # Verify before extracting, not after. This pipeline used to pipe the download straight
+          # into tar, which extracts and then runs an unauthenticated binary inside a job holding
+          # GITHUB_TOKEN. Checksum taken from the release's own checksums.txt.
+          echo "${SHA256}  /tmp/gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/gitleaks.tar.gz -C /usr/local/bin gitleaks
           gitleaks version
 
       - name: Secret scan (gitleaks)
-        run: gitleaks detect --source . --config .gitleaks.toml --redact --verbose
+        run: gitleaks git . --config .gitleaks.toml --redact --verbose
 
       # Advisory only, and continue-on-error is correct here precisely because it is not the gate.
       # The Action annotates findings inline on the diff, which the binary cannot do. It needs an
@@ -271,7 +284,7 @@ jobs:
       # secret scan that had never scanned anything.
       - name: Annotate findings on the diff (advisory)
         continue-on-error: true
-        uses: gitleaks/gitleaks-action@v3
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e  # v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
@@ -296,12 +309,18 @@ jobs:
           # That is the gate behaving correctly, so the fixture bends rather than the rule.
           AWS_P="AK"; AWS_P="${AWS_P}IA"
           GH_P="gh"; GH_P="${GH_P}p_"
+          # Read a bounded amount first. Piping /dev/urandom into `tr | head -c N` closes the pipe
+          # on head's exit, tr dies of SIGPIPE, and under `set -euo pipefail` the assignment fails
+          # before the scan runs. A control that dies before it checks anything is worse than none.
+          RAND=$(head -c 256 /dev/urandom | LC_ALL=C tr -dc 'A-Za-z0-9')
+          AWS_ID="${AWS_P}$(printf '%s' "${RAND}" | LC_ALL=C tr -d 'a-z' | cut -c1-16)"
+          GH_TOK="${GH_P}$(printf '%s' "${RAND}" | cut -c1-36)"
           {
-            printf 'aws_access_key_id = "%s"\n' "${AWS_P}$(LC_ALL=C tr -dc 'A-Z0-9' < /dev/urandom | head -c 16)"
-            printf 'gh_token = "%s"\n' "${GH_P}$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 36)"
+            printf 'aws_access_key_id = "%s"\n' "$AWS_ID"
+            printf 'gh_token = "%s"\n' "$GH_TOK"
           } > "$TMP/planted.txt"
 
-          if gitleaks detect --no-git --source "$TMP" --config "$TMP/.gitleaks.toml" --redact --no-banner; then
+          if gitleaks dir "$TMP" --config "$TMP/.gitleaks.toml" --redact --no-banner; then
             echo "::error::The secret scan did not catch a planted credential. The gate is not working."
             exit 1
           fi

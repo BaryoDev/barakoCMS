@@ -11,25 +11,32 @@
 
 title = "barakoCMS"
 
+# Every custom rule captures the VALUE in group 1 and sets secretGroup. Without it gitleaks treats
+# the whole match as the secret, so --redact leaves the credential visible in the Match line and a
+# value-based allowlist entry has nothing to compare against.
+
 [extend]
 useDefault = true
 
 [[rules]]
 id = "jwt-signing-key"
 description = "JWT signing key committed in configuration"
-regex = '''(?i)"(JWT__Key|JWT:Key)"\s*:\s*"[^"]{16,}"'''
+regex = '''(?i)"(?:JWT__Key|JWT:Key)"\s*:\s*"([^"]{16,})"'''
+secretGroup = 1
 tags = ["key", "jwt"]
 
 [[rules]]
 id = "seeded-admin-password"
 description = "Seeded or unattended admin password in configuration or code"
-regex = '''(?i)"(AdminPassword|SeedPassword|UnattendedUserPassword|DefaultPassword)"\s*:\s*"[^"]{6,}"'''
+regex = '''(?i)"(?:AdminPassword|SeedPassword|UnattendedUserPassword|DefaultPassword)"\s*:\s*"([^"]{6,})"'''
+secretGroup = 1
 tags = ["password"]
 
 [[rules]]
 id = "provider-api-key"
 description = "Third-party provider key committed in configuration"
-regex = '''(?i)"(Resend:ApiKey|Resend:WebhookSecret|Files:S3:SecretKey|NUGET_API_KEY)"\s*:\s*"[^"]{8,}"'''
+regex = '''(?i)"(?:Resend:ApiKey|Resend:WebhookSecret|Files:S3:SecretKey|NUGET_API_KEY)"\s*:\s*"([^"]{8,})"'''
+secretGroup = 1
 tags = ["key", "provider"]
 
 [allowlist]
