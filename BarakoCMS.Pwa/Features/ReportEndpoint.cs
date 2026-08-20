@@ -1,4 +1,6 @@
 using FastEndpoints;
+// RequireRateLimiting lives here; this project is not a Web SDK project, so it is not implicitly used.
+using Microsoft.AspNetCore.Builder;
 using Marten;
 
 namespace BarakoCMS.Pwa.Features;
@@ -33,6 +35,11 @@ public sealed class ReportEndpoint : Endpoint<ReportRequest>
     {
         Post("/api/pwa/report");
         AllowAnonymous();
+
+        // Unauthenticated ingest, and the caller supplies its own device id, so a loop with fresh
+        // ids writes rows without limit. The same shape as the Diagnostics report endpoint, which
+        // already takes this budget; this one was left on the global per-IP limit alone.
+        Options(x => x.RequireRateLimiting("telemetry"));
     }
 
     public override async Task HandleAsync(ReportRequest req, CancellationToken ct)
