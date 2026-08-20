@@ -52,8 +52,14 @@ jobs:
           set -euo pipefail
           TRX=$(find ./testresults -name '*.trx' | head -1)
           [ -n "$TRX" ] || { echo "::error::No .trx was produced, so nothing can be verified."; exit 1; }
-          TOTAL=$(grep -o 'total="[0-9]*"' "$TRX" | head -1 | grep -o '[0-9]*' || echo 0)
-          FAILED=$(grep -o 'failed="[0-9]*"' "$TRX" | head -1 | grep -o '[0-9]*' || echo 0)
+          TOTAL=$(grep -o 'total="[0-9]*"' "$TRX" | head -1 | grep -o '[0-9]*' || true)
+          FAILED=$(grep -o 'failed="[0-9]*"' "$TRX" | head -1 | grep -o '[0-9]*' || true)
+
+          # Both counters must actually parse. Defaulting a missing or malformed value to 0 makes
+          # the zero-failure assertion pass on an unreadable report, which is the same fail-open
+          # shape this whole gate exists to remove.
+          case "$TOTAL"  in ''|*[!0-9]*) echo "::error::Could not read a numeric total from $TRX."; exit 1 ;; esac
+          case "$FAILED" in ''|*[!0-9]*) echo "::error::Could not read a numeric failed count from $TRX."; exit 1 ;; esac
           echo "ran $TOTAL, failed $FAILED"
           [ "${TOTAL:-0}" -ge 500 ] || { echo "::error::Only $TOTAL tests ran, expected at least 500."; exit 1; }
           [ "${FAILED:-0}" -eq 0 ] || { echo "::error::$FAILED test(s) failed."; exit 1; }
