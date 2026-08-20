@@ -5,7 +5,8 @@
 #   scripts/smoke-test.sh https://dev-playground.baryo.dev/barakocms-api
 #
 # Tiers (each runs only if the previous can):
-#   1. always      — /health and /api/content-types return 200 (app up + DB reachable)
+#   1. always      — /health returns 200 (app up + DB reachable) and /api/schemas returns 401
+#                    (API layer routing, and still refusing anonymous callers)
 #   2. SMOKE_USER/SMOKE_PASS set — login returns a token (auth works)
 #   3. SMOKE_WRITE=1 (+ creds)   — create a content type with an email field, post a valid
 #                                  entry (200) and a malformed one (400). Only enable where
@@ -25,8 +26,14 @@ check() { # description expected actual
 echo "== smoke: $BASE =="
 
 # --- Tier 1: liveness + DB -------------------------------------------------
+# /health runs every registered check, including the NpgSql one, so a 200 here covers both app-up
+# and database-reachable on its own.
 check "health 200"        200 "$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$BASE/health" || echo 000)"
-check "content-types 200" 200 "$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$BASE/api/content-types" || echo 000)"
+
+# 401, not 200, and on purpose. This asserts the API layer is routing: an unmapped route answers
+# 404, so a 401 means FastEndpoints mapped it and the auth pipeline ran. It also fails if
+# /api/schemas ever loses its role check, since that would answer 200.
+check "api routes + refuses anon" 401 "$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$BASE/api/schemas" || echo 000)"
 
 # --- Tier 2: auth ----------------------------------------------------------
 TOKEN=""

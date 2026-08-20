@@ -225,7 +225,7 @@ long-lived; see Branch model). When the version is new, `release.yml`:
 
 Runs after every deploy. Tiers, each gated on the previous:
 
-1. Always — `/health` and `/api/content-types` return 200 (app up, DB reachable).
+1. Always — `/health` returns 200 (app up, DB reachable) and `/api/schemas` returns 401 (API routing live, anonymous still refused).
 2. With `SMOKE_USER`/`SMOKE_PASS` — login returns a token (auth works).
 3. With `SMOKE_WRITE=1` — create a content type with an email field, post a valid entry (200) and a
    malformed one (400). **Write tier only where test data is fine (dev-playground), never the public
