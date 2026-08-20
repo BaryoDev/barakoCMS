@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useTheme } from 'next-themes';
@@ -7,6 +8,8 @@ import { useAuth } from '@/hooks/use-auth';
 import { BrandMark, BrandWordmark } from '@/components/brand';
 import { NAV_GROUPS, isNavItemActive, visibleGroups } from '@/lib/navigation';
 import { IconMoon, IconMore, IconSignOut, IconSun, IconUser } from '@/components/icons';
+import { AboutDialog } from '@/components/about-dialog';
+import { useApiMeta } from '@/hooks/use-meta';
 import {
   Sidebar,
   SidebarContent,
@@ -37,6 +40,8 @@ export function AppSidebar() {
   // the problem; the sidebar was advertising doors it knew were locked.
   const groups = visibleGroups(NAV_GROUPS, user?.roles);
   const { resolvedTheme, setTheme } = useTheme();
+  const { data: meta } = useApiMeta();
+  const [aboutOpen, setAboutOpen] = useState(false);
 
   return (
     <Sidebar collapsible="icon">
@@ -120,7 +125,21 @@ export function AppSidebar() {
             </DropdownMenu>
           </SidebarMenuItem>
         </SidebarMenu>
+
+        {/* Hidden when the sidebar collapses to icons, and hidden entirely until the API has
+            answered — a version line reading "unknown" in the chrome is worse than no line. */}
+        {meta?.version && (
+          <button
+            type="button"
+            onClick={() => setAboutOpen(true)}
+            className="px-2 pb-1 text-left text-xs text-muted-foreground hover:text-foreground group-data-[collapsible=icon]:hidden"
+          >
+            BarakoCMS {meta.version}
+          </button>
+        )}
       </SidebarFooter>
+
+      <AboutDialog open={aboutOpen} onOpenChange={setAboutOpen} />
     </Sidebar>
   );
 }
