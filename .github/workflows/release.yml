@@ -69,9 +69,36 @@ jobs:
         with:
           dotnet-version: 8.0.x
       - name: Backend tests
-        run: dotnet test BarakoCMS.Tests/BarakoCMS.Tests.csproj --configuration Release
+        run: >
+          dotnet test BarakoCMS.Tests/BarakoCMS.Tests.csproj --configuration Release
+          --logger "trx;LogFileName=results.trx" --results-directory ./testresults
         env:
           DOCKER_HOST: unix:///var/run/docker.sock
+
+      # `dotnet test` exits 0 when it discovers nothing. A filter that matches no tests, a project
+      # that fails to discover, a target-framework change that leaves the runner with no assembly:
+      # every one of those is a green step. Without this, the gate in front of fourteen published
+      # packages is "a command exited 0", and one of the ways it exits 0 is by doing nothing.
+      - name: Confirm the suite actually ran
+        run: |
+          set -euo pipefail
+          TRX=$(find ./testresults -name '*.trx' | head -1)
+          [ -n "$TRX" ] || { echo "::error::No .trx was produced, so nothing can be verified."; exit 1; }
+
+          TOTAL=$(grep -o 'total="[0-9]*"' "$TRX" | head -1 | grep -o '[0-9]*' || echo 0)
+          FAILED=$(grep -o 'failed="[0-9]*"' "$TRX" | head -1 | grep -o '[0-9]*' || echo 0)
+          echo "ran $TOTAL, failed $FAILED"
+
+          # A floor, not an exact count. An exact count becomes a chore on every PR and then gets
+          # deleted; a floor only moves when someone removes a lot of tests. 577 pass today.
+          [ "${TOTAL:-0}" -ge 500 ] || {
+            echo "::error::Only $TOTAL tests ran, expected at least 500. The suite did not run."
+            exit 1
+          }
+
+          # Asserted separately rather than as passed == total, because a skipped test breaks that
+          # comparison and there is one skipped today.
+          [ "${FAILED:-0}" -eq 0 ] || { echo "::error::$FAILED test(s) failed."; exit 1; }
 
   # NuGet + GitHub Packages + the public (amd64) Docker images, mirrored to
   # Docker Hub. Same steps the manual nuget-publish.yml runs, minus the version

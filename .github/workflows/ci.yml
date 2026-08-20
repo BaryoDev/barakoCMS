@@ -39,7 +39,24 @@ jobs:
         run: dotnet build --no-restore --configuration Release
 
       - name: Test BarakoCMS.Tests
-        run: dotnet test BarakoCMS.Tests/BarakoCMS.Tests.csproj --no-build --configuration Release --verbosity normal --logger "console;verbosity=detailed"
+        run: >
+          dotnet test BarakoCMS.Tests/BarakoCMS.Tests.csproj --no-build --configuration Release
+          --verbosity normal --logger "console;verbosity=detailed"
+          --logger "trx;LogFileName=results.trx" --results-directory ./testresults
+
+      # Same reasoning as the release gate: dotnet test exits 0 when it discovers nothing, so a
+      # green step is not by itself evidence that anything was checked. Here it also protects the
+      # release gate, by catching a discovery break on the pull request that caused it.
+      - name: Confirm the suite actually ran
+        run: |
+          set -euo pipefail
+          TRX=$(find ./testresults -name '*.trx' | head -1)
+          [ -n "$TRX" ] || { echo "::error::No .trx was produced, so nothing can be verified."; exit 1; }
+          TOTAL=$(grep -o 'total="[0-9]*"' "$TRX" | head -1 | grep -o '[0-9]*' || echo 0)
+          FAILED=$(grep -o 'failed="[0-9]*"' "$TRX" | head -1 | grep -o '[0-9]*' || echo 0)
+          echo "ran $TOTAL, failed $FAILED"
+          [ "${TOTAL:-0}" -ge 500 ] || { echo "::error::Only $TOTAL tests ran, expected at least 500."; exit 1; }
+          [ "${FAILED:-0}" -eq 0 ] || { echo "::error::$FAILED test(s) failed."; exit 1; }
         env:
           # TestContainers needs Docker to be available
           DOCKER_HOST: unix:///var/run/docker.sock
