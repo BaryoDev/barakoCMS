@@ -38,6 +38,38 @@ You can also discover modules by reflection:
 modules.DiscoverFrom(typeof(SomeModule).Assembly);
 ```
 
+## Contract version
+
+Core states which version of the module contract it implements:
+
+```csharp
+ModuleContract.Version           // 1
+ModuleContract.MinimumSupported  // 1
+```
+
+Declare what your module was written against:
+
+```csharp
+public int ContractVersion => ModuleContract.Version;
+```
+
+**What the contract covers.** Every member of `IBarakoModule`, the shape of `IModuleSchema`, and the
+order in which core calls them. Nothing else. A module that reaches past those into core's own
+services is not using the contract, and the version says nothing about it.
+
+**What moves the number.** Removing a member, changing a signature, or changing when core calls a
+hook relative to the others. Adding a member with a default implementation does not, because a
+module compiled against the previous version keeps working.
+
+**It is not the CMS version, deliberately.** Core can go 3.21 to 4.0 without touching the contract,
+and a contract change can land in a minor. Tying them together would mean either a major release
+every time a hook gained a parameter, or a silent contract change inside a patch.
+
+**Unstated is accepted.** The default is `0`, meaning the module did not say. Every module written
+before this existed declares nothing, and refusing them to enforce a field they could not have known
+about would break the ecosystem to make a point. What core will not do is load a module that states
+a version core cannot honour: that is refused at startup, by name, before anything is registered.
+
 ## Writing a module
 
 Implement `IBarakoModule` (all members but `Name` have default no-op implementations, so implement

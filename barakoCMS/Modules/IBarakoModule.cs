@@ -20,6 +20,25 @@ public interface IBarakoModule
     string Name { get; }
 
     /// <summary>
+    /// Which version of the module contract this module was written against. See
+    /// <see cref="ModuleContract"/> for what the contract covers and what moves the number.
+    /// </summary>
+    /// <remarks>
+    /// Declare it:
+    /// <code>public int ContractVersion => ModuleContract.Version;</code>
+    ///
+    /// The default is <c>0</c>, meaning unstated, and unstated is accepted. A first-party module in
+    /// this repository is compiled against the same core it runs on, so the number can only tell a
+    /// third-party module apart from the core it was built for, and refusing modules for not
+    /// answering a question core only started asking in 3.21 would break every module that exists.
+    ///
+    /// Core logs which modules stated a version and which did not, and refuses one that states a
+    /// version it cannot support. That is the whole enforcement, deliberately: the point is that an
+    /// author can find out they are on the wrong side of a change, not that core polices them.
+    /// </remarks>
+    int ContractVersion => 0;
+
+    /// <summary>
     /// Names of modules that must be configured before this one.
     /// </summary>
     /// <remarks>
