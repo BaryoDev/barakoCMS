@@ -1,4 +1,4 @@
-FROM node:20-alpine AS base
+FROM node:22-alpine AS base
 
 # Install dependencies only when needed
 FROM base AS deps
@@ -29,6 +29,11 @@ ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 # Must be baked in at build time — Next.js resolves basePath during the build.
 ARG NEXT_BASE_PATH
 ENV NEXT_BASE_PATH=$NEXT_BASE_PATH
+
+# The version this image is tagged with, so a running container can say what it is. Without it the
+# only record of what an image holds is the tag on the outside, and package.json says 0.1.0 forever.
+ARG BARAKO_VERSION=0.0.0-dev
+ENV NEXT_PUBLIC_ADMIN_VERSION=$BARAKO_VERSION
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .

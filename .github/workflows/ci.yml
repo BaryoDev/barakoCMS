@@ -39,7 +39,30 @@ jobs:
         run: dotnet build --no-restore --configuration Release
 
       - name: Test BarakoCMS.Tests
-        run: dotnet test BarakoCMS.Tests/BarakoCMS.Tests.csproj --no-build --configuration Release --verbosity normal --logger "console;verbosity=detailed"
+        run: >
+          dotnet test BarakoCMS.Tests/BarakoCMS.Tests.csproj --no-build --configuration Release
+          --verbosity normal --logger "console;verbosity=detailed"
+          --logger "trx;LogFileName=results.trx" --results-directory ./testresults
+
+      # Same reasoning as the release gate: dotnet test exits 0 when it discovers nothing, so a
+      # green step is not by itself evidence that anything was checked. Here it also protects the
+      # release gate, by catching a discovery break on the pull request that caused it.
+      - name: Confirm the suite actually ran
+        run: |
+          set -euo pipefail
+          TRX=$(find ./testresults -name '*.trx' | head -1)
+          [ -n "$TRX" ] || { echo "::error::No .trx was produced, so nothing can be verified."; exit 1; }
+          TOTAL=$(grep -o 'total="[0-9]*"' "$TRX" | head -1 | grep -o '[0-9]*' || true)
+          FAILED=$(grep -o 'failed="[0-9]*"' "$TRX" | head -1 | grep -o '[0-9]*' || true)
+
+          # Both counters must actually parse. Defaulting a missing or malformed value to 0 makes
+          # the zero-failure assertion pass on an unreadable report, which is the same fail-open
+          # shape this whole gate exists to remove.
+          case "$TOTAL"  in ''|*[!0-9]*) echo "::error::Could not read a numeric total from $TRX."; exit 1 ;; esac
+          case "$FAILED" in ''|*[!0-9]*) echo "::error::Could not read a numeric failed count from $TRX."; exit 1 ;; esac
+          echo "ran $TOTAL, failed $FAILED"
+          [ "${TOTAL:-0}" -ge 500 ] || { echo "::error::Only $TOTAL tests ran, expected at least 500."; exit 1; }
+          [ "${FAILED:-0}" -eq 0 ] || { echo "::error::$FAILED test(s) failed."; exit 1; }
         env:
           # TestContainers needs Docker to be available
           DOCKER_HOST: unix:///var/run/docker.sock
@@ -62,7 +85,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: admin/package-lock.json
 
@@ -142,7 +165,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: site/package-lock.json
 
@@ -217,6 +240,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # gitleaks scans history, and the default depth of 1 gives it one commit: historical
+          # secrets are invisible and the commit-based allowlist entries below can never match.
+          # The scan was running against almost nothing.
+          fetch-depth: 0
+
 
       # Catch secrets being ADDED. Report-only for now: dev-only secrets still live in git history
       # (an appsettings.Development.json removed from HEAD earlier), so a hard gate would fail on
@@ -226,11 +255,76 @@ jobs:
       - name: Test the vulnerability gates
         run: bash scripts/test-ci-gates.sh
 
+      # The hosted Action refuses to run for a GitHub organization without a paid licence, and this
+      # step carried continue-on-error, so it reported success and had never scanned anything:
+      #   [BaryoDev] is an organization. License key is required.
+      # The binary is MIT licensed and free. Same scanner, no licence, and allowed to fail.
+      - name: Install gitleaks
+        run: |
+          set -euo pipefail
+          VERSION=8.28.0
+          SHA256=a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb
+          curl -sSL --fail -o /tmp/gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz"
+          # Verify before extracting, not after. This pipeline used to pipe the download straight
+          # into tar, which extracts and then runs an unauthenticated binary inside a job holding
+          # GITHUB_TOKEN. Checksum taken from the release's own checksums.txt.
+          echo "${SHA256}  /tmp/gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/gitleaks.tar.gz -C /usr/local/bin gitleaks
+          gitleaks version
+
       - name: Secret scan (gitleaks)
+        run: gitleaks git . --config .gitleaks.toml --redact --verbose
+
+      # Advisory only, and continue-on-error is correct here precisely because it is not the gate.
+      # The Action annotates findings inline on the diff, which the binary cannot do. It needs an
+      # org licence, so it is also the step that can lapse: if the licence expires or the secret is
+      # missing on a fork, this goes yellow and the blocking scan above is unaffected. That split is
+      # deliberate. Putting the gate on the licensed step is how this repo ended up with a green
+      # secret scan that had never scanned anything.
+      - name: Annotate findings on the diff (advisory)
         continue-on-error: true
-        uses: gitleaks/gitleaks-action@v3
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e  # v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+
+      # A scanner that finds nothing is indistinguishable from a scanner that is not running, which
+      # is exactly how the previous step went unnoticed. Plant a credential and fail if the scan
+      # does not catch it.
+      #
+      # --no-git against a scratch directory, deliberately. The first version cloned the repo and
+      # committed the secret, which works locally and not here: actions/checkout is shallow, and a
+      # scan over a one-commit clone did not see the planted commit. This checks the rules and the
+      # allowlist are live, which is the failure that actually happened, and it cannot be broken by
+      # clone depth.
+      - name: Prove the scan can fail
+        run: |
+          set -euo pipefail
+          TMP=$(mktemp -d)
+          cp .gitleaks.toml "$TMP/.gitleaks.toml"
+
+          # Prefixes assembled from halves. Written whole, even as "ghp_$(...)", the prefix sits
+          # next to the substitution and matches the github-pat rule, so the scan flags this file.
+          # That is the gate behaving correctly, so the fixture bends rather than the rule.
+          AWS_P="AK"; AWS_P="${AWS_P}IA"
+          GH_P="gh"; GH_P="${GH_P}p_"
+          # Read a bounded amount first. Piping /dev/urandom into `tr | head -c N` closes the pipe
+          # on head's exit, tr dies of SIGPIPE, and under `set -euo pipefail` the assignment fails
+          # before the scan runs. A control that dies before it checks anything is worse than none.
+          RAND=$(head -c 256 /dev/urandom | LC_ALL=C tr -dc 'A-Za-z0-9')
+          AWS_ID="${AWS_P}$(printf '%s' "${RAND}" | LC_ALL=C tr -d 'a-z' | cut -c1-16)"
+          GH_TOK="${GH_P}$(printf '%s' "${RAND}" | cut -c1-36)"
+          {
+            printf 'aws_access_key_id = "%s"\n' "$AWS_ID"
+            printf 'gh_token = "%s"\n' "$GH_TOK"
+          } > "$TMP/planted.txt"
+
+          if gitleaks dir "$TMP" --config "$TMP/.gitleaks.toml" --redact --no-banner; then
+            echo "::error::The secret scan did not catch a planted credential. The gate is not working."
+            exit 1
+          fi
+          echo "Planted secret was caught. The scan is live."
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v6

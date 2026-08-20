@@ -102,6 +102,13 @@ public class Endpoint : Endpoint<Request, Response>
         _session.Events.StartStream<barakoCMS.Models.Content>(contentId, @event);
         var content = new barakoCMS.Models.Content();
         content.Apply(@event);
+
+        // Document-level sensitivity is not carried by ContentCreated, so Apply cannot set it and
+        // the request value was silently dropped: content posted as Sensitive or Hidden was stored
+        // as Public, and SensitivityService.Apply never engaged for it. Set from the request until
+        // the event carries it.
+        content.Sensitivity = req.Sensitivity;
+
         _session.Store(content);
         await _session.SaveChangesAsync(ct);
 

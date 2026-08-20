@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useTheme } from 'next-themes';
 import { useAuth } from '@/hooks/use-auth';
 import { BrandMark, BrandWordmark } from '@/components/brand';
-import { NAV_GROUPS, isNavItemActive } from '@/lib/navigation';
+import { NAV_GROUPS, isNavItemActive, visibleGroups } from '@/lib/navigation';
 import { IconMoon, IconMore, IconSignOut, IconSun, IconUser } from '@/components/icons';
 import {
   Sidebar,
@@ -31,6 +31,11 @@ import {
 export function AppSidebar() {
   const pathname = usePathname();
   const { user, logout } = useAuth();
+
+  // Filtered rather than rendered whole. Every item used to be shown to every role, so a User saw
+  // all nineteen destinations and sixteen of them answered 403 on arrival. The backend was never
+  // the problem; the sidebar was advertising doors it knew were locked.
+  const groups = visibleGroups(NAV_GROUPS, user?.roles);
   const { resolvedTheme, setTheme } = useTheme();
 
   return (
@@ -49,7 +54,7 @@ export function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent>
-        {NAV_GROUPS.map((group, i) => (
+        {groups.map((group, i) => (
           <SidebarGroup key={group.label ?? i}>
             {group.label && <SidebarGroupLabel>{group.label}</SidebarGroupLabel>}
             <SidebarGroupContent>

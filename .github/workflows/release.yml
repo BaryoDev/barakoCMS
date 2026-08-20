@@ -59,7 +59,7 @@ jobs:
           fi
 
   test:
-    name: Test
+    name: Build, test, pack
     needs: gate
     if: needs.gate.outputs.should_release == 'true'
     runs-on: ubuntu-latest
@@ -68,17 +68,177 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 8.0.x
+
+      # One compilation, for the whole solution. Every step below runs --no-build against this
+      # output, so the assemblies the tests exercise are the same files that get packed and
+      # pushed. Before this, test and publish each compiled independently and "we ship what we
+      # tested" held only for as long as two separate builds happened to agree.
+      - name: Build the solution once
+        run: |
+          dotnet restore barakoCMS.sln
+          dotnet build barakoCMS.sln --no-restore --configuration Release
+
       - name: Backend tests
-        run: dotnet test BarakoCMS.Tests/BarakoCMS.Tests.csproj --configuration Release
+        run: >
+          dotnet test BarakoCMS.Tests/BarakoCMS.Tests.csproj --no-build --configuration Release
+          --logger "trx;LogFileName=results.trx" --results-directory ./testresults
         env:
           DOCKER_HOST: unix:///var/run/docker.sock
 
-  # NuGet + GitHub Packages + the public (amd64) Docker images, mirrored to
-  # Docker Hub. Same steps the manual nuget-publish.yml runs, minus the version
-  # bump — here the csproj version is already the release version.
-  publish:
-    name: Publish packages + public images
+      # `dotnet test` exits 0 when it discovers nothing. A filter that matches no tests, a project
+      # that fails to discover, a target-framework change that leaves the runner with no assembly:
+      # every one of those is a green step. Without this, the gate in front of fourteen published
+      # packages is "a command exited 0", and one of the ways it exits 0 is by doing nothing.
+      - name: Confirm the suite actually ran
+        run: |
+          set -euo pipefail
+          TRX=$(find ./testresults -name '*.trx' | head -1)
+          [ -n "$TRX" ] || { echo "::error::No .trx was produced, so nothing can be verified."; exit 1; }
+
+          TOTAL=$(grep -o 'total="[0-9]*"' "$TRX" | head -1 | grep -o '[0-9]*' || true)
+          FAILED=$(grep -o 'failed="[0-9]*"' "$TRX" | head -1 | grep -o '[0-9]*' || true)
+
+          # Both counters must actually parse. Defaulting a missing or malformed value to 0 makes
+          # the zero-failure assertion pass on an unreadable report, which is the same fail-open
+          # shape this whole gate exists to remove.
+          case "$TOTAL"  in ''|*[!0-9]*) echo "::error::Could not read a numeric total from $TRX."; exit 1 ;; esac
+          case "$FAILED" in ''|*[!0-9]*) echo "::error::Could not read a numeric failed count from $TRX."; exit 1 ;; esac
+          echo "ran $TOTAL, failed $FAILED"
+
+          # A floor, not an exact count. An exact count becomes a chore on every PR and then gets
+          # deleted; a floor only moves when someone removes a lot of tests. 577 pass today.
+          [ "${TOTAL:-0}" -ge 500 ] || {
+            echo "::error::Only $TOTAL tests ran, expected at least 500. The suite did not run."
+            exit 1
+          }
+
+          # Asserted separately rather than as passed == total, because a skipped test breaks that
+          # comparison and there is one skipped today.
+          [ "${FAILED:-0}" -eq 0 ] || { echo "::error::$FAILED test(s) failed."; exit 1; }
+
+      # --no-build throughout: these packages come out of the build the tests just ran against.
+      # Each module carries its own <Version> in its csproj (Accounting is 0.3.1 while the core
+      # is 3.20.x), so a nupkg filename is <id>.<that module's version>.nupkg, not the release
+      # version. Anything reading these filenames has to parse both halves.
+      - name: Pack
+        run: |
+          set -euo pipefail
+          for p in barakoCMS BarakoCMS.Accounting BarakoCMS.Import BarakoCMS.Files BarakoCMS.Files.S3 BarakoCMS.Email.Resend BarakoCMS.DeviceTrust BarakoCMS.ExternalAuth BarakoCMS.FeatureFlags BarakoCMS.Portability BarakoCMS.Diagnostics BarakoCMS.Analytics.Umami BarakoCMS.Pwa BarakoCMS.AI; do
+            dotnet pack "$p/$p.csproj" --no-build --configuration Release -o out
+          done
+
+      - name: Upload the packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: nupkg
+          path: out/*.nupkg
+          if-no-files-found: error
+          retention-days: 7
+
+  # Between pack and push: does the thing we are about to publish actually install? Nothing inside
+  # the solution can answer that, because inside the solution every reference resolves by project.
+  # A missing nuspec dependency, an undeclared target framework or a lib/ folder in the wrong place
+  # all survive a green test run and only surface on a consumer's restore.
+  verify-packages:
+    name: Install the packages as a consumer
     needs: [gate, test]
+    if: needs.gate.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      # No actions/checkout on purpose. This job must not be able to see the source, or a mistake
+      # here could pass by resolving a project reference instead of the packed artifact.
+      #
+      # Do not add `cache: true` here either. A warm NuGet cache serves an already-extracted copy
+      # of a package instead of opening the .nupkg we just built, so a package whose contents are
+      # broken restores from cache and passes. Verified: with a warm cache the assembly assertion
+      # below does not fire; with a cold one it does. This job needs the cold path.
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 8.0.x
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: nupkg
+          path: packages
+
+      - name: Restore, build and load every package from a scratch project
+        run: |
+          set -euo pipefail
+
+          ls packages/*.nupkg >/dev/null 2>&1 || { echo "::error::No .nupkg was downloaded."; exit 1; }
+          FEED="$(pwd)/packages"
+
+          dotnet new web -o consumer --force >/dev/null
+          cd consumer
+          # The local feed sits alongside nuget.org rather than replacing it: these packages'
+          # own dependencies (Marten, FastEndpoints) still have to resolve from upstream.
+          dotnet nuget add source "$FEED" --name local-artifact
+
+          COUNT=0
+          for f in "$FEED"/*.nupkg; do
+            base=$(basename "$f" .nupkg)
+            ver=$(echo "$base" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$' || true)
+            [ -n "$ver" ] || { echo "::error::Could not read a version out of $base."; exit 1; }
+            id=${base%".$ver"}
+            echo "::group::$id $ver"
+            # Pinned. Without --version this could silently resolve a higher version already on
+            # nuget.org and prove nothing about the file we just built.
+            dotnet add package "$id" --version "$ver"
+            echo "::endgroup::"
+            COUNT=$((COUNT + 1))
+          done
+
+          # A loop over an empty directory succeeds and reports nothing, which is the same
+          # fail-open shape the test-count gate above exists to close.
+          [ "$COUNT" -eq 14 ] || { echo "::error::Installed $COUNT packages, expected 14."; exit 1; }
+
+          # Building with all fourteen referenced at once also proves they co-resolve: two modules
+          # pinning incompatible versions of a shared dependency fails here and nowhere earlier.
+          dotnet build --configuration Release
+
+          # Restore succeeding is not the same as the package delivering anything. A nuspec that
+          # declares no net8.0 lib/ folder restores clean and contributes no assembly, so assert
+          # each one actually reached the output.
+          for f in "$FEED"/*.nupkg; do
+            base=$(basename "$f" .nupkg)
+            ver=$(echo "$base" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$')
+            id=${base%".$ver"}
+            found=$(find bin/Release -iname "$id.dll" | head -1)
+            [ -n "$found" ] || { echo "::error::$id restored but shipped no net8.0 assembly."; exit 1; }
+          done
+          echo "all $COUNT packages installed, built and loaded"
+
+  # Pushes the exact files that were tested and install-verified. Deliberately has no
+  # actions/checkout: without the source this job *cannot* rebuild, even by accident. If you find
+  # yourself adding a checkout here, what you actually want is a step in the test job.
+  publish-packages:
+    name: Publish packages
+    needs: [gate, test, verify-packages]
+    if: needs.gate.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 8.0.x
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: nupkg
+          path: out
+
+      - name: Publish to NuGet.org
+        run: dotnet nuget push "out/*.nupkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+
+      - name: Publish to GitHub Packages
+        run: dotnet nuget push "out/*.nupkg" --api-key ${{ secrets.GITHUB_TOKEN }} --source https://nuget.pkg.github.com/BaryoDev/index.json --skip-duplicate
+
+  # Keeps its checkout: a Docker build genuinely needs the source tree.
+  publish-images:
+    name: Publish public images
+    needs: [gate, test, verify-packages]
     if: needs.gate.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -88,31 +248,6 @@ jobs:
       VERSION: ${{ needs.gate.outputs.version }}
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: 8.0.x
-
-      - name: Restore and build
-        run: |
-          dotnet restore
-          dotnet build barakoCMS/barakoCMS.csproj --no-restore --configuration Release
-
-      - name: Pack core
-        run: dotnet pack barakoCMS/barakoCMS.csproj --no-build --configuration Release -o out
-
-      - name: Pack modules
-        # Modules reference barakoCMS by project, so they inherit its version.
-        run: |
-          for m in BarakoCMS.Accounting BarakoCMS.Import BarakoCMS.Files BarakoCMS.Files.S3 BarakoCMS.Email.Resend BarakoCMS.DeviceTrust BarakoCMS.ExternalAuth BarakoCMS.FeatureFlags BarakoCMS.Portability BarakoCMS.Diagnostics BarakoCMS.Analytics.Umami BarakoCMS.Pwa BarakoCMS.AI; do
-            dotnet pack "$m/$m.csproj" --configuration Release -o out
-          done
-
-      - name: Publish to NuGet.org
-        run: dotnet nuget push "out/*.nupkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
-
-      - name: Publish to GitHub Packages
-        run: dotnet nuget push "out/*.nupkg" --api-key ${{ secrets.GITHUB_TOKEN }} --source https://nuget.pkg.github.com/BaryoDev/index.json --skip-duplicate
-
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
         with:
@@ -155,6 +290,10 @@ jobs:
           context: ./admin
           file: admin/Dockerfile
           push: true
+          # Stamped from the release version rather than read from package.json, which has said
+          # 0.1.0 since the beginning. One source of truth, and nobody has to remember to bump it.
+          build-args: |
+            BARAKO_VERSION=${{ env.VERSION }}
           tags: |
             ghcr.io/baryodev/barako-admin:latest
             ghcr.io/baryodev/barako-admin:${{ env.VERSION }}
@@ -175,7 +314,7 @@ jobs:
   # the suite compiles natively (no QEMU). The playground runs these directly.
   build-playground-images:
     name: Build arm64 playground images
-    needs: [gate, test]
+    needs: [gate, test, verify-packages]
     if: needs.gate.outputs.should_release == 'true'
     runs-on: ubuntu-24.04-arm
     permissions:
@@ -216,6 +355,7 @@ jobs:
           build-args: |
             NEXT_BASE_PATH=/barakocms
             NEXT_PUBLIC_API_URL=https://playground.baryo.dev/barakocms-api
+            BARAKO_VERSION=${{ env.VERSION }}
           tags: |
             ghcr.io/baryodev/barako-admin:playground
             ghcr.io/baryodev/barako-admin:playground-${{ env.VERSION }}
@@ -225,7 +365,7 @@ jobs:
 
   deploy-playground:
     name: Deploy to playground
-    needs: [gate, publish, build-playground-images]
+    needs: [gate, publish-packages, publish-images, build-playground-images]
     if: needs.gate.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     environment:
@@ -269,7 +409,7 @@ jobs:
   # every Discord post fell back to a generic line. No DISCORD_WEBHOOK is passed here on purpose.
   announce:
     name: Announce (discussions)
-    needs: [gate, publish]
+    needs: [gate, publish-packages]
     if: needs.gate.outputs.should_release == 'true'
     uses: BaryoDev/.github/.github/workflows/announce.yml@main
     with:
@@ -283,7 +423,7 @@ jobs:
   # version (a single-line string) crosses the boundary, so the notes can't be emptied in transit.
   announce-discord:
     name: Announce (Discord)
-    needs: [gate, publish]
+    needs: [gate, publish-packages]
     if: needs.gate.outputs.should_release == 'true'
     uses: ./.github/workflows/discord-announce.yml
     with:
@@ -292,7 +432,7 @@ jobs:
 
   # A failed release (bad publish, deploy, or smoke) should ping. Best-effort; never fails the run.
   notify-failure:
-    needs: [gate, test, publish, build-playground-images, deploy-playground]
+    needs: [gate, test, verify-packages, publish-packages, publish-images, build-playground-images, deploy-playground]
     if: failure()
     runs-on: ubuntu-latest
     steps:
