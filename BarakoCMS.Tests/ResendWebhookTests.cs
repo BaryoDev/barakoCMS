@@ -56,6 +56,17 @@ public class ResendWebhookTests
         // Deliberately not disposed. A derived WebApplicationFactory shares the parent's server,
         // so disposing it tears down the shared fixture host and every later test in the run fails
         // for reasons that have nothing to do with them. The fixture owns the lifetime.
+        // WithSetting clears the configuration key, but HandleAsync falls back to the process
+        // environment. If RESEND_WEBHOOK_SECRET is exported the receiver is configured after all,
+        // this request is refused for its forged signature instead, and the test passes while
+        // measuring nothing. Refuse to run rather than report a result that does not mean what it
+        // says. Mutation-tested locally: reverting the fix turns this red, so the variable is unset
+        // here. That is a fact about one machine, which is exactly why it is asserted rather than
+        // assumed.
+        Environment.GetEnvironmentVariable("RESEND_WEBHOOK_SECRET").Should().BeNull(
+            "this test can only observe the unconfigured path when the environment fallback is also "
+          + "unset; unset RESEND_WEBHOOK_SECRET before running it");
+
         var f = _factory.WithSetting("Resend:WebhookSecret", null);
         var client = f.CreateClient();
 
