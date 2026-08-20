@@ -21,7 +21,11 @@ public class Endpoint : EndpointWithoutRequest
     public override void Configure()
     {
         Get("/api/workflows/actions");
-        AllowAnonymous(); // Allow for testing - re-enable auth in production
+        // Was AllowAnonymous "for testing". This lists every registered action plugin with its
+        // required parameters, which tells an anonymous caller exactly which modules an instance
+        // runs and how to shape a payload for each. Matches the other workflow endpoints, and the
+        // sidebar already restricts Workflows to these two roles.
+        Roles("SuperAdmin", "Admin");
     }
 
     public override async Task HandleAsync(CancellationToken ct)

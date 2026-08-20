@@ -200,11 +200,24 @@ public class TemplateVariableExtractor : ITemplateVariableExtractor
             {
                 Name = $"{{{{data.{kvp.Key}}}}}",
                 Description = $"Content data field: {kvp.Key}",
-                Example = value?.ToString() ?? "",
+                // A placeholder, not the stored value. Someone writing a workflow template needs
+                // the field's name and type; the real contents of a record they may not be allowed
+                // to read are not part of that. This path applies no sensitivity masking, so
+                // echoing the value here handed a field marked Sensitive or Hidden straight back
+                // in plaintext.
+                Example = PlaceholderFor(type),
                 Type = type
             });
         }
 
         return fields;
     }
+
+    private static string PlaceholderFor(string type) => type switch
+    {
+        "number" => "123",
+        "boolean" => "true",
+        "datetime" => "2024-12-16T10:00:00Z",
+        _ => "text",
+    };
 }
