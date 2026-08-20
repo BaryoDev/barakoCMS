@@ -51,6 +51,9 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         // Files endpoints end to end.
         builder.ConfigureServices((ctx, services) =>
         {
+            new BarakoCMS.Email.Resend.ResendEmailModule().ConfigureServices(services, ctx.Configuration);
+            services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Email.Resend.ResendEmailModule(), opts));
+
             new BarakoCMS.Files.FilesModule().ConfigureServices(services, ctx.Configuration);
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Files.FilesModule(), opts));
 
@@ -95,6 +98,17 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
     /// <summary>
     /// Creates a JWT token using standard libraries, avoiding FastEndpoints' static ServiceResolver issue.
     /// </summary>
+    /// <summary>
+    /// A host with one configuration value overridden, for tests about configuration-dependent
+    /// behaviour. Null removes the key, which is the case worth testing: a setting nobody set.
+    ///
+    /// Do NOT dispose the result. A derived factory shares this fixture's server, so disposing it
+    /// tears down the host for every test that runs afterwards. The fixture owns the lifetime.
+    /// </summary>
+    public WebApplicationFactory<Program> WithSetting(string key, string? value) =>
+        WithWebHostBuilder(b => b.ConfigureAppConfiguration((_, config) =>
+            config.AddInMemoryCollection(new Dictionary<string, string?> { { key, value } })));
+
     public string CreateToken(string[] roles, string? userId = null, Dictionary<string, string>? additionalClaims = null)
     {
         var signingKey = "test-super-secret-key-that-is-at-least-32-chars-long";

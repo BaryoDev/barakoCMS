@@ -5,7 +5,7 @@
 
     <IsPackable>true</IsPackable>
     <PackageId>BarakoCMS.Email.Resend</PackageId>
-    <Version>0.4.0</Version>
+    <Version>0.4.1</Version>
     <Description>Resend email-provider module for barakoCMS: implements IEmailService via the Resend HTTP API, plus a delivery webhook that records bounces/complaints as EmailEvent documents.</Description>
   </PropertyGroup>
 
@@ -17,6 +17,11 @@
     <PackageReference Include="Microsoft.Extensions.Caching.Memory" />
     <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
+  </ItemGroup>
+
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="BarakoCMS.Tests" />
   </ItemGroup>
 
 </Project>
