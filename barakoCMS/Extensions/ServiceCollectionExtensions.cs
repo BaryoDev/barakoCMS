@@ -61,7 +61,7 @@ public static class ServiceCollectionExtensions
         {
             throw new InvalidOperationException(
                 $"This barakoCMS implements module contract v{ModuleContract.Version} and supports "
-                + $"v{ModuleContract.MinimumSupported} and up. Refusing to load: "
+                + $"v{ModuleContract.MinimumSupported} through v{ModuleContract.Version}. Refusing to load: "
                 + string.Join(", ", unsupported)
                 + ". Update the module, or run a core that implements its contract version.");
         }

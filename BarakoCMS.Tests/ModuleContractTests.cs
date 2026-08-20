@@ -64,7 +64,12 @@ public class ModuleContractTests
 
         act.Should().Throw<InvalidOperationException>()
             .WithMessage("*TooNew*", "the message has to name the module, or the operator cannot act on it")
-            .WithMessage($"*v{ModuleContract.Version + 1}*", "and the version it asked for");
+            .WithMessage($"*v{ModuleContract.Version + 1}*", "and the version it asked for")
+            .WithMessage($"*v{ModuleContract.MinimumSupported} through v{ModuleContract.Version}*",
+                "and the range core actually accepts. The first version of this message said "
+              + "\"and up\", which the check does not do: anything above Version is rejected. That "
+              + "was harmless only while the two constants were equal, so it is pinned here rather "
+              + "than left to be discovered when they diverge");
     }
 
     [Fact]
