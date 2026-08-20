@@ -7,6 +7,77 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.21.0] - 2026-08-23
+
+The release-readiness pass. Most of what follows is about the gates around a release rather than
+features, because an audit on 19 August found several of them reported success without checking
+anything.
+
+### Security
+
+**Two workflow endpoints were reachable without signing in, and one returned stored content.**
+`GET /api/workflows/actions` and `GET /api/workflows/variables` both shipped with `AllowAnonymous()`
+and a comment saying to re-enable auth later. The second reads a real stored document of the
+requested content type to derive its fields, and returned each field's stored value as an example,
+with no sensitivity masking applied. An unauthenticated caller could name a content type and read
+back its field names and their contents, routing around the role restriction on `/api/schemas`.
+Both now require `SuperAdmin` or `Admin`, and the extractor returns a placeholder instead of the
+stored value.
+
+**Unsigned Resend webhooks were trusted rather than refused.** When no signing secret was
+configured the verification branch was skipped entirely, so an unconfigured instance accepted any
+caller's webhook payload. It now fails closed. Email.Resend module `0.4.1`.
+
+**Content marked Sensitive was stored as Public.** The sensitivity chosen when creating an entry was
+dropped before storage, so entries posted as Sensitive or Hidden were saved as Public and the
+redaction rules never engaged for them.
+
+**The PWA report endpoint had no rate limit**, accepting unlimited anonymous submissions.
+
+**Secret scanning had never actually run.** The job reported success while scanning nothing.
+
+### Fixed
+
+- `SearchText` backfill loaded every document at once and failed silently; it now batches and
+  reports.
+- `GET /api/content-types` is removed. It queried a document type nothing in the codebase ever
+  wrote, so it always returned an empty list while `POST` to the same route stored a different type.
+  `POST /api/content-types` and `PUT /api/content-types/{name}/public-delivery` are unaffected.
+
+### Added
+
+- **`GET /api/meta`**, authenticated, reporting the running API version and whether the instance
+  serves Swagger.
+- **An About dialog in the admin**, off a version line in the sidebar footer: API version, admin
+  version, API address, documentation, this instance's own API reference when enabled, release
+  notes, issues, Discord and sponsor. Nothing opens on its own.
+- **Modules declare a contract version.** A module built against an incompatible core is refused at
+  startup with a message naming the supported range, rather than failing later in a way that is hard
+  to trace.
+- Public search across delivered content.
+
+### Changed
+
+- **A release now ships the build that was tested.** The pipeline compiles the solution once, packs
+  from that same output, and publishes the resulting artifact. The publishing job has no checkout
+  step at all, so it cannot rebuild even by accident. Previously the test and publish jobs compiled
+  independently, and "we ship what we tested" held only while two separate builds happened to agree.
+- **Every package is installed before it is published.** A job between pack and push adds all
+  fourteen to a scratch project from a local feed, builds, and asserts each one delivered a `net8.0`
+  assembly. A package that restores cleanly but ships nothing now fails the release.
+- **The test gate proves the suite ran.** `dotnet test` exits 0 when it discovers nothing, so the
+  gate in front of fourteen published packages used to be satisfied by a command that did nothing.
+  It now parses the result file and refuses an unreadable or implausible count.
+- **The admin sidebar shows only what your role can reach.** Every account previously saw all
+  nineteen destinations, most of which answered with a permission error on arrival.
+- **The "what's new" indicator reads the running API's version** instead of a hand-maintained
+  constant, which had sat at `3.1.2` while the product shipped `3.20.1`.
+- **Node 22 in the admin image.** Node 20 is past end of life.
+- The post-deploy smoke test and the playground verification now assert `/api/schemas` returns
+  `401`. An unmapped route answers `404`, so a `401` proves the API layer routed the request and
+  still refuses anonymous callers.
+- Modules read their own configuration section rather than the application root.
+
 ### Fixed: seeding a chart of accounts could create two accounts sharing one code
 
 `AccountService.UpsertAsync` looked for an existing account with a database query, so accounts stored
