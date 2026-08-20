@@ -47,6 +47,26 @@ public static class ServiceCollectionExtensions
         // keep their declared order.
         var modules = ModuleOrder.Sort(moduleBuilder.Modules);
 
+        // Contract compatibility, checked before anything is registered. A module that states a
+        // version core cannot honour is refused here rather than allowed to half-configure and fail
+        // somewhere that does not name it.
+        var unsupported = modules
+            .Where(m => m.ContractVersion != 0
+                        && (m.ContractVersion < ModuleContract.MinimumSupported
+                            || m.ContractVersion > ModuleContract.Version))
+            .Select(m => $"{m.Name} (declares contract v{m.ContractVersion})")
+            .ToList();
+
+        if (unsupported.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"This barakoCMS implements module contract v{ModuleContract.Version} and supports "
+                + $"v{ModuleContract.MinimumSupported} and up. Refusing to load: "
+                + string.Join(", ", unsupported)
+                + ". Update the module, or run a core that implements its contract version.");
+        }
+
+
         foreach (var module in modules)
         {
             // Keep the instance discoverable at runtime (used by the seed runner).
