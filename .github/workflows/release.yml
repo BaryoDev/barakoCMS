@@ -386,18 +386,24 @@ jobs:
           command_timeout: 8m
           script: deploy
 
+      # Expects 401, not 200. This gate exists to prove FastEndpoints mapped its routes behind the
+      # public proxy, and an anonymous 401 proves exactly that: an unmapped route answers 404, so
+      # 401 means the route is there and the auth pipeline ran. It used to ask /api/content-types
+      # for a 200, which was weaker than it looked — that route read a document type nothing ever
+      # wrote, so the 200 was real but the body was always empty (#124). /health covers app-up and
+      # database-reachable separately, in the smoke test below.
       - name: Verify from the public URL
         run: |
           for i in $(seq 1 20); do
             code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
-              https://playground.baryo.dev/barakocms-api/api/content-types || true)
-            if [ "$code" = "200" ]; then
-              echo "playground API responded 200 after ${i} attempt(s)"
+              https://playground.baryo.dev/barakocms-api/api/schemas || true)
+            if [ "$code" = "401" ]; then
+              echo "playground API routed and refused an anonymous caller after ${i} attempt(s)"
               break
             fi
             sleep 3
           done
-          [ "${code:-}" = "200" ] || { echo "playground did not return 200 (last: ${code:-none})" >&2; exit 1; }
+          [ "${code:-}" = "401" ] || { echo "playground did not return 401 (last: ${code:-none}); 404 means routing is down, 200 means /api/schemas lost its role check" >&2; exit 1; }
 
       # Read-only smoke on the public demo (no writes — no SMOKE_WRITE, no creds), so we confirm the
       # app is live and its DB reachable without leaving test content on playground.
