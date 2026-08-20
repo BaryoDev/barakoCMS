@@ -277,34 +277,31 @@ jobs:
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
 
       # A scanner that finds nothing is indistinguishable from a scanner that is not running, which
-      # is exactly how the previous step went unnoticed. Plant a secret, confirm it is caught,
-      # remove it. Runs against a scratch copy so the working tree is never touched.
+      # is exactly how the previous step went unnoticed. Plant a credential and fail if the scan
+      # does not catch it.
+      #
+      # --no-git against a scratch directory, deliberately. The first version cloned the repo and
+      # committed the secret, which works locally and not here: actions/checkout is shallow, and a
+      # scan over a one-commit clone did not see the planted commit. This checks the rules and the
+      # allowlist are live, which is the failure that actually happened, and it cannot be broken by
+      # clone depth.
       - name: Prove the scan can fail
         run: |
           set -euo pipefail
           TMP=$(mktemp -d)
-          git clone --quiet --no-hardlinks . "$TMP/probe"
-          cd "$TMP/probe"
-          # Generated here rather than written literally, for two reasons this control found the
-          # hard way. AKIAIOSFODNN7EXAMPLE is AWS's own documentation placeholder and gitleaks
-          # exempts it by design, so planting it proved nothing. Replacing it with a realistic
-          # literal then made the scan flag THIS FILE, correctly: a token-shaped string committed
-          # in a workflow is exactly what the gate is for. Building the value at runtime keeps the
-          # gate strict on workflow files and still gives the control something real to catch.
+          cp .gitleaks.toml "$TMP/.gitleaks.toml"
+
           # Prefixes assembled from halves. Written whole, even as "ghp_$(...)", the prefix sits
           # next to the substitution and matches the github-pat rule, so the scan flags this file.
           # That is the gate behaving correctly, so the fixture bends rather than the rule.
           AWS_P="AK"; AWS_P="${AWS_P}IA"
           GH_P="gh"; GH_P="${GH_P}p_"
-          AWS_ID="${AWS_P}$(LC_ALL=C tr -dc 'A-Z0-9' < /dev/urandom | head -c 16)"
-          GH_TOK="${GH_P}$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 36)"
           {
-            printf 'aws_access_key_id = "%s"\n' "$AWS_ID"
-            printf 'gh_token = "%s"\n' "$GH_TOK"
-          } > planted.txt
-          git -c user.email=ci@local -c user.name=ci add planted.txt
-          git -c user.email=ci@local -c user.name=ci commit --quiet -m "planted secret, CI control"
-          if gitleaks detect --source . --config .gitleaks.toml --redact --no-banner; then
+            printf 'aws_access_key_id = "%s"\n' "${AWS_P}$(LC_ALL=C tr -dc 'A-Z0-9' < /dev/urandom | head -c 16)"
+            printf 'gh_token = "%s"\n' "${GH_P}$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 36)"
+          } > "$TMP/planted.txt"
+
+          if gitleaks detect --no-git --source "$TMP" --config "$TMP/.gitleaks.toml" --redact --no-banner; then
             echo "::error::The secret scan did not catch a planted credential. The gate is not working."
             exit 1
           fi
