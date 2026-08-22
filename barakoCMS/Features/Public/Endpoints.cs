@@ -204,20 +204,20 @@ public class PublicSearchEndpoint : EndpointWithoutRequest<PublicSearchResponse>
             return;
         }
         var candidates = await _session.Query<ContentDoc>()
-            .Where(c => c.ContentType == type
-                        && c.Status == ContentStatus.Published
-                        && c.Sensitivity == SensitivityLevel.Public
-                        && c.SearchText.ToLower().Contains(q.ToLower()))
-            .OrderByDescending(c => c.CreatedAt)
-            .Take(ScanCap)
-            .ToListAsync(ct);
+                    .Where(c => c.ContentType == type
+                                && c.Status == ContentStatus.Published
+                                && c.Sensitivity == SensitivityLevel.Public
+                                && c.SearchText != null
+                                && c.SearchText.NgramSearch(q))
+                    .OrderByNgramRank(c => c.SearchText!, q)
+                    .Take(ScanCap)
+                    .ToListAsync(ct);
 
         var results = candidates
             .Select(c => PublicDelivery.ToPublic(c, def, slugField)) /* project first: only public fields remain */
             .Where(r => r is not null).Select(r => r!)
             .Select(r => new { r, score = Score(r, q) })
-            .Where(x => x.score > 0)
-            .OrderByDescending(x => x.score)
+            .OrderByDescending(x => x.score) // Title/field exact matches boost to the top; other n-gram matches follow
             .Take(limit)
             .Select(x => x.r)
             .ToList();
