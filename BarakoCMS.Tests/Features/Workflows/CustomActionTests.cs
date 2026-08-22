@@ -15,9 +15,13 @@ public class CustomActionTests
     public void CreateTaskAction_Should_HaveCorrectType()
     {
         // Arrange
+        // Events is stubbed explicitly rather than via DefaultValue.Mock, because auto-mocking tries
+        // to proxy StreamAction, which has no parameterless constructor. The action discards the
+        // return value, so a loose mock returning null is enough.
         var mockSession = new Mock<IDocumentSession>();
+        mockSession.SetupGet(x => x.Events).Returns(new Mock<Marten.Events.IEventStoreOperations>().Object);
         var mockLogger = new Mock<ILogger<CreateTaskAction>>();
-        var action = new CreateTaskAction(mockSession.Object, mockLogger.Object);
+        var action = new CreateTaskAction(mockSession.Object, mockLogger.Object, new barakoCMS.Infrastructure.Services.ContentWriter(mockSession.Object));
 
         // Act
         var type = action.Type;
@@ -60,9 +64,13 @@ public class CustomActionTests
     public async Task CreateTaskAction_Should_CreateContent()
     {
         // Arrange
+        // Events is stubbed explicitly rather than via DefaultValue.Mock, because auto-mocking tries
+        // to proxy StreamAction, which has no parameterless constructor. The action discards the
+        // return value, so a loose mock returning null is enough.
         var mockSession = new Mock<IDocumentSession>();
+        mockSession.SetupGet(x => x.Events).Returns(new Mock<Marten.Events.IEventStoreOperations>().Object);
         var mockLogger = new Mock<ILogger<CreateTaskAction>>();
-        var action = new CreateTaskAction(mockSession.Object, mockLogger.Object);
+        var action = new CreateTaskAction(mockSession.Object, mockLogger.Object, new barakoCMS.Infrastructure.Services.ContentWriter(mockSession.Object));
 
         var parameters = new Dictionary<string, string>
         {

@@ -72,6 +72,24 @@ jobs:
             }
 
             await github.rest.issues.addAssignees({ owner, repo, issue_number, assignees: [who] });
+
+            // Best effort. The assignment has already happened, so a failure here must not throw:
+            // losing the confirmation comment would leave the contributor assigned with no
+            // acknowledgement, which is the silence this workflow exists to remove.
+            let stars = null;
+            try {
+              stars = (await github.rest.repos.get({ owner, repo })).data.stargazers_count;
+            } catch (e) {
+              core.info(`Could not read the star count (${e.message}); leaving it out.`);
+            }
+
+            // Asked after the assignment, never as a condition of it. Nothing above depends on it.
+            const starAsk = stars === null ? '' :
+              `\n\nOne small favour, entirely optional, and nothing above depends on it: if you think ` +
+              `the project is worth it, a star helps you as much as us. CodeRabbit only reviews pull ` +
+              `requests automatically once a repository reaches ten stars, so below that your PR waits ` +
+              `for someone to trigger it by hand. We are at ${stars}.`;
+
             await github.rest.issues.createComment({
               owner, repo, issue_number,
               body: `Assigned to @${who}. It's yours. 🎉\n\n` +
@@ -79,7 +97,7 @@ jobs:
                     `someone else can pick it up. A draft PR early is very welcome if you'd like ` +
                     `eyes on the direction before polishing it.\n\n` +
                     `CLA Assistant will ask you to sign on your first pull request. It takes about ` +
-                    `thirty seconds and you keep copyright of your work.`,
+                    `thirty seconds and you keep copyright of your work.` + starAsk,
             });
 
   # Somebody asked for the issue in plain English. Tell them the command exists rather than leaving

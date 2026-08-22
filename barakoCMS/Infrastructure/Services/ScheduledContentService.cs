@@ -98,24 +98,27 @@ public class ScheduledContentService : BackgroundService
 
         if (due.Count == 0) return 0;
 
+        // Constructed rather than injected: this sweep opens its own session per tenant, so there
+        // is no scoped writer to resolve.
+        var writer = new ContentWriter(session);
+
         foreach (var content in due)
         {
             var newStatus = content.Status == ContentStatus.Draft
                 ? ContentStatus.Published
                 : ContentStatus.Archived;
 
-            var @event = new ContentStatusChanged(content.Id, newStatus, SystemActor);
-            content.Apply(@event);
+            writer.Append(content, new ContentStatusChanged(content.Id, newStatus, SystemActor));
 
-            // Clear only the field we just consumed; leave the opposite one armed (a Published item can
-            // still carry a future unpublish time).
-            if (newStatus == ContentStatus.Published) content.ScheduledPublishAt = null;
-            else content.ScheduledUnpublishAt = null;
-
-            // Append the event AND update the read-model document in one transaction — the same pattern
-            // the Update and status-change endpoints use — so the async WorkflowProjection fires.
-            session.Events.Append(content.Id, @event);
-            session.Store(content);
+            // Clear only the field just consumed; the opposite one stays armed, since a Published
+            // item can still carry a future unpublish time. Recorded as an event rather than
+            // written straight to the document: consuming a schedule is a state change, and one
+            // that happened without a user, so the trail is the only place it is visible.
+            writer.Append(
+                content,
+                newStatus == ContentStatus.Published
+                    ? new ContentScheduled(content.Id, null, content.ScheduledUnpublishAt, SystemActor)
+                    : new ContentScheduled(content.Id, content.ScheduledPublishAt, null, SystemActor));
         }
 
         await session.SaveChangesAsync(ct);

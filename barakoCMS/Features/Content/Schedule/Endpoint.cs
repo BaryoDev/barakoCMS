@@ -1,3 +1,4 @@
+using barakoCMS.Core.Interfaces;
 using FastEndpoints;
 using Marten;
 
@@ -13,12 +14,14 @@ namespace barakoCMS.Features.Content.Schedule;
 public class Endpoint : Endpoint<Request, Response>
 {
     private readonly IDocumentSession _session;
+    private readonly IContentWriter _contentWriter;
     private readonly barakoCMS.Infrastructure.Services.IPermissionResolver _permissionResolver;
 
     public Endpoint(
         IDocumentSession session,
-        barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver)
+        barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver, IContentWriter contentWriter)
     {
+        _contentWriter = contentWriter;
         _session = session;
         _permissionResolver = permissionResolver;
     }
@@ -52,11 +55,9 @@ public class Endpoint : Endpoint<Request, Response>
             return;
         }
 
-        content.ScheduledPublishAt = req.ScheduledPublishAt;
-        content.ScheduledUnpublishAt = req.ScheduledUnpublishAt;
-        content.UpdatedAt = DateTime.UtcNow;
-        content.LastModifiedBy = userId;
-        _session.Store(content);
+        _contentWriter.Append(
+            content,
+            new barakoCMS.Events.ContentScheduled(content.Id, req.ScheduledPublishAt, req.ScheduledUnpublishAt, userId));
         await _session.SaveChangesAsync(ct);
 
         await SendAsync(new Response

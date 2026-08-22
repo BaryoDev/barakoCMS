@@ -1,3 +1,4 @@
+using barakoCMS.Core.Interfaces;
 using barakoCMS.Events;
 using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Models;
@@ -13,10 +14,12 @@ namespace BarakoCMS.Portability;
 public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
 {
     private readonly IDocumentSession _session;
+    private readonly IContentWriter _contentWriter;
     private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
 
-    public ImportEndpoint(IDocumentSession session, barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
+    public ImportEndpoint(IDocumentSession session, barakoCMS.Infrastructure.Multitenancy.TenantContext tenant, IContentWriter contentWriter)
     {
+        _contentWriter = contentWriter;
         _session = session;
         _tenant = tenant;
     }
@@ -101,11 +104,8 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
                         .Select(kv => kv.Value?.ToString())
                         .Where(v => !string.IsNullOrWhiteSpace(v)));
 
-                var evt = new ContentCreated(contentId, rec.ContentType, rec.Data, status, userId, searchText);
-                _session.Events.StartStream<barakoCMS.Models.Content>(contentId, evt);
-                var content = new barakoCMS.Models.Content();
-                content.Apply(evt);
-                _session.Store(content);
+                var evt = new ContentCreated(contentId, rec.ContentType, rec.Data, status, userId, searchText, barakoCMS.Models.SensitivityLevel.Public);
+                _contentWriter.Create(evt);
             }
         }
 

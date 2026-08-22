@@ -1,3 +1,4 @@
+using barakoCMS.Core.Interfaces;
 using FastEndpoints;
 using Marten;
 using barakoCMS.Models;
@@ -8,11 +9,13 @@ namespace barakoCMS.Features.Content.Create;
 public class Endpoint : Endpoint<Request, Response>
 {
     private readonly IDocumentSession _session;
+    private readonly IContentWriter _contentWriter;
     private readonly barakoCMS.Infrastructure.Services.IContentValidatorService _validator;
     private readonly barakoCMS.Infrastructure.Services.IPermissionResolver _permissionResolver;
 
-    public Endpoint(IDocumentSession session, barakoCMS.Infrastructure.Services.IContentValidatorService validator, barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver)
+    public Endpoint(IDocumentSession session, barakoCMS.Infrastructure.Services.IContentValidatorService validator, barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver, IContentWriter contentWriter)
     {
+        _contentWriter = contentWriter;
         _session = session;
         _validator = validator;
         _permissionResolver = permissionResolver;
@@ -95,21 +98,9 @@ public class Endpoint : Endpoint<Request, Response>
                 .Where(v => !string.IsNullOrWhiteSpace(v)));
 
         var contentId = Guid.NewGuid();
-        var @event = new barakoCMS.Events.ContentCreated(contentId, req.ContentType, req.Data, req.Status, userId, searchText);
+        var @event = new barakoCMS.Events.ContentCreated(contentId, req.ContentType, req.Data, req.Status, userId, searchText, req.Sensitivity);
 
-        // Start the event stream AND store the read-model document in one transaction so they
-        // can't diverge on a partial failure. Unhandled errors flow to the global exception handler.
-        _session.Events.StartStream<barakoCMS.Models.Content>(contentId, @event);
-        var content = new barakoCMS.Models.Content();
-        content.Apply(@event);
-
-        // Document-level sensitivity is not carried by ContentCreated, so Apply cannot set it and
-        // the request value was silently dropped: content posted as Sensitive or Hidden was stored
-        // as Public, and SensitivityService.Apply never engaged for it. Set from the request until
-        // the event carries it.
-        content.Sensitivity = req.Sensitivity;
-
-        _session.Store(content);
+        _contentWriter.Create(@event);
         await _session.SaveChangesAsync(ct);
 
         // Workflows are triggered out-of-band by the async WorkflowProjection reacting to the
