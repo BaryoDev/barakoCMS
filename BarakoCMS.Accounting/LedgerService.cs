@@ -1,3 +1,4 @@
+using barakoCMS.Core.Interfaces;
 using barakoCMS.Models;
 using BarakoCMS.Accounting.Domain;
 using Marten;
@@ -41,9 +42,31 @@ public record PostResult(JournalEntry? Entry, IReadOnlyList<string> Errors)
 public class LedgerService
 {
     private readonly IDocumentSession _session;
+    private readonly IContentWriter _contentWriter;
     private readonly JournalEntryHook _hook = new();
 
-    public LedgerService(IDocumentSession session) => _session = session;
+    /// <summary>
+    /// The single-argument form this replaces.
+    /// </summary>
+    /// <remarks>
+    /// Kept because BarakoCMS.Accounting ships as a package and this is a plain service an external
+    /// caller can construct. It builds the same writer the container would, from the same session,
+    /// so behaviour is identical.
+    ///
+    /// The endpoints changed alongside it are not given this treatment on purpose: FastEndpoints
+    /// constructs those, and nothing outside the process news one up.
+    /// </remarks>
+    [Obsolete("Use the constructor taking IContentWriter. Removal planned for barakoCMS 5.0.")]
+    public LedgerService(IDocumentSession session)
+        : this(session, new barakoCMS.Infrastructure.Services.ContentWriter(session))
+    {
+    }
+
+    public LedgerService(IDocumentSession session, IContentWriter contentWriter)
+    {
+        _session = session;
+        _contentWriter = contentWriter;
+    }
 
     public async Task<PostResult> PostAsync(PostEntryCommand cmd, Guid userId, CancellationToken ct)
     {
@@ -100,14 +123,14 @@ public class LedgerService
                 .Where(kv => publicFields.Contains(kv.Key))
                 .Select(kv => kv.Value?.ToString())
                 .Where(v => !string.IsNullOrWhiteSpace(v)));
+        // Sensitivity stated rather than defaulted. A journal entry is Public, but the six-value
+        // constructor supplied that silently and this is the field a rebuild must not have to guess.
         var created = new barakoCMS.Events.ContentCreated(
             contentId, AccountingContentTypes.JournalEntry, data,
-            barakoCMS.Models.ContentStatus.Published, userId, searchText);
+            barakoCMS.Models.ContentStatus.Published, userId, searchText,
+            barakoCMS.Models.SensitivityLevel.Public);
 
-        _session.Events.StartStream<barakoCMS.Models.Content>(contentId, created);
-        var content = new barakoCMS.Models.Content();
-        content.Apply(created);
-        _session.Store(content);
+        _contentWriter.Create(created);
 
         // The entry and the sequence increment the hook made commit in one transaction.
         await _session.SaveChangesAsync(ct);

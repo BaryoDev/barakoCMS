@@ -1,3 +1,4 @@
+using barakoCMS.Core.Interfaces;
 using FastEndpoints;
 using Marten;
 using barakoCMS.Infrastructure.Audit;
@@ -8,14 +9,16 @@ namespace barakoCMS.Features.Content.ChangeStatus;
 public class Endpoint : Endpoint<Request, Response>
 {
     private readonly IDocumentSession _session;
+    private readonly IContentWriter _contentWriter;
     private readonly barakoCMS.Infrastructure.Services.IPermissionResolver _permissionResolver;
     private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
 
     public Endpoint(
         IDocumentSession session,
         barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver,
-        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
+        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant, IContentWriter contentWriter)
     {
+        _contentWriter = contentWriter;
         _session = session;
         _permissionResolver = permissionResolver;
         _tenant = tenant;
@@ -65,9 +68,7 @@ public class Endpoint : Endpoint<Request, Response>
         // Append the event AND update the read-model document in one transaction so they can't
         // diverge. Workflows fire out-of-band via the async WorkflowProjection, which is driven off the
         // event stream — so the append is what makes "Published" workflows actually run.
-        content.Apply(@event);
-        _session.Events.Append(req.Id, @event);
-        _session.Store(content);
+        _contentWriter.Append(content, @event);
 
         // There's no content-delete endpoint in barakoCMS today — archiving is the closest
         // destructive-equivalent action, so it's what gets audited here rather than every routine

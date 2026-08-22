@@ -410,6 +410,7 @@ public static class ServiceCollectionExtensions
         services.TryAddScoped<barakoCMS.Core.Interfaces.IEmailService, barakoCMS.Infrastructure.Services.MockEmailService>();
         services.TryAddScoped<barakoCMS.Core.Interfaces.ISmsService, barakoCMS.Infrastructure.Services.MockSmsService>();
         services.AddScoped<barakoCMS.Core.Interfaces.ISensitivityService, barakoCMS.Infrastructure.Services.SensitivityService>();
+        services.AddScoped<barakoCMS.Core.Interfaces.IContentWriter, barakoCMS.Infrastructure.Services.ContentWriter>();
         // Runs any per-content-type domain rules a module registered (IContentLifecycleHook), so a
         // domain with real invariants can still be modelled as ordinary content.
         services.AddScoped<barakoCMS.Infrastructure.Services.IContentLifecycleRunner, barakoCMS.Infrastructure.Services.ContentLifecycleRunner>();

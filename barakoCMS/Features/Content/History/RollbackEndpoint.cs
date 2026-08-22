@@ -1,3 +1,4 @@
+using barakoCMS.Core.Interfaces;
 using FastEndpoints;
 using Marten;
 using barakoCMS.Models;
@@ -14,9 +15,11 @@ public class RollbackRequest
 public class RollbackEndpoint : Endpoint<RollbackRequest, barakoCMS.Models.Content>
 {
     private readonly IDocumentSession _session;
+    private readonly IContentWriter _contentWriter;
 
-    public RollbackEndpoint(IDocumentSession session)
+    public RollbackEndpoint(IDocumentSession session, IContentWriter contentWriter)
     {
+        _contentWriter = contentWriter;
         _session = session;
     }
 
@@ -104,12 +107,8 @@ public class RollbackEndpoint : Endpoint<RollbackRequest, barakoCMS.Models.Conte
         // 5. Create a new update event with the old data and rebuilt SearchText
         var rollbackEvent = new ContentUpdated(req.Id, data, userId, searchText);
 
-        // 6. Append the new event
-        _session.Events.Append(req.Id, rollbackEvent);
-
-        // 7. Apply the rollback to the document
-        content.Apply(rollbackEvent);
-        _session.Store(content);
+        // 6. Append the new event and update the document together
+        _contentWriter.Append(content, rollbackEvent);
 
         await _session.SaveChangesAsync(ct);
 

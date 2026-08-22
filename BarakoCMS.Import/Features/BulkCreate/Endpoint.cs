@@ -1,3 +1,4 @@
+using barakoCMS.Core.Interfaces;
 using barakoCMS.Events;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
@@ -37,11 +38,13 @@ public class Response
 public class Endpoint : Endpoint<Request, Response>
 {
     private readonly IDocumentSession _session;
+    private readonly IContentWriter _contentWriter;
     private readonly IContentValidatorService _validator;
     private readonly IPermissionResolver _permissions;
 
-    public Endpoint(IDocumentSession session, IContentValidatorService validator, IPermissionResolver permissions)
+    public Endpoint(IDocumentSession session, IContentValidatorService validator, IPermissionResolver permissions, IContentWriter contentWriter)
     {
+        _contentWriter = contentWriter;
         _session = session;
         _validator = validator;
         _permissions = permissions;
@@ -119,12 +122,9 @@ public class Endpoint : Endpoint<Request, Response>
                     .Select(kv => kv.Value?.ToString())
                     .Where(v => !string.IsNullOrWhiteSpace(v)));
 
-            var @event = new ContentCreated(id, req.ContentType, data, req.Status, userId, searchText);
+            var @event = new ContentCreated(id, req.ContentType, data, req.Status, userId, searchText, SensitivityLevel.Public);
 
-            _session.Events.StartStream<Content>(id, @event);
-            var content = new Content();
-            content.Apply(@event);
-            _session.Store(content);
+            _contentWriter.Create(@event);
         }
         // All content items (and their event streams) commit atomically.
         await _session.SaveChangesAsync(ct);

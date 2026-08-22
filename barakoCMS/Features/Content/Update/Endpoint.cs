@@ -1,3 +1,4 @@
+using barakoCMS.Core.Interfaces;
 using FastEndpoints;
 using Marten;
 using barakoCMS.Models;
@@ -8,11 +9,13 @@ namespace barakoCMS.Features.Content.Update;
 public class Endpoint : Endpoint<Request, Response>
 {
     private readonly IDocumentSession _session;
+    private readonly IContentWriter _contentWriter;
     private readonly barakoCMS.Infrastructure.Services.IPermissionResolver _permissionResolver;
     private readonly barakoCMS.Infrastructure.Services.IContentValidatorService _validator;
 
-    public Endpoint(IDocumentSession session, barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver, barakoCMS.Infrastructure.Services.IContentValidatorService validator)
+    public Endpoint(IDocumentSession session, barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver, barakoCMS.Infrastructure.Services.IContentValidatorService validator, IContentWriter contentWriter)
     {
+        _contentWriter = contentWriter;
         _session = session;
         _permissionResolver = permissionResolver;
         _validator = validator;
@@ -107,23 +110,7 @@ public class Endpoint : Endpoint<Request, Response>
         {
             // Atomically append with an optimistic-concurrency guard: Marten records the current
             // stream version now and rejects the commit if another writer advanced the stream first.
-            await _session.Events.AppendOptimistic(req.Id, ct, events.ToArray());
-
-            // Apply the same events to the projected document and store it in the SAME unit of work,
-            // so the event stream and read model commit atomically (or roll back together).
-            foreach (var evt in events)
-            {
-                if (evt is barakoCMS.Events.ContentUpdated updateEvt)
-                {
-                    existingContent.Apply(updateEvt);
-                }
-                else if (evt is barakoCMS.Events.ContentStatusChanged statusEvt)
-                {
-                    existingContent.Apply(statusEvt);
-                }
-            }
-
-            _session.Store(existingContent);
+            await _contentWriter.AppendOptimisticAsync(existingContent, events, ct);
             await _session.SaveChangesAsync(ct);
 
             newVersion = (state?.Version ?? 0) + events.Count;
