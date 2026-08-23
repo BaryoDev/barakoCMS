@@ -3,7 +3,21 @@
 Releases ship every Saturday. This file says what each one is for and why that order.
 
 The positioning it serves: **free at any scale, and audit-grade**. Not "cheaper than", not "has more
-features than". Free with no seat cap, no revenue cap, no metered AI, and every module included.
+features than". Free with no seat cap, no revenue cap, no metered AI, and every module in this
+repository included.
+
+That last phrase is deliberate and worth keeping precise, because two different things get called
+"selling modules" and only one of them breaks the promise.
+
+- **Every module in this repository is free, forever.** Nothing here gets moved behind a licence
+  later, and no future module is withheld from the project so that people have to buy it. That is
+  the Umbraco model, and it is the thing the comparison below calls out as their weakness.
+- **BaryoDev also builds bespoke modules for clients**, and sells delivery, hosting and support.
+  That is consulting output: someone paid for work that solves their problem, and nobody was
+  expecting it in the open source project.
+
+The contributor terms make the first half structural rather than a promise: the licence grant is
+bounded to OSI-approved licences, so this cannot be closed later even if someone wanted to.
 
 ## The thesis
 
