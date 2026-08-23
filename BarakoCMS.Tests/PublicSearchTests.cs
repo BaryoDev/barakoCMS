@@ -171,5 +171,53 @@ public class PublicSearchTests
         body.Should().Contain("numeric-hit");
     }
 
+    [Fact]
+    public async Task Search_QueryMatchingOnlyNonPublicFieldCreatedViaApi_ReturnsZeroOccurrences()
+    {
+        var type = $"searchpub_secret_api_{Guid.NewGuid():N}";
+        await StoreContentTypeAsync(type);
+
+        var (adminToken, _) = await TestHelpers.CreateAdminUserAsync(_factory);
+        var adminClient = _factory.CreateClient();
+        adminClient.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", adminToken);
+
+        const string secretOnlyNeedle = "top_secret_token_456";
+
+        // 1. Create and publish the document via the Content API
+        var createRes = await adminClient.PostAsJsonAsync("/api/contents",
+            new barakoCMS.Features.Content.Create.Request
+            {
+                ContentType = type,
+                Status = ContentStatus.Published,
+                Sensitivity = SensitivityLevel.Public,
+                Data = new()
+                {
+                    ["Title"] = "Completely Public Title",
+                    ["Slug"] = "secret-holder-api",
+                    ["Body"] = "Safe public body content",
+                    ["Secret"] = secretOnlyNeedle // Non-public / Sensitive field
+                }
+            });
+
+        createRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // 2. Positive Control: Query for the public title to confirm search is working and returns the document
+        var positiveRes = await _client.GetAsync($"/api/public/{type}/search?q=Completely%20Public%20Title");
+        positiveRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var positiveBody = await positiveRes.Content.ReadAsStringAsync();
+        positiveBody.Should().NotContain("\"count\":0");
+        positiveBody.Should().Contain("secret-holder-api");
+
+        // 3. Negative Control: Query for the secret token - must not match sensitive/non-public fields
+        var searchRes = await _client.GetAsync($"/api/public/{type}/search?q={secretOnlyNeedle}");
+        searchRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var body = await searchRes.Content.ReadAsStringAsync();
+        body.Should().Contain("\"count\":0");
+        body.Should().NotContain("secret-holder-api");
+    }
+
 
 }
