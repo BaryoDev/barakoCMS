@@ -393,7 +393,13 @@ public static class ServiceCollectionExtensions
             return options;
         })
         .BuildSessionsWith<barakoCMS.Infrastructure.Multitenancy.TenantSessionFactory>(Microsoft.Extensions.DependencyInjection.ServiceLifetime.Scoped)
-        .AddAsyncDaemon(JasperFx.Events.Daemon.DaemonMode.Solo);
+        // HotCold, not Solo. Solo assumes there is never more than one node, and every node that
+        // starts under it runs every projection. Two instances therefore both process the same
+        // events, and WorkflowProjection has external side effects: an email, an SMS, a webhook, a
+        // created task. Scaling out sent every one of them twice.
+        //
+        // HotCold takes a Postgres advisory lock per projection so exactly one process runs each.
+        .AddAsyncDaemon(JasperFx.Events.Daemon.DaemonMode.HotCold);
         // Schema is applied explicitly at startup via host.ApplyMartenSchemaAsync() (below), called
         // BEFORE the data seeders run. ApplyAllDatabaseChangesOnStartup() can't be used here: it
         // registers a hosted service that runs during app.Run(), but the seeders run before that, so
