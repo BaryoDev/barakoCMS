@@ -70,6 +70,16 @@ public class ScheduledContentService : BackgroundService
     /// </remarks>
     private const long SweepLockKey = 8_242_026_001L;
 
+    /// <summary>
+    /// Sweeps the default partition and every active tenant.
+    /// </summary>
+    /// <remarks>
+    /// The signature this shipped with. Kept because barakoCMS is a package and this class is public,
+    /// and a return type cannot be overloaded, so the answer-carrying version needed its own name.
+    /// </remarks>
+    public Task SweepAllTenantsAsync(DateTime nowUtc, CancellationToken ct) =>
+        TrySweepAllTenantsAsync(nowUtc, ct);
+
     /// <summary>Sweeps the default partition and every active tenant. Exposed for tests.</summary>
     /// <returns>
     /// True if this instance held the lock and swept; false if another instance was already sweeping
@@ -87,7 +97,7 @@ public class ScheduledContentService : BackgroundService
     /// kept open for the duration and released in the finally, so a crash mid-sweep frees it when
     /// the connection drops rather than wedging every future tick.
     /// </remarks>
-    public async Task<bool> SweepAllTenantsAsync(DateTime nowUtc, CancellationToken ct)
+    public async Task<bool> TrySweepAllTenantsAsync(DateTime nowUtc, CancellationToken ct)
     {
         // The connection object, not a new one built from its ConnectionString: Npgsql redacts the
         // password out of ConnectionString unless Persist Security Info is set, so rebuilding from it

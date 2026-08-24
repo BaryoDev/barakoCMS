@@ -28,33 +28,63 @@ public class MultiInstanceSchedulingTests
     public MultiInstanceSchedulingTests(IntegrationTestFixture fixture) => _fixture = fixture;
 
     /// <summary>
-    /// Two sweeps running at once: one does the work, the other declines.
+    /// A sweep declines while another holds the lock.
     /// </summary>
     /// <remarks>
-    /// The assertion is on the return value rather than a count of transitions, because a count is
-    /// satisfied by the second sweep simply finding nothing left to do. That would pass without any
-    /// lock, since the first sweep changes Status and the second one's query no longer matches it.
-    /// Distinguishing "declined to run" from "ran and found nothing" is the whole point.
+    /// The lock is taken here rather than by racing two sweeps against each other. Two concurrent
+    /// calls only contend if they happen to overlap, and a sweep with nothing to do finishes in
+    /// milliseconds, so they can serialise and both legitimately succeed. That test would pass or
+    /// fail on timing, which for a lock is the one thing it must not do.
+    ///
+    /// Holding the lock explicitly means the assertion is about the lock and nothing else.
     /// </remarks>
     [Fact]
-    public async Task Only_one_instance_sweeps_at_a_time()
+    public async Task A_sweep_declines_while_another_instance_holds_the_lock()
     {
         using var scope = _fixture.Services.CreateScope();
         var store = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
         var logger = scope.ServiceProvider
             .GetRequiredService<Microsoft.Extensions.Logging.ILogger<ScheduledContentService>>();
 
-        var a = new ScheduledContentService(store, logger);
-        var b = new ScheduledContentService(store, logger);
+        await using var holder = store.Storage.Database.CreateConnection();
+        await holder.OpenAsync();
 
-        var now = DateTime.UtcNow;
-        var results = await Task.WhenAll(
-            a.SweepAllTenantsAsync(now, CancellationToken.None),
-            b.SweepAllTenantsAsync(now, CancellationToken.None));
+        await using (var take = holder.CreateCommand())
+        {
+            take.CommandText = "select pg_advisory_lock(8242026001)";
+            await take.ExecuteScalarAsync();
+        }
 
-        results.Count(swept => swept).Should().Be(1,
-            "exactly one instance should hold the advisory lock; two means both would transition the "
-            + "same content and fire every Published workflow twice");
+        try
+        {
+            var swept = await new ScheduledContentService(store, logger)
+                .TrySweepAllTenantsAsync(DateTime.UtcNow, CancellationToken.None);
+
+            swept.Should().BeFalse(
+                "another connection holds the sweep lock, so this instance must decline rather than "
+                + "transition the same content a second time");
+        }
+        finally
+        {
+            await using var release = holder.CreateCommand();
+            release.CommandText = "select pg_advisory_unlock(8242026001)";
+            await release.ExecuteScalarAsync();
+        }
+    }
+
+    /// <summary>The lock is available again once the holder lets go.</summary>
+    [Fact]
+    public async Task A_sweep_proceeds_once_the_lock_is_free()
+    {
+        using var scope = _fixture.Services.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
+        var logger = scope.ServiceProvider
+            .GetRequiredService<Microsoft.Extensions.Logging.ILogger<ScheduledContentService>>();
+
+        var swept = await new ScheduledContentService(store, logger)
+            .TrySweepAllTenantsAsync(DateTime.UtcNow, CancellationToken.None);
+
+        swept.Should().BeTrue("nothing holds the lock, so the sweep must run");
     }
 
     /// <summary>
@@ -74,8 +104,8 @@ public class MultiInstanceSchedulingTests
 
         var service = new ScheduledContentService(store, logger);
 
-        (await service.SweepAllTenantsAsync(DateTime.UtcNow, CancellationToken.None)).Should().BeTrue();
-        (await service.SweepAllTenantsAsync(DateTime.UtcNow, CancellationToken.None)).Should().BeTrue(
+        (await service.TrySweepAllTenantsAsync(DateTime.UtcNow, CancellationToken.None)).Should().BeTrue();
+        (await service.TrySweepAllTenantsAsync(DateTime.UtcNow, CancellationToken.None)).Should().BeTrue(
             "a second sweep after the first has finished must be able to take the lock again");
     }
 
