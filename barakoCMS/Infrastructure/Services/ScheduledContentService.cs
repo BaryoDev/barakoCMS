@@ -61,8 +61,67 @@ public class ScheduledContentService : BackgroundService
         _logger.LogInformation("Scheduled content service stopped");
     }
 
+    /// <summary>
+    /// A Postgres advisory lock key, arbitrary but fixed, identifying this sweep across instances.
+    /// </summary>
+    /// <remarks>
+    /// Changing it would let an old and a new deployment sweep simultaneously during a rollout, which
+    /// is the exact situation the lock exists for.
+    /// </remarks>
+    private const long SweepLockKey = 8_242_026_001L;
+
     /// <summary>Sweeps the default partition and every active tenant. Exposed for tests.</summary>
-    public async Task SweepAllTenantsAsync(DateTime nowUtc, CancellationToken ct)
+    /// <returns>
+    /// True if this instance held the lock and swept; false if another instance was already sweeping
+    /// and this tick did nothing.
+    /// </returns>
+    /// <remarks>
+    /// This runs on every node, unlike the projection daemon, because a BackgroundService has no
+    /// leader election of its own. Without the lock two instances both query for due content, both
+    /// append ContentStatusChanged, and the item transitions twice: two events on the stream, and
+    /// the workflow projection firing every "Published" workflow twice, which for an email or a
+    /// webhook action means the recipient gets two.
+    ///
+    /// A session-scoped advisory lock rather than a transaction-scoped one, because the sweep opens
+    /// a separate session per tenant and the lock has to outlive all of them. Held on a connection
+    /// kept open for the duration and released in the finally, so a crash mid-sweep frees it when
+    /// the connection drops rather than wedging every future tick.
+    /// </remarks>
+    public async Task<bool> SweepAllTenantsAsync(DateTime nowUtc, CancellationToken ct)
+    {
+        // The connection object, not a new one built from its ConnectionString: Npgsql redacts the
+        // password out of ConnectionString unless Persist Security Info is set, so rebuilding from it
+        // fails authentication.
+        await using var lockConnection = _store.Storage.Database.CreateConnection();
+        await lockConnection.OpenAsync(ct);
+
+        await using (var acquire = lockConnection.CreateCommand())
+        {
+            acquire.CommandText = "select pg_try_advisory_lock(@key)";
+            acquire.Parameters.AddWithValue("key", SweepLockKey);
+            var acquired = (bool?)await acquire.ExecuteScalarAsync(ct) ?? false;
+            if (!acquired)
+            {
+                _logger.LogDebug("Another instance is sweeping scheduled content; skipping this tick.");
+                return false;
+            }
+        }
+
+        try
+        {
+            await SweepHeldAsync(nowUtc, ct);
+            return true;
+        }
+        finally
+        {
+            await using var release = lockConnection.CreateCommand();
+            release.CommandText = "select pg_advisory_unlock(@key)";
+            release.Parameters.AddWithValue("key", SweepLockKey);
+            await release.ExecuteScalarAsync(CancellationToken.None);
+        }
+    }
+
+    private async Task SweepHeldAsync(DateTime nowUtc, CancellationToken ct)
     {
         // null slug => the default (no-explicit-tenant) partition, where single-deployment sites like
         // baryo.dev keep their content; named slugs are the path-based tenants.
