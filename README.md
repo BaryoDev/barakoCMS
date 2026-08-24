@@ -26,9 +26,40 @@ modules** you compose per project. It comes with a Next.js **admin UI** that sur
   <img src="https://raw.githubusercontent.com/BaryoDev/barakoCMS/master/assets/screenshots/overview.png" alt="BarakoCMS admin, Overview" width="900" />
 </p>
 
-> [!NOTE]
-> BarakoCMS is a passion project built for learning and portfolio purposes. It's usable and
-> maintained, but **breaking changes can happen** between versions. See [CHANGELOG.md](CHANGELOG.md).
+### What it is, and what it is not
+
+**Reachable.** No sales call, no partner tier, no procurement cycle, no discovery call. Clone it and
+it runs. That is the part deliberately not for sale.
+
+**Free at any scale.** MPL-2.0, no seat cap, no revenue cap, no metered AI, and every module in this
+repository included rather than sold separately. The [contributor terms](CLA.md) bound the licence
+grant to OSI-approved licences, so this cannot be closed later even if someone wanted to.
+
+**Not an enterprise vendor.** There is no SLA, no support contract, no compliance pack for
+procurement, no continuity guarantee. If your evaluation involves legal and a security questionnaire,
+that is a real gap and you should weigh it. What you get instead is the whole system, the reasoning
+behind it in [DECISIONS.md](DECISIONS.md), and the ability to fix anything yourself.
+
+**Versioning.** Semantic within a major. Public members are not removed or resignatured inside a
+major version; the old form is kept and marked obsolete with a removal version at least one major
+away. See [CHANGELOG.md](CHANGELOG.md).
+
+### What it does not do yet
+
+Named here rather than discovered later. All of these are real:
+
+| | |
+| :--- | :--- |
+| Multi-language content | No variants. One language per content item |
+| Multi-site | Tenancy is not the same primitive |
+| Approval workflow | "Workflow" here means automation rules, not draft, review and sign-off |
+| Media library | File upload and download exist; cropping, focal points and variants do not |
+| Forms builder | Absent |
+| GraphQL | REST only |
+| Managed hosting | Self-host or nothing |
+
+If any of those is load-bearing for your project, [Umbraco](https://umbraco.com) is free too, MIT
+licensed, and has all of them. That is a genuine recommendation, not a hedge.
 
 ---
 
@@ -393,7 +424,6 @@ that stops a wrong issue being built, counts as much here as a pull request.
 
 Follows the [all-contributors](https://allcontributors.org) specification. To add someone, comment
 `@all-contributors please add @username for bug, code` on any issue or pull request.
-
 
 ## License
 
