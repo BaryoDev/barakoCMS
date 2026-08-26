@@ -1,0 +1,15 @@
+{
+  "localRoot": "~/repos/barakoCMS/site",
+  "remoteRoot": "/var/www/barakocms-site",
+  "sync": [
+    "out/"
+  ],
+  "builds": [],
+  "sudo": true,
+  "noCompose": true,
+  "postDeploy": [
+    "sudo restorecon -R /var/www/barakocms-site || true",
+    "sudo nginx -t",
+    "sudo systemctl reload nginx"
+  ]
+}
