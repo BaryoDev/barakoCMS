@@ -34,6 +34,17 @@ public class Tenant
     /// <summary>Freeform branding (theme color, etc.) resolved by the host/UI.</summary>
     public Dictionary<string, string> Branding { get; set; } = new();
 
+    /// <summary>
+    /// Domains this tenant answers on, so a client can use their own address rather than a
+    /// subdomain. A domain belongs to exactly one tenant.
+    /// </summary>
+    /// <remarks>
+    /// Store the bare host, e.g. "abc.com". A leading "www." is ignored on both sides of the match,
+    /// so listing it separately is unnecessary and listing only "www.abc.com" still matches
+    /// "abc.com". Empty for a tenant reached by subdomain or by the X-Tenant header.
+    /// </remarks>
+    public List<string> Domains { get; set; } = new();
+
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
