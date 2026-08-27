@@ -117,45 +117,66 @@ public sealed class DeliveryQuery
     }
 
     /// <summary>
-    /// The JSONPath predicate for one filter, e.g. <c>$.Data.price ? (@ &lt;= 500)</c>.
+    /// One filter as a SQL fragment plus its bound parameters, for Marten's <c>MatchesSql</c>.
     /// </summary>
     /// <remarks>
-    /// The field name is already the schema's own spelling, so it cannot carry caller text. The
-    /// value can, so it is escaped: a numeric value is emitted bare for a numeric comparison, and
-    /// anything else is emitted as a JSONPath string literal with backslashes and quotes escaped.
-    /// Without that, a value containing a quote would close the literal and the rest would parse as
-    /// predicate syntax.
+    /// Deliberately not JSONPath. The <c>@?</c> JSONPath operator contains a <c>?</c>, which is also
+    /// MatchesSql's parameter placeholder, and the overload that exists to resolve that collision
+    /// (<c>MatchesJsonPath</c>) could not bind parameters at all until JasperFx/marten#5289 and
+    /// #5293, both of which landed in Marten 9.30. This project is on 8.37, and crossing a major
+    /// version to reach a four-line fix is a worse trade than not needing it.
+    ///
+    /// Extracting with <c>-&gt;</c> avoids <c>?</c> entirely, so ordinary parameters work: the field
+    /// name and the value are both bound, and neither reaches the SQL text. That is stronger than
+    /// the JSONPath version would have been, where only the value could be bound.
+    ///
+    /// Comparison happens in jsonb rather than text, so 9 sorts below 10 instead of after it.
     /// </remarks>
-    public static string ToJsonPath(DeliveryFilter f)
+    public static (string Sql, object[] Parameters) ToSql(DeliveryFilter f)
     {
+        // ILIKE on the text projection: a substring match is a text question, and asking it of a
+        // jsonb value would compare the quotes too.
+        if (f.Op == FilterOp.Contains)
+            return ("(d.data -> 'Data' ->> ?) ILIKE ?", [f.Field, $"%{Escape(f.Value)}%"]);
+
         var op = f.Op switch
         {
-            FilterOp.Eq => "==",
-            FilterOp.Ne => "!=",
+            FilterOp.Eq => "=",
+            FilterOp.Ne => "<>",
             FilterOp.Lt => "<",
             FilterOp.Lte => "<=",
             FilterOp.Gt => ">",
             FilterOp.Gte => ">=",
-            FilterOp.Contains => "like_regex",
             _ => throw new ArgumentOutOfRangeException(nameof(f)),
         };
 
-        if (f.Op == FilterOp.Contains)
-            return $"$.Data.{f.Field} ? (@ like_regex {Literal(f.Value)} flag \"i\")";
-
-        var numeric = double.TryParse(f.Value, System.Globalization.NumberStyles.Any,
-            System.Globalization.CultureInfo.InvariantCulture, out var n);
-
-        var operand = numeric
-            ? n.ToString(System.Globalization.CultureInfo.InvariantCulture)
-            : Literal(f.Value);
-
-        return $"$.Data.{f.Field} ? (@ {op} {operand})";
+        return ($"(d.data -> 'Data' -> ?) {op} ?::jsonb", [f.Field, JsonLiteral(f.Value)]);
     }
 
-    /// <summary>A JSONPath double-quoted string literal with the two characters that can escape it neutralised.</summary>
-    private static string Literal(string value) =>
-        "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+    /// <summary>
+    /// The value as a JSON scalar: a number bare, anything else quoted.
+    /// </summary>
+    /// <remarks>
+    /// jsonb compares by type first, so a number stored as <c>500</c> never matches the string
+    /// <c>"500"</c>. Emitting a numeric-looking value as a number is what makes a price filter work
+    /// at all, and it is safe because the result is a JSON literal, not SQL: it travels as a bound
+    /// parameter and is cast to jsonb by Postgres.
+    /// </remarks>
+    private static string JsonLiteral(string value)
+    {
+        if (decimal.TryParse(value, System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture, out var n))
+            return n.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+        if (bool.TryParse(value, out var b))
+            return b ? "true" : "false";
+
+        return System.Text.Json.JsonSerializer.Serialize(value);
+    }
+
+    /// <summary>Neutralises the LIKE wildcards so a search for "50%" means "50%" and not "50 anything".</summary>
+    private static string Escape(string value) =>
+        value.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
 
     /// <summary>
     /// Names the fields that <em>are</em> filterable, so a caller who asked for a Sensitive field
