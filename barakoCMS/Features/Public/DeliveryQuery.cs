@@ -6,7 +6,11 @@ public enum FilterOp { Eq, Ne, Lt, Lte, Gt, Gte, Contains }
 
 /// <summary>One validated field comparison, safe to translate into SQL.</summary>
 /// <param name="Field">A field name the content type marks Public. Never caller-supplied text.</param>
-public readonly record struct DeliveryFilter(string Field, FilterOp Op, string Value);
+/// <param name="Type">
+/// The field's declared type. Carried because jsonb compares by type first: without it a filter on
+/// a string field holding "500" would emit the number 500 and match nothing.
+/// </param>
+public readonly record struct DeliveryFilter(string Field, FilterOp Op, string Value, string Type);
 
 /// <summary>A validated sort, or none.</summary>
 public readonly record struct DeliverySort(string Field, bool Descending);
@@ -54,8 +58,7 @@ public sealed class DeliveryQuery
 
         var allowed = def.Fields
             .Where(f => f.Sensitivity == SensitivityLevel.Public)
-            .Select(f => f.Name)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            .ToDictionary(f => f.Name, f => f.Type ?? string.Empty, StringComparer.OrdinalIgnoreCase);
 
         var filters = new List<DeliveryFilter>();
         DeliverySort? sort = null;
@@ -71,10 +74,10 @@ public sealed class DeliveryQuery
                 var descending = value.StartsWith('-');
                 var field = descending ? value[1..] : value;
 
-                if (!allowed.TryGetValue(field, out var canonicalSort))
+                if (!allowed.ContainsKey(field))
                     return new DeliveryQuery { Error = Unsortable(field, allowed) };
 
-                sort = new DeliverySort(canonicalSort, descending);
+                sort = new DeliverySort(Canonical(allowed, field), descending);
                 continue;
             }
 
@@ -91,8 +94,9 @@ public sealed class DeliveryQuery
 
             var (name, op) = (parts[0], parts[1]);
 
-            if (!allowed.TryGetValue(name, out var canonical))
+            if (!allowed.TryGetValue(name, out var declaredType))
                 return new DeliveryQuery { Error = Unfilterable(name, allowed) };
+            var canonical = Canonical(allowed, name);
 
             if (!Ops.TryGetValue(op, out var parsedOp))
                 return new DeliveryQuery
@@ -102,7 +106,7 @@ public sealed class DeliveryQuery
 
             // The canonical name from the schema is stored, never the caller's spelling, so what
             // reaches the query builder can only be a string the content type already declared.
-            filters.Add(new DeliveryFilter(canonical, parsedOp, rawValue ?? string.Empty));
+            filters.Add(new DeliveryFilter(canonical, parsedOp, rawValue ?? string.Empty, declaredType));
 
             // Arbitrary filter combinations against a JSONB column on an anonymous endpoint is a
             // denial-of-service surface, so the count is capped rather than left to the caller.
@@ -136,8 +140,10 @@ public sealed class DeliveryQuery
     {
         // ILIKE on the text projection: a substring match is a text question, and asking it of a
         // jsonb value would compare the quotes too.
+        // #>> '{}' unwraps a jsonb scalar to text without its quotes, so a stored "hat" compares
+        // as hat rather than "hat".
         if (f.Op == FilterOp.Contains)
-            return ("(d.data -> 'Data' ->> ?) ILIKE ?", [f.Field, $"%{Escape(f.Value)}%"]);
+            return ($"({KeyLookup} #>> '{{}}') ILIKE ?", [f.Field, $"%{Escape(f.Value)}%"]);
 
         var op = f.Op switch
         {
@@ -150,11 +156,29 @@ public sealed class DeliveryQuery
             _ => throw new ArgumentOutOfRangeException(nameof(f)),
         };
 
-        return ($"(d.data -> 'Data' -> ?) {op} ?::jsonb", [f.Field, JsonLiteral(f.Value)]);
+        return ($"{KeyLookup} {op} ?::jsonb", [f.Field, JsonLiteral(f.Value, f.Type)]);
     }
 
     /// <summary>
-    /// The value as a JSON scalar: a number bare, anything else quoted.
+    /// Finds a field's value by key, case-insensitively, the way the public projection does.
+    /// </summary>
+    /// <remarks>
+    /// <c>ToPublic</c> matches the schema with <c>OrdinalIgnoreCase</c>, so a record holding
+    /// "price" under a schema field named "Price" is delivered normally. PostgreSQL's <c>-&gt;</c>
+    /// is case sensitive, so a filter built from the schema spelling would miss that record: it
+    /// would appear in an unfiltered list and vanish from a filtered one, reading as "no matches"
+    /// rather than as a fault. Delivery and filtering have to agree on what a key is.
+    ///
+    /// The cost is that this cannot use an expression index on the key, so a filtered list scans.
+    /// Indexing strategy is deferred to the sorting half of #140; correctness comes first, and a
+    /// fast wrong answer is not worth having.
+    /// </remarks>
+    private const string KeyLookup =
+        "(SELECT e.value FROM jsonb_each(d.data -> 'Data') e WHERE lower(e.key) = lower(?) LIMIT 1)";
+
+    /// <summary>
+    /// The value as a JSON scalar: a number bare when the field is declared numeric, quoted
+    /// otherwise.
     /// </summary>
     /// <remarks>
     /// jsonb compares by type first, so a number stored as <c>500</c> never matches the string
@@ -162,13 +186,18 @@ public sealed class DeliveryQuery
     /// at all, and it is safe because the result is a JSON literal, not SQL: it travels as a bound
     /// parameter and is cast to jsonb by Postgres.
     /// </remarks>
-    private static string JsonLiteral(string value)
+    private static string JsonLiteral(string value, string declaredType)
     {
-        if (decimal.TryParse(value, System.Globalization.NumberStyles.Any,
+        // The schema decides, not the shape of the text. Guessing from the digits alone turns
+        // filter[Title][eq]=500 on a string field into the number 500, which never equals the
+        // stored string "500", and the caller sees an empty result rather than an error.
+        if (barakoCMS.Core.Validation.FieldTypeRegistry.IsNumericType(declaredType)
+            && decimal.TryParse(value, System.Globalization.NumberStyles.Any,
                 System.Globalization.CultureInfo.InvariantCulture, out var n))
             return n.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
-        if (bool.TryParse(value, out var b))
+        if (string.Equals(declaredType, "bool", StringComparison.OrdinalIgnoreCase)
+            && bool.TryParse(value, out var b))
             return b ? "true" : "false";
 
         return System.Text.Json.JsonSerializer.Serialize(value);
@@ -182,12 +211,16 @@ public sealed class DeliveryQuery
     /// Names the fields that <em>are</em> filterable, so a caller who asked for a Sensitive field
     /// cannot tell it apart from one that does not exist. Both answers are "not in this list".
     /// </summary>
-    private static string Unfilterable(string field, HashSet<string> allowed) =>
+    /// <summary>The schema's own spelling of a field, whatever casing the caller used.</summary>
+    private static string Canonical(Dictionary<string, string> allowed, string name) =>
+        allowed.Keys.First(k => string.Equals(k, name, StringComparison.OrdinalIgnoreCase));
+
+    private static string Unfilterable(string field, Dictionary<string, string> allowed) =>
         $"Field '{field}' is not filterable. Filterable fields: {Names(allowed)}.";
 
-    private static string Unsortable(string field, HashSet<string> allowed) =>
+    private static string Unsortable(string field, Dictionary<string, string> allowed) =>
         $"Field '{field}' is not sortable. Sortable fields: {Names(allowed)}.";
 
-    private static string Names(HashSet<string> allowed) =>
-        allowed.Count == 0 ? "(none)" : string.Join(", ", allowed.OrderBy(x => x, StringComparer.Ordinal));
+    private static string Names(Dictionary<string, string> allowed) =>
+        allowed.Count == 0 ? "(none)" : string.Join(", ", allowed.Keys.OrderBy(x => x, StringComparer.Ordinal));
 }

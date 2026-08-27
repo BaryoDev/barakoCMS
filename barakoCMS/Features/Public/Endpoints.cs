@@ -138,9 +138,12 @@ public class ListPublishedEndpoint : Endpoint<PublicListRequest, PaginatedRespon
          * Public. Filtering on a field the caller cannot read is an oracle: the value never appears
          * in a response, but which entries match reveals it.
          */
+        // Each repeat is its own filter. StringValues.ToString() joins them with commas, which
+        // turned ?filter[x][eq]=a&filter[x][eq]=b into one filter for the literal "a,b": it matches
+        // nothing, and it lets a caller slip past MaxFilters by repeating a single key.
         var query = DeliveryQuery.Parse(
-            HttpContext.Request.Query.Select(kv =>
-                new KeyValuePair<string, string?>(kv.Key, kv.Value.ToString())),
+            HttpContext.Request.Query.SelectMany(kv =>
+                kv.Value.Select(v => new KeyValuePair<string, string?>(kv.Key, v))),
             def);
 
         if (!query.IsValid)

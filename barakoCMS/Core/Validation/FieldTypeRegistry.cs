@@ -104,6 +104,23 @@ public static class FieldTypeRegistry
     public static bool IsValidValue(string type, object value) =>
         Lookup.TryGetValue(type, out var spec) && spec.IsValidValue(value);
 
+    /// <summary>
+    /// Canonical names whose values are stored as JSON numbers rather than JSON strings.
+    /// </summary>
+    /// <remarks>
+    /// jsonb compares by type before value, so a stored number never equals a string carrying the
+    /// same digits. Anything comparing a caller's text against stored content has to know which of
+    /// the two it is looking at, and the schema is the only thing that does.
+    /// </remarks>
+    private static readonly HashSet<string> NumericCanonical =
+        new(StringComparer.OrdinalIgnoreCase) { "int", "decimal", "money" };
+
+    /// <summary>Is a value of this type stored as a JSON number? Unknown types are not.</summary>
+    public static bool IsNumericType(string? type) =>
+        type is not null
+        && Lookup.TryGetValue(type, out var spec)
+        && NumericCanonical.Contains(spec.Name);
+
     /// <summary>The admin editor hint for a type, or <c>text</c> if unknown.</summary>
     public static string EditorHintFor(string type) =>
         Lookup.TryGetValue(type, out var spec) ? spec.EditorHint : "text";

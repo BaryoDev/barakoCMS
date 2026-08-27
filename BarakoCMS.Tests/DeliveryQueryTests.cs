@@ -22,10 +22,10 @@ public class DeliveryQueryTests
         IsPubliclyDeliverable = true,
         Fields = new List<FieldDefinition>
         {
-            new() { Name = "title",  Sensitivity = SensitivityLevel.Public },
-            new() { Name = "price",  Sensitivity = SensitivityLevel.Public },
-            new() { Name = "cost",   Sensitivity = SensitivityLevel.Sensitive },
-            new() { Name = "notes",  Sensitivity = SensitivityLevel.Hidden },
+            new() { Name = "title",  Type = "string", Sensitivity = SensitivityLevel.Public },
+            new() { Name = "price",  Type = "number", Sensitivity = SensitivityLevel.Public },
+            new() { Name = "cost",   Type = "number", Sensitivity = SensitivityLevel.Sensitive },
+            new() { Name = "notes",  Type = "string", Sensitivity = SensitivityLevel.Hidden },
         },
     };
 
@@ -40,7 +40,7 @@ public class DeliveryQueryTests
 
         q.IsValid.Should().BeTrue();
         q.Filters.Should().ContainSingle()
-            .Which.Should().Be(new DeliveryFilter("price", FilterOp.Lte, "500"));
+            .Which.Should().Be(new DeliveryFilter("price", FilterOp.Lte, "500", "number"));
     }
 
     [Theory]

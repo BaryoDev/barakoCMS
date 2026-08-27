@@ -78,11 +78,115 @@ public class DeliveryFilterIntegrationTests
         var res = await _client.GetAsync(url);
         res.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await res.Content.ReadFromJsonAsync<PagedTitles>();
-        return (body!.Items.Select(i => i.Data["Title"].ToString()!).ToList(), body.TotalItems);
+        // Case-insensitive, because delivery preserves whatever casing a record was stored under
+        // and one of these tests stores "title" deliberately.
+        return (body!.Items
+                .Select(i => i.Data.First(kv =>
+                    string.Equals(kv.Key, "Title", StringComparison.OrdinalIgnoreCase)).Value.ToString()!)
+                .ToList(),
+            body.TotalItems);
     }
 
     private sealed record Item(Dictionary<string, object> Data);
     private sealed record PagedTitles(List<Item> Items, int TotalItems);
+
+    /// <summary>
+    /// A value stored under a differently cased key still filters.
+    /// </summary>
+    /// <remarks>
+    /// ToPublic matches the schema case-insensitively, so a record holding "price" under a schema
+    /// field named "Price" is delivered normally. PostgreSQL's jsonb -> is case sensitive, so a
+    /// filter built from the schema spelling would miss it: the entry appears in an unfiltered list
+    /// and vanishes from a filtered one, which reads as "no matches" rather than as a fault.
+    /// </remarks>
+    [Fact]
+    public async Task A_field_stored_under_different_casing_is_still_filterable()
+    {
+        var type = "filt_casing";
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            s.Store(new ContentTypeDefinition
+            {
+                IsPubliclyDeliverable = true, Id = Guid.NewGuid(), Name = type, DisplayName = type,
+                Fields = new()
+                {
+                    new FieldDefinition { Name = "Title", DisplayName = "Title", Type = "string" },
+                    new FieldDefinition { Name = "Price", DisplayName = "Price", Type = "number" },
+                },
+            });
+            // Lower-cased keys, which validation accepts because it matches names case-insensitively.
+            s.Store(new Content
+            {
+                Id = Guid.NewGuid(), ContentType = type, Status = ContentStatus.Published,
+                Sensitivity = SensitivityLevel.Public,
+                Data = new() { ["title"] = "lower", ["price"] = 100d },
+            });
+            await s.SaveChangesAsync();
+        }
+
+        // The control: delivery returns it, so a filter that cannot find it is a fault rather than
+        // an honest empty result.
+        (await TitlesAsync($"/api/public/{type}")).Should().Equal("lower");
+
+        (await TitlesAsync($"/api/public/{type}?filter[Price][eq]=100"))
+            .Should().Equal("lower");
+    }
+
+    /// <summary>
+    /// A numeric-looking value on a string field compares as a string.
+    /// </summary>
+    /// <remarks>
+    /// jsonb compares by type first, so the stored string "500" never equals the number 500.
+    /// Without the schema's declared type, a filter cannot tell which one the caller meant, and
+    /// guessing from the text produces a silent empty result.
+    /// </remarks>
+    [Fact]
+    public async Task A_numeric_looking_value_on_a_string_field_still_matches()
+    {
+        var type = "filt_numeric_string";
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            s.Store(new ContentTypeDefinition
+            {
+                IsPubliclyDeliverable = true, Id = Guid.NewGuid(), Name = type, DisplayName = type,
+                Fields = new() { new FieldDefinition { Name = "Title", DisplayName = "Title", Type = "string" } },
+            });
+            s.Store(new Content
+            {
+                Id = Guid.NewGuid(), ContentType = type, Status = ContentStatus.Published,
+                Sensitivity = SensitivityLevel.Public,
+                Data = new() { ["Title"] = "500" },
+            });
+            await s.SaveChangesAsync();
+        }
+
+        (await TitlesAsync($"/api/public/{type}?filter[Title][eq]=500"))
+            .Should().Equal("500");
+    }
+
+    /// <summary>
+    /// Repeating a filter parameter applies both, and counts both against the cap.
+    /// </summary>
+    /// <remarks>
+    /// StringValues.ToString() joins repeats with a comma, so two parameters became one filter for
+    /// the literal value "a,b". That matches nothing and, worse, lets a caller exceed MaxFilters by
+    /// repeating one key.
+    /// </remarks>
+    [Fact]
+    public async Task Repeated_filter_parameters_are_not_collapsed_into_one()
+    {
+        var type = "filt_repeated";
+        await SeedAsync(type);
+
+        // The same key twice, which is the case StringValues joins with a comma.
+        var titles = await TitlesAsync(
+            $"/api/public/{type}?filter[Price][gte]=100&filter[Price][gte]=500");
+
+        titles.Should().BeEquivalentTo(new[] { "mid", "dear" },
+            "both repeats must apply, so the stricter bound wins and 100 is excluded");
+    }
 
     [Fact]
     public async Task A_filter_narrows_the_list()
