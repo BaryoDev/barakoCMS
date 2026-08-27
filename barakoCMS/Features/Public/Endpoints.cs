@@ -1,6 +1,7 @@
 using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
+using Marten.Linq.MatchesSql;
 using ContentDoc = barakoCMS.Models.Content; /* distinct alias; avoids the Features.Content namespace clash */
 
 namespace barakoCMS.Features.Public;
@@ -132,13 +133,59 @@ public class ListPublishedEndpoint : Endpoint<PublicListRequest, PaginatedRespon
         if (!PublicDelivery.IsDeliverable(def)) { await SendNotFoundAsync(ct); return; }
         var slugField = PublicDelivery.SlugField(def!);
 
+        /*
+         * Parsed and refused before any SQL is built, and only against fields the type marks
+         * Public. Filtering on a field the caller cannot read is an oracle: the value never appears
+         * in a response, but which entries match reveals it.
+         */
+        // Each repeat is its own filter. StringValues.ToString() joins them with commas, which
+        // turned ?filter[x][eq]=a&filter[x][eq]=b into one filter for the literal "a,b": it matches
+        // nothing, and it lets a caller slip past MaxFilters by repeating a single key.
+        var query = DeliveryQuery.Parse(
+            HttpContext.Request.Query.SelectMany(kv =>
+                kv.Value.Select(v => new KeyValuePair<string, string?>(kv.Key, v))),
+            def);
+
+        if (!query.IsValid)
+        {
+            AddError(query.Error!);
+            await SendErrorsAsync(400, ct);
+            return;
+        }
+
+        /*
+         * Sorting by a field value is not implemented. Marten cannot translate a dictionary indexer
+         * with a runtime key into ORDER BY, so it needs a raw ordering fragment that this does not
+         * have yet. Refusing is deliberate: accepting the parameter and returning the default order
+         * would be a silent wrong answer, and a caller cannot tell "sorted" from "ignored" by
+         * looking at the response.
+         */
+        if (query.Sort is not null)
+        {
+            AddError("Sorting by a field value is not supported yet. Entries are returned newest first.");
+            await SendErrorsAsync(400, ct);
+            return;
+        }
+
         /* Published + document-Public only; the DB filters the rest out. */
         var baseQuery = _session.Query<ContentDoc>()
             .Where(c => c.ContentType == type
                         && c.Status == ContentStatus.Published
                         && c.Sensitivity == SensitivityLevel.Public);
 
+        /*
+         * Applied on top of the published/public predicate, never instead of it, so no filter can
+         * widen what is visible. The integration test asserts that directly: a Draft matching the
+         * filter must still not come back.
+         */
+        foreach (var f in query.Filters)
+        {
+            var (sql, parameters) = DeliveryQuery.ToSql(f);
+            baseQuery = baseQuery.Where(c => c.MatchesSql(sql, parameters));
+        }
+
         var total = await baseQuery.CountAsync(ct);
+
         var page = await baseQuery
             .OrderByDescending(c => c.CreatedAt)
             .Skip(req.Skip)
