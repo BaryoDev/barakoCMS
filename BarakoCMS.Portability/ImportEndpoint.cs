@@ -120,6 +120,6 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
                 }, ct: ct);
             await _session.SaveChangesAsync(ct);
         }
-        await SendAsync(report, cancellation: ct);
+        await Send.ResponseAsync(report, cancellation: ct);
     }
 }

@@ -46,14 +46,14 @@ public class Endpoint : Endpoint<Request, PaginatedResponse<ContentResponse>>
         var userIdClaim = User.FindFirst("System.Security.Claims.ClaimTypes.NameIdentifier") ?? User.FindFirst("UserId");
         if (userIdClaim == null || !Guid.TryParse(userIdClaim.Value, out var userId))
         {
-            await SendUnauthorizedAsync(ct);
+            await Send.UnauthorizedAsync(ct);
             return;
         }
         
         var user = await _session.LoadAsync<barakoCMS.Models.User>(userId, ct);
         if (user == null)
         {
-            await SendUnauthorizedAsync(ct);
+            await Send.UnauthorizedAsync(ct);
             return;
         }
 
@@ -96,7 +96,7 @@ public class Endpoint : Endpoint<Request, PaginatedResponse<ContentResponse>>
                     UpdatedAt = item.UpdatedAt
                 };
                 // Same document- and field-level scrubbing as Get, so lists never leak sensitive data.
-                if (sensitivity.Apply(item.ContentType, item.Sensitivity, response.Data, HttpContext))
+                if (await sensitivity.ApplyAsync(item.ContentType, item.Sensitivity, response.Data, HttpContext, ct))
                     response.ContentType = "HIDDEN";
                 permittedItems.Add(response);
             }
@@ -114,7 +114,7 @@ public class Endpoint : Endpoint<Request, PaginatedResponse<ContentResponse>>
             req.Page, req.PageSize, permittedItems.Count, pagedItems.Count);
 
         // 7. Return Paginated Response
-        await SendAsync(new PaginatedResponse<ContentResponse>
+        await Send.ResponseAsync(new PaginatedResponse<ContentResponse>
         {
             Items = pagedItems,
             Page = req.Page,

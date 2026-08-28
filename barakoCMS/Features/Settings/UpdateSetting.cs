@@ -61,7 +61,7 @@ public class UpdateSettingEndpoint : Endpoint<UpdateSettingRequest, UpdateSettin
 
         await _session.SaveChangesAsync(ct);
 
-        await SendAsync(new UpdateSettingResponse
+        await Send.ResponseAsync(new UpdateSettingResponse
         {
             Success = true,
             Message = "Setting updated successfully"

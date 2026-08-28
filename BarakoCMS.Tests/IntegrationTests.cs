@@ -34,6 +34,9 @@ public class IntegrationTests
     {
         _factory = factory;
         _client = factory.CreateClient();
+        // Own rate-limit bucket: the auth endpoints allow 5 attempts / 15 min per IP, and every
+        // WebApplicationFactory request otherwise shares one loopback bucket. See TestRemoteIpFilter.
+        _client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, "203.0.113.10");
     }
 
     private string CreateAdminToken()
@@ -77,6 +80,7 @@ public class IntegrationTests
         // 3. Try Create Content (Should Fail - Forbidden)
         // Create separate HttpClient for user to avoid shared state
         var userClient = _factory.CreateClient();
+        userClient.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, "203.0.113.10");
         userClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", userToken);
 
         var contentData = new Dictionary<string, object> { { "Title", "Test Article" }, { "Body", "Hello World" } };

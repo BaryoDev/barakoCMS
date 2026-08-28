@@ -20,10 +20,10 @@ public class StatusEndpoint : EndpointWithoutRequest<StatusResponse>
     {
         if (!Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId))
         {
-            await SendUnauthorizedAsync(ct);
+            await Send.UnauthorizedAsync(ct);
             return;
         }
 
-        await SendAsync(new StatusResponse { Enabled = await _mfa.IsEnabledAsync(userId, ct) }, cancellation: ct);
+        await Send.ResponseAsync(new StatusResponse { Enabled = await _mfa.IsEnabledAsync(userId, ct) }, cancellation: ct);
     }
 }

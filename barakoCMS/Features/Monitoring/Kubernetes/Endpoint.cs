@@ -30,6 +30,6 @@ public class Endpoint : EndpointWithoutRequest<ClusterStatus>
         var status = await _service.GetClusterStatusAsync();
         _logger.LogInformation("Kubernetes status: IsConnected={IsConnected}, Error={Error}", 
             status.IsConnected, status.Error ?? "None");
-        await SendOkAsync(status, ct);
+        await Send.OkAsync(status, ct);
     }
 }

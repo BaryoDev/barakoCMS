@@ -34,12 +34,12 @@ public sealed class WebsitesEndpoint : EndpointWithoutRequest<WebsitesResponse>
     {
         if (!_umami.IsConfigured)
         {
-            await SendOkAsync(new WebsitesResponse { Configured = false }, ct);
+            await Send.OkAsync(new WebsitesResponse { Configured = false }, ct);
             return;
         }
 
         var sites = await _umami.GetWebsitesAsync(ct);
-        await SendOkAsync(new WebsitesResponse
+        await Send.OkAsync(new WebsitesResponse
         {
             Configured = true,
             Websites = sites.Select(w => new WebsiteDto { Id = w.Id, Name = w.Name, Domain = w.Domain }).ToList(),

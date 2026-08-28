@@ -43,7 +43,7 @@ public class Endpoint : Endpoint<Request, PaginatedResponse<Role>>
             .ToListAsync(ct);
 
         // Return paginated response
-        await SendAsync(new PaginatedResponse<Role>
+        await Send.ResponseAsync(new PaginatedResponse<Role>
         {
             Items = roles,
             Page = req.Page,

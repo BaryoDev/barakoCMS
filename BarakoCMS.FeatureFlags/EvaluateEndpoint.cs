@@ -28,6 +28,6 @@ public class EvaluateFlagsEndpoint : EndpointWithoutRequest<Dictionary<string, b
     {
         var email = User.FindFirst("Username")?.Value ?? User.FindFirst(ClaimTypes.Email)?.Value;
         var ctx = new FlagContext(_tenant.Slug, email, email ?? _tenant.Slug);
-        await SendAsync(await _flags.EvaluateAllAsync(ctx, ct), cancellation: ct);
+        await Send.ResponseAsync(await _flags.EvaluateAllAsync(ctx, ct), cancellation: ct);
     }
 }

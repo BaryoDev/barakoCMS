@@ -53,7 +53,7 @@ public class Endpoint : EndpointWithoutRequest<Response>
         var userIdClaim = User.FindFirst("UserId");
         if (userIdClaim == null || !Guid.TryParse(userIdClaim.Value, out var userId))
         {
-            await SendUnauthorizedAsync(ct);
+            await Send.UnauthorizedAsync(ct);
             return;
         }
 
@@ -61,20 +61,20 @@ public class Endpoint : EndpointWithoutRequest<Response>
         if (file is null || file.Length == 0)
         {
             AddError("A file is required.");
-            await SendErrorsAsync(400, ct);
+            await Send.ErrorsAsync(400, ct);
             return;
         }
         if (file.Length > MaxBytes)
         {
             AddError($"File is too large (max {MaxBytes / (1024 * 1024)} MB).");
-            await SendErrorsAsync(400, ct);
+            await Send.ErrorsAsync(400, ct);
             return;
         }
         var contentType = file.ContentType ?? "application/octet-stream";
         if (!Allowed.Any(a => contentType.StartsWith(a, StringComparison.OrdinalIgnoreCase)))
         {
             AddError("Only images and PDF files are allowed.");
-            await SendErrorsAsync(400, ct);
+            await Send.ErrorsAsync(400, ct);
             return;
         }
 
@@ -102,7 +102,7 @@ public class Endpoint : EndpointWithoutRequest<Response>
         _session.Store(record);
         await _session.SaveChangesAsync(ct);
 
-        await SendAsync(new Response
+        await Send.ResponseAsync(new Response
         {
             Id = record.Id,
             FileName = record.FileName,

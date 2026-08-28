@@ -22,6 +22,6 @@ public class TypeCheckEndpoint : EndpointWithoutRequest
     public override async Task HandleAsync(CancellationToken ct)
     {
         var propType = typeof(IDocumentSession).GetProperty("Events")?.PropertyType.FullName;
-        await SendAsync(new { PropertyType = propType });
+        await Send.ResponseAsync(new { PropertyType = propType });
     }
 }

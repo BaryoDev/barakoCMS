@@ -61,27 +61,27 @@ public class Endpoint : Endpoint<Request, Response>
         if (string.IsNullOrWhiteSpace(req.ContentType) || req.Records.Count == 0)
         {
             AddError("ContentType and at least one record are required.");
-            await SendErrorsAsync(400, ct);
+            await Send.ErrorsAsync(400, ct);
             return;
         }
 
         var userIdClaim = User.FindFirst("UserId");
         if (userIdClaim == null || !Guid.TryParse(userIdClaim.Value, out var userId))
         {
-            await SendUnauthorizedAsync(ct);
+            await Send.UnauthorizedAsync(ct);
             return;
         }
 
         var user = await _session.LoadAsync<User>(userId, ct);
         if (user == null)
         {
-            await SendUnauthorizedAsync(ct);
+            await Send.UnauthorizedAsync(ct);
             return;
         }
 
         if (!await _permissions.CanPerformActionAsync(user, req.ContentType, "create", null, ct))
         {
-            await SendForbiddenAsync(ct);
+            await Send.ForbiddenAsync(ct);
             return;
         }
 
@@ -98,7 +98,7 @@ public class Endpoint : Endpoint<Request, Response>
         if (errors.Count > 0 && !req.ContinueOnError)
         {
             // Surface the row-level errors without creating anything.
-            await SendAsync(new Response { Created = 0, Failed = errors.Count, Errors = errors }, 400, ct);
+            await Send.ResponseAsync(new Response { Created = 0, Failed = errors.Count, Errors = errors }, 400, ct);
             return;
         }
 
@@ -129,7 +129,7 @@ public class Endpoint : Endpoint<Request, Response>
         // All content items (and their event streams) commit atomically.
         await _session.SaveChangesAsync(ct);
 
-        await SendAsync(new Response
+        await Send.ResponseAsync(new Response
         {
             Created = valid.Count,
             Failed = errors.Count,

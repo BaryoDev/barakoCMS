@@ -33,7 +33,7 @@ public class Endpoint : Endpoint<Request, Response>
 
         if (user == null)
         {
-            await SendNotFoundAsync(ct);
+            await Send.NotFoundAsync(ct);
             return;
         }
 
@@ -47,7 +47,7 @@ public class Endpoint : Endpoint<Request, Response>
         // Removing a role narrows the user's access — evict cached decisions so it applies now.
         _permissionResolver.InvalidateUserPermissions(req.UserId);
 
-        await SendOkAsync(new Response { Message = "Role removed from user successfully" }, ct);
+        await Send.OkAsync(new Response { Message = "Role removed from user successfully" }, ct);
     }
 }
 

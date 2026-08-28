@@ -39,6 +39,6 @@ public class MyTenantsEndpoint : EndpointWithoutRequest<List<TenantSummary>>
             .OrderBy(t => t.Name)
             .ToList();
 
-        await SendOkAsync(result, ct);
+        await Send.OkAsync(result, ct);
     }
 }

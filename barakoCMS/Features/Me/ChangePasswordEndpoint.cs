@@ -57,14 +57,14 @@ public class ChangePasswordEndpoint : Endpoint<ChangePasswordRequest, ChangePass
     {
         if (!Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId))
         {
-            await SendUnauthorizedAsync(ct);
+            await Send.UnauthorizedAsync(ct);
             return;
         }
 
         var user = await _session.LoadAsync<User>(userId, ct);
         if (user is null)
         {
-            await SendUnauthorizedAsync(ct);
+            await Send.UnauthorizedAsync(ct);
             return;
         }
 
@@ -98,6 +98,6 @@ public class ChangePasswordEndpoint : Endpoint<ChangePasswordRequest, ChangePass
 
         await _session.SaveChangesAsync(ct);
 
-        await SendAsync(new ChangePasswordResponse { Message = "Password changed." });
+        await Send.ResponseAsync(new ChangePasswordResponse { Message = "Password changed." });
     }
 }

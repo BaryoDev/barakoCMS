@@ -36,7 +36,7 @@ public class ApiKeyIntegrationTests
         using var scope = _factory.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
         var role = await session.Query<Role>().FirstOrDefaultAsync(r => r.Name == "SuperAdmin")
-                   ?? new Role { Id = Guid.NewGuid(), Name = "SuperAdmin", Permissions = new() };
+                   ?? new Role { Id = barakoCMS.Data.DataSeeder.SuperAdminRoleId, Name = "SuperAdmin", Permissions = new() };
         session.Store(role);
         var userId = Guid.NewGuid();
         session.Store(new User { Id = userId, Username = $"admin-{userId}", Email = $"admin-{userId}@example.com", RoleIds = new() { role.Id } });

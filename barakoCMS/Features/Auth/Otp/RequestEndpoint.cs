@@ -45,7 +45,7 @@ public class RequestEndpoint : Endpoint<OtpRequest, OtpRequestResponse>
 
         if (string.IsNullOrWhiteSpace(email) || !email.Contains('@'))
         {
-            await SendAsync(ok, cancellation: ct);
+            await Send.ResponseAsync(ok, cancellation: ct);
             return;
         }
 
@@ -55,11 +55,11 @@ public class RequestEndpoint : Endpoint<OtpRequest, OtpRequestResponse>
         if (user == null)
         {
             // Don't reveal non-existence; return the same response without sending.
-            await SendAsync(ok, cancellation: ct);
+            await Send.ResponseAsync(ok, cancellation: ct);
             return;
         }
 
         await _otp.SendCodeAsync(user.Email, DeviceContext.From(HttpContext), ct);
-        await SendAsync(ok, cancellation: ct);
+        await Send.ResponseAsync(ok, cancellation: ct);
     }
 }

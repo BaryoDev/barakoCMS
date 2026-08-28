@@ -16,7 +16,7 @@ public interface ISensitivityService
     /// whole document is hidden from this caller (the caller may blank identifying fields such as the
     /// content type).
     /// </summary>
-    bool Apply(string contentType, SensitivityLevel level, IDictionary<string, object> data, HttpContext httpContext);
+    ValueTask<bool> ApplyAsync(string contentType, SensitivityLevel level, IDictionary<string, object> data, HttpContext httpContext, CancellationToken ct = default);
 
     /// <summary>
     /// Enforces sensitivity on writes: a caller who may not <em>see</em> a field may not
@@ -24,5 +24,5 @@ public interface ISensitivityService
     /// cannot write is reverted to its value in <paramref name="existing"/>; on create
     /// (<paramref name="existing"/> null) it is dropped. So masking cannot be bypassed by writing.
     /// </summary>
-    void ApplyWrite(string contentType, IDictionary<string, object> incoming, IReadOnlyDictionary<string, object>? existing, HttpContext httpContext);
+    ValueTask ApplyWriteAsync(string contentType, IDictionary<string, object> incoming, IReadOnlyDictionary<string, object>? existing, HttpContext httpContext, CancellationToken ct = default);
 }

@@ -41,7 +41,7 @@ public class ResetPasswordEndpoint : Endpoint<ResetPasswordRequest>
         var user = await _session.LoadAsync<User>(req.UserId, ct);
         if (user is null)
         {
-            await SendNotFoundAsync(ct);
+            await Send.NotFoundAsync(ct);
             return;
         }
 
@@ -60,6 +60,6 @@ public class ResetPasswordEndpoint : Endpoint<ResetPasswordRequest>
 
         await _session.SaveChangesAsync(ct);
 
-        await SendOkAsync(ct);
+        await Send.OkAsync(ct);
     }
 }

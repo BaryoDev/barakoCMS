@@ -26,7 +26,7 @@ public class Endpoint : EndpointWithoutRequest<MetaResponse>
 
     public override Task HandleAsync(CancellationToken ct)
     {
-        return SendOkAsync(
+        return Send.OkAsync(
             new MetaResponse
             {
                 Version = ReadVersion(),

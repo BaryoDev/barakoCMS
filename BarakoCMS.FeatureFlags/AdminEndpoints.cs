@@ -40,7 +40,7 @@ public class ListFlagsEndpoint : EndpointWithoutRequest<List<FlagDto>>
     public override async Task HandleAsync(CancellationToken ct)
     {
         var flags = await _session.Query<FeatureFlag>().OrderBy(f => f.Key).ToListAsync(ct);
-        await SendAsync(flags.Select(FlagDto.From).ToList(), cancellation: ct);
+        await Send.ResponseAsync(flags.Select(FlagDto.From).ToList(), cancellation: ct);
     }
 }
 
@@ -69,7 +69,7 @@ public class SaveFlagEndpoint : Endpoint<UpsertFlagRequest, FlagDto>
     public override async Task HandleAsync(UpsertFlagRequest req, CancellationToken ct)
     {
         var key = (req.Key ?? string.Empty).Trim().ToLowerInvariant();
-        if (string.IsNullOrWhiteSpace(key)) { AddError("Key is required."); await SendErrorsAsync(400, ct); return; }
+        if (string.IsNullOrWhiteSpace(key)) { AddError("Key is required."); await Send.ErrorsAsync(400, ct); return; }
 
         var flag = await _session.Query<FeatureFlag>().FirstOrDefaultAsync(f => f.Key == key, ct)
                    ?? new FeatureFlag { Key = key };
@@ -82,7 +82,7 @@ public class SaveFlagEndpoint : Endpoint<UpsertFlagRequest, FlagDto>
 
         _session.Store(flag);
         await _session.SaveChangesAsync(ct);
-        await SendAsync(FlagDto.From(flag), cancellation: ct);
+        await Send.ResponseAsync(FlagDto.From(flag), cancellation: ct);
     }
 
     private static List<string> Clean(List<string>? xs) =>
@@ -107,12 +107,12 @@ public class ToggleFlagEndpoint : Endpoint<KeyRequest, FlagDto>
     {
         var key = (req.Key ?? string.Empty).Trim().ToLowerInvariant();
         var flag = await _session.Query<FeatureFlag>().FirstOrDefaultAsync(f => f.Key == key, ct);
-        if (flag is null) { await SendNotFoundAsync(ct); return; }
+        if (flag is null) { await Send.NotFoundAsync(ct); return; }
         flag.Enabled = !flag.Enabled;
         flag.UpdatedAt = DateTime.UtcNow;
         _session.Store(flag);
         await _session.SaveChangesAsync(ct);
-        await SendAsync(FlagDto.From(flag), cancellation: ct);
+        await Send.ResponseAsync(FlagDto.From(flag), cancellation: ct);
     }
 }
 
@@ -133,6 +133,6 @@ public class DeleteFlagEndpoint : Endpoint<KeyRequest>
         var key = (req.Key ?? string.Empty).Trim().ToLowerInvariant();
         var flag = await _session.Query<FeatureFlag>().FirstOrDefaultAsync(f => f.Key == key, ct);
         if (flag is not null) { _session.Delete(flag); await _session.SaveChangesAsync(ct); }
-        await SendOkAsync(ct);
+        await Send.OkAsync(ct);
     }
 }

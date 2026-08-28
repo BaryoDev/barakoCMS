@@ -54,6 +54,6 @@ public sealed class InstallsEndpoint : EndpointWithoutRequest<List<InstallDto>>
             InstalledAt = p.InstalledAt,
         }).ToList();
 
-        await SendOkAsync(dto, ct);
+        await Send.OkAsync(dto, ct);
     }
 }

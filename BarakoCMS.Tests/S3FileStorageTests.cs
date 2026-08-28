@@ -29,7 +29,7 @@ public class S3FileStorageTests : IAsyncLifetime
     private IAmazonS3 _s3 = null!;
     private S3FileStorage _storage = null!;
 
-    public async Task InitializeAsync()
+    public async ValueTask InitializeAsync()
     {
         await _minio.StartAsync();
         var endpoint = _minio.GetConnectionString();
@@ -50,7 +50,7 @@ public class S3FileStorageTests : IAsyncLifetime
         _storage = new S3FileStorage(_s3, opts);
     }
 
-    public async Task DisposeAsync() => await _minio.DisposeAsync();
+    public async ValueTask DisposeAsync() => await _minio.DisposeAsync();
 
     private static Stream Bytes(string s) => new MemoryStream(Encoding.UTF8.GetBytes(s));
 

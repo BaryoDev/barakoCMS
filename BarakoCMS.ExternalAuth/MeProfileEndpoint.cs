@@ -18,7 +18,7 @@ public class MeProfileEndpoint : EndpointWithoutRequest
     {
         Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId);
         var p = await _session.Query<SocialProfile>().FirstOrDefaultAsync(x => x.UserId == userId, ct);
-        await SendOkAsync(new
+        await Send.OkAsync(new
         {
             name = p?.Name,
             photoUrl = p?.PhotoUrl,

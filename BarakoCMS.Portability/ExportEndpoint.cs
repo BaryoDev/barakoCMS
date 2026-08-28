@@ -48,7 +48,7 @@ public class ExportEndpoint : Endpoint<ExportEndpoint.Req, PortabilityBundle>
             metadata: new() { ["contentTypes"] = types.Count, ["contents"] = contents.Count }, ct: ct);
         await _documentSession.SaveChangesAsync(ct);
 
-        await SendAsync(new PortabilityBundle
+        await Send.ResponseAsync(new PortabilityBundle
         {
             ContentTypes = types,
             Contents = contents.Select(c => new ContentRecord

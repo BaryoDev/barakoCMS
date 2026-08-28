@@ -35,13 +35,13 @@ public class Endpoint : Endpoint<Request, Response>
         var userIdClaim = User.FindFirst("UserId");
         if (userIdClaim == null)
         {
-            await SendAsync(new Response { Message = "User ID claim not found" }, 400, ct);
+            await Send.ResponseAsync(new Response { Message = "User ID claim not found" }, 400, ct);
             return;
         }
 
         if (!Guid.TryParse(userIdClaim.Value, out var userId))
         {
-            await SendAsync(new Response { Message = "Invalid User ID format" }, 400, ct);
+            await Send.ResponseAsync(new Response { Message = "Invalid User ID format" }, 400, ct);
             return;
         }
 
@@ -51,7 +51,7 @@ public class Endpoint : Endpoint<Request, Response>
         var content = await _session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct);
         if (content == null)
         {
-            await SendNotFoundAsync(ct);
+            await Send.NotFoundAsync(ct);
             return;
         }
 
@@ -59,7 +59,7 @@ public class Endpoint : Endpoint<Request, Response>
         // Treating status change as an "Update" action.
         if (user == null || !await _permissionResolver.CanPerformActionAsync(user, content.ContentType, "update", content, ct))
         {
-            await SendForbiddenAsync(ct);
+            await Send.ForbiddenAsync(ct);
             return;
         }
 
@@ -81,7 +81,7 @@ public class Endpoint : Endpoint<Request, Response>
 
         await _session.SaveChangesAsync(ct);
 
-        await SendAsync(new Response
+        await Send.ResponseAsync(new Response
         {
             Message = $"Content status changed to {req.NewStatus}"
         });

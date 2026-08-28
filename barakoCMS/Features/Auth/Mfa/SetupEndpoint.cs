@@ -30,24 +30,24 @@ public class SetupEndpoint : EndpointWithoutRequest<SetupResponse>
     {
         if (!Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId))
         {
-            await SendUnauthorizedAsync(ct);
+            await Send.UnauthorizedAsync(ct);
             return;
         }
 
         if (await _mfa.IsEnabledAsync(userId, ct))
         {
-            await SendAsync(new SetupResponse(), 409, ct);
+            await Send.ResponseAsync(new SetupResponse(), 409, ct);
             return;
         }
 
         var user = await _session.LoadAsync<barakoCMS.Models.User>(userId, ct);
         if (user is null)
         {
-            await SendUnauthorizedAsync(ct);
+            await Send.UnauthorizedAsync(ct);
             return;
         }
 
         var (secret, uri) = await _mfa.BeginSetupAsync(user, ct);
-        await SendAsync(new SetupResponse { Secret = secret, OtpauthUri = uri }, cancellation: ct);
+        await Send.ResponseAsync(new SetupResponse { Secret = secret, OtpauthUri = uri }, cancellation: ct);
     }
 }

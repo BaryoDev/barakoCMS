@@ -16,7 +16,7 @@ public class AuthProvidersEndpoint : EndpointWithoutRequest
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        await SendOkAsync(new
+        await Send.OkAsync(new
         {
             facebook = ExternalAuthSupport.ProviderEnabled(_config, "Facebook", "AppId"),
             google = ExternalAuthSupport.ProviderEnabled(_config, "Google", "ClientId"),

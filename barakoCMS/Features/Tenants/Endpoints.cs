@@ -25,8 +25,8 @@ public class PublicTenantEndpoint : EndpointWithoutRequest<TenantPublicResponse>
     {
         var handle = Route<string>("handle")?.ToLowerInvariant();
         var t = await _session.Query<Tenant>().FirstOrDefaultAsync(x => x.Slug == handle && x.IsActive, ct);
-        if (t is null) { await SendNotFoundAsync(ct); return; }
-        await SendOkAsync(new TenantPublicResponse(
+        if (t is null) { await Send.NotFoundAsync(ct); return; }
+        await Send.OkAsync(new TenantPublicResponse(
             t.Slug, t.Name, t.LogoUrl, t.About, t.Location, t.LocationUrl, t.SocialHandle, t.Email, t.ContactUrl), ct);
     }
 }
@@ -46,7 +46,7 @@ public class ListTenantsEndpoint : EndpointWithoutRequest<List<Tenant>>
     public override async Task HandleAsync(CancellationToken ct)
     {
         var tenants = await _session.Query<Tenant>().ToListAsync(ct);
-        await SendOkAsync(tenants.OrderBy(t => t.Name).ToList(), ct);
+        await Send.OkAsync(tenants.OrderBy(t => t.Name).ToList(), ct);
     }
 }
 
@@ -124,7 +124,7 @@ public class CreateTenantEndpoint : Endpoint<TenantWriteRequest, Tenant>
         }
 
         await _session.SaveChangesAsync(ct);
-        await SendOkAsync(tenant, ct);
+        await Send.OkAsync(tenant, ct);
     }
 }
 
@@ -144,7 +144,7 @@ public class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, Tenant>
     {
         var handle = Route<string>("handle")?.ToLowerInvariant();
         var tenant = await _session.Query<Tenant>().FirstOrDefaultAsync(x => x.Slug == handle, ct);
-        if (tenant is null) { await SendNotFoundAsync(ct); return; }
+        if (tenant is null) { await Send.NotFoundAsync(ct); return; }
 
         if (!string.IsNullOrWhiteSpace(req.ContactUrl) && !TenantHandles.IsValidAbsoluteUrl(req.ContactUrl))
         { AddError(r => r.ContactUrl, "Must be a full http(s) URL."); }
@@ -163,6 +163,6 @@ public class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, Tenant>
         tenant.IsActive = req.IsActive;
         _session.Store(tenant);
         await _session.SaveChangesAsync(ct);
-        await SendOkAsync(tenant, ct);
+        await Send.OkAsync(tenant, ct);
     }
 }

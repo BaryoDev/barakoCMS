@@ -66,6 +66,6 @@ public class Endpoint : Endpoint<Request, Response>
         _repo.Store(user);
         await _repo.SaveChangesAsync(ct);
 
-        await SendAsync(new Response { Message = "User registered successfully" });
+        await Send.ResponseAsync(new Response { Message = "User registered successfully" });
     }
 }

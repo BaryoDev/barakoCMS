@@ -42,14 +42,14 @@ public class Endpoint : Endpoint<Request, Response>
             // If we want to support public read, we need a separate mechanism or a "Guest" user.
             // Current strict requirement: Enforce Permissions.
             // If no user -> 401 Unauthorized
-            await SendUnauthorizedAsync(ct);
+            await Send.UnauthorizedAsync(ct);
             return;
         }
 
         var content = await _session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct);
         if (content == null)
         {
-            await SendNotFoundAsync(ct);
+            await Send.NotFoundAsync(ct);
             return;
         }
 
@@ -57,7 +57,7 @@ public class Endpoint : Endpoint<Request, Response>
         if (user == null || !await _permissionResolver.CanPerformActionAsync(user, content.ContentType, "read", content, ct))
         {
             // 403 Forbidden
-            await SendForbiddenAsync(ct);
+            await Send.ForbiddenAsync(ct);
             return;
         }
 
@@ -77,7 +77,7 @@ public class Endpoint : Endpoint<Request, Response>
         };
 
         var sensitivityService = Resolve<barakoCMS.Core.Interfaces.ISensitivityService>();
-        if (sensitivityService.Apply(Response.ContentType, Response.Sensitivity, Response.Data, HttpContext))
+        if (await sensitivityService.ApplyAsync(Response.ContentType, Response.Sensitivity, Response.Data, HttpContext, ct))
             Response.ContentType = "HIDDEN";
     }
 }

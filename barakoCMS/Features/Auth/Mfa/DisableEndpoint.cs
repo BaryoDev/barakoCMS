@@ -33,7 +33,7 @@ public class DisableEndpoint : Endpoint<CodeRequest, MessageResponse>
     {
         if (!Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId))
         {
-            await SendUnauthorizedAsync(ct);
+            await Send.UnauthorizedAsync(ct);
             return;
         }
 
@@ -47,6 +47,6 @@ public class DisableEndpoint : Endpoint<CodeRequest, MessageResponse>
             User.FindFirst("Username")?.Value, ct: ct);
         await _session.SaveChangesAsync(ct);
 
-        await SendAsync(new MessageResponse { Message = "Two-factor authentication is off." });
+        await Send.ResponseAsync(new MessageResponse { Message = "Two-factor authentication is off." });
     }
 }

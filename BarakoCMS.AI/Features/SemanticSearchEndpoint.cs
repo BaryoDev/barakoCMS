@@ -45,12 +45,12 @@ public class SemanticSearchEndpoint : EndpointWithoutRequest<SemanticResponse>
         // opt-in. Checked before anything else: embedding an unserviceable query would still spend a
         // model call, which makes an ungated endpoint a free compute endpoint as well as a leak.
         var def = await _session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
-        if (def is not { IsPubliclyDeliverable: true }) { await SendNotFoundAsync(ct); return; }
+        if (def is not { IsPubliclyDeliverable: true }) { await Send.NotFoundAsync(ct); return; }
 
-        if (q.Length < 2 || !_embed.IsConfigured) { await SendOkAsync(empty, ct); return; }
+        if (q.Length < 2 || !_embed.IsConfigured) { await Send.OkAsync(empty, ct); return; }
 
         var queryVector = await _embed.EmbedAsync(q, ct);
-        if (queryVector is null) { await SendOkAsync(empty, ct); return; }
+        if (queryVector is null) { await Send.OkAsync(empty, ct); return; }
 
         var embeddings = await _session.Query<ContentEmbedding>()
             .Where(e => e.ContentType == type)
@@ -74,6 +74,6 @@ public class SemanticSearchEndpoint : EndpointWithoutRequest<SemanticResponse>
         }
 
         HttpContext.Response.Headers.CacheControl = "public, max-age=60";
-        await SendOkAsync(new SemanticResponse(results, results.Count, q), ct);
+        await Send.OkAsync(new SemanticResponse(results, results.Count, q), ct);
     }
 }

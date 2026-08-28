@@ -32,7 +32,7 @@ public class Endpoint : Endpoint<Request>
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
         var file = await _session.LoadAsync<StoredFile>(req.Id, ct);
-        if (file is null) { await SendNotFoundAsync(ct); return; }
+        if (file is null) { await Send.NotFoundAsync(ct); return; }
 
         if (!string.IsNullOrEmpty(file.PublicUrl))
         {
@@ -42,8 +42,8 @@ public class Endpoint : Endpoint<Request>
         }
 
         var bytes = await _storage.GetAsync(file.StorageKey, ct);
-        if (bytes is null) { await SendNotFoundAsync(ct); return; }
+        if (bytes is null) { await Send.NotFoundAsync(ct); return; }
 
-        await SendBytesAsync(bytes, file.FileName, file.ContentType, cancellation: ct);
+        await Send.BytesAsync(bytes, file.FileName, file.ContentType, cancellation: ct);
     }
 }

@@ -32,13 +32,13 @@ public class Endpoint : Endpoint<Request, Response>
         var userIdClaim = User.FindFirst("UserId");
         if (userIdClaim == null)
         {
-            await SendAsync(new Response { Message = "User ID claim not found" }, 400, ct);
+            await Send.ResponseAsync(new Response { Message = "User ID claim not found" }, 400, ct);
             return;
         }
 
         if (!Guid.TryParse(userIdClaim.Value, out var userId))
         {
-            await SendAsync(new Response { Message = "Invalid User ID format" }, 400, ct);
+            await Send.ResponseAsync(new Response { Message = "Invalid User ID format" }, 400, ct);
             return;
         }
 
@@ -46,26 +46,26 @@ public class Endpoint : Endpoint<Request, Response>
         var user = await _session.LoadAsync<User>(userId, ct);
         if (user == null)
         {
-            await SendAsync(new Response { Message = "User not found" }, 401, ct);
+            await Send.ResponseAsync(new Response { Message = "User not found" }, 401, ct);
             return;
         }
 
         if (!await _permissionResolver.CanPerformActionAsync(user, req.ContentType, "create", null, ct))
         {
-            await SendForbiddenAsync(ct);
+            await Send.ForbiddenAsync(ct);
             return;
         }
 
         // WRITE-PATH SENSITIVITY: drop any sensitive fields this caller may not see, so they cannot
         // inject values into fields that would be masked from them on read.
-        Resolve<barakoCMS.Core.Interfaces.ISensitivityService>()
-            .ApplyWrite(req.ContentType, req.Data, existing: null, HttpContext);
+        await Resolve<barakoCMS.Core.Interfaces.ISensitivityService>()
+            .ApplyWriteAsync(req.ContentType, req.Data, existing: null, HttpContext, ct);
 
         // DYNAMIC VALIDATION
         var validationResult = await _validator.ValidateAsync(req.ContentType, req.Data);
         if (!validationResult.IsValid)
         {
-            await SendAsync(new Response { Message = "Validation Failed: " + string.Join(", ", validationResult.Errors) }, 400, ct);
+            await Send.ResponseAsync(new Response { Message = "Validation Failed: " + string.Join(", ", validationResult.Errors) }, 400, ct);
             return;
         }
 
@@ -77,7 +77,7 @@ public class Endpoint : Endpoint<Request, Response>
             .RunBeforeSaveAsync(req.ContentType, req.Data, existing: null, userId, ct);
         if (hookErrors.Count > 0)
         {
-            await SendAsync(new Response { Message = "Validation Failed: " + string.Join(", ", hookErrors) }, 400, ct);
+            await Send.ResponseAsync(new Response { Message = "Validation Failed: " + string.Join(", ", hookErrors) }, 400, ct);
             return;
         }
 
@@ -107,7 +107,7 @@ public class Endpoint : Endpoint<Request, Response>
         // committed ContentCreated event — deliberately NOT awaited here, so a slow or failing
         // workflow action can never block or fail the content save.
 
-        await SendAsync(new Response
+        await Send.ResponseAsync(new Response
         {
             Id = contentId,
             Version = 1,

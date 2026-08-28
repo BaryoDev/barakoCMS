@@ -19,9 +19,9 @@ public class EventRegistrationTests
     private readonly IntegrationTestFixture _fixture;
     private readonly HttpClient _client;
 
-    private readonly Xunit.Abstractions.ITestOutputHelper _output;
+    private readonly ITestOutputHelper _output;
 
-    public EventRegistrationTests(IntegrationTestFixture fixture, Xunit.Abstractions.ITestOutputHelper output)
+    public EventRegistrationTests(IntegrationTestFixture fixture, ITestOutputHelper output)
     {
         _fixture = fixture;
         _output = output;

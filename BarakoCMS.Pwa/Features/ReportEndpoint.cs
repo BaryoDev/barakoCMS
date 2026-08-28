@@ -46,7 +46,7 @@ public sealed class ReportEndpoint : Endpoint<ReportRequest>
     {
         if (string.IsNullOrWhiteSpace(req.DeviceId))
         {
-            await SendResultAsync(Microsoft.AspNetCore.Http.Results.BadRequest("DeviceId is required."));
+            await Send.ResultAsync(Microsoft.AspNetCore.Http.Results.BadRequest("DeviceId is required."));
             return;
         }
 
@@ -97,7 +97,7 @@ public sealed class ReportEndpoint : Endpoint<ReportRequest>
         }
 
         await _session.SaveChangesAsync(ct);
-        await SendNoContentAsync(ct);
+        await Send.NoContentAsync(ct);
     }
 
     private static string Trunc(string s) => string.IsNullOrEmpty(s) ? s : (s.Length > 400 ? s[..400] : s);

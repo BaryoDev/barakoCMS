@@ -36,6 +36,6 @@ public sealed class EmailEventsEndpoint : Endpoint<EmailEventsEndpoint.Request, 
             q = q.Where(e => e.Type == req.Type);
 
         var events = await q.OrderByDescending(e => e.At).Take(limit).ToListAsync(ct);
-        await SendOkAsync(events.ToList(), ct);
+        await Send.OkAsync(events.ToList(), ct);
     }
 }

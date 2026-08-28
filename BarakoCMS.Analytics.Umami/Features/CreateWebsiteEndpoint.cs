@@ -47,12 +47,12 @@ public sealed class CreateWebsiteEndpoint : Endpoint<CreateWebsiteRequest, Creat
         if (!_umami.IsConfigured)
         {
             AddError("Umami is not configured on the server.");
-            await SendErrorsAsync(502, ct);
+            await Send.ErrorsAsync(502, ct);
             return;
         }
 
         var site = await _umami.CreateWebsiteAsync(req.Name.Trim(), req.Domain.Trim(), ct);
-        await SendOkAsync(new CreateWebsiteResponse
+        await Send.OkAsync(new CreateWebsiteResponse
         {
             Id = site.Id,
             Name = site.Name,

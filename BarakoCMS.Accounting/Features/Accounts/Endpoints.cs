@@ -37,7 +37,7 @@ public class CreateAccountEndpoint : Endpoint<CreateAccountEndpoint.Request, Cre
         if (string.IsNullOrWhiteSpace(req.Code) || string.IsNullOrWhiteSpace(req.Name))
         {
             AddError("Code and Name are required.");
-            await SendErrorsAsync(400, ct);
+            await Send.ErrorsAsync(400, ct);
             return;
         }
 
@@ -47,7 +47,7 @@ public class CreateAccountEndpoint : Endpoint<CreateAccountEndpoint.Request, Cre
         var chart = await AccountingContentReader.AccountsAsync(_session, ct);
         if (chart.Any(a => string.Equals(a.Code, req.Code, StringComparison.OrdinalIgnoreCase)))
         {
-            await SendAsync(new Result { Code = req.Code, Created = false }, cancellation: ct);
+            await Send.ResponseAsync(new Result { Code = req.Code, Created = false }, cancellation: ct);
             return;
         }
 
@@ -70,7 +70,7 @@ public class CreateAccountEndpoint : Endpoint<CreateAccountEndpoint.Request, Cre
         });
         await _session.SaveChangesAsync(ct);
 
-        await SendAsync(new Result { Code = req.Code, Created = true }, 201, ct);
+        await Send.ResponseAsync(new Result { Code = req.Code, Created = true }, 201, ct);
     }
 }
 
@@ -89,6 +89,6 @@ public class ListAccountsEndpoint : EndpointWithoutRequest<IReadOnlyList<Account
     public override async Task HandleAsync(CancellationToken ct)
     {
         var accounts = await AccountingContentReader.AccountsAsync(_session, ct);
-        await SendAsync(accounts.OrderBy(a => a.Code).ToList(), cancellation: ct);
+        await Send.ResponseAsync(accounts.OrderBy(a => a.Code).ToList(), cancellation: ct);
     }
 }

@@ -62,7 +62,7 @@ public class SwitchTenantEndpoint : Endpoint<SwitchTenantRequest, SwitchTenantRe
         var user = await _session.Query<User>().FirstOrDefaultAsync(u => u.Id == userId, ct);
         if (user is null)
         {
-            await SendUnauthorizedAsync(ct);
+            await Send.UnauthorizedAsync(ct);
             return;
         }
 
@@ -99,7 +99,7 @@ public class SwitchTenantEndpoint : Endpoint<SwitchTenantRequest, SwitchTenantRe
         });
         await _session.SaveChangesAsync(ct);
 
-        await SendAsync(new SwitchTenantResponse
+        await Send.ResponseAsync(new SwitchTenantResponse
         {
             Token = jwtToken,
             Expiry = accessTokenExpiry,

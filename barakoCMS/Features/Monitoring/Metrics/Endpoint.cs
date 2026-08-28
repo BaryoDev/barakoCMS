@@ -25,6 +25,6 @@ public class Endpoint : EndpointWithoutRequest<MetricsSummary>
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        await SendOkAsync(_metricsService.GetSummary(), ct);
+        await Send.OkAsync(_metricsService.GetSummary(), ct);
     }
 }

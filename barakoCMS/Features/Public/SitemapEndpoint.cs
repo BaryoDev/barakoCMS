@@ -46,7 +46,7 @@ public class SitemapEndpoint : EndpointWithoutRequest
         if (string.IsNullOrWhiteSpace(siteUrl)
             || !Uri.TryCreate(siteUrl, UriKind.Absolute, out _))
         {
-            await SendErrorsAsync(500, ct);
+            await Send.ErrorsAsync(500, ct);
             return;
         }
 
@@ -93,7 +93,7 @@ public class SitemapEndpoint : EndpointWithoutRequest
         sb.Append("</urlset>\n");
 
         PublicDelivery.SetCache(HttpContext);
-        await SendStringAsync(
+        await Send.StringAsync(
             sb.ToString(),
             200,
             "application/xml; charset=utf-8",

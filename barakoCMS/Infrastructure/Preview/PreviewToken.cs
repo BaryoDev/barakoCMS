@@ -32,13 +32,13 @@ public static class PreviewToken
         IConfiguration config, string tenant, string type, string slug, Guid entryId, TimeSpan? lifetime = null)
     {
         var expiresAt = DateTime.UtcNow.Add(lifetime ?? DefaultLifetime);
-        var token = JWTBearer.CreateToken(
-            signingKey: config["JWT:Key"]!,
-            expireAt: expiresAt,
-            issuer: config["JWT:Issuer"],
-            audience: Audience(config),
-            privileges: u =>
-            {
+        var token = JwtBearer.CreateToken(o =>
+        {
+            o.SigningKey = config["JWT:Key"]!;
+            o.ExpireAt = expiresAt;
+            o.Issuer = config["JWT:Issuer"];
+            o.Audience = Audience(config);
+            var u = o.User;
                 u.Claims.Add(new(PurposeClaim, PurposeValue));
                 u.Claims.Add(new(TenantClaim, tenant));
                 u.Claims.Add(new(TypeClaim, type));

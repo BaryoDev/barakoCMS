@@ -85,7 +85,7 @@ public class Endpoint : Endpoint<ListRequest, PaginatedResponse<ClientErrorDto>>
             .Skip(req.Skip).Take(req.Take)
             .ToListAsync(ct);
 
-        await SendAsync(new PaginatedResponse<ClientErrorDto>
+        await Send.ResponseAsync(new PaginatedResponse<ClientErrorDto>
         {
             Items = items.Select(ClientErrorDto.From).ToList(),
             Page = req.Page,

@@ -32,14 +32,14 @@ public class CreateWorkflowEndpoint : Endpoint<WorkflowDefinition, WorkflowDefin
             {
                 AddError($"{error.Field}: {error.Message}");
             }
-            await SendErrorsAsync(cancellation: ct);
+            await Send.ErrorsAsync(cancellation: ct);
             return;
         }
 
         req.Id = Guid.NewGuid();
         _session.Store(req);
         await _session.SaveChangesAsync(ct);
-        await SendAsync(req, cancellation: ct);
+        await Send.ResponseAsync(req, cancellation: ct);
     }
 }
 
@@ -61,6 +61,6 @@ public class ListWorkflowsEndpoint : EndpointWithoutRequest<List<WorkflowDefinit
     public override async Task HandleAsync(CancellationToken ct)
     {
         var workflows = await _session.Query<WorkflowDefinition>().ToListAsync(ct);
-        await SendAsync(workflows.ToList(), cancellation: ct);
+        await Send.ResponseAsync(workflows.ToList(), cancellation: ct);
     }
 }

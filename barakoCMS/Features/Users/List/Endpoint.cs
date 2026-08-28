@@ -53,7 +53,7 @@ public class Endpoint : Endpoint<Request, PaginatedResponse<UserResponse>>
             CreatedAt = u.CreatedAt
         }).ToList();
 
-        await SendAsync(new PaginatedResponse<UserResponse>
+        await Send.ResponseAsync(new PaginatedResponse<UserResponse>
         {
             Items = response,
             Page = req.Page,

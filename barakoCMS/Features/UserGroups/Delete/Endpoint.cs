@@ -28,7 +28,7 @@ public class Endpoint : Endpoint<Request, Response>
 
         if (group == null)
         {
-            await SendNotFoundAsync(ct);
+            await Send.NotFoundAsync(ct);
             return;
         }
 
@@ -38,7 +38,7 @@ public class Endpoint : Endpoint<Request, Response>
 
         if (usersInGroup)
         {
-            await SendAsync(new Response
+            await Send.ResponseAsync(new Response
             {
                 Message = "Cannot delete user group: it still has members. Remove all users from the group first."
             }, 409, ct);
@@ -51,7 +51,7 @@ public class Endpoint : Endpoint<Request, Response>
             targetType: "UserGroup", targetId: group.Id.ToString(), metadata: new() { ["name"] = group.Name }, ct: ct);
         await _session.SaveChangesAsync(ct);
 
-        await SendOkAsync(new Response { Message = "User group deleted successfully" }, ct);
+        await Send.OkAsync(new Response { Message = "User group deleted successfully" }, ct);
     }
 }
 

@@ -27,7 +27,7 @@ public class Endpoint : Endpoint<Request, Response>
 
         if (role == null)
         {
-            await SendNotFoundAsync(ct);
+            await Send.NotFoundAsync(ct);
             return;
         }
 
@@ -43,7 +43,7 @@ public class Endpoint : Endpoint<Request, Response>
         // Permissions changed — evict cached decisions so the new rules take effect immediately.
         _permissionResolver.InvalidateAllPermissions();
 
-        await SendOkAsync(new Response
+        await Send.OkAsync(new Response
         {
             Message = "Role updated successfully"
         }, ct);

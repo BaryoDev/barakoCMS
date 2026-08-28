@@ -37,12 +37,12 @@ public class IndexEndpoint : EndpointWithoutRequest<IndexResponse>
 
         if (!_embed.IsConfigured)
         {
-            await SendAsync(new IndexResponse(type, 0, 0), 503, ct);
+            await Send.ResponseAsync(new IndexResponse(type, 0, 0), 503, ct);
             return;
         }
 
         var def = await _session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
-        if (def is null) { await SendNotFoundAsync(ct); return; }
+        if (def is null) { await Send.NotFoundAsync(ct); return; }
 
         var items = await _session.Query<Content>()
             .Where(c => c.ContentType == type
@@ -70,6 +70,6 @@ public class IndexEndpoint : EndpointWithoutRequest<IndexResponse>
         }
 
         await _session.SaveChangesAsync(ct);
-        await SendOkAsync(new IndexResponse(type, indexed, skipped), ct);
+        await Send.OkAsync(new IndexResponse(type, indexed, skipped), ct);
     }
 }

@@ -48,7 +48,7 @@ public class Endpoint : Endpoint<Request, Response>
         var (isValid, errors) = _validator.Validate(req.Name, req.DisplayName, req.Fields);
         if (!isValid)
         {
-            await SendAsync(new Response { Errors = errors }, 400, ct);
+            await Send.ResponseAsync(new Response { Errors = errors }, 400, ct);
             return;
         }
 
@@ -80,6 +80,6 @@ public class Endpoint : Endpoint<Request, Response>
         _session.Store(def);
         await _session.SaveChangesAsync(ct);
 
-        await SendOkAsync(new Response { Id = def.Id, Name = def.Name }, ct);
+        await Send.OkAsync(new Response { Id = def.Id, Name = def.Name }, ct);
     }
 }

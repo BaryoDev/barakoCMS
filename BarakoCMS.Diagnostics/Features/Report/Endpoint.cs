@@ -57,6 +57,6 @@ public class Endpoint : Endpoint<ReportRequest>
         }
 
         await _session.SaveChangesAsync(ct);
-        await SendOkAsync(ct);
+        await Send.OkAsync(ct);
     }
 }

@@ -37,7 +37,7 @@ public sealed class StatusEndpoint : Endpoint<AnalyticsWindowRequest, SiteStatus
         var summary = await _umami.GetSummaryAsync(req.WebsiteId, 0, endAt, ct);
         var active = await _umami.GetActiveAsync(req.WebsiteId, ct);
 
-        await SendOkAsync(new SiteStatusResponse
+        await Send.OkAsync(new SiteStatusResponse
         {
             Pageviews = summary.Pageviews.Value,
             ActiveNow = active,

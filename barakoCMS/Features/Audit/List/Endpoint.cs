@@ -83,7 +83,7 @@ public class Endpoint : Endpoint<ListRequest, PaginatedResponse<AuditEventDto>>
             .Skip(req.Skip).Take(req.Take)
             .ToListAsync(ct);
 
-        await SendAsync(new PaginatedResponse<AuditEventDto>
+        await Send.ResponseAsync(new PaginatedResponse<AuditEventDto>
         {
             Items = items.Select(AuditEventDto.From).ToList(),
             Page = req.Page,

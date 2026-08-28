@@ -31,7 +31,7 @@ public class FilesEndpointTests
         using var scope = _factory.Services.CreateScope();
         var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
         var role = await s.Query<Role>().FirstOrDefaultAsync(r => r.Name == "SuperAdmin")
-                   ?? new Role { Id = Guid.NewGuid(), Name = "SuperAdmin", Permissions = new() };
+                   ?? new Role { Id = barakoCMS.Data.DataSeeder.SuperAdminRoleId, Name = "SuperAdmin", Permissions = new() };
         s.Store(role);
         var userId = Guid.NewGuid();
         s.Store(new User { Id = userId, Username = $"admin-{userId}", Email = $"admin-{userId}@example.com", RoleIds = new() { role.Id } });

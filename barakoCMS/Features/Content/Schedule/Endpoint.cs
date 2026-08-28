@@ -37,7 +37,7 @@ public class Endpoint : Endpoint<Request, Response>
         var userIdClaim = User.FindFirst("UserId");
         if (userIdClaim == null || !Guid.TryParse(userIdClaim.Value, out var userId))
         {
-            await SendAsync(new Response { Message = "Invalid or missing User ID claim" }, 400, ct);
+            await Send.ResponseAsync(new Response { Message = "Invalid or missing User ID claim" }, 400, ct);
             return;
         }
 
@@ -45,13 +45,13 @@ public class Endpoint : Endpoint<Request, Response>
         var content = await _session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct);
         if (content == null)
         {
-            await SendNotFoundAsync(ct);
+            await Send.NotFoundAsync(ct);
             return;
         }
 
         if (user == null || !await _permissionResolver.CanPerformActionAsync(user, content.ContentType, "update", content, ct))
         {
-            await SendForbiddenAsync(ct);
+            await Send.ForbiddenAsync(ct);
             return;
         }
 
@@ -60,7 +60,7 @@ public class Endpoint : Endpoint<Request, Response>
             new barakoCMS.Events.ContentScheduled(content.Id, req.ScheduledPublishAt, req.ScheduledUnpublishAt, userId));
         await _session.SaveChangesAsync(ct);
 
-        await SendAsync(new Response
+        await Send.ResponseAsync(new Response
         {
             Message = "Schedule updated",
             ScheduledPublishAt = content.ScheduledPublishAt,

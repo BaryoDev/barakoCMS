@@ -51,7 +51,7 @@ public class Endpoint : Endpoint<Request, WorkflowValidationResult>
             };
 
             var result = _validator.Validate(workflow);
-            await SendAsync(result, cancellation: ct);
+            await Send.ResponseAsync(result, cancellation: ct);
         }
         catch (OperationCanceledException)
         {
@@ -61,7 +61,7 @@ public class Endpoint : Endpoint<Request, WorkflowValidationResult>
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error validating workflow");
-            await SendErrorsAsync(cancellation: ct);
+            await Send.ErrorsAsync(cancellation: ct);
         }
     }
 }

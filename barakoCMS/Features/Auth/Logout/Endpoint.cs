@@ -40,7 +40,7 @@ public class Endpoint : EndpointWithoutRequest<Response>
         if (jtiClaim == null || userIdClaim == null || !Guid.TryParse(userIdClaim.Value, out var userId))
         {
             _logger.LogWarning("Logout attempt with invalid token claims");
-            await SendUnauthorizedAsync(ct);
+            await Send.UnauthorizedAsync(ct);
             return;
         }
 
@@ -68,7 +68,7 @@ public class Endpoint : EndpointWithoutRequest<Response>
 
         _logger.LogInformation("User logged out: UserId={UserId}", userId);
 
-        await SendAsync(new Response
+        await Send.ResponseAsync(new Response
         {
             Message = "Successfully logged out"
         });

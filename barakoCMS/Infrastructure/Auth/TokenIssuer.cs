@@ -51,13 +51,13 @@ public sealed class TokenIssuer : ITokenIssuer
         var jti = Guid.NewGuid().ToString();
         var expiresAt = DateTime.UtcNow.AddMinutes(15);
 
-        var token = JWTBearer.CreateToken(
-            signingKey: _config["JWT:Key"]!,
-            expireAt: expiresAt,
-            issuer: _config["JWT:Issuer"],
-            audience: _config["JWT:Audience"],
-            privileges: u =>
-            {
+        var token = JwtBearer.CreateToken(o =>
+        {
+            o.SigningKey = _config["JWT:Key"]!;
+            o.ExpireAt = expiresAt;
+            o.Issuer = _config["JWT:Issuer"];
+            o.Audience = _config["JWT:Audience"];
+            var u = o.User;
                 u.Claims.Add(new(JwtRegisteredClaimNames.Jti, jti));
                 u.Claims.Add(new("UserId", user.Id.ToString()));
                 u.Claims.Add(new("Username", user.Username));

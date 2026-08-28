@@ -25,9 +25,9 @@ public sealed class Endpoint : Endpoint<Request>
         var revoked = await _devices.RevokeAsync(userId, req.Id, ct);
         if (!revoked)
         {
-            await SendNotFoundAsync(ct);
+            await Send.NotFoundAsync(ct);
             return;
         }
-        await SendOkAsync(ct);
+        await Send.OkAsync(ct);
     }
 }

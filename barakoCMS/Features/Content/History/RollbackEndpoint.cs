@@ -36,14 +36,14 @@ public class RollbackEndpoint : Endpoint<RollbackRequest, barakoCMS.Models.Conte
         if (userIdClaim == null)
         {
             AddError("User ID claim not found");
-            await SendErrorsAsync(400, ct);
+            await Send.ErrorsAsync(400, ct);
             return;
         }
 
         if (!Guid.TryParse(userIdClaim.Value, out var userId))
         {
             AddError("Invalid User ID format");
-            await SendErrorsAsync(400, ct);
+            await Send.ErrorsAsync(400, ct);
             return;
         }
 
@@ -55,7 +55,7 @@ public class RollbackEndpoint : Endpoint<RollbackRequest, barakoCMS.Models.Conte
 
         if (targetEvent == null)
         {
-            await SendNotFoundAsync(ct);
+            await Send.NotFoundAsync(ct);
             return;
         }
 
@@ -73,7 +73,7 @@ public class RollbackEndpoint : Endpoint<RollbackRequest, barakoCMS.Models.Conte
         else
         {
             AddError("Cannot rollback to this version type.");
-            await SendErrorsAsync(cancellation: ct);
+            await Send.ErrorsAsync(cancellation: ct);
             return;
         }
 
@@ -82,7 +82,7 @@ public class RollbackEndpoint : Endpoint<RollbackRequest, barakoCMS.Models.Conte
         if (content == null)
         {
             AddError("Content not found");
-            await SendErrorsAsync(cancellation: ct);
+            await Send.ErrorsAsync(cancellation: ct);
             return;
         }
 
@@ -113,6 +113,6 @@ public class RollbackEndpoint : Endpoint<RollbackRequest, barakoCMS.Models.Conte
         await _session.SaveChangesAsync(ct);
 
         // 8. Return the new state
-        await SendAsync(content, cancellation: ct);
+        await Send.ResponseAsync(content, cancellation: ct);
     }
 }

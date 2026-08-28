@@ -32,7 +32,7 @@ public class Endpoint : Endpoint<Request, Response>
         _session.Store(userGroup);
         await _session.SaveChangesAsync(ct);
 
-        await SendOkAsync(new Response
+        await Send.OkAsync(new Response
         {
             Id = userGroup.Id,
             Message = "User group created successfully"

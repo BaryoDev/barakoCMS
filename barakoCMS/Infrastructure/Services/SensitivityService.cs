@@ -25,7 +25,7 @@ public class SensitivityService : ISensitivityService
             : SensitivityMode.SensitiveOnly;
     }
 
-    public bool Apply(string contentType, SensitivityLevel level, IDictionary<string, object> data, HttpContext httpContext)
+    public async ValueTask<bool> ApplyAsync(string contentType, SensitivityLevel level, IDictionary<string, object> data, HttpContext httpContext, CancellationToken ct = default)
     {
         if (_mode == SensitivityMode.Off)
             return false;
@@ -47,7 +47,7 @@ public class SensitivityService : ISensitivityService
         }
 
         // 2. Field-level, from the content type's schema.
-        var definition = LoadDefinition(contentType);
+        var definition = await LoadDefinitionAsync(contentType, ct);
         if (definition != null)
         {
             foreach (var field in definition.Fields)
@@ -63,7 +63,7 @@ public class SensitivityService : ISensitivityService
         return false;
     }
 
-    public void ApplyWrite(string contentType, IDictionary<string, object> incoming, IReadOnlyDictionary<string, object>? existing, HttpContext httpContext)
+    public async ValueTask ApplyWriteAsync(string contentType, IDictionary<string, object> incoming, IReadOnlyDictionary<string, object>? existing, HttpContext httpContext, CancellationToken ct = default)
     {
         if (_mode == SensitivityMode.Off)
             return;
@@ -72,7 +72,7 @@ public class SensitivityService : ISensitivityService
         if (user.IsInRole("SuperAdmin"))
             return;
 
-        var definition = LoadDefinition(contentType);
+        var definition = await LoadDefinitionAsync(contentType, ct);
         if (definition == null)
             return;
 
@@ -100,11 +100,13 @@ public class SensitivityService : ISensitivityService
         return RoleAllowed(user, allowed);
     }
 
-    private ContentTypeDefinition? LoadDefinition(string contentType)
+    private async ValueTask<ContentTypeDefinition?> LoadDefinitionAsync(string contentType, CancellationToken ct)
     {
         if (_schemaCache.TryGetValue(contentType, out var cached))
             return cached;
-        var def = _session.Query<ContentTypeDefinition>().FirstOrDefault(d => d.Name == contentType);
+        // Marten 9 removed synchronous LINQ execution; this was the last sync query.
+        var def = await _session.Query<ContentTypeDefinition>()
+            .FirstOrDefaultAsync(d => d.Name == contentType, ct);
         _schemaCache[contentType] = def;
         return def;
     }

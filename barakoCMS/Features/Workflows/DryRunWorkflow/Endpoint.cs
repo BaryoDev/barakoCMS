@@ -104,12 +104,12 @@ public class Endpoint : Endpoint<Request, Response>
                     : "Dry-run completed with errors."
             };
 
-            await SendAsync(response, cancellation: ct);
+            await Send.ResponseAsync(response, cancellation: ct);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error during workflow dry-run");
-            await SendAsync(new Response
+            await Send.ResponseAsync(new Response
             {
                 Success = false,
                 Message = $"Dry-run failed: {ex.Message}",

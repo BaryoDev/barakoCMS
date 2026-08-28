@@ -25,10 +25,10 @@ public class Endpoint : Endpoint<Request, Role>
 
         if (role == null)
         {
-            await SendNotFoundAsync(ct);
+            await Send.NotFoundAsync(ct);
             return;
         }
 
-        await SendOkAsync(role, ct);
+        await Send.OkAsync(role, ct);
     }
 }

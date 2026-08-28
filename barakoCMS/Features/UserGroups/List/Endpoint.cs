@@ -22,6 +22,6 @@ public class Endpoint : EndpointWithoutRequest<List<UserGroup>>
     public override async Task HandleAsync(CancellationToken ct)
     {
         var groups = await _session.Query<UserGroup>().ToListAsync(ct);
-        await SendOkAsync(groups.ToList(), ct);
+        await Send.OkAsync(groups.ToList(), ct);
     }
 }

@@ -41,6 +41,6 @@ public sealed class MetricEndpoint : Endpoint<MetricRequest, List<MetricRow>>
         var limit = Math.Clamp(req.Limit, 1, 50);
         var (startAt, endAt, _) = AnalyticsRange.Resolve(req.Range);
         var rows = await _umami.GetMetricsAsync(req.WebsiteId, type, startAt, endAt, limit, ct);
-        await SendOkAsync(rows.Select(r => new MetricRow { X = r.X, Y = r.Y }).ToList(), ct);
+        await Send.OkAsync(rows.Select(r => new MetricRow { X = r.X, Y = r.Y }).ToList(), ct);
     }
 }

@@ -48,7 +48,7 @@ public class Endpoint : Endpoint<Request, Response>
             await _session.SaveChangesAsync(ct);
         }
 
-        await SendOkAsync(new Response { Message = "User added to group successfully" }, ct);
+        await Send.OkAsync(new Response { Message = "User added to group successfully" }, ct);
     }
 }
 

@@ -43,12 +43,12 @@ public class Endpoint : Endpoint<Request, TemplateVariableCollection>
         {
             var contentType = req.ContentType ?? "Content"; // Default to generic Content type
             var variables = await _extractor.GetVariablesAsync(contentType, ct);
-            await SendAsync(variables, cancellation: ct);
+            await Send.ResponseAsync(variables, cancellation: ct);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error retrieving template variables for content type {ContentType}", req.ContentType);
-            await SendErrorsAsync(cancellation: ct);
+            await Send.ErrorsAsync(cancellation: ct);
         }
     }
 }

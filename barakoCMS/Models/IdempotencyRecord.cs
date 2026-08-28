@@ -1,3 +1,4 @@
+using JasperFx;
 using Marten.Schema;
 
 namespace barakoCMS.Models;

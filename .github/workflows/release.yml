@@ -67,7 +67,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 8.0.x
+          dotnet-version: 10.0.x
 
       # One compilation, for the whole solution. Every step below runs --no-build against this
       # output, so the assemblies the tests exercise are the same files that get packed and
@@ -80,8 +80,8 @@ jobs:
 
       - name: Backend tests
         run: >
-          dotnet test BarakoCMS.Tests/BarakoCMS.Tests.csproj --no-build --configuration Release
-          --logger "trx;LogFileName=results.trx" --results-directory ./testresults
+          dotnet test --project BarakoCMS.Tests/BarakoCMS.Tests.csproj --no-build --configuration Release
+          --report-trx --report-trx-filename results.trx --results-directory ./testresults
         env:
           DOCKER_HOST: unix:///var/run/docker.sock
 
@@ -154,7 +154,7 @@ jobs:
       # below does not fire; with a cold one it does. This job needs the cold path.
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 8.0.x
+          dotnet-version: 10.0.x
 
       - uses: actions/download-artifact@v8
         with:
@@ -197,14 +197,14 @@ jobs:
           dotnet build --configuration Release
 
           # Restore succeeding is not the same as the package delivering anything. A nuspec that
-          # declares no net8.0 lib/ folder restores clean and contributes no assembly, so assert
+          # declares no net10.0 lib/ folder restores clean and contributes no assembly, so assert
           # each one actually reached the output.
           for f in "$FEED"/*.nupkg; do
             base=$(basename "$f" .nupkg)
             ver=$(echo "$base" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$')
             id=${base%".$ver"}
             found=$(find bin/Release -iname "$id.dll" | head -1)
-            [ -n "$found" ] || { echo "::error::$id restored but shipped no net8.0 assembly."; exit 1; }
+            [ -n "$found" ] || { echo "::error::$id restored but shipped no net10.0 assembly."; exit 1; }
           done
           echo "all $COUNT packages installed, built and loaded"
 
@@ -222,7 +222,7 @@ jobs:
     steps:
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 8.0.x
+          dotnet-version: 10.0.x
 
       - uses: actions/download-artifact@v8
         with:

@@ -25,7 +25,7 @@ public class Endpoint : Endpoint<Request, Response>
 
         if (group == null)
         {
-            await SendNotFoundAsync(ct);
+            await Send.NotFoundAsync(ct);
             return;
         }
 
@@ -36,7 +36,7 @@ public class Endpoint : Endpoint<Request, Response>
             await _session.SaveChangesAsync(ct);
         }
 
-        await SendOkAsync(new Response { Message = "User added to group successfully" }, ct);
+        await Send.OkAsync(new Response { Message = "User added to group successfully" }, ct);
     }
 }
 

@@ -78,7 +78,7 @@ public class CreateApiKeyEndpoint : Endpoint<CreateApiKeyRequest, CreateApiKeyRe
         await _session.SaveChangesAsync(ct);
 
         // The one and only time the plaintext secret leaves the server.
-        await SendOkAsync(new CreateApiKeyResponse(
+        await Send.OkAsync(new CreateApiKeyResponse(
             apiKey.Id, generated.Secret, apiKey.Prefix, apiKey.Name, apiKey.Scopes,
             apiKey.TenantSlug, apiKey.ExpiresAt, apiKey.CreatedAt), ct);
     }
@@ -110,7 +110,7 @@ public class ListApiKeysEndpoint : EndpointWithoutRequest<List<ApiKeyListItem>>
                 k.Id, k.Name, k.Prefix, k.Scopes, k.TenantSlug,
                 k.ExpiresAt, k.LastUsedAt, k.Revoked, k.CreatedAt))
             .ToList();
-        await SendOkAsync(items, ct);
+        await Send.OkAsync(items, ct);
     }
 }
 
@@ -133,11 +133,11 @@ public class RevokeApiKeyEndpoint : EndpointWithoutRequest
 
         // Scoped to the caller's tenant, so an admin can't revoke another tenant's key by guessing an id.
         var key = await _session.Query<ApiKey>().FirstOrDefaultAsync(k => k.Id == id && k.TenantSlug == tenant, ct);
-        if (key is null) { await SendNotFoundAsync(ct); return; }
+        if (key is null) { await Send.NotFoundAsync(ct); return; }
 
         key.Revoked = true;
         _session.Store(key);
         await _session.SaveChangesAsync(ct);
-        await SendNoContentAsync(ct);
+        await Send.NoContentAsync(ct);
     }
 }

@@ -59,6 +59,6 @@ public class Endpoint : EndpointWithoutRequest<DetailedHealthStatus>
                     Tags = e.Value.Tags,
                 }),
         };
-        await SendOkAsync(response, ct);
+        await Send.OkAsync(response, ct);
     }
 }

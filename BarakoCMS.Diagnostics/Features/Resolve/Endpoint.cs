@@ -25,12 +25,12 @@ public class Endpoint : Endpoint<ResolveRequest>
     public override async Task HandleAsync(ResolveRequest req, CancellationToken ct)
     {
         var error = await _session.LoadAsync<ClientError>(req.Id, ct);
-        if (error is null) { await SendNotFoundAsync(ct); return; }
+        if (error is null) { await Send.NotFoundAsync(ct); return; }
 
         error.Resolved = req.Resolved;
         error.ResolvedAt = req.Resolved ? DateTime.UtcNow : null;
         _session.Store(error);
         await _session.SaveChangesAsync(ct);
-        await SendOkAsync(ct);
+        await Send.OkAsync(ct);
     }
 }

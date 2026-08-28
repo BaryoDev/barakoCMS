@@ -115,7 +115,7 @@ public class VerifyEndpoint : Endpoint<OtpVerifyRequest, OtpVerifyResponse>
         {
             await _session.SaveChangesAsync(ct); // keep the code consumed
             var (challenge, _) = barakoCMS.Infrastructure.Auth.Mfa.MfaChallengeToken.Create(_config, user.Id);
-            await SendAsync(new OtpVerifyResponse { RequiresMfa = true, MfaChallengeToken = challenge });
+            await Send.ResponseAsync(new OtpVerifyResponse { RequiresMfa = true, MfaChallengeToken = challenge });
             return;
         }
 
@@ -152,7 +152,7 @@ public class VerifyEndpoint : Endpoint<OtpVerifyRequest, OtpVerifyResponse>
         });
         await _session.SaveChangesAsync(ct);
 
-        await SendAsync(new OtpVerifyResponse
+        await Send.ResponseAsync(new OtpVerifyResponse
         {
             Token = jwtToken,
             Expiry = accessTokenExpiry,

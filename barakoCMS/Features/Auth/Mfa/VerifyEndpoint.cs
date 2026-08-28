@@ -132,7 +132,7 @@ public class VerifyEndpoint : Endpoint<VerifyRequest, VerifyResponse>
             ipAddress: device.IpAddress, ct: ct);
         await _session.SaveChangesAsync(ct);
 
-        await SendAsync(new VerifyResponse
+        await Send.ResponseAsync(new VerifyResponse
         {
             Token = issued.Token,
             Expiry = issued.ExpiresAt,

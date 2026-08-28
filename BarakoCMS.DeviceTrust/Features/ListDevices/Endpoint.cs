@@ -32,6 +32,6 @@ public sealed class Endpoint : EndpointWithoutRequest<List<DeviceDto>>
             d.Id, d.Description, d.LastSeenIp, d.LastUsedAt, d.Status.ToString(),
             Current: !string.IsNullOrEmpty(currentDeviceId) && d.DeviceId == currentDeviceId)).ToList();
 
-        await SendOkAsync(dto, ct);
+        await Send.OkAsync(dto, ct);
     }
 }

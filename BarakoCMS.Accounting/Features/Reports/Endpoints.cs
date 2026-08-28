@@ -17,7 +17,7 @@ public class BalancesEndpoint : Endpoint<BalancesEndpoint.Request, IReadOnlyList
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
-        => await SendAsync(await _reports.BalancesAsync(req.AsOf, ct), cancellation: ct);
+        => await Send.ResponseAsync(await _reports.BalancesAsync(req.AsOf, ct), cancellation: ct);
 }
 
 /// <summary>GET /api/accounting/accounts/{code}/ledger — a single account's ledger with running balance.</summary>
@@ -37,7 +37,7 @@ public class AccountLedgerEndpoint : Endpoint<AccountLedgerEndpoint.Request, Acc
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
         var ledger = await _reports.AccountLedgerAsync(req.Code, ct);
-        if (ledger is null) { await SendNotFoundAsync(ct); return; }
-        await SendAsync(ledger, cancellation: ct);
+        if (ledger is null) { await Send.NotFoundAsync(ct); return; }
+        await Send.ResponseAsync(ledger, cancellation: ct);
     }
 }

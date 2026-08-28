@@ -54,6 +54,6 @@ public class GetSettingsEndpoint : EndpointWithoutRequest<GetSettingsResponse>
             }).ToList()
         };
 
-        await SendAsync(response, cancellation: ct);
+        await Send.ResponseAsync(response, cancellation: ct);
     }
 }

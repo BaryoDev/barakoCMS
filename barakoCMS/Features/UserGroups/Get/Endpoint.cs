@@ -25,11 +25,11 @@ public class Endpoint : Endpoint<Request, UserGroup>
 
         if (group == null)
         {
-            await SendNotFoundAsync(ct);
+            await Send.NotFoundAsync(ct);
             return;
         }
 
-        await SendOkAsync(group, ct);
+        await Send.OkAsync(group, ct);
     }
 }
 

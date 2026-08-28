@@ -32,7 +32,7 @@ public class LinkedInStartEndpoint : EndpointWithoutRequest
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        if (!ExternalAuthSupport.ProviderEnabled(_config, "LinkedIn", "ClientId")) { await SendNotFoundAsync(ct); return; }
+        if (!ExternalAuthSupport.ProviderEnabled(_config, "LinkedIn", "ClientId")) { await Send.NotFoundAsync(ct); return; }
         var club = (Query<string>("club", isRequired: false) ?? "").Trim().ToLowerInvariant();
         var state = Guid.NewGuid().ToString("N");
 
@@ -44,7 +44,7 @@ public class LinkedInStartEndpoint : EndpointWithoutRequest
             $"{Li.Authorize}?response_type=code&client_id={_config["LinkedIn:ClientId"]}" +
             $"&redirect_uri={Uri.EscapeDataString(redirect)}" +
             $"&state={state}&scope={Uri.EscapeDataString(Li.Scope)}";
-        await SendResultAsync(Results.Redirect(url));
+        await Send.ResultAsync(Results.Redirect(url));
     }
 }
 
@@ -92,7 +92,7 @@ public class LinkedInCallbackEndpoint : EndpointWithoutRequest
         {
             var to = $"{baseUrl}/login?fberror={Uri.EscapeDataString(message)}";
             if (!string.IsNullOrEmpty(club)) to += $"&club={Uri.EscapeDataString(club)}";
-            await SendResultAsync(Results.Redirect(to));
+            await Send.ResultAsync(Results.Redirect(to));
         }
 
         if (string.IsNullOrEmpty(code) || string.IsNullOrEmpty(state) || state != cookieState)
@@ -147,7 +147,7 @@ public class LinkedInCallbackEndpoint : EndpointWithoutRequest
         var tokens = await SocialSignIn.IssueAsync(_session, _config, _deviceGate, _tokenIssuer, mfa, HttpContext, email, club, ct, profile);
         if (tokens.RequiresMfa)
         {
-            await SendResultAsync(Results.Redirect(SocialSignIn.FrontendMfaCallback(baseUrl, tokens.MfaChallenge!, club)));
+            await Send.ResultAsync(Results.Redirect(SocialSignIn.FrontendMfaCallback(baseUrl, tokens.MfaChallenge!, club)));
             return;
         }
         if (!tokens.Allowed)
@@ -155,6 +155,6 @@ public class LinkedInCallbackEndpoint : EndpointWithoutRequest
             await Fail("You are not a member of this club.");
             return;
         }
-        await SendResultAsync(Results.Redirect(SocialSignIn.FrontendCallback(baseUrl, tokens.Token, tokens.Refresh, club)));
+        await Send.ResultAsync(Results.Redirect(SocialSignIn.FrontendCallback(baseUrl, tokens.Token, tokens.Refresh, club)));
     }
 }

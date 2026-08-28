@@ -1,3 +1,4 @@
+using FastEndpoints;
 using static BarakoCMS.Tests.ModuleSchemaTestHelper;
 using barakoCMS.Modules;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -51,6 +52,12 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         // Files endpoints end to end.
         builder.ConfigureServices((ctx, services) =>
         {
+            // Let a test choose its own client IP so the auth rate limiter (5 attempts /
+            // 15 min per IP) partitions per test instead of sharing one loopback bucket.
+            // Without this, xunit v3 ordering packs enough auth calls into one window that a
+            // later login gets 429 and a test asserting success fails. See TestRemoteIpFilter.
+            services.AddSingleton<Microsoft.AspNetCore.Hosting.IStartupFilter, TestRemoteIpFilter>();
+
             new BarakoCMS.Email.Resend.ResendEmailModule().ConfigureServices(services, ctx.Configuration);
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Email.Resend.ResendEmailModule(), opts));
 
@@ -77,19 +84,54 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             // Pwa: same reason — the assembly is referenced, so /api/pwa/* is discovered; register the
             // schema so those endpoints can run.
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Pwa.PwaModule(), opts));
+
+            // FastEndpoints 8 discovers endpoints eagerly inside AddFastEndpoints, which ran in
+            // Program.cs before any module assembly above was loaded, so none of the module
+            // endpoints exist in that scan. Re-register with the module assemblies explicit;
+            // FE registers EndpointData with a plain AddSingleton, so this last one wins.
+            services.AddFastEndpoints(o => o.Assemblies =
+            [
+                typeof(BarakoCMS.Email.Resend.ResendEmailModule).Assembly,
+                typeof(BarakoCMS.Files.FilesModule).Assembly,
+                typeof(BarakoCMS.AI.AiModule).Assembly,
+                typeof(BarakoCMS.Accounting.AccountingModule).Assembly,
+                typeof(BarakoCMS.Diagnostics.DiagnosticsModule).Assembly,
+                typeof(BarakoCMS.Pwa.PwaModule).Assembly,
+            ]);
         });
     }
 
-    public async Task InitializeAsync()
+    public async ValueTask InitializeAsync()
     {
         await _postgresContainer.StartAsync();
         // Explicitly set Env Vars to ensure they are available for Program.cs builder
         Environment.SetEnvironmentVariable("DATABASE_URL", ConnectionString);
         Environment.SetEnvironmentVariable("ConnectionStrings__DefaultConnection", ConnectionString);
         Environment.SetEnvironmentVariable("SKIP_SEEDER", "true");
+
+        // Canonical system roles with their well-known ids, before any test runs.
+        // xunit v3 changed execution order inside the Sequential collection, and
+        // several tests create a role named SuperAdmin with a random id when none
+        // exists by name; the fixed-id insert that used to run first then dies on
+        // the unique name index. Seeding here makes role state order-proof.
+        using var scope = Services.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
+        await using var session = store.LightweightSession();
+        foreach (var role in new[]
+                 {
+                     new barakoCMS.Models.Role { Id = barakoCMS.Data.DataSeeder.SuperAdminRoleId, Name = "SuperAdmin", Description = "Full system access" },
+                     new barakoCMS.Models.Role { Id = barakoCMS.Data.DataSeeder.AdminRoleId, Name = "Admin", Description = "Administrator with full access" },
+                     new barakoCMS.Models.Role { Id = barakoCMS.Data.DataSeeder.HRRoleId, Name = "HR", Description = "Human Resources - manage attendance" },
+                     new barakoCMS.Models.Role { Id = barakoCMS.Data.DataSeeder.UserRoleId, Name = "User", Description = "Standard user" },
+                 })
+        {
+            if (await session.Query<barakoCMS.Models.Role>().FirstOrDefaultAsync(r => r.Name == role.Name) is null)
+                session.Store(role);
+        }
+        await session.SaveChangesAsync();
     }
 
-    public new async Task DisposeAsync()
+    public new async ValueTask DisposeAsync()
     {
         await _postgresContainer.DisposeAsync();
         await base.DisposeAsync();

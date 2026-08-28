@@ -40,7 +40,7 @@ public class Endpoint : Endpoint<Request, Response>
 
         if (def is null)
         {
-            await SendNotFoundAsync(ct);
+            await Send.NotFoundAsync(ct);
             return;
         }
 
@@ -49,7 +49,7 @@ public class Endpoint : Endpoint<Request, Response>
         _session.Store(def);
         await _session.SaveChangesAsync(ct);
 
-        await SendOkAsync(new Response
+        await Send.OkAsync(new Response
         {
             Name = def.Name,
             IsPubliclyDeliverable = def.IsPubliclyDeliverable,

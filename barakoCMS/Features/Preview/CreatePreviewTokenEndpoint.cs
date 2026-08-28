@@ -53,15 +53,15 @@ public class CreatePreviewTokenEndpoint : Endpoint<CreatePreviewTokenRequest, Cr
     {
         if (!Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId))
         {
-            await SendUnauthorizedAsync(ct);
+            await Send.UnauthorizedAsync(ct);
             return;
         }
         var user = await _session.LoadAsync<User>(userId, ct);
-        if (user is null) { await SendUnauthorizedAsync(ct); return; }
+        if (user is null) { await Send.UnauthorizedAsync(ct); return; }
 
         var def = await _session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == req.Type, ct);
         var slugField = def is null ? null : PublicDelivery.SlugField(def);
-        if (slugField is null) { await SendNotFoundAsync(ct); return; }
+        if (slugField is null) { await Send.NotFoundAsync(ct); return; }
 
         /* Find the entry by slug across ALL statuses — the whole point is to preview a draft. */
         var candidates = await _session.Query<Models.Content>()
@@ -74,11 +74,11 @@ public class CreatePreviewTokenEndpoint : Endpoint<CreatePreviewTokenRequest, Cr
          * "no such entry" and "not allowed", so this endpoint isn't a draft-existence oracle for slugs. */
         if (entry is null || !await _permissions.CanPerformActionAsync(user, req.Type, "read", entry, ct))
         {
-            await SendNotFoundAsync(ct);
+            await Send.NotFoundAsync(ct);
             return;
         }
 
         var (token, expiresAt) = PreviewToken.Create(_config, _tenant.Slug, req.Type, req.Slug, entry.Id);
-        await SendAsync(new CreatePreviewTokenResponse { Token = token, ExpiresAt = expiresAt });
+        await Send.ResponseAsync(new CreatePreviewTokenResponse { Token = token, ExpiresAt = expiresAt });
     }
 }

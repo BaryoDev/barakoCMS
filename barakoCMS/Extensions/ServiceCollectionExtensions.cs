@@ -136,21 +136,24 @@ public static class ServiceCollectionExtensions
             throw new InvalidOperationException("JWT:Key must be configured and at least 32 characters (256 bits) for security.");
         }
 
-        services.AddJWTBearerAuth(jwtKey, tokenValidation: p =>
-        {
-            p.ValidateIssuerSigningKey = true;
-            p.ValidateIssuer = true;
-            p.ValidateAudience = true;
-            p.ValidIssuer = configuration["JWT:Issuer"];
-            p.ValidAudience = configuration["JWT:Audience"];
+        services.AddAuthenticationJwtBearer(
+            s => s.SigningKey = jwtKey,
+            o =>
+            {
+                var p = o.TokenValidationParameters;
+                p.ValidateIssuerSigningKey = true;
+                p.ValidateIssuer = true;
+                p.ValidateAudience = true;
+                p.ValidIssuer = configuration["JWT:Issuer"];
+                p.ValidAudience = configuration["JWT:Audience"];
 
-            // Explicitly map claims
-            p.NameClaimType = "Username";
-            p.RoleClaimType = System.Security.Claims.ClaimTypes.Role;
+                // Explicitly map claims
+                p.NameClaimType = "Username";
+                p.RoleClaimType = System.Security.Claims.ClaimTypes.Role;
 
-            // Strict token expiration - no clock skew tolerance
-            p.ClockSkew = TimeSpan.Zero;
-        });
+                // Strict token expiration - no clock skew tolerance
+                p.ClockSkew = TimeSpan.Zero;
+            });
 
         // Second auth scheme for machine callers: `Authorization: Bearer bcms_...` API keys. A policy
         // scheme sniffs the bearer token and forwards bcms_ tokens to the API-key handler, everything
@@ -232,6 +235,19 @@ public static class ServiceCollectionExtensions
         services.AddMarten((IServiceProvider sp) =>
         {
             var options = new StoreOptions();
+
+            // Marten 9 flips several event-store defaults (QuickWithServerTimestamps append,
+            // bigint event columns, advanced async tracking). Two of those imply schema
+            // migrations, and production runs AutoCreate.CreateOnly, which refuses live
+            // migrations by design; the daemon would break on first append instead. Keep the
+            // V8 behaviour this upgrade was tested against, and adopt the new defaults
+            // deliberately, with a migration step, not as a side effect of a version bump.
+            options.RestoreV8Defaults();
+
+            // Not part of the V8 contract worth keeping: V8 forwarded Npgsql's internal
+            // logger, which is pure noise next to Marten's own structured logs.
+            options.DisableNpgsqlLogging = true;
+
             options.Connection(connectionString);
 
             // Schema management. Marten's default (CreateOrUpdate) attempts a migration whenever a
@@ -265,7 +281,7 @@ public static class ServiceCollectionExtensions
             // Conjoined multi-tenancy: every document and event stream is tagged with a tenant id and
             // auto-filtered by the session's tenant. Global identity/registry docs opt out below.
             options.Policies.AllDocumentsAreMultiTenanted();
-            options.Events.TenancyStyle = Marten.Storage.TenancyStyle.Conjoined;
+            options.Events.TenancyStyle = JasperFx.MultiTenancy.TenancyStyle.Conjoined;
 
             // Configure document versioning and indexes
             options.Schema.For<Content>()

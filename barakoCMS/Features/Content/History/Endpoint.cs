@@ -27,14 +27,14 @@ public class Endpoint : Endpoint<Request, Response>
         var userIdClaim = User.FindFirst("System.Security.Claims.ClaimTypes.NameIdentifier") ?? User.FindFirst("UserId");
         if (userIdClaim == null || !Guid.TryParse(userIdClaim.Value, out var userId))
         {
-            await SendUnauthorizedAsync(ct);
+            await Send.UnauthorizedAsync(ct);
             return;
         }
 
         var user = await _session.LoadAsync<Models.User>(userId, ct);
         if (user == null)
         {
-            await SendUnauthorizedAsync(ct);
+            await Send.UnauthorizedAsync(ct);
             return;
         }
 
@@ -42,13 +42,13 @@ public class Endpoint : Endpoint<Request, Response>
         var content = await _session.LoadAsync<Models.Content>(req.Id, ct);
         if (content == null)
         {
-            await SendNotFoundAsync(ct);
+            await Send.NotFoundAsync(ct);
             return;
         }
 
         if (!await _permissionResolver.CanPerformActionAsync(user, content.ContentType, "read", content, ct))
         {
-            await SendForbiddenAsync(ct);
+            await Send.ForbiddenAsync(ct);
             return;
         }
 
@@ -92,10 +92,10 @@ public class Endpoint : Endpoint<Request, Response>
         foreach (var version in versions)
         {
             version.Data ??= new Dictionary<string, object>();
-            sensitivity.Apply(content.ContentType, content.Sensitivity, version.Data, HttpContext);
+            await sensitivity.ApplyAsync(content.ContentType, content.Sensitivity, version.Data, HttpContext, ct);
         }
 
-        await SendAsync(new Response
+        await Send.ResponseAsync(new Response
         {
             Versions = versions
         });

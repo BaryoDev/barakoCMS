@@ -130,7 +130,7 @@ public class ListPublishedEndpoint : Endpoint<PublicListRequest, PaginatedRespon
     {
         var type = Route<string>("type") ?? string.Empty;
         var def = await _session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
-        if (!PublicDelivery.IsDeliverable(def)) { await SendNotFoundAsync(ct); return; }
+        if (!PublicDelivery.IsDeliverable(def)) { await Send.NotFoundAsync(ct); return; }
         var slugField = PublicDelivery.SlugField(def!);
 
         /*
@@ -149,7 +149,7 @@ public class ListPublishedEndpoint : Endpoint<PublicListRequest, PaginatedRespon
         if (!query.IsValid)
         {
             AddError(query.Error!);
-            await SendErrorsAsync(400, ct);
+            await Send.ErrorsAsync(400, ct);
             return;
         }
 
@@ -163,7 +163,7 @@ public class ListPublishedEndpoint : Endpoint<PublicListRequest, PaginatedRespon
         if (query.Sort is not null)
         {
             AddError("Sorting by a field value is not supported yet. Entries are returned newest first.");
-            await SendErrorsAsync(400, ct);
+            await Send.ErrorsAsync(400, ct);
             return;
         }
 
@@ -199,7 +199,7 @@ public class ListPublishedEndpoint : Endpoint<PublicListRequest, PaginatedRespon
             .ToList();
 
         PublicDelivery.SetCache(HttpContext);
-        await SendAsync(new PaginatedResponse<PublicContentResponse>
+        await Send.ResponseAsync(new PaginatedResponse<PublicContentResponse>
         {
             Items = items,
             Page = req.Page,
@@ -242,12 +242,12 @@ public class PublicSearchEndpoint : EndpointWithoutRequest<PublicSearchResponse>
          * that is not deliverable, which confirms the type exists — the existence oracle the 404 is
          * meant to close. */
         var def = await _session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
-        if (!PublicDelivery.IsDeliverable(def)) { await SendNotFoundAsync(ct); return; }
+        if (!PublicDelivery.IsDeliverable(def)) { await Send.NotFoundAsync(ct); return; }
         var slugField = PublicDelivery.SlugField(def!);
 
         if (q.Length < 2)
         {
-            await SendOkAsync(new PublicSearchResponse(Array.Empty<PublicContentResponse>(), 0, q), ct);
+            await Send.OkAsync(new PublicSearchResponse(Array.Empty<PublicContentResponse>(), 0, q), ct);
             return;
         }
         var candidates = await _session.Query<ContentDoc>()
@@ -270,7 +270,7 @@ public class PublicSearchEndpoint : EndpointWithoutRequest<PublicSearchResponse>
             .ToList();
 
         PublicDelivery.SetCache(HttpContext);
-        await SendOkAsync(new PublicSearchResponse(results, results.Count, q), ct);
+        await Send.OkAsync(new PublicSearchResponse(results, results.Count, q), ct);
     }
 
     private static int Score(PublicContentResponse r, string q)
@@ -320,9 +320,9 @@ public class GetBySlugEndpoint : EndpointWithoutRequest<PublicContentResponse>
         var slug = Route<string>("slug") ?? string.Empty;
 
         var def = await _session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
-        if (!PublicDelivery.IsDeliverable(def)) { await SendNotFoundAsync(ct); return; }
+        if (!PublicDelivery.IsDeliverable(def)) { await Send.NotFoundAsync(ct); return; }
         var slugField = PublicDelivery.SlugField(def!);
-        if (slugField is null) { await SendNotFoundAsync(ct); return; } /* not slug-addressable */
+        if (slugField is null) { await Send.NotFoundAsync(ct); return; } /* not slug-addressable */
 
         /* A preview token valid for exactly this tenant+type+slug identifies ONE entry by id, lifting only
          * the Published gate. Binding to the id (not just the slug) means a duplicate-slug draft can't be
@@ -354,12 +354,12 @@ public class GetBySlugEndpoint : EndpointWithoutRequest<PublicContentResponse>
         }
 
         var projected = match is null ? null : PublicDelivery.ToPublic(match, def, slugField, allowUnpublished: previewId is not null);
-        if (projected is null) { await SendNotFoundAsync(ct); return; }
+        if (projected is null) { await Send.NotFoundAsync(ct); return; }
 
         if (previewId is not null)
             HttpContext.Response.Headers.CacheControl = "no-store"; /* never cache a draft */
         else
             PublicDelivery.SetCache(HttpContext);
-        await SendOkAsync(projected, ct);
+        await Send.OkAsync(projected, ct);
     }
 }

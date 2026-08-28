@@ -40,7 +40,7 @@ public class Endpoint : EndpointWithoutRequest<Response>
         if (file is null || file.Length == 0)
         {
             AddError("An .xlsx or CSV file is required.");
-            await SendErrorsAsync(400, ct);
+            await Send.ErrorsAsync(400, ct);
             return;
         }
 
@@ -54,13 +54,13 @@ public class Endpoint : EndpointWithoutRequest<Response>
         catch (NotSupportedException ex)
         {
             AddError(ex.Message);
-            await SendErrorsAsync(400, ct);
+            await Send.ErrorsAsync(400, ct);
             return;
         }
         catch (Exception)
         {
             AddError("Could not read the file. Ensure it is a valid .xlsx or CSV.");
-            await SendErrorsAsync(400, ct);
+            await Send.ErrorsAsync(400, ct);
             return;
         }
 
@@ -77,7 +77,7 @@ public class Endpoint : EndpointWithoutRequest<Response>
             rows.Add(rowCells);
         }
 
-        await SendAsync(new Response
+        await Send.ResponseAsync(new Response
         {
             RowCount = sheet.RowCount,
             ColumnCount = sheet.ColumnCount,

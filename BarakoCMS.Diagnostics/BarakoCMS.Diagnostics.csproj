@@ -5,7 +5,7 @@
 
     <IsPackable>true</IsPackable>
     <PackageId>BarakoCMS.Diagnostics</PackageId>
-    <Version>0.2.0</Version>
+    <Version>0.3.0</Version>
     <Description>Client error logging for barakoCMS: apps POST captured browser errors (message, stack, page, user, club) to /api/client-errors; they're deduplicated by fingerprint with an occurrence count and browsable by Admin/SuperAdmin at GET /api/client-errors so you can retrieve and fix them later.</Description>
   </PropertyGroup>
 
@@ -23,7 +23,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Caching.Memory" />
     <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
   </ItemGroup>

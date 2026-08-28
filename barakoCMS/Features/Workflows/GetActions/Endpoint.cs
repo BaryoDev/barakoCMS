@@ -33,12 +33,12 @@ public class Endpoint : EndpointWithoutRequest
         try
         {
             var actions = _registry.GetAllActions();
-            await SendAsync(actions, cancellation: ct);
+            await Send.ResponseAsync(actions, cancellation: ct);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to retrieve workflow actions");
-            await SendErrorsAsync(cancellation: ct);
+            await Send.ErrorsAsync(cancellation: ct);
         }
     }
 }

@@ -44,7 +44,7 @@ public class EnableEndpoint : Endpoint<CodeRequest, EnableResponse>
     {
         if (!Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId))
         {
-            await SendUnauthorizedAsync(ct);
+            await Send.UnauthorizedAsync(ct);
             return;
         }
 
@@ -66,7 +66,7 @@ public class EnableEndpoint : Endpoint<CodeRequest, EnableResponse>
 
         await NotifyAsync(userId, ct);
 
-        await SendAsync(new EnableResponse
+        await Send.ResponseAsync(new EnableResponse
         {
             Message = "Two-factor authentication is on. Save your recovery codes somewhere safe. " +
                       "Other devices have been signed out.",

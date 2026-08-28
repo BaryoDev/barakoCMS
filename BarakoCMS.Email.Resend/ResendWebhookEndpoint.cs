@@ -48,13 +48,13 @@ public sealed class ResendWebhookEndpoint : EndpointWithoutRequest
             Logger.LogError(
                 "Resend webhook received but no signing secret is configured. Set Resend:WebhookSecret "
                 + "or RESEND_WEBHOOK_SECRET. Refusing the request rather than trusting it.");
-            await SendUnauthorizedAsync(ct);
+            await Send.UnauthorizedAsync(ct);
             return;
         }
 
         if (!VerifySvix(secret, body))
         {
-            await SendUnauthorizedAsync(ct);
+            await Send.UnauthorizedAsync(ct);
             return;
         }
 
@@ -72,7 +72,7 @@ public sealed class ResendWebhookEndpoint : EndpointWithoutRequest
             };
             if (kind is null)
             {
-                await SendOkAsync(ct); // ignore delivered/sent/opened/etc.
+                await Send.OkAsync(ct); // ignore delivered/sent/opened/etc.
                 return;
             }
 
@@ -98,7 +98,7 @@ public sealed class ResendWebhookEndpoint : EndpointWithoutRequest
             // A malformed payload shouldn't make Resend retry forever; ack it.
         }
 
-        await SendOkAsync(ct);
+        await Send.OkAsync(ct);
     }
 
     private static string? FirstRecipient(JsonElement data)

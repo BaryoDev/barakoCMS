@@ -32,7 +32,7 @@ public sealed class SeriesEndpoint : Endpoint<AnalyticsWindowRequest, SeriesResp
     {
         var (startAt, endAt, unit) = AnalyticsRange.Resolve(req.Range);
         var s = await _umami.GetSeriesAsync(req.WebsiteId, startAt, endAt, unit, ct);
-        await SendOkAsync(new SeriesResponse
+        await Send.OkAsync(new SeriesResponse
         {
             Unit = unit,
             Pageviews = s.Pageviews.Select(p => new SeriesPointDto { X = p.X, Y = p.Y }).ToList(),

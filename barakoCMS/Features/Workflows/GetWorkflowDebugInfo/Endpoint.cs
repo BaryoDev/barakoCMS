@@ -39,12 +39,12 @@ public class Endpoint : Endpoint<Request, List<WorkflowExecutionLog>>
         try
         {
             var logs = await _debugger.GetExecutionHistoryAsync(req.Id, req.Limit, ct);
-            await SendAsync(logs, cancellation: ct);
+            await Send.ResponseAsync(logs, cancellation: ct);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error retrieving debug info for workflow {WorkflowId}", req.Id);
-            await SendErrorsAsync(cancellation: ct);
+            await Send.ErrorsAsync(cancellation: ct);
         }
     }
 }

@@ -147,7 +147,7 @@ public class Endpoint : Endpoint<Request, Response>
                 ipAddress: device.IpAddress, ct: ct);
             await _documentSession.SaveChangesAsync(ct);
             _logger.LogInformation("Password OK for {Username}; MFA required", user.Username);
-            await SendAsync(new Response
+            await Send.ResponseAsync(new Response
             {
                 RequiresMfa = true,
                 MfaChallengeToken = challenge,
@@ -163,7 +163,7 @@ public class Endpoint : Endpoint<Request, Response>
         {
             await _otp.SendCodeAsync(user.Email, device, ct);
             _logger.LogInformation("Password login from an unapproved device for {Username}; sent approval OTP", user.Username);
-            await SendAsync(new Response
+            await Send.ResponseAsync(new Response
             {
                 RequiresDeviceApproval = true,
                 Message = "This device isn't approved yet. Enter the code we emailed to approve it.",
@@ -217,7 +217,7 @@ public class Endpoint : Endpoint<Request, Response>
             "Successful login for user: {Username}, UserId: {UserId}",
             user.Username, user.Id);
 
-        await SendAsync(new Response
+        await Send.ResponseAsync(new Response
         {
             Token = jwtToken,
             Expiry = accessTokenExpiry,

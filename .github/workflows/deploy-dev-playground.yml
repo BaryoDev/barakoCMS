@@ -26,10 +26,10 @@ jobs:
 
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 8.0.x
+          dotnet-version: 10.0.x
 
       - name: Backend tests
-        run: dotnet test BarakoCMS.Tests/BarakoCMS.Tests.csproj --configuration Release
+        run: dotnet test --project BarakoCMS.Tests/BarakoCMS.Tests.csproj --configuration Release
         env:
           DOCKER_HOST: unix:///var/run/docker.sock
 

@@ -56,7 +56,7 @@ public class Endpoint : Endpoint<Request, Response>
             _permissionResolver.InvalidateUserPermissions(req.UserId);
         }
 
-        await SendOkAsync(new Response { Message = "Role assigned to user successfully" }, ct);
+        await Send.OkAsync(new Response { Message = "Role assigned to user successfully" }, ct);
     }
 }
 

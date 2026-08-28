@@ -34,7 +34,7 @@ public class Endpoint : Endpoint<Request>
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
         var file = await _session.LoadAsync<StoredFile>(req.Id, ct);
-        if (file is null || !file.IsPublic) { await SendNotFoundAsync(ct); return; } /* fail closed */
+        if (file is null || !file.IsPublic) { await Send.NotFoundAsync(ct); return; } /* fail closed */
 
         HttpContext.Response.Headers.CacheControl = "public, max-age=86400"; /* images are long-lived */
 
@@ -51,8 +51,8 @@ public class Endpoint : Endpoint<Request>
         }
 
         var bytes = await _storage.GetAsync(file.StorageKey, ct);
-        if (bytes is null) { await SendNotFoundAsync(ct); return; }
+        if (bytes is null) { await Send.NotFoundAsync(ct); return; }
 
-        await SendBytesAsync(bytes, file.FileName, file.ContentType, cancellation: ct);
+        await Send.BytesAsync(bytes, file.FileName, file.ContentType, cancellation: ct);
     }
 }

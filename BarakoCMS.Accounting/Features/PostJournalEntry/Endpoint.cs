@@ -44,7 +44,7 @@ public class Endpoint : Endpoint<Request, Response>
         var userIdClaim = User.FindFirst("UserId");
         if (userIdClaim == null || !Guid.TryParse(userIdClaim.Value, out var userId))
         {
-            await SendUnauthorizedAsync(ct);
+            await Send.UnauthorizedAsync(ct);
             return;
         }
 
@@ -59,11 +59,11 @@ public class Endpoint : Endpoint<Request, Response>
         if (!result.Ok)
         {
             foreach (var err in result.Errors) AddError(err);
-            await SendErrorsAsync(400, ct);
+            await Send.ErrorsAsync(400, ct);
             return;
         }
 
-        await SendAsync(new Response
+        await Send.ResponseAsync(new Response
         {
             Id = result.Entry!.Id,
             EntryNumber = result.Entry.EntryNumber,

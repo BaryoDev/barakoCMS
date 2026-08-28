@@ -169,7 +169,7 @@ public class Endpoint : Endpoint<Request, Response>
             "Token refreshed for user: {Username}, UserId: {UserId}",
             user.Username, user.Id);
 
-        await SendAsync(new Response
+        await Send.ResponseAsync(new Response
         {
             Token = jwtToken,
             Expiry = accessTokenExpiry,

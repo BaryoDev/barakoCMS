@@ -31,6 +31,6 @@ public class Endpoint : EndpointWithoutRequest<Response>
 
         var response = new Response();
         response.AddRange(methods);
-        await SendOkAsync(response, ct);
+        await Send.OkAsync(response, ct);
     }
 }

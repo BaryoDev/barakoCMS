@@ -35,26 +35,26 @@ public class Endpoint : Endpoint<Request, Response>
         var existingContent = await _session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct);
         if (existingContent == null)
         {
-            await SendNotFoundAsync(ct);
+            await Send.NotFoundAsync(ct);
             return;
         }
 
         if (user == null || !await _permissionResolver.CanPerformActionAsync(user, existingContent.ContentType, "update", existingContent, ct))
         {
-            await SendForbiddenAsync(ct);
+            await Send.ForbiddenAsync(ct);
             return;
         }
 
         // WRITE-PATH SENSITIVITY: a caller who may not see a field may not change it. Revert any
         // such fields to their stored values before applying the update.
-        Resolve<barakoCMS.Core.Interfaces.ISensitivityService>()
-            .ApplyWrite(existingContent.ContentType, req.Data, existingContent.Data, HttpContext);
+        await Resolve<barakoCMS.Core.Interfaces.ISensitivityService>()
+            .ApplyWriteAsync(existingContent.ContentType, req.Data, existingContent.Data, HttpContext, ct);
 
         // DYNAMIC VALIDATION - Validate data against ContentType schema
         var validationResult = await _validator.ValidateAsync(existingContent.ContentType, req.Data);
         if (!validationResult.IsValid)
         {
-            await SendAsync(new Response { Message = "Validation Failed: " + string.Join(", ", validationResult.Errors) }, 400, ct);
+            await Send.ResponseAsync(new Response { Message = "Validation Failed: " + string.Join(", ", validationResult.Errors) }, 400, ct);
             return;
         }
 
@@ -64,7 +64,7 @@ public class Endpoint : Endpoint<Request, Response>
             .RunBeforeSaveAsync(existingContent.ContentType, req.Data, existingContent.Data, userId, ct);
         if (hookErrors.Count > 0)
         {
-            await SendAsync(new Response { Message = "Validation Failed: " + string.Join(", ", hookErrors) }, 400, ct);
+            await Send.ResponseAsync(new Response { Message = "Validation Failed: " + string.Join(", ", hookErrors) }, 400, ct);
             return;
         }
         var definition = await _session.Query<ContentTypeDefinition>()
@@ -125,7 +125,7 @@ public class Endpoint : Endpoint<Request, Response>
         // Workflows are triggered out-of-band by the async WorkflowProjection reacting to the
         // committed ContentUpdated/ContentStatusChanged events — deliberately NOT awaited here.
 
-        await SendAsync(new Response
+        await Send.ResponseAsync(new Response
         {
             Id = req.Id,
             Version = newVersion,

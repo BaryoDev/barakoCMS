@@ -33,7 +33,7 @@ public class Endpoint : Endpoint<Request, Response>
 
         if (role == null)
         {
-            await SendNotFoundAsync(ct);
+            await Send.NotFoundAsync(ct);
             return;
         }
 
@@ -48,7 +48,7 @@ public class Endpoint : Endpoint<Request, Response>
 
         if (systemRoleIds.Contains(req.Id))
         {
-            await SendAsync(new Response
+            await Send.ResponseAsync(new Response
             {
                 Message = "Cannot delete system roles (SuperAdmin, Admin, HR, User)."
             }, 403, ct);
@@ -61,7 +61,7 @@ public class Endpoint : Endpoint<Request, Response>
 
         if (usersWithRole)
         {
-            await SendAsync(new Response
+            await Send.ResponseAsync(new Response
             {
                 Message = "Cannot delete role: it is still assigned to users. Remove the role from all users first."
             }, 409, ct);
@@ -77,7 +77,7 @@ public class Endpoint : Endpoint<Request, Response>
         // A deleted role changes effective permissions for its holders — evict cached decisions.
         _permissionResolver.InvalidateAllPermissions();
 
-        await SendOkAsync(new Response
+        await Send.OkAsync(new Response
         {
             Message = "Role deleted successfully"
         }, ct);

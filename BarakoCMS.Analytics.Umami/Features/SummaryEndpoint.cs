@@ -41,7 +41,7 @@ public sealed class SummaryEndpoint : Endpoint<AnalyticsWindowRequest, SummaryRe
     {
         var (startAt, endAt, _) = AnalyticsRange.Resolve(req.Range);
         var s = await _umami.GetSummaryAsync(req.WebsiteId, startAt, endAt, ct);
-        await SendOkAsync(new SummaryResponse
+        await Send.OkAsync(new SummaryResponse
         {
             Pageviews = Map(s.Pageviews),
             Visitors = Map(s.Visitors),
