@@ -1,42 +1,60 @@
 @import "tailwindcss";
 
 /*
- * The identity comes from the project's own logo — a roasted coffee bean, #A9744F → #6F4E37 →
- * #3E2418. Deliberately cooled off the usual cream-and-terracotta pairing: the ground is a
- * barely-warm white rather than cream, the neutrals carry a brown bias so they read as chosen, and
- * the bean brown is the single accent.
+ * The page is built from two materials, not one theme.
+ *
+ * A headless CMS separates the body from the head, so the site says that structurally: "crema"
+ * sections carry the editorial argument and follow the reader's light or dark preference, and
+ * "roast" sections carry the system argument and stay dark in both. The seam between them is the
+ * design. If the roast tokens flipped with the theme the whole idea would collapse into stripes,
+ * which is why they are defined once and never overridden.
+ *
+ * Colour comes off the roast scale rather than the usual cream and terracotta: crema is the pale
+ * foam on an espresso, roast is the bean at the dark end, and the accent is cherry, the fruit the
+ * bean is actually picked from. Green is the unroasted bean and is reserved for semantic marks.
  */
 @theme {
-  --color-ground: #FBFAF9;
-  --color-surface: #F3F0ED;
-  --color-raised: #EAE5E0;
-  --color-ink: #1A1614;
-  --color-ink-2: #4A423C;
-  --color-muted: #7A6E66;
-  --color-rule: #DED7D1;
-  --color-bean: #6F4E37;
-  --color-bean-soft: #A9744F;
-  --color-good: #2E6F4E;
-  --color-warn: #8A6D1F;
+  /* Crema. Follows the reader's preference. */
+  --color-ground: #F7F2EA;
+  --color-surface: #F0E8DC;
+  --color-raised: #E6DACA;
+  --color-ink: #1B1410;
+  --color-ink-2: #4B3B31;
+  --color-muted: #7C6959;
+  --color-rule: #DDCEBC;
 
-  --font-display: ui-serif, Georgia, "Times New Roman", serif;
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  /* Roast. Never flips: these sections are dark in both themes. */
+  --color-roast: #17110D;
+  --color-roast-2: #211811;
+  --color-roast-3: #2C2018;
+  --color-roast-rule: #3B2C21;
+  --color-on-roast: #F4EADC;
+  --color-on-roast-2: #C6B2A0;
+  --color-on-roast-3: #8E7B6B;
+
+  --color-bean: #B4321E;
+  --color-bean-soft: #D4674F;
+  --color-good: #6B8F3D;
+  --color-warn: #9A7B1E;
+
+  --font-display: var(--font-bricolage), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-plex-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --color-ground: #141110;
-    --color-surface: #1D1917;
-    --color-raised: #262120;
-    --color-ink: #EFEAE6;
-    --color-ink-2: #C4B9B1;
-    --color-muted: #9A8D84;
-    --color-rule: #332C29;
-    --color-bean: #C79A72;
-    --color-bean-soft: #A9744F;
-    --color-good: #63B98A;
-    --color-warn: #D2AE4E;
+    --color-ground: #120D0A;
+    --color-surface: #1A130E;
+    --color-raised: #241A13;
+    --color-ink: #F2E8DC;
+    --color-ink-2: #C6B4A3;
+    --color-muted: #94816F;
+    --color-rule: #33261D;
+    --color-bean: #E0785E;
+    --color-bean-soft: #B4321E;
+    --color-good: #94B85F;
+    --color-warn: #CFA843;
   }
 }
 
@@ -49,11 +67,21 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-::selection { background: var(--color-bean); color: var(--color-ground); }
+::selection { background: var(--color-bean); color: #fff; }
 
-/* The serif display face sets a touch loose at large sizes; pull it in so headings read as set
-   rather than typed. */
-h1, h2 { font-feature-settings: "liga" 1, "kern" 1; }
+/* Bricolage is a variable face and sets loose by default at display sizes. */
+h1, h2, h3 { font-feature-settings: "liga" 1, "kern" 1; }
+
+/*
+ * The eyebrow labels are the utility face doing a real job: naming which material you are in.
+ * Uppercase mono at this size is legible where a small sans would just look shrunken.
+ */
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
 
 /* Keyboard users land here first and should be able to skip the nav. */
 .skip-link {
@@ -61,10 +89,10 @@ h1, h2 { font-feature-settings: "liga" 1, "kern" 1; }
   left: -9999px;
   top: 0;
   background: var(--color-bean);
-  color: var(--color-ground);
+  color: #fff;
   padding: 10px 16px;
   border-radius: 0 0 6px 0;
-  z-index: 50;
+  z-index: 60;
 }
 .skip-link:focus { left: 0; }
 
@@ -73,8 +101,29 @@ h1, h2 { font-feature-settings: "liga" 1, "kern" 1; }
   outline-offset: 3px;
   border-radius: 3px;
 }
+/* On roast the cherry accent is too dark to serve as a focus ring. */
+.on-roast :where(a, button, summary):focus-visible { outline-color: var(--color-bean-soft); }
 
-/* The bean rotates in on load — one small nod to the subject, and only for people who want it. */
+/*
+ * The hero ledger. Events arrive in order, then the record they compose into appears underneath.
+ * The stagger is the point: it is an append-only log, so showing all four at once would say the
+ * wrong thing about the product. Runs once on load, never loops.
+ */
+@keyframes ledger-row {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes ledger-body {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.ledger-row { animation: ledger-row .5s cubic-bezier(.22,.9,.3,1) both; }
+.ledger-row:nth-child(1) { animation-delay: .15s; }
+.ledger-row:nth-child(2) { animation-delay: .35s; }
+.ledger-row:nth-child(3) { animation-delay: .55s; }
+.ledger-row:nth-child(4) { animation-delay: .75s; }
+.ledger-body { animation: ledger-body .6s ease-out 1.05s both; }
+
 @keyframes bean-in {
   from { opacity: 0; transform: rotate(-70deg) scale(.9); }
   to   { opacity: 1; transform: rotate(-32deg) scale(1); }
@@ -82,7 +131,7 @@ h1, h2 { font-feature-settings: "liga" 1, "kern" 1; }
 .bean-in { animation: bean-in .7s cubic-bezier(.22,.9,.3,1) both; }
 
 @media (prefers-reduced-motion: reduce) {
-  .bean-in { animation: none; }
+  .bean-in, .ledger-row, .ledger-body { animation: none; opacity: 1; transform: none; }
   * { animation-duration: .001ms !important; transition-duration: .001ms !important; }
 }
 
@@ -96,7 +145,8 @@ h1, h2 { font-feature-settings: "liga" 1, "kern" 1; }
 .changelog-body h3 {
   font-family: var(--font-display);
   font-size: 19px;
-  letter-spacing: -0.01em;
+  font-weight: 600;
+  letter-spacing: -0.015em;
   color: var(--color-ink);
   margin: 1.9rem 0 .7rem;
 }

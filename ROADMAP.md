@@ -2,8 +2,14 @@
 
 Releases ship every Saturday. This file says what each one is for and why that order.
 
-The positioning it serves: **free at any scale, and audit-grade**. Not "cheaper than", not "has more
-features than". Free with no seat cap, no revenue cap, no metered AI, and every module in this
+The positioning it serves: **reachable, and free at any scale**. Not "cheaper than", not "has more
+features than", and deliberately not "enterprise-ready", which is a claim about being a vendor rather
+than about software.
+
+Reachable first, because that is the part nothing else in the field offers: no sales call, no partner
+tier, no procurement cycle, no discovery call before you can run it. Clone it and it works.
+
+Free second, and precisely: no seat cap, no revenue cap, no metered AI, and every module in this
 repository included.
 
 That last phrase is deliberate and worth keeping precise, because two different things get called
@@ -26,8 +32,10 @@ system up and keeping it running is expensive human labour, and that a licence i
 buy that labour.
 
 Umbraco's €2,800/yr Deploy licence and €250/domain Forms are priced against the cost of building
-those things yourself. Directus's $5M revenue cap is a bet that a company past that size would rather
-pay than self-support. Neither is a feature moat. Both are bets on the price of setup labour.
+those things yourself. Heartcore, from $75/month, is priced against the cost of hosting it yourself,
+and its entry tier allows one user, one environment and one language. Directus's $5M revenue cap is a
+bet that a company past that size would rather pay than self-support. None of these is a feature
+moat. All are bets on the price of setup and operations labour.
 
 If a competent team with coding agents can stand this up, extend it and support it themselves, the
 licence is the only line left on the invoice, and ours is zero. **That is the levelling: a two-person
@@ -37,11 +45,14 @@ Everything below follows from that. It is why the CLI, the templates, the delive
 the MCP server outrank feature parity: they are not conveniences, they are the mechanism by which the
 free claim becomes actionable rather than theoretical.
 
-**The obligation it creates.** A thesis about scaling has to survive contact with scaling. Right now
-it does not: the async daemon runs `DaemonMode.Solo`, which Marten documents as assuming "there is
-never more than one running system node". Every node runs `WorkflowProjection`, so two instances send
-every workflow email twice. That is #235, and it is in 3.23.0 because a claim about scale cannot ship
-ahead of the ability to scale.
+**The obligation it creates.** A thesis about scaling has to survive contact with scaling. The first
+test of that is closed: the async daemon ran `DaemonMode.Solo`, which Marten documents as assuming
+"there is never more than one running system node", so two instances sent every workflow email twice.
+Fixed in #238 along with the scheduled sweep, which had the same problem for a different reason.
+
+What remains is #239: during a rolling deploy an old node still duplicates, because the half that does
+not participate in the new locking is the half already running. Bounded by deploy duration rather than
+permanent, and written down rather than implied.
 
 ## Why that claim and not a better-sounding one
 
@@ -51,14 +62,24 @@ rather than argument.
 | Platform | Licence | Where free ends |
 | :--- | :--- | :--- |
 | **barakoCMS** | MPL-2.0 | Nowhere |
-| Umbraco | MIT core | Forms €250/domain, Workflow paid, Engage €800/yr, Deploy €2,800/yr |
+| Umbraco | MIT core | Core and headless are free. Forms €250/domain, Workflow paid, Engage €800/yr, Deploy €2,800/yr, Heartcore hosting from $75/mo |
 | Directus | MSCL, not OSI-approved | Self-hosting free only under $5M revenue and 50 staff |
 | Strapi | MIT core | All AI; nothing on free, $45/mo minimum |
 | Sanity / Storyblok / Contentful | proprietary SaaS | metered AI credits |
 | Payload | MIT core | AI is enterprise-tier, sold by demo |
 
-Directus is the one to be precise about, because it is the closest comparison and is widely called
-open source. It is not. An agency that grows past $5M has a licensing problem there and none here.
+Two rows need care, and one of them cuts against us.
+
+**Umbraco's headless is free.** The Content Delivery API ships in the MIT-licensed CMS: 104 source
+files under `src/Umbraco.Cms.Api.Delivery`, verified in their repository rather than their marketing.
+What costs money is Heartcore, which is the managed hosting of it, plus the add-ons above. So against
+self-hosted Umbraco, "free" is not a differentiator, and their MIT is more permissive than our
+MPL-2.0. Saying otherwise is disprovable in thirty seconds and would cost more than the point is
+worth.
+
+**Directus is not open source**, though it is widely described that way. Current versions ship under
+the Monospace Sustainable Core License, free to self-host only below $5M revenue and 50 employees. An
+agency that grows past that has a licensing problem there and none here.
 
 **State the cost of MPL-2.0 first rather than have procurement find it.** It is weak copyleft:
 modifications to MPL-licensed files must be shared back, which MIT does not require.
