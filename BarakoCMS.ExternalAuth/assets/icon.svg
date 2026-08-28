@@ -1,0 +1,10 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="BarakoCMS.ExternalAuth">
+  <title>BarakoCMS.ExternalAuth</title>
+  <rect x="2" y="2" width="124" height="124" rx="28" fill="#F57C00"/>
+  <circle cx="54" cy="54" r="20" fill="#FFFFFF"/>
+  <circle cx="54" cy="54" r="9" fill="#F57C00"/>
+  <g fill="#FFC53D">
+    <rect x="62" y="66" width="12" height="34" rx="4" transform="rotate(-45 62 66)"/>
+    <rect x="80" y="80" width="16" height="10" rx="4" transform="rotate(-45 80 80)"/>
+  </g>
+</svg>

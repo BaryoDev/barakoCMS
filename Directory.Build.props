@@ -55,7 +55,10 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Include="$(MSBuildThisFileDirectory)assets/icon.png" Pack="true" PackagePath="/" Visible="false" />
+    <!-- Per-module icon when the project ships one, else the shared BarakoDev icon. Both pack as
+         icon.png, so PackageIcon stays a single inherited value in this file. -->
+    <None Include="$(MSBuildProjectDirectory)/assets/icon.png" Pack="true" PackagePath="/" Visible="false" Condition="Exists('$(MSBuildProjectDirectory)/assets/icon.png')" />
+    <None Include="$(MSBuildThisFileDirectory)assets/icon.png" Pack="true" PackagePath="/" Visible="false" Condition="!Exists('$(MSBuildProjectDirectory)/assets/icon.png')" />
     <None Include="README.md" Pack="true" PackagePath="/" Condition="Exists('$(MSBuildProjectDirectory)/README.md')" />
   </ItemGroup>
 

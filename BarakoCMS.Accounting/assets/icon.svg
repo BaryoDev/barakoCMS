@@ -1,0 +1,12 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="BarakoCMS.Accounting">
+  <title>BarakoCMS.Accounting</title>
+  <rect x="2" y="2" width="124" height="124" rx="28" fill="#7A5230"/>
+  <g fill="#FFFFFF">
+    <rect x="60" y="30" width="8" height="66" rx="4"/>
+    <rect x="34" y="40" width="60" height="8" rx="4"/>
+    <rect x="44" y="94" width="40" height="9" rx="4"/>
+    <circle cx="64" cy="32" r="7"/>
+  </g>
+  <path d="M34 44 L22 68 H46 Z" fill="#FFC53D"/>
+  <path d="M94 44 L82 68 H106 Z" fill="#FFC53D"/>
+</svg>

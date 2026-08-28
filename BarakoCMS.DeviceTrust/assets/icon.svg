@@ -1,0 +1,6 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="BarakoCMS.DeviceTrust">
+  <title>BarakoCMS.DeviceTrust</title>
+  <rect x="2" y="2" width="124" height="124" rx="28" fill="#D32F2F"/>
+  <path d="M64 22 L34 33 V63 C34 84 49 103 64 110 C79 103 94 84 94 63 V33 Z" fill="#FFFFFF"/>
+  <path d="M54 64 L61 72 L77 52" fill="none" stroke="#FFC53D" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
