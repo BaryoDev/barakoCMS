@@ -56,3 +56,13 @@ export function pageOf<T>(items: T[], pageSize = 100) {
         hasPreviousPage: false,
     };
 }
+
+/** Stub the content-type list on both of its route names.
+ *
+ *  4.0 consolidated the resource on GET /api/content-types and kept /api/schemas as a deprecated
+ *  alias until 5.0. The admin calls the new name. A mock that only knows the old one returns
+ *  nothing, the page renders its empty state, and the spec looks like it passed. */
+export async function stubContentTypes(page: Page, items: unknown[] = []) {
+    await page.route(/\/api\/content-types(\?|$)/, (r) => r.fulfill({ json: pageOf(items) }));
+    await page.route('**/api/schemas**', (r) => r.fulfill({ json: pageOf(items) }));
+}
