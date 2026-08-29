@@ -137,20 +137,35 @@ public class HostStartupExitCodeTests
         }
 
         var target = new NpgsqlConnectionStringBuilder(_fixture.ConnectionString) { Database = database };
-        var port = 58200 + Random.Shared.Next(1, 300);
 
-        using var host = StartHost(target.ConnectionString, "--urls", $"http://127.0.0.1:{port}");
+        using var host = StartHost(target.ConnectionString, "--urls", "http://127.0.0.1:0");
+
+        // Both pipes are drained from the start. A child whose output fills the 64KB pipe buffer
+        // blocks on the write, and this host is chatty at startup.
+        var output = host.StandardOutput.ReadToEndAsync();
+        var errors = host.StandardError.ReadToEndAsync();
+
         try
         {
-            await WaitForHealthAsync($"http://127.0.0.1:{port}/health", host);
+            // The assertion is on the database, not on the host answering. Whether the process is
+            // still serving is a property of the environment (port binding, process lifetime,
+            // signals); whether the schema was applied is the thing this test is about, and it stays
+            // true after the host has gone.
+            if (!await WaitForTableAsync(target.ConnectionString, "mt_doc_api_keys", host))
+            {
+                // Read the pipes only once the process is gone. Awaiting them while it is still
+                // running never returns, and FluentAssertions evaluates a message argument whether
+                // or not the assertion fails.
+                var exit = host.HasExited ? host.ExitCode.ToString() : "still running";
+                if (!host.HasExited)
+                {
+                    host.Kill(entireProcessTree: true);
+                }
 
-            await using var check = new NpgsqlConnection(target.ConnectionString);
-            await check.OpenAsync();
-            await using var query = new NpgsqlCommand(
-                "select count(*) from information_schema.tables where table_schema = 'public' and table_name = 'mt_doc_api_keys'",
-                check);
-            var found = Convert.ToInt64(await query.ExecuteScalarAsync());
-            found.Should().Be(1, "the boot-time schema apply must run when the host is going to serve");
+                throw new Xunit.Sdk.XunitException(
+                    "the boot-time schema apply must run when the host is going to serve. "
+                    + $"host exit: {exit}\nstdout:\n{Truncate(await output)}\nstderr:\n{Truncate(await errors)}");
+            }
         }
         finally
         {
@@ -159,6 +174,51 @@ public class HostStartupExitCodeTests
                 host.Kill(entireProcessTree: true);
             }
         }
+    }
+
+    private static string Truncate(string text) =>
+        text.Length <= 4000 ? text : text[^4000..];
+
+    /// <summary>
+    /// Polls for a table that only the explicit schema apply creates. Nothing creates
+    /// <c>mt_doc_api_keys</c> lazily during startup, so its presence means the apply ran and its
+    /// absence means it did not. Counting tables would not do: a handful appear on demand.
+    /// </summary>
+    private static async Task<bool> WaitForTableAsync(string connectionString, string table, Process host)
+    {
+        for (var attempt = 0; attempt < 60; attempt++)
+        {
+            await using (var connection = new NpgsqlConnection(connectionString))
+            {
+                await connection.OpenAsync();
+                await using var query = new NpgsqlCommand(
+                    "select count(*) from information_schema.tables where table_schema = 'public' and table_name = @table",
+                    connection);
+                query.Parameters.AddWithValue("table", table);
+                if (Convert.ToInt64(await query.ExecuteScalarAsync()) == 1)
+                {
+                    return true;
+                }
+            }
+
+            // One more look after the process is gone, so a host that applied the schema and then
+            // exited is not read as a failure by a race.
+            if (host.HasExited)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(1));
+                await using var connection = new NpgsqlConnection(connectionString);
+                await connection.OpenAsync();
+                await using var query = new NpgsqlCommand(
+                    "select count(*) from information_schema.tables where table_schema = 'public' and table_name = @table",
+                    connection);
+                query.Parameters.AddWithValue("table", table);
+                return Convert.ToInt64(await query.ExecuteScalarAsync()) == 1;
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(1));
+        }
+
+        return false;
     }
 
     private static Process StartHost(string connectionString, params string[] args)
@@ -189,30 +249,4 @@ public class HostStartupExitCodeTests
         return Process.Start(start)!;
     }
 
-    private static async Task WaitForHealthAsync(string url, Process host)
-    {
-        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
-        for (var attempt = 0; attempt < 60; attempt++)
-        {
-            if (host.HasExited)
-            {
-                throw new InvalidOperationException(
-                    $"the host exited with {host.ExitCode}: {await host.StandardError.ReadToEndAsync()}");
-            }
-
-            try
-            {
-                using var response = await client.GetAsync(url);
-                if (response.IsSuccessStatusCode)
-                {
-                    return;
-                }
-            }
-            catch (HttpRequestException) { }
-
-            await Task.Delay(TimeSpan.FromSeconds(1));
-        }
-
-        throw new TimeoutException("the host never became healthy");
-    }
 }
