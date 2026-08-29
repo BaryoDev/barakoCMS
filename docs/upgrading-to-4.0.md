@@ -35,12 +35,15 @@ stream snapshots, so they are NULL for every row by construction. If yours are n
 database used a feature this project does not, and you should stop and ask on the issue tracker
 rather than dropping them.
 
+The migration checks this itself and refuses rather than trusting you to have read this paragraph.
+Run it with `--single-transaction`, as below, and a refusal leaves the database exactly as it was.
+
 ## The upgrade
 
 Stop the 4.0 deploy from starting yet, and with 3.x stopped:
 
 ```bash
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/4.0.0/3.x-to-4.0.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.0.0/3.x-to-4.0.sql
 ```
 
 Then confirm the schema matches what 4.0 expects, without starting the server:
@@ -75,7 +78,7 @@ then apply the file again. It is safe to re-run: every statement in it is idempo
 **You need to go back to 3.x.** Stop 4.0, then:
 
 ```bash
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/4.0.0/rollback-to-3.x.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.0.0/rollback-to-3.x.sql
 ```
 
 That restores the two `mt_streams` columns as NULL, which is what they were, and removes `bdata`.

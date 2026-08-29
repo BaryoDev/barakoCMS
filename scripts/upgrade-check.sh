@@ -62,6 +62,15 @@ run_host() {
 
 psql_q() { docker exec "$PG" psql -U postgres -d barako_cms -tAc "$1"; }
 
+# A port already in use is the one failure that makes every check below pass for the wrong reason:
+# the health probe reaches whatever is listening, and the assertions then describe someone else's
+# process. Refuse to start rather than produce a green run about the wrong host.
+for port in "$PG_PORT" "$NEW_PORT" "$OLD_PORT"; do
+    if lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
+        fail "port $port is already in use. Something else would answer the health checks below and this run would pass without testing anything."
+    fi
+done
+
 step "building 4.0 from the working tree"
 dotnet publish barakoCMS/barakoCMS.csproj -c Release -o "$WORK/publish" --nologo -v q -clp:ErrorsOnly
 
@@ -107,6 +116,17 @@ EVENTS_BEFORE=$(psql_q "select count(*) from mt_events where stream_id = '$CONTE
 [ "$EVENTS_BEFORE" -ge 2 ] || fail "expected an event stream from ${FROM_VERSION}, found $EVENTS_BEFORE events"
 echo "stream $CONTENT_ID has $EVENTS_BEFORE events"
 
+# The daemon writes its progression asynchronously, so wait for it rather than assuming. Everything
+# below compares against this number, and a zero here would make those comparisons meaningless.
+for _ in $(seq 1 30); do
+    PROGRESSION_BEFORE=$(psql_q "select coalesce(max(last_seq_id), 0) from mt_event_progression where name like '%WorkflowProjection%';")
+    [ "${PROGRESSION_BEFORE:-0}" -gt 0 ] && break
+    sleep 2
+done
+[ "${PROGRESSION_BEFORE:-0}" -gt 0 ] \
+    || fail "the ${FROM_VERSION} workflow projection never recorded a progression, so there is no 'before' to compare against"
+echo "workflow projection progression is $PROGRESSION_BEFORE"
+
 docker stop "$OLD" >/dev/null
 
 step "db-assert must refuse the un-migrated database"
@@ -117,7 +137,13 @@ echo "refused, as it must"
 
 step "applying migrations/4.0.0/3.x-to-4.0.sql"
 docker cp migrations/4.0.0/3.x-to-4.0.sql "$PG:/tmp/up.sql"
-docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 -f /tmp/up.sql >/dev/null
+docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/up.sql >/dev/null
+
+step "the migration left the daemon's progression alone"
+PROGRESSION_MIGRATED=$(psql_q "select coalesce(max(last_seq_id), 0) from mt_event_progression where name like '%WorkflowProjection%';")
+[ "$PROGRESSION_MIGRATED" = "$PROGRESSION_BEFORE" ] \
+    || fail "the migration moved the workflow projection from $PROGRESSION_BEFORE to $PROGRESSION_MIGRATED. A reset here means 4.0 replays every event on first boot, re-firing every workflow email, webhook and task."
+echo "still $PROGRESSION_MIGRATED"
 
 step "db-assert must now pass"
 run_host db-assert >"$WORK/assert-after.log" 2>&1 || {
@@ -138,6 +164,10 @@ done
 [ "$(curl -s -o /dev/null -w '%{http_code}' "$NEW_URL/health")" = "200" ] || {
     cat "$WORK/boot.log" >&2; fail "4.0 never became healthy"
 }
+kill -0 "$HOST_PID" 2>/dev/null || {
+    cat "$WORK/boot.log" >&2
+    fail "something answered /health but the host we started is gone, so every check below would describe another process"
+}
 
 step "the 3.x admin can still sign in"
 NEW_TOKEN=$(curl -s -X POST "$NEW_URL/api/auth/login" -H 'Content-Type: application/json' \
@@ -148,17 +178,24 @@ NEW_TOKEN=$(curl -s -X POST "$NEW_URL/api/auth/login" -H 'Content-Type: applicat
 step "an event appends to the stream that already existed"
 curl -s -X PUT "$NEW_URL/api/contents/$CONTENT_ID/status" -H "Authorization: Bearer $NEW_TOKEN" \
     -H 'Content-Type: application/json' -d '{"status":2}' >/dev/null
-sleep 5
 EVENTS_AFTER=$(psql_q "select count(*) from mt_events where stream_id = '$CONTENT_ID';")
 [ "$EVENTS_AFTER" -gt "$EVENTS_BEFORE" ] \
     || fail "no event appended to the pre-existing stream ($EVENTS_BEFORE then $EVENTS_AFTER)"
 echo "$EVENTS_BEFORE then $EVENTS_AFTER events"
 
-step "the projection daemon resumed rather than restarting"
-PROGRESSION=$(psql_q "select last_seq_id from mt_event_progression where name like '%WorkflowProjection%';")
-[ -n "$PROGRESSION" ] || fail "the workflow projection has no progression row; the daemon restarted from zero"
-[ "$PROGRESSION" -ge "$EVENTS_BEFORE" ] \
-    || fail "the workflow projection rewound to $PROGRESSION, below the $EVENTS_BEFORE events that existed before the upgrade"
-echo "progression at $PROGRESSION"
+step "the projection daemon picked up where it left off"
+# Polled, not slept: the daemon takes the HotCold advisory lock and catches up on its own schedule,
+# and a fixed sleep turns a tenancy assertion into a timing one.
+for _ in $(seq 1 30); do
+    PROGRESSION_AFTER=$(psql_q "select coalesce(max(last_seq_id), 0) from mt_event_progression where name like '%WorkflowProjection%';")
+    [ "${PROGRESSION_AFTER:-0}" -gt "$PROGRESSION_BEFORE" ] && break
+    sleep 2
+done
+if [ "${PROGRESSION_AFTER:-0}" -le "$PROGRESSION_BEFORE" ]; then
+    echo "--- host log ---" >&2
+    tail -60 "$WORK/boot.log" >&2
+    fail "the workflow projection sat at $PROGRESSION_AFTER after the new event, having been at $PROGRESSION_BEFORE before the upgrade; the daemon did not resume"
+fi
+echo "$PROGRESSION_BEFORE then $PROGRESSION_AFTER"
 
 printf '\nThe %s to 4.0 upgrade works, with migrations/4.0.0/3.x-to-4.0.sql applied first.\n' "$FROM_VERSION"

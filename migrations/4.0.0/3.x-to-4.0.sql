@@ -41,6 +41,21 @@ END;
 $function$;
 
 
+-- The two DROP COLUMNs below are the only destructive statements in this file. The guard turns the
+-- "check this first" line in the documentation into a refusal, because a line in documentation is
+-- something a hurried operator skips. It raises before either drop runs, so a database that did use
+-- stream snapshots stops with its columns intact. Run this file with psql --single-transaction and
+-- nothing before it lands either.
+DO $guard$
+BEGIN
+    IF EXISTS (SELECT 1 FROM public.mt_streams
+               WHERE snapshot IS NOT NULL OR snapshot_version IS NOT NULL) THEN
+        RAISE EXCEPTION
+            'mt_streams.snapshot holds data, so this migration will not drop it. barakoCMS never enabled Marten stream snapshots, so this database used a feature this project does not. Ask on the issue tracker before going further.';
+    END IF;
+END
+$guard$;
+
 alter table public.mt_streams drop column snapshot;
 alter table public.mt_streams drop column snapshot_version;
 alter table public.mt_events add column bdata bytea NULL;
