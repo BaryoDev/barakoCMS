@@ -63,7 +63,7 @@ try
 
     // A bare first argument names a JasperFx command (db-assert, db-patch, db-apply, help). A
     // leading dash is a .NET or ASP.NET flag such as --urls, which JasperFx detects and hands
-    // straight back to the normal host — so those still serve, and still need the schema work
+    // straight back to the normal host, so those still serve and still need the schema work
     // below. Deciding this on args.Length alone left a --urls host with whatever tables its first
     // request happened to create.
     var willServe = args.Length == 0 || args[0].StartsWith('-') || args[0] == "run";

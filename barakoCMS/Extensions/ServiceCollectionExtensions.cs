@@ -812,7 +812,7 @@ public static class ServiceCollectionExtensions
     /// BEFORE any seeder runs. It's the deliberate, ordered replacement for
     /// ApplyAllDatabaseChangesOnStartup: because production runs AutoCreate.CreateOnly, which creates
     /// missing objects but never issues DDL on demand for an existing one, the schema must exist
-    /// before the seeders query it — and the seeders run before app.Run(), so a boot-time hosted
+    /// before the seeders query it, and the seeders run before app.Run(), so a boot-time hosted
     /// service is too late. Idempotent: a no-op when the DB already matches the model.
     /// A change CreateOnly refuses (anything needing an ALTER) throws here, failing the deploy loudly
     /// instead of 500ing live writes. That is the upgrade path's entry point: generate the delta with
