@@ -3,7 +3,12 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Repository;
 
-public interface IUserRepository
+// Internal, not public. CLAUDE.md section 1a says there is no repository pattern here, and freezing
+// a public abstraction the architecture disavows is the worst of both. It stays for now because
+// Login and Register are built on it and four unit tests mock it to exercise password rules without
+// a database; replacing it with IDocumentSession is a refactor of the auth path, not a freeze.
+
+internal interface IUserRepository
 {
     Task<User?> GetByUsernameOrEmailAsync(string username, string email, CancellationToken ct = default);
     Task<User?> GetByUsernameAsync(string username, CancellationToken ct = default);
@@ -11,7 +16,7 @@ public interface IUserRepository
     Task SaveChangesAsync(CancellationToken ct = default);
 }
 
-public class MartenUserRepository : IUserRepository
+internal class MartenUserRepository : IUserRepository
 {
     private readonly IDocumentSession _session;
 

@@ -2,7 +2,7 @@ using FluentValidation;
 
 namespace barakoCMS.Features.Content.Update;
 
-public class Request
+internal class Request
 {
     public Guid Id { get; set; }
     public Dictionary<string, object> Data { get; set; } = new();
@@ -15,7 +15,7 @@ public class Request
 /// Content existence and schema validation are handled by the endpoint
 /// using properly scoped IDocumentSession instances.
 /// </summary>
-public class RequestValidator : FastEndpoints.Validator<Request>
+internal class RequestValidator : FastEndpoints.Validator<Request>
 {
     public RequestValidator()
     {
@@ -24,7 +24,7 @@ public class RequestValidator : FastEndpoints.Validator<Request>
     }
 }
 
-public class Response
+internal class Response
 {
     public Guid Id { get; set; }
     /// <summary>

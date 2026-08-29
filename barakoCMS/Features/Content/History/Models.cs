@@ -1,11 +1,11 @@
 namespace barakoCMS.Features.Content.History;
 
-public class Request : barakoCMS.Models.ListRequest
+internal class Request : barakoCMS.Models.ListRequest
 {
     public Guid Id { get; set; }
 }
 
-public class VersionResponse
+internal class VersionResponse
 {
     public Guid Id { get; set; }
     public Dictionary<string, object> Data { get; set; } = new();

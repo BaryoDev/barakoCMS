@@ -13,7 +13,7 @@ namespace barakoCMS.Features.Workflows.Actions;
     RequiredParameters = new[] { "Field", "Value" },
     ExampleJson = @"{""Type"":""UpdateField"",""Parameters"":{""Field"":""data.Status"",""Value"":""Approved""}}"
 )]
-public class UpdateFieldAction : IWorkflowAction
+internal class UpdateFieldAction : IWorkflowAction
 {
     private readonly IDocumentSession _session;
     private readonly ILogger<UpdateFieldAction> _logger;

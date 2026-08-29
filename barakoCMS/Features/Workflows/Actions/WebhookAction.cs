@@ -15,7 +15,7 @@ namespace barakoCMS.Features.Workflows.Actions;
     RequiredParameters = new[] { "Url" },
     ExampleJson = @"{""Type"":""Webhook"",""Parameters"":{""Url"":""https://example.com/webhook""}}"
 )]
-public class WebhookAction : IWorkflowAction
+internal class WebhookAction : IWorkflowAction
 {
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<WebhookAction> _logger;

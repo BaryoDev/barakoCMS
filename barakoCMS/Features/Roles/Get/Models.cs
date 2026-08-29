@@ -2,12 +2,12 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.Roles.Get;
 
-public class Request
+internal class Request
 {
     public Guid Id { get; set; }
 }
 
-public class Response
+internal class Response
 {
     public Role? Role { get; set; }
 }

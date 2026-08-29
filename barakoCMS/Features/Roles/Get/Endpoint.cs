@@ -4,7 +4,7 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.Roles.Get;
 
-public class Endpoint : Endpoint<Request, Role>
+internal class Endpoint : Endpoint<Request, Role>
 {
     private readonly IDocumentSession _session;
 

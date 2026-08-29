@@ -4,13 +4,13 @@ using Marten;
 
 namespace barakoCMS.Features.Me;
 
-public sealed record TenantSummary(string Slug, string Name, string? LogoUrl, Dictionary<string, string> Branding);
+internal sealed record TenantSummary(string Slug, string Name, string? LogoUrl, Dictionary<string, string> Branding);
 
 /// <summary>
 /// GET /api/me/tenants — the tenants the signed-in user belongs to (their active memberships joined
 /// with the tenant registry). Powers a "switch tenant" experience across a multi-tenant deployment.
 /// </summary>
-public class MyTenantsEndpoint : Endpoint<ListRequest, PaginatedResponse<TenantSummary>>
+internal class MyTenantsEndpoint : Endpoint<ListRequest, PaginatedResponse<TenantSummary>>
 {
     private readonly IQuerySession _session;
 

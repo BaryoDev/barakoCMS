@@ -4,7 +4,7 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.ContentType.Get;
 
-public class Endpoint : Endpoint<ListRequest, PaginatedResponse<ContentTypeDefinition>>
+internal class Endpoint : Endpoint<ListRequest, PaginatedResponse<ContentTypeDefinition>>
 {
     private readonly IQuerySession _session;
 

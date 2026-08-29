@@ -4,7 +4,7 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.UserGroups.Create;
 
-public class Endpoint : Endpoint<Request, Response>
+internal class Endpoint : Endpoint<Request, Response>
 {
     private readonly IDocumentSession _session;
 

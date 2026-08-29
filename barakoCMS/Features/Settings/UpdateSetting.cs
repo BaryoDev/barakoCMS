@@ -4,19 +4,19 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.Settings;
 
-public class UpdateSettingRequest
+internal class UpdateSettingRequest
 {
     public string Key { get; set; } = string.Empty;
     public string Value { get; set; } = string.Empty;
 }
 
-public class UpdateSettingResponse
+internal class UpdateSettingResponse
 {
     public bool Success { get; set; }
     public string Message { get; set; } = string.Empty;
 }
 
-public class UpdateSettingEndpoint : Endpoint<UpdateSettingRequest, UpdateSettingResponse>
+internal class UpdateSettingEndpoint : Endpoint<UpdateSettingRequest, UpdateSettingResponse>
 {
     private readonly IDocumentSession _session;
 

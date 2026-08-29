@@ -9,19 +9,19 @@ namespace barakoCMS.Features.ApiKeys;
 // the creating user, so a key can never do more than its creator, and its scopes narrow it further to
 // the content surface. The secret is shown once, on create, and only its hash is stored.
 
-public sealed class CreateApiKeyRequest
+internal sealed class CreateApiKeyRequest
 {
     public string Name { get; set; } = string.Empty;
     public List<string> Scopes { get; set; } = new();
     public DateTime? ExpiresAt { get; set; }
 }
 
-public sealed record CreateApiKeyResponse(
+internal sealed record CreateApiKeyResponse(
     Guid Id, string Key, string Prefix, string Name, List<string> Scopes,
     string TenantSlug, DateTime? ExpiresAt, DateTime CreatedAt);
 
 /// <summary>POST /api/api-keys — create a key; returns the full secret ONCE.</summary>
-public class CreateApiKeyEndpoint : Endpoint<CreateApiKeyRequest, CreateApiKeyResponse>
+internal class CreateApiKeyEndpoint : Endpoint<CreateApiKeyRequest, CreateApiKeyResponse>
 {
     private readonly IDocumentSession _session;
     private readonly ApiKeyService _keys;
@@ -84,12 +84,12 @@ public class CreateApiKeyEndpoint : Endpoint<CreateApiKeyRequest, CreateApiKeyRe
     }
 }
 
-public sealed record ApiKeyListItem(
+internal sealed record ApiKeyListItem(
     Guid Id, string Name, string Prefix, List<string> Scopes, string TenantSlug,
     DateTime? ExpiresAt, DateTime? LastUsedAt, bool Revoked, DateTime CreatedAt);
 
 /// <summary>GET /api/api-keys — list the current tenant's keys (never the secret or hash).</summary>
-public class ListApiKeysEndpoint : Endpoint<ListRequest, PaginatedResponse<ApiKeyListItem>>
+internal class ListApiKeysEndpoint : Endpoint<ListRequest, PaginatedResponse<ApiKeyListItem>>
 {
     private readonly IQuerySession _session;
     public ListApiKeysEndpoint(IQuerySession session) => _session = session;
@@ -123,7 +123,7 @@ public class ListApiKeysEndpoint : Endpoint<ListRequest, PaginatedResponse<ApiKe
 }
 
 /// <summary>DELETE /api/api-keys/{id} — revoke a key (soft; the record is kept). Effective immediately.</summary>
-public class RevokeApiKeyEndpoint : EndpointWithoutRequest
+internal class RevokeApiKeyEndpoint : EndpointWithoutRequest
 {
     private readonly IDocumentSession _session;
     public RevokeApiKeyEndpoint(IDocumentSession session) => _session = session;

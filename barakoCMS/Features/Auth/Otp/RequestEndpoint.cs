@@ -6,12 +6,12 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.Auth.Otp;
 
-public class OtpRequest
+internal class OtpRequest
 {
     public string Email { get; set; } = string.Empty;
 }
 
-public class OtpRequestResponse
+internal class OtpRequestResponse
 {
     public string Message { get; set; } = string.Empty;
 }
@@ -20,7 +20,7 @@ public class OtpRequestResponse
 /// POST /api/auth/otp/request — email a 6-digit sign-in code to a registered user.
 /// Always responds 200 with the same message so callers can't probe which emails exist.
 /// </summary>
-public class RequestEndpoint : Endpoint<OtpRequest, OtpRequestResponse>
+internal class RequestEndpoint : Endpoint<OtpRequest, OtpRequestResponse>
 {
     private readonly IDocumentSession _session;
     private readonly IOtpService _otp;

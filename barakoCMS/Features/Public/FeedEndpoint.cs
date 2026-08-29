@@ -17,7 +17,7 @@ namespace barakoCMS.Features.Public;
 /// <c>Feeds:SiteUrl</c> (falls back to the request host) and, per type, <c>Feeds:Paths:{type}</c>
 /// (a template like <c>/blog/{slug}</c>; defaults to <c>/{type}/{slug}</c>).
 /// </summary>
-public class FeedEndpoint : EndpointWithoutRequest
+internal class FeedEndpoint : EndpointWithoutRequest
 {
     private readonly IQuerySession _session;
     private readonly IConfiguration _config;

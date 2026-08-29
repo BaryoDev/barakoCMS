@@ -5,14 +5,14 @@ namespace barakoCMS.Features.Monitoring.Health;
 
 // Per-check health detail for the admin dashboard. The anonymous /health probe returns only the
 // overall status; this admin-only endpoint exposes each check's name, status, and timing.
-public class DetailedHealthStatus
+internal class DetailedHealthStatus
 {
     public string Status { get; set; } = "";
     public string TotalDuration { get; set; } = "";
     public Dictionary<string, HealthEntry> Entries { get; set; } = new();
 }
 
-public class HealthEntry
+internal class HealthEntry
 {
     public string Status { get; set; } = "";
     public string Duration { get; set; } = "";
@@ -21,7 +21,7 @@ public class HealthEntry
     public IEnumerable<string>? Tags { get; set; }
 }
 
-public class Endpoint : EndpointWithoutRequest<DetailedHealthStatus>
+internal class Endpoint : EndpointWithoutRequest<DetailedHealthStatus>
 {
     private readonly HealthCheckService _healthCheckService;
 

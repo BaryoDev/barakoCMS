@@ -5,12 +5,12 @@ using Marten;
 
 namespace barakoCMS.Features.Tenants;
 
-public sealed record TenantPublicResponse(
+internal sealed record TenantPublicResponse(
     string Handle, string Name, string? LogoUrl, string? About,
     string? Location, string? LocationUrl, string? SocialHandle, string? Email, string? ContactUrl);
 
 /// <summary>GET /api/tenants/{handle}/public — anonymous public profile for a tenant's landing page.</summary>
-public class PublicTenantEndpoint : EndpointWithoutRequest<TenantPublicResponse>
+internal class PublicTenantEndpoint : EndpointWithoutRequest<TenantPublicResponse>
 {
     private readonly IQuerySession _session;
     public PublicTenantEndpoint(IQuerySession session) => _session = session;
@@ -32,7 +32,7 @@ public class PublicTenantEndpoint : EndpointWithoutRequest<TenantPublicResponse>
 }
 
 /// <summary>GET /api/tenants — list all tenants with full profile (platform admin).</summary>
-public class ListTenantsEndpoint : Endpoint<ListRequest, PaginatedResponse<Tenant>>
+internal class ListTenantsEndpoint : Endpoint<ListRequest, PaginatedResponse<Tenant>>
 {
     private readonly IQuerySession _session;
     public ListTenantsEndpoint(IQuerySession session) => _session = session;
@@ -53,7 +53,7 @@ public class ListTenantsEndpoint : Endpoint<ListRequest, PaginatedResponse<Tenan
     }
 }
 
-public sealed class TenantWriteRequest
+internal sealed class TenantWriteRequest
 {
     public string Handle { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
@@ -68,7 +68,7 @@ public sealed class TenantWriteRequest
 }
 
 /// <summary>POST /api/tenants — create a tenant (platform admin).</summary>
-public class CreateTenantEndpoint : Endpoint<TenantWriteRequest, Tenant>
+internal class CreateTenantEndpoint : Endpoint<TenantWriteRequest, Tenant>
 {
     private readonly IDocumentSession _session;
     public CreateTenantEndpoint(IDocumentSession session) => _session = session;
@@ -132,7 +132,7 @@ public class CreateTenantEndpoint : Endpoint<TenantWriteRequest, Tenant>
 }
 
 /// <summary>PUT /api/tenants/{handle} — update a tenant's profile (platform admin).</summary>
-public class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, Tenant>
+internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, Tenant>
 {
     private readonly IDocumentSession _session;
     public UpdateTenantEndpoint(IDocumentSession session) => _session = session;

@@ -120,4 +120,8 @@ finally
     Log.Information("BarakoCMS Host Shutting Down...");
     Log.CloseAndFlush();
 }
+// Stays public. WebApplicationFactory<Program> is the test host's entry point, and a public test
+// class cannot implement IClassFixture over an internal one, so internalising this would make forty
+// test classes internal to buy nothing: the type is an empty partial with no members for section 6
+// to freeze.
 public partial class Program { }

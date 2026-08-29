@@ -11,7 +11,7 @@ namespace barakoCMS.Features.Content.Schedule;
 /// emits a real ContentStatusChanged event for each transition. Requires the same "update" permission as
 /// a status change.
 /// </summary>
-public class Endpoint : Endpoint<Request, Response>
+internal class Endpoint : Endpoint<Request, Response>
 {
     private readonly IDocumentSession _session;
     private readonly IContentWriter _contentWriter;

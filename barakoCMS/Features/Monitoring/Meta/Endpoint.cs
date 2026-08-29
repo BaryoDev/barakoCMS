@@ -6,7 +6,7 @@ namespace barakoCMS.Features.Monitoring.Meta;
 // Authenticated on purpose, and deliberately not role-restricted. Handing an exact CMS version to
 // anonymous callers is free CVE matching, but every signed-in backoffice user needs to be able to
 // answer "what am I running" when something behaves unexpectedly.
-public class Endpoint : EndpointWithoutRequest<MetaResponse>
+internal class Endpoint : EndpointWithoutRequest<MetaResponse>
 {
     private readonly IConfiguration _configuration;
 

@@ -4,7 +4,7 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.UserGroups.Get;
 
-public class Endpoint : Endpoint<Request, UserGroup>
+internal class Endpoint : Endpoint<Request, UserGroup>
 {
     private readonly IDocumentSession _session;
 
@@ -33,7 +33,7 @@ public class Endpoint : Endpoint<Request, UserGroup>
     }
 }
 
-public class Request
+internal class Request
 {
     public Guid Id { get; set; }
 }

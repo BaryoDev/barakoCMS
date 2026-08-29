@@ -3,7 +3,7 @@ using barakoCMS.Infrastructure.Services;
 
 namespace barakoCMS.Features.Monitoring.Kubernetes;
 
-public class Endpoint : EndpointWithoutRequest<ClusterStatus>
+internal class Endpoint : EndpointWithoutRequest<ClusterStatus>
 {
     private readonly IKubernetesMonitorService _service;
     private readonly ILogger<Endpoint> _logger;

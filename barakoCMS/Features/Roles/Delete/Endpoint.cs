@@ -5,7 +5,7 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.Roles.Delete;
 
-public class Endpoint : Endpoint<Request, Response>
+internal class Endpoint : Endpoint<Request, Response>
 {
     private readonly IDocumentSession _session;
     private readonly barakoCMS.Infrastructure.Services.IPermissionResolver _permissionResolver;

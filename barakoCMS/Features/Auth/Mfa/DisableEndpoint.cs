@@ -9,7 +9,7 @@ namespace barakoCMS.Features.Auth.Mfa;
 /// POST /api/auth/mfa/disable — turn off MFA for the signed-in user. Requires a current TOTP or a
 /// recovery code, so a hijacked session (without the second factor) cannot remove it.
 /// </summary>
-public class DisableEndpoint : Endpoint<CodeRequest, MessageResponse>
+internal class DisableEndpoint : Endpoint<CodeRequest, MessageResponse>
 {
     private readonly IMfaService _mfa;
     private readonly IDocumentSession _session;

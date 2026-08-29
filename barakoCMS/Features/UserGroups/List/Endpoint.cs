@@ -4,7 +4,7 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.UserGroups.List;
 
-public class Endpoint : Endpoint<ListRequest, PaginatedResponse<UserGroup>>
+internal class Endpoint : Endpoint<ListRequest, PaginatedResponse<UserGroup>>
 {
     private readonly IDocumentSession _session;
 

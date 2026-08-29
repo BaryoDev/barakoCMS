@@ -2,7 +2,7 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.Public;
 
-public enum FilterOp { Eq, Ne, Lt, Lte, Gt, Gte, Contains }
+internal enum FilterOp { Eq, Ne, Lt, Lte, Gt, Gte, Contains }
 
 /// <summary>One validated field comparison, safe to translate into SQL.</summary>
 /// <param name="Field">A field name the content type marks Public. Never caller-supplied text.</param>
@@ -10,13 +10,13 @@ public enum FilterOp { Eq, Ne, Lt, Lte, Gt, Gte, Contains }
 /// The field's declared type. Carried because jsonb compares by type first: without it a filter on
 /// a string field holding "500" would emit the number 500 and match nothing.
 /// </param>
-public readonly record struct DeliveryFilter(string Field, FilterOp Op, string Value, string Type);
+internal readonly record struct DeliveryFilter(string Field, FilterOp Op, string Value, string Type);
 
 /// <summary>A validated sort, or none.</summary>
-public readonly record struct DeliverySort(string Field, bool Descending);
+internal readonly record struct DeliverySort(string Field, bool Descending);
 
 /// <summary>The outcome of parsing the query string: either a query to run, or the reason it was refused.</summary>
-public sealed class DeliveryQuery
+internal sealed class DeliveryQuery
 {
     public const int MaxFilters = 5;
 

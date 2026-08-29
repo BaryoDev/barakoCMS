@@ -5,7 +5,7 @@ using Marten;
 
 namespace barakoCMS.Features.Workflows;
 
-public class WorkflowEngine : IWorkflowEngine
+internal class WorkflowEngine : IWorkflowEngine
 {
     private readonly IDocumentSession _session;
     private readonly IEnumerable<IWorkflowAction> _actions;

@@ -1,11 +1,11 @@
 namespace barakoCMS.Features.Content.Get;
 
-public class Request
+internal class Request
 {
     public Guid Id { get; set; }
 }
 
-public class Response
+internal class Response
 {
     public Guid Id { get; set; }
     public string ContentType { get; set; } = string.Empty;
