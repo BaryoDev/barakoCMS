@@ -54,8 +54,12 @@ public class Endpoint : Endpoint<Request, Response>
         var validationResult = await _validator.ValidateAsync(existingContent.ContentType, req.Data);
         if (!validationResult.IsValid)
         {
-            await Send.ResponseAsync(new Response { Message = "Validation Failed: " + string.Join(", ", validationResult.Errors) }, 400, ct);
-            return;
+            foreach (var error in validationResult.Errors)
+            {
+                AddError(error);
+            }
+
+            ThrowIfAnyErrors();
         }
 
         // DOMAIN RULES — must run on update too, or an invariant enforced at create (a balanced
@@ -64,8 +68,12 @@ public class Endpoint : Endpoint<Request, Response>
             .RunBeforeSaveAsync(existingContent.ContentType, req.Data, existingContent.Data, userId, ct);
         if (hookErrors.Count > 0)
         {
-            await Send.ResponseAsync(new Response { Message = "Validation Failed: " + string.Join(", ", hookErrors) }, 400, ct);
-            return;
+            foreach (var error in hookErrors)
+            {
+                AddError(error);
+            }
+
+            ThrowIfAnyErrors();
         }
         var definition = await _session.Query<ContentTypeDefinition>()
             .FirstOrDefaultAsync(d => d.Name == existingContent.ContentType, ct);
@@ -129,7 +137,6 @@ public class Endpoint : Endpoint<Request, Response>
         {
             Id = req.Id,
             Version = newVersion,
-            Message = "Content updated successfully"
         });
     }
 }

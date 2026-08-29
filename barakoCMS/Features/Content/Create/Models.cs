@@ -31,5 +31,4 @@ public class Response
     /// Initial event-stream version (1). Echo it back in an update's Version field for concurrency checks.
     /// </summary>
     public long Version { get; set; }
-    public string Message { get; set; } = string.Empty;
 }

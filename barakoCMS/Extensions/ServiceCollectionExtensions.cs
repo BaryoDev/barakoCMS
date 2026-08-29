@@ -690,7 +690,10 @@ public static class ServiceCollectionExtensions
         var globalPostProcessors = app.ApplicationServices.GetServices<FastEndpoints.IGlobalPostProcessor>().ToArray();
         app.UseFastEndpoints(c =>
         {
-            c.Errors.UseProblemDetails();
+            // AllowDuplicateErrors keeps every failure that shares a field name. Without it a
+            // content type with three bad fields reports one of them, so the caller fixes it, posts
+            // again and is told about the next one.
+            c.Errors.UseProblemDetails(x => x.AllowDuplicateErrors = true);
 
             // Deserialize incoming Dictionary<string, object> bodies (a content entry's Data, a
             // permission rule's Conditions) exactly the way they are stored — see ObjectJsonConverter.

@@ -158,7 +158,15 @@ export function apiErrorMessage(error: unknown, fallback = 'Something went wrong
         if (data?.message) return data.message;
         if (data?.errors) {
             const errs = data.errors;
-            if (Array.isArray(errs)) return errs.map((e) => e.message ?? e).join(', ');
+            // ProblemDetails entries from FastEndpoints carry `reason`, not `message`. Reading
+            // `message` first left `?? e` falling back to the object, so every validation failure
+            // rendered as "[object Object]", including "Invalid credentials" on the login page.
+            if (Array.isArray(errs)) {
+                return errs
+                    .map((e) => (typeof e === 'string' ? e : (e?.reason ?? e?.message ?? '')))
+                    .filter(Boolean)
+                    .join(', ') || fallback;
+            }
             if (typeof errs === 'object') return Object.values(errs).flat().join(', ');
         }
         if (error.response?.status === 401) return 'Your session has expired. Sign in again.';
