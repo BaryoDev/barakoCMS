@@ -1,0 +1,164 @@
+#!/usr/bin/env bash
+#
+# Proves the 3.x to 4.0 upgrade against a database that has data in it.
+#
+# Nothing in the test suite covers this: IntegrationTestFixture forces Development, so the suite
+# always runs CreateOrUpdate against a fresh database, and production runs CreateOnly against one
+# that already exists. That gap is what issue #277 is about, and this script is what closes it.
+#
+# The sequence, which is also the documented upgrade procedure:
+#
+#   1. stand up a database with the released FROM_VERSION and put real content in it
+#   2. db-assert must FAIL, because 4.0's schema does not match a 3.x database
+#   3. apply the reviewed migration in migrations/4.0.0/
+#   4. db-assert must PASS
+#   5. 4.0 boots in Production mode and serves
+#   6. an event appends to a stream that already existed, and the projection daemon resumes from
+#      its stored progression rather than restarting from zero
+#
+# Step 2 is asserted rather than skipped on purpose. If a future change makes the migration
+# unnecessary, this fails and someone finds out deliberately instead of shipping a stale file.
+#
+# Usage: scripts/upgrade-check.sh          (FROM_VERSION defaults to the last 3.x release)
+
+set -euo pipefail
+
+FROM_VERSION="${FROM_VERSION:-3.21.0}"
+IMAGE="ghcr.io/baryodev/barako-cms:${FROM_VERSION}"
+NETWORK="barako-upgrade-check"
+PG="upgrade-check-pg"
+OLD="upgrade-check-old"
+PG_PORT="${PG_PORT:-55433}"
+NEW_PORT="${NEW_PORT:-58090}"
+OLD_PORT="${OLD_PORT:-58091}"
+ADMIN_PASSWORD='UpgradeCheck!123'
+JWT_KEY='upgrade-check-key-that-is-at-least-32-chars-long'
+WORK="$(mktemp -d)"
+CONN="Host=127.0.0.1;Port=${PG_PORT};Database=barako_cms;Username=postgres;Password=postgres"
+
+cleanup() {
+    if [ -n "${HOST_PID:-}" ]; then kill "$HOST_PID" 2>/dev/null || true; wait "$HOST_PID" 2>/dev/null || true; fi
+    docker rm -f "$PG" "$OLD" >/dev/null 2>&1 || true
+    docker network rm "$NETWORK" >/dev/null 2>&1 || true
+    rm -rf "$WORK"
+}
+trap cleanup EXIT
+
+step() { printf '\n=== %s\n' "$1"; }
+fail() { printf '\nFAILED: %s\n' "$1" >&2; exit 1; }
+
+run_host() {
+    # Explicit environment, not an inherited one: a stray DATABASE_URL in the shell would point the
+    # host somewhere other than the database under test and every check below would pass wrongly.
+    env -i PATH="$PATH" HOME="$HOME" DOTNET_ROOT="${DOTNET_ROOT:-}" \
+        ASPNETCORE_ENVIRONMENT=Production \
+        ASPNETCORE_URLS="http://127.0.0.1:${NEW_PORT}" \
+        ConnectionStrings__DefaultConnection="$CONN" \
+        JWT__Key="$JWT_KEY" \
+        SKIP_SEEDER=true \
+        Kubernetes__Enabled=false \
+        dotnet exec "$WORK/publish/barakoCMS.dll" "$@"
+}
+
+psql_q() { docker exec "$PG" psql -U postgres -d barako_cms -tAc "$1"; }
+
+step "building 4.0 from the working tree"
+dotnet publish barakoCMS/barakoCMS.csproj -c Release -o "$WORK/publish" --nologo -v q -clp:ErrorsOnly
+
+step "starting postgres"
+docker network create "$NETWORK" >/dev/null 2>&1 || true
+docker run -d --name "$PG" --network "$NETWORK" \
+    -e POSTGRES_DB=barako_cms -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
+    -p "${PG_PORT}:5432" postgres:16-alpine >/dev/null
+for _ in $(seq 1 30); do docker exec "$PG" pg_isready -U postgres >/dev/null 2>&1 && break; sleep 2; done
+docker exec "$PG" pg_isready -U postgres >/dev/null || fail "postgres never became ready"
+
+step "creating a ${FROM_VERSION} database with data in it"
+docker run -d --name "$OLD" --network "$NETWORK" \
+    -e ConnectionStrings__DefaultConnection="Host=${PG};Database=barako_cms;Username=postgres;Password=postgres" \
+    -e JWT__Key="$JWT_KEY" \
+    -e InitialAdmin__Username=admin -e InitialAdmin__Password="$ADMIN_PASSWORD" \
+    -e Kubernetes__Enabled=false \
+    -p "${OLD_PORT}:8080" "$IMAGE" >/dev/null
+
+OLD_URL="http://127.0.0.1:${OLD_PORT}"
+for _ in $(seq 1 60); do
+    [ "$(curl -s -o /dev/null -w '%{http_code}' "$OLD_URL/health" || true)" = "200" ] && break
+    sleep 2
+done
+[ "$(curl -s -o /dev/null -w '%{http_code}' "$OLD_URL/health")" = "200" ] || fail "${FROM_VERSION} never became healthy"
+
+TOKEN=$(curl -s -X POST "$OLD_URL/api/auth/login" -H 'Content-Type: application/json' \
+    -d "{\"username\":\"admin\",\"password\":\"${ADMIN_PASSWORD}\"}" \
+    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('accessToken') or d.get('token') or '')")
+[ -n "$TOKEN" ] || fail "could not sign in to ${FROM_VERSION}"
+
+CONTENT_ID=$(curl -s -X POST "$OLD_URL/api/contents" -H "Authorization: Bearer $TOKEN" \
+    -H 'Content-Type: application/json' \
+    -d '{"contentType":"AttendanceRecord","data":{"FirstName":"Upgrade","LastName":"Probe"}}' \
+    | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))")
+[ -n "$CONTENT_ID" ] || fail "could not create content on ${FROM_VERSION}"
+
+# Status is an int over the wire (see #296). 1 is Published, which is what emits the second event.
+curl -s -X PUT "$OLD_URL/api/contents/$CONTENT_ID/status" -H "Authorization: Bearer $TOKEN" \
+    -H 'Content-Type: application/json' -d '{"status":1}' >/dev/null
+
+EVENTS_BEFORE=$(psql_q "select count(*) from mt_events where stream_id = '$CONTENT_ID';")
+[ "$EVENTS_BEFORE" -ge 2 ] || fail "expected an event stream from ${FROM_VERSION}, found $EVENTS_BEFORE events"
+echo "stream $CONTENT_ID has $EVENTS_BEFORE events"
+
+docker stop "$OLD" >/dev/null
+
+step "db-assert must refuse the un-migrated database"
+if run_host db-assert >"$WORK/assert-before.log" 2>&1; then
+    fail "db-assert passed against a ${FROM_VERSION} database. The committed migration is stale: regenerate it with db-patch, or delete it if 4.0 no longer needs one."
+fi
+echo "refused, as it must"
+
+step "applying migrations/4.0.0/3.x-to-4.0.sql"
+docker cp migrations/4.0.0/3.x-to-4.0.sql "$PG:/tmp/up.sql"
+docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 -f /tmp/up.sql >/dev/null
+
+step "db-assert must now pass"
+run_host db-assert >"$WORK/assert-after.log" 2>&1 || {
+    cat "$WORK/assert-after.log" >&2
+    fail "the migration did not bring the schema up to date"
+}
+echo "schema matches"
+
+step "booting 4.0 in Production against the migrated database"
+run_host >"$WORK/boot.log" 2>&1 &
+HOST_PID=$!
+NEW_URL="http://127.0.0.1:${NEW_PORT}"
+for _ in $(seq 1 60); do
+    [ "$(curl -s -o /dev/null -w '%{http_code}' "$NEW_URL/health" || true)" = "200" ] && break
+    kill -0 "$HOST_PID" 2>/dev/null || { cat "$WORK/boot.log" >&2; fail "4.0 exited during startup"; }
+    sleep 2
+done
+[ "$(curl -s -o /dev/null -w '%{http_code}' "$NEW_URL/health")" = "200" ] || {
+    cat "$WORK/boot.log" >&2; fail "4.0 never became healthy"
+}
+
+step "the 3.x admin can still sign in"
+NEW_TOKEN=$(curl -s -X POST "$NEW_URL/api/auth/login" -H 'Content-Type: application/json' \
+    -d "{\"username\":\"admin\",\"password\":\"${ADMIN_PASSWORD}\"}" \
+    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('accessToken') or d.get('token') or '')")
+[ -n "$NEW_TOKEN" ] || fail "the ${FROM_VERSION} admin cannot sign in to 4.0"
+
+step "an event appends to the stream that already existed"
+curl -s -X PUT "$NEW_URL/api/contents/$CONTENT_ID/status" -H "Authorization: Bearer $NEW_TOKEN" \
+    -H 'Content-Type: application/json' -d '{"status":2}' >/dev/null
+sleep 5
+EVENTS_AFTER=$(psql_q "select count(*) from mt_events where stream_id = '$CONTENT_ID';")
+[ "$EVENTS_AFTER" -gt "$EVENTS_BEFORE" ] \
+    || fail "no event appended to the pre-existing stream ($EVENTS_BEFORE then $EVENTS_AFTER)"
+echo "$EVENTS_BEFORE then $EVENTS_AFTER events"
+
+step "the projection daemon resumed rather than restarting"
+PROGRESSION=$(psql_q "select last_seq_id from mt_event_progression where name like '%WorkflowProjection%';")
+[ -n "$PROGRESSION" ] || fail "the workflow projection has no progression row; the daemon restarted from zero"
+[ "$PROGRESSION" -ge "$EVENTS_BEFORE" ] \
+    || fail "the workflow projection rewound to $PROGRESSION, below the $EVENTS_BEFORE events that existed before the upgrade"
+echo "progression at $PROGRESSION"
+
+printf '\nThe %s to 4.0 upgrade works, with migrations/4.0.0/3.x-to-4.0.sql applied first.\n' "$FROM_VERSION"

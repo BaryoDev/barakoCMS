@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking
+
+**Every package retargets from `net8.0` to `net10.0`.** Host applications have to be on .NET 10.
+This is the largest break in 4.0 and no migration helps with it.
+
+**A 3.x database needs one SQL migration before 4.0 will boot.** Marten moved from 8.37 to 9.30 and
+four database objects changed. Production runs `AutoCreate.CreateOnly`, which never alters an
+existing object, so the first boot against a 3.x database refuses and exits non-zero without
+writing anything. Apply `migrations/4.0.0/3.x-to-4.0.sql` first. Full procedure, including rollback,
+in `docs/upgrading-to-4.0.md`. `scripts/upgrade-check.sh` runs the whole sequence in CI against a
+database created by the released 3.21.0 image.
+
+**A fatal startup failure now exits 1.** It exited 0, so a broken deploy reported success to CI, a
+`docker run` wrapper, systemd and a Kubernetes Job container. Anything that depended on the old
+behaviour to get past a failing start will now stop.
+
+**A missing database connection string fails at startup outside Development**, naming the setting,
+rather than substituting a dummy that points at localhost. Development keeps the dummy, which the
+codegen pass needs.
+
+### Added
+
+- `db-patch`, `db-assert` and `db-apply` on the host, so a schema change can reach an existing
+  database as a reviewed SQL file instead of having no route at all.
+
+### Fixed
+
+- **The workflow daemon lost the event's tenant.** It resolved the workflow engine from a scope
+  sitting on the platform default tenant, so a tenant's workflow definitions were invisible to it
+  and a default-tenant workflow's writes landed in the wrong partition.
+
 ## [3.21.0] - 2026-08-23
 
 The release-readiness pass. Most of what follows is about the gates around a release rather than

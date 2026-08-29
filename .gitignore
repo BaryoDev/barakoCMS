@@ -410,6 +410,9 @@ docker-compose.oracle.yml
 # Documentation (generated/internal)
 docs/*
 !docs/marketplace-and-contribution-plan.md
+# Operators need this one to ship with the release: it is the procedure for a 4.0 upgrade that
+# does not boot without it.
+!docs/upgrading-to-4.0.md
 
 # POC/Experimental Projects
 AttendancePOC/
