@@ -1,0 +1,164 @@
+using barakoCMS.Features.Workflows;
+using barakoCMS.Models;
+using FluentAssertions;
+using JasperFx.Events;
+using Marten;
+using Microsoft.Extensions.DependencyInjection;
+using NSubstitute;
+using Xunit;
+
+namespace BarakoCMS.Tests.Features.Workflows;
+
+/// <summary>
+/// The workflow daemon runs outside any request, so nothing has resolved a tenant for it. It has to
+/// take the tenant from the event it is processing.
+/// </summary>
+/// <remarks>
+/// Both halves of cross-tenant isolation were already proven separately: Marten's conjoined
+/// partitioning, and token issuance across tenants. Neither covers the one session opened outside a
+/// request, which is where the daemon lives and where the two failure modes below come from.
+///
+/// The projection is driven directly rather than through the async daemon. The daemon proves the
+/// same thing on a timer, and a test that waits for a projection to catch up fails on timing rather
+/// than on tenancy.
+/// </remarks>
+[Collection("Sequential")]
+public class WorkflowTenantIsolationTests
+{
+    private readonly IntegrationTestFixture _fixture;
+
+    public WorkflowTenantIsolationTests(IntegrationTestFixture fixture) => _fixture = fixture;
+
+    /// <summary>
+    /// A workflow stored under a tenant fires for that tenant's content.
+    /// </summary>
+    /// <remarks>
+    /// The definition lives in the tenant partition, so a daemon querying the default partition
+    /// finds nothing, returns, and logs nothing. The workflow does not fail; as far as the engine is
+    /// concerned it does not exist.
+    ///
+    /// The assertion is on the field the action writes rather than on a log line, because "no
+    /// workflow matched" and "the workflow ran" are otherwise indistinguishable from outside.
+    /// </remarks>
+    [Fact]
+    public async Task A_tenant_workflow_fires_for_that_tenants_content()
+    {
+        const string tenant = "wf-isolation-fires";
+        const string contentType = "wf-isolation-fires-article";
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var contentId = Guid.NewGuid();
+
+        await using (var tenantSession = store.LightweightSession(tenant))
+        {
+            tenantSession.Store(StampingWorkflow(contentType));
+            tenantSession.Store(new Content
+            {
+                Id = contentId,
+                ContentType = contentType,
+                Status = ContentStatus.Published,
+                Data = new Dictionary<string, object>(),
+            });
+            await tenantSession.SaveChangesAsync();
+        }
+
+        await ProjectPublishedAsync(store, tenant, contentId);
+
+        await using var verify = store.QuerySession(tenant);
+        var updated = await verify.LoadAsync<Content>(contentId);
+        updated!.Data.Should().ContainKey("Stamp");
+        updated.Data["Stamp"]!.ToString().Should().Be("fired");
+    }
+
+    /// <summary>
+    /// A default-tenant workflow does not reach into a tenant's event, and its action does not write
+    /// the tenant's document into the default partition.
+    /// </summary>
+    /// <remarks>
+    /// This is why the issue is tagged isolation rather than correctness, and it needs the workflow
+    /// on the *other* side of the boundary from the content. With the scope on the default tenant
+    /// the engine finds this default-partition definition, runs it against the tenant's content, and
+    /// <c>UpdateFieldAction</c> stores that document through the default-partition session: one
+    /// tenant's row written outside its boundary, over whatever default-partition document shares
+    /// the id.
+    ///
+    /// The decoy in the default partition carries the same id and a different marker, so the clobber
+    /// shows up as a changed value rather than as an extra row that could be explained away by test
+    /// ordering. Asserting only "the tenant's workflow did not run" would pass on the broken code,
+    /// because a tenant definition is invisible from the default partition either way.
+    /// </remarks>
+    [Fact]
+    public async Task A_default_tenant_workflow_does_not_write_into_the_default_partition()
+    {
+        const string tenant = "wf-isolation-partition";
+        const string contentType = "wf-isolation-partition-article";
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var contentId = Guid.NewGuid();
+
+        await using (var platform = store.LightweightSession())
+        {
+            platform.Store(StampingWorkflow(contentType));
+            platform.Store(new Content
+            {
+                Id = contentId,
+                ContentType = contentType,
+                Status = ContentStatus.Draft,
+                Data = new Dictionary<string, object> { ["Stamp"] = "untouched" },
+            });
+            await platform.SaveChangesAsync();
+        }
+
+        await using (var tenantSession = store.LightweightSession(tenant))
+        {
+            tenantSession.Store(new Content
+            {
+                Id = contentId,
+                ContentType = contentType,
+                Status = ContentStatus.Published,
+                Data = new Dictionary<string, object>(),
+            });
+            await tenantSession.SaveChangesAsync();
+        }
+
+        await ProjectPublishedAsync(store, tenant, contentId);
+
+        await using var platformCheck = store.QuerySession();
+        var platformCopy = await platformCheck.LoadAsync<Content>(contentId);
+        platformCopy!.Data["Stamp"]!.ToString().Should().Be("untouched");
+    }
+
+    private static WorkflowDefinition StampingWorkflow(string contentType) => new()
+    {
+        Id = Guid.NewGuid(),
+        Name = "stamp on publish",
+        TriggerContentType = contentType,
+        TriggerEvent = WorkflowEvents.Published,
+        Actions =
+        [
+            new WorkflowAction
+            {
+                Type = "UpdateField",
+                Parameters = new Dictionary<string, string>
+                {
+                    ["Field"] = "data.Stamp",
+                    ["Value"] = "fired",
+                },
+            },
+        ],
+    };
+
+    /// <summary>
+    /// Drives the projection for a Published transition exactly as the daemon would, for one tenant.
+    /// </summary>
+    private async Task ProjectPublishedAsync(IDocumentStore store, string tenant, Guid contentId)
+    {
+        var projection = new WorkflowProjection(_fixture.Services);
+
+        var envelope = Substitute.For<IEvent<barakoCMS.Events.ContentStatusChanged>>();
+        envelope.Data.Returns(new barakoCMS.Events.ContentStatusChanged(
+            contentId, ContentStatus.Published, Guid.NewGuid()));
+        envelope.TenantId.Returns(tenant);
+
+        await using var ops = store.LightweightSession(tenant);
+        await projection.Project(envelope, ops, CancellationToken.None);
+    }
+}
