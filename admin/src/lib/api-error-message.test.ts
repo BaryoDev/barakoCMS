@@ -54,4 +54,26 @@ describe('apiErrorMessage', () => {
 
         expect(apiErrorMessage(error)).toBe('Invalid credentials');
     });
+
+    // Auth failures moved from 400 to 401 in 4.0. apiErrorMessage falls back to
+    // "Your session has expired" on a 401 with nothing readable in it, so the server's reason has
+    // to win, or the most visible error in the product becomes a misleading one.
+    it('prefers the server reason over the session-expired fallback on a 401', () => {
+        const error = problemDetails([{ name: 'generalErrors', reason: 'Invalid credentials' }], 401);
+
+        expect(apiErrorMessage(error)).toBe('Invalid credentials');
+    });
+
+    it('still falls back to session-expired on a 401 with no body', () => {
+        const error = new AxiosError('Unauthorized', 'ERR_BAD_REQUEST');
+        error.response = {
+            data: undefined,
+            status: 401,
+            statusText: '',
+            headers: {},
+            config: { headers: new AxiosHeaders() },
+        };
+
+        expect(apiErrorMessage(error)).toBe('Your session has expired. Sign in again.');
+    });
 });

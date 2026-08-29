@@ -74,7 +74,7 @@ public class Endpoint : Endpoint<Request, Response>
             await AuditLog.RecordAsync(_documentSession, _tenant.Slug, "auth.login.failed", null, req.Username,
                 metadata: new() { ["reason"] = "unknown_user" }, ipAddress: device.IpAddress, ct: ct);
             await _documentSession.SaveChangesAsync(ct);
-            ThrowError("Invalid credentials");
+            ThrowError("Invalid credentials", 401);
             return;
         }
 
@@ -89,7 +89,7 @@ public class Endpoint : Endpoint<Request, Response>
             await AuditLog.RecordAsync(_documentSession, _tenant.Slug, "auth.login.blocked", user.Id, user.Username,
                 metadata: new() { ["reason"] = "locked_out", ["lockoutUntil"] = user.LockoutUntil.Value }, ipAddress: device.IpAddress, ct: ct);
             await _documentSession.SaveChangesAsync(ct);
-            ThrowError($"Account is locked due to multiple failed login attempts. Please try again in {remainingMinutes} minute(s).");
+            ThrowError($"Account is locked due to multiple failed login attempts. Please try again in {remainingMinutes} minute(s).", 423);
             return;
         }
 
@@ -124,7 +124,7 @@ public class Endpoint : Endpoint<Request, Response>
                 metadata: new() { ["reason"] = "bad_password", ["attempts"] = attempts }, ipAddress: device.IpAddress, ct: ct);
             await _documentSession.SaveChangesAsync(ct);
 
-            ThrowError("Invalid credentials");
+            ThrowError("Invalid credentials", 401);
             return;
         }
 
@@ -185,7 +185,7 @@ public class Endpoint : Endpoint<Request, Response>
             await AuditLog.RecordAsync(_documentSession, _tenant.Slug, "auth.login.failed", user.Id, user.Username,
                 metadata: new() { ["reason"] = "tenant_denied", ["denialReason"] = issued.DenialReason ?? "" }, ipAddress: device.IpAddress, ct: ct);
             await _documentSession.SaveChangesAsync(ct);
-            ThrowError("Invalid credentials");
+            ThrowError("Invalid credentials", 401);
             return;
         }
 
