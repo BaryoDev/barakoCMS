@@ -4,7 +4,7 @@ using barakoCMS.Infrastructure.Auth.Mfa;
 namespace barakoCMS.Features.Auth.Mfa;
 
 /// <summary>GET /api/auth/mfa/status — whether the signed-in user has MFA enabled.</summary>
-public class StatusEndpoint : EndpointWithoutRequest<StatusResponse>
+internal class StatusEndpoint : EndpointWithoutRequest<StatusResponse>
 {
     private readonly IMfaService _mfa;
 

@@ -9,7 +9,7 @@ namespace barakoCMS.Features.Auth.Mfa;
 /// otpauth URI to display once. Enrollment is not active until confirmed via /enable, so calling this
 /// again before enabling simply replaces the pending secret. 409 if MFA is already enabled.
 /// </summary>
-public class SetupEndpoint : EndpointWithoutRequest<SetupResponse>
+internal class SetupEndpoint : EndpointWithoutRequest<SetupResponse>
 {
     private readonly IMfaService _mfa;
     private readonly IQuerySession _session;

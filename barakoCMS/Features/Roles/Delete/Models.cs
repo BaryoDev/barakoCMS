@@ -1,11 +1,11 @@
 namespace barakoCMS.Features.Roles.Delete;
 
-public class Request
+internal class Request
 {
     public Guid Id { get; set; }
 }
 
-public class Response
+internal class Response
 {
     public string Message { get; set; } = string.Empty;
 }

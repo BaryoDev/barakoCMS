@@ -1,6 +1,6 @@
 namespace barakoCMS.Features.Auth.Logout;
 
-public class Response
+internal class Response
 {
     public string Message { get; set; } = string.Empty;
 }

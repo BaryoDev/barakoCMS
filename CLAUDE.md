@@ -118,8 +118,29 @@ Test classes are `{Subject}Tests`. Test methods read as sentences describing the
 
 ## 6. Public API stability
 
-BarakoCMS ships as NuGet packages, so external code compiles against these types. Within a major
-version, do not remove or change the signature of a public member. Instead:
+### What section 6 covers
+
+The rule below applies to the package's public surface, and the surface is the boundary rather than
+the accident of what happens to be marked `public`. In scope:
+
+- `Modules/*` and `Core/Interfaces/*`, the module contract
+- `Models/*` and `Events/*`, the documents and events a consumer stores and reads
+- `Features/Workflows/IWorkflowAction` and `IWorkflowEngine`, since custom actions are a documented
+  extension point
+- `AddBarakoCMS` and `UseBarakoCMS`, the entry points
+- `DataSeeder`, which a host assembling its own startup calls
+
+Out of scope, and `internal` so that stays true: everything under `Features/*`. The endpoints, their
+`Request` and `Response` records, and their validators are how this host implements the API, not
+something another assembly compiles against. FastEndpoints discovers internal endpoint classes, and
+`InternalsVisibleTo` covers the tests.
+
+If a type outside that list needs to be public, that is a deliberate addition to the contract. Say
+so in the pull request.
+
+### The rule
+
+Within a major version, do not remove or change the signature of a public member. Instead:
 
 - add a new overload, mark the old one `[Obsolete]`, and have the old one call the new one;
 - add interface members with a default implementation so existing implementors still compile;

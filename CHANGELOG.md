@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking
 
+**The core package no longer injects `appsettings.json` into consumer projects.** The published
+3.21.0 really does carry `content/appsettings.json` and `contentFiles/any/net8.0/appsettings.json`,
+verified against the artifact on nuget.org, so referencing BarakoCMS dropped the host's own
+configuration into every consumer to collide with theirs at build and publish.
+
+**The feature slices are internal.** 188 types under `Features/` were public only by accident, which
+under the stability rule froze every endpoint's `Request` and `Response` records until 5.0 and turned
+renaming a field into a compatibility event. `IWorkflowAction` and `IWorkflowEngine` stay public,
+because custom actions are a documented extension point. What the rule covers is now written down in
+CLAUDE.md section 6 rather than left to the broadest possible reading.
+
+**`IUserRepository` and `MartenUserRepository` are internal.**
+
+**The published images are built for arm64 as well as amd64.** They were amd64 only, so they could
+not run on an Oracle Ampere, AWS Graviton or Apple Silicon host, which includes the VM that hosts
+this project's own playground.
+
 **Enums cross the wire as names, not numbers.** `ContentStatus` and `SensitivityLevel` were 0/1/2,
 and the admin had the numbering transcribed into its own source to cope. Inserting a member
 renumbered every client. Requests may still send a number, so an existing caller keeps working when

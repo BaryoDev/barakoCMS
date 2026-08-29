@@ -4,7 +4,7 @@ using Marten;
 
 namespace barakoCMS.Features.Workflows;
 
-public class CreateWorkflowEndpoint : Endpoint<WorkflowDefinition, WorkflowDefinition>
+internal class CreateWorkflowEndpoint : Endpoint<WorkflowDefinition, WorkflowDefinition>
 {
     private readonly IDocumentSession _session;
     private readonly barakoCMS.Infrastructure.Services.IWorkflowSchemaValidator _validator;
@@ -43,7 +43,7 @@ public class CreateWorkflowEndpoint : Endpoint<WorkflowDefinition, WorkflowDefin
     }
 }
 
-public class ListWorkflowsEndpoint : Endpoint<ListRequest, PaginatedResponse<WorkflowDefinition>>
+internal class ListWorkflowsEndpoint : Endpoint<ListRequest, PaginatedResponse<WorkflowDefinition>>
 {
     private readonly IDocumentSession _session;
 

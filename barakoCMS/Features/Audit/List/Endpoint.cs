@@ -4,7 +4,7 @@ using Marten;
 
 namespace barakoCMS.Features.Audit.List;
 
-public class ListRequest : PaginatedRequest
+internal class ListRequest : PaginatedRequest
 {
     /// <summary>Filter to one actor. Null = any.</summary>
     public Guid? ActorUserId { get; set; }
@@ -22,7 +22,7 @@ public class ListRequest : PaginatedRequest
     public string? Tenant { get; set; }
 }
 
-public class AuditEventDto
+internal class AuditEventDto
 {
     public Guid Id { get; set; }
     public string TenantSlug { get; set; } = string.Empty;
@@ -51,7 +51,7 @@ public class AuditEventDto
 }
 
 /// <summary>GET /api/audit — browse the audit trail, newest first.</summary>
-public class Endpoint : Endpoint<ListRequest, PaginatedResponse<AuditEventDto>>
+internal class Endpoint : Endpoint<ListRequest, PaginatedResponse<AuditEventDto>>
 {
     private readonly IQuerySession _session;
     public Endpoint(IQuerySession session) => _session = session;

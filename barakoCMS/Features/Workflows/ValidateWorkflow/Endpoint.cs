@@ -8,7 +8,7 @@ namespace barakoCMS.Features.Workflows.ValidateWorkflow;
 /// <summary>
 /// Request to validate a workflow definition.
 /// </summary>
-public class Request
+internal class Request
 {
     public string Name { get; set; } = string.Empty;
     public string TriggerContentType { get; set; } = string.Empty;
@@ -20,7 +20,7 @@ public class Request
 /// <summary>
 /// Endpoint to validate workflow JSON schema.
 /// </summary>
-public class Endpoint : Endpoint<Request, WorkflowValidationResult>
+internal class Endpoint : Endpoint<Request, WorkflowValidationResult>
 {
     private readonly IWorkflowSchemaValidator _validator;
     private readonly ILogger<Endpoint> _logger;

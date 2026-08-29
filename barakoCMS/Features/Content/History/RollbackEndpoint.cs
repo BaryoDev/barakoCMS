@@ -6,13 +6,13 @@ using barakoCMS.Events;
 
 namespace barakoCMS.Features.Content.History;
 
-public class RollbackRequest
+internal class RollbackRequest
 {
     public Guid Id { get; set; }
     public Guid VersionId { get; set; } // The ID of the event to rollback to
 }
 
-public class RollbackEndpoint : Endpoint<RollbackRequest, barakoCMS.Models.Content>
+internal class RollbackEndpoint : Endpoint<RollbackRequest, barakoCMS.Models.Content>
 {
     private readonly IDocumentSession _session;
     private readonly IContentWriter _contentWriter;

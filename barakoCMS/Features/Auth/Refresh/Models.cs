@@ -2,12 +2,12 @@ using FluentValidation;
 
 namespace barakoCMS.Features.Auth.Refresh;
 
-public class Request
+internal class Request
 {
     public string RefreshToken { get; set; } = string.Empty;
 }
 
-public class RequestValidator : FastEndpoints.Validator<Request>
+internal class RequestValidator : FastEndpoints.Validator<Request>
 {
     public RequestValidator()
     {
@@ -15,7 +15,7 @@ public class RequestValidator : FastEndpoints.Validator<Request>
     }
 }
 
-public class Response
+internal class Response
 {
     public string Token { get; set; } = string.Empty;
     public DateTime Expiry { get; set; }

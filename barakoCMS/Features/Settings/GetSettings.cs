@@ -4,9 +4,9 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.Settings;
 
-public class GetSettingsRequest { }
+internal class GetSettingsRequest { }
 
-public class SystemSettingDto
+internal class SystemSettingDto
 {
     public string Key { get; set; } = string.Empty;
     public string Value { get; set; } = string.Empty;
@@ -15,7 +15,7 @@ public class SystemSettingDto
     public DateTime UpdatedAt { get; set; }
 }
 
-public class GetSettingsEndpoint : Endpoint<ListRequest, PaginatedResponse<SystemSettingDto>>
+internal class GetSettingsEndpoint : Endpoint<ListRequest, PaginatedResponse<SystemSettingDto>>
 {
     private readonly IDocumentSession _session;
 

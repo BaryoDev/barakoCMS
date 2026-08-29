@@ -1,6 +1,6 @@
 namespace barakoCMS.Features.Roles.Update;
 
-public class Request
+internal class Request
 {
     public Guid Id { get; set; }
     public string Name { get; set; } = string.Empty;
@@ -9,7 +9,7 @@ public class Request
     public List<string> SystemCapabilities { get; set; } = new();
 }
 
-public class Response
+internal class Response
 {
     public string Message { get; set; } = string.Empty;
 }

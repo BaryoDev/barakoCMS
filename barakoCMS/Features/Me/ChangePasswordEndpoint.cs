@@ -7,18 +7,18 @@ using barakoCMS.Infrastructure.Services;
 
 namespace barakoCMS.Features.Me;
 
-public class ChangePasswordRequest
+internal class ChangePasswordRequest
 {
     public string CurrentPassword { get; set; } = string.Empty;
     public string NewPassword { get; set; } = string.Empty;
 }
 
-public class ChangePasswordResponse
+internal class ChangePasswordResponse
 {
     public string Message { get; set; } = string.Empty;
 }
 
-public class ChangePasswordValidator : Validator<ChangePasswordRequest>
+internal class ChangePasswordValidator : Validator<ChangePasswordRequest>
 {
     public ChangePasswordValidator()
     {
@@ -35,7 +35,7 @@ public class ChangePasswordValidator : Validator<ChangePasswordRequest>
 /// short-lived access tokens are not individually killed; they expire on their own. It lives under the
 /// global <c>/api/me</c> identity prefix, so it is not tenant-scoped — a user is global.
 /// </summary>
-public class ChangePasswordEndpoint : Endpoint<ChangePasswordRequest, ChangePasswordResponse>
+internal class ChangePasswordEndpoint : Endpoint<ChangePasswordRequest, ChangePasswordResponse>
 {
     private readonly IDocumentSession _session;
     private readonly IPasswordPolicyValidator _passwordValidator;

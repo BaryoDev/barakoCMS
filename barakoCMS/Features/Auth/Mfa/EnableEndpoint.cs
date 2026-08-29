@@ -9,7 +9,7 @@ namespace barakoCMS.Features.Auth.Mfa;
 /// POST /api/auth/mfa/enable — confirm a pending enrollment with a code from the authenticator app.
 /// On success MFA becomes required at login and one-time recovery codes are returned once.
 /// </summary>
-public class EnableEndpoint : Endpoint<CodeRequest, EnableResponse>
+internal class EnableEndpoint : Endpoint<CodeRequest, EnableResponse>
 {
     private readonly IMfaService _mfa;
     private readonly IDocumentSession _session;

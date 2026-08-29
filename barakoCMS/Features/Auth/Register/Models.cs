@@ -2,14 +2,14 @@ using FluentValidation;
 
 namespace barakoCMS.Features.Auth.Register;
 
-public class Request
+internal class Request
 {
     public string Username { get; set; } = string.Empty;
     public string Password { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
 }
 
-public class RequestValidator : FastEndpoints.Validator<Request>
+internal class RequestValidator : FastEndpoints.Validator<Request>
 {
     public RequestValidator()
     {
@@ -21,7 +21,7 @@ public class RequestValidator : FastEndpoints.Validator<Request>
     }
 }
 
-public class Response
+internal class Response
 {
     public string Message { get; set; } = string.Empty;
 }

@@ -12,7 +12,7 @@ namespace barakoCMS.Features.Workflows;
 
 // Partial because Marten 9's source generator emits the ApplyAsync dispatcher as an
 // override on this class; there is no runtime fallback for conventional Apply methods.
-public partial class WorkflowProjection : EventProjection
+internal partial class WorkflowProjection : EventProjection
 {
     private readonly IServiceProvider _serviceProvider;
 

@@ -4,7 +4,7 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.ContentType.Create;
 
-public class Request
+internal class Request
 {
     public string Name { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
@@ -18,13 +18,13 @@ public class Request
     public bool IsPubliclyDeliverable { get; set; }
 }
 
-public class Response
+internal class Response
 {
     public Guid Id { get; set; }
     public string Name { get; set; } = string.Empty;
 }
 
-public class Endpoint : Endpoint<Request, Response>
+internal class Endpoint : Endpoint<Request, Response>
 {
     private readonly IDocumentSession _session;
     private readonly barakoCMS.Infrastructure.Services.IContentTypeValidatorService _validator;

@@ -4,12 +4,12 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.Content.List;
 
-public class Request : PaginatedRequest
+internal class Request : PaginatedRequest
 {
     public string? ContentType { get; set; }
 }
 
-public class ContentResponse
+internal class ContentResponse
 {
     public Guid Id { get; set; }
     public string ContentType { get; set; } = string.Empty;
@@ -18,7 +18,7 @@ public class ContentResponse
     public DateTimeOffset UpdatedAt { get; set; }
 }
 
-public class Endpoint : Endpoint<Request, PaginatedResponse<ContentResponse>>
+internal class Endpoint : Endpoint<Request, PaginatedResponse<ContentResponse>>
 {
     private readonly IQuerySession _session;
     private readonly barakoCMS.Infrastructure.Services.IPermissionResolver _permissionResolver;

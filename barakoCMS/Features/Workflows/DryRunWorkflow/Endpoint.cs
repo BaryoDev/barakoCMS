@@ -11,7 +11,7 @@ namespace barakoCMS.Features.Workflows.DryRunWorkflow;
 /// <summary>
 /// Request to dry-run a workflow.
 /// </summary>
-public class Request
+internal class Request
 {
     public WorkflowDefinition Workflow { get; set; } = new();
     public barakoCMS.Models.Content SampleContent { get; set; } = new();
@@ -20,7 +20,7 @@ public class Request
 /// <summary>
 /// Response for dry-run execution.
 /// </summary>
-public class Response
+internal class Response
 {
     public bool Success { get; set; }
     public List<ActionExecutionLog> Actions { get; set; } = new();
@@ -31,7 +31,7 @@ public class Response
 /// <summary>
 /// Endpoint to test workflow execution without side effects (dry-run mode).
 /// </summary>
-public class Endpoint : Endpoint<Request, Response>
+internal class Endpoint : Endpoint<Request, Response>
 {
     private readonly IDocumentSession _session;
     private readonly IEnumerable<IWorkflowAction> _actions;

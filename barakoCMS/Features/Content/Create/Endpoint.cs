@@ -6,7 +6,7 @@ using System.Security.Claims;
 
 namespace barakoCMS.Features.Content.Create;
 
-public class Endpoint : Endpoint<Request, Response>
+internal class Endpoint : Endpoint<Request, Response>
 {
     private readonly IDocumentSession _session;
     private readonly IContentWriter _contentWriter;

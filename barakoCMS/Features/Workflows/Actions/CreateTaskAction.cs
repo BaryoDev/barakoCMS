@@ -14,7 +14,7 @@ namespace barakoCMS.Features.Workflows.Actions;
     RequiredParameters = new[] { "ContentType", "Title" },
     ExampleJson = @"{""Type"":""CreateTask"",""Parameters"":{""ContentType"":""Task"",""Title"":""Review {{contentType}}"",""Status"":""Draft""}}"
 )]
-public class CreateTaskAction : IWorkflowAction
+internal class CreateTaskAction : IWorkflowAction
 {
     private readonly IDocumentSession _session;
     private readonly ILogger<CreateTaskAction> _logger;
