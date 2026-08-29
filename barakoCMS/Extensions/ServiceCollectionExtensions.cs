@@ -419,7 +419,8 @@ public static class ServiceCollectionExtensions
         // Schema is applied explicitly at startup via host.ApplyMartenSchemaAsync() (below), called
         // BEFORE the data seeders run. ApplyAllDatabaseChangesOnStartup() can't be used here: it
         // registers a hosted service that runs during app.Run(), but the seeders run before that, so
-        // with AutoCreate.None they'd hit tables that don't exist yet on a fresh database.
+        // with CreateOnly's no-on-demand-DDL they'd hit tables that don't exist yet on a fresh
+        // database.
 
         // services.AddHealthChecks()
         //    .AddNpgSql(configuration.GetConnectionString("DefaultConnection")!, tags: new[] { "db", "ready" });
@@ -809,10 +810,13 @@ public static class ServiceCollectionExtensions
     /// <summary>
     /// Applies all outstanding Marten schema changes to the database, upfront. Call this at startup
     /// BEFORE any seeder runs. It's the deliberate, ordered replacement for
-    /// ApplyAllDatabaseChangesOnStartup: because production runs AutoCreate.None (no on-demand DDL),
-    /// the schema must exist before the seeders query it — and the seeders run before app.Run(), so a
-    /// boot-time hosted service is too late. Idempotent: a no-op when the DB already matches the model.
-    /// A schema mismatch throws here, failing the deploy loudly instead of 500ing live writes.
+    /// ApplyAllDatabaseChangesOnStartup: because production runs AutoCreate.CreateOnly, which creates
+    /// missing objects but never issues DDL on demand for an existing one, the schema must exist
+    /// before the seeders query it — and the seeders run before app.Run(), so a boot-time hosted
+    /// service is too late. Idempotent: a no-op when the DB already matches the model.
+    /// A change CreateOnly refuses (anything needing an ALTER) throws here, failing the deploy loudly
+    /// instead of 500ing live writes. That is the upgrade path's entry point: generate the delta with
+    /// <c>db-patch</c>, review it, apply it, then deploy. See docs/upgrading-to-4.0.md.
     /// </summary>
     public static async Task ApplyMartenSchemaAsync(this IHost host)
     {

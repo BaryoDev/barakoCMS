@@ -1,4 +1,5 @@
 using barakoCMS.Extensions;
+using JasperFx;
 using Serilog;
 using Serilog.Events;
 using Prometheus;
@@ -60,9 +61,20 @@ try
 {
     Log.Information("Starting BarakoCMS Host...");
 
-    // Create/patch the schema up front, before anything reads it. Under AutoCreate.None (prod) tables
-    // aren't created on demand, so a fresh database would otherwise crash the seeder below with
-    // "relation does not exist". Idempotent; a no-op once the schema matches.
+    // Arguments mean a schema command (db-assert, db-patch, db-apply) rather than a server. Those
+    // run against a database the schema does NOT match yet — that is the point of them — so the
+    // boot-time apply below has to be skipped or db-patch would throw on the very database it was
+    // asked to describe. Seeding is skipped for the same reason.
+    if (args.Length > 0)
+    {
+        Environment.ExitCode = await app.RunJasperFxCommands(args);
+        return;
+    }
+
+    // Create the schema up front, before anything reads it. Production runs AutoCreate.CreateOnly,
+    // which creates missing objects but never alters an existing one, so a fresh database works and
+    // an upgrade that needs an ALTER fails here loudly. That is deliberate: the ALTER goes through
+    // `db-patch` as a reviewed SQL file applied before the deploy. See docs/upgrading-to-4.0.md.
     await app.ApplyMartenSchemaAsync();
 
     // Run Seeder in background to avoid blocking startup and timeouts.
