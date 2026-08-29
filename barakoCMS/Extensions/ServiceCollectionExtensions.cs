@@ -601,6 +601,17 @@ public static class ServiceCollectionExtensions
 
         if (string.IsNullOrWhiteSpace(connectionString))
         {
+            // A dummy string turns "nobody configured a database" into a connection refused against
+            // localhost, which surfaces long after startup as an unrelated failure. Name the missing
+            // setting instead. It stays a dummy in Development, where design-time tooling and the
+            // codegen pass need Marten to build a store without a database behind it.
+            var environment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
+            if (!string.Equals(environment, "Development", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    "No database connection string. Set ConnectionStrings:DefaultConnection or the DATABASE_URL environment variable.");
+            }
+
             return "Server=127.0.0.1;Port=5432;Database=dummy;User Id=postgres;Password=nomartencrash;";
         }
 

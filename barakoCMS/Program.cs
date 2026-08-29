@@ -93,6 +93,10 @@ try
 catch (Exception ex)
 {
     Log.Fatal(ex, "Host terminated unexpectedly");
+    // Everything that decides whether a deploy worked reads the exit code: CI, docker run wrappers,
+    // systemd, a k8s Job container. Ending normally after a fatal error reports the broken deploy
+    // as a success.
+    Environment.ExitCode = 1;
 }
 finally
 {
