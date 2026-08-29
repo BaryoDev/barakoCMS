@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { authed, stubShell } from './helpers';
+import { authed, stubShell, pageOf } from './helpers';
 
 /**
  * F.1/F.2 — field types. The browser-level mirror of the live API check: a content
@@ -33,7 +33,7 @@ const SCHEMA = {
 async function gotoNewEntry(page: import('@playwright/test').Page) {
     await authed(page);
     await stubShell(page);
-    await page.route('**/api/schemas**', (r) => r.fulfill({ json: [SCHEMA] }));
+    await page.route('**/api/schemas**', (r) => r.fulfill({ json: pageOf([SCHEMA]) }));
     await page.goto('/content/new?type=memberprofile_ft');
     // The form only appears once the schema resolves.
     await expect(page.locator('#Email')).toBeVisible({ timeout: 15000 });

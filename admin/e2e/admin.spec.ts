@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { MOCK_TOKEN } from './helpers';
+import { MOCK_TOKEN, pageOf } from './helpers';
 
 const SCHEMAS = [
     {
@@ -16,10 +16,8 @@ test.describe('Admin flows (mocked API)', () => {
             window.localStorage.setItem('barako_token', token);
         }, MOCK_TOKEN);
 
-        await page.route('**/api/schemas', (route) =>
-            route.fulfill({ json: SCHEMAS })
-        );
-        await page.route('**/api/workflows', (route) => route.fulfill({ json: [] }));
+        await page.route('**/api/schemas', (route) => route.fulfill({ json: pageOf(SCHEMAS) }));
+        await page.route('**/api/workflows', (route) => route.fulfill({ json: pageOf([]) }));
         await page.route('**/api/monitoring/**', (route) => route.fulfill({ json: {} }));
         await page.route('**/health', (route) =>
             route.fulfill({ json: { status: 'Healthy', totalDuration: '0', entries: {} } })

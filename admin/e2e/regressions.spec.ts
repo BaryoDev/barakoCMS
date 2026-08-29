@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { authed, stubShell, EMPTY_PAGE } from './helpers';
+import { authed, stubShell, EMPTY_PAGE, pageOf } from './helpers';
 
 /**
  * End-to-end cover for the bugs this admin actually shipped — the ones unit tests missed and only a
@@ -28,7 +28,7 @@ test.describe('U.5 — failed lists show an error, not an empty state', () => {
             await authed(page);
             await stubShell(page);
             // Content types page reads /api/schemas; content page needs schemas to not 500 too.
-            if (p.route !== '/schemas') await page.route('**/api/schemas**', (r) => r.fulfill({ json: [] }));
+            if (p.route !== '/schemas') await page.route('**/api/schemas**', (r) => r.fulfill({ json: pageOf([]) }));
             await page.route(p.api, (r) => r.fulfill({ status: 500, json: { message: 'boom' } }));
 
             await page.goto(p.route);
@@ -43,7 +43,7 @@ test.describe('U.5 — failed lists show an error, not an empty state', () => {
     test('/schemas shows the empty state (not an error) when the API returns []', async ({ page }) => {
         await authed(page);
         await stubShell(page);
-        await page.route('**/api/schemas**', (r) => r.fulfill({ json: [] }));
+        await page.route('**/api/schemas**', (r) => r.fulfill({ json: pageOf([]) }));
 
         await page.goto('/schemas');
         await expect(page.getByText(/No content types yet/i)).toBeVisible({ timeout: 15000 });
@@ -61,7 +61,7 @@ test.describe('P.2 — Tenants admin page', () => {
         await page.route('**/api/tenants**', (route) => {
             if (route.request().method() === 'GET') {
                 return route.fulfill({
-                    json: [{ id: 't1', slug: 'acme', name: 'Acme', isActive: true }],
+                    json: pageOf([{ id: 't1', slug: 'acme', name: 'Acme', isActive: true }]),
                 });
             }
             return route.fulfill({ json: { id: 't2', slug: 'new', name: 'New' } });
@@ -81,7 +81,7 @@ test.describe('P.2 — Tenants admin page', () => {
     test('rejects an invalid handle before submit', async ({ page }) => {
         await authed(page);
         await stubShell(page);
-        await page.route('**/api/tenants**', (r) => r.fulfill({ json: [] }));
+        await page.route('**/api/tenants**', (r) => r.fulfill({ json: pageOf([]) }));
 
         await page.goto('/tenants');
         await page.getByRole('button', { name: 'New tenant' }).first().click();
@@ -113,9 +113,9 @@ test.describe('P.3 — tenant switcher reaches Home', () => {
 
         await page.route('**/api/monitoring/**', (r) => r.fulfill({ json: {} }));
         await page.route('**/health**', (r) => r.fulfill({ json: { status: 'Healthy', entries: {} } }));
-        await page.route('**/api/schemas**', (r) => r.fulfill({ json: [] }));
+        await page.route('**/api/schemas**', (r) => r.fulfill({ json: pageOf([]) }));
         await page.route('**/api/me/tenants**', (r) =>
-            r.fulfill({ json: [{ slug: 'acme', name: 'Acme', branding: {} }] })
+            r.fulfill({ json: pageOf([{ slug: 'acme', name: 'Acme', branding: {} }]) })
         );
 
         await page.goto('/');
