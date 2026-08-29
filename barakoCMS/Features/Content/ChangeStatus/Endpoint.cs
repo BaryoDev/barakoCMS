@@ -35,14 +35,12 @@ public class Endpoint : Endpoint<Request, Response>
         var userIdClaim = User.FindFirst("UserId");
         if (userIdClaim == null)
         {
-            await Send.ResponseAsync(new Response { Message = "User ID claim not found" }, 400, ct);
-            return;
+            ThrowError("User ID claim not found");
         }
 
         if (!Guid.TryParse(userIdClaim.Value, out var userId))
         {
-            await Send.ResponseAsync(new Response { Message = "Invalid User ID format" }, 400, ct);
-            return;
+            ThrowError("Invalid User ID format");
         }
 
         var user = await _session.LoadAsync<barakoCMS.Models.User>(userId, ct);
@@ -63,7 +61,8 @@ public class Endpoint : Endpoint<Request, Response>
             return;
         }
 
-        var @event = new barakoCMS.Events.ContentStatusChanged(req.Id, req.NewStatus, userId);
+        var newStatus = req.NewStatus!.Value;
+        var @event = new barakoCMS.Events.ContentStatusChanged(req.Id, newStatus, userId);
 
         // Append the event AND update the read-model document in one transaction so they can't
         // diverge. Workflows fire out-of-band via the async WorkflowProjection, which is driven off the
@@ -73,7 +72,7 @@ public class Endpoint : Endpoint<Request, Response>
         // There's no content-delete endpoint in barakoCMS today — archiving is the closest
         // destructive-equivalent action, so it's what gets audited here rather than every routine
         // draft→published transition, which would just be noise.
-        if (req.NewStatus == barakoCMS.Models.ContentStatus.Archived)
+        if (newStatus == barakoCMS.Models.ContentStatus.Archived)
         {
             await AuditLog.RecordAsync(_session, _tenant.Slug, "content.archived", userId, user.Username,
                 targetType: content.ContentType, targetId: content.Id.ToString(), ct: ct);
@@ -83,7 +82,7 @@ public class Endpoint : Endpoint<Request, Response>
 
         await Send.ResponseAsync(new Response
         {
-            Message = $"Content status changed to {req.NewStatus}"
+            Message = $"Content status changed to {newStatus}"
         });
     }
 }
