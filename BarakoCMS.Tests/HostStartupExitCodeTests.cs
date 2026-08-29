@@ -1,4 +1,7 @@
 using System.Diagnostics;
+using Marten;
+using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
 using FluentAssertions;
 using Xunit;
 
@@ -18,9 +21,14 @@ namespace BarakoCMS.Tests;
 /// asserting on <c>Environment.ExitCode</c> from inside the test runner would assert on the runner's
 /// own exit code, which is a test that cannot fail.
 /// </remarks>
+[Collection("Sequential")]
 public class HostStartupExitCodeTests
 {
     private static readonly string HostAssembly = typeof(barakoCMS.Extensions.ServiceCollectionExtensions).Assembly.Location;
+
+    private readonly IntegrationTestFixture _fixture;
+
+    public HostStartupExitCodeTests(IntegrationTestFixture fixture) => _fixture = fixture;
 
     /// <summary>
     /// No database configured, outside Development: the host stops and names the setting.
@@ -101,5 +109,110 @@ public class HostStartupExitCodeTests
         }
 
         return (process.ExitCode, await stdout + await stderr);
+    }
+
+    /// <summary>
+    /// A host started with an ASP.NET flag still creates its whole schema.
+    /// </summary>
+    /// <remarks>
+    /// The schema commands are dispatched by JasperFx, which takes a bare first argument as a
+    /// command name. Gating the boot-time schema apply on "were there any arguments" therefore
+    /// looked right and was not: JasperFx detects reserved .NET and ASP.NET flags, bypasses its own
+    /// command line and serves normally, so <c>--urls</c> produced a running host whose schema was
+    /// whatever its first request happened to create on demand.
+    ///
+    /// The assertion is on a table nothing creates lazily during a health check. Counting tables, or
+    /// asserting the host responds, both pass on the broken version.
+    /// </remarks>
+    [Fact]
+    public async Task A_host_started_with_an_aspnet_flag_still_creates_its_schema()
+    {
+        var database = "flagstart_" + Guid.NewGuid().ToString("n")[..8];
+        var admin = new NpgsqlConnectionStringBuilder(_fixture.ConnectionString);
+        await using (var connection = new NpgsqlConnection(admin.ConnectionString))
+        {
+            await connection.OpenAsync();
+            await using var create = new NpgsqlCommand($"create database {database}", connection);
+            await create.ExecuteNonQueryAsync();
+        }
+
+        var target = new NpgsqlConnectionStringBuilder(_fixture.ConnectionString) { Database = database };
+        var port = 58200 + Random.Shared.Next(1, 300);
+
+        using var host = StartHost(target.ConnectionString, "--urls", $"http://127.0.0.1:{port}");
+        try
+        {
+            await WaitForHealthAsync($"http://127.0.0.1:{port}/health", host);
+
+            await using var check = new NpgsqlConnection(target.ConnectionString);
+            await check.OpenAsync();
+            await using var query = new NpgsqlCommand(
+                "select count(*) from information_schema.tables where table_schema = 'public' and table_name = 'mt_doc_api_keys'",
+                check);
+            var found = Convert.ToInt64(await query.ExecuteScalarAsync());
+            found.Should().Be(1, "the boot-time schema apply must run when the host is going to serve");
+        }
+        finally
+        {
+            if (!host.HasExited)
+            {
+                host.Kill(entireProcessTree: true);
+            }
+        }
+    }
+
+    private static Process StartHost(string connectionString, params string[] args)
+    {
+        var start = new ProcessStartInfo("dotnet")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        start.ArgumentList.Add("exec");
+        start.ArgumentList.Add(HostAssembly);
+        foreach (var arg in args)
+        {
+            start.ArgumentList.Add(arg);
+        }
+
+        start.Environment.Clear();
+        start.Environment["PATH"] = Environment.GetEnvironmentVariable("PATH") ?? "/usr/bin:/bin";
+        start.Environment["HOME"] = Environment.GetEnvironmentVariable("HOME") ?? "/tmp";
+        start.Environment["DOTNET_ROOT"] = Environment.GetEnvironmentVariable("DOTNET_ROOT") ?? string.Empty;
+        start.Environment["ASPNETCORE_ENVIRONMENT"] = "Production";
+        start.Environment["SKIP_SEEDER"] = "true";
+        start.Environment["Kubernetes__Enabled"] = "false";
+        start.Environment["JWT__Key"] = "test-super-secret-key-that-is-at-least-32-chars-long";
+        start.Environment["ConnectionStrings__DefaultConnection"] = connectionString;
+
+        return Process.Start(start)!;
+    }
+
+    private static async Task WaitForHealthAsync(string url, Process host)
+    {
+        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+        for (var attempt = 0; attempt < 60; attempt++)
+        {
+            if (host.HasExited)
+            {
+                throw new InvalidOperationException(
+                    $"the host exited with {host.ExitCode}: {await host.StandardError.ReadToEndAsync()}");
+            }
+
+            try
+            {
+                using var response = await client.GetAsync(url);
+                if (response.IsSuccessStatusCode)
+                {
+                    return;
+                }
+            }
+            catch (HttpRequestException) { }
+
+            await Task.Delay(TimeSpan.FromSeconds(1));
+        }
+
+        throw new TimeoutException("the host never became healthy");
     }
 }

@@ -61,24 +61,25 @@ try
 {
     Log.Information("Starting BarakoCMS Host...");
 
-    // Arguments mean a schema command (db-assert, db-patch, db-apply) rather than a server. Those
-    // run against a database the schema does NOT match yet — that is the point of them — so the
-    // boot-time apply below has to be skipped or db-patch would throw on the very database it was
-    // asked to describe. Seeding is skipped for the same reason.
-    if (args.Length > 0)
+    // A bare first argument names a JasperFx command (db-assert, db-patch, db-apply, help). A
+    // leading dash is a .NET or ASP.NET flag such as --urls, which JasperFx detects and hands
+    // straight back to the normal host — so those still serve, and still need the schema work
+    // below. Deciding this on args.Length alone left a --urls host with whatever tables its first
+    // request happened to create.
+    var willServe = args.Length == 0 || args[0].StartsWith('-') || args[0] == "run";
+
+    if (willServe)
     {
-        Environment.ExitCode = await app.RunJasperFxCommands(args);
-        return;
+        // Create the schema up front, before anything reads it. Production runs
+        // AutoCreate.CreateOnly, which creates missing objects but never alters an existing one, so
+        // a fresh database works and an upgrade needing an ALTER fails here loudly. That is
+        // deliberate: the ALTER goes through `db-patch` as a reviewed SQL file applied before the
+        // deploy. See docs/upgrading-to-4.0.md.
+        await app.ApplyMartenSchemaAsync();
     }
 
-    // Create the schema up front, before anything reads it. Production runs AutoCreate.CreateOnly,
-    // which creates missing objects but never alters an existing one, so a fresh database works and
-    // an upgrade that needs an ALTER fails here loudly. That is deliberate: the ALTER goes through
-    // `db-patch` as a reviewed SQL file applied before the deploy. See docs/upgrading-to-4.0.md.
-    await app.ApplyMartenSchemaAsync();
-
     // Run Seeder in background to avoid blocking startup and timeouts.
-    if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("SKIP_SEEDER")))
+    if (willServe && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("SKIP_SEEDER")))
     {
         _ = Task.Run(async () =>
         {
@@ -100,7 +101,11 @@ try
     }
 
     Log.Information("BarakoCMS App Running...");
-    app.Run();
+
+    // Dispatches a db-* command when one was named, and runs the host exactly as app.Run() did
+    // otherwise. A failed command comes back as a return value rather than an exception, so it has
+    // to reach the exit code the same way the catch below does.
+    Environment.ExitCode = await app.RunJasperFxCommands(args);
 }
 catch (Exception ex)
 {
