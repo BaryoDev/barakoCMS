@@ -10,7 +10,7 @@ public sealed record TenantSummary(string Slug, string Name, string? LogoUrl, Di
 /// GET /api/me/tenants — the tenants the signed-in user belongs to (their active memberships joined
 /// with the tenant registry). Powers a "switch tenant" experience across a multi-tenant deployment.
 /// </summary>
-public class MyTenantsEndpoint : EndpointWithoutRequest<List<TenantSummary>>
+public class MyTenantsEndpoint : Endpoint<ListRequest, PaginatedResponse<TenantSummary>>
 {
     private readonly IQuerySession _session;
 
@@ -21,7 +21,7 @@ public class MyTenantsEndpoint : EndpointWithoutRequest<List<TenantSummary>>
         Get("/api/me/tenants"); // authenticated by default
     }
 
-    public override async Task HandleAsync(CancellationToken ct)
+    public override async Task HandleAsync(ListRequest req, CancellationToken ct)
     {
         Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId);
 
@@ -34,11 +34,13 @@ public class MyTenantsEndpoint : EndpointWithoutRequest<List<TenantSummary>>
             .Where(t => slugs.Contains(t.Slug) && t.IsActive)
             .ToListAsync(ct);
 
+        // Paged in memory: the tenants are already filtered by the caller's memberships, which is
+        // a join the query cannot express, so the set is small and known by this point.
         var result = tenants
             .Select(t => new TenantSummary(t.Slug, t.Name, t.LogoUrl, t.Branding))
             .OrderBy(t => t.Name)
             .ToList();
 
-        await Send.OkAsync(result, ct);
+        await Send.OkAsync(result.ToPagedResponse(req), ct);
     }
 }

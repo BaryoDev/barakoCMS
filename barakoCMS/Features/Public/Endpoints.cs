@@ -209,6 +209,17 @@ public class ListPublishedEndpoint : Endpoint<PublicListRequest, PaginatedRespon
     }
 }
 
+/// <summary>
+/// Search results, deliberately not the paginated envelope every other collection uses.
+/// </summary>
+/// <remarks>
+/// Decision recorded for #291, which asks that the exceptions be chosen rather than left as an
+/// accident. This shape echoes the query back and reports how many of a bounded, ranked scan
+/// matched. It is not a page of a larger set: there is no stable ordering to page through, no total
+/// beyond the scan cap, and a caller asking for page 3 of a relevance ranking would get something
+/// that changes under it. When this endpoint moves to Postgres full-text search, with a real total
+/// and a stable order, it should take the envelope like everything else.
+/// </remarks>
 public sealed record PublicSearchResponse(IReadOnlyList<PublicContentResponse> Results, int Count, string Query);
 
 /// <summary>

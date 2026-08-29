@@ -1,13 +1,15 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { api, type Paginated } from '@/lib/api';
 import type { ContentTypeDefinition, CreateSchemaRequest } from '@/types/schema';
 
 export function useSchemas() {
     return useQuery({
         queryKey: ['schemas'],
         queryFn: async () => {
-            const response = await api.get<ContentTypeDefinition[]>('/api/schemas');
-            return response.data;
+            const response = await api.get<Paginated<ContentTypeDefinition>>('/api/schemas');
+            // The envelope stops here. Every caller wants the list, and unwrapping once in the hook
+            // keeps the page components out of the pagination contract entirely.
+            return response.data.items;
         },
     });
 }

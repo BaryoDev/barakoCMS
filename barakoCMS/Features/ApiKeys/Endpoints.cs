@@ -89,7 +89,7 @@ public sealed record ApiKeyListItem(
     DateTime? ExpiresAt, DateTime? LastUsedAt, bool Revoked, DateTime CreatedAt);
 
 /// <summary>GET /api/api-keys — list the current tenant's keys (never the secret or hash).</summary>
-public class ListApiKeysEndpoint : EndpointWithoutRequest<List<ApiKeyListItem>>
+public class ListApiKeysEndpoint : Endpoint<ListRequest, PaginatedResponse<ApiKeyListItem>>
 {
     private readonly IQuerySession _session;
     public ListApiKeysEndpoint(IQuerySession session) => _session = session;
@@ -100,17 +100,25 @@ public class ListApiKeysEndpoint : EndpointWithoutRequest<List<ApiKeyListItem>>
         Roles("SuperAdmin", "Admin");
     }
 
-    public override async Task HandleAsync(CancellationToken ct)
+    public override async Task HandleAsync(ListRequest req, CancellationToken ct)
     {
         var tenant = (User.FindFirst("tenant")?.Value ?? Tenant.DefaultSlug).Trim().ToLowerInvariant();
-        var keys = await _session.Query<ApiKey>().Where(k => k.TenantSlug == tenant).ToListAsync(ct);
-        var items = keys
+        var page = await _session.Query<ApiKey>()
+            .Where(k => k.TenantSlug == tenant)
             .OrderByDescending(k => k.CreatedAt)
-            .Select(k => new ApiKeyListItem(
-                k.Id, k.Name, k.Prefix, k.Scopes, k.TenantSlug,
-                k.ExpiresAt, k.LastUsedAt, k.Revoked, k.CreatedAt))
-            .ToList();
-        await Send.OkAsync(items, ct);
+            .ToPagedResponseAsync(req, ct);
+
+        await Send.OkAsync(new PaginatedResponse<ApiKeyListItem>
+        {
+            Items = page.Items
+                .Select(k => new ApiKeyListItem(
+                    k.Id, k.Name, k.Prefix, k.Scopes, k.TenantSlug,
+                    k.ExpiresAt, k.LastUsedAt, k.Revoked, k.CreatedAt))
+                .ToList(),
+            Page = page.Page,
+            PageSize = page.PageSize,
+            TotalItems = page.TotalItems,
+        }, ct);
     }
 }
 

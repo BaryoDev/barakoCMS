@@ -1,4 +1,5 @@
 using FastEndpoints;
+using barakoCMS.Models;
 using Marten;
 
 namespace BarakoCMS.Pwa.Features;
@@ -20,7 +21,7 @@ public sealed class InstallDto
 
 /// <summary>GET /api/pwa/installs — devices that have run the app, newest activity first, with who
 /// (when signed in) and whether they're running it installed. Admin only.</summary>
-public sealed class InstallsEndpoint : EndpointWithoutRequest<List<InstallDto>>
+public sealed class InstallsEndpoint : Endpoint<barakoCMS.Models.ListRequest, barakoCMS.Models.PaginatedResponse<InstallDto>>
 {
     private readonly IQuerySession _session;
 
@@ -32,14 +33,15 @@ public sealed class InstallsEndpoint : EndpointWithoutRequest<List<InstallDto>>
         Roles("Admin", "SuperAdmin");
     }
 
-    public override async Task HandleAsync(CancellationToken ct)
+    public override async Task HandleAsync(barakoCMS.Models.ListRequest req, CancellationToken ct)
     {
-        var rows = await _session.Query<PwaInstall>()
+        // The Take(1000) cap is gone: the envelope is the bound now, and a cap that silently drops
+        // the 1001st row is the kind of quiet wrong answer paging exists to replace.
+        var page = await _session.Query<PwaInstall>()
             .OrderByDescending(p => p.LastSeenAt)
-            .Take(1000)
-            .ToListAsync(ct);
+            .ToPagedResponseAsync(req, ct);
 
-        var dto = rows.Select(p => new InstallDto
+        var dto = page.Items.Select(p => new InstallDto
         {
             UserId = p.UserId,
             Username = p.Username,
@@ -54,6 +56,12 @@ public sealed class InstallsEndpoint : EndpointWithoutRequest<List<InstallDto>>
             InstalledAt = p.InstalledAt,
         }).ToList();
 
-        await Send.OkAsync(dto, ct);
+        await Send.OkAsync(new barakoCMS.Models.PaginatedResponse<InstallDto>
+        {
+            Items = dto,
+            Page = page.Page,
+            PageSize = page.PageSize,
+            TotalItems = page.TotalItems,
+        }, ct);
     }
 }

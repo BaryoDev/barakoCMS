@@ -32,7 +32,7 @@ public class PublicTenantEndpoint : EndpointWithoutRequest<TenantPublicResponse>
 }
 
 /// <summary>GET /api/tenants — list all tenants with full profile (platform admin).</summary>
-public class ListTenantsEndpoint : EndpointWithoutRequest<List<Tenant>>
+public class ListTenantsEndpoint : Endpoint<ListRequest, PaginatedResponse<Tenant>>
 {
     private readonly IQuerySession _session;
     public ListTenantsEndpoint(IQuerySession session) => _session = session;
@@ -43,10 +43,13 @@ public class ListTenantsEndpoint : EndpointWithoutRequest<List<Tenant>>
         Roles("SuperAdmin");
     }
 
-    public override async Task HandleAsync(CancellationToken ct)
+    public override async Task HandleAsync(ListRequest req, CancellationToken ct)
     {
-        var tenants = await _session.Query<Tenant>().ToListAsync(ct);
-        await Send.OkAsync(tenants.OrderBy(t => t.Name).ToList(), ct);
+        var page = await _session.Query<Tenant>()
+            .OrderBy(t => t.Name)
+            .ToPagedResponseAsync(req, ct);
+
+        await Send.OkAsync(page, ct);
     }
 }
 

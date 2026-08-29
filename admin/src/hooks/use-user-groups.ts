@@ -1,13 +1,13 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { api, type Paginated } from '@/lib/api';
 import type { UserGroup } from '@/types/rbac';
 
 export function useUserGroups() {
     return useQuery({
         queryKey: ['user-groups'],
         queryFn: async () => {
-            const response = await api.get<UserGroup[]>('/api/user-groups');
-            return response.data;
+            const response = await api.get<Paginated<UserGroup>>('/api/user-groups');
+            return response.data.items;
         },
     });
 }

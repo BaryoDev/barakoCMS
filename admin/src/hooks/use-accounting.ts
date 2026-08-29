@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { api, type Paginated } from '@/lib/api';
 
 // Mirrors the BarakoCMS.Accounting module responses (camelCase over the wire).
 // Read-only: chart of accounts, running balances, and per-account ledgers.
@@ -86,7 +86,7 @@ export function useBalances(asOf?: string) {
 export function useAccounts() {
   return useQuery({
     queryKey: ['accounting', 'accounts'],
-    queryFn: async () => (await api.get<Account[]>('/api/accounting/accounts')).data,
+    queryFn: async () => (await api.get<Paginated<Account>>('/api/accounting/accounts')).data.items,
   });
 }
 

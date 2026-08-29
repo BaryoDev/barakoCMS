@@ -133,7 +133,12 @@ api.interceptors.response.use(
     }
 );
 
-// Backend list endpoints (contents, users, roles, content-types) return this envelope.
+// Every collection endpoint returns this envelope. The one deliberate exception is
+// /api/public/{type}/search, which echoes a query rather than paging a set; see
+// PublicSearchResponse for why.
+//
+// This comment used to name four endpoints and was wrong about one of them: /api/schemas returned
+// a bare array. It is the thing a contributor reads to learn the convention, so it has to be true.
 export interface Paginated<T> {
     items: T[];
     page: number;
