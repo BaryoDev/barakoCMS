@@ -94,7 +94,7 @@ public class EventRegistrationTests
         var createEventResp = await _client.PostAsJsonAsync("/api/contents", createEventReq);
         createEventResp.EnsureSuccessStatusCode();
         _output.WriteLine("[TEST] Event Created");
-        var createEventResult = await createEventResp.Content.ReadFromJsonAsync<barakoCMS.Features.Content.Create.Response>();
+        var createEventResult = await createEventResp.Content.ReadFromJsonAsync<barakoCMS.Features.Content.Create.Response>(ApiJson.Options);
         createEventResult.Should().NotBeNull();
         var eventId = createEventResult!.Id;
 
@@ -163,7 +163,7 @@ public class EventRegistrationTests
         updateResp.EnsureSuccessStatusCode();
 
         var getResp = await _client.GetAsync($"/api/contents/{eventId}");
-        var getResult = await getResp.Content.ReadFromJsonAsync<barakoCMS.Features.Content.Get.Response>();
+        var getResult = await getResp.Content.ReadFromJsonAsync<barakoCMS.Features.Content.Get.Response>(ApiJson.Options);
 
         // JSON deserialization of Dictionary<string, object> results in JsonElement for values
         var titleElement = (System.Text.Json.JsonElement)getResult!.Data["Title"];

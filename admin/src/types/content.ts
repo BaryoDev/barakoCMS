@@ -15,16 +15,20 @@ export interface ContentDetail extends ContentListItem {
     version: number; // echo back on update — the backend enforces optimistic concurrency (412)
 }
 
+// Names, not numbers, matching the API from 4.0. These used to be 0/1/2, transcribed from the
+// server's enum, so inserting a member there silently renumbered everything here. The switch is not
+// only a rename: ContentStatus.Draft was 0, which is falsy, and 'Draft' is not, so any truthiness
+// check written against the old values means the opposite now.
 export enum ContentStatus {
-    Draft = 0,
-    Published = 1,
-    Archived = 2,
+    Draft = 'Draft',
+    Published = 'Published',
+    Archived = 'Archived',
 }
 
 export enum SensitivityLevel {
-    Public = 0,
-    Sensitive = 1,
-    Hidden = 2,
+    Public = 'Public',
+    Sensitive = 'Sensitive',
+    Hidden = 'Hidden',
 }
 
 export interface CreateContentRequest {

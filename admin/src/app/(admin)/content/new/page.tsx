@@ -79,7 +79,7 @@ function NewContentInner() {
             <Label>Visibility</Label>
             <Select
               value={String(sensitivity)}
-              onValueChange={(v) => setSensitivity(Number(v) as SensitivityLevel)}
+              onValueChange={(v) => setSensitivity(v as SensitivityLevel)}
             >
               <SelectTrigger className="w-full">
                 <SelectValue />

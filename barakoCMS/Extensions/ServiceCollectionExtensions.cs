@@ -692,6 +692,17 @@ public static class ServiceCollectionExtensions
             c.Serializer.Options.Converters.Add(
                 new barakoCMS.Infrastructure.Serialization.ObjectJsonConverter());
 
+            // Enums cross the wire as names, not numbers. An int enum renumbers every client the
+            // moment a member is inserted, and the admin had the numbering transcribed into its own
+            // source to cope.
+            //
+            // This is the HTTP serializer only. The Marten one above must NOT get this converter:
+            // documents are stored with Status as a number and mt_doc_contents_idx_status indexes
+            // ((data ->> 'Status')::integer), so writing names there breaks the index cast and every
+            // LINQ query that filters on it. Changing storage is a data migration, not a contract
+            // change. Reading still accepts a number, so an existing caller keeps working.
+            c.Serializer.Options.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+
             c.Endpoints.Configurator = ep =>
             {
                 if (globalPreProcessors.Length > 0)
