@@ -108,9 +108,10 @@ CONTENT_ID=$(curl -s -X POST "$OLD_URL/api/contents" -H "Authorization: Bearer $
     | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))")
 [ -n "$CONTENT_ID" ] || fail "could not create content on ${FROM_VERSION}"
 
-# Status is an int over the wire (see #296). 1 is Published, which is what emits the second event.
+# The field is newStatus. Sending "status" binds nothing: the enum defaults to 0, which is Draft,
+# and 3.x accepted that silently rather than refusing it.
 curl -s -X PUT "$OLD_URL/api/contents/$CONTENT_ID/status" -H "Authorization: Bearer $TOKEN" \
-    -H 'Content-Type: application/json' -d '{"status":1}' >/dev/null
+    -H 'Content-Type: application/json' -d '{"newStatus":1}' >/dev/null
 
 EVENTS_BEFORE=$(psql_q "select count(*) from mt_events where stream_id = '$CONTENT_ID';")
 [ "$EVENTS_BEFORE" -ge 2 ] || fail "expected an event stream from ${FROM_VERSION}, found $EVENTS_BEFORE events"
@@ -177,7 +178,7 @@ NEW_TOKEN=$(curl -s -X POST "$NEW_URL/api/auth/login" -H 'Content-Type: applicat
 
 step "an event appends to the stream that already existed"
 curl -s -X PUT "$NEW_URL/api/contents/$CONTENT_ID/status" -H "Authorization: Bearer $NEW_TOKEN" \
-    -H 'Content-Type: application/json' -d '{"status":2}' >/dev/null
+    -H 'Content-Type: application/json' -d '{"newStatus":2}' >/dev/null
 EVENTS_AFTER=$(psql_q "select count(*) from mt_events where stream_id = '$CONTENT_ID';")
 [ "$EVENTS_AFTER" -gt "$EVENTS_BEFORE" ] \
     || fail "no event appended to the pre-existing stream ($EVENTS_BEFORE then $EVENTS_AFTER)"
