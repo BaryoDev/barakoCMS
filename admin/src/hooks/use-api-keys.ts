@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { api, type Paginated } from '@/lib/api';
 
 export interface ApiKey {
   id: string;
@@ -38,7 +38,7 @@ export const API_KEY_SCOPES: { value: string; label: string; description: string
 export function useApiKeys() {
   return useQuery({
     queryKey: ['api-keys'],
-    queryFn: async () => (await api.get<ApiKey[]>('/api/api-keys')).data,
+    queryFn: async () => (await api.get<Paginated<ApiKey>>('/api/api-keys')).data.items,
   });
 }
 

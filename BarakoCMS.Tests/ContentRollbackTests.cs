@@ -45,7 +45,8 @@ public class ContentRollbackTests
         var historyResp = await _client.GetAsync($"/api/contents/{contentId}/history");
         historyResp.EnsureSuccessStatusCode();
         var history = await historyResp.Content.ReadFromJsonAsync<JsonElement>();
-        var versions = history.GetProperty("versions").EnumerateArray().ToList();
+        // The history joined the paginated envelope in 4.0; it used to be {versions: [...]}.
+        var versions = history.GetProperty("items").EnumerateArray().ToList();
 
         Guid v1VersionId = default;
         foreach (var v in versions)

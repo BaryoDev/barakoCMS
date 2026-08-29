@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking
 
+**Every collection endpoint returns the same envelope.** Nine endpoints returned a bare array
+(`/api/schemas`, `/api/user-groups`, `/api/tenants`, `/api/api-keys`, `/api/workflows`,
+`/api/me/tenants`, `/api/accounting/accounts`, `/api/devices`, `/api/pwa/installs`) and two returned
+an ad-hoc wrapper (`/api/settings` was `{settings: [...]}`, `/api/contents/{id}/history` was
+`{versions: [...]}`). All of them now return `{items, page, pageSize, totalItems, totalPages,
+hasNextPage, hasPreviousPage}`.
+
+This had to happen in a major or never: a bare array cannot gain pagination compatibly, because the
+root JSON changes from `[` to `{`. The default page size for the newly paginated endpoints is the
+maximum, 100, so a deployment small enough not to have noticed still does not.
+
+`/api/public/{type}/search` keeps `{results, count, query}` on purpose. It echoes a query rather
+than paging a set, and the reason is recorded on `PublicSearchResponse`.
+
+**`/api/pwa/installs` no longer silently caps at 1000 rows.** The envelope is the bound now.
+
+Three modules ship the envelope change and are versioned for it: Accounting `0.6.0`, DeviceTrust
+`0.4.0`, Pwa `0.4.0`.
+
 **Every error the core returns is now ProblemDetails.** Four shapes shipped from an API configured
 for RFC7807: ProblemDetails, a hand-rolled `{message}` with the field errors flattened into one
 string, a hand-rolled `{errors: [...]}`, and bodyless. `POST /api/content-types` emitted two of them

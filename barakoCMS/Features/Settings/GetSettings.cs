@@ -6,11 +6,6 @@ namespace barakoCMS.Features.Settings;
 
 public class GetSettingsRequest { }
 
-public class GetSettingsResponse
-{
-    public List<SystemSettingDto> Settings { get; set; } = new();
-}
-
 public class SystemSettingDto
 {
     public string Key { get; set; } = string.Empty;
@@ -20,7 +15,7 @@ public class SystemSettingDto
     public DateTime UpdatedAt { get; set; }
 }
 
-public class GetSettingsEndpoint : EndpointWithoutRequest<GetSettingsResponse>
+public class GetSettingsEndpoint : Endpoint<ListRequest, PaginatedResponse<SystemSettingDto>>
 {
     private readonly IDocumentSession _session;
 
@@ -35,25 +30,26 @@ public class GetSettingsEndpoint : EndpointWithoutRequest<GetSettingsResponse>
         Roles("SuperAdmin", "Admin"); // Restrict to admins only
     }
 
-    public override async Task HandleAsync(CancellationToken ct)
+    public override async Task HandleAsync(ListRequest req, CancellationToken ct)
     {
-        var settings = await _session.Query<SystemSetting>()
+        var page = await _session.Query<SystemSetting>()
             .OrderBy(s => s.Category)
             .ThenBy(s => s.Key)
-            .ToListAsync(ct);
+            .ToPagedResponseAsync(req, ct);
 
-        var response = new GetSettingsResponse
+        await Send.ResponseAsync(new PaginatedResponse<SystemSettingDto>
         {
-            Settings = settings.Select(s => new SystemSettingDto
+            Items = page.Items.Select(s => new SystemSettingDto
             {
                 Key = s.Key,
                 Value = s.Value,
                 Description = s.Description,
                 Category = s.Category.ToString(),
                 UpdatedAt = s.UpdatedAt
-            }).ToList()
-        };
-
-        await Send.ResponseAsync(response, cancellation: ct);
+            }).ToList(),
+            Page = page.Page,
+            PageSize = page.PageSize,
+            TotalItems = page.TotalItems,
+        }, cancellation: ct);
     }
 }

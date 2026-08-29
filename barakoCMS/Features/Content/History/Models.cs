@@ -1,6 +1,6 @@
 namespace barakoCMS.Features.Content.History;
 
-public class Request
+public class Request : barakoCMS.Models.ListRequest
 {
     public Guid Id { get; set; }
 }
@@ -15,7 +15,6 @@ public class VersionResponse
     public DateTimeOffset Timestamp { get; set; }
 }
 
-public class Response
-{
-    public List<VersionResponse> Versions { get; set; } = new();
-}
+// The history used to come back as {versions: [...]}. It is a collection like any other and now
+// uses the same envelope, so a client can page a long-lived document's history.
+

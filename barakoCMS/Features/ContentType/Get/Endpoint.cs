@@ -4,9 +4,7 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.ContentType.Get;
 
-public class Response : List<ContentTypeDefinition> { }
-
-public class Endpoint : EndpointWithoutRequest<Response>
+public class Endpoint : Endpoint<ListRequest, PaginatedResponse<ContentTypeDefinition>>
 {
     private readonly IQuerySession _session;
 
@@ -23,14 +21,12 @@ public class Endpoint : EndpointWithoutRequest<Response>
         Roles("SuperAdmin", "Admin", "Editor");
     }
 
-    public override async Task HandleAsync(CancellationToken ct)
+    public override async Task HandleAsync(ListRequest req, CancellationToken ct)
     {
-        var methods = await _session.Query<ContentTypeDefinition>()
+        var page = await _session.Query<ContentTypeDefinition>()
             .OrderBy(x => x.Name)
-            .ToListAsync(ct);
+            .ToPagedResponseAsync(req, ct);
 
-        var response = new Response();
-        response.AddRange(methods);
-        await Send.OkAsync(response, ct);
+        await Send.OkAsync(page, ct);
     }
 }

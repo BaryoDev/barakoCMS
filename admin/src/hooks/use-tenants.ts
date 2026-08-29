@@ -2,7 +2,7 @@
 
 import { useSyncExternalStore } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api, tokenStore, subscribeToAuth, tenantOfToken } from '@/lib/api';
+import { api, tokenStore, subscribeToAuth, tenantOfToken, type Paginated } from '@/lib/api';
 
 export interface TenantSummary {
   slug: string;
@@ -41,7 +41,7 @@ export interface CreateTenantInput {
 export function useTenants() {
   return useQuery({
     queryKey: ['tenants'],
-    queryFn: async () => (await api.get<Tenant[]>('/api/tenants')).data,
+    queryFn: async () => (await api.get<Paginated<Tenant>>('/api/tenants')).data.items,
   });
 }
 
@@ -64,7 +64,7 @@ export function useCreateTenant() {
 export function useMyTenants() {
   return useQuery({
     queryKey: ['me', 'tenants'],
-    queryFn: async () => (await api.get<TenantSummary[]>('/api/me/tenants')).data,
+    queryFn: async () => (await api.get<Paginated<TenantSummary>>('/api/me/tenants')).data.items,
     staleTime: 5 * 60 * 1000,
   });
 }

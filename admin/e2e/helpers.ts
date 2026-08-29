@@ -34,15 +34,25 @@ export async function stubShell(page: Page) {
         r.fulfill({ json: { status: 'Healthy', totalDuration: '0', entries: {} } })
     );
     await page.route('**/health**', (r) => r.fulfill({ json: { status: 'Healthy', entries: {} } }));
-    await page.route('**/api/me/tenants**', (r) => r.fulfill({ json: [] }));
+    await page.route('**/api/me/tenants**', (r) => r.fulfill({ json: pageOf([]) }));
 }
 
-export const EMPTY_PAGE = {
-    items: [],
-    page: 1,
-    pageSize: 20,
-    totalItems: 0,
-    totalPages: 0,
-    hasNextPage: false,
-    hasPreviousPage: false,
-};
+export const EMPTY_PAGE = pageOf([]);
+
+/** Wrap items in the envelope every collection endpoint returns.
+ *
+ *  These specs mock the API, so a mock returning the wrong shape is a spec passing against a
+ *  contract the server does not have. Nine endpoints stopped returning bare arrays in 4.0, and the
+ *  mocks that still returned them were describing an API that no longer exists. One helper means
+ *  the next shape change is one edit rather than a hunt. */
+export function pageOf<T>(items: T[], pageSize = 100) {
+    return {
+        items,
+        page: 1,
+        pageSize,
+        totalItems: items.length,
+        totalPages: items.length === 0 ? 0 : Math.ceil(items.length / pageSize),
+        hasNextPage: false,
+        hasPreviousPage: false,
+    };
+}

@@ -67,9 +67,10 @@ public class UserGroupApiTests
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        var groups = await response.Content.ReadFromJsonAsync<List<barakoCMS.Models.UserGroup>>();
-        groups.Should().NotBeNull();
-        groups.Should().NotBeEmpty();
+        var page = await response.Content.ReadFromJsonAsync<
+            barakoCMS.Models.PaginatedResponse<barakoCMS.Models.UserGroup>>();
+        page.Should().NotBeNull();
+        page!.Items.Should().NotBeEmpty();
     }
 
     [Fact]

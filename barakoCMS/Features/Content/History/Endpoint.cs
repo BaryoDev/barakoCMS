@@ -4,7 +4,7 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.Content.History;
 
-public class Endpoint : Endpoint<Request, Response>
+public class Endpoint : Endpoint<Request, barakoCMS.Models.PaginatedResponse<VersionResponse>>
 {
     private readonly IQuerySession _session;
     private readonly barakoCMS.Infrastructure.Services.IPermissionResolver _permissionResolver;
@@ -95,9 +95,6 @@ public class Endpoint : Endpoint<Request, Response>
             await sensitivity.ApplyAsync(content.ContentType, content.Sensitivity, version.Data, HttpContext, ct);
         }
 
-        await Send.ResponseAsync(new Response
-        {
-            Versions = versions
-        });
+        await Send.ResponseAsync(versions.ToPagedResponse(req));
     }
 }
