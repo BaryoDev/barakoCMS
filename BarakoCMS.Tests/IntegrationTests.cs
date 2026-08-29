@@ -74,7 +74,7 @@ public class IntegrationTests
         });
 
         loginRes.IsSuccessStatusCode.Should().BeTrue();
-        var loginContent = await loginRes.Content.ReadFromJsonAsync<LoginResponse>();
+        var loginContent = await loginRes.Content.ReadFromJsonAsync<LoginResponse>(ApiJson.Options);
         var userToken = loginContent!.Token;
 
         // 3. Try Create Content (Should Fail - Forbidden)
@@ -149,7 +149,9 @@ public class IntegrationTests
         });
 
         invalidLoginRes.IsSuccessStatusCode.Should().BeFalse();
-        invalidLoginRes.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        // 401 from 4.0. A failed sign-in is an authentication failure, not a malformed request, and
+        // standard client middleware classifies a 400 as a caller bug.
+        invalidLoginRes.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
     [Fact]
@@ -193,12 +195,12 @@ public class IntegrationTests
             Data = contentData
         });
         createRes.IsSuccessStatusCode.Should().BeTrue();
-        var contentId = (await createRes.Content.ReadFromJsonAsync<CreateContentResponse>())!.Id;
+        var contentId = (await createRes.Content.ReadFromJsonAsync<CreateContentResponse>(ApiJson.Options))!.Id;
 
         // 3. Verify Status is Draft
         var getRes = await _client.GetAsync($"/api/contents/{contentId}");
         getRes.IsSuccessStatusCode.Should().BeTrue();
-        var content = await getRes.Content.ReadFromJsonAsync<barakoCMS.Models.Content>();
+        var content = await getRes.Content.ReadFromJsonAsync<barakoCMS.Models.Content>(ApiJson.Options);
         content!.Status.Should().Be(barakoCMS.Models.ContentStatus.Draft);
 
         // 4. Change Status to Published
@@ -211,7 +213,7 @@ public class IntegrationTests
 
         // 5. Verify Status is Published
         getRes = await _client.GetAsync($"/api/contents/{contentId}");
-        var updatedContent = await getRes.Content.ReadFromJsonAsync<barakoCMS.Models.Content>();
+        var updatedContent = await getRes.Content.ReadFromJsonAsync<barakoCMS.Models.Content>(ApiJson.Options);
         updatedContent!.Status.Should().Be(barakoCMS.Models.ContentStatus.Published);
 
         // 6. Create Content with Specific Status (Archived)
@@ -222,11 +224,11 @@ public class IntegrationTests
             Status = barakoCMS.Models.ContentStatus.Archived
         });
         archivedRes.IsSuccessStatusCode.Should().BeTrue();
-        var archivedId = (await archivedRes.Content.ReadFromJsonAsync<CreateContentResponse>())!.Id;
+        var archivedId = (await archivedRes.Content.ReadFromJsonAsync<CreateContentResponse>(ApiJson.Options))!.Id;
 
         // 7. Verify Status is Archived
         getRes = await _client.GetAsync($"/api/contents/{archivedId}");
-        var archivedContent = await getRes.Content.ReadFromJsonAsync<barakoCMS.Models.Content>();
+        var archivedContent = await getRes.Content.ReadFromJsonAsync<barakoCMS.Models.Content>(ApiJson.Options);
         archivedContent!.Status.Should().Be(barakoCMS.Models.ContentStatus.Archived);
     }
 }

@@ -152,7 +152,7 @@ export interface Paginated<T> {
 export interface PageParams {
     page?: number;
     pageSize?: number;
-    sortBy?: string;
+    // sortBy is gone in 4.0. The server accepted it everywhere and honoured it nowhere.
     sortOrder?: 'asc' | 'desc';
 }
 

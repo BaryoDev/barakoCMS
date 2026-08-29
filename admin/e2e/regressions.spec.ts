@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { authed, stubShell, EMPTY_PAGE, pageOf } from './helpers';
+import { authed, stubShell, EMPTY_PAGE, pageOf, stubContentTypes } from './helpers';
 
 /**
  * End-to-end cover for the bugs this admin actually shipped — the ones unit tests missed and only a
@@ -15,7 +15,8 @@ import { authed, stubShell, EMPTY_PAGE, pageOf } from './helpers';
 // --------------------------------------------------------------------------------------------------
 test.describe('U.5 — failed lists show an error, not an empty state', () => {
     const pages = [
-        { route: '/schemas', api: '**/api/schemas**', entity: 'content types', paged: false },
+        // The content-type list moved to /api/content-types in 4.0; /api/schemas is the alias.
+        { route: '/schemas', api: '**/api/content-types**', entity: 'content types', paged: false },
         { route: '/content', api: '**/api/contents**', entity: 'content', paged: true },
         { route: '/roles', api: '**/api/roles**', entity: 'roles', paged: true },
         { route: '/users', api: '**/api/users**', entity: 'users', paged: true },
@@ -27,8 +28,8 @@ test.describe('U.5 — failed lists show an error, not an empty state', () => {
         test(`${p.route} shows an error alert (not empty) when the API 500s`, async ({ page }) => {
             await authed(page);
             await stubShell(page);
-            // Content types page reads /api/schemas; content page needs schemas to not 500 too.
-            if (p.route !== '/schemas') await page.route('**/api/schemas**', (r) => r.fulfill({ json: pageOf([]) }));
+            // Content types page reads /api/content-types; the content page needs it not to 500 too.
+            if (p.route !== '/schemas') await stubContentTypes(page);
             await page.route(p.api, (r) => r.fulfill({ status: 500, json: { message: 'boom' } }));
 
             await page.goto(p.route);
@@ -43,7 +44,7 @@ test.describe('U.5 — failed lists show an error, not an empty state', () => {
     test('/schemas shows the empty state (not an error) when the API returns []', async ({ page }) => {
         await authed(page);
         await stubShell(page);
-        await page.route('**/api/schemas**', (r) => r.fulfill({ json: pageOf([]) }));
+        await stubContentTypes(page);
 
         await page.goto('/schemas');
         await expect(page.getByText(/No content types yet/i)).toBeVisible({ timeout: 15000 });
@@ -113,7 +114,7 @@ test.describe('P.3 — tenant switcher reaches Home', () => {
 
         await page.route('**/api/monitoring/**', (r) => r.fulfill({ json: {} }));
         await page.route('**/health**', (r) => r.fulfill({ json: { status: 'Healthy', entries: {} } }));
-        await page.route('**/api/schemas**', (r) => r.fulfill({ json: pageOf([]) }));
+        await stubContentTypes(page);
         await page.route('**/api/me/tenants**', (r) =>
             r.fulfill({ json: pageOf([{ slug: 'acme', name: 'Acme', branding: {} }]) })
         );

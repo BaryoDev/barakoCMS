@@ -42,13 +42,16 @@ public class PaginatedRequest
         set => _pageSize = value < 1 ? 1 : Math.Min(value, MaxPageSize);
     }
     
+    // SortBy was here, accepted on every paginated endpoint, documented in Swagger, and honoured by
+    // none of them: a repo-wide search matched only its own declaration. On /api/public/{type} it
+    // was worse than useless, because that endpoint deliberately 400s on ?sort= with a comment
+    // saying accepting-and-ignoring "would be a silent wrong answer", while ?sortBy= was skipped as
+    // an unknown key and returned exactly that. Removed rather than implemented: a parameter that
+    // lies is worse in a frozen spec than one that is missing, and 4.0 is the last chance to drop
+    // it. Sorting can come back as a real feature, additively, whenever someone needs it.
+
     /// <summary>
-    /// Column to sort by (optional)
-    /// </summary>
-    public string? SortBy { get; set; }
-    
-    /// <summary>
-    /// Sort order: "asc" or "desc"
+    /// Sort order: "asc" or "desc". Honoured by the endpoints that document a sort column.
     /// </summary>
     public string SortOrder { get; set; } = "desc";
     

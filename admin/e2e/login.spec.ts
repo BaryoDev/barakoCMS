@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { MOCK_TOKEN, stubShell, EMPTY_PAGE, pageOf } from './helpers';
+import { MOCK_TOKEN, stubShell, EMPTY_PAGE, pageOf, stubContentTypes } from './helpers';
 
 
 test.describe('Login & Authentication', () => {
@@ -50,7 +50,7 @@ test.describe('Login & Authentication', () => {
         // dashboard's own queries so the authenticated page renders. A blanket [] for every
         // endpoint crashes it — some hooks read object fields off the response.
         await stubShell(page);
-        await page.route('**/api/schemas**', (r) => r.fulfill({ json: pageOf([]) }));
+        await stubContentTypes(page);
         await page.route('**/api/workflows**', (r) => r.fulfill({ json: pageOf([]) }));
         await page.route('**/api/contents**', (r) => r.fulfill({ json: EMPTY_PAGE }));
 
@@ -110,7 +110,7 @@ test.describe('Login & Authentication', () => {
             })
         );
         await stubShell(page);
-        await page.route('**/api/schemas**', (r) => r.fulfill({ json: pageOf([]) }));
+        await stubContentTypes(page);
         await page.route('**/api/workflows**', (r) => r.fulfill({ json: pageOf([]) }));
         await page.route('**/api/contents**', (r) => r.fulfill({ json: EMPTY_PAGE }));
 

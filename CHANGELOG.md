@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking
 
+**Enums cross the wire as names, not numbers.** `ContentStatus` and `SensitivityLevel` were 0/1/2,
+and the admin had the numbering transcribed into its own source to cope. Inserting a member
+renumbered every client. Requests may still send a number, so an existing caller keeps working when
+it posts; responses are names.
+
+This is the HTTP contract only. Documents are still stored with `Status` as a number, because
+`mt_doc_contents_idx_status` indexes `((data ->> 'Status')::integer)` and names there would break
+the index cast and every query that filters on status.
+
+**Signing in fails with 401, not 400.** Login and all six refresh failure paths returned 400, which
+standard client middleware classifies as a caller bug rather than an authentication failure. Account
+lockout returns 423.
+
+**`sortBy` is gone from every paginated request.** It was accepted everywhere, documented in
+Swagger, and honoured nowhere. On `/api/public/{type}` it was actively harmful: that endpoint
+deliberately rejects `?sort=` because accepting and ignoring it "would be a silent wrong answer",
+while `?sortBy=` was skipped as an unknown key and returned exactly that. `sortOrder` stays.
+
+**The content-type list is `GET /api/content-types`.** `/api/schemas` keeps working as a deprecated
+alias and goes in 5.0. The resource was read at one route name and written at another.
+
+**`GET /api/diagnostics/typecheck` is removed.** It returned an anonymous type built by reflection
+to debug a Marten upgrade, which cannot be expressed in the spec and should not be frozen API.
+
+**`{Id}` in two routes is now `{id}`**, matching the other thirty-odd. Cosmetic at runtime, but it
+lands verbatim in the OpenAPI paths.
+
 **Every collection endpoint returns the same envelope.** Nine endpoints returned a bare array
 (`/api/schemas`, `/api/user-groups`, `/api/tenants`, `/api/api-keys`, `/api/workflows`,
 `/api/me/tenants`, `/api/accounting/accounts`, `/api/devices`, `/api/pwa/installs`) and two returned

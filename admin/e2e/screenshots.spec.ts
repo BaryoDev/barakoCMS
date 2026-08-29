@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { authed, stubShell, pageOf } from './helpers';
+import { authed, stubShell, pageOf, stubContentTypes } from './helpers';
 
 /**
  * Release screenshots. Not a behaviour test — it drives the real UI to real states
@@ -58,7 +58,7 @@ test('api keys page', async ({ page }, testInfo) => {
 test('entry form with the new field types', async ({ page }, testInfo) => {
     await authed(page);
     await stubShell(page);
-    await page.route('**/api/schemas**', (r) => r.fulfill({ json: pageOf([SCHEMA]) }));
+    await stubContentTypes(page, [SCHEMA]);
 
     await page.goto('/content/new?type=memberprofile_ft');
     await expect(page.locator('#Email')).toBeVisible({ timeout: 15000 });
