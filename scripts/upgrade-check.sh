@@ -65,8 +65,20 @@ psql_q() { docker exec "$PG" psql -U postgres -d barako_cms -tAc "$1"; }
 # A port already in use is the one failure that makes every check below pass for the wrong reason:
 # the health probe reaches whatever is listening, and the assertions then describe someone else's
 # process. Refuse to start rather than produce a green run about the wrong host.
+#
+# lsof is not on every runner, and `if lsof ...` on a missing binary is false, which reads as "port
+# free" and fails open. Pick a tool that exists, and say so when neither does.
+if command -v lsof >/dev/null 2>&1; then
+    port_in_use() { lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1; }
+elif command -v ss >/dev/null 2>&1; then
+    port_in_use() { ss -ltn "sport = :$1" 2>/dev/null | grep -q LISTEN; }
+else
+    echo "note: neither lsof nor ss is available, so the port check below is skipped" >&2
+    port_in_use() { return 1; }
+fi
+
 for port in "$PG_PORT" "$NEW_PORT" "$OLD_PORT"; do
-    if lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
+    if port_in_use "$port"; then
         fail "port $port is already in use. Something else would answer the health checks below and this run would pass without testing anything."
     fi
 done
@@ -79,8 +91,13 @@ docker network create "$NETWORK" >/dev/null 2>&1 || true
 docker run -d --name "$PG" --network "$NETWORK" \
     -e POSTGRES_DB=barako_cms -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
     -p "${PG_PORT}:5432" postgres:16-alpine >/dev/null
-for _ in $(seq 1 30); do docker exec "$PG" pg_isready -U postgres >/dev/null 2>&1 && break; sleep 2; done
-docker exec "$PG" pg_isready -U postgres >/dev/null || fail "postgres never became ready"
+for _ in $(seq 1 60); do docker exec "$PG" pg_isready -U postgres >/dev/null 2>&1 && break; sleep 2; done
+if ! docker exec "$PG" pg_isready -U postgres >/dev/null 2>&1; then
+    echo "--- postgres container ---" >&2
+    docker logs "$PG" 2>&1 | tail -30 >&2
+    docker inspect "$PG" --format 'state={{.State.Status}} exit={{.State.ExitCode}}' >&2 || true
+    fail "postgres never became ready"
+fi
 
 step "creating a ${FROM_VERSION} database with data in it"
 docker run -d --name "$OLD" --network "$NETWORK" \
