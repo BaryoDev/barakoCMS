@@ -25,6 +25,9 @@ than paging a set, and the reason is recorded on `PublicSearchResponse`.
 
 **`/api/pwa/installs` no longer silently caps at 1000 rows.** The envelope is the bound now.
 
+Three modules ship the envelope change and are versioned for it: Accounting `0.6.0`, DeviceTrust
+`0.4.0`, Pwa `0.4.0`.
+
 **Every error the core returns is now ProblemDetails.** Four shapes shipped from an API configured
 for RFC7807: ProblemDetails, a hand-rolled `{message}` with the field errors flattened into one
 string, a hand-rolled `{errors: [...]}`, and bodyless. `POST /api/content-types` emitted two of them
