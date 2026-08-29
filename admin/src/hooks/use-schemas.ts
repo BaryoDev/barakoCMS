@@ -6,7 +6,7 @@ export function useSchemas() {
     return useQuery({
         queryKey: ['schemas'],
         queryFn: async () => {
-            const response = await api.get<Paginated<ContentTypeDefinition>>('/api/schemas');
+            const response = await api.get<Paginated<ContentTypeDefinition>>('/api/content-types');
             // The envelope stops here. Every caller wants the list, and unwrapping once in the hook
             // keeps the page components out of the pagination contract entirely.
             return response.data.items;

@@ -245,4 +245,51 @@ public class ErrorContractTests
         _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
             "Bearer", _factory.CreateToken(roles: roles, userId: userId.ToString()));
     }
+
+    /// <summary>
+    /// A failed sign-in is 401 and still says why.
+    /// </summary>
+    /// <remarks>
+    /// It was 400, which standard client middleware classifies as a caller bug rather than an
+    /// authentication failure, and which the admin's refresh interceptor keys off the wrong side of.
+    ///
+    /// The body matters as much as the code. The admin falls back to "Your session has expired" for
+    /// a 401 with nothing readable in it, so a 401 that dropped the reason would replace a correct
+    /// message with a misleading one on the most visible error in the product.
+    /// </remarks>
+    [Fact]
+    public async Task A_failed_sign_in_is_unauthorized_and_says_why()
+    {
+        var response = await _client.PostAsJsonAsync("/api/auth/login", new
+        {
+            username = "no-such-user-" + Guid.NewGuid().ToString("n")[..8],
+            password = "wrong-password",
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await ProblemDetailReasonsAsync(response))
+            .Should().Contain(reason => reason.Contains("Invalid credentials", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// The content-type resource answers on both its new name and its deprecated one.
+    /// </summary>
+    /// <remarks>
+    /// Read was at /api/schemas while create and the delivery toggle were at /api/content-types.
+    /// Consolidating without keeping the alias would break every existing client on the read path,
+    /// so both have to work until 5.0, and both have to be exercised or the alias rots.
+    /// </remarks>
+    [Theory]
+    [InlineData("/api/content-types")]
+    [InlineData("/api/schemas")]
+    public async Task The_content_type_list_answers_on_both_routes(string url)
+    {
+        await AuthenticateAsync("Admin", "SuperAdmin");
+
+        var response = await _client.GetAsync(url);
+
+        response.IsSuccessStatusCode.Should().BeTrue("{0} returned {1}", url, response.StatusCode);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        document.RootElement.TryGetProperty("items", out _).Should().BeTrue();
+    }
 }

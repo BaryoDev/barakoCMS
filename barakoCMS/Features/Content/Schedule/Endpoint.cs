@@ -28,7 +28,7 @@ public class Endpoint : Endpoint<Request, Response>
 
     public override void Configure()
     {
-        Put("/api/contents/{Id}/schedule");
+        Put("/api/contents/{id}/schedule");
         Claims("UserId");
     }
 
