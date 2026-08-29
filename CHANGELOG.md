@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking
+
+**Every error the core returns is now ProblemDetails.** Four shapes shipped from an API configured
+for RFC7807: ProblemDetails, a hand-rolled `{message}` with the field errors flattened into one
+string, a hand-rolled `{errors: [...]}`, and bodyless. `POST /api/content-types` emitted two of them
+from one endpoint depending on which check failed. Clients reading `message` or `errors[].message`
+off a 400 need to read `errors[].reason`.
+
+**`PUT /api/contents/{id}/status` requires `newStatus`.** It was a non-nullable enum, so omitting it
+or spelling the field wrong bound to 0, which is Draft, and the validator accepted it. A caller
+sending `{"status": 1}` moved its content to Draft and was told "Content status changed to Draft".
+Omitting the status is now a 400.
+
+**Success responses no longer carry error fields.** `Content/Create.Response` and
+`Content/Update.Response` drop `Message`; `ContentType/Create.Response` drops `Errors`. A generated
+client no longer sees success types with mysterious nullable error members.
+
+**Four obsolete members are removed from `Events/ContentEvents.cs`**, as their attributes promised
+for "the next major version", which 4.0.0 is. The narrower `ContentCreated` and `ContentUpdated`
+constructors go together with their paired `Deconstruct` overloads, because removing one without
+the other only fixes half the break.
+
+### Fixed
+
+- **The admin rendered every validation failure as "[object Object]"**, including "Invalid
+  credentials" on the login page. It read `message` off ProblemDetails entries, which carry `name`
+  and `reason`.
+
+
 ## [3.21.0] - 2026-08-23
 
 The release-readiness pass. Most of what follows is about the gates around a release rather than
