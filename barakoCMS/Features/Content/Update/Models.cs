@@ -32,5 +32,4 @@ public class Response
     /// update's Version field to enable optimistic-concurrency conflict detection.
     /// </summary>
     public long Version { get; set; }
-    public string Message { get; set; } = string.Empty;
 }

@@ -22,7 +22,6 @@ public class Response
 {
     public Guid Id { get; set; }
     public string Name { get; set; } = string.Empty;
-    public List<string>? Errors { get; set; }
 }
 
 public class Endpoint : Endpoint<Request, Response>
@@ -48,8 +47,14 @@ public class Endpoint : Endpoint<Request, Response>
         var (isValid, errors) = _validator.Validate(req.Name, req.DisplayName, req.Fields);
         if (!isValid)
         {
-            await Send.ResponseAsync(new Response { Errors = errors }, 400, ct);
-            return;
+            // Was the one endpoint emitting two error shapes: this list, and ProblemDetails from
+            // the duplicate-name ThrowError below.
+            foreach (var error in errors)
+            {
+                AddError(error);
+            }
+
+            ThrowIfAnyErrors();
         }
 
         // 2. Normalize Name (slugify)

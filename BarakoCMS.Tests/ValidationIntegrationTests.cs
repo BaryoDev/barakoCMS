@@ -406,7 +406,10 @@ public class ValidationIntegrationTests
         // Validation should fail with 400 BadRequest due to type mismatch
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         var error = await response.Content.ReadAsStringAsync();
-        error.Should().Contain("Validation Failed");
+        // The failure is a ProblemDetails entry naming the field and the type it wanted, rather
+        // than the flattened "Validation Failed: ..." string this endpoint used to hand back.
+        error.Should().Contain("Attended");
+        error.Should().Contain("boolean");
     }
 
     #endregion
