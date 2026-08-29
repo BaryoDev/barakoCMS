@@ -577,7 +577,7 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
-    private static string ResolveConnectionString(IConfiguration configuration)
+    internal static string ResolveConnectionString(IConfiguration configuration)
     {
         var connectionString = configuration.GetConnectionString("DefaultConnection");
         var dbUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
@@ -591,7 +591,22 @@ public static class ServiceCollectionExtensions
                 var username = userInfo[0];
                 var password = userInfo.Length > 1 ? userInfo[1] : "";
 
-                connectionString = $"Host={uri.Host};Port={uri.Port};Database={uri.AbsolutePath.TrimStart('/')};Username={username};Password={password};SSL Mode=Disable;Include Error Detail=true";
+                var sslMode = "Require";
+                if (!string.IsNullOrWhiteSpace(uri.Query))
+                {
+                    var query = uri.Query.TrimStart('?').Split('&');
+                    foreach (var param in query)
+                    {
+                        var parts = param.Split('=');
+                        if (parts.Length == 2 && string.Equals(parts[0], "sslmode", StringComparison.OrdinalIgnoreCase))
+                        {
+                            sslMode = parts[1];
+                            break;
+                        }
+                    }
+                }
+
+                connectionString = $"Host={uri.Host};Port={uri.Port};Database={uri.AbsolutePath.TrimStart('/')};Username={username};Password={password};SSL Mode={sslMode};Include Error Detail=true";
             }
             catch
             {
