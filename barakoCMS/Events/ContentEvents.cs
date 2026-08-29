@@ -10,80 +10,15 @@ public record ContentCreated(
     Models.ContentStatus Status,
     Guid CreatedBy,
     string? SearchText,
-    Models.SensitivityLevel Sensitivity)
-{
-    [Obsolete("Use the seven-value constructor. Removal planned for the next major version.")]
-    public ContentCreated(
-        Guid id,
-        string contentType,
-        Dictionary<string, object> data,
-        Models.ContentStatus status,
-        Guid createdBy,
-        string? searchText)
-        : this(id, contentType, data, status, createdBy, searchText, Models.SensitivityLevel.Public)
-    {
-    }
-
-    [Obsolete("Use the six-value constructor. Removal planned for the next major version.")]
-    public ContentCreated(
-        Guid id,
-        string contentType,
-        Dictionary<string, object> data,
-        Models.ContentStatus status,
-        Guid createdBy)
-        : this(id, contentType, data, status, createdBy, null, Models.SensitivityLevel.Public)
-    {
-    }
-
-    // A positional record's Deconstruct follows its primary constructor, so widening the record
-    // breaks deconstruction at the old arity as surely as it breaks construction. Both halves are
-    // kept in step: an obsolete constructor without a matching Deconstruct only fixes half the break.
-    [Obsolete("Use the seven-value Deconstruct overload. Removal planned for barakoCMS 5.0.")]
-    public void Deconstruct(
-        out Guid id,
-        out string contentType,
-        out Dictionary<string, object> data,
-        out Models.ContentStatus status,
-        out Guid createdBy,
-        out string? searchText) =>
-        (id, contentType, data, status, createdBy, searchText) =
-            (Id, ContentType, Data, Status, CreatedBy, SearchText);
-
-    [Obsolete("Use the seven-value Deconstruct overload. Removal planned for barakoCMS 5.0.")]
-    public void Deconstruct(
-        out Guid id,
-        out string contentType,
-        out Dictionary<string, object> data,
-        out Models.ContentStatus status,
-        out Guid createdBy) =>
-        (id, contentType, data, status, createdBy) =
-            (Id, ContentType, Data, Status, CreatedBy);
-}
+    Models.SensitivityLevel Sensitivity);
 
 [method: JsonConstructor]
 public record ContentUpdated(
     Guid Id,
     Dictionary<string, object> Data,
     Guid UpdatedBy,
-    string? SearchText)
-{
-    [Obsolete("Use the four-value constructor. Removal planned for the next major version.")]
-    public ContentUpdated(
-        Guid id,
-        Dictionary<string, object> data,
-        Guid updatedBy)
-        : this(id, data, updatedBy, null)
-    {
-    }
+    string? SearchText);
 
-    [Obsolete("Use the four-value Deconstruct overload. Removal planned for the next major version.")]
-    public void Deconstruct(
-        out Guid id,
-        out Dictionary<string, object> data,
-        out Guid updatedBy) =>
-        (id, data, updatedBy) =
-            (Id, Data, UpdatedBy);
-}
 public record ContentStatusChanged(Guid Id, Models.ContentStatus NewStatus, Guid UpdatedBy);
 
 /// <summary>
