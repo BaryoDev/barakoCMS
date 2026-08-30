@@ -176,6 +176,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Content history reports every event, not two of five.** `GET /api/contents/{id}/history`
+  mapped `ContentCreated` and `ContentUpdated` and returned null for `ContentStatusChanged`,
+  `ContentScheduled` and `ContentSensitivityChanged`, and the nulls were filtered out, so publishing
+  a document left no trace in its own history and nothing in the response said the list had been
+  shortened. Every event is now an entry carrying a `changeType`, and an entry that does not record a
+  document version carries the value that changed (`status`, the scheduled times, `sensitivity`)
+  instead of `data`. An event type the endpoint does not recognise still appears, under its own name,
+  rather than being dropped.
+
 - **The published images serve both amd64 and arm64.** The release built for whatever architecture
   its runner happened to be, so `barako-cms:3.21.0` and its siblings were amd64 only and could not
   run on Graviton, on Ampere, or on this project's own playground VM. Each architecture is now built
