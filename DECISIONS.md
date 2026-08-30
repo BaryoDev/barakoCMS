@@ -228,3 +228,63 @@ site quietly serves incomplete results.
 **The general rule:** a process that can partially complete must make partial completion visible.
 Otherwise a failed run and a successful one look identical afterwards, and nobody checks the one
 place they differ.
+
+---
+
+## D9. Erasure is a configured mode, and the unsafe switch is refused at startup
+
+**Decided:** 30 Aug 2026. **Issue:** #301. **Status:** accepted, not yet implemented.
+
+A deployment chooses how erasure works, through `Erasure:Mode`:
+
+- **`Compact`** (the default). Erasing a content item compacts its stream, which removes the
+  historical events, and deletes or redacts the resulting snapshot and the read-model document. The
+  item's history is gone, which is what erasure means.
+- **`CryptoShred`**. Content event payloads are encrypted per subject; erasure destroys the key.
+- **`None`**. Pure append-only, with no erasure path, for a deployment that has decided its content
+  never holds personal data. Requires an explicit acknowledgement, not just leaving a setting unset.
+
+**The host refuses to start in `CryptoShred` against a database that already holds plaintext content
+events**, naming the setting, the same fail-closed shape as a missing connection string.
+
+**Rules out:** picking one mechanism for everyone, and letting an operator change mode freely.
+
+**Why a mode rather than a mechanism.** The three options in `EVENT-SOURCING-PER-CONTENT-TYPE.md`
+are not really alternatives, they are different prices for different guarantees, and which one a
+deployment needs depends on whether it holds personal data at all. A newsroom publishing articles
+and an agency holding client contact details want different answers, and neither should pay for the
+other's.
+
+**Why `Compact` is the default.** It is the only mode that works on data already written. Every
+existing deployment gains a real erasure path on upgrade with no migration and no key management,
+and it needs no answer to the subject-mapping question below.
+
+**Why the guard is the entire point.** Crypto-shredding cannot be applied retroactively: an event
+already written in plaintext has no key to destroy. So an operator who switches to `CryptoShred` in
+year two protects nothing written in year one, and the only signal is a setting that now says
+`CryptoShred`. That is a silent, permanent, and legally consequential wrong answer, so it fails at
+startup instead.
+
+The transitions are deliberately asymmetric. Starting on `CryptoShred` keeps every option, because
+shredded data can also be compacted. Starting on `Compact` forecloses shredding for everything
+written before the switch. Given the choice, this is the door that stays open.
+
+**What is still unanswered:** who the subject is. Crypto-shredding needs a key per something, and a
+CMS has no natural data subject, because a blog post that mentions a person is not owned by them.
+Two implementable variants, and `CryptoShred` cannot ship without choosing one:
+
+- a **per-tenant** key, which gives irrecoverable customer offboarding but is not Article 17 for an
+  individual;
+- a **per-subject** key, which needs a content type to declare which field identifies the subject,
+  making it a schema feature rather than a configuration value.
+
+**Also unresolved, and named here so it is not discovered later:** the audit trail is a second
+erasure surface. `AuditEvent` carries `ActorUsername` and metadata, and `AuditChain` hashes each
+entry over its predecessor, so deleting one breaks the tamper-evidence the chain exists to provide.
+Erasure and tamper-evidence are in direct conflict there too, and this decision does not settle it.
+
+**What would have to change for this to be wrong.** If content turns out to hold personal data in
+the ordinary case rather than the exceptional one, the default is backwards: `CryptoShred` should be
+the default and `Compact` the opt-out. The signal to watch is what customers actually model in their
+first content type.
+
