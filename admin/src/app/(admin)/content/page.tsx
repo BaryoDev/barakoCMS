@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useSchemas } from '@/hooks/use-schemas';
 import { useContents } from '@/hooks/use-contents';
-import { ContentStatus, STATUS_META } from '@/types/content';
+import { statusMeta } from '@/types/content';
 import { PageHeader } from '@/components/patterns/page-header';
 import { EmptyState } from '@/components/patterns/empty-state';
 import { StatusBadge } from '@/components/patterns/status-badge';
@@ -130,7 +130,7 @@ function ContentListInner() {
                     <TableCell className="text-muted-foreground font-mono text-xs">{item.contentType}</TableCell>
                     <TableCell>
                       {(() => {
-                        const meta = STATUS_META[item.status] ?? STATUS_META[ContentStatus.Draft];
+                        const meta = statusMeta(item.status);
                         return <StatusBadge tone={meta.tone}>{meta.label}</StatusBadge>;
                       })()}
                     </TableCell>

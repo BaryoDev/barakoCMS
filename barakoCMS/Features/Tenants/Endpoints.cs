@@ -32,7 +32,7 @@ internal class PublicTenantEndpoint : EndpointWithoutRequest<TenantPublicRespons
 }
 
 /// <summary>GET /api/tenants — list all tenants with full profile (platform admin).</summary>
-internal class ListTenantsEndpoint : Endpoint<ListRequest, PaginatedResponse<Tenant>>
+internal class ListTenantsEndpoint : Endpoint<ListRequest, PaginatedResponse<TenantResponse>>
 {
     private readonly IQuerySession _session;
     public ListTenantsEndpoint(IQuerySession session) => _session = session;
@@ -49,7 +49,13 @@ internal class ListTenantsEndpoint : Endpoint<ListRequest, PaginatedResponse<Ten
             .OrderBy(t => t.Name)
             .ToPagedResponseAsync(req, ct);
 
-        await Send.OkAsync(page, ct);
+        await Send.OkAsync(new PaginatedResponse<TenantResponse>
+        {
+            Items = page.Items.Select(TenantResponse.From).ToList(),
+            Page = page.Page,
+            PageSize = page.PageSize,
+            TotalItems = page.TotalItems,
+        }, ct);
     }
 }
 
@@ -68,7 +74,7 @@ internal sealed class TenantWriteRequest
 }
 
 /// <summary>POST /api/tenants — create a tenant (platform admin).</summary>
-internal class CreateTenantEndpoint : Endpoint<TenantWriteRequest, Tenant>
+internal class CreateTenantEndpoint : Endpoint<TenantWriteRequest, TenantResponse>
 {
     private readonly IDocumentSession _session;
     public CreateTenantEndpoint(IDocumentSession session) => _session = session;
@@ -127,12 +133,12 @@ internal class CreateTenantEndpoint : Endpoint<TenantWriteRequest, Tenant>
         }
 
         await _session.SaveChangesAsync(ct);
-        await Send.OkAsync(tenant, ct);
+        await Send.OkAsync(TenantResponse.From(tenant), ct);
     }
 }
 
 /// <summary>PUT /api/tenants/{handle} — update a tenant's profile (platform admin).</summary>
-internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, Tenant>
+internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, TenantResponse>
 {
     private readonly IDocumentSession _session;
     public UpdateTenantEndpoint(IDocumentSession session) => _session = session;
@@ -166,6 +172,6 @@ internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, Tenant>
         tenant.IsActive = req.IsActive;
         _session.Store(tenant);
         await _session.SaveChangesAsync(ct);
-        await Send.OkAsync(tenant, ct);
+        await Send.OkAsync(TenantResponse.From(tenant), ct);
     }
 }

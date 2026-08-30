@@ -13,7 +13,7 @@ import {
   useUpdateContentStatus,
 } from '@/hooks/use-contents';
 import { apiErrorMessage } from '@/lib/api';
-import { ContentStatus, SENSITIVITY_META, STATUS_META } from '@/types/content';
+import { ContentStatus, SENSITIVITY_META, statusMeta } from '@/types/content';
 import { PageHeader } from '@/components/patterns/page-header';
 import { StatusBadge } from '@/components/patterns/status-badge';
 import { TableSkeleton } from '@/components/patterns/table-skeleton';
@@ -51,7 +51,7 @@ export default function ContentDetailPage({ params }: { params: Promise<{ id: st
 
   if (isLoading || !content) return <TableSkeleton />;
 
-  const statusMeta = STATUS_META[content.status] ?? STATUS_META[ContentStatus.Draft];
+  const meta = statusMeta(content.status);
   const sensitivityMeta = SENSITIVITY_META[content.sensitivity];
 
   const save = (status?: ContentStatus) => {
@@ -90,7 +90,7 @@ export default function ContentDetailPage({ params }: { params: Promise<{ id: st
         description={`${schema?.displayName ?? content.contentType} · ${sensitivityMeta?.label ?? 'Public'} · version ${content.version}`}
         actions={
           <div className="flex items-center gap-2">
-            <StatusBadge tone={statusMeta.tone}>{statusMeta.label}</StatusBadge>
+            <StatusBadge tone={meta.tone}>{meta.label}</StatusBadge>
             {content.status !== ContentStatus.Published && (
               <Button
                 size="sm"
