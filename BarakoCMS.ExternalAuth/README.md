@@ -51,7 +51,25 @@ Omit a provider to leave it disabled.
 ## Security notes
 
 - Matching is on a **verified** email only. Matching on an unverified one would let anyone who can
-  claim an address at a provider take over the matching account.
+  claim an address at a provider take over the matching account. Take **0.4.0 or later**: this was
+  the documented intent from the start and the enforcement was missing, so Google, LinkedIn and
+  Facebook never read a verification flag, and GitHub read one only for accounts whose address was
+  private on their profile.
+
+  What each provider is asked for now:
+
+  | Provider | Source of truth | Behaviour |
+  | --- | --- | --- |
+  | Google | `email_verified` on the OIDC userinfo response | Refused when absent or false |
+  | LinkedIn | `email_verified` on `/userinfo` | Refused when absent or false |
+  | GitHub | `verified` on `/user/emails` | Only the verified primary is used; the unflagged profile email is ignored |
+  | Facebook | none exists | Refused unless `Facebook:TrustUnverifiedEmail` is set |
+
+- **Facebook is opt-in.** The Graph API exposes no per-field verification flag, so there is nothing
+  to check and no honest way to claim the address is verified. Setting
+  `Facebook:TrustUnverifiedEmail` to `true` says you have decided Facebook's own verification is
+  good enough for your deployment, and accepts that a Facebook account asserting an address becomes
+  a login for the local account holding it. It defaults to off, which refuses the sign-in.
 - If the account has MFA enrolled, the provider callback issues an MFA challenge rather than a
   session token. Take **0.1.6 or later**: earlier versions minted a token directly, so a
   provider-account takeover skipped the second factor entirely.

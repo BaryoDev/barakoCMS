@@ -59,6 +59,21 @@ internal class Endpoint : Endpoint<Request, Response>
     // Dummy password hash for timing attack prevention (pre-computed BCrypt hash)
     private static readonly string DummyPasswordHash = BCrypt.Net.BCrypt.HashPassword("dummy_password_for_timing_attack_prevention");
 
+    /// <summary>
+    /// True when the password matches. An account with no password set never matches, and costs the
+    /// same time as one that does.
+    /// </summary>
+    private static bool PasswordMatches(string password, string? hash)
+    {
+        if (string.IsNullOrEmpty(hash))
+        {
+            BCrypt.Net.BCrypt.Verify(password, DummyPasswordHash);
+            return false;
+        }
+
+        return BCrypt.Net.BCrypt.Verify(password, hash);
+    }
+
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
         var device = barakoCMS.Infrastructure.DeviceContext.From(HttpContext);
@@ -93,8 +108,15 @@ internal class Endpoint : Endpoint<Request, Response>
             return;
         }
 
-        // Verify password
-        if (!BCrypt.Net.BCrypt.Verify(req.Password, user.PasswordHash))
+        // Verify password.
+        //
+        // An account created by social sign-in has PasswordHash = "", and BCrypt.Verify throws
+        // SaltParseException on an empty hash rather than returning false. That turned a password
+        // attempt against a social-created account into a 500 while every other bad-credential path
+        // returns the same 401, which is a username oracle sitting on the one endpoint that took
+        // care to avoid one (see the dummy-hash timing defence above). Burn the same dummy verify so
+        // the timing matches too, then fail closed with the identical message.
+        if (!PasswordMatches(req.Password, user.PasswordHash))
         {
             // Atomic SQL-level increment so concurrent failed attempts can't be lost to a
             // read-modify-write race (which would let an attacker bypass the lockout threshold).

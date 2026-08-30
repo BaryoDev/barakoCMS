@@ -111,6 +111,7 @@ public class FacebookCallbackEndpoint : EndpointWithoutRequest
         }
 
         string email;
+        bool emailVerified;
         SocialSignIn.ProfileData profile;
         try
         {
@@ -131,6 +132,13 @@ public class FacebookCallbackEndpoint : EndpointWithoutRequest
             var me = await http.GetFromJsonAsync<JsonElement>(meUrl, ct);
 
             email = (me.TryGetProperty("email", out var e) ? e.GetString() : null)?.Trim().ToLowerInvariant() ?? "";
+            // The Graph API exposes no per-field verification flag, so there is nothing to read
+            // here and no honest way to claim the address is verified. Facebook sign-in is
+            // therefore opt-in: an operator who has decided Facebook's own verification is good
+            // enough for their deployment sets Facebook:TrustUnverifiedEmail, and takes on the
+            // consequence that a Facebook account asserting an address becomes a login for the
+            // local account holding it. Default is off, which refuses the sign-in.
+            emailVerified = _config.GetValue<bool>("Facebook:TrustUnverifiedEmail");
             var name = me.TryGetProperty("name", out var n) ? n.GetString() : null;
             var photo = me.TryGetProperty("picture", out var pic) && pic.TryGetProperty("data", out var pd)
                 && pd.TryGetProperty("url", out var pu) ? pu.GetString() : null;
@@ -152,7 +160,7 @@ public class FacebookCallbackEndpoint : EndpointWithoutRequest
         }
 
         var mfa = Resolve<barakoCMS.Infrastructure.Auth.Mfa.IMfaService>();
-        var tokens = await SocialSignIn.IssueAsync(_session, _config, _deviceGate, _tokenIssuer, mfa, HttpContext, email, club, ct, profile);
+        var tokens = await SocialSignIn.IssueAsync(_session, _config, _deviceGate, _tokenIssuer, mfa, HttpContext, email, emailVerified, club, ct, profile);
         if (tokens.RequiresMfa)
         {
             await Send.ResultAsync(Results.Redirect(SocialSignIn.FrontendMfaCallback(baseUrl, tokens.MfaChallenge!, club)));

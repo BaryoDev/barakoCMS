@@ -117,6 +117,17 @@ public class MultiInstanceSchedulingTests
     /// document's final state, because the document looks identical whether it was transitioned once
     /// or twice. The stream is where the duplication is visible, and the stream is what the workflow
     /// projection reads.
+    ///
+    /// The count is polled rather than read once. ScheduledContentService is registered as a hosted
+    /// service, so a third sweeper is running on a timer inside the test host and takes the same
+    /// advisory lock. If it holds that lock while the two sweeps below run, both decline and the
+    /// stream has no transition yet, which failed this test in CI with a count of 0 while it passed
+    /// every time in isolation.
+    ///
+    /// Polling does not weaken it. The invariant is "exactly one transition, however many sweepers
+    /// there are", so waiting for the first and then asserting there is only one is the invariant
+    /// stated properly. A stream that never transitions still fails, on the timeout, with the same
+    /// message.
     /// </remarks>
     [Fact]
     public async Task Due_content_transitions_once_when_two_instances_sweep_together()
@@ -150,15 +161,23 @@ public class MultiInstanceSchedulingTests
                 new ScheduledContentService(store, logger).SweepAllTenantsAsync(DateTime.UtcNow, CancellationToken.None));
         }
 
-        using (var scope = _fixture.Services.CreateScope())
+        var transitions = 0;
+        for (var attempt = 0; attempt < 30; attempt++)
         {
+            using var scope = _fixture.Services.CreateScope();
             var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
             var stream = await session.Events.FetchStreamAsync(id);
+            transitions = stream.Count(e => e.Data is ContentStatusChanged);
+            if (transitions > 0)
+            {
+                break;
+            }
 
-            var transitions = stream.Count(e => e.Data is ContentStatusChanged);
-            transitions.Should().Be(1,
-                "two ContentStatusChanged events means the workflow projection fires every Published "
-                + "workflow twice, and an email action sends two emails");
+            await Task.Delay(TimeSpan.FromSeconds(1));
         }
+
+        transitions.Should().Be(1,
+            "two ContentStatusChanged events means the workflow projection fires every Published "
+            + "workflow twice, and an email action sends two emails");
     }
 }
