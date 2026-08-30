@@ -7,6 +7,109 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking
+
+- **Every package retargets from `net8.0` to `net10.0`.** Host applications have to be on .NET 10.
+  This is the largest break in 4.0 and no migration helps with it.
+
+- **`updatedAt` is gone from the content history response.** `GET /api/contents/{id}/history`
+  returned both `updatedAt` and `timestamp` built from the same event timestamp. `updatedAt` was
+  produced by `DateTimeOffset.DateTime`, which discards the offset rather than converting, so on a
+  UTC+8 server the two fields described one event eight hours apart and the client had no way to tell
+  which was right. `timestamp` is correct, is normalised to UTC, and is the field the admin already
+  rendered. A client reading `updatedAt` was reading a wrong value, so this removes a field rather
+  than a capability, and 4.0 is where a wire change like this belongs.
+
+- **The core package no longer injects `appsettings.json` into consumer projects.** The published
+  3.21.0 really does carry `content/appsettings.json` and `contentFiles/any/net8.0/appsettings.json`,
+  verified against the artifact on nuget.org, so referencing BarakoCMS dropped the host's own
+  configuration into every consumer to collide with theirs at build and publish.
+
+- **The feature slices are internal.** 188 types under `Features/` were public only by accident, which
+  under the stability rule froze every endpoint's `Request` and `Response` records until 5.0 and turned
+  renaming a field into a compatibility event. `IWorkflowAction` and `IWorkflowEngine` stay public,
+  because custom actions are a documented extension point. What the rule covers is now written down in
+  CLAUDE.md section 6 rather than left to the broadest possible reading.
+
+- **`IUserRepository` and `MartenUserRepository` are internal.**
+
+- **Enums cross the wire as names, not numbers.** `ContentStatus` and `SensitivityLevel` were 0/1/2,
+  and the admin had the numbering transcribed into its own source to cope. Inserting a member
+  renumbered every client. Requests may still send a number, so an existing caller keeps working when
+  it posts; responses are names.
+
+  This is the HTTP contract only. Documents are still stored with `Status` as a number, because
+  `mt_doc_contents_idx_status` indexes `((data ->> 'Status')::integer)` and names there would break
+  the index cast and every query that filters on status.
+
+- **Signing in fails with 401, not 400.** Login and all six refresh failure paths returned 400, which
+  standard client middleware classifies as a caller bug rather than an authentication failure. Account
+  lockout returns 423.
+
+- **`sortBy` is gone from every paginated request.** It was accepted everywhere, documented in
+  Swagger, and honoured nowhere. On `/api/public/{type}` it was actively harmful: that endpoint
+  deliberately rejects `?sort=` because accepting and ignoring it "would be a silent wrong answer",
+  while `?sortBy=` was skipped as an unknown key and returned exactly that. `sortOrder` stays.
+
+- **The content-type list is `GET /api/content-types`.** `/api/schemas` keeps working as a deprecated
+  alias and goes in 5.0. The resource was read at one route name and written at another.
+
+- **`GET /api/diagnostics/typecheck` is removed.** It returned an anonymous type built by reflection
+  to debug a Marten upgrade, which cannot be expressed in the spec and should not be frozen API.
+
+- **`{Id}` in two routes is now `{id}`**, matching the other thirty-odd. Cosmetic at runtime, but it
+  lands verbatim in the OpenAPI paths.
+
+- **Every collection endpoint returns the same envelope.** Nine endpoints returned a bare array
+  (`/api/schemas`, `/api/user-groups`, `/api/tenants`, `/api/api-keys`, `/api/workflows`,
+  `/api/me/tenants`, `/api/accounting/accounts`, `/api/devices`, `/api/pwa/installs`) and two returned
+  an ad-hoc wrapper (`/api/settings` was `{settings: [...]}`, `/api/contents/{id}/history` was
+  `{versions: [...]}`). All of them now return `{items, page, pageSize, totalItems, totalPages,
+  hasNextPage, hasPreviousPage}`.
+
+  This had to happen in a major or never: a bare array cannot gain pagination compatibly, because the
+  root JSON changes from `[` to `{`. The default page size for the newly paginated endpoints is the
+  maximum, 100, so a deployment small enough not to have noticed still does not.
+
+  `/api/public/{type}/search` keeps `{results, count, query}` on purpose. It echoes a query rather
+  than paging a set, and the reason is recorded on `PublicSearchResponse`.
+
+- **`/api/pwa/installs` no longer silently caps at 1000 rows.** The envelope is the bound now.
+
+  Three modules ship the envelope change and are versioned for it: Accounting `0.6.0`, DeviceTrust
+  `0.4.0`, Pwa `0.4.0`.
+
+- **Every error the core returns is now ProblemDetails.** Four shapes shipped from an API configured
+  for RFC7807: ProblemDetails, a hand-rolled `{message}` with the field errors flattened into one
+  string, a hand-rolled `{errors: [...]}`, and bodyless. `POST /api/content-types` emitted two of them
+  from one endpoint depending on which check failed. Clients reading `message` or `errors[].message`
+  off a 400 need to read `errors[].reason`.
+
+- **`PUT /api/contents/{id}/status` requires `newStatus`.** It was a non-nullable enum, so omitting it
+  or spelling the field wrong bound to 0, which is Draft, and the validator accepted it. A caller
+  sending `{"status": 1}` moved its content to Draft and was told "Content status changed to Draft".
+  Omitting the status is now a 400.
+
+- **Success responses no longer carry error fields.** `Content/Create.Response` and
+  `Content/Update.Response` drop `Message`; `ContentType/Create.Response` drops `Errors`. A generated
+  client no longer sees success types with mysterious nullable error members.
+
+- **Four obsolete members are removed from `Events/ContentEvents.cs`**, as their attributes promised
+  for "the next major version", which 4.0.0 is. The narrower `ContentCreated` and `ContentUpdated`
+  constructors go together with their paired `Deconstruct` overloads, because removing one without
+  the other only fixes half the break.
+
+- **A 3.x database needs one SQL migration before 4.0 will boot.** Marten moved from 8.37 to 9.30 and
+  four database objects changed. Production runs `AutoCreate.CreateOnly`, which never alters an
+  existing object, so the first boot against a 3.x database refuses and exits non-zero without
+  writing anything. Apply `migrations/4.0.0/3.x-to-4.0.sql` first. Full procedure, including rollback,
+  in `docs/upgrading-to-4.0.md`. `scripts/upgrade-check.sh` runs the whole sequence in CI against a
+  database created by the released 3.21.0 image.
+
+- **A missing database connection string fails at startup outside Development**, naming the setting,
+  rather than substituting a dummy that points at localhost. Development keeps the dummy, which the
+  codegen pass needs.
+
 ### Added
 
 - **Public delivery can sort by a field value.** `?sort=Price` and `?sort=-Price` on
@@ -24,29 +127,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   CMS has no natural one; a setting that reads as a policy while no policy is in force is the exact
   failure this decision exists to prevent. Reasoning in `DECISIONS.md` D9, and in
   `docs/compliance-posture.md` for anyone answering a privacy review.
+
 - **A support and end-of-life policy.** `SECURITY.md` had a table that stopped at 3.x and no
   statement of what "supported" means. It now carries a 4.x row, a rule rather than a date (a major
   is actively supported until twelve months after its successor ships), what each status includes,
   and how module packages inherit the core's window.
+
 - **A compliance posture** in `docs/compliance-posture.md`, linked from `SECURITY.md` and the
   README. States what exists with somewhere to verify each item, states plainly that there is no
   SOC 2, no ISO 27001 and no third-party penetration test, and answers the largest part of a typical
   security questionnaire by naming which questions self-hosting moves to the operator.
+
 - **A software bill of materials.** CycloneDX for the .NET solution and the admin's npm tree,
   generated during the release build and uploaded as a 90-day artifact. `verify-packages` fails if
   either is missing or lists no components, so the release cannot claim an SBOM it did not produce.
+
 - **Accessibility checks.** The 28 `jsx-a11y` rules `eslint-config-next` leaves off are enabled in
   the existing lint step, and an axe scan runs over the sign-in page, the content list, the content
   types list and the entry form in the existing e2e pack. Serious and critical fail the build.
 
-### Security
+- `db-patch`, `db-assert` and `db-apply` on the host, so a schema change can reach an existing
+  database as a reviewed SQL file instead of having no route at all.
 
-- **The API images run as a non-root user.** `barako-cms` and `barako-cms-decaf` ran as root while
-  the admin image did not, which is what an omission looks like rather than a decision. Both now drop
-  to the base image's `app` user (uid 1654) before the entrypoint. Nothing needs privilege: 8080 is
-  above 1024, and the app writes nothing to the container filesystem at runtime. No compose file in
-  this repository mounts a host path into the API, so no shipped configuration changes. Anyone who
-  has added their own bind mount needs it writable by uid 1654.
+### Removed
+
+- **`IBackupService` and `BackupService`.** Registered in DI and called by nothing, repo-wide, so
+  the codebase read as though the application backed itself up.
 
 ### Fixed
 
@@ -57,22 +163,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   until the join succeeds, so a half-finished build cannot leave `:latest` pointing at one
   architecture, and the release fails if a published image does not serve both.
 
-### Removed
-
-- **BREAKING: `updatedAt` is gone from the content history response.** `GET /api/contents/{id}/history`
-  returned both `updatedAt` and `timestamp` built from the same event timestamp. `updatedAt` was
-  produced by `DateTimeOffset.DateTime`, which discards the offset rather than converting, so on a
-  UTC+8 server the two fields described one event eight hours apart and the client had no way to tell
-  which was right. `timestamp` is correct, is normalised to UTC, and is the field the admin already
-  rendered. A client reading `updatedAt` was reading a wrong value, so this removes a field rather
-  than a capability, and 4.0 is where a wire change like this belongs.
-
-### Fixed
-
 - **Three real accessibility defects, found by the new scan on its first run.** The primary button
   colour gave white text 3.85:1 against WCAG AA's 4.5:1, so every primary button in the light theme
   failed; muted text was 4.45:1 on the sidebar; and the content-type selects had no accessible name,
   one of them because a visible label was never associated with its control.
+
 - **Every deployment path takes a backup, and CI proves one can be restored.** The hardened backup
   script was wired into the development compose file only, so the deployments holding real data had
   none. `docker-compose.prod.yml` and the quickstart stack now run that same script, and the k8s
@@ -81,166 +176,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   destroys the database, restores it and boots the app against the result, on every pull request.
   Runbook in `docs/backup-and-restore.md`.
 
-### Fixed
-
 - **The k8s backup CronJob could not run, and would not have worked if it had.** It mounted
   `postgres-data`, but the StatefulSet's `volumeClaimTemplates` creates `postgres-data-postgres-0`,
   so the pod stayed Pending forever. Its dump also piped straight into gzip and checked gzip's exit
   code, which is the failure the compose script was rewritten to remove.
 
-### Removed
-
-- **`IBackupService` and `BackupService`.** Registered in DI and called by nothing, repo-wide, so
-  the codebase read as though the application backed itself up.
-
-
-### Security
-
-**Social sign-in accepted an email the provider never verified.** The email was the only join key,
-so an unverified assertion was a login for whichever local account held that address, including a
-seeded SuperAdmin whose address is `{username}@company.com` and therefore guessable. `PasswordHash`
-is not consulted on that path.
-
-Google and LinkedIn now require `email_verified`. GitHub uses only the verified primary from
-`/user/emails`; it previously preferred the unflagged profile email whenever it was set, so the
-careful branch was the one nobody reached. Facebook exposes no verification flag at all and is now
-refused unless `Facebook:TrustUnverifiedEmail` is set, which is an operator's explicit decision.
-`IssueAsync` takes the flag as a required argument, so the next provider cannot omit it quietly.
-ExternalAuth `0.4.0`.
-
-The module had no test project reference and therefore no tests, which is why none of this was
-caught (#120). It has both now.
-
-**A password login against an account with no password returned 500, not 401.** Social sign-in
-creates users with an empty `PasswordHash`, and BCrypt throws on one rather than returning false.
-That was a username oracle on the one endpoint that had taken care to avoid one, next to its own
-dummy-hash timing defence. It now burns the same dummy verify and returns the same 401.
-
-**Any authenticated account could read any file in the tenant, and upload without a role.** Both
-Files endpoints had authentication and neither had authorization. Download is now the uploader or an
-admin, refusing with 404 rather than 403 so a leaked id cannot be used to probe for others. Upload
-now carries the same role gate as every other write in the module set. Files `0.4.0`.
-
-
-### Breaking
-
-**The core package no longer injects `appsettings.json` into consumer projects.** The published
-3.21.0 really does carry `content/appsettings.json` and `contentFiles/any/net8.0/appsettings.json`,
-verified against the artifact on nuget.org, so referencing BarakoCMS dropped the host's own
-configuration into every consumer to collide with theirs at build and publish.
-
-**The feature slices are internal.** 188 types under `Features/` were public only by accident, which
-under the stability rule froze every endpoint's `Request` and `Response` records until 5.0 and turned
-renaming a field into a compatibility event. `IWorkflowAction` and `IWorkflowEngine` stay public,
-because custom actions are a documented extension point. What the rule covers is now written down in
-CLAUDE.md section 6 rather than left to the broadest possible reading.
-
-**`IUserRepository` and `MartenUserRepository` are internal.**
-
-**The published images are built for arm64 as well as amd64.** They were amd64 only, so they could
-not run on an Oracle Ampere, AWS Graviton or Apple Silicon host, which includes the VM that hosts
-this project's own playground.
-
-**Enums cross the wire as names, not numbers.** `ContentStatus` and `SensitivityLevel` were 0/1/2,
-and the admin had the numbering transcribed into its own source to cope. Inserting a member
-renumbered every client. Requests may still send a number, so an existing caller keeps working when
-it posts; responses are names.
-
-This is the HTTP contract only. Documents are still stored with `Status` as a number, because
-`mt_doc_contents_idx_status` indexes `((data ->> 'Status')::integer)` and names there would break
-the index cast and every query that filters on status.
-
-**Signing in fails with 401, not 400.** Login and all six refresh failure paths returned 400, which
-standard client middleware classifies as a caller bug rather than an authentication failure. Account
-lockout returns 423.
-
-**`sortBy` is gone from every paginated request.** It was accepted everywhere, documented in
-Swagger, and honoured nowhere. On `/api/public/{type}` it was actively harmful: that endpoint
-deliberately rejects `?sort=` because accepting and ignoring it "would be a silent wrong answer",
-while `?sortBy=` was skipped as an unknown key and returned exactly that. `sortOrder` stays.
-
-**The content-type list is `GET /api/content-types`.** `/api/schemas` keeps working as a deprecated
-alias and goes in 5.0. The resource was read at one route name and written at another.
-
-**`GET /api/diagnostics/typecheck` is removed.** It returned an anonymous type built by reflection
-to debug a Marten upgrade, which cannot be expressed in the spec and should not be frozen API.
-
-**`{Id}` in two routes is now `{id}`**, matching the other thirty-odd. Cosmetic at runtime, but it
-lands verbatim in the OpenAPI paths.
-
-**Every collection endpoint returns the same envelope.** Nine endpoints returned a bare array
-(`/api/schemas`, `/api/user-groups`, `/api/tenants`, `/api/api-keys`, `/api/workflows`,
-`/api/me/tenants`, `/api/accounting/accounts`, `/api/devices`, `/api/pwa/installs`) and two returned
-an ad-hoc wrapper (`/api/settings` was `{settings: [...]}`, `/api/contents/{id}/history` was
-`{versions: [...]}`). All of them now return `{items, page, pageSize, totalItems, totalPages,
-hasNextPage, hasPreviousPage}`.
-
-This had to happen in a major or never: a bare array cannot gain pagination compatibly, because the
-root JSON changes from `[` to `{`. The default page size for the newly paginated endpoints is the
-maximum, 100, so a deployment small enough not to have noticed still does not.
-
-`/api/public/{type}/search` keeps `{results, count, query}` on purpose. It echoes a query rather
-than paging a set, and the reason is recorded on `PublicSearchResponse`.
-
-**`/api/pwa/installs` no longer silently caps at 1000 rows.** The envelope is the bound now.
-
-Three modules ship the envelope change and are versioned for it: Accounting `0.6.0`, DeviceTrust
-`0.4.0`, Pwa `0.4.0`.
-
-**Every error the core returns is now ProblemDetails.** Four shapes shipped from an API configured
-for RFC7807: ProblemDetails, a hand-rolled `{message}` with the field errors flattened into one
-string, a hand-rolled `{errors: [...]}`, and bodyless. `POST /api/content-types` emitted two of them
-from one endpoint depending on which check failed. Clients reading `message` or `errors[].message`
-off a 400 need to read `errors[].reason`.
-
-**`PUT /api/contents/{id}/status` requires `newStatus`.** It was a non-nullable enum, so omitting it
-or spelling the field wrong bound to 0, which is Draft, and the validator accepted it. A caller
-sending `{"status": 1}` moved its content to Draft and was told "Content status changed to Draft".
-Omitting the status is now a 400.
-
-**Success responses no longer carry error fields.** `Content/Create.Response` and
-`Content/Update.Response` drop `Message`; `ContentType/Create.Response` drops `Errors`. A generated
-client no longer sees success types with mysterious nullable error members.
-
-**Four obsolete members are removed from `Events/ContentEvents.cs`**, as their attributes promised
-for "the next major version", which 4.0.0 is. The narrower `ContentCreated` and `ContentUpdated`
-constructors go together with their paired `Deconstruct` overloads, because removing one without
-the other only fixes half the break.
-
-### Fixed
-
 - **The admin rendered every validation failure as "[object Object]"**, including "Invalid
   credentials" on the login page. It read `message` off ProblemDetails entries, which carry `name`
   and `reason`.
 
-**Every package retargets from `net8.0` to `net10.0`.** Host applications have to be on .NET 10.
-This is the largest break in 4.0 and no migration helps with it.
-
-**A 3.x database needs one SQL migration before 4.0 will boot.** Marten moved from 8.37 to 9.30 and
-four database objects changed. Production runs `AutoCreate.CreateOnly`, which never alters an
-existing object, so the first boot against a 3.x database refuses and exits non-zero without
-writing anything. Apply `migrations/4.0.0/3.x-to-4.0.sql` first. Full procedure, including rollback,
-in `docs/upgrading-to-4.0.md`. `scripts/upgrade-check.sh` runs the whole sequence in CI against a
-database created by the released 3.21.0 image.
-
-**A fatal startup failure now exits 1.** It exited 0, so a broken deploy reported success to CI, a
-`docker run` wrapper, systemd and a Kubernetes Job container. Anything that depended on the old
-behaviour to get past a failing start will now stop.
-
-**A missing database connection string fails at startup outside Development**, naming the setting,
-rather than substituting a dummy that points at localhost. Development keeps the dummy, which the
-codegen pass needs.
-
-### Added
-
-- `db-patch`, `db-assert` and `db-apply` on the host, so a schema change can reach an existing
-  database as a reviewed SQL file instead of having no route at all.
-
-### Fixed
+- **A fatal startup failure now exits 1.** It exited 0, so a broken deploy reported success to CI, a
+  `docker run` wrapper, systemd and a Kubernetes Job container. Anything that depended on the old
+  behaviour to get past a failing start will now stop.
 
 - **The workflow daemon lost the event's tenant.** It resolved the workflow engine from a scope
   sitting on the platform default tenant, so a tenant's workflow definitions were invisible to it
   and a default-tenant workflow's writes landed in the wrong partition.
+
+### Security
+
+- **The API images run as a non-root user.** `barako-cms` and `barako-cms-decaf` ran as root while
+  the admin image did not, which is what an omission looks like rather than a decision. Both now drop
+  to the base image's `app` user (uid 1654) before the entrypoint. Nothing needs privilege: 8080 is
+  above 1024, and the app writes nothing to the container filesystem at runtime. No compose file in
+  this repository mounts a host path into the API, so no shipped configuration changes. Anyone who
+  has added their own bind mount needs it writable by uid 1654.
+
+- **Social sign-in accepted an email the provider never verified.** The email was the only join key,
+  so an unverified assertion was a login for whichever local account held that address, including a
+  seeded SuperAdmin whose address is `{username}@company.com` and therefore guessable. `PasswordHash`
+  is not consulted on that path.
+
+  Google and LinkedIn now require `email_verified`. GitHub uses only the verified primary from
+  `/user/emails`; it previously preferred the unflagged profile email whenever it was set, so the
+  careful branch was the one nobody reached. Facebook exposes no verification flag at all and is now
+  refused unless `Facebook:TrustUnverifiedEmail` is set, which is an operator's explicit decision.
+  `IssueAsync` takes the flag as a required argument, so the next provider cannot omit it quietly.
+  ExternalAuth `0.4.0`.
+
+  The module had no test project reference and therefore no tests, which is why none of this was
+  caught (#120). It has both now.
+
+- **A password login against an account with no password returned 500, not 401.** Social sign-in
+  creates users with an empty `PasswordHash`, and BCrypt throws on one rather than returning false.
+  That was a username oracle on the one endpoint that had taken care to avoid one, next to its own
+  dummy-hash timing defence. It now burns the same dummy verify and returns the same 401.
+
+- **Any authenticated account could read any file in the tenant, and upload without a role.** Both
+  Files endpoints had authentication and neither had authorization. Download is now the uploader or an
+  admin, refusing with 404 rather than 403 so a leaked id cannot be used to probe for others. Upload
+  now carries the same role gate as every other write in the module set. Files `0.4.0`.
 
 ## [3.21.0] - 2026-08-23
 
