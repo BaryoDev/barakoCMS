@@ -291,23 +291,43 @@ to the implementation.
    Decided in #230, and consistent with D9 in `DECISIONS.md`, where erasure is a delete rather than
    a tombstone or a shred.
 3. **Concurrency: expected-version with a 409, for event-sourced types only.** Decided in #230.
-4. **The stream is internal. An event-sourced type does not expose its history through the API.**
+4. **History stays exposed. The event records stay internal. What separates them is a mapping
+   layer, not the absence of an endpoint, and a deployment can turn history off.**
    Decided 30 Aug 2026, before #331.
 
 ### On decision 4
 
-Exposing the history would make every event record a public type under CLAUDE.md section 6, frozen
-until the next major. That is a large permanent commitment bought for a feature nobody has asked
-for, and it would be paid by the people least able to see the bill: whoever next needs to add a
-field to `ContentUpdated`.
+The question as originally written offered two options, expose the history or keep the stream
+internal, and treated them as opposites. They are not, and the code already shows why.
 
-It is also the reversible direction. Adding a history endpoint later is additive and breaks nothing.
-Removing one, once clients read it, is a major-version event. So the question is not which answer is
-better in the abstract, it is which answer can still be changed after it turns out to be wrong, and
-only one of them can.
+`GET /api/contents/{id}/history` exists today, and it already reads the event stream through
+`FetchStreamAsync`. It does not expose the event records. It maps `ContentCreated` and
+`ContentUpdated` onto `VersionResponse`, a DTO the endpoint owns, and applies the same
+document- and field-level sensitivity that `Get` and `List` apply. So the exposure the question
+worried about was never on the table: a mapping layer sits between the stream and the wire, and it
+is that layer, not the absence of the endpoint, that leaves the event shapes free to evolve.
 
-There is already a `GET /api/contents/{id}/history` in document mode, built on `AuditEvent` rather
-than on the stream. That stays as it is. The distinction matters and should be kept clear in the
-docs: the audit trail is a record of who did what, and it is a separate thing from the event stream
-that an event-sourced type is rebuilt from. Backing the existing endpoint with the stream instead
-would be exactly the exposure this decision refuses.
+This matters because it is the same separation `IContentWriter` gives the write path. Events are an
+internal representation on both sides. Adding a field to `ContentUpdated` changes what the mapper
+reads and nothing a client sees.
+
+So the rule to hold is narrower than "no history", and it is worth stating as a rule because the
+tempting shortcut breaks it: **an endpoint may read events and must not return them.** Serialising
+an event record straight to the wire, or returning `IEvent` and letting the serializer decide, is
+what would freeze the shapes under CLAUDE.md section 6.
+
+**The config flag.** `History:Enabled`, defaulting to on. It does not exist to protect the event
+shapes, because the mapping already does that and a flag could not: under section 6 the surface
+freezes when it ships, not when it is switched on, so any deployment that could turn it on makes the
+shape a commitment. It exists for a different and better reason. History serves prior values,
+including ones since corrected, and a field that is Public today was not necessarily Public when an
+old version was written. Sensitivity is applied from the content's *current* schema, so a field
+reclassified as Sensitive is filtered out of old versions correctly, but a deployment holding
+personal data may still want the whole surface gone rather than reasoning about that. Turning it off
+is the answer to a question a privacy reviewer will ask, and the same fail-closed shape as
+`Erasure:Mode` in D9.
+
+**A gap this uncovered.** The mapper handles two of the five content events, and returns null for
+the rest. `ContentStatusChanged`, `ContentScheduled` and `ContentSensitivityChanged` are silently
+absent, so publishing a document never appears in its own history. That is a defect in document mode
+today, not something #331 introduces, and it is filed separately.
