@@ -112,6 +112,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`docs/event-sourced-content-types.md`** explains what turning on event sourcing commits a
+  content type to: the history becomes the record, stale saves get a 409, the choice is permanent
+  even across delete-and-recreate, and non-Public fields are refused. Written for the admin making
+  the choice, and published ahead of the toggle itself (#230, #331), which has not shipped.
+
 - **Content can reference other content.** A `reference` field names the content type it points at,
   in `referenceType`, and a write is refused if the target does not exist or is of a different type.
   `?include=Field` on public delivery resolves references in one batched request instead of leaving
@@ -126,6 +131,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   caller cannot read is an oracle. Numbers sort as numbers, entries missing the field sort last in
   both directions, and `CreatedAt` breaks ties so paging a sort with duplicate values cannot show one
   entry twice and skip another.
+
+- **Content records who created it, and a permission rule can require ownership.** `Content.CreatedBy`
+  is set from `ContentCreated`, which has always carried it, and a rule can now say
+  `{"$createdBy": {"_eq": "$CURRENT_USER"}}` for "own records only". Document properties are named
+  with a `$` prefix so a schema field cannot collide, since a field name has to start with an
+  uppercase letter. A record with no owner is denied rather than granted, and a SuperAdmin still sees
+  everything.
 
 - **An answer to the right-to-erasure question, and a way to act on it.** `Erasure:Mode` decides how
   a deployment handles an erasure request. `Delete`, the default, removes a content item's events,
