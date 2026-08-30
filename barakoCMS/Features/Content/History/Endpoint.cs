@@ -62,10 +62,9 @@ internal class Endpoint : Endpoint<Request, barakoCMS.Models.PaginatedResponse<V
                 {
                     Id = created.Id,
                     Data = created.Data,
-                    UpdatedAt = e.Timestamp.DateTime,
                     LastModifiedBy = created.CreatedBy,
                     VersionId = e.Id,
-                    Timestamp = e.Timestamp
+                    Timestamp = e.Timestamp.ToUniversalTime()
                 };
             }
             else if (e.Data is barakoCMS.Events.ContentUpdated updated)
@@ -74,10 +73,9 @@ internal class Endpoint : Endpoint<Request, barakoCMS.Models.PaginatedResponse<V
                 {
                     Id = updated.Id,
                     Data = updated.Data,
-                    UpdatedAt = e.Timestamp.DateTime,
                     LastModifiedBy = updated.UpdatedBy,
                     VersionId = e.Id,
-                    Timestamp = e.Timestamp
+                    Timestamp = e.Timestamp.ToUniversalTime()
                 };
             }
             return null;

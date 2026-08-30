@@ -47,9 +47,10 @@ export interface UpdateContentRequest {
 export interface ContentVersion {
     id: string;
     data: Record<string, unknown>;
-    updatedAt: string;
     lastModifiedBy?: string;
     versionId: string;
+    // UTC, with a zone. There used to be an updatedAt here carrying the same instant without one,
+    // which new Date() read as local time.
     timestamp: string;
 }
 
