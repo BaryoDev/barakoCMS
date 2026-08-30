@@ -310,9 +310,96 @@ jobs:
         run: dotnet nuget push "out/*.nupkg" --api-key ${{ secrets.GITHUB_TOKEN }} --source https://nuget.pkg.github.com/BaryoDev/index.json --skip-duplicate
 
   # Keeps its checkout: a Docker build genuinely needs the source tree.
+  # Each architecture is built on a runner of that architecture and pushed by digest, then joined
+  # into one manifest list by publish-images below.
+  #
+  # Not `platforms: linux/amd64,linux/arm64` on one runner, which is the one-line version: that
+  # cross-builds the .NET suite under QEMU and is slow enough to be its own problem. The playground
+  # job already proves the native-arm-runner approach works here.
+  #
+  # push-by-digest means these pushes carry no tag. Nothing is publicly resolvable until the merge
+  # step below succeeds, so a half-finished matrix cannot leave :latest pointing at one architecture.
+  build-images:
+    name: Build ${{ matrix.image.name }} (${{ matrix.arch }})
+    needs: [gate, test, verify-packages]
+    if: needs.gate.outputs.should_release == 'true'
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    env:
+      VERSION: ${{ needs.gate.outputs.version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - name: barako-cms
+            file: Dockerfile.suite
+            context: .
+          - name: barako-cms-decaf
+            file: Dockerfile
+            context: .
+          - name: barako-admin
+            file: admin/Dockerfile
+            context: ./admin
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+            platform: linux/amd64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            platform: linux/arm64
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.image.context }}
+          file: ${{ matrix.image.file }}
+          platforms: ${{ matrix.platform }}
+          # Stamped from the release version rather than read from package.json, which has said
+          # 0.1.0 since the beginning. Harmless on the two API images, which ignore it.
+          build-args: |
+            BARAKO_VERSION=${{ env.VERSION }}
+          labels: org.opencontainers.image.source=https://github.com/BaryoDev/barakoCMS
+          outputs: type=image,name=ghcr.io/baryodev/${{ matrix.image.name }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.image.name }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}-${{ matrix.arch }}
+
+      # An empty digest here would make the merge step below build a manifest out of nothing, so it
+      # fails now rather than producing an image that resolves to no architectures.
+      - name: Record the digest
+        run: |
+          set -euo pipefail
+          DIGEST="${{ steps.build.outputs.digest }}"
+          case "$DIGEST" in
+            sha256:*) ;;
+            *) echo "::error::build produced no usable digest, got '$DIGEST'"; exit 1 ;;
+          esac
+          mkdir -p /tmp/digests
+          echo "$DIGEST" > "/tmp/digests/${{ matrix.image.name }}.${{ matrix.arch }}"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: digest-${{ matrix.image.name }}-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # Joins the per-architecture digests into one manifest list per image and applies the public tags.
+  # Keeps the name publish-images because deploy-playground and notify-failure both depend on it.
   publish-images:
     name: Publish public images
-    needs: [gate, test, verify-packages]
+    needs: [gate, build-images]
     if: needs.gate.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -321,7 +408,6 @@ jobs:
     env:
       VERSION: ${{ needs.gate.outputs.version }}
     steps:
-      - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
         with:
@@ -336,46 +422,55 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Build and push Barako (full suite → barako-cms)
-        uses: docker/build-push-action@v7
+      - uses: actions/download-artifact@v8
         with:
-          context: .
-          file: Dockerfile.suite
-          push: true
-          tags: |
-            ghcr.io/baryodev/barako-cms:latest
-            ghcr.io/baryodev/barako-cms:${{ env.VERSION }}
-          labels: org.opencontainers.image.source=https://github.com/BaryoDev/barakoCMS
+          pattern: digest-*
+          path: /tmp/digests
+          merge-multiple: true
 
-      - name: Build and push Decaf (core → barako-cms-decaf)
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: Dockerfile
-          push: true
-          tags: |
-            ghcr.io/baryodev/barako-cms-decaf:latest
-            ghcr.io/baryodev/barako-cms-decaf:${{ env.VERSION }}
-          labels: org.opencontainers.image.source=https://github.com/BaryoDev/barakoCMS
+      - name: Create the manifest lists
+        run: |
+          set -euo pipefail
+          V="${{ env.VERSION }}"
+          for img in barako-cms barako-cms-decaf barako-admin; do
+            REFS=""
+            for arch in amd64 arm64; do
+              F="/tmp/digests/$img.$arch"
+              [ -s "$F" ] || { echo "::error::no digest for $img/$arch, refusing to publish a single-architecture image"; exit 1; }
+              REFS="$REFS ghcr.io/baryodev/$img@$(cat "$F")"
+            done
+            docker buildx imagetools create \
+              --tag "ghcr.io/baryodev/$img:latest" \
+              --tag "ghcr.io/baryodev/$img:$V" \
+              $REFS
+          done
 
-      - name: Build and push Admin UI
-        uses: docker/build-push-action@v7
-        with:
-          context: ./admin
-          file: admin/Dockerfile
-          push: true
-          # Stamped from the release version rather than read from package.json, which has said
-          # 0.1.0 since the beginning. One source of truth, and nobody has to remember to bump it.
-          build-args: |
-            BARAKO_VERSION=${{ env.VERSION }}
-          tags: |
-            ghcr.io/baryodev/barako-admin:latest
-            ghcr.io/baryodev/barako-admin:${{ env.VERSION }}
-          labels: org.opencontainers.image.source=https://github.com/BaryoDev/barakoCMS
+      # The gate. Publishing a single-architecture image is invisible to everyone except whoever
+      # pulls it on the wrong hardware, and they find out with an exec format error rather than a
+      # message about architectures. It is checked on the pushed manifest rather than on the build
+      # config, because the config being right is not evidence that the push was.
+      - name: Every published image serves both architectures
+        run: |
+          set -euo pipefail
+          V="${{ env.VERSION }}"
+          for img in barako-cms barako-cms-decaf barako-admin; do
+            PLATFORMS=$(docker buildx imagetools inspect --raw "ghcr.io/baryodev/$img:$V" \
+              | jq -r '[.manifests[]? | select(.platform.os != "unknown") | "\(.platform.os)/\(.platform.architecture)"] | sort | join(",")')
+            case "$PLATFORMS" in
+              ''|*[!a-z0-9/,]*) echo "::error::could not read platforms for $img, got '$PLATFORMS'"; exit 1 ;;
+            esac
+            echo "$img: $PLATFORMS" >> "$GITHUB_STEP_SUMMARY"
+            [ "$PLATFORMS" = "linux/amd64,linux/arm64" ] || {
+              echo "::error::$img publishes '$PLATFORMS', expected linux/amd64,linux/arm64"; exit 1; }
+          done
 
+      # imagetools create on a manifest list copies the list, so the mirror is multi-architecture
+      # too. It would silently mirror one architecture if the source were single-architecture, which
+      # is the other reason the check above runs before this.
       - name: Mirror images to Docker Hub
         if: steps.dockerhub.outcome == 'success'
         run: |
+          set -euo pipefail
           V="${{ env.VERSION }}"
           for img in barako-cms barako-cms-decaf barako-admin; do
             docker buildx imagetools create \
