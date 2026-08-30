@@ -17,10 +17,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   CMS has no natural one; a setting that reads as a policy while no policy is in force is the exact
   failure this decision exists to prevent. Reasoning in `DECISIONS.md` D9, and in
   `docs/compliance-posture.md` for anyone answering a privacy review.
-
-
-### Added
-
 - **A support and end-of-life policy.** `SECURITY.md` had a table that stopped at 3.x and no
   statement of what "supported" means. It now carries a 4.x row, a rule rather than a date (a major
   is actively supported until twelve months after its successor ships), what each status includes,
@@ -35,6 +31,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Accessibility checks.** The 28 `jsx-a11y` rules `eslint-config-next` leaves off are enabled in
   the existing lint step, and an axe scan runs over the sign-in page, the content list, the content
   types list and the entry form in the existing e2e pack. Serious and critical fail the build.
+
+### Removed
+
+- **BREAKING: `updatedAt` is gone from the content history response.** `GET /api/contents/{id}/history`
+  returned both `updatedAt` and `timestamp` built from the same event timestamp. `updatedAt` was
+  produced by `DateTimeOffset.DateTime`, which discards the offset rather than converting, so on a
+  UTC+8 server the two fields described one event eight hours apart and the client had no way to tell
+  which was right. `timestamp` is correct, is normalised to UTC, and is the field the admin already
+  rendered. A client reading `updatedAt` was reading a wrong value, so this removes a field rather
+  than a capability, and 4.0 is where a wire change like this belongs.
 
 ### Fixed
 
