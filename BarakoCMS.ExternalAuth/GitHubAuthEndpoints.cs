@@ -98,6 +98,7 @@ public class GitHubCallbackEndpoint : EndpointWithoutRequest
         }
 
         string email;
+        var emailVerified = false;
         SocialSignIn.ProfileData profile;
         try
         {
@@ -120,26 +121,28 @@ public class GitHubCallbackEndpoint : EndpointWithoutRequest
             var accessToken = tokenDoc.GetProperty("access_token").GetString();
 
             var me = await GhGet(http, Gh.User, accessToken!, ct);
-            email = (me.TryGetProperty("email", out var e) ? e.GetString() : null)?.Trim().ToLowerInvariant() ?? "";
             var name = me.TryGetProperty("name", out var n) ? n.GetString() : null;
             var photo = me.TryGetProperty("avatar_url", out var a) ? a.GetString() : null;
             var location = me.TryGetProperty("location", out var l) ? l.GetString() : null;
 
-            if (string.IsNullOrEmpty(email))
+            // /user/emails is the only endpoint that reports the verified flag, so it is the only
+            // source used. The public profile email on /user carries no such flag and used to be
+            // preferred whenever it was set, which meant the verified path ran only for accounts
+            // that had made their address private: the careful branch was the one nobody hit.
+            email = "";
+            var emails = await GhGet(http, Gh.Emails, accessToken!, ct);
+            foreach (var item in emails.EnumerateArray())
             {
-                // Email is private on the profile — read the verified primary from /user/emails.
-                var emails = await GhGet(http, Gh.Emails, accessToken!, ct);
-                foreach (var item in emails.EnumerateArray())
+                var verified = item.TryGetProperty("verified", out var v) && v.GetBoolean();
+                var primary = item.TryGetProperty("primary", out var pr) && pr.GetBoolean();
+                if (verified && primary && item.TryGetProperty("email", out var em))
                 {
-                    var verified = item.TryGetProperty("verified", out var v) && v.GetBoolean();
-                    var primary = item.TryGetProperty("primary", out var pr) && pr.GetBoolean();
-                    if (verified && primary && item.TryGetProperty("email", out var em))
-                    {
-                        email = (em.GetString() ?? "").Trim().ToLowerInvariant();
-                        break;
-                    }
+                    email = (em.GetString() ?? "").Trim().ToLowerInvariant();
+                    emailVerified = true;
+                    break;
                 }
             }
+
             profile = new SocialSignIn.ProfileData(name, photo, null, location, "github");
         }
         catch
@@ -155,7 +158,7 @@ public class GitHubCallbackEndpoint : EndpointWithoutRequest
         }
 
         var mfa = Resolve<barakoCMS.Infrastructure.Auth.Mfa.IMfaService>();
-        var tokens = await SocialSignIn.IssueAsync(_session, _config, _deviceGate, _tokenIssuer, mfa, HttpContext, email, club, ct, profile);
+        var tokens = await SocialSignIn.IssueAsync(_session, _config, _deviceGate, _tokenIssuer, mfa, HttpContext, email, emailVerified, club, ct, profile);
         if (tokens.RequiresMfa)
         {
             await Send.ResultAsync(Results.Redirect(SocialSignIn.FrontendMfaCallback(baseUrl, tokens.MfaChallenge!, club)));
