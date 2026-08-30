@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Public delivery can sort by a field value.** `?sort=Price` and `?sort=-Price` on
+  `/api/public/{type}`, composing with the existing filters and paging. Only fields the content type
+  marks Public are sortable, for the same reason only those are filterable: ordering by a field the
+  caller cannot read is an oracle. Numbers sort as numbers, entries missing the field sort last in
+  both directions, and `CreatedAt` breaks ties so paging a sort with duplicate values cannot show one
+  entry twice and skip another.
+
 - **An answer to the right-to-erasure question, and a way to act on it.** `Erasure:Mode` decides how
   a deployment handles an erasure request. `Delete`, the default, removes a content item's events,
   its stream and its document in one transaction through `DELETE /api/contents/{id}/erase`
