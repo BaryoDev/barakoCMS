@@ -114,6 +114,11 @@ public class ModuleConfigurationScopeTests
     {
         var probe = new Probe("Probe");
         var root = Root(
+            // AddBarakoCMS refuses to build without a database outside Development. This used to
+            // pass on ambient state: IntegrationTestFixture sets ASPNETCORE_ENVIRONMENT on the
+            // process, and whether its constructor had run first decided whether this test saw a
+            // Development host. Say what the test needs instead of inheriting it.
+            ("ConnectionStrings:DefaultConnection", "Host=db;Username=u;Password=hunter2;Database=d"),
             ("ConnectionStrings:Postgres", "Host=db;Username=u;Password=hunter2;Database=d"),
             ("JWT:Key", "a-signing-key-that-is-comfortably-over-32-characters-long"),
             ("JWT:Issuer", "test"),
@@ -127,6 +132,8 @@ public class ModuleConfigurationScopeTests
         probe.Seen!["ApiKey"].Should().Be("the-module-key", "its own settings must arrive");
         probe.Seen["ConnectionStrings:Postgres"].Should()
             .BeNull("a module must never receive the database password");
+        probe.Seen["ConnectionStrings:DefaultConnection"].Should()
+            .BeNull("least of all the one the host actually connects with");
         probe.Seen["JWT:Key"].Should()
             .BeNull("a module that can read the signing key can mint a token for any user");
         probe.Seen["InitialAdmin:Password"].Should().BeNull();

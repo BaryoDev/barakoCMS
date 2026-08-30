@@ -134,6 +134,9 @@ public class ModuleOrderTests
         var log = new List<string>();
         var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
+            // AddBarakoCMS refuses to build without a database outside Development, and this test
+            // used to pass only because another fixture had set ASPNETCORE_ENVIRONMENT first.
+            ["ConnectionStrings:DefaultConnection"] = "Host=db;Username=u;Password=p;Database=d",
             ["ConnectionStrings:Postgres"] = "Host=db;Username=u;Password=p;Database=d",
             ["JWT:Key"] = "a-signing-key-that-is-comfortably-over-32-characters-long",
             ["JWT:Issuer"] = "test",
