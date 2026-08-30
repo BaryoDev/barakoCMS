@@ -577,38 +577,59 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
+    private static readonly Dictionary<string, string> SslModeMap = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["disable"] = "Disable",
+        ["allow"] = "Allow",
+        ["prefer"] = "Prefer",
+        ["require"] = "Require",
+        ["verify-ca"] = "VerifyCA",
+        ["verifyca"] = "VerifyCA",
+        ["verify-full"] = "VerifyFull",
+        ["verifyfull"] = "VerifyFull"
+    };
+
     internal static string ResolveConnectionString(IConfiguration configuration)
     {
         var connectionString = configuration.GetConnectionString("DefaultConnection");
-        var dbUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
+        var dbUrl = configuration["DATABASE_URL"];
 
         if (!string.IsNullOrWhiteSpace(dbUrl))
         {
             try
             {
                 var uri = new Uri(dbUrl);
-                var userInfo = uri.UserInfo.Split(':');
-                var username = userInfo[0];
-                var password = userInfo.Length > 1 ? userInfo[1] : "";
+                var colonIndex = uri.UserInfo.IndexOf(':');
+                var rawUsername = colonIndex >= 0 ? uri.UserInfo[..colonIndex] : uri.UserInfo;
+                var rawPassword = colonIndex >= 0 ? uri.UserInfo[(colonIndex + 1)..] : "";
+                var username = Uri.UnescapeDataString(rawUsername);
+                var password = Uri.UnescapeDataString(rawPassword);
+                var database = Uri.UnescapeDataString(uri.AbsolutePath.TrimStart('/'));
+                var port = uri.Port > 0 ? uri.Port : 5432;
 
                 var sslMode = "Require";
                 if (!string.IsNullOrWhiteSpace(uri.Query))
                 {
-                    var query = uri.Query.TrimStart('?').Split('&');
+                    var query = uri.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries);
                     foreach (var param in query)
                     {
-                        var parts = param.Split('=');
-                        if (parts.Length == 2 && string.Equals(parts[0], "sslmode", StringComparison.OrdinalIgnoreCase))
+                        var parts = param.Split('=', 2);
+                        if (string.Equals(parts[0], "sslmode", StringComparison.OrdinalIgnoreCase))
                         {
-                            sslMode = parts[1];
+                            var rawMode = parts.Length > 1 ? Uri.UnescapeDataString(parts[1]) : "";
+                            if (!SslModeMap.TryGetValue(rawMode, out var mappedMode))
+                            {
+                                throw new ArgumentException($"Invalid sslmode '{rawMode}' in DATABASE_URL.");
+                            }
+                            sslMode = mappedMode;
                             break;
                         }
                     }
                 }
 
-                connectionString = $"Host={uri.Host};Port={uri.Port};Database={uri.AbsolutePath.TrimStart('/')};Username={username};Password={password};SSL Mode={sslMode};Include Error Detail=true";
+                connectionString = $"Host={uri.Host};Port={port};Database={database};Username={username};Password={password};SSL Mode={sslMode};Include Error Detail=true";
             }
-            catch
+            catch (UriFormatException)
             {
                 connectionString = dbUrl;
             }

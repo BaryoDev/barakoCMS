@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Database connection strings parsed from `DATABASE_URL` now default to `SSL Mode=Require` (encrypting traffic in transit) instead of `SSL Mode=Disable`, and honour any explicit `sslmode` query parameter (e.g. `sslmode=verify-full`, `sslmode=verify-ca`, `sslmode=disable`). Invalid `sslmode` values are rejected with an explicit error naming `DATABASE_URL`. Credentials and database names in `DATABASE_URL` are also URL-decoded.
+
 ## [3.21.0] - 2026-08-23
 
 The release-readiness pass. Most of what follows is about the gates around a release rather than
