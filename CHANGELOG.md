@@ -309,6 +309,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Rollback skipped every gate a normal update runs.** Restoring a version wrote the historical
+  data straight into a new event, so it could put back data the current schema rejects, change a
+  field the caller is not allowed to change, or break an invariant introduced after that version.
+  It now runs write-path sensitivity, schema validation and the lifecycle hooks, and refuses with a
+  message naming the reason. An operator can be refused a rollback for a reason that predates them,
+  which is the correct answer: the alternative is a write path that launders rejected data back in.
+
+- **A sensitive field escaped masking on a casing mismatch.** Validation and public delivery match
+  schema field names case-insensitively, and delivery documents that as normal. Masking matched
+  ordinally, so a record holding `salary` against a field declared `Salary` was validated as that
+  field, delivered as that field, and not hidden as that field. All three now agree.
+
+- **An OTP code could be verified twice.** `RefreshToken` and `MfaSecret` both carry optimistic
+  concurrency to close exactly this race and `OtpCode` did not, so two requests with the same code
+  could both see it unconsumed and both mint tokens. Device approval and passwordless sign-in both
+  rest on that path.
+
 - **A system proxy silently bypassed the webhook address guard.** With a proxy in use the connect
   callback dials the proxy, and the proxy then resolves and connects to the target, so the guard was
   inspecting the wrong hop. `UseProxy` is off on that client now. A system proxy can arrive from an
