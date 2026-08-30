@@ -82,5 +82,30 @@ services:
       # Where the browser reaches the API. Injected at container start — no rebuild to repoint it.
       NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:5005}
 
+  # Nightly backup, using the same hardened script the production stack runs.
+  #
+  # ../scripts is the repository's own, because this file is run from the quickstart folder of a
+  # checkout. Duplicating the script here would mean two copies of the logic that exists to stop a
+  # failed dump reporting success, and only one of them would get fixed next time.
+  db-backup:
+    image: postgres:16-alpine
+    container_name: barako-quickstart-backup
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - backups:/backups
+      - ../scripts:/scripts:ro
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: ${DB_NAME:-barako_cms}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      BACKUP_CRON_SCHEDULE: "${BACKUP_CRON_SCHEDULE:-0 2 * * *}"
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-7}
+    entrypoint: ["/bin/sh", "/scripts/backup-cron.sh"]
+
 volumes:
   pgdata:
+  backups:

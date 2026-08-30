@@ -94,6 +94,28 @@ jobs:
       - name: Prove the 3.x database can be upgraded
         run: bash scripts/upgrade-check.sh
 
+  restore:
+    name: Restore a backup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      # The deliverable is not "a backup file appears", it is "we restored one and it came back".
+      # Until this job existed the only exercised backup path was the development compose stack and
+      # no restore had been run anywhere, which matters most immediately before an upgrade, because
+      # a failed upgrade's remedy is a restore (#282).
+      #
+      # The database is dropped rather than truncated between backup and restore: restoring over a
+      # schema that is still present can succeed because what the dump failed to carry is already
+      # there.
+      - name: Back up, destroy, restore, and serve
+        run: bash scripts/restore-check.sh
+
   admin:
     name: Admin UI (Next.js)
     runs-on: ubuntu-latest
