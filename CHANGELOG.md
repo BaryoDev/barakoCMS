@@ -112,6 +112,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`docs/event-sourced-content-types.md`** explains what turning on event sourcing commits a
+  content type to: the history becomes the record, stale saves get a 409, the choice is permanent
+  even across delete-and-recreate, and non-Public fields are refused. Written for the admin making
+  the choice, and published ahead of the toggle itself (#230, #331), which has not shipped.
+
+- **Public delivery can sort by a field value.** `?sort=Price` and `?sort=-Price` on
+  `/api/public/{type}`, composing with the existing filters and paging. Only fields the content type
+  marks Public are sortable, for the same reason only those are filterable: ordering by a field the
+  caller cannot read is an oracle. Numbers sort as numbers, entries missing the field sort last in
+  both directions, and `CreatedAt` breaks ties so paging a sort with duplicate values cannot show one
+  entry twice and skip another.
+
 - **Content records who created it, and a permission rule can require ownership.** `Content.CreatedBy`
   is set from `ContentCreated`, which has always carried it, and a rule can now say
   `{"$createdBy": {"_eq": "$CURRENT_USER"}}` for "own records only". Document properties are named

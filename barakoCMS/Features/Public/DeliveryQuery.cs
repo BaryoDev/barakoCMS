@@ -127,8 +127,10 @@ internal sealed class DeliveryQuery
     /// Deliberately not JSONPath. The <c>@?</c> JSONPath operator contains a <c>?</c>, which is also
     /// MatchesSql's parameter placeholder, and the overload that exists to resolve that collision
     /// (<c>MatchesJsonPath</c>) could not bind parameters at all until JasperFx/marten#5289 and
-    /// #5293, both of which landed in Marten 9.30. This project is on 8.37, and crossing a major
-    /// version to reach a four-line fix is a worse trade than not needing it.
+    /// #5293, both of which landed in Marten 9.30. This project was on 8.37 when that was written
+    /// and is on 9.30 now, so the workaround is no longer forced. It is kept anyway, because
+    /// extracting with <c>-&gt;</c> binds the field name as well as the value and the JSONPath form
+    /// never could.
     ///
     /// Extracting with <c>-&gt;</c> avoids <c>?</c> entirely, so ordinary parameters work: the field
     /// name and the value are both bound, and neither reaches the SQL text. That is stronger than
@@ -175,6 +177,49 @@ internal sealed class DeliveryQuery
     /// </remarks>
     private const string KeyLookup =
         "(SELECT e.value FROM jsonb_each(d.data -> 'Data') e WHERE lower(e.key) = lower(?) LIMIT 1)";
+
+    /// <summary>The ORDER BY fragment for a validated sort.</summary>
+    /// <remarks>
+    /// Marten's <c>OrderBySql</c> takes a SQL string and binds nothing, so unlike the filter path
+    /// the field name is interpolated rather than parameterised. That is only acceptable because the
+    /// name cannot be arbitrary text: <c>Parse</c> returns the schema's own spelling, and
+    /// <c>ContentTypeValidatorService</c> refuses a field name that is not an uppercase letter
+    /// followed by letters and digits, with no update endpoint that could add one later.
+    ///
+    /// The guard below re-checks that at the point of use rather than trusting it from two files
+    /// away. It is the difference between an invariant and an assumption, and this is the one place
+    /// in the codebase where a field name reaches SQL as text.
+    ///
+    /// Sorting on the jsonb value rather than its text projection is deliberate, and it is why
+    /// <c>JsonLiteral</c> stores numbers as numbers: jsonb orders numerically within its number
+    /// type, so 9 sorts below 10. Ordering the text would put 10 before 9.
+    ///
+    /// NULLS LAST in both directions, so entries missing the field collect at the end rather than
+    /// leading an ascending page with nothing in it.
+    /// </remarks>
+    public static string ToOrderBySql(DeliverySort sort)
+    {
+        if (!IsSafeFieldName(sort.Field))
+            throw new InvalidOperationException(
+                $"Refusing to order by '{sort.Field}'. A sort field reaches SQL as text and must be "
+                + "letters and digits only. Parse should never have produced this.");
+
+        var direction = sort.Descending ? "DESC" : "ASC";
+
+        // CreatedAt is the tiebreaker, in the same fragment because OrderBySql returns IQueryable
+        // rather than IOrderedQueryable and there is no ThenBy to chain. Cast to timestamptz rather
+        // than compared as text: the stored form trims trailing zeros from the fraction, so
+        // "...53.6Z" sorts after "...53.613507Z" as text and before it as a time.
+        return $"(SELECT e.value FROM jsonb_each(d.data -> 'Data') e "
+             + $"WHERE lower(e.key) = lower('{sort.Field}') LIMIT 1) {direction} NULLS LAST, "
+             + "(d.data ->> 'CreatedAt')::timestamptz DESC";
+    }
+
+    /// <summary>Letters and digits only, starting with a letter. No quote, no semicolon, no space.</summary>
+    internal static bool IsSafeFieldName(string name) =>
+        !string.IsNullOrEmpty(name)
+        && char.IsLetter(name[0])
+        && name.All(char.IsLetterOrDigit);
 
     /// <summary>
     /// The value as a JSON scalar: a number bare when the field is declared numeric, quoted

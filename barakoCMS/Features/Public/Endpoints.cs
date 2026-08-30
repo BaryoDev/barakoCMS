@@ -153,20 +153,6 @@ internal class ListPublishedEndpoint : Endpoint<PublicListRequest, PaginatedResp
             return;
         }
 
-        /*
-         * Sorting by a field value is not implemented. Marten cannot translate a dictionary indexer
-         * with a runtime key into ORDER BY, so it needs a raw ordering fragment that this does not
-         * have yet. Refusing is deliberate: accepting the parameter and returning the default order
-         * would be a silent wrong answer, and a caller cannot tell "sorted" from "ignored" by
-         * looking at the response.
-         */
-        if (query.Sort is not null)
-        {
-            AddError("Sorting by a field value is not supported yet. Entries are returned newest first.");
-            await Send.ErrorsAsync(400, ct);
-            return;
-        }
-
         /* Published + document-Public only; the DB filters the rest out. */
         var baseQuery = _session.Query<ContentDoc>()
             .Where(c => c.ContentType == type
@@ -186,8 +172,18 @@ internal class ListPublishedEndpoint : Endpoint<PublicListRequest, PaginatedResp
 
         var total = await baseQuery.CountAsync(ct);
 
-        var page = await baseQuery
-            .OrderByDescending(c => c.CreatedAt)
+        /*
+         * A requested sort replaces the default rather than adding to it. CreatedAt stays as the
+         * tiebreaker inside the fragment, so a page boundary cannot move between two entries that
+         * compare equal. Without that, paging a list sorted on a field with duplicates can show the
+         * same entry twice and skip another, which reads as data loss rather than as an ordering
+         * question.
+         */
+        var ordered = query.Sort is { } sort
+            ? baseQuery.OrderBySql(DeliveryQuery.ToOrderBySql(sort))
+            : baseQuery.OrderByDescending(c => c.CreatedAt);
+
+        var page = await ordered
             .Skip(req.Skip)
             .Take(req.Take)
             .ToListAsync(ct);
