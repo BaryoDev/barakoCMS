@@ -135,6 +135,19 @@ anything.
 
 ### Security
 
+**A webhook could be redirected past the SSRF guard.** `WebhookAction` validates the URL it is
+given and then handed it to a client whose `AllowAutoRedirect` was left at its default. A target
+answering `302 Location: http://169.254.169.254/...` was followed to the metadata service with the
+block list never consulted for that address. It needs no DNS control and no race, unlike the
+rebinding in #258, and works first time. The client no longer follows redirects.
+
+**A captured Resend webhook could be replayed forever.** The Svix timestamp is mixed into the signed
+string, so it could not be tampered with, and it was never compared against the clock. Each replay
+of a genuine `email.bounced` writes another suppression record for that recipient. Now rejected
+outside five minutes in either direction, and an unparseable timestamp is refused rather than read
+as zero. Email.Resend bumped.
+
+
 **Two workflow endpoints were reachable without signing in, and one returned stored content.**
 `GET /api/workflows/actions` and `GET /api/workflows/variables` both shipped with `AllowAnonymous()`
 and a comment saying to re-enable auth later. The second reads a real stored document of the
