@@ -156,9 +156,24 @@ internal sealed class OutboundAddressGuard
 /// </remarks>
 internal static class OutboundHttpHandler
 {
-    public static SocketsHttpHandler Create(OutboundAddressGuard guard) => new()
+    /// <param name="allowProxy">
+    /// Whether to honour a system proxy. Off by default, and that is a security decision rather
+    /// than a preference.
+    ///
+    /// With a proxy in use, <c>ConnectCallback</c> dials the proxy, and it is then the proxy that
+    /// resolves and connects to the webhook target. The address policy never sees the real
+    /// destination, so every guarantee below is void: the guard is inspecting the wrong hop. A
+    /// system proxy can arrive from an environment variable that nobody deploying this chose
+    /// deliberately, which is the case worth failing closed on.
+    ///
+    /// An operator whose egress genuinely requires a proxy turns this on with
+    /// <c>Webhooks:AllowProxy</c>, and has to apply the same destination policy at the proxy,
+    /// because nothing here can.
+    /// </param>
+    public static SocketsHttpHandler Create(OutboundAddressGuard guard, bool allowProxy = false) => new()
     {
         AllowAutoRedirect = false,
         ConnectCallback = guard.ConnectAsync,
+        UseProxy = allowProxy,
     };
 }

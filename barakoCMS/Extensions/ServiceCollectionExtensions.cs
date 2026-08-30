@@ -441,9 +441,15 @@ public static class ServiceCollectionExtensions
         // survived, so the pre-flight check in WebhookAction is now an early refusal rather than the
         // thing standing between a workflow and the metadata service.
         services.AddSingleton(barakoCMS.Infrastructure.Http.OutboundAddressGuard.Default);
+        // A proxy would resolve and connect to the target itself, so the guard would be inspecting
+        // the hop to the proxy rather than the destination. Off unless an operator says otherwise,
+        // because a system proxy can arrive from an environment variable nobody chose.
+        var allowWebhookProxy = configuration.GetValue("Webhooks:AllowProxy", false);
+
         services.AddHttpClient("ExternalApi")
                 .ConfigurePrimaryHttpMessageHandler(sp => barakoCMS.Infrastructure.Http.OutboundHttpHandler.Create(
-                    sp.GetRequiredService<barakoCMS.Infrastructure.Http.OutboundAddressGuard>()))
+                    sp.GetRequiredService<barakoCMS.Infrastructure.Http.OutboundAddressGuard>(),
+                    allowWebhookProxy))
                 .AddStandardResilienceHandler();
 
         // Defaults registered with TryAdd so an opted-in module or the host can substitute a real

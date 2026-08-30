@@ -85,6 +85,13 @@ internal class WebhookAction : IWorkflowAction
                 _logger.LogWarning("Webhook to {Url} returned status {StatusCode}", url, response.StatusCode);
             }
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Cancellation is not a webhook failure. The broad catch below would have logged it as
+            // an unexpected error and returned normally, so a cancelled run looked like a completed
+            // one to everything upstream.
+            throw;
+        }
         catch (HttpRequestException ex)
         {
             _logger.LogError(ex, "Failed to send webhook to {Url}", url);

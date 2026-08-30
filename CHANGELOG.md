@@ -309,6 +309,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **A system proxy silently bypassed the webhook address guard.** With a proxy in use the connect
+  callback dials the proxy, and the proxy then resolves and connects to the target, so the guard was
+  inspecting the wrong hop. `UseProxy` is off on that client now. A system proxy can arrive from an
+  environment variable nobody deploying chose, which is what makes it worth failing closed on. An
+  operator whose egress needs one sets `Webhooks:AllowProxy` and has to apply the same destination
+  policy at the proxy, because nothing here can.
+
 - **The production CSP no longer allows `'unsafe-inline'` on `style-src`.** `script-src` had dropped
   it outside Development, which is the half that defeats XSS mitigation, but styles kept it app-wide
   as a documented partial fix pending a check nobody had run. CSS injection cannot execute script, so
