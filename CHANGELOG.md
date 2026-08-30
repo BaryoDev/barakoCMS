@@ -41,6 +41,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   this repository mounts a host path into the API, so no shipped configuration changes. Anyone who
   has added their own bind mount needs it writable by uid 1654.
 
+### Fixed
+
+- **The published images serve both amd64 and arm64.** The release built for whatever architecture
+  its runner happened to be, so `barako-cms:3.21.0` and its siblings were amd64 only and could not
+  run on Graviton, on Ampere, or on this project's own playground VM. Each architecture is now built
+  natively, on a runner of that architecture, and joined into one manifest list. Pushes carry no tag
+  until the join succeeds, so a half-finished build cannot leave `:latest` pointing at one
+  architecture, and the release fails if a published image does not serve both.
+
 ### Removed
 
 - **BREAKING: `updatedAt` is gone from the content history response.** `GET /api/contents/{id}/history`
