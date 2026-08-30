@@ -126,21 +126,37 @@ public class ScheduledContentTests
         after.ScheduledUnpublishAt.Should().NotBeNull("the future unpublish window stays armed");
     }
 
+    /// <summary>
+    /// An item whose publish time has passed is delivered once a sweep has run.
+    /// </summary>
+    /// <remarks>
+    /// The "before" check uses an unscheduled Draft rather than the scheduled one. ScheduledContentService
+    /// is registered as a hosted service, so a sweeper is running on a timer inside the test host and
+    /// can publish the scheduled item between the seed and the read. Asserting that the scheduled
+    /// item is absent before the manual sweep is therefore a race, and it failed the full suite while
+    /// passing every time in isolation.
+    ///
+    /// An unscheduled Draft is something no sweeper will ever touch, so it states the same invariant,
+    /// that delivery excludes Drafts, without depending on the timing of a background service. The
+    /// scheduled item is still what the second half asserts on, which is the part this test is for.
+    /// </remarks>
     [Fact]
     public async Task ScheduledItem_AppearsInPublicDeliveryOnceDue()
     {
         var type = "sched_e"; await SeedTypeAsync(type);
         var doc = Doc(type, "goes-live", ContentStatus.Draft, publishAt: DateTime.UtcNow.AddMinutes(-2));
-        using (var s = NewSession()) { s.Store(doc); await s.SaveChangesAsync(); }
+        var neverScheduled = Doc(type, "stays-draft", ContentStatus.Draft);
+        using (var s = NewSession()) { s.Store(doc); s.Store(neverScheduled); await s.SaveChangesAsync(); }
 
         var anon = _factory.CreateClient();
         var before = await anon.GetStringAsync($"/api/public/{type}");
-        before.Should().NotContain("goes-live", "a Draft is not delivered");
+        before.Should().NotContain("stays-draft", "a Draft is not delivered");
 
         using (var s = NewSession()) await ScheduledContentService.SweepTenantAsync(s, DateTime.UtcNow, default);
 
         var after = await anon.GetStringAsync($"/api/public/{type}");
         after.Should().Contain("goes-live", "once published by the sweep it is delivered");
+        after.Should().NotContain("stays-draft", "a sweep publishes what was scheduled and nothing else");
     }
 
     [Fact]

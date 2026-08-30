@@ -35,6 +35,20 @@ public class Content
     // Versioning is handled by Marten, but we can track who updated it
     public Guid LastModifiedBy { get; set; }
 
+    /// <summary>Who created this. Set once, from the event, and never from a request body.</summary>
+    /// <remarks>
+    /// Distinct from <see cref="LastModifiedBy"/>, which moves on every edit. Ownership has to
+    /// survive somebody else editing the record, so "who owns this" and "who touched it last" cannot
+    /// be the same field. They were, until 4.0: <c>ContentCreated</c> has always carried
+    /// <c>CreatedBy</c> and <c>Apply</c> wrote it into <see cref="LastModifiedBy"/>, where the first
+    /// update overwrote it.
+    ///
+    /// Because the events carried it all along, content written before 4.0 is not ownerless: a stream
+    /// rebuild recovers the value. Until one runs, an existing document reads <c>Guid.Empty</c>, and
+    /// an ownership condition denies it rather than granting it, which is the safe direction.
+    /// </remarks>
+    public Guid CreatedBy { get; set; }
+
     // Derived public search text used for full-text search.
     public string? SearchText { get; set; }
 
@@ -56,6 +70,7 @@ public class Content
         Sensitivity = @event.Sensitivity;
         CreatedAt = occurredAt;
         UpdatedAt = occurredAt;
+        CreatedBy = @event.CreatedBy;
         LastModifiedBy = @event.CreatedBy;
         SearchText = @event.SearchText;
     }
