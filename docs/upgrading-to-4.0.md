@@ -116,3 +116,37 @@ past a failing start, it will now stop, which is the point.
 
 **A missing connection string fails at startup outside Development**, naming the setting, instead of
 substituting a dummy that connects to localhost and fails later for an unrelated-looking reason.
+
+**`/metrics` needs a scrape key.** The Prometheus endpoint used to answer anyone who could reach the
+API, which handed out route names, per-endpoint traffic and process internals. It now refuses unless
+`Metrics:ScrapeKey` (env `Metrics__ScrapeKey`) is set and the caller presents it. With nothing set it
+returns 404, so scraping stops on upgrade until you configure it.
+
+Set the key on the host:
+
+```bash
+Metrics__ScrapeKey=$(openssl rand -hex 32)
+```
+
+Then give it to Prometheus. `authorization` sends it as a bearer token, which the endpoint accepts:
+
+```yaml
+scrape_configs:
+  - job_name: barakocms
+    authorization:
+      credentials: <the same value>
+    static_configs:
+      - targets: ['barakocms:8080']
+```
+
+The `X-Metrics-Key` header works too, for a scraper that would rather not use `Authorization`:
+
+```yaml
+    http_headers:
+      X-Metrics-Key:
+        values: ['<the same value>']
+```
+
+A wrong or missing key returns 401 while a key is configured, and 404 while none is, so the status
+code tells you which of the two you are looking at. The key is a shared secret rather than a user, so
+keep it out of the repository and rotate it like any other credential.

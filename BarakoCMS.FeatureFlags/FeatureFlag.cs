@@ -26,8 +26,26 @@ public class FeatureFlag
     /// <summary>Gradual rollout, 0..100. Below 100, a deterministic slice is on.</summary>
     public int RolloutPercent { get; set; } = 100;
 
+    /// <summary>
+    /// May an unauthenticated caller see this flag at all? False unless someone deliberately
+    /// publishes it, because the key name is the leak: an unreleased feature or a customer name is
+    /// disclosed by <c>{"key": false}</c> just as thoroughly as by <c>{"key": true}</c>. An existing
+    /// flag stored before this field existed reads back as false, so upgrading publishes nothing.
+    /// </summary>
+    public bool IsPublic { get; set; }
+
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }
 
 /// <summary>Who a flag is being evaluated for. All parts optional.</summary>
 public record FlagContext(string? TenantSlug = null, string? UserEmail = null, string? BucketKey = null);
+
+/// <summary>Which flags a caller may be told about, as opposed to what each one evaluates to.</summary>
+public enum FlagAudience
+{
+    /// <summary>Only flags marked <see cref="FeatureFlag.IsPublic"/>.</summary>
+    Public,
+
+    /// <summary>Every flag.</summary>
+    Authenticated,
+}
