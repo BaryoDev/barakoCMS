@@ -61,7 +61,7 @@ internal class Endpoint : Endpoint<Request, barakoCMS.Models.PaginatedResponse<V
             var version = new VersionResponse
             {
                 Id = req.Id,
-                ChangeType = e.Data.GetType().Name,
+                ChangeType = ChangeTypeOf(e.Data),
                 VersionId = e.Id,
                 Timestamp = e.Timestamp.ToUniversalTime()
             };
@@ -108,4 +108,26 @@ internal class Endpoint : Endpoint<Request, barakoCMS.Models.PaginatedResponse<V
 
         await Send.ResponseAsync(versions.ToPagedResponse(req));
     }
+
+    /// <summary>The wire name for an event, decided here rather than reflected from the CLR type.</summary>
+    /// <remarks>
+    /// <c>e.Data.GetType().Name</c> is the obvious way to write this, and it quietly makes every
+    /// event record's class name part of the API: renaming <c>ContentStatusChanged</c> would change
+    /// what clients receive, with nothing to warn anyone. This mapper exists so the event shapes stay
+    /// free to change, so the discriminator has to be a decision rather than a reflection of the
+    /// type it happens to be built from.
+    ///
+    /// An unrecognised event still falls back to its type name, because appearing under an ugly
+    /// label beats disappearing, and it makes the omission visible the first time somebody adds an
+    /// event and forgets this switch.
+    /// </remarks>
+    private static string ChangeTypeOf(object @event) => @event switch
+    {
+        barakoCMS.Events.ContentCreated => "Created",
+        barakoCMS.Events.ContentUpdated => "Updated",
+        barakoCMS.Events.ContentStatusChanged => "StatusChanged",
+        barakoCMS.Events.ContentScheduled => "Scheduled",
+        barakoCMS.Events.ContentSensitivityChanged => "SensitivityChanged",
+        _ => @event.GetType().Name,
+    };
 }

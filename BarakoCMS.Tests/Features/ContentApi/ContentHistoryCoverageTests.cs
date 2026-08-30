@@ -100,5 +100,15 @@ public class ContentHistoryCoverageTests
         entries.Should().OnlyContain(
             e => !string.IsNullOrWhiteSpace(e.GetProperty("changeType").GetString()),
             "without a discriminator a client cannot tell a status change from a document version");
+
+        // The values themselves, not just their presence. changeType is what a client branches on,
+        // so it is wire contract, and it is decided by a switch rather than reflected from the CLR
+        // type name for exactly that reason. Pinning it here is what stops a rename of an event
+        // record from quietly changing the API, which is the failure the switch exists to prevent
+        // and which nothing else would catch.
+        entries.Select(e => e.GetProperty("changeType").GetString())
+            .Should().BeEquivalentTo(
+                ["Created", "Updated", "StatusChanged", "Scheduled", "SensitivityChanged"],
+                "these five strings are the contract, independent of what the event records are called");
     }
 }
