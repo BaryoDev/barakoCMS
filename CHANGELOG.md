@@ -9,10 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Every deployment path takes a backup, and CI proves one can be restored.** The one hardened
-  backup script was wired into the development compose file only, so the deployments holding real
-  data had none. `docker-compose.prod.yml`, the quickstart stack and the k8s CronJob all run it now,
-  each writing to its own volume rather than Postgres's. `scripts/restore-check.sh` takes a backup,
+- **Every deployment path takes a backup, and CI proves one can be restored.** The hardened backup
+  script was wired into the development compose file only, so the deployments holding real data had
+  none. `docker-compose.prod.yml` and the quickstart stack now run that same script, and the k8s
+  CronJob carries the same logic inline because a CronJob has no repository to mount. Each writes to
+  its own volume rather than Postgres's. `scripts/restore-check.sh` takes a backup,
   destroys the database, restores it and boots the app against the result, on every pull request.
   Runbook in `docs/backup-and-restore.md`.
 

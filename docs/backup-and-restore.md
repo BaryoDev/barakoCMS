@@ -9,17 +9,24 @@ against the result.
 
 ## What runs
 
-Every deployment path now runs the same hardened script, `scripts/backup-cron.sh`.
+Every deployment path takes a nightly backup that is checked before it is published.
 
-| Deployment | Service | Where backups go |
-| --- | --- | --- |
-| `docker-compose.yml` (development) | `db-backup` | `./backups` on the host |
-| `docker-compose.prod.yml` | `db-backup` | the `postgres_prod_backups` volume |
-| `quickstart/docker-compose.yml` | `db-backup` | the `backups` volume |
-| `k8s/` | `db-backup` CronJob | the `barako-backups` PVC |
+| Deployment | Service | Database | Where backups go |
+| --- | --- | --- | --- |
+| `docker-compose.yml` (development) | `app` | `barako_cms` | `./backups` on the host |
+| `docker-compose.prod.yml` | `app` | `${DB_NAME:-barako_cms}` | the `postgres_prod_backups` volume |
+| `quickstart/docker-compose.yml` | `api` | `${DB_NAME:-barakocms}` | the `backups` volume |
+| `k8s/` | Deployment `barako-cms` | `barako_cms` | the `barako-backups` PVC |
+
+The three compose stacks run `scripts/backup-cron.sh`. The Kubernetes CronJob carries the same
+logic inline, because a CronJob has no repository to mount; if you change one, change both.
 
 Defaults: 02:00 daily, 14 days retained in production and 7 elsewhere. Override with
 `BACKUP_CRON_SCHEDULE` and `BACKUP_KEEP_DAYS`.
+
+**The service name, database name and backup location all differ between these stacks.** That is
+why the restore section below is split by deployment rather than given once: a restore command
+copied from the wrong row silently targets the wrong database.
 
 ## Why the script is not `pg_dump | gzip`
 
@@ -39,7 +46,7 @@ last good copy.
 Stop the application first. A restore into a database the app is writing to will not be the database
 you backed up.
 
-**docker compose**
+**docker compose, development stack**
 
 ```bash
 docker compose stop app
@@ -48,7 +55,38 @@ gunzip -c ./backups/barako_backup_2026-08-30_02-00-00.sql.gz \
 docker compose start app
 ```
 
-`scripts/restore-db.sh` wraps this with a confirmation prompt and a listing of available archives.
+**docker compose, production stack**
+
+Archives live in a named volume rather than a host directory, so read them from inside the backup
+container:
+
+```bash
+docker compose -f docker-compose.prod.yml stop app
+
+# List what is there.
+docker compose -f docker-compose.prod.yml exec db-backup ls -1 /backups
+
+docker compose -f docker-compose.prod.yml exec -T db-backup \
+    sh -c 'gunzip -c /backups/barako_backup_2026-08-30_02-00-00.sql.gz' \
+  | docker compose -f docker-compose.prod.yml exec -T postgres \
+      psql -U "${DB_USER:-postgres}" -d "${DB_NAME:-barako_cms}" -v ON_ERROR_STOP=1
+
+docker compose -f docker-compose.prod.yml start app
+```
+
+**quickstart stack**
+
+The service is `api`, not `app`, and the database defaults to `barakocms` rather than `barako_cms`:
+
+```bash
+cd quickstart
+docker compose stop api
+
+docker compose exec -T db-backup sh -c 'gunzip -c /backups/barako_backup_2026-08-30_02-00-00.sql.gz' \
+  | docker compose exec -T postgres psql -U "${DB_USER:-postgres}" -d "${DB_NAME:-barakocms}" -v ON_ERROR_STOP=1
+
+docker compose start api
+```
 
 **Kubernetes**
 

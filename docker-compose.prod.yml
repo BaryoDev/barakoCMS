@@ -75,7 +75,7 @@ services:
   # empty input, months of backups were 20-byte files reporting success.
   #
   # The volume is its own, not Postgres's. A backup that dies with the thing it backs up is not a
-  # backup, which is the defect the k8s CronJob still has.
+  # backup, which is what the k8s CronJob used to do before it got the barako-backups PVC.
   db-backup:
     image: postgres:16-alpine
     container_name: barako-db-backup

@@ -99,7 +99,10 @@ services:
       - ../scripts:/scripts:ro
     environment:
       POSTGRES_HOST: postgres
-      POSTGRES_DB: ${DB_NAME:-barako_cms}
+      # barakocms, not barako_cms: this stack's own default, matching the postgres service and the
+      # api's connection string above. A backup pointed at a database that does not exist fails
+      # every night, loudly, which is better than the alternative but still not a backup.
+      POSTGRES_DB: ${DB_NAME:-barakocms}
       POSTGRES_USER: ${DB_USER:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       BACKUP_CRON_SCHEDULE: "${BACKUP_CRON_SCHEDULE:-0 2 * * *}"

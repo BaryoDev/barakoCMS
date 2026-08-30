@@ -97,8 +97,15 @@ jobs:
   restore:
     name: Restore a backup
     runs-on: ubuntu-latest
+    # This job runs a shell script out of the pull request's own branch, so it must not hold a token
+    # that can write anything. Read-only, and the checkout leaves no credential behind for that
+    # script to find.
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
