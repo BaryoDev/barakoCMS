@@ -17,14 +17,30 @@ public class FeatureFlagService
         return flag is null ? fallback : Evaluate(flag, ctx);
     }
 
-    /// <summary>Every flag's on/off result for this context — for the UI to gate on.</summary>
-    public async Task<Dictionary<string, bool>> EvaluateAllAsync(FlagContext ctx, CancellationToken ct = default)
+    /// <summary>
+    /// Every flag's on/off result for this context, for the UI to gate on. The audience decides
+    /// which keys are disclosed at all, which is a separate question from what each one evaluates
+    /// to: targeting already makes a private flag evaluate false for a stranger, and returning it
+    /// as false still hands them the name.
+    /// </summary>
+    public async Task<Dictionary<string, bool>> EvaluateAllAsync(FlagContext ctx, FlagAudience audience, CancellationToken ct = default)
     {
         var flags = await _session.Query<FeatureFlag>().ToListAsync(ct);
         var result = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
-        foreach (var f in flags) result[f.Key] = Evaluate(f, ctx);
+        foreach (var f in flags)
+        {
+            if (audience == FlagAudience.Public && !f.IsPublic) continue;
+            result[f.Key] = Evaluate(f, ctx);
+        }
         return result;
     }
+
+    /// <summary>
+    /// The public subset. This is what an unstated audience gets, so a caller that has not thought
+    /// about who is asking cannot leak a key by omission.
+    /// </summary>
+    public Task<Dictionary<string, bool>> EvaluateAllAsync(FlagContext ctx, CancellationToken ct = default) =>
+        EvaluateAllAsync(ctx, FlagAudience.Public, ct);
 
     /// <summary>Pure evaluation: master toggle, then club, user, and percentage targeting.</summary>
     public static bool Evaluate(FeatureFlag flag, FlagContext ctx)

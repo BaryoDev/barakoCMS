@@ -36,6 +36,7 @@
     <ProjectReference Include="..\BarakoCMS.AI\BarakoCMS.AI.csproj" />
     <ProjectReference Include="..\BarakoCMS.Accounting\BarakoCMS.Accounting.csproj" />
     <ProjectReference Include="..\BarakoCMS.Pwa\BarakoCMS.Pwa.csproj" />
+    <ProjectReference Include="..\BarakoCMS.FeatureFlags\BarakoCMS.FeatureFlags.csproj" />
     <ProjectReference Include="..\BarakoCMS.Email.Resend\BarakoCMS.Email.Resend.csproj" />
     <!-- ExternalAuth had no test project reference and therefore no tests, which is why nothing
          noticed that three of its four providers never checked whether the email they were handed
