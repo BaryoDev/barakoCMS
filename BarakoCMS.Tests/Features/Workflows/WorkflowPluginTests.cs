@@ -44,8 +44,13 @@ public class WorkflowPluginTests
     {
         // Arrange
         var mockHttpClientFactory = new Mock<IHttpClientFactory>();
+        var mockSession = new Mock<Marten.IQuerySession>();
         var mockLogger = new Mock<ILogger<WebhookAction>>();
-        var action = new WebhookAction(mockHttpClientFactory.Object, mockLogger.Object);
+        var action = new WebhookAction(
+            mockHttpClientFactory.Object,
+            mockSession.Object,
+            barakoCMS.Infrastructure.Http.OutboundAddressGuard.Default,
+            mockLogger.Object);
 
         // Act
         var type = action.Type;
@@ -150,8 +155,13 @@ public class WorkflowPluginTests
     {
         // Arrange
         var mockHttpClientFactory = new Mock<IHttpClientFactory>();
+        var mockSession = new Mock<Marten.IQuerySession>();
         var mockLogger = new Mock<ILogger<WebhookAction>>();
-        var action = new WebhookAction(mockHttpClientFactory.Object, mockLogger.Object);
+        var action = new WebhookAction(
+            mockHttpClientFactory.Object,
+            mockSession.Object,
+            barakoCMS.Infrastructure.Http.OutboundAddressGuard.Default,
+            mockLogger.Object);
 
         var parameters = new Dictionary<string, string>(); // No URL
 

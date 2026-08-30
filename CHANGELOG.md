@@ -309,6 +309,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **A system proxy silently bypassed the webhook address guard.** With a proxy in use the connect
+  callback dials the proxy, and the proxy then resolves and connects to the target, so the guard was
+  inspecting the wrong hop. `UseProxy` is off on that client now. A system proxy can arrive from an
+  environment variable nobody deploying chose, which is what makes it worth failing closed on. An
+  operator whose egress needs one sets `Webhooks:AllowProxy` and has to apply the same destination
+  policy at the proxy, because nothing here can.
+
 - **The production CSP no longer allows `'unsafe-inline'` on `style-src`.** `script-src` had dropped
   it outside Development, which is the half that defeats XSS mitigation, but styles kept it app-wide
   as a documented partial fix pending a check nobody had run. CSS injection cannot execute script, so
@@ -396,6 +403,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   laptop; it binds `127.0.0.1` now, so `psql` from the host still works and nothing else can reach it.
 
   The file still starts with no `.env` at all.
+
+- **The webhook SSRF guard checked one address and connected to another.** `WebhookAction` resolved
+  the target host, checked the answer, then handed the name to `HttpClient`, which resolved it again
+  when it opened the socket. A name whose DNS answer changed in between passed the check on a public
+  address and connected to 169.254.169.254. Resolution now happens once, inside the client's connect
+  callback, and the socket is opened to an address that answer survived, so there is no second lookup
+  to poison. A name that answers with one public and one blocked address is refused outright rather
+  than connected to the public one. Redirects stay off, since a redirect is a second resolution by
+  another route.
+
+- **The webhook posted the whole content data object.** Every stored field went to the target URL,
+  including fields a read masks, so anyone who could configure a workflow could send a Hidden field to
+  an external address. The payload now carries only the fields the content type marks Public, through
+  the same projection the public read path uses, and a document that is itself Sensitive or Hidden
+  contributes no data at all. A content type with no definition sends no data rather than all of it.
 
 ## [3.21.0] - 2026-08-23
 

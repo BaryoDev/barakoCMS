@@ -1,5 +1,5 @@
-using System.Net;
 using System.Net.Http.Json;
+using barakoCMS.Infrastructure.Http;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -7,21 +7,23 @@ using Xunit;
 namespace BarakoCMS.Tests.Features.Workflows;
 
 /// <summary>
-/// The webhook client does not follow redirects, so the SSRF guard covers more than the first hop.
+/// The primary handler behind the webhook client refuses an internal address and does not follow
+/// redirects, so the SSRF guard covers more than the URL a workflow author typed.
 /// </summary>
 /// <remarks>
-/// <c>WebhookAction</c> validates the URL it is given and then hands it to a client whose
+/// <c>WebhookAction</c> used to validate the URL it was given and then hand it to a client whose
 /// <c>AllowAutoRedirect</c> was left at its default of true. A webhook target answering
 /// <c>302 Location: http://169.254.169.254/latest/meta-data/...</c> was followed to the metadata
-/// service with <c>IsBlockedAddress</c> never consulted for that address.
+/// service with the block list never consulted for that address.
 ///
-/// The redirect here goes to a second loopback listener rather than to a real link-local address.
-/// Pointing a test at 169.254.169.254 either hangs for its timeout or, on a cloud runner, reaches
-/// something real. The mechanism under test is whether the handler follows a redirect at all, and a
-/// second listener answers that precisely: it records whether it was ever contacted.
+/// The assertions are on the client from the application's own DI container and on the handler its
+/// registration builds, because both defects were in that registration rather than in any code path
+/// that could be tested in isolation.
 ///
-/// The assertion is on the named client from the application's own DI container, because the defect
-/// was in that registration rather than in any code path that could be tested in isolation.
+/// The two tests are a pair. The first shows the real registration refuses a blocked address; the
+/// second shows that a handler built the same way, differing only in an address policy that permits
+/// loopback, does connect and does not follow the redirect. Without the second, a guard that refused
+/// every address would pass the first.
 /// </remarks>
 [Collection("Sequential")]
 public class WebhookRedirectTests
@@ -31,15 +33,30 @@ public class WebhookRedirectTests
     public WebhookRedirectTests(IntegrationTestFixture fixture) => _fixture = fixture;
 
     [Fact]
-    public async Task The_webhook_client_does_not_follow_a_redirect()
+    public async Task The_registered_webhook_client_refuses_an_internal_address()
     {
         using var target = new RecordingListener();
-        using var redirector = new RecordingListener(redirectTo: target.Url);
 
         using var scope = _fixture.Services.CreateScope();
         var client = scope.ServiceProvider
             .GetRequiredService<IHttpClientFactory>()
             .CreateClient("ExternalApi");
+
+        var post = async () => await client.PostAsJsonAsync(target.Url, new { probe = true });
+
+        await post.Should().ThrowAsync<HttpRequestException>();
+        target.WasCalled.Should().BeFalse(
+            "the connect callback checks the address it is about to dial, so no socket is opened to loopback");
+    }
+
+    [Fact]
+    public async Task The_webhook_client_does_not_follow_a_redirect()
+    {
+        using var target = new RecordingListener();
+        using var redirector = new RecordingListener(redirectTo: target.Url);
+
+        using var handler = OutboundHttpHandler.Create(PermitsLoopback);
+        using var client = new HttpClient(handler);
 
         var response = await client.PostAsJsonAsync(redirector.Url, new { probe = true });
 
@@ -51,70 +68,5 @@ public class WebhookRedirectTests
             "the redirect comes back to the caller instead of being followed");
     }
 
-    /// <summary>
-    /// A loopback listener that records whether anything reached it, and optionally answers 302.
-    /// </summary>
-    private sealed class RecordingListener : IDisposable
-    {
-        private readonly HttpListener _listener = new();
-        private readonly CancellationTokenSource _stopping = new();
-
-        public RecordingListener(string? redirectTo = null)
-        {
-            var port = FreePort();
-            Url = $"http://127.0.0.1:{port}/";
-            _listener.Prefixes.Add(Url);
-            _listener.Start();
-            _ = ServeAsync(redirectTo);
-        }
-
-        public string Url { get; }
-
-        public bool WasCalled { get; private set; }
-
-        private async Task ServeAsync(string? redirectTo)
-        {
-            while (!_stopping.IsCancellationRequested)
-            {
-                HttpListenerContext context;
-                try
-                {
-                    context = await _listener.GetContextAsync();
-                }
-                catch
-                {
-                    return;
-                }
-
-                WasCalled = true;
-                if (redirectTo is not null)
-                {
-                    context.Response.StatusCode = 302;
-                    context.Response.Headers["Location"] = redirectTo;
-                }
-                else
-                {
-                    context.Response.StatusCode = 200;
-                }
-
-                context.Response.Close();
-            }
-        }
-
-        private static int FreePort()
-        {
-            using var probe = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
-            probe.Start();
-            var port = ((IPEndPoint)probe.LocalEndpoint).Port;
-            probe.Stop();
-            return port;
-        }
-
-        public void Dispose()
-        {
-            _stopping.Cancel();
-            _listener.Close();
-            _stopping.Dispose();
-        }
-    }
+    private static OutboundAddressGuard PermitsLoopback => new(isBlocked: _ => false);
 }
