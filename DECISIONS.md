@@ -228,3 +228,76 @@ site quietly serves incomplete results.
 **The general rule:** a process that can partially complete must make partial completion visible.
 Otherwise a failed run and a successful one look identical afterwards, and nobody checks the one
 place they differ.
+
+---
+
+## D9. Erasure is a configured mode, and a mode that cannot deliver is refused at startup
+
+**Decided:** 30 Aug 2026. **Issue:** #301. **Status:** implemented for `Delete` and `None`.
+
+A deployment chooses how erasure works, through `Erasure:Mode`:
+
+- **`Delete`** (the default). `DELETE /api/contents/{id}/erase` removes the item's events, its
+  stream and its read-model document in one transaction, together with the audit entry recording
+  that it happened. The item's history goes with it, which is what erasure means.
+- **`CryptoShred`**. Content event payloads encrypted per subject; erasure destroys the key.
+  **Refused at startup in every deployment**, because it is not implemented and the subject question
+  below is open.
+- **`None`**. Pure append-only, with no erasure path, for a deployment that has decided its content
+  never holds personal data. Requires an explicit acknowledgement, not just leaving a setting unset.
+
+**A note on the name.** This mode was called `Compact` when the decision was written, because
+Marten's `CompactStreamAsync` looked like the supported mechanism. It is not, and a spike written
+before the implementation is what caught it: compaction requires a registered aggregation
+projection, which this project has none for `Content` since the read model is written by
+`IContentWriter` in the same transaction, and even with one it replaces the events with a snapshot of
+current state, which is precisely the data an erasure removes. `ArchiveStream` is softer still: it
+sets a flag and leaves every byte. So erasure is a delete below Marten's API, and the mode is named
+for what it does rather than for the API that turned out not to do it.
+
+**Rules out:** picking one mechanism for everyone, and letting an operator change mode freely.
+
+**Why a mode rather than a mechanism.** The three options in `EVENT-SOURCING-PER-CONTENT-TYPE.md`
+are not really alternatives, they are different prices for different guarantees, and which one a
+deployment needs depends on whether it holds personal data at all. A newsroom publishing articles
+and an agency holding client contact details want different answers, and neither should pay for the
+other's.
+
+**Why `Delete` is the default.** It is the only mode that works on data already written. Every
+existing deployment gains a real erasure path on upgrade with no migration and no key management,
+and it needs no answer to the subject-mapping question below.
+
+**Why the guard is the entire point.** Two failures share one shape, and both are a setting that
+reads as a policy while no policy is in force.
+
+`CryptoShred` is unimplemented, so accepting the setting would give an operator who has decided they
+need real erasure the belief without the property. It is therefore refused in every deployment, not
+only on one that already holds plaintext events, until the subject question is answered.
+
+And when it is implemented, the retroactivity guard still applies: crypto-shredding cannot be applied
+to an event already written in plaintext, so switching in year two protects nothing written in year
+one. Either way the answer is to fail at startup rather than let the belief form.
+
+The transitions are deliberately asymmetric. Starting on `CryptoShred` keeps every option, because
+shredded data can also be compacted. Starting on `Delete` forecloses shredding for everything
+written before the switch. Given the choice, this is the door that stays open.
+
+**What is still unanswered:** who the subject is. Crypto-shredding needs a key per something, and a
+CMS has no natural data subject, because a blog post that mentions a person is not owned by them.
+Two implementable variants, and `CryptoShred` cannot ship without choosing one:
+
+- a **per-tenant** key, which gives irrecoverable customer offboarding but is not Article 17 for an
+  individual;
+- a **per-subject** key, which needs a content type to declare which field identifies the subject,
+  making it a schema feature rather than a configuration value.
+
+**Also unresolved, and named here so it is not discovered later:** the audit trail is a second
+erasure surface. `AuditEvent` carries `ActorUsername` and metadata, and `AuditChain` hashes each
+entry over its predecessor, so deleting one breaks the tamper-evidence the chain exists to provide.
+Erasure and tamper-evidence are in direct conflict there too, and this decision does not settle it.
+
+**What would have to change for this to be wrong.** If content turns out to hold personal data in
+the ordinary case rather than the exceptional one, the default is backwards: `CryptoShred` should be
+the default and `Delete` the opt-out. The signal to watch is what customers actually model in their
+first content type.
+

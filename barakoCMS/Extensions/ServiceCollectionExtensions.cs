@@ -447,6 +447,14 @@ public static class ServiceCollectionExtensions
         // Runs any per-content-type domain rules a module registered (IContentLifecycleHook), so a
         // domain with real invariants can still be modelled as ordinary content.
         services.AddScoped<barakoCMS.Infrastructure.Services.IContentLifecycleRunner, barakoCMS.Infrastructure.Services.ContentLifecycleRunner>();
+
+        // Erasure policy. Validated here rather than at first use: the failure being guarded against
+        // is an operator believing a mode is in force when it is not, and startup is the only moment
+        // that belief is cheap to correct. See DECISIONS.md D9.
+        var erasure = barakoCMS.Infrastructure.Erasure.ErasureOptions.FromConfiguration(configuration);
+        erasure.Validate();
+        services.AddSingleton(erasure);
+        services.AddScoped<barakoCMS.Infrastructure.Erasure.IContentEraser, barakoCMS.Infrastructure.Erasure.ContentEraser>();
         services.AddScoped<barakoCMS.Core.Interfaces.IOtpService, barakoCMS.Infrastructure.Services.OtpService>();
 
         // MFA (TOTP): secret protection (AES-GCM) + enrollment/verification.
