@@ -1,12 +1,53 @@
+# Nightly database backup.
+#
+# Three things were wrong with the previous version of this file, and all three are the kind that
+# report success:
+#
+#   1. `pg_dump | gzip` checks gzip's exit code, not pg_dump's, and gzip succeeds on empty input. A
+#      failing dump left a 20-byte file and the job went green. That is the exact defect
+#      scripts/backup-cron.sh was rewritten to kill, reintroduced here.
+#   2. It mounted claimName: postgres-data, but 03-postgres.yaml is a StatefulSet using
+#      volumeClaimTemplates, so the PVC Kubernetes actually creates is postgres-data-postgres-0.
+#      The pod stayed Pending forever, which nobody noticed because these manifests had never been
+#      applied.
+#   3. It wrote backups onto Postgres's own volume. A backup that dies with the thing it backs up is
+#      not a backup.
+#
+# The dump logic below mirrors scripts/backup-cron.sh: dump to a file so pg_dump's own status is the
+# one checked, prove the archive decompresses and looks like a dump, enforce a floor on the size,
+# and only then publish it under its final name. A failure leaves nothing behind that looks like a
+# backup.
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: barako-backups
+  namespace: barako-cms
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      # Fourteen daily dumps of a small-to-medium instance. Raise it before raising
+      # BACKUP_KEEP_DAYS, because the rotation below only deletes by age, not by pressure.
+      storage: 10Gi
+---
 apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: db-backup
   namespace: barako-cms
 spec:
-  schedule: "0 2 * * *" # 2:00 AM Daily
+  schedule: "0 2 * * *" # 2:00 AM daily
+  # A backup that silently stops running is the same failure as one that produces empty files, so
+  # keep enough history for a person to notice the gap.
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 7
+  concurrencyPolicy: Forbid
   jobTemplate:
     spec:
+      # Do not retry forever: a dump that fails twice is a problem to look at, not to grind on.
+      backoffLimit: 2
       template:
         spec:
           containers:
@@ -16,12 +57,51 @@ spec:
                 - /bin/sh
                 - -c
                 - |
-                  echo "Starting backup..."
-                  pg_dump -h postgres-service -U postgres -d barako_cms | gzip > /backups/backup-$(date +%Y-%m-%d-%H-%M-%S).sql.gz
-                  # Retention: Keep last 7 days
-                  find /backups -name "backup-*.sql.gz" -mtime +7 -delete
-                  echo "Backup complete."
+                  set -eu
+
+                  BACKUP_DIR=/backups
+                  MIN_BYTES="${BACKUP_MIN_BYTES:-1000}"
+                  TIMESTAMP=$(date +%Y-%m-%d_%H-%M-%S)
+                  FINAL="$BACKUP_DIR/barako_backup_$TIMESTAMP.sql.gz"
+                  TMP="$BACKUP_DIR/.in-progress_$TIMESTAMP.sql"
+
+                  fail() {
+                      echo "BACKUP FAILED [$(date)]: $1" >&2
+                      rm -f "$TMP" "$TMP.gz"
+                      exit 1
+                  }
+
+                  echo "Starting backup [$(date)] -> $FINAL"
+
+                  # Dump to a plain file, so pg_dump's own exit code is the one checked.
+                  pg_dump -h "$POSTGRES_HOST" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+                      --no-owner --no-acl > "$TMP" || fail "pg_dump exited non-zero"
+
+                  # A dump of an empty schema is comfortably over 1KB.
+                  SIZE=$(wc -c < "$TMP")
+                  [ "$SIZE" -ge "$MIN_BYTES" ] || fail "dump is only ${SIZE} bytes"
+
+                  grep -q "PostgreSQL database dump" "$TMP" || fail "dump does not look like a pg_dump"
+
+                  gzip "$TMP" || fail "gzip failed"
+                  gzip -t "$TMP.gz" || fail "archive does not decompress"
+
+                  # Publish only after every check has passed.
+                  mv "$TMP.gz" "$FINAL"
+                  echo "Backup complete [$(date)]: $FINAL ($(wc -c < "$FINAL") bytes)"
+
+                  # Rotate only now, so a failed run never deletes the last good backup.
+                  find "$BACKUP_DIR" -name "barako_backup_*.sql.gz" -mtime "+${BACKUP_KEEP_DAYS:-14}" -delete
+                  find "$BACKUP_DIR" -name ".in-progress_*" -mtime +1 -delete
               env:
+                - name: POSTGRES_HOST
+                  value: postgres-service
+                - name: POSTGRES_DB
+                  value: barako_cms
+                - name: POSTGRES_USER
+                  value: postgres
+                - name: BACKUP_KEEP_DAYS
+                  value: "14"
                 - name: PGPASSWORD
                   valueFrom:
                     secretKeyRef:
@@ -34,4 +114,5 @@ spec:
           volumes:
             - name: backup-volume
               persistentVolumeClaim:
-                claimName: postgres-data # Ideally use a separate PVC or S3, but reusing for simplicity in starter kit
+                # Its own claim, not Postgres's. See note 3 at the top of this file.
+                claimName: barako-backups

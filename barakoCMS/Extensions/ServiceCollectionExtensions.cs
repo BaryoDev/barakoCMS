@@ -486,7 +486,11 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IContentTypeValidatorService, ContentTypeValidatorService>();
         services.AddSingleton<IKubernetesMonitorService, KubernetesMonitorService>();
         services.AddSingleton<IMetricsService, MetricsService>();
-        services.AddScoped<IBackupService, BackupService>();
+        // IBackupService and BackupService were removed in 4.0. Both were registered here and
+        // called by nothing, repo-wide, so reading the codebase suggested the application backed
+        // itself up. It did not: backup is scripts/backup-cron.sh, run by the deployment, and
+        // restore is scripts/restore-check.sh's procedure. A registered service that claims a
+        // capability nothing invokes is worse than no service, because it stops people looking.
 
         // Confines API-key callers to the content surface and enforces their scopes. A no-op for JWT
         // callers (they carry no scope claims).

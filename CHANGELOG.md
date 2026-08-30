@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Every deployment path takes a backup, and CI proves one can be restored.** The hardened backup
+  script was wired into the development compose file only, so the deployments holding real data had
+  none. `docker-compose.prod.yml` and the quickstart stack now run that same script, and the k8s
+  CronJob carries the same logic inline because a CronJob has no repository to mount. Each writes to
+  its own volume rather than Postgres's. `scripts/restore-check.sh` takes a backup,
+  destroys the database, restores it and boots the app against the result, on every pull request.
+  Runbook in `docs/backup-and-restore.md`.
+
+### Fixed
+
+- **The k8s backup CronJob could not run, and would not have worked if it had.** It mounted
+  `postgres-data`, but the StatefulSet's `volumeClaimTemplates` creates `postgres-data-postgres-0`,
+  so the pod stayed Pending forever. Its dump also piped straight into gzip and checked gzip's exit
+  code, which is the failure the compose script was rewritten to remove.
+
+### Removed
+
+- **`IBackupService` and `BackupService`.** Registered in DI and called by nothing, repo-wide, so
+  the codebase read as though the application backed itself up.
+
+
 ### Security
 
 **Social sign-in accepted an email the provider never verified.** The email was the only join key,
