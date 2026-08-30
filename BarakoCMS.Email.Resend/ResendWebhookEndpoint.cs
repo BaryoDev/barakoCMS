@@ -125,25 +125,55 @@ public sealed class ResendWebhookEndpoint : EndpointWithoutRequest
         return "";
     }
 
+    /// <summary>
+    /// How far from now a webhook timestamp may be, in either direction. Five minutes is what the
+    /// Svix spec suggests, and it has to allow for clock skew on both machines, so it is symmetric.
+    /// </summary>
+    internal static readonly TimeSpan Tolerance = TimeSpan.FromMinutes(5);
+
     /// <summary>Svix signature check: HMAC-SHA256 of "{id}.{timestamp}.{body}" with the whsec key.</summary>
     private bool VerifySvix(string secret, string body) => VerifySvix(
         secret,
         body,
         HttpContext.Request.Headers["svix-id"].ToString(),
         HttpContext.Request.Headers["svix-timestamp"].ToString(),
-        HttpContext.Request.Headers["svix-signature"].ToString());
+        HttpContext.Request.Headers["svix-signature"].ToString(),
+        DateTimeOffset.UtcNow);
 
     /// <summary>
     /// The signature check, separated from HttpContext so it can be tested directly. This is the
     /// only thing standing between a stranger and a write on an anonymous endpoint, so it wants a
     /// test that does not depend on standing up a web host.
     /// </summary>
-    internal static bool VerifySvix(string secret, string body, string id, string ts, string sigHeader)
+    internal static bool VerifySvix(
+        string secret, string body, string id, string ts, string sigHeader, DateTimeOffset now)
     {
         try
         {
             if (string.IsNullOrEmpty(id) || string.IsNullOrEmpty(ts) || string.IsNullOrEmpty(sigHeader))
                 return false;
+
+            // The timestamp is mixed into the signed string, so it cannot be tampered with, but it
+            // was never compared against the clock. A valid request therefore stayed valid forever,
+            // and each replay of a captured email.bounced writes another suppression record for that
+            // recipient. If suppression ever gates outbound mail, that is a targeted denial of
+            // delivery against a chosen address, including password reset and OTP mail.
+            //
+            // The clock is a parameter rather than DateTime.UtcNow read in here, so both sides of
+            // the window are testable without waiting or mocking time.
+            if (!long.TryParse(ts, System.Globalization.NumberStyles.Integer,
+                    System.Globalization.CultureInfo.InvariantCulture, out var unixSeconds))
+            {
+                // A timestamp that will not parse is rejected rather than treated as zero, which
+                // would put it outside the window in one direction and pass in the other.
+                return false;
+            }
+
+            var age = now - DateTimeOffset.FromUnixTimeSeconds(unixSeconds);
+            if (age > Tolerance || age < -Tolerance)
+            {
+                return false;
+            }
 
             var key = secret.StartsWith("whsec_", StringComparison.Ordinal) ? secret["whsec_".Length..] : secret;
             var keyBytes = Convert.FromBase64String(key);
