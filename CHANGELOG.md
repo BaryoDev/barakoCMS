@@ -286,6 +286,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   admin, refusing with 404 rather than 403 so a leaked id cannot be used to probe for others. Upload
   now carries the same role gate as every other write in the module set. Files `0.4.0`.
 
+- **The webhook SSRF guard checked one address and connected to another.** `WebhookAction` resolved
+  the target host, checked the answer, then handed the name to `HttpClient`, which resolved it again
+  when it opened the socket. A name whose DNS answer changed in between passed the check on a public
+  address and connected to 169.254.169.254. Resolution now happens once, inside the client's connect
+  callback, and the socket is opened to an address that answer survived, so there is no second lookup
+  to poison. A name that answers with one public and one blocked address is refused outright rather
+  than connected to the public one. Redirects stay off, since a redirect is a second resolution by
+  another route.
+
+- **The webhook posted the whole content data object.** Every stored field went to the target URL,
+  including fields a read masks, so anyone who could configure a workflow could send a Hidden field to
+  an external address. The payload now carries only the fields the content type marks Public, through
+  the same projection the public read path uses, and a document that is itself Sensitive or Hidden
+  contributes no data at all. A content type with no definition sends no data rather than all of it.
+
 ## [3.21.0] - 2026-08-23
 
 The release-readiness pass. Most of what follows is about the gates around a release rather than

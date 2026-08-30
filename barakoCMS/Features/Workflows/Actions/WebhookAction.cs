@@ -1,9 +1,10 @@
 using barakoCMS.Core.Interfaces;
+using barakoCMS.Features.Public;
 using barakoCMS.Infrastructure.Attributes;
+using barakoCMS.Infrastructure.Http;
+using barakoCMS.Models;
+using Marten;
 using Microsoft.Extensions.Logging;
-using System.Net;
-using System.Net.Sockets;
-using System.Text.Json;
 
 namespace barakoCMS.Features.Workflows.Actions;
 
@@ -18,14 +19,22 @@ namespace barakoCMS.Features.Workflows.Actions;
 internal class WebhookAction : IWorkflowAction
 {
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IQuerySession _session;
+    private readonly OutboundAddressGuard _addressGuard;
     private readonly ILogger<WebhookAction> _logger;
 
     /// <summary>
     /// Creates a new WebhookAction.
     /// </summary>
-    public WebhookAction(IHttpClientFactory httpClientFactory, ILogger<WebhookAction> logger)
+    public WebhookAction(
+        IHttpClientFactory httpClientFactory,
+        IQuerySession session,
+        OutboundAddressGuard addressGuard,
+        ILogger<WebhookAction> logger)
     {
         _httpClientFactory = httpClientFactory;
+        _session = session;
+        _addressGuard = addressGuard;
         _logger = logger;
     }
 
@@ -42,9 +51,9 @@ internal class WebhookAction : IWorkflowAction
             return;
         }
 
-        // SSRF guard: only allow http/https to a public host. Blocks loopback, link-local
-        // (incl. cloud metadata 169.254.169.254), and private/internal ranges so a workflow
-        // cannot be used to reach internal services or exfiltrate content data to them.
+        // Early, logged refusal for a URL that is obviously out of bounds. It is not the guard: the
+        // address that gets dialled is checked again when the socket is opened, inside the client's
+        // connect callback, which is the only check a changing DNS answer cannot get around.
         if (!await IsUrlSafeAsync(url, ct))
         {
             _logger.LogWarning("Webhook URL {Url} is not allowed (must be http/https to a non-internal host). Skipping webhook action.", url);
@@ -55,13 +64,12 @@ internal class WebhookAction : IWorkflowAction
         {
             var client = _httpClientFactory.CreateClient("ExternalApi");
 
-            // Build payload with content data
             var payload = new
             {
                 contentId = content.Id,
                 contentType = content.ContentType,
                 status = content.Status.ToString(),
-                data = content.Data,
+                data = await DeliverableDataAsync(content, ct),
                 createdAt = content.CreatedAt,
                 updatedAt = content.UpdatedAt
             };
@@ -88,11 +96,33 @@ internal class WebhookAction : IWorkflowAction
     }
 
     /// <summary>
-    /// Validates that the URL is an absolute http/https URL whose host does not resolve to any
-    /// loopback, link-local, or private/internal address. All resolved addresses must be public.
-    /// Note: this does not fully close DNS-rebinding (the HttpClient re-resolves at send time);
-    /// pin the connection to a validated IP if that threat is in scope.
+    /// The content data a webhook may carry: the fields the content type marks Public, and nothing
+    /// at all from a document that is itself Sensitive or Hidden.
     /// </summary>
+    /// <remarks>
+    /// A webhook target is an arbitrary URL and there is no user behind a workflow, so there are no
+    /// roles to mask against and the anonymous delivery projection is the right one. The field
+    /// allowlist comes from <see cref="PublicDelivery.PublicData"/>, the same function the public
+    /// read path uses, because a second copy of the rules is a second thing to keep in step.
+    ///
+    /// A missing content type definition yields nothing rather than everything: with no schema to
+    /// say which fields are Public, there is no basis for sending any of them.
+    ///
+    /// Note that <c>IsPubliclyDeliverable</c> is deliberately not consulted. That flag governs the
+    /// anonymous HTTP surface, and a webhook is configured by an operator rather than requested by
+    /// the public; the sensitivity rules are what a webhook has to respect.
+    /// </remarks>
+    private async Task<Dictionary<string, object>> DeliverableDataAsync(barakoCMS.Models.Content content, CancellationToken ct)
+    {
+        if (content.Sensitivity != SensitivityLevel.Public)
+            return new Dictionary<string, object>();
+
+        var definition = await _session.Query<ContentTypeDefinition>()
+            .FirstOrDefaultAsync(d => d.Name == content.ContentType, ct);
+
+        return PublicDelivery.PublicData(content, definition);
+    }
+
     private async Task<bool> IsUrlSafeAsync(string url, CancellationToken ct)
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
@@ -100,57 +130,6 @@ internal class WebhookAction : IWorkflowAction
         if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
             return false;
 
-        IPAddress[] addresses;
-        if (IPAddress.TryParse(uri.Host, out var literal))
-        {
-            addresses = new[] { literal };
-        }
-        else
-        {
-            try
-            {
-                addresses = await Dns.GetHostAddressesAsync(uri.Host, ct);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to resolve webhook host {Host}", uri.Host);
-                return false;
-            }
-        }
-
-        return addresses.Length > 0 && addresses.All(a => !IsBlockedAddress(a));
-    }
-
-    private static bool IsBlockedAddress(IPAddress ip)
-    {
-        if (ip.IsIPv4MappedToIPv6)
-            ip = ip.MapToIPv4();
-
-        if (IPAddress.IsLoopback(ip))
-            return true;
-        if (ip.Equals(IPAddress.Any) || ip.Equals(IPAddress.IPv6Any))
-            return true;
-
-        if (ip.AddressFamily == AddressFamily.InterNetwork)
-        {
-            var b = ip.GetAddressBytes();
-            if (b[0] == 0) return true;                                  // 0.0.0.0/8
-            if (b[0] == 10) return true;                                 // 10.0.0.0/8
-            if (b[0] == 127) return true;                                // 127.0.0.0/8
-            if (b[0] == 169 && b[1] == 254) return true;                 // 169.254.0.0/16 link-local (cloud metadata)
-            if (b[0] == 172 && b[1] >= 16 && b[1] <= 31) return true;    // 172.16.0.0/12
-            if (b[0] == 192 && b[1] == 168) return true;                 // 192.168.0.0/16
-            if (b[0] == 100 && b[1] >= 64 && b[1] <= 127) return true;   // 100.64.0.0/10 CGNAT
-            if (b[0] >= 224) return true;                                // 224.0.0.0/4 multicast + reserved
-        }
-        else if (ip.AddressFamily == AddressFamily.InterNetworkV6)
-        {
-            if (ip.IsIPv6LinkLocal || ip.IsIPv6SiteLocal || ip.IsIPv6Multicast)
-                return true;
-            var b = ip.GetAddressBytes();
-            if ((b[0] & 0xFE) == 0xFC) return true;                      // fc00::/7 unique-local
-        }
-
-        return false;
+        return await _addressGuard.IsHostAllowedAsync(uri.Host, ct);
     }
 }

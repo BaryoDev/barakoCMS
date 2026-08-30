@@ -427,15 +427,23 @@ public static class ServiceCollectionExtensions
 
         // AllowAutoRedirect defaults to true, and WebhookAction validates only the URL it was given.
         // A webhook target that answers 302 Location: http://169.254.169.254/... was therefore
-        // followed to the metadata service with IsBlockedAddress never consulted for that address:
+        // followed to the metadata service with the block list never consulted for that address:
         // the SSRF guard covered the first hop only. That needs no DNS control and no race, unlike
         // the rebinding in #258, and works on the first attempt.
         //
         // A webhook receiver has no legitimate reason to redirect a delivery. If one is ever wanted,
-        // the target has to go back through IsUrlSafeAsync before it is followed, never by the
-        // handler on its own.
+        // the target has to go back through the guard before it is followed, never by the handler on
+        // its own.
+        //
+        // The connect callback is the rest of it. Checking a host and then letting the handler
+        // resolve the name again left the check describing one address and the connection going to
+        // another (#258). The guard resolves once and opens the socket to an address that answer
+        // survived, so the pre-flight check in WebhookAction is now an early refusal rather than the
+        // thing standing between a workflow and the metadata service.
+        services.AddSingleton(barakoCMS.Infrastructure.Http.OutboundAddressGuard.Default);
         services.AddHttpClient("ExternalApi")
-                .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false })
+                .ConfigurePrimaryHttpMessageHandler(sp => barakoCMS.Infrastructure.Http.OutboundHttpHandler.Create(
+                    sp.GetRequiredService<barakoCMS.Infrastructure.Http.OutboundAddressGuard>()))
                 .AddStandardResilienceHandler();
 
         // Defaults registered with TryAdd so an opted-in module or the host can substitute a real
