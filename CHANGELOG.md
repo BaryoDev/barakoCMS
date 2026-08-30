@@ -254,6 +254,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **The token revocation check failed open.** Any exception from the revocation query returned "not
+  revoked", so a revoked token was accepted for as long as the store was unreachable, and it said so
+  at Debug, which production does not emit. A logged-out session came back during a database blip and
+  nothing recorded it. A missing table still answers "not revoked", because with no table nothing has
+  ever been revoked and that is the case the original catch was written for. Everything else refuses
+  the request.
+
+- **Refresh-token rotation dropped the device binding.** The replacement token carried no `DeviceId`,
+  so the binding survived exactly one refresh and device trust had nothing to enforce against from
+  the second onward. The symptom appeared one rotation after the cause, which is why it lasted.
+
+- **An OTP email that failed to send was reported as sent.** On the device approval path, where the
+  password has already been proved, the response now says the code could not be emailed instead of
+  sending somebody to wait for a message that was never sent. The unauthenticated request-a-code
+  route deliberately still answers identically whether the address exists, because reporting the
+  failure there would tell a caller which addresses are real.
+
 - **The API images run as a non-root user.** `barako-cms` and `barako-cms-decaf` ran as root while
   the admin image did not, which is what an omission looks like rather than a decision. Both now drop
   to the base image's `app` user (uid 1654) before the entrypoint. Nothing needs privilege: 8080 is

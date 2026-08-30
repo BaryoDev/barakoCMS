@@ -59,7 +59,15 @@ internal class RequestEndpoint : Endpoint<OtpRequest, OtpRequestResponse>
             return;
         }
 
-        await _otp.SendCodeAsync(user.Email, DeviceContext.From(HttpContext), ct);
+        // The result is deliberately not reflected in the response here, and that is not the same
+        // oversight this endpoint's sibling had. This route answers identically whether the account
+        // exists, on purpose, so reporting a send failure would tell an unauthenticated caller that
+        // the address is real. Enumeration protection outranks the better error message on a route
+        // anybody can call. The failure is logged at Error inside the service.
+        //
+        // The device approval path in Features/Auth/Login is different: the caller has already
+        // proved the password, so there is nothing left to enumerate and it does report the failure.
+        _ = await _otp.SendCodeAsync(user.Email, DeviceContext.From(HttpContext), ct);
         await Send.ResponseAsync(ok, cancellation: ct);
     }
 }
