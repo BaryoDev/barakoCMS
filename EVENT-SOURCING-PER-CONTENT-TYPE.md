@@ -281,10 +281,33 @@ start before the constraints above are all decided.
 
 ## Open decisions
 
-These need answering before step 3, and they are all one-way doors:
+All four are answered. They were one-way doors, which is why they were listed here rather than left
+to the implementation.
 
-1. Delete-and-recreate of a content type: refuse, or inherit the original flag?
-2. Personal data: document the limitation, tombstone, or crypto-shred?
-3. Concurrency: match document mode's last-write-wins, or expected-version with a conflict response?
-4. Does an event-sourced type expose its history through the API, or is the stream internal? If it is
-   exposed, the event shapes become public API and evolving them gets harder again.
+1. **Delete-and-recreate of a content type: the original flag is inherited.** The policy is keyed by
+   the type name and written once, so recreating a name cannot arrive at the opposite answer.
+   Decided in #230.
+2. **Personal data: refuse the combination.** An event-sourced type may not hold non-Public fields.
+   Decided in #230, and consistent with D9 in `DECISIONS.md`, where erasure is a delete rather than
+   a tombstone or a shred.
+3. **Concurrency: expected-version with a 409, for event-sourced types only.** Decided in #230.
+4. **The stream is internal. An event-sourced type does not expose its history through the API.**
+   Decided 30 Aug 2026, before #331.
+
+### On decision 4
+
+Exposing the history would make every event record a public type under CLAUDE.md section 6, frozen
+until the next major. That is a large permanent commitment bought for a feature nobody has asked
+for, and it would be paid by the people least able to see the bill: whoever next needs to add a
+field to `ContentUpdated`.
+
+It is also the reversible direction. Adding a history endpoint later is additive and breaks nothing.
+Removing one, once clients read it, is a major-version event. So the question is not which answer is
+better in the abstract, it is which answer can still be changed after it turns out to be wrong, and
+only one of them can.
+
+There is already a `GET /api/contents/{id}/history` in document mode, built on `AuditEvent` rather
+than on the stream. That stays as it is. The distinction matters and should be kept clear in the
+docs: the audit trail is a record of who did what, and it is a separate thing from the event stream
+that an event-sourced type is rebuilt from. Backing the existing endpoint with the stream instead
+would be exactly the exposure this decision refuses.
