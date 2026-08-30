@@ -125,4 +125,117 @@ test.describe('Login & Authentication', () => {
         await expect(page).toHaveURL('/', { timeout: 10000 });
         await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible();
     });
+
+    test('device approval: an unapproved device asks for the emailed code', async ({ page }) => {
+        await page.route('**/api/auth/login', (route) =>
+            route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    token: '',
+                    refreshToken: '',
+                    requiresDeviceApproval: true,
+                    message: "This device isn't approved yet. Enter the code we emailed to approve it.",
+                    email: 'admin@example.com',
+                }),
+            })
+        );
+
+        await page.goto('/login');
+        await page.getByLabel('Username').fill('admin');
+        await page.getByLabel('Password', { exact: true }).fill('correct-password');
+        await page.getByRole('button', { name: 'Sign in' }).click();
+
+        // Before this existed the page showed a toast and stopped, so turning on
+        // DeviceTrust__Enforce locked every administrator out with no way back in.
+        await expect(page.getByLabel('Device approval code')).toBeVisible();
+        await expect(page.getByText('admin@example.com')).toBeVisible();
+    });
+
+    test('device approval: a valid code completes the sign-in', async ({ page }) => {
+        await page.route('**/api/auth/login', (route) =>
+            route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    token: '',
+                    refreshToken: '',
+                    requiresDeviceApproval: true,
+                    email: 'admin@example.com',
+                }),
+            })
+        );
+        await page.route('**/api/auth/otp/verify', (route) =>
+            route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    token: MOCK_TOKEN,
+                    expiry: new Date(Date.now() + 900_000).toISOString(),
+                    refreshToken: 'mock-refresh',
+                    refreshTokenExpiry: new Date(Date.now() + 7 * 86400_000).toISOString(),
+                }),
+            })
+        );
+        await stubShell(page);
+        await stubContentTypes(page);
+        await page.route('**/api/workflows**', (r) => r.fulfill({ json: pageOf([]) }));
+        await page.route('**/api/contents**', (r) => r.fulfill({ json: EMPTY_PAGE }));
+
+        await page.goto('/login');
+        await page.getByLabel('Username').fill('admin');
+        await page.getByLabel('Password', { exact: true }).fill('correct-password');
+        await page.getByRole('button', { name: 'Sign in' }).click();
+
+        await page.getByLabel('Device approval code').fill('123456');
+        await page.getByRole('button', { name: 'Approve device' }).click();
+
+        await expect(page).toHaveURL('/', { timeout: 10000 });
+    });
+
+    /**
+     * A correct email code on an account with MFA enabled owes a second factor.
+     *
+     * Worth its own test because the tempting implementation treats any 200 from otp/verify as
+     * signed in, and that response carries no tokens. Mailbox possession is a first factor and
+     * cannot stand in for the enrolled second one.
+     */
+    test('device approval: an MFA account is handed to the authenticator step, not signed in', async ({ page }) => {
+        await page.route('**/api/auth/login', (route) =>
+            route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    token: '',
+                    refreshToken: '',
+                    requiresDeviceApproval: true,
+                    email: 'admin@example.com',
+                }),
+            })
+        );
+        await page.route('**/api/auth/otp/verify', (route) =>
+            route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    token: '',
+                    refreshToken: '',
+                    requiresMfa: true,
+                    mfaChallengeToken: 'challenge-abc',
+                }),
+            })
+        );
+
+        await page.goto('/login');
+        await page.getByLabel('Username').fill('admin');
+        await page.getByLabel('Password', { exact: true }).fill('correct-password');
+        await page.getByRole('button', { name: 'Sign in' }).click();
+
+        await page.getByLabel('Device approval code').fill('123456');
+        await page.getByRole('button', { name: 'Approve device' }).click();
+
+        await expect(page.getByLabel('Authentication code')).toBeVisible();
+        await expect(page).not.toHaveURL('/');
+    });
+
 });

@@ -187,6 +187,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Turning on device trust locked every administrator out.** With `DeviceTrust__Enforce` on, the API
+  answers a password login from an unapproved device with `requiresDeviceApproval` and emails a code.
+  The admin showed a toast and stopped, so there was nowhere to type the code and no way back in. The
+  quickstart advertises that setting. The login page has the approval step now, and hands off to the
+  authenticator step rather than signing in when the account also has MFA enabled, because a mailbox
+  is a first factor and cannot stand in for the enrolled second one.
+
 - **The admin History panel had been showing nothing since the list envelope changed.** It read
   `versions` off `GET /api/contents/{id}/history`, and that endpoint has returned the paginated
   `items` envelope since #291. The panel rendered an empty list rather than failing, and the e2e
