@@ -6,7 +6,7 @@ using System.Security.Claims;
 
 namespace barakoCMS.Features.Content.Create;
 
-public class Endpoint : Endpoint<Request, Response>
+internal class Endpoint : Endpoint<Request, Response>
 {
     private readonly IDocumentSession _session;
     private readonly IContentWriter _contentWriter;
@@ -32,22 +32,19 @@ public class Endpoint : Endpoint<Request, Response>
         var userIdClaim = User.FindFirst("UserId");
         if (userIdClaim == null)
         {
-            await Send.ResponseAsync(new Response { Message = "User ID claim not found" }, 400, ct);
-            return;
+            ThrowError("User ID claim not found");
         }
 
         if (!Guid.TryParse(userIdClaim.Value, out var userId))
         {
-            await Send.ResponseAsync(new Response { Message = "Invalid User ID format" }, 400, ct);
-            return;
+            ThrowError("Invalid User ID format");
         }
 
         // PERMISSION CHECK
         var user = await _session.LoadAsync<User>(userId, ct);
         if (user == null)
         {
-            await Send.ResponseAsync(new Response { Message = "User not found" }, 401, ct);
-            return;
+            ThrowError("User not found", 401);
         }
 
         if (!await _permissionResolver.CanPerformActionAsync(user, req.ContentType, "create", null, ct))
@@ -65,8 +62,14 @@ public class Endpoint : Endpoint<Request, Response>
         var validationResult = await _validator.ValidateAsync(req.ContentType, req.Data);
         if (!validationResult.IsValid)
         {
-            await Send.ResponseAsync(new Response { Message = "Validation Failed: " + string.Join(", ", validationResult.Errors) }, 400, ct);
-            return;
+            // One entry per failure rather than one flattened string, so a client can show the
+            // failures against the fields they belong to.
+            foreach (var error in validationResult.Errors)
+            {
+                AddError(error);
+            }
+
+            ThrowIfAnyErrors();
         }
 
         // DOMAIN RULES. Schema validation answers "is this the right shape"; a module's lifecycle hook
@@ -77,8 +80,12 @@ public class Endpoint : Endpoint<Request, Response>
             .RunBeforeSaveAsync(req.ContentType, req.Data, existing: null, userId, ct);
         if (hookErrors.Count > 0)
         {
-            await Send.ResponseAsync(new Response { Message = "Validation Failed: " + string.Join(", ", hookErrors) }, 400, ct);
-            return;
+            foreach (var error in hookErrors)
+            {
+                AddError(error);
+            }
+
+            ThrowIfAnyErrors();
         }
 
         var definition = await _session.Query<ContentTypeDefinition>()
@@ -111,7 +118,6 @@ public class Endpoint : Endpoint<Request, Response>
         {
             Id = contentId,
             Version = 1,
-            Message = "Content created successfully"
         });
     }
 }

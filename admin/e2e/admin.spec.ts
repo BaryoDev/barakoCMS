@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { MOCK_TOKEN } from './helpers';
+import { MOCK_TOKEN, pageOf, stubContentTypes } from './helpers';
 
 const SCHEMAS = [
     {
@@ -16,10 +16,8 @@ test.describe('Admin flows (mocked API)', () => {
             window.localStorage.setItem('barako_token', token);
         }, MOCK_TOKEN);
 
-        await page.route('**/api/schemas', (route) =>
-            route.fulfill({ json: SCHEMAS })
-        );
-        await page.route('**/api/workflows', (route) => route.fulfill({ json: [] }));
+        await stubContentTypes(page, SCHEMAS);
+        await page.route('**/api/workflows', (route) => route.fulfill({ json: pageOf([]) }));
         await page.route('**/api/monitoring/**', (route) => route.fulfill({ json: {} }));
         await page.route('**/health', (route) =>
             route.fulfill({ json: { status: 'Healthy', totalDuration: '0', entries: {} } })
@@ -53,9 +51,12 @@ test.describe('Admin flows (mocked API)', () => {
     });
 
     test('creating a content type posts to /api/content-types with PascalCase fields', async ({ page }) => {
-        await page.route('**/api/content-types', (route) =>
-            route.fulfill({ json: { id: 'ct1', name: 'secret-doc' } })
-        );
+        // POST only. GET on this route is the content-type list, stubbed in beforeEach, and this
+        // route is registered later so it would otherwise answer both.
+        await page.route('**/api/content-types', async (route) => {
+            if (route.request().method() !== 'POST') return route.fallback();
+            return route.fulfill({ json: { id: 'ct1', name: 'secret-doc' } });
+        });
 
         await page.goto('/schemas/new');
         await page.getByLabel('Display name').fill('Secret doc');

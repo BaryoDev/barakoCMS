@@ -3,7 +3,7 @@ using barakoCMS.Infrastructure.Services;
 
 namespace barakoCMS.Features.Monitoring.Metrics;
 
-public class Endpoint : EndpointWithoutRequest<MetricsSummary>
+internal class Endpoint : EndpointWithoutRequest<MetricsSummary>
 {
     private readonly IMetricsService _metricsService;
 

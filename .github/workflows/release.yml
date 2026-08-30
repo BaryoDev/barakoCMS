@@ -208,6 +208,25 @@ jobs:
           done
           echo "all $COUNT packages installed, built and loaded"
 
+          # A library must not inject files into its consumer's project. The core is a
+          # Microsoft.NET.Sdk.Web project, where appsettings*.json are Content items and pack ships
+          # Content by default, so 3.21.0 shipped content/appsettings.json and
+          # contentFiles/any/net10.0/appsettings.json and dropped the host's own configuration into
+          # every consumer, to collide with theirs at build and publish.
+          #
+          # Checked on the .nupkg rather than on the restored project, because a content file that
+          # lands somewhere unexpected still ships.
+          cd ..
+          for f in "$FEED"/*.nupkg; do
+            entries=$(unzip -Z1 "$f" | grep -E '^(content|contentFiles)/' || true)
+            if [ -n "$entries" ]; then
+              echo "::error::$(basename "$f") ships content files into consumer projects:"
+              echo "$entries"
+              exit 1
+            fi
+          done
+          echo "no package injects content files"
+
   # Pushes the exact files that were tested and install-verified. Deliberately has no
   # actions/checkout: without the source this job *cannot* rebuild, even by accident. If you find
   # yourself adding a checkout here, what you actually want is a step in the test job.

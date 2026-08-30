@@ -17,6 +17,11 @@ jobs:
         steps:
             - uses: actions/checkout@v7
 
+            # QEMU is what lets the amd64 runner emit an arm64 layer. Without it the arm64 half of
+            # the build below fails on the first RUN.
+            - name: Set up QEMU
+              uses: docker/setup-qemu-action@v3
+
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v4
 
@@ -45,6 +50,12 @@ jobs:
               with:
                   context: .
                   file: Dockerfile.suite
+                  # amd64 only until now, which is why these images had never run on the project's
+                  # own host: the playground VM is aarch64 and was quietly serving locally built
+                  # images instead. An arm64 host is the common case on Oracle Ampere, AWS Graviton
+                  # and an Apple Silicon laptop, so "docker run the published image" did not work
+                  # for a large share of the people the deployment guide is written for.
+                  platforms: linux/amd64,linux/arm64
                   push: true
                   tags: |
                       ghcr.io/baryodev/barako-cms:latest
@@ -56,6 +67,7 @@ jobs:
               with:
                   context: ./admin
                   file: admin/Dockerfile
+                  platforms: linux/amd64,linux/arm64
                   push: true
                   tags: |
                       ghcr.io/baryodev/barako-admin:latest

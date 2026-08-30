@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { authed, stubShell } from './helpers';
+import { authed, stubShell, pageOf, stubContentTypes } from './helpers';
 
 /**
  * Release screenshots. Not a behaviour test — it drives the real UI to real states
@@ -34,7 +34,7 @@ test('api keys page', async ({ page }, testInfo) => {
     await stubShell(page);
     await page.route('**/api/api-keys**', (r) =>
         r.fulfill({
-            json: [
+            json: pageOf([
                 {
                     id: 'k1', name: 'CI deploy', prefix: 'bcms_ab12cd34', scopes: ['content:read', 'content:write'],
                     tenantSlug: 'default', expiresAt: null, lastUsedAt: new Date().toISOString(), revoked: false,
@@ -45,7 +45,7 @@ test('api keys page', async ({ page }, testInfo) => {
                     tenantSlug: 'default', expiresAt: null, lastUsedAt: null, revoked: false,
                     createdAt: new Date().toISOString(),
                 },
-            ],
+            ]),
         })
     );
 
@@ -58,7 +58,7 @@ test('api keys page', async ({ page }, testInfo) => {
 test('entry form with the new field types', async ({ page }, testInfo) => {
     await authed(page);
     await stubShell(page);
-    await page.route('**/api/schemas**', (r) => r.fulfill({ json: [SCHEMA] }));
+    await stubContentTypes(page, [SCHEMA]);
 
     await page.goto('/content/new?type=memberprofile_ft');
     await expect(page.locator('#Email')).toBeVisible({ timeout: 15000 });

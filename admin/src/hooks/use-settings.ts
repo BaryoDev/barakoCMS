@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { api, type Paginated } from '@/lib/api';
 
 export interface SystemSetting {
     key: string;
@@ -13,8 +13,8 @@ export function useSettings() {
     return useQuery({
         queryKey: ['settings'],
         queryFn: async () => {
-            const response = await api.get<{ settings: SystemSetting[] }>('/api/settings');
-            return response.data.settings;
+            const response = await api.get<Paginated<SystemSetting>>('/api/settings');
+            return response.data.items;
         },
     });
 }

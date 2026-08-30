@@ -1,4 +1,5 @@
 using barakoCMS.Extensions;
+using JasperFx;
 using Serilog;
 using Serilog.Events;
 using Prometheus;
@@ -60,13 +61,25 @@ try
 {
     Log.Information("Starting BarakoCMS Host...");
 
-    // Create/patch the schema up front, before anything reads it. Under AutoCreate.None (prod) tables
-    // aren't created on demand, so a fresh database would otherwise crash the seeder below with
-    // "relation does not exist". Idempotent; a no-op once the schema matches.
-    await app.ApplyMartenSchemaAsync();
+    // A bare first argument names a JasperFx command (db-assert, db-patch, db-apply, help). A
+    // leading dash is a .NET or ASP.NET flag such as --urls, which JasperFx detects and hands
+    // straight back to the normal host, so those still serve and still need the schema work
+    // below. Deciding this on args.Length alone left a --urls host with whatever tables its first
+    // request happened to create.
+    var willServe = args.Length == 0 || args[0].StartsWith('-') || args[0] == "run";
+
+    if (willServe)
+    {
+        // Create the schema up front, before anything reads it. Production runs
+        // AutoCreate.CreateOnly, which creates missing objects but never alters an existing one, so
+        // a fresh database works and an upgrade needing an ALTER fails here loudly. That is
+        // deliberate: the ALTER goes through `db-patch` as a reviewed SQL file applied before the
+        // deploy. See docs/upgrading-to-4.0.md.
+        await app.ApplyMartenSchemaAsync();
+    }
 
     // Run Seeder in background to avoid blocking startup and timeouts.
-    if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("SKIP_SEEDER")))
+    if (willServe && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("SKIP_SEEDER")))
     {
         _ = Task.Run(async () =>
         {
@@ -88,15 +101,27 @@ try
     }
 
     Log.Information("BarakoCMS App Running...");
-    app.Run();
+
+    // Dispatches a db-* command when one was named, and runs the host exactly as app.Run() did
+    // otherwise. A failed command comes back as a return value rather than an exception, so it has
+    // to reach the exit code the same way the catch below does.
+    Environment.ExitCode = await app.RunJasperFxCommands(args);
 }
 catch (Exception ex)
 {
     Log.Fatal(ex, "Host terminated unexpectedly");
+    // Everything that decides whether a deploy worked reads the exit code: CI, docker run wrappers,
+    // systemd, a k8s Job container. Ending normally after a fatal error reports the broken deploy
+    // as a success.
+    Environment.ExitCode = 1;
 }
 finally
 {
     Log.Information("BarakoCMS Host Shutting Down...");
     Log.CloseAndFlush();
 }
+// Stays public. WebApplicationFactory<Program> is the test host's entry point, and a public test
+// class cannot implement IClassFixture over an internal one, so internalising this would make forty
+// test classes internal to buy nothing: the type is an empty partial with no members for section 6
+// to freeze.
 public partial class Program { }

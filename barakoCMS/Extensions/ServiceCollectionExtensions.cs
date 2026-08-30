@@ -419,7 +419,8 @@ public static class ServiceCollectionExtensions
         // Schema is applied explicitly at startup via host.ApplyMartenSchemaAsync() (below), called
         // BEFORE the data seeders run. ApplyAllDatabaseChangesOnStartup() can't be used here: it
         // registers a hosted service that runs during app.Run(), but the seeders run before that, so
-        // with AutoCreate.None they'd hit tables that don't exist yet on a fresh database.
+        // with CreateOnly's no-on-demand-DDL they'd hit tables that don't exist yet on a fresh
+        // database.
 
         // services.AddHealthChecks()
         //    .AddNpgSql(configuration.GetConnectionString("DefaultConnection")!, tags: new[] { "db", "ready" });
@@ -601,6 +602,17 @@ public static class ServiceCollectionExtensions
 
         if (string.IsNullOrWhiteSpace(connectionString))
         {
+            // A dummy string turns "nobody configured a database" into a connection refused against
+            // localhost, which surfaces long after startup as an unrelated failure. Name the missing
+            // setting instead. It stays a dummy in Development, where design-time tooling and the
+            // codegen pass need Marten to build a store without a database behind it.
+            var environment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
+            if (!string.Equals(environment, "Development", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    "No database connection string. Set ConnectionStrings:DefaultConnection or the DATABASE_URL environment variable.");
+            }
+
             return "Server=127.0.0.1;Port=5432;Database=dummy;User Id=postgres;Password=nomartencrash;";
         }
 
@@ -678,7 +690,10 @@ public static class ServiceCollectionExtensions
         var globalPostProcessors = app.ApplicationServices.GetServices<FastEndpoints.IGlobalPostProcessor>().ToArray();
         app.UseFastEndpoints(c =>
         {
-            c.Errors.UseProblemDetails();
+            // AllowDuplicateErrors keeps every failure that shares a field name. Without it a
+            // content type with three bad fields reports one of them, so the caller fixes it, posts
+            // again and is told about the next one.
+            c.Errors.UseProblemDetails(x => x.AllowDuplicateErrors = true);
 
             // Deserialize incoming Dictionary<string, object> bodies (a content entry's Data, a
             // permission rule's Conditions) exactly the way they are stored — see ObjectJsonConverter.
@@ -688,6 +703,17 @@ public static class ServiceCollectionExtensions
             // payload it is meant to be guarding.
             c.Serializer.Options.Converters.Add(
                 new barakoCMS.Infrastructure.Serialization.ObjectJsonConverter());
+
+            // Enums cross the wire as names, not numbers. An int enum renumbers every client the
+            // moment a member is inserted, and the admin had the numbering transcribed into its own
+            // source to cope.
+            //
+            // This is the HTTP serializer only. The Marten one above must NOT get this converter:
+            // documents are stored with Status as a number and mt_doc_contents_idx_status indexes
+            // ((data ->> 'Status')::integer), so writing names there breaks the index cast and every
+            // LINQ query that filters on it. Changing storage is a data migration, not a contract
+            // change. Reading still accepts a number, so an existing caller keeps working.
+            c.Serializer.Options.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
 
             c.Endpoints.Configurator = ep =>
             {
@@ -798,10 +824,13 @@ public static class ServiceCollectionExtensions
     /// <summary>
     /// Applies all outstanding Marten schema changes to the database, upfront. Call this at startup
     /// BEFORE any seeder runs. It's the deliberate, ordered replacement for
-    /// ApplyAllDatabaseChangesOnStartup: because production runs AutoCreate.None (no on-demand DDL),
-    /// the schema must exist before the seeders query it — and the seeders run before app.Run(), so a
-    /// boot-time hosted service is too late. Idempotent: a no-op when the DB already matches the model.
-    /// A schema mismatch throws here, failing the deploy loudly instead of 500ing live writes.
+    /// ApplyAllDatabaseChangesOnStartup: because production runs AutoCreate.CreateOnly, which creates
+    /// missing objects but never issues DDL on demand for an existing one, the schema must exist
+    /// before the seeders query it, and the seeders run before app.Run(), so a boot-time hosted
+    /// service is too late. Idempotent: a no-op when the DB already matches the model.
+    /// A change CreateOnly refuses (anything needing an ALTER) throws here, failing the deploy loudly
+    /// instead of 500ing live writes. That is the upgrade path's entry point: generate the delta with
+    /// <c>db-patch</c>, review it, apply it, then deploy. See docs/upgrading-to-4.0.md.
     /// </summary>
     public static async Task ApplyMartenSchemaAsync(this IHost host)
     {

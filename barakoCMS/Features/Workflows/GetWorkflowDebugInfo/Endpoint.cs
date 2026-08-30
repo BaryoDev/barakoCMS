@@ -8,7 +8,7 @@ namespace barakoCMS.Features.Workflows.GetWorkflowDebugInfo;
 /// <summary>
 /// Request to get workflow debug information.
 /// </summary>
-public class Request
+internal class Request
 {
     public Guid Id { get; set; }
     public int Limit { get; set; } = 20;
@@ -17,7 +17,7 @@ public class Request
 /// <summary>
 /// Endpoint to get workflow execution history for debugging.
 /// </summary>
-public class Endpoint : Endpoint<Request, List<WorkflowExecutionLog>>
+internal class Endpoint : Endpoint<Request, List<WorkflowExecutionLog>>
 {
     private readonly IWorkflowDebugger _debugger;
     private readonly ILogger<Endpoint> _logger;

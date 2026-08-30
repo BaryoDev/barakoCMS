@@ -6,7 +6,7 @@ using barakoCMS.Infrastructure.Services;
 
 namespace barakoCMS.Features.Users.ResetPassword;
 
-public class ResetPasswordRequest
+internal class ResetPasswordRequest
 {
     /// <summary>Bound from the {userId} route segment.</summary>
     public Guid UserId { get; set; }
@@ -19,7 +19,7 @@ public class ResetPasswordRequest
 /// check, since this is an administrative reset. Outstanding short-lived access tokens expire on their
 /// own rather than being individually revoked.
 /// </summary>
-public class ResetPasswordEndpoint : Endpoint<ResetPasswordRequest>
+internal class ResetPasswordEndpoint : Endpoint<ResetPasswordRequest>
 {
     private readonly IDocumentSession _session;
     private readonly IPasswordPolicyValidator _passwordValidator;

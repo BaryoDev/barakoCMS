@@ -4,7 +4,7 @@ using Marten;
 
 namespace barakoCMS.Features.Workflows;
 
-public class CreateWorkflowEndpoint : Endpoint<WorkflowDefinition, WorkflowDefinition>
+internal class CreateWorkflowEndpoint : Endpoint<WorkflowDefinition, WorkflowDefinition>
 {
     private readonly IDocumentSession _session;
     private readonly barakoCMS.Infrastructure.Services.IWorkflowSchemaValidator _validator;
@@ -43,7 +43,7 @@ public class CreateWorkflowEndpoint : Endpoint<WorkflowDefinition, WorkflowDefin
     }
 }
 
-public class ListWorkflowsEndpoint : EndpointWithoutRequest<List<WorkflowDefinition>>
+internal class ListWorkflowsEndpoint : Endpoint<ListRequest, PaginatedResponse<WorkflowDefinition>>
 {
     private readonly IDocumentSession _session;
 
@@ -58,9 +58,12 @@ public class ListWorkflowsEndpoint : EndpointWithoutRequest<List<WorkflowDefinit
         Roles("SuperAdmin", "Admin");
     }
 
-    public override async Task HandleAsync(CancellationToken ct)
+    public override async Task HandleAsync(ListRequest req, CancellationToken ct)
     {
-        var workflows = await _session.Query<WorkflowDefinition>().ToListAsync(ct);
-        await Send.ResponseAsync(workflows.ToList(), cancellation: ct);
+        var page = await _session.Query<WorkflowDefinition>()
+            .OrderBy(w => w.Name)
+            .ToPagedResponseAsync(req, ct);
+
+        await Send.ResponseAsync(page, cancellation: ct);
     }
 }

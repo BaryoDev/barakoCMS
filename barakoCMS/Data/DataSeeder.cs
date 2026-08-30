@@ -3,6 +3,9 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Data;
 
+// Stays public: BarakoCMS.Suite's host calls it at startup, and so would anyone assembling their
+// own host who wants the canonical roles and the initial admin seeded. That makes it contract
+// rather than host detail.
 public static class DataSeeder
 {
     private const int batchSize = 1000;

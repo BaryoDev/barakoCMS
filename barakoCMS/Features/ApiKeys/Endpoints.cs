@@ -9,19 +9,19 @@ namespace barakoCMS.Features.ApiKeys;
 // the creating user, so a key can never do more than its creator, and its scopes narrow it further to
 // the content surface. The secret is shown once, on create, and only its hash is stored.
 
-public sealed class CreateApiKeyRequest
+internal sealed class CreateApiKeyRequest
 {
     public string Name { get; set; } = string.Empty;
     public List<string> Scopes { get; set; } = new();
     public DateTime? ExpiresAt { get; set; }
 }
 
-public sealed record CreateApiKeyResponse(
+internal sealed record CreateApiKeyResponse(
     Guid Id, string Key, string Prefix, string Name, List<string> Scopes,
     string TenantSlug, DateTime? ExpiresAt, DateTime CreatedAt);
 
 /// <summary>POST /api/api-keys — create a key; returns the full secret ONCE.</summary>
-public class CreateApiKeyEndpoint : Endpoint<CreateApiKeyRequest, CreateApiKeyResponse>
+internal class CreateApiKeyEndpoint : Endpoint<CreateApiKeyRequest, CreateApiKeyResponse>
 {
     private readonly IDocumentSession _session;
     private readonly ApiKeyService _keys;
@@ -84,12 +84,12 @@ public class CreateApiKeyEndpoint : Endpoint<CreateApiKeyRequest, CreateApiKeyRe
     }
 }
 
-public sealed record ApiKeyListItem(
+internal sealed record ApiKeyListItem(
     Guid Id, string Name, string Prefix, List<string> Scopes, string TenantSlug,
     DateTime? ExpiresAt, DateTime? LastUsedAt, bool Revoked, DateTime CreatedAt);
 
 /// <summary>GET /api/api-keys — list the current tenant's keys (never the secret or hash).</summary>
-public class ListApiKeysEndpoint : EndpointWithoutRequest<List<ApiKeyListItem>>
+internal class ListApiKeysEndpoint : Endpoint<ListRequest, PaginatedResponse<ApiKeyListItem>>
 {
     private readonly IQuerySession _session;
     public ListApiKeysEndpoint(IQuerySession session) => _session = session;
@@ -100,22 +100,30 @@ public class ListApiKeysEndpoint : EndpointWithoutRequest<List<ApiKeyListItem>>
         Roles("SuperAdmin", "Admin");
     }
 
-    public override async Task HandleAsync(CancellationToken ct)
+    public override async Task HandleAsync(ListRequest req, CancellationToken ct)
     {
         var tenant = (User.FindFirst("tenant")?.Value ?? Tenant.DefaultSlug).Trim().ToLowerInvariant();
-        var keys = await _session.Query<ApiKey>().Where(k => k.TenantSlug == tenant).ToListAsync(ct);
-        var items = keys
+        var page = await _session.Query<ApiKey>()
+            .Where(k => k.TenantSlug == tenant)
             .OrderByDescending(k => k.CreatedAt)
-            .Select(k => new ApiKeyListItem(
-                k.Id, k.Name, k.Prefix, k.Scopes, k.TenantSlug,
-                k.ExpiresAt, k.LastUsedAt, k.Revoked, k.CreatedAt))
-            .ToList();
-        await Send.OkAsync(items, ct);
+            .ToPagedResponseAsync(req, ct);
+
+        await Send.OkAsync(new PaginatedResponse<ApiKeyListItem>
+        {
+            Items = page.Items
+                .Select(k => new ApiKeyListItem(
+                    k.Id, k.Name, k.Prefix, k.Scopes, k.TenantSlug,
+                    k.ExpiresAt, k.LastUsedAt, k.Revoked, k.CreatedAt))
+                .ToList(),
+            Page = page.Page,
+            PageSize = page.PageSize,
+            TotalItems = page.TotalItems,
+        }, ct);
     }
 }
 
 /// <summary>DELETE /api/api-keys/{id} — revoke a key (soft; the record is kept). Effective immediately.</summary>
-public class RevokeApiKeyEndpoint : EndpointWithoutRequest
+internal class RevokeApiKeyEndpoint : EndpointWithoutRequest
 {
     private readonly IDocumentSession _session;
     public RevokeApiKeyEndpoint(IDocumentSession session) => _session = session;

@@ -2,7 +2,7 @@ using FluentValidation;
 
 namespace barakoCMS.Features.Content.Create;
 
-public class Request
+internal class Request
 {
     public string ContentType { get; set; } = string.Empty;
     public Dictionary<string, object> Data { get; set; } = new();
@@ -15,7 +15,7 @@ public class Request
 /// Schema validation against ContentType is handled by the endpoint via IContentValidatorService,
 /// which uses a properly scoped IQuerySession.
 /// </summary>
-public class RequestValidator : FastEndpoints.Validator<Request>
+internal class RequestValidator : FastEndpoints.Validator<Request>
 {
     public RequestValidator()
     {
@@ -24,12 +24,11 @@ public class RequestValidator : FastEndpoints.Validator<Request>
     }
 }
 
-public class Response
+internal class Response
 {
     public Guid Id { get; set; }
     /// <summary>
     /// Initial event-stream version (1). Echo it back in an update's Version field for concurrency checks.
     /// </summary>
     public long Version { get; set; }
-    public string Message { get; set; } = string.Empty;
 }

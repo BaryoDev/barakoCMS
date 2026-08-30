@@ -6,7 +6,7 @@ using ContentDoc = barakoCMS.Models.Content;
 
 namespace barakoCMS.Features.Public;
 
-public class SitemapEndpoint : EndpointWithoutRequest
+internal class SitemapEndpoint : EndpointWithoutRequest
 {
     private readonly IQuerySession _session;
     private readonly IConfiguration _config;

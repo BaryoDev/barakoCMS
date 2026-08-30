@@ -19,7 +19,7 @@ namespace barakoCMS.Features.ContentType.SetPublicDelivery;
 /// to a whole content type is a decision worth making on purpose, and worth being able to audit,
 /// rather than something that rides along inside a larger edit.
 /// </remarks>
-public class Endpoint : Endpoint<Request, Response>
+internal class Endpoint : Endpoint<Request, Response>
 {
     private readonly IDocumentSession _session;
 

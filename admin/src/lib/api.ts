@@ -133,7 +133,12 @@ api.interceptors.response.use(
     }
 );
 
-// Backend list endpoints (contents, users, roles, content-types) return this envelope.
+// Every collection endpoint returns this envelope. The one deliberate exception is
+// /api/public/{type}/search, which echoes a query rather than paging a set; see
+// PublicSearchResponse for why.
+//
+// This comment used to name four endpoints and was wrong about one of them: /api/schemas returned
+// a bare array. It is the thing a contributor reads to learn the convention, so it has to be true.
 export interface Paginated<T> {
     items: T[];
     page: number;
@@ -147,7 +152,7 @@ export interface Paginated<T> {
 export interface PageParams {
     page?: number;
     pageSize?: number;
-    sortBy?: string;
+    // sortBy is gone in 4.0. The server accepted it everywhere and honoured it nowhere.
     sortOrder?: 'asc' | 'desc';
 }
 
@@ -158,7 +163,15 @@ export function apiErrorMessage(error: unknown, fallback = 'Something went wrong
         if (data?.message) return data.message;
         if (data?.errors) {
             const errs = data.errors;
-            if (Array.isArray(errs)) return errs.map((e) => e.message ?? e).join(', ');
+            // ProblemDetails entries from FastEndpoints carry `reason`, not `message`. Reading
+            // `message` first left `?? e` falling back to the object, so every validation failure
+            // rendered as "[object Object]", including "Invalid credentials" on the login page.
+            if (Array.isArray(errs)) {
+                return errs
+                    .map((e) => (typeof e === 'string' ? e : (e?.reason ?? e?.message ?? '')))
+                    .filter(Boolean)
+                    .join(', ') || fallback;
+            }
             if (typeof errs === 'object') return Object.values(errs).flat().join(', ');
         }
         if (error.response?.status === 401) return 'Your session has expired. Sign in again.';

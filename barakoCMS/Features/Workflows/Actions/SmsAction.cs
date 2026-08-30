@@ -11,7 +11,7 @@ namespace barakoCMS.Features.Workflows.Actions;
     RequiredParameters = new[] { "To", "Message" },
     ExampleJson = @"{""Type"":""SMS"",""Parameters"":{""To"":""+1234567890"",""Message"":""Content {{id}} needs review""}}"
 )]
-public class SmsAction : IWorkflowAction
+internal class SmsAction : IWorkflowAction
 {
     private readonly ISmsService _smsService;
 

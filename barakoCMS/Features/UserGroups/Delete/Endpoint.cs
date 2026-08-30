@@ -5,7 +5,7 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.UserGroups.Delete;
 
-public class Endpoint : Endpoint<Request, Response>
+internal class Endpoint : Endpoint<Request, Response>
 {
     private readonly IDocumentSession _session;
     private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
@@ -55,12 +55,12 @@ public class Endpoint : Endpoint<Request, Response>
     }
 }
 
-public class Request
+internal class Request
 {
     public Guid Id { get; set; }
 }
 
-public class Response
+internal class Response
 {
     public string Message { get; set; } = string.Empty;
 }

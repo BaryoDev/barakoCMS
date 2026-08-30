@@ -30,7 +30,7 @@ public class ContentRollbackTests
             Data = new Dictionary<string, object> { { "Title", "v1" } }
         });
         createResp.EnsureSuccessStatusCode();
-        var contentId = (await createResp.Content.ReadFromJsonAsync<barakoCMS.Features.Content.Create.Response>())!.Id;
+        var contentId = (await createResp.Content.ReadFromJsonAsync<barakoCMS.Features.Content.Create.Response>(ApiJson.Options))!.Id;
 
         // v2
         var updateResp = await _client.PutAsJsonAsync($"/api/contents/{contentId}", new
@@ -44,8 +44,9 @@ public class ContentRollbackTests
         // Grab the history and find the original (v1) version.
         var historyResp = await _client.GetAsync($"/api/contents/{contentId}/history");
         historyResp.EnsureSuccessStatusCode();
-        var history = await historyResp.Content.ReadFromJsonAsync<JsonElement>();
-        var versions = history.GetProperty("versions").EnumerateArray().ToList();
+        var history = await historyResp.Content.ReadFromJsonAsync<JsonElement>(ApiJson.Options);
+        // The history joined the paginated envelope in 4.0; it used to be {versions: [...]}.
+        var versions = history.GetProperty("items").EnumerateArray().ToList();
 
         Guid v1VersionId = default;
         foreach (var v in versions)
@@ -65,7 +66,7 @@ public class ContentRollbackTests
         // The read model (what GET returns) must now reflect the rolled-back data, not the stale v2.
         var getResp = await _client.GetAsync($"/api/contents/{contentId}");
         getResp.EnsureSuccessStatusCode();
-        var content = await getResp.Content.ReadFromJsonAsync<barakoCMS.Features.Content.Get.Response>();
+        var content = await getResp.Content.ReadFromJsonAsync<barakoCMS.Features.Content.Get.Response>(ApiJson.Options);
         content!.Data["Title"].ToString().Should().Contain("v1");
     }
 }

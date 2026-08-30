@@ -279,7 +279,7 @@ export function FieldEditor({ fields, onChange }: FieldEditorProps) {
                             <Select
                                 value={String(form.sensitivity ?? SensitivityLevel.Public)}
                                 onValueChange={(value) =>
-                                    setForm((f) => ({ ...f, sensitivity: Number(value) as SensitivityLevel }))
+                                    setForm((f) => ({ ...f, sensitivity: value as SensitivityLevel }))
                                 }
                             >
                                 <SelectTrigger className="w-full">

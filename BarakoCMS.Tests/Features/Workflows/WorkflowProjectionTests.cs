@@ -3,10 +3,12 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using FluentAssertions;
 using Xunit;
 using NSubstitute;
 using Marten;
 using barakoCMS.Features.Workflows;
+using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Models;
 using barakoCMS.Core.Interfaces;
 using Microsoft.Extensions.DependencyInjection;
@@ -22,6 +24,7 @@ public class WorkflowProjectionTests
     private readonly IDocumentOperations _ops;
     private readonly WorkflowProjection _sut;
     private readonly IDocumentSession _session;
+    private readonly TenantContext _tenantContext = new();
 
     public WorkflowProjectionTests()
     {
@@ -30,6 +33,7 @@ public class WorkflowProjectionTests
         _scope = Substitute.For<IServiceScope>();
 
         _serviceProvider.GetService(typeof(IServiceScopeFactory)).Returns(_scopeFactory);
+        _serviceProvider.GetService(typeof(TenantContext)).Returns(_tenantContext);
         _scopeFactory.CreateScope().Returns(_scope);
         _scope.ServiceProvider.Returns(_serviceProvider);
 
@@ -51,6 +55,7 @@ public class WorkflowProjectionTests
         var eventEnvelope = Substitute.For<IEvent<barakoCMS.Events.ContentUpdated>>();
         eventEnvelope.Data.Returns(updatedEvent);
         eventEnvelope.StreamId.Returns(streamId);
+        eventEnvelope.TenantId.Returns(JasperFx.StorageConstants.DefaultTenantId);
 
         // Mock IWorkflowEngine
         var engine = Substitute.For<IWorkflowEngine>();
@@ -69,5 +74,35 @@ public class WorkflowProjectionTests
 
         // Verify Engine called
         await engine.Received(1).ProcessEventAsync("Article", "Updated", content, Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// The scope the engine is resolved from carries the event's tenant.
+    /// </summary>
+    /// <remarks>
+    /// Everything downstream reads the tenant off <see cref="TenantContext"/>: the session factory
+    /// picks the partition from it, and the workflow actions write through that session. If it is
+    /// still on the default slug here, a tenant's workflows are invisible and a workflow's writes
+    /// leave the tenant. Asserting on the context is the narrowest place that break is visible.
+    /// </remarks>
+    [Theory]
+    [InlineData("acme", "acme")]
+    [InlineData(JasperFx.StorageConstants.DefaultTenantId, barakoCMS.Models.Tenant.DefaultSlug)]
+    public async Task Project_carries_the_events_tenant_into_the_scope(string eventTenantId, string expectedSlug)
+    {
+        var contentId = Guid.NewGuid();
+        var eventEnvelope = Substitute.For<IEvent<barakoCMS.Events.ContentUpdated>>();
+        eventEnvelope.Data.Returns(new barakoCMS.Events.ContentUpdated(
+            contentId, new Dictionary<string, object>(), Guid.NewGuid(), String.Empty));
+        eventEnvelope.TenantId.Returns(eventTenantId);
+
+        var engine = Substitute.For<IWorkflowEngine>();
+        _serviceProvider.GetService(typeof(IWorkflowEngine)).Returns(engine);
+        _ops.LoadAsync<Content>(contentId, Arg.Any<CancellationToken>())
+            .Returns(new Content { Id = contentId, ContentType = "Article" });
+
+        await _sut.Project(eventEnvelope, _ops, CancellationToken.None);
+
+        _tenantContext.Slug.Should().Be(expectedSlug);
     }
 }

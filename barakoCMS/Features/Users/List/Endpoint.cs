@@ -4,9 +4,9 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.Users.List;
 
-public class Request : PaginatedRequest { }
+internal class Request : PaginatedRequest { }
 
-public class UserResponse
+internal class UserResponse
 {
     public Guid Id { get; set; }
     public string Username { get; set; } = string.Empty;
@@ -16,7 +16,7 @@ public class UserResponse
     public DateTime CreatedAt { get; set; }
 }
 
-public class Endpoint : Endpoint<Request, PaginatedResponse<UserResponse>>
+internal class Endpoint : Endpoint<Request, PaginatedResponse<UserResponse>>
 {
     private readonly IDocumentSession _session;
 

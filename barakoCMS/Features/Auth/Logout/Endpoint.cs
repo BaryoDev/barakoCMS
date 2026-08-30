@@ -6,7 +6,7 @@ using System.IdentityModel.Tokens.Jwt;
 
 namespace barakoCMS.Features.Auth.Logout;
 
-public class Endpoint : EndpointWithoutRequest<Response>
+internal class Endpoint : EndpointWithoutRequest<Response>
 {
     private readonly ITokenRevocationService _revocationService;
     private readonly ILogger<Endpoint> _logger;

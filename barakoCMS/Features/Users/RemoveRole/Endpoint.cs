@@ -5,7 +5,7 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.Users.RemoveRole;
 
-public class Endpoint : Endpoint<Request, Response>
+internal class Endpoint : Endpoint<Request, Response>
 {
     private readonly IDocumentSession _session;
     private readonly barakoCMS.Infrastructure.Services.IPermissionResolver _permissionResolver;
@@ -51,13 +51,13 @@ public class Endpoint : Endpoint<Request, Response>
     }
 }
 
-public class Request
+internal class Request
 {
     public Guid UserId { get; set; }
     public Guid RoleId { get; set; }
 }
 
-public class Response
+internal class Response
 {
     public string Message { get; set; } = string.Empty;
 }

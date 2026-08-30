@@ -11,7 +11,7 @@ namespace barakoCMS.Features.Workflows.Actions;
     RequiredParameters = new[] { "To", "Subject", "Body" },
     ExampleJson = @"{""Type"":""Email"",""Parameters"":{""To"":""admin@example.com"",""Subject"":""Workflow Triggered"",""Body"":""Content {{id}} was updated""}}"
 )]
-public class EmailAction : IWorkflowAction
+internal class EmailAction : IWorkflowAction
 {
     private readonly IEmailService _emailService;
 

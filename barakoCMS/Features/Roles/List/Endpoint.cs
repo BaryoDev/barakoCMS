@@ -4,12 +4,12 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.Roles.List;
 
-public class Request : PaginatedRequest
+internal class Request : PaginatedRequest
 {
     // No additional filters for roles list
 }
 
-public class Endpoint : Endpoint<Request, PaginatedResponse<Role>>
+internal class Endpoint : Endpoint<Request, PaginatedResponse<Role>>
 {
     private readonly IDocumentSession _session;
 

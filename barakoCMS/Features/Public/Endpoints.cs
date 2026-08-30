@@ -20,7 +20,7 @@ namespace barakoCMS.Features.Public;
  * be turned off). A public endpoint must be safe regardless of that setting.
  */
 
-public sealed record PublicContentResponse(
+internal sealed record PublicContentResponse(
     Guid Id,
     string ContentType,
     string? Slug,
@@ -112,10 +112,10 @@ internal static class PublicDelivery
         http.Response.Headers.CacheControl = "public, max-age=60";
 }
 
-public sealed class PublicListRequest : PaginatedRequest { }
+internal sealed class PublicListRequest : PaginatedRequest { }
 
 /// <summary>GET /api/public/{type} — paged Published entries of a content type, masked and cacheable.</summary>
-public class ListPublishedEndpoint : Endpoint<PublicListRequest, PaginatedResponse<PublicContentResponse>>
+internal class ListPublishedEndpoint : Endpoint<PublicListRequest, PaginatedResponse<PublicContentResponse>>
 {
     private readonly IQuerySession _session;
     public ListPublishedEndpoint(IQuerySession session) => _session = session;
@@ -209,7 +209,18 @@ public class ListPublishedEndpoint : Endpoint<PublicListRequest, PaginatedRespon
     }
 }
 
-public sealed record PublicSearchResponse(IReadOnlyList<PublicContentResponse> Results, int Count, string Query);
+/// <summary>
+/// Search results, deliberately not the paginated envelope every other collection uses.
+/// </summary>
+/// <remarks>
+/// Decision recorded for #291, which asks that the exceptions be chosen rather than left as an
+/// accident. This shape echoes the query back and reports how many of a bounded, ranked scan
+/// matched. It is not a page of a larger set: there is no stable ordering to page through, no total
+/// beyond the scan cap, and a caller asking for page 3 of a relevance ranking would get something
+/// that changes under it. When this endpoint moves to Postgres full-text search, with a real total
+/// and a stable order, it should take the envelope like everything else.
+/// </remarks>
+internal sealed record PublicSearchResponse(IReadOnlyList<PublicContentResponse> Results, int Count, string Query);
 
 /// <summary>
 /// GET /api/public/{type}/search?q=…&amp;limit=… — top public matches for a query. The literal "search"
@@ -218,7 +229,7 @@ public sealed record PublicSearchResponse(IReadOnlyList<PublicContentResponse> R
 /// can never surface a result. A title/name hit outranks a body hit. Scans a bounded, recent window;
 /// swap in Postgres full-text search for larger corpora.
 /// </summary>
-public class PublicSearchEndpoint : EndpointWithoutRequest<PublicSearchResponse>
+internal class PublicSearchEndpoint : EndpointWithoutRequest<PublicSearchResponse>
 {
     private readonly IQuerySession _session;
     public PublicSearchEndpoint(IQuerySession session) => _session = session;
@@ -295,7 +306,7 @@ public class PublicSearchEndpoint : EndpointWithoutRequest<PublicSearchResponse>
 /// an unpublished entry is returned too — the token authorizes only that one entry, and the response is
 /// still projected to Public fields and marked no-store. An invalid token falls back to published-only.
 /// </summary>
-public class GetBySlugEndpoint : EndpointWithoutRequest<PublicContentResponse>
+internal class GetBySlugEndpoint : EndpointWithoutRequest<PublicContentResponse>
 {
     private readonly IQuerySession _session;
     private readonly IConfiguration _config;

@@ -7,13 +7,13 @@ using System.Security.Cryptography;
 
 namespace barakoCMS.Features.Auth.Otp;
 
-public class OtpVerifyRequest
+internal class OtpVerifyRequest
 {
     public string Email { get; set; } = string.Empty;
     public string Code { get; set; } = string.Empty;
 }
 
-public class OtpVerifyResponse
+internal class OtpVerifyResponse
 {
     public string Token { get; set; } = string.Empty;
     public DateTime Expiry { get; set; }
@@ -33,7 +33,7 @@ public class OtpVerifyResponse
 /// POST /api/auth/otp/verify — exchange a valid email code for the same JWT + refresh token that
 /// password login issues. Single-use, expiry-checked, with a per-code attempt cap.
 /// </summary>
-public class VerifyEndpoint : Endpoint<OtpVerifyRequest, OtpVerifyResponse>
+internal class VerifyEndpoint : Endpoint<OtpVerifyRequest, OtpVerifyResponse>
 {
     private const int MaxAttempts = 5;
 
