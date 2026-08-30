@@ -49,6 +49,11 @@ services:
       - InitialAdmin__Username=${ADMIN_USER:-admin}
       - InitialAdmin__Password=${ADMIN_PASSWORD}
       - Kubernetes__Enabled=false
+      # Caddy terminates TLS and is the only thing that reaches the app, so its X-Forwarded-For is
+      # what rate limiting and the audit log key on. Named by network because the compose bridge
+      # assigns its address; override if your bridge is not in the default range.
+      - ForwardedHeaders__Enabled=true
+      - ForwardedHeaders__KnownNetworks__0=${TRUSTED_PROXY_NETWORK:-172.16.0.0/12}
     depends_on:
       postgres:
         condition: service_healthy

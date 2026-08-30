@@ -71,6 +71,18 @@ ALLOWED_ORIGINS=https://admin.example.com   # where the admin is served
 BARAKO_TAG=3.1.0                            # pin a release rather than :latest
 ```
 
+The app ignores `X-Forwarded-For` until you say which hop to believe, because the header is written
+by the caller and honouring it from anywhere lets anyone choose the IP that rate limiting and the
+audit log see. Name the proxy and both start working per client:
+
+```env
+FORWARDED_HEADERS_ENABLED=true
+TRUSTED_PROXY_NETWORK=172.16.0.0/12   # the compose bridge the proxy container sits on
+```
+
+Turning it on without a network is a startup failure rather than a silent "trust everyone". If the
+proxy runs outside compose, use its address instead via `ForwardedHeaders__KnownProxies__0`.
+
 If you serve the admin under a sub-path (e.g. `example.com/cms`), that needs a base-path build of the
 admin image — see the main repo's deploy notes; the default image serves at the root.
 

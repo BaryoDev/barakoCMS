@@ -45,6 +45,12 @@ services:
       InitialAdmin__Password: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}
       CORS__AllowedOrigins: ${ALLOWED_ORIGINS:-http://localhost:3000}
 
+      # Behind a reverse proxy, name it here or every client shares one rate-limit bucket and the
+      # audit log records the proxy. Left unset the app ignores X-Forwarded-For, which is the safe
+      # default because the header is client-supplied. See README, "Behind a domain".
+      ForwardedHeaders__Enabled: ${FORWARDED_HEADERS_ENABLED:-false}
+      ForwardedHeaders__KnownNetworks__0: ${TRUSTED_PROXY_NETWORK:-}
+
       # ── Email (Resend module) — optional. Blank = built-in mock (logs instead of sending). ──
       Resend__ApiKey: ${RESEND_API_KEY:-}
       Resend__From: ${RESEND_FROM:-}
