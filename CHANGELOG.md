@@ -117,6 +117,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rather than substituting a dummy that points at localhost. Development keeps the dummy, which the
   codegen pass needs.
 
+- **`/metrics` needs a scrape key.** The Prometheus endpoint was mapped with no authentication and no
+  network restriction, so on any deployment that publishes the API it handed anonymous callers a list
+  of every route, per-endpoint request counts and latencies, error rates and process internals. It now
+  refuses unless `Metrics:ScrapeKey` (env `Metrics__ScrapeKey`) is set and the caller presents it,
+  either as `Authorization: Bearer`, which is what Prometheus sends from `authorization` in a scrape
+  config, or in `X-Metrics-Key`.
+
+  A deployment that upgrades without setting the key loses scraping: with nothing configured the
+  endpoint returns 404, because an unset credential has to mean refuse rather than allow. A wrong key
+  against a configured one returns 401, so the two cases are told apart from the status code alone.
+  `docs/upgrading-to-4.0.md` has the Prometheus config.
+
+- **Feature flags are private until published, and `GET /api/feature-flags` no longer lists the
+  catalogue to anonymous callers.** The endpoint is anonymous on purpose, since a public page
+  rendering with flags has no user to authenticate, and targeting already evaluated a restricted flag
+  to false for a stranger. But it built its dictionary from every flag before evaluation narrowed
+  anything, so every key came back regardless: unreleased feature names, migration plans, and customer
+  names wherever a flag targets one account.
+
+  `FeatureFlag` gains `IsPublic`, defaulting to false. An anonymous caller receives only the flags
+  marked public, and a private one is absent from the response rather than returned as `false`, which
+  would hand over the name anyway. An authenticated caller still receives everything. Existing flags
+  read back as private, so upgrading discloses nothing, and anyone relying on client-side flags on a
+  public page has to publish those flags deliberately: `POST /api/feature-flags/admin` with
+  `"isPublic": true`. `FeatureFlagService.EvaluateAllAsync` takes a `FlagAudience`; the overload
+  without one returns the public subset, so a caller that has not thought about who is asking cannot
+  leak a key by omission. FeatureFlags `0.4.0`.
+
 ### Added
 
 - **The content list reports `status` and `sensitivity`.** The single-item GET returned them and the
@@ -253,6 +281,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and a default-tenant workflow's writes landed in the wrong partition.
 
 ### Security
+
+- **The production CSP no longer allows `'unsafe-inline'` on `style-src`.** `script-src` had dropped
+  it outside Development, which is the half that defeats XSS mitigation, but styles kept it app-wide
+  as a documented partial fix pending a check nobody had run. CSS injection cannot execute script, so
+  this is the lower-severity half, but attacker-controlled inline styles still exfiltrate through
+  selectors and background-image requests.
+
+  The allowance survives only on the health-checks dashboard, and only while `HealthChecksUI:Enabled`
+  is on. That dashboard genuinely needs it: its shipped bundle renders three dozen React `style`
+  props, so its elements carry inline style attributes and the page renders wrong without it. Nothing
+  else this host serves outside Development emits an inline style, and the Next.js admin is a separate
+  application with its own headers, so its rendering is unaffected either way.
 
 - **The token revocation check failed open.** Any exception from the revocation query returned "not
   revoked", so a revoked token was accepted for as long as the store was unreachable, and it said so
