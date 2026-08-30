@@ -526,6 +526,19 @@ public static class ServiceCollectionExtensions
         // Background service that applies scheduled publish/unpublish across all tenants
         services.AddHostedService<barakoCMS.Infrastructure.Services.ScheduledContentService>();
 
+        // Forwarded headers. Off unless configured, because reading X-Forwarded-For from an
+        // untrusted peer would let a caller choose the IP the rate limiter partitions on.
+        if (barakoCMS.Infrastructure.Security.ForwardedHeadersSetup.IsEnabled(configuration))
+        {
+            // Run the same parse once here so a bad proxy list stops the host at startup rather
+            // than on the first request that happens to resolve the options.
+            barakoCMS.Infrastructure.Security.ForwardedHeadersSetup.Configure(
+                new Microsoft.AspNetCore.Builder.ForwardedHeadersOptions(), configuration);
+
+            services.Configure<Microsoft.AspNetCore.Builder.ForwardedHeadersOptions>(
+                options => barakoCMS.Infrastructure.Security.ForwardedHeadersSetup.Configure(options, configuration));
+        }
+
         // Rate Limiting
         services.AddRateLimiter(options =>
         {
@@ -658,6 +671,13 @@ public static class ServiceCollectionExtensions
         // Returns a structured 500 (no stack trace leak) and logs the exception via FastEndpoints.
         app.UseDefaultExceptionHandler();
 
+        // Forwarded headers, before anything that reads the client IP or the scheme. Only added
+        // when ForwardedHeaders:Enabled names a trusted proxy; see ForwardedHeadersSetup.
+        if (barakoCMS.Infrastructure.Security.ForwardedHeadersSetup.IsEnabled(configuration))
+        {
+            app.UseForwardedHeaders();
+        }
+
         // HTTPS Redirection and HSTS (Production only)
         if (env != "Development")
         {
@@ -667,6 +687,9 @@ public static class ServiceCollectionExtensions
 
         // Security Headers
         var csp = barakoCMS.Infrastructure.Security.SecurityHeaders.ContentSecurityPolicy(env);
+        var healthDashboardCsp =
+            barakoCMS.Infrastructure.Security.SecurityHeaders.HealthDashboardContentSecurityPolicy(env);
+        var healthDashboardEnabled = configuration.GetValue<bool>("HealthChecksUI:Enabled");
 
         app.Use(async (context, next) =>
         {
@@ -676,8 +699,13 @@ public static class ServiceCollectionExtensions
             context.Response.Headers.Append("X-XSS-Protection", "1; mode=block");
             context.Response.Headers.Append("Referrer-Policy", "strict-origin-when-cross-origin");
 
-            // Content Security Policy
-            context.Response.Headers.Append("Content-Security-Policy", csp);
+            // Content Security Policy. The looser style-src is reached only by the health dashboard,
+            // and only while the dashboard is switched on.
+            var policy = healthDashboardEnabled &&
+                         barakoCMS.Infrastructure.Security.SecurityHeaders.IsHealthDashboardPath(context.Request.Path)
+                ? healthDashboardCsp
+                : csp;
+            context.Response.Headers.Append("Content-Security-Policy", policy);
 
             // HSTS (HTTP Strict Transport Security)
             if (context.Request.IsHttps)
@@ -687,6 +715,42 @@ public static class ServiceCollectionExtensions
             }
 
             await next();
+        });
+
+        // The Prometheus endpoint is mapped by the host (barakoCMS/Program.cs) and publishes route
+        // names, per-endpoint traffic and process internals. It is guarded here, before endpoint
+        // routing can execute it, rather than at the mapping. A scraper cannot sign in, so the
+        // credential is the shared Metrics:ScrapeKey; with none set the endpoint serves nobody.
+        var metricsScrapeKey = configuration[barakoCMS.Infrastructure.Security.MetricsScrapeAccess.ConfigurationKey];
+
+        app.Use(async (context, next) =>
+        {
+            if (!barakoCMS.Infrastructure.Security.MetricsScrapeAccess.IsMetricsPath(context.Request.Path))
+            {
+                await next();
+                return;
+            }
+
+            var presented = barakoCMS.Infrastructure.Security.MetricsScrapeAccess.PresentedKey(
+                context.Request.Headers[barakoCMS.Infrastructure.Security.MetricsScrapeAccess.HeaderName],
+                context.Request.Headers.Authorization);
+
+            switch (barakoCMS.Infrastructure.Security.MetricsScrapeAccess.Authorize(metricsScrapeKey, presented))
+            {
+                case barakoCMS.Infrastructure.Security.MetricsScrapeDecision.Allowed:
+                    await next();
+                    return;
+
+                case barakoCMS.Infrastructure.Security.MetricsScrapeDecision.Rejected:
+                    context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                    context.Response.Headers.WWWAuthenticate = "Bearer";
+                    return;
+
+                default:
+                    // Nothing is configured, so as far as a caller is concerned there is no endpoint.
+                    context.Response.StatusCode = StatusCodes.Status404NotFound;
+                    return;
+            }
         });
 
         // Rate Limiting

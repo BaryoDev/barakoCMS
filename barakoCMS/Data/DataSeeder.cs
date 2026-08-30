@@ -102,7 +102,7 @@ public static class DataSeeder
             var adminUser = existingAdmin ?? new User { Id = Guid.NewGuid(), CreatedAt = DateTime.UtcNow };
 
             adminUser.Username = username;
-            adminUser.Email = $"{username}@company.com";
+            adminUser.Email = $"{username}@example.com";
             adminUser.PasswordHash = BCrypt.Net.BCrypt.HashPassword(password);
             adminUser.RoleIds = new List<Guid> { superAdminRole.Id, adminRole.Id };
 
@@ -121,7 +121,7 @@ public static class DataSeeder
             {
                 Id = Guid.NewGuid(),
                 Username = "hr_manager",
-                Email = "hr@company.com",
+                Email = "hr@example.com",
                 PasswordHash = BCrypt.Net.BCrypt.HashPassword("HRPassword123!"),
                 RoleIds = new List<Guid> { hrRole.Id, adminRole.Id },
                 CreatedAt = DateTime.UtcNow
@@ -134,7 +134,7 @@ public static class DataSeeder
             {
                 Id = Guid.NewGuid(),
                 Username = "john_viewer",
-                Email = "john@company.com",
+                Email = "john@example.com",
                 PasswordHash = BCrypt.Net.BCrypt.HashPassword("UserPassword123!"),
                 RoleIds = new List<Guid> { userRole.Id },
                 CreatedAt = DateTime.UtcNow
@@ -229,73 +229,53 @@ public static class DataSeeder
             return;
         }
 
-        var sampleRecords = new[]
-        {
-            new Content
-            {
-                Id = Guid.NewGuid(),
-                ContentType = "AttendanceRecord",
-                Data = new Dictionary<string, object>
-                {
-                    { "FirstName", "Sarah" },
-                    { "LastName", "Johnson" },
-                    { "Email", "sarah.johnson@company.com" },
-                    { "BirthDay", "1990-05-15" },
-                    { "JobDescription", "Software Engineer" },
-                    { "Gender", "Female" },
-                    { "SSN", "123-45-6789" }
-                },
-                Status = ContentStatus.Published,
-                Sensitivity = SensitivityLevel.Sensitive,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
-            },
-            new Content
-            {
-                Id = Guid.NewGuid(),
-                ContentType = "AttendanceRecord",
-                Data = new Dictionary<string, object>
-                {
-                    { "FirstName", "Michael" },
-                    { "LastName", "Chen" },
-                    { "Email", "michael.chen@company.com" },
-                    { "BirthDay", "1985-11-23" },
-                    { "JobDescription", "Product Manager" },
-                    { "Gender", "Male" },
-                    { "SSN", "987-65-4321" }
-                },
-                Status = ContentStatus.Published,
-                Sensitivity = SensitivityLevel.Sensitive,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
-            },
-            new Content
-            {
-                Id = Guid.NewGuid(),
-                ContentType = "AttendanceRecord",
-                Data = new Dictionary<string, object>
-                {
-                    { "FirstName", "Emily" },
-                    { "LastName", "Rodriguez" },
-                    { "Email", "emily.rodriguez@company.com" },
-                    { "BirthDay", "1992-03-08" },
-                    { "JobDescription", "UX Designer" },
-                    { "Gender", "Female" },
-                    { "SSN", "456-78-9012" }
-                },
-                Status = ContentStatus.Published,
-                Sensitivity = SensitivityLevel.Sensitive,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
-            }
-        };
-
-        foreach (var record in sampleRecords)
+        foreach (var record in SampleAttendanceRecords())
         {
             session.Store(record);
             Console.WriteLine($"[DataSeeder] Created attendance record: {record.Data["FirstName"]} {record.Data["LastName"]}");
         }
     }
+
+    /// <summary>
+    /// The demo AttendanceRecord rows a fresh install starts with.
+    /// </summary>
+    /// <remarks>
+    /// Every value here is deliberately unusable as personal data. The seed is the first content
+    /// anyone sees, so it is also the worked example of how to fill a content type, and it used to
+    /// carry three well-formed Social Security numbers, names that read as real people, and mail
+    /// addresses at a registered domain. Scanners flag an SSN-shaped string wherever they find it,
+    /// and a shape that reads as real is the shape people copy. So: no digit group that matches an
+    /// SSN, and mail only at example.com, which RFC 2606 reserves for documentation.
+    ///
+    /// Exposed for the test that asserts the class of data stays out. See issue #265.
+    /// </remarks>
+    internal static IReadOnlyList<Content> SampleAttendanceRecords() =>
+    [
+        SampleAttendanceRecord("Sample", "Employee One", "SAMPLE-NOT-A-REAL-SSN-1", "Software Engineer"),
+        SampleAttendanceRecord("Sample", "Employee Two", "SAMPLE-NOT-A-REAL-SSN-2", "Product Manager"),
+        SampleAttendanceRecord("Sample", "Employee Three", "SAMPLE-NOT-A-REAL-SSN-3", "UX Designer")
+    ];
+
+    private static Content SampleAttendanceRecord(string firstName, string lastName, string ssn, string jobDescription) =>
+        new()
+        {
+            Id = Guid.NewGuid(),
+            ContentType = "AttendanceRecord",
+            Data = new Dictionary<string, object>
+            {
+                { "FirstName", firstName },
+                { "LastName", lastName },
+                { "Email", $"{lastName.Replace(" ", "-").ToLowerInvariant()}@example.com" },
+                { "BirthDay", "2000-01-01" },
+                { "JobDescription", jobDescription },
+                { "Gender", "Unspecified" },
+                { "SSN", ssn }
+            },
+            Status = ContentStatus.Published,
+            Sensitivity = SensitivityLevel.Sensitive,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
 
     internal static async Task BackfillSearchTextAsync(IDocumentSession session)
     {

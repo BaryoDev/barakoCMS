@@ -117,6 +117,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rather than substituting a dummy that points at localhost. Development keeps the dummy, which the
   codegen pass needs.
 
+- **`/metrics` needs a scrape key.** The Prometheus endpoint was mapped with no authentication and no
+  network restriction, so on any deployment that publishes the API it handed anonymous callers a list
+  of every route, per-endpoint request counts and latencies, error rates and process internals. It now
+  refuses unless `Metrics:ScrapeKey` (env `Metrics__ScrapeKey`) is set and the caller presents it,
+  either as `Authorization: Bearer`, which is what Prometheus sends from `authorization` in a scrape
+  config, or in `X-Metrics-Key`.
+
+  A deployment that upgrades without setting the key loses scraping: with nothing configured the
+  endpoint returns 404, because an unset credential has to mean refuse rather than allow. A wrong key
+  against a configured one returns 401, so the two cases are told apart from the status code alone.
+  `docs/upgrading-to-4.0.md` has the Prometheus config.
+
+- **Feature flags are private until published, and `GET /api/feature-flags` no longer lists the
+  catalogue to anonymous callers.** The endpoint is anonymous on purpose, since a public page
+  rendering with flags has no user to authenticate, and targeting already evaluated a restricted flag
+  to false for a stranger. But it built its dictionary from every flag before evaluation narrowed
+  anything, so every key came back regardless: unreleased feature names, migration plans, and customer
+  names wherever a flag targets one account.
+
+  `FeatureFlag` gains `IsPublic`, defaulting to false. An anonymous caller receives only the flags
+  marked public, and a private one is absent from the response rather than returned as `false`, which
+  would hand over the name anyway. An authenticated caller still receives everything. Existing flags
+  read back as private, so upgrading discloses nothing, and anyone relying on client-side flags on a
+  public page has to publish those flags deliberately: `POST /api/feature-flags/admin` with
+  `"isPublic": true`. `FeatureFlagService.EvaluateAllAsync` takes a `FlagAudience`; the overload
+  without one returns the public subset, so a caller that has not thought about who is asking cannot
+  leak a key by omission. FeatureFlags `0.4.0`.
+
+- **Audit IPs and rate-limit buckets no longer come from a client-supplied `X-Forwarded-For`.**
+  `DeviceContext` read that header directly and returned its first hop, so any caller could write its
+  own address into the audit log and the OTP email just by sending one. The rate limiter never read it
+  at all, so behind a reverse proxy every client shared a single bucket and the per-IP limit on
+  `/api/auth/login` throttled the proxy instead of the attacker.
+
+  The header is now applied by the ASP.NET `ForwardedHeaders` middleware, which honours it only from a
+  hop the operator named. That middleware is off unless `ForwardedHeaders:Enabled` is true, and turning
+  it on without `ForwardedHeaders:KnownProxies` or `ForwardedHeaders:KnownNetworks` stops the host at
+  startup: an empty trusted set either does nothing or trusts every upstream, and both look like
+  working configuration.
+
+  What changes for a deployment already behind a proxy: until those keys are set, audit entries and
+  rate-limit buckets record the proxy's address rather than the header value. For an honest client
+  that is a worse answer than before, and for a dishonest one it is a much better one, because the old
+  value was whatever the caller typed. For a proxy container on the compose network:
+
+  ```json
+  "ForwardedHeaders": {
+    "Enabled": true,
+    "KnownNetworks": ["172.16.0.0/12"]
+  }
+  ```
+
+  Turning it on also applies `X-Forwarded-Proto`, so `UseHttpsRedirection` sees the scheme the client
+  used rather than the proxy-to-app hop.
+
 ### Added
 
 - **The content list reports `status` and `sensitivity`.** The single-item GET returned them and the
@@ -254,6 +309,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **The production CSP no longer allows `'unsafe-inline'` on `style-src`.** `script-src` had dropped
+  it outside Development, which is the half that defeats XSS mitigation, but styles kept it app-wide
+  as a documented partial fix pending a check nobody had run. CSS injection cannot execute script, so
+  this is the lower-severity half, but attacker-controlled inline styles still exfiltrate through
+  selectors and background-image requests.
+
+  The allowance survives only on the health-checks dashboard, and only while `HealthChecksUI:Enabled`
+  is on. That dashboard genuinely needs it: its shipped bundle renders three dozen React `style`
+  props, so its elements carry inline style attributes and the page renders wrong without it. Nothing
+  else this host serves outside Development emits an inline style, and the Next.js admin is a separate
+  application with its own headers, so its rendering is unaffected either way.
+
 - **The API images run as a non-root user.** `barako-cms` and `barako-cms-decaf` ran as root while
   the admin image did not, which is what an omission looks like rather than a decision. Both now drop
   to the base image's `app` user (uid 1654) before the entrypoint. Nothing needs privilege: 8080 is
@@ -285,6 +352,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Files endpoints had authentication and neither had authorization. Download is now the uploader or an
   admin, refusing with 404 rather than 403 so a leaked id cannot be used to probe for others. Upload
   now carries the same role gate as every other write in the module set. Files `0.4.0`.
+
+- **The seeder no longer writes anything shaped like a Social Security number.** The demo
+  `AttendanceRecord` rows carried `123-45-6789`, `987-65-4321` and `456-78-9012`. The first is a
+  well-known placeholder that data-loss-prevention and compliance scanners treat as a real SSN, and
+  all three planted realistic sensitive values in every fresh install of a CMS that markets
+  field-level sensitivity. The sample rows now use `SAMPLE-NOT-A-REAL-SSN-n`, names that read as
+  placeholders, and mail at `example.com`, which RFC 2606 reserves for documentation.
+
+  Seeded mail addresses moved off `company.com` for the same reason: it is a registered domain, so a
+  password reset or an OTP for the seeded admin, HR or standard account left the building. A seeded
+  admin's address changes from `{username}@company.com` to `{username}@example.com` on next start.
+
+  A test asserts the shape rather than the new values, so a future edit that swaps in three different
+  realistic numbers fails too.
+
+- **`docker-compose.yml` no longer ships three defaults that are unsafe to copy.** It is labelled
+  local-development-only, but that is a comment rather than a control, and people copy what works.
+
+  The app container bind-mounted `${HOME}/.kube`, handing every context and token in the developer's
+  kubeconfig to anything running inside it; the mount is gone, and the Kubernetes monitor is off by
+  default anyway. The postgres and backup services hardcoded the password, so setting a variable left
+  the three services out of step while the built-in value kept working; all three now read
+  `DB_PASSWORD`, matching `.env.example` and the other compose files. Postgres was published on every
+  interface, which with a default password is an open database on any host that is not a private
+  laptop; it binds `127.0.0.1` now, so `psql` from the host still works and nothing else can reach it.
+
+  The file still starts with no `.env` at all.
 
 - **The webhook SSRF guard checked one address and connected to another.** `WebhookAction` resolved
   the target host, checked the answer, then handed the name to `HttpClient`, which resolved it again

@@ -499,8 +499,8 @@ public enum SensitivityLevel
   "contentType": "attendance-record",
   "sensitivity": 1,  // Sensitive
   "data": {
-    "Name": "John Doe",
-    "SSN": "123-45-6789",  // Hidden for Standard users
+    "Name": "Sample Employee",
+    "SSN": "SAMPLE-NOT-A-REAL-SSN",  // Hidden for Standard users
     "BirthDay": "1990-01-01"  // Masked as "***" for Standard users
   }
 }
