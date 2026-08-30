@@ -12,7 +12,7 @@ namespace barakoCMS.Infrastructure.Erasure;
 /// </remarks>
 public sealed class ErasureOptions
 {
-    public ErasureMode Mode { get; init; } = ErasureMode.Compact;
+    public ErasureMode Mode { get; init; } = ErasureMode.Delete;
 
     /// <summary>Required to run with <see cref="ErasureMode.None"/>, so it cannot be arrived at by accident.</summary>
     public bool AcknowledgeNoErasure { get; init; }
@@ -20,7 +20,7 @@ public sealed class ErasureOptions
     public static ErasureOptions FromConfiguration(IConfiguration configuration)
     {
         var raw = configuration["Erasure:Mode"];
-        var mode = ErasureMode.Compact;
+        var mode = ErasureMode.Delete;
 
         if (!string.IsNullOrWhiteSpace(raw) && !Enum.TryParse(raw, ignoreCase: true, out mode))
         {
@@ -50,7 +50,7 @@ public sealed class ErasureOptions
             throw new InvalidOperationException(
                 "Erasure:Mode is CryptoShred, which is not available yet. It needs an answer to which "
                 + "field identifies the data subject of a content item, and a CMS has no natural one "
-                + "(see DECISIONS.md D9 and issue #301). Use Compact, which removes the events, the "
+                + "(see DECISIONS.md D9 and issue #301). Use Delete, which removes the events, the "
                 + "stream and the document.");
         }
 
@@ -59,7 +59,7 @@ public sealed class ErasureOptions
             throw new InvalidOperationException(
                 "Erasure:Mode is None, which leaves no way to erase content. Set "
                 + "Erasure:AcknowledgeNoErasure to true to confirm this deployment's content never "
-                + "holds personal data, or use Compact.");
+                + "holds personal data, or use Delete.");
         }
     }
 }

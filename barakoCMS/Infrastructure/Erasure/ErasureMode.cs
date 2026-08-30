@@ -11,7 +11,7 @@ public enum ErasureMode
     /// transaction. The item's history goes with it, which is what erasure means. The default,
     /// because it is the only mode that works on data already written.
     /// </summary>
-    Compact = 0,
+    Delete = 0,
 
     /// <summary>
     /// Event payloads are encrypted per subject and erasure destroys the key. Not yet available:

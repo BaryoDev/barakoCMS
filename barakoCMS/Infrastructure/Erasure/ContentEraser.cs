@@ -7,10 +7,16 @@ namespace barakoCMS.Infrastructure.Erasure;
 public interface IContentEraser
 {
     /// <summary>
-    /// Erases the item, returning false when it was not there. Throws when the deployment's mode has
-    /// no erasure path.
+    /// Queues the erasure of an item on the caller's session, returning false when it was not there.
+    /// Throws when the deployment's mode has no erasure path.
     /// </summary>
-    Task<bool> EraseAsync(Guid contentId, CancellationToken ct);
+    /// <remarks>
+    /// Deliberately does not commit. The caller writes the audit entry and saves once, so the
+    /// deletion and the record of it land in the same transaction. Committing here instead left a
+    /// window where the content was irrecoverably gone and the audit save could still fail, which
+    /// for this operation in particular is the worst possible half-state: unprovable erasure.
+    /// </remarks>
+    Task<bool> QueueEraseAsync(Guid contentId, CancellationToken ct);
 }
 
 /// <summary>
@@ -44,7 +50,7 @@ public sealed class ContentEraser : IContentEraser
         _logger = logger;
     }
 
-    public async Task<bool> EraseAsync(Guid contentId, CancellationToken ct)
+    public async Task<bool> QueueEraseAsync(Guid contentId, CancellationToken ct)
     {
         if (_options.Mode == ErasureMode.None)
         {
@@ -80,12 +86,11 @@ public sealed class ContentEraser : IContentEraser
             contentId, contentId);
         _session.Delete(content);
 
-        await _session.SaveChangesAsync(ct);
-
-        // The id and the row count, never the content. A log line about an erasure that quotes what
-        // was erased is not an erasure.
-        _logger.LogInformation(
-            "Erased content {ContentId}: events, stream and document removed", contentId);
+        // The id only, never the content. A log line about an erasure that quotes what was erased is
+        // not an erasure. Logged on queueing rather than on commit, which is a small imprecision
+        // accepted so that this stays free of transaction control; the caller's save is what makes
+        // it true.
+        _logger.LogInformation("Erasing content {ContentId}: events, stream and document", contentId);
 
         return true;
     }

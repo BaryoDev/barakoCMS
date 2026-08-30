@@ -81,7 +81,7 @@ not erase the events that produced it.
 
 | Mode | What it does |
 | --- | --- |
-| `Compact` (default) | `DELETE /api/contents/{id}/erase` removes the item's events, its stream and its read-model document in one transaction. The item's history goes with it, which is what erasure means. |
+| `Delete` (default) | `DELETE /api/contents/{id}/erase` removes the item's events, its stream and its read-model document in one transaction. The item's history goes with it, which is what erasure means. |
 | `None` | No erasure path, for a deployment that has decided its content never holds personal data. Requires an explicit acknowledgement to start. |
 | `CryptoShred` | Encrypt payloads per subject, destroy the key on erasure. **Not available yet**, and selecting it fails at startup rather than pretending. |
 

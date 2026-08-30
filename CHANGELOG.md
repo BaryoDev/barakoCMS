@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **An answer to the right-to-erasure question, and a way to act on it.** `Erasure:Mode` decides how
-  a deployment handles an erasure request. `Compact`, the default, removes a content item's events,
+  a deployment handles an erasure request. `Delete`, the default, removes a content item's events,
   its stream and its document in one transaction through `DELETE /api/contents/{id}/erase`
   (SuperAdmin, audited). `None` requires an explicit acknowledgement. `CryptoShred` is recognised and
   **refused at startup**, because it needs an answer to which field identifies the data subject and a

@@ -231,21 +231,29 @@ place they differ.
 
 ---
 
-## D9. Erasure is a configured mode, and the unsafe switch is refused at startup
+## D9. Erasure is a configured mode, and a mode that cannot deliver is refused at startup
 
-**Decided:** 30 Aug 2026. **Issue:** #301. **Status:** accepted, not yet implemented.
+**Decided:** 30 Aug 2026. **Issue:** #301. **Status:** implemented for `Delete` and `None`.
 
 A deployment chooses how erasure works, through `Erasure:Mode`:
 
-- **`Compact`** (the default). Erasing a content item compacts its stream, which removes the
-  historical events, and deletes or redacts the resulting snapshot and the read-model document. The
-  item's history is gone, which is what erasure means.
-- **`CryptoShred`**. Content event payloads are encrypted per subject; erasure destroys the key.
+- **`Delete`** (the default). `DELETE /api/contents/{id}/erase` removes the item's events, its
+  stream and its read-model document in one transaction, together with the audit entry recording
+  that it happened. The item's history goes with it, which is what erasure means.
+- **`CryptoShred`**. Content event payloads encrypted per subject; erasure destroys the key.
+  **Refused at startup in every deployment**, because it is not implemented and the subject question
+  below is open.
 - **`None`**. Pure append-only, with no erasure path, for a deployment that has decided its content
   never holds personal data. Requires an explicit acknowledgement, not just leaving a setting unset.
 
-**The host refuses to start in `CryptoShred` against a database that already holds plaintext content
-events**, naming the setting, the same fail-closed shape as a missing connection string.
+**A note on the name.** This mode was called `Compact` when the decision was written, because
+Marten's `CompactStreamAsync` looked like the supported mechanism. It is not, and a spike written
+before the implementation is what caught it: compaction requires a registered aggregation
+projection, which this project has none for `Content` since the read model is written by
+`IContentWriter` in the same transaction, and even with one it replaces the events with a snapshot of
+current state, which is precisely the data an erasure removes. `ArchiveStream` is softer still: it
+sets a flag and leaves every byte. So erasure is a delete below Marten's API, and the mode is named
+for what it does rather than for the API that turned out not to do it.
 
 **Rules out:** picking one mechanism for everyone, and letting an operator change mode freely.
 
@@ -255,18 +263,23 @@ deployment needs depends on whether it holds personal data at all. A newsroom pu
 and an agency holding client contact details want different answers, and neither should pay for the
 other's.
 
-**Why `Compact` is the default.** It is the only mode that works on data already written. Every
+**Why `Delete` is the default.** It is the only mode that works on data already written. Every
 existing deployment gains a real erasure path on upgrade with no migration and no key management,
 and it needs no answer to the subject-mapping question below.
 
-**Why the guard is the entire point.** Crypto-shredding cannot be applied retroactively: an event
-already written in plaintext has no key to destroy. So an operator who switches to `CryptoShred` in
-year two protects nothing written in year one, and the only signal is a setting that now says
-`CryptoShred`. That is a silent, permanent, and legally consequential wrong answer, so it fails at
-startup instead.
+**Why the guard is the entire point.** Two failures share one shape, and both are a setting that
+reads as a policy while no policy is in force.
+
+`CryptoShred` is unimplemented, so accepting the setting would give an operator who has decided they
+need real erasure the belief without the property. It is therefore refused in every deployment, not
+only on one that already holds plaintext events, until the subject question is answered.
+
+And when it is implemented, the retroactivity guard still applies: crypto-shredding cannot be applied
+to an event already written in plaintext, so switching in year two protects nothing written in year
+one. Either way the answer is to fail at startup rather than let the belief form.
 
 The transitions are deliberately asymmetric. Starting on `CryptoShred` keeps every option, because
-shredded data can also be compacted. Starting on `Compact` forecloses shredding for everything
+shredded data can also be compacted. Starting on `Delete` forecloses shredding for everything
 written before the switch. Given the choice, this is the door that stays open.
 
 **What is still unanswered:** who the subject is. Crypto-shredding needs a key per something, and a
@@ -285,6 +298,6 @@ Erasure and tamper-evidence are in direct conflict there too, and this decision 
 
 **What would have to change for this to be wrong.** If content turns out to hold personal data in
 the ordinary case rather than the exceptional one, the default is backwards: `CryptoShred` should be
-the default and `Compact` the opt-out. The signal to watch is what customers actually model in their
+the default and `Delete` the opt-out. The signal to watch is what customers actually model in their
 first content type.
 

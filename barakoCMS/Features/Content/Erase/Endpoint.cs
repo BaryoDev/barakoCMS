@@ -48,18 +48,23 @@ internal class Endpoint : Endpoint<Request>
     {
         Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId);
 
-        var erased = await _eraser.EraseAsync(req.Id, ct);
-        if (!erased)
+        var found = await _eraser.QueueEraseAsync(req.Id, ct);
+        if (!found)
         {
             await Send.NotFoundAsync(ct);
             return;
         }
 
-        // Recorded before the response, and recording the id only. An audit entry for an erasure
-        // that quotes what was erased puts the data back.
+        // Queued, not yet committed, and the audit entry joins it on the same session so that one
+        // SaveChanges commits both. Erasing first and auditing second would leave a window where
+        // the content is irrecoverably gone and the record of it failed to save, and a retry then
+        // returns not found: an erasure nobody can prove happened.
+        //
+        // The id only. An audit entry that quotes what was erased puts the data back.
         await AuditLog.RecordAsync(_session, _tenant.Slug, "content.erased", userId,
             User.FindFirst("Username")?.Value,
             targetType: "content", targetId: req.Id.ToString(), ct: ct);
+
         await _session.SaveChangesAsync(ct);
 
         await Send.NoContentAsync(ct);

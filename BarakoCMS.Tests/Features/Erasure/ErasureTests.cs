@@ -155,8 +155,8 @@ public class ErasureTests
     /// Without these, a Validate that threw unconditionally would pass every case above.
     /// </remarks>
     [Theory]
-    [InlineData(null, null, ErasureMode.Compact)]
-    [InlineData("Compact", null, ErasureMode.Compact)]
+    [InlineData(null, null, ErasureMode.Delete)]
+    [InlineData("Delete", null, ErasureMode.Delete)]
     [InlineData("None", "true", ErasureMode.None)]
     public void A_usable_erasure_mode_is_accepted(string? mode, string? acknowledge, ErasureMode expected)
     {
@@ -231,5 +231,35 @@ public class ErasureTests
 
         _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
             "Bearer", _factory.CreateToken(roles: roles, userId: userId.ToString()));
+    }
+
+    /// <summary>
+    /// The deletion and its audit entry commit together, or neither does.
+    /// </summary>
+    /// <remarks>
+    /// Erasing first and auditing second leaves a window where the content is irrecoverably gone and
+    /// the record of it failed to save. A retry then returns not found, so the operation is an
+    /// erasure nobody can prove happened, which for this feature is the worst possible half-state.
+    ///
+    /// Driven through the eraser rather than the endpoint, because the point is that queueing does
+    /// not commit on its own. Abandoning the session without saving must leave the content intact.
+    /// </remarks>
+    [Fact]
+    public async Task Queueing_an_erasure_without_saving_leaves_the_content_intact()
+    {
+        var needle = $"unsaved-{Guid.NewGuid():n}";
+        var id = await SeedAsync(needle);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var eraser = scope.ServiceProvider.GetRequiredService<barakoCMS.Infrastructure.Erasure.IContentEraser>();
+            (await eraser.QueueEraseAsync(id, CancellationToken.None)).Should().BeTrue();
+            // No SaveChangesAsync. The scope disposes and the session goes with it.
+        }
+
+        (await RowsContainingAsync(needle)).Should().BeGreaterThan(0,
+            "queueing must not commit on its own, or the audit entry cannot share its transaction");
+        (await ScalarAsync("select count(*) from public.mt_doc_contents where id = @p", id))
+            .Should().Be(1);
     }
 }
