@@ -64,7 +64,39 @@ services:
         NEXT_PUBLIC_API_URL: https://${DOMAIN_API}
     restart: always
 
+  # 5. Nightly backup
+  #
+  # This stack had none. The one hardened backup path was wired into the development compose file
+  # only, so the deployment that holds real data was the one with nothing behind it.
+  #
+  # backup-cron.sh checks pg_dump's own exit code rather than gzip's, proves the archive
+  # decompresses and looks like a dump, enforces a minimum size, and only then publishes it. Its
+  # header explains why: an earlier version piped straight into gzip, and because gzip succeeds on
+  # empty input, months of backups were 20-byte files reporting success.
+  #
+  # The volume is its own, not Postgres's. A backup that dies with the thing it backs up is not a
+  # backup, which is what the k8s CronJob used to do before it got the barako-backups PVC.
+  db-backup:
+    image: postgres:16-alpine
+    container_name: barako-db-backup
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - postgres_prod_backups:/backups
+      - ./scripts:/scripts:ro
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: ${DB_NAME:-barako_cms}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      BACKUP_CRON_SCHEDULE: "${BACKUP_CRON_SCHEDULE:-0 2 * * *}"
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+    entrypoint: ["/bin/sh", "/scripts/backup-cron.sh"]
+
 volumes:
   postgres_prod_data:
+  postgres_prod_backups:
   caddy_data:
   caddy_config:
