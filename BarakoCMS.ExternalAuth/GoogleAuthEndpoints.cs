@@ -96,6 +96,7 @@ public class GoogleCallbackEndpoint : EndpointWithoutRequest
         }
 
         string email;
+        bool emailVerified;
         SocialSignIn.ProfileData profile;
         try
         {
@@ -120,6 +121,11 @@ public class GoogleCallbackEndpoint : EndpointWithoutRequest
             var me = JsonSerializer.Deserialize<JsonElement>(await infoResp.Content.ReadAsStringAsync(ct));
 
             email = (me.TryGetProperty("email", out var e) ? e.GetString() : null)?.Trim().ToLowerInvariant() ?? "";
+            // OIDC: email_verified is the provider's assertion that it owns the verification, and
+            // absent means no assertion, so absent is false.
+            emailVerified = me.TryGetProperty("email_verified", out var ev)
+                && (ev.ValueKind == System.Text.Json.JsonValueKind.True
+                    || (ev.ValueKind == System.Text.Json.JsonValueKind.String && ev.GetString() == "true"));
             var name = me.TryGetProperty("name", out var n) ? n.GetString() : null;
             var photo = me.TryGetProperty("picture", out var p) ? p.GetString() : null;
             profile = new SocialSignIn.ProfileData(name, photo, null, null, "google");
@@ -137,7 +143,7 @@ public class GoogleCallbackEndpoint : EndpointWithoutRequest
         }
 
         var mfa = Resolve<barakoCMS.Infrastructure.Auth.Mfa.IMfaService>();
-        var tokens = await SocialSignIn.IssueAsync(_session, _config, _deviceGate, _tokenIssuer, mfa, HttpContext, email, club, ct, profile);
+        var tokens = await SocialSignIn.IssueAsync(_session, _config, _deviceGate, _tokenIssuer, mfa, HttpContext, email, emailVerified, club, ct, profile);
         if (tokens.RequiresMfa)
         {
             await Send.ResultAsync(Results.Redirect(SocialSignIn.FrontendMfaCallback(baseUrl, tokens.MfaChallenge!, club)));
