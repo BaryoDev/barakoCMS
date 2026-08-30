@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+**Social sign-in accepted an email the provider never verified.** The email was the only join key,
+so an unverified assertion was a login for whichever local account held that address, including a
+seeded SuperAdmin whose address is `{username}@company.com` and therefore guessable. `PasswordHash`
+is not consulted on that path.
+
+Google and LinkedIn now require `email_verified`. GitHub uses only the verified primary from
+`/user/emails`; it previously preferred the unflagged profile email whenever it was set, so the
+careful branch was the one nobody reached. Facebook exposes no verification flag at all and is now
+refused unless `Facebook:TrustUnverifiedEmail` is set, which is an operator's explicit decision.
+`IssueAsync` takes the flag as a required argument, so the next provider cannot omit it quietly.
+ExternalAuth `0.4.0`.
+
+The module had no test project reference and therefore no tests, which is why none of this was
+caught (#120). It has both now.
+
+**A password login against an account with no password returned 500, not 401.** Social sign-in
+creates users with an empty `PasswordHash`, and BCrypt throws on one rather than returning false.
+That was a username oracle on the one endpoint that had taken care to avoid one, next to its own
+dummy-hash timing defence. It now burns the same dummy verify and returns the same 401.
+
+**Any authenticated account could read any file in the tenant, and upload without a role.** Both
+Files endpoints had authentication and neither had authorization. Download is now the uploader or an
+admin, refusing with 404 rather than 403 so a leaked id cannot be used to probe for others. Upload
+now carries the same role gate as every other write in the module set. Files `0.4.0`.
+
+
 ### Breaking
 
 **The core package no longer injects `appsettings.json` into consumer projects.** The published
