@@ -96,6 +96,7 @@ export default function LoginPage() {
                 // one-time-code lets password managers and iOS autofill offer the TOTP directly.
                 autoComplete="one-time-code"
                 inputMode="numeric"
+                // eslint-disable-next-line jsx-a11y/no-autofocus -- this field appears after the password step, so focus is following the user's own action rather than seizing it on load.
                 autoFocus
                 required
                 placeholder="123456"
@@ -120,6 +121,7 @@ export default function LoginPage() {
             <Input
               id="username"
               autoComplete="username"
+              // eslint-disable-next-line jsx-a11y/no-autofocus -- a sign-in page has one purpose and this is its first field, so the disorientation the rule guards against does not apply.
               autoFocus
               required
               value={username}

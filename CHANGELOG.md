@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A support and end-of-life policy.** `SECURITY.md` had a table that stopped at 3.x and no
+  statement of what "supported" means. It now carries a 4.x row, a rule rather than a date (a major
+  is actively supported until twelve months after its successor ships), what each status includes,
+  and how module packages inherit the core's window.
+- **A compliance posture** in `docs/compliance-posture.md`, linked from `SECURITY.md` and the
+  README. States what exists with somewhere to verify each item, states plainly that there is no
+  SOC 2, no ISO 27001 and no third-party penetration test, and answers the largest part of a typical
+  security questionnaire by naming which questions self-hosting moves to the operator.
+- **A software bill of materials.** CycloneDX for the .NET solution and the admin's npm tree,
+  generated during the release build and uploaded as a 90-day artifact. `verify-packages` fails if
+  either is missing or lists no components, so the release cannot claim an SBOM it did not produce.
+- **Accessibility checks.** The 28 `jsx-a11y` rules `eslint-config-next` leaves off are enabled in
+  the existing lint step, and an axe scan runs over the sign-in page, the content list, the content
+  types list and the entry form in the existing e2e pack. Serious and critical fail the build.
+
+### Fixed
+
+- **Three real accessibility defects, found by the new scan on its first run.** The primary button
+  colour gave white text 3.85:1 against WCAG AA's 4.5:1, so every primary button in the light theme
+  failed; muted text was 4.45:1 on the sidebar; and the content-type selects had no accessible name,
+  one of them because a visible label was never associated with its control.
 - **Every deployment path takes a backup, and CI proves one can be restored.** The hardened backup
   script was wired into the development compose file only, so the deployments holding real data had
   none. `docker-compose.prod.yml` and the quickstart stack now run that same script, and the k8s

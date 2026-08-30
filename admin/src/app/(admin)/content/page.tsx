@@ -68,7 +68,10 @@ function ContentListInner() {
 
       <div className="mb-4">
         <Select value={contentType ?? ALL_TYPES} onValueChange={setType}>
-          <SelectTrigger className="w-56">
+          {/* No visible label by design, so the name has to come from aria-label. The placeholder
+              is not one: it disappears the moment a value is selected, and renders as nothing while
+              the schema list is still loading, which is when axe caught this. */}
+          <SelectTrigger className="w-56" aria-label="Filter by content type">
             <SelectValue placeholder="All content types" />
           </SelectTrigger>
           <SelectContent>

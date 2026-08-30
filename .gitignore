@@ -413,6 +413,8 @@ docs/*
 # Operators need this one to ship with the release: it is the procedure for a 4.0 upgrade that
 # does not boot without it.
 !docs/upgrading-to-4.0.md
+# The answer a procurement review asks for, so it has to be readable without a checkout.
+!docs/compliance-posture.md
 # The restore runbook is operational documentation an operator needs at the worst possible moment.
 !docs/backup-and-restore.md
 

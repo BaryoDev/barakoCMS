@@ -127,6 +127,43 @@ jobs:
             dotnet pack "$p/$p.csproj" --no-build --configuration Release -o out
           done
 
+      # A software bill of materials is a hard requirement under the EU Cyber Resilience Act and US
+      # federal procurement, and this release produced none for any of the fourteen packages or the
+      # image. CycloneDX because it is the common answer in .NET tooling; the format matters less
+      # than one existing, but being consistent about which one does matter.
+      #
+      # Generated from the solution rather than per project: one dependency graph covering
+      # everything shipped, which is what a reviewer wants, and it does not go stale project by
+      # project when a reference moves.
+      - name: Generate the SBOM
+        run: |
+          set -euo pipefail
+          dotnet tool install --global CycloneDX --version 5.4.0
+          export PATH="$PATH:$HOME/.dotnet/tools"
+          mkdir -p sbom
+          dotnet CycloneDX barakoCMS.sln --output sbom --filename barakoCMS.cdx.json --json
+
+          # npm ci here rather than reusing the admin job: that job runs in parallel on a different
+          # runner, so its node_modules do not exist on this one.
+          npm --prefix admin ci --ignore-scripts
+          npx --yes @cyclonedx/cyclonedx-npm --output-file sbom/barako-admin.cdx.json admin/package.json
+
+          # A tool that writes nothing still exits 0, so check the files rather than the command.
+          for f in sbom/barakoCMS.cdx.json sbom/barako-admin.cdx.json; do
+            [ -s "$f" ] || { echo "::error::$f is missing or empty."; exit 1; }
+            COMPONENTS=$(python3 -c "import json,sys; print(len(json.load(open('$f')).get('components', [])))")
+            [ "$COMPONENTS" -gt 0 ] || { echo "::error::$f lists no components, so it describes nothing."; exit 1; }
+            echo "$f: $COMPONENTS components"
+          done
+
+      - name: Upload the SBOM
+        uses: actions/upload-artifact@v7
+        with:
+          name: sbom
+          path: sbom/*.json
+          if-no-files-found: error
+          retention-days: 90
+
       - name: Upload the packages
         uses: actions/upload-artifact@v7
         with:
@@ -160,6 +197,24 @@ jobs:
         with:
           name: nupkg
           path: packages
+
+      # The release claims to produce an SBOM, so this job proves the file exists and describes
+      # something. The pattern is the same as the assembly assertion below: a step that produced no
+      # output still exits 0, and the release should not be able to say "SBOM" while shipping none.
+      - uses: actions/download-artifact@v8
+        with:
+          name: sbom
+          path: sbom
+
+      - name: Confirm the SBOM was produced
+        run: |
+          set -euo pipefail
+          for f in sbom/barakoCMS.cdx.json sbom/barako-admin.cdx.json; do
+            [ -s "$f" ] || { echo "::error::$f is missing or empty."; exit 1; }
+            COMPONENTS=$(python3 -c "import json; print(len(json.load(open('$f')).get('components', [])))")
+            [ "$COMPONENTS" -gt 0 ] || { echo "::error::$f lists no components."; exit 1; }
+            echo "$f: $COMPONENTS components"
+          done
 
       - name: Restore, build and load every package from a scratch project
         run: |
