@@ -70,6 +70,23 @@ export const STATUS_META: Record<ContentStatus, { label: string; tone: 'muted' |
     [ContentStatus.Archived]: { label: 'Archived', tone: 'muted' },
 };
 
+/**
+ * The badge for a status, without inventing one the server did not send.
+ *
+ * Falling back to Draft looks harmless and is not: a row the server said nothing about renders as a
+ * genuine Draft, with a warning badge, indistinguishable from a real one. Nobody can tell from the
+ * screen that the field was missing.
+ *
+ * It is reachable rather than theoretical. The admin is its own deployable and picks its API at
+ * runtime from window._env_, so it can point at an older server, and the content list only started
+ * returning `status` in 4.0. A 4.0 admin against any currently released API would label every row
+ * Draft. Showing the raw value is worse-looking and better: it says the two are out of step, which is
+ * exactly the drift these changes exist to stop hiding.
+ */
+export function statusMeta(status: string | undefined): { label: string; tone: 'muted' | 'success' | 'warning' } {
+    return STATUS_META[status as ContentStatus] ?? { label: status ?? 'Unknown', tone: 'muted' };
+}
+
 export const SENSITIVITY_META: Record<SensitivityLevel, { label: string; description: string }> = {
     [SensitivityLevel.Public]: { label: 'Public', description: 'Visible to every reader' },
     [SensitivityLevel.Sensitive]: { label: 'Sensitive', description: 'Data hidden except from SuperAdmin and HR' },

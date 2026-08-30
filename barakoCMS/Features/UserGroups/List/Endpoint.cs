@@ -4,7 +4,7 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.UserGroups.List;
 
-internal class Endpoint : Endpoint<ListRequest, PaginatedResponse<UserGroup>>
+internal class Endpoint : Endpoint<ListRequest, PaginatedResponse<barakoCMS.Features.UserGroups.UserGroupResponse>>
 {
     private readonly IDocumentSession _session;
 
@@ -25,6 +25,12 @@ internal class Endpoint : Endpoint<ListRequest, PaginatedResponse<UserGroup>>
             .OrderBy(g => g.Name)
             .ToPagedResponseAsync(req, ct);
 
-        await Send.OkAsync(page, ct);
+        await Send.OkAsync(new PaginatedResponse<barakoCMS.Features.UserGroups.UserGroupResponse>
+        {
+            Items = page.Items.Select(barakoCMS.Features.UserGroups.UserGroupResponse.From).ToList(),
+            Page = page.Page,
+            PageSize = page.PageSize,
+            TotalItems = page.TotalItems,
+        }, ct);
     }
 }

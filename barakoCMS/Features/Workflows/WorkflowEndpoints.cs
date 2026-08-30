@@ -4,7 +4,7 @@ using Marten;
 
 namespace barakoCMS.Features.Workflows;
 
-internal class CreateWorkflowEndpoint : Endpoint<WorkflowDefinition, WorkflowDefinition>
+internal class CreateWorkflowEndpoint : Endpoint<WorkflowDefinition, barakoCMS.Features.Workflows.WorkflowResponse>
 {
     private readonly IDocumentSession _session;
     private readonly barakoCMS.Infrastructure.Services.IWorkflowSchemaValidator _validator;
@@ -39,11 +39,11 @@ internal class CreateWorkflowEndpoint : Endpoint<WorkflowDefinition, WorkflowDef
         req.Id = Guid.NewGuid();
         _session.Store(req);
         await _session.SaveChangesAsync(ct);
-        await Send.ResponseAsync(req, cancellation: ct);
+        await Send.ResponseAsync(barakoCMS.Features.Workflows.WorkflowResponse.From(req), cancellation: ct);
     }
 }
 
-internal class ListWorkflowsEndpoint : Endpoint<ListRequest, PaginatedResponse<WorkflowDefinition>>
+internal class ListWorkflowsEndpoint : Endpoint<ListRequest, PaginatedResponse<barakoCMS.Features.Workflows.WorkflowResponse>>
 {
     private readonly IDocumentSession _session;
 
@@ -64,6 +64,12 @@ internal class ListWorkflowsEndpoint : Endpoint<ListRequest, PaginatedResponse<W
             .OrderBy(w => w.Name)
             .ToPagedResponseAsync(req, ct);
 
-        await Send.ResponseAsync(page, cancellation: ct);
+        await Send.ResponseAsync(new PaginatedResponse<barakoCMS.Features.Workflows.WorkflowResponse>
+        {
+            Items = page.Items.Select(barakoCMS.Features.Workflows.WorkflowResponse.From).ToList(),
+            Page = page.Page,
+            PageSize = page.PageSize,
+            TotalItems = page.TotalItems,
+        }, cancellation: ct);
     }
 }
