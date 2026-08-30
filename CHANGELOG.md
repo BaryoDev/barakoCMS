@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking
 
+- **No endpoint returns a stored document as its wire contract.** `Role`, `UserGroup`, `Tenant`,
+  `WorkflowDefinition`, `ContentTypeDefinition` and the rollback endpoint's `Content` all went out as
+  the Marten document. That froze every stored property name as API and published any property added
+  later to every client the moment it was saved. Each endpoint owns its response shape now. Field
+  names are unchanged, so a client reading the documented fields is unaffected; what changes is that
+  `SearchText` and other stored-only properties no longer appear.
+
 - **Every package retargets from `net8.0` to `net10.0`.** Host applications have to be on .NET 10.
   This is the largest break in 4.0 and no migration helps with it.
 
