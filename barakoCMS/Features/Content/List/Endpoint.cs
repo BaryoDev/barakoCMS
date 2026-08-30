@@ -16,6 +16,12 @@ internal class ContentResponse
     public Dictionary<string, object> Data { get; set; } = new();
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
+
+    // The single-item GET returns these and the list did not, so an entries table had no way to
+    // show whether a row was a Draft. Adding a field to a response is not a breaking change, and
+    // the alternative was every list row costing a second request to find out.
+    public barakoCMS.Models.ContentStatus Status { get; set; }
+    public barakoCMS.Models.SensitivityLevel Sensitivity { get; set; }
 }
 
 internal class Endpoint : Endpoint<Request, PaginatedResponse<ContentResponse>>
@@ -93,7 +99,9 @@ internal class Endpoint : Endpoint<Request, PaginatedResponse<ContentResponse>>
                     ContentType = item.ContentType,
                     Data = new Dictionary<string, object>(item.Data),
                     CreatedAt = item.CreatedAt,
-                    UpdatedAt = item.UpdatedAt
+                    UpdatedAt = item.UpdatedAt,
+                    Status = item.Status,
+                    Sensitivity = item.Sensitivity
                 };
                 // Same document- and field-level scrubbing as Get, so lists never leak sensitive data.
                 if (await sensitivity.ApplyAsync(item.ContentType, item.Sensitivity, response.Data, HttpContext, ct))

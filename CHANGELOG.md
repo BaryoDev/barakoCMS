@@ -112,6 +112,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The content list reports `status` and `sensitivity`.** The single-item GET returned them and the
+  list did not, so an entries table could not show which rows were Drafts without a request per row.
+  The admin list has a status column again.
+
 - **`docs/event-sourced-content-types.md`** explains what turning on event sourcing commits a
   content type to: the history becomes the record, stale saves get a 409, the choice is permanent
   even across delete-and-recreate, and non-Public fields are refused. Written for the admin making
@@ -175,6 +179,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the codebase read as though the application backed itself up.
 
 ### Fixed
+
+- **The admin History panel had been showing nothing since the list envelope changed.** It read
+  `versions` off `GET /api/contents/{id}/history`, and that endpoint has returned the paginated
+  `items` envelope since #291. The panel rendered an empty list rather than failing, and the e2e
+  suite could not catch it because it mocks the route and the mock was written to match the client.
+  It also understands the entry types the history now reports, so a status change is labelled as one
+  and is not offered a Restore button it cannot honour.
+
+- **The admin decided which roles are undeletable by name, and the server decides by id.** Rename a
+  system role and the admin offered a delete the server refuses; create a custom role called "HR" and
+  the admin locked one the server would remove. The roles API reports `isSystem` now, derived from the
+  seeded ids that the delete rule already keys on, and the admin asks instead of re-deriving.
 
 - **Content history reports every event, not two of five.** `GET /api/contents/{id}/history`
   mapped `ContentCreated` and `ContentUpdated` and returned null for `ContentStatusChanged`,

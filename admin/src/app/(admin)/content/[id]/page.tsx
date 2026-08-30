@@ -175,9 +175,24 @@ function HistoryPanel({
     return <p className="text-muted-foreground py-8 text-center text-sm">No earlier versions recorded.</p>;
   }
 
-  // The API returns versions oldest-first; show newest first so the top card is the current state
-  // (labeled "Current version", no Restore) and earlier versions are the ones you can restore.
+  // The API returns entries oldest-first; show newest first so the top card is the current state.
   const ordered = [...versions].reverse();
+
+  // Not every entry is a document version any more. The endpoint used to report only creates and
+  // updates and silently drop the rest, so publishing left no trace in a document's own history.
+  // Now a status change, a schedule and a sensitivity change each appear, and only the two that
+  // carry a document can be restored to.
+  const describe = (v: (typeof ordered)[number]) => {
+    switch (v.changeType) {
+      case 'Created': return 'Created';
+      case 'Updated': return 'Edited';
+      case 'StatusChanged': return v.status ? `Status set to ${v.status}` : 'Status changed';
+      case 'Scheduled': return 'Scheduling changed';
+      case 'SensitivityChanged':
+        return v.sensitivity ? `Sensitivity set to ${v.sensitivity}` : 'Sensitivity changed';
+      default: return v.changeType;
+    }
+  };
 
   return (
     <ol className="space-y-3">
@@ -186,14 +201,14 @@ function HistoryPanel({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <p className="text-sm font-medium">
-                {i === 0 ? 'Current version' : `Version from ${format(new Date(version.timestamp), 'PPp')}`}
+                {i === 0 ? `${describe(version)} (current)` : describe(version)}
               </p>
               <p className="text-muted-foreground text-xs">
                 {version.lastModifiedBy ? `By ${version.lastModifiedBy} · ` : ''}
                 {format(new Date(version.timestamp), 'PPpp')}
               </p>
             </div>
-            {i > 0 && canRollback && (
+            {i > 0 && canRollback && version.data && (
               <ConfirmDialog
                 trigger={
                   <Button variant="outline" size="sm" disabled={rollback.isPending}>
@@ -217,9 +232,11 @@ function HistoryPanel({
               />
             )}
           </div>
-          <pre className="bg-muted text-muted-foreground mt-3 max-h-48 overflow-auto rounded-md p-3 font-mono text-xs">
-            {JSON.stringify(version.data, null, 2)}
-          </pre>
+          {version.data && (
+            <pre className="bg-muted text-muted-foreground mt-3 max-h-48 overflow-auto rounded-md p-3 font-mono text-xs">
+              {JSON.stringify(version.data, null, 2)}
+            </pre>
+          )}
         </li>
       ))}
     </ol>

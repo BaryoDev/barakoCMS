@@ -44,8 +44,12 @@ test.describe('Admin flows (mocked API)', () => {
         await page.goto('/');
         await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible();
 
-        // exact: the dashboard also has a "Content types N" stat-card link; we want the sidebar one.
-        await page.getByRole('link', { name: 'Content types', exact: true }).click();
+        // Located by the attribute only sidebar items carry, not by name. The dashboard also links
+        // to /schemas from a "Content types N" stat card, and `exact` only separated the two while
+        // that card had rendered its number: until the schemas query resolves the card shows a
+        // skeleton, its accessible name is exactly "Content types", and the locator matched both.
+        // That made this fail under the full parallel pack and pass every time on its own.
+        await page.locator('a[data-sidebar="menu-button"][href="/schemas"]').click();
         await expect(page).toHaveURL('/schemas');
         await expect(page.getByText('Blog post')).toBeVisible();
     });
