@@ -36,8 +36,17 @@ public class FieldDefinition
     // Field type. The accepted set lives in FieldTypeRegistry (the single source of
     // truth both validators read from): string/text, int, decimal, money, bool,
     // date/datetime, time, email, url, slug, uuid, richtext, markdown, json, array,
-    // object. (reference/blob are planned — see roadmap F.4/F.6 — not yet accepted.)
+    // object, reference. (blob is still planned, not yet accepted.)
     public string Type { get; set; } = "text";
+
+    /// <summary>For a <c>reference</c> field, the content type its value points at.</summary>
+    /// <remarks>
+    /// Required for a reference and meaningless for anything else. Without it a reference is an
+    /// untyped uuid: nothing can validate what it points at, delivery cannot resolve it, and the
+    /// admin cannot offer a picker. That is what storing a bare <c>uuid</c> already gives you, and
+    /// it is the thing this field type exists to stop being the only option.
+    /// </remarks>
+    public string? ReferenceType { get; set; }
     public bool IsRequired { get; set; }
     public object? DefaultValue { get; set; }
     public Dictionary<string, object> ValidationRules { get; set; } = new(); // min, max, regex, etc.

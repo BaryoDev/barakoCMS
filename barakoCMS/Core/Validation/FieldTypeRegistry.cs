@@ -14,9 +14,13 @@ namespace barakoCMS.Core.Validation;
 /// value check can never disagree. Adding a field type is one entry here.
 ///
 /// Because all content shares one <c>Content</c> document with a JSONB
-/// <c>Data</c> bag, most new types are "a string plus a format rule" — validated
-/// at the application layer, Contentful/Sanity style. Real relational integrity
-/// (typed columns, FKs) is a later, separate step (roadmap F.7).
+/// <c>Data</c> bag, most new types are "a string plus a format rule", validated
+/// at the application layer, Contentful/Sanity style.
+///
+/// That includes <c>reference</c>. Real relational integrity, typed columns and
+/// foreign keys, was considered and refused for 4.0: it would mean a migration
+/// for every field added, and the content model here is defined at runtime by
+/// whoever is clicking around the admin. The two cannot both be true.
 /// </summary>
 public static class FieldTypeRegistry
 {
@@ -64,6 +68,15 @@ public static class FieldTypeRegistry
         new("time",     "time",     v => AsString(v) is { } s && IsTime(s)),
         new("json",     "json",     IsJson),
         new("money",    "money",    IsDecimal),
+
+        // A pointer to another content item, Contentful and Sanity style rather than a real foreign
+        // key. Real relational integrity would mean typed columns and a migration for every new
+        // field, which cannot work when the content model is defined at runtime through the admin.
+        //
+        // Only the shape is checked here, because this registry is a pure function of the value and
+        // cannot reach the database. That the target exists, and is of the declared type, is checked
+        // by ContentValidatorService, which has a session.
+        new("reference", "reference", v => AsString(v) is { } s && Guid.TryParse(s, out _)),
     };
 
     // Alias -> canonical spec. Aliases are the historical synonyms both live

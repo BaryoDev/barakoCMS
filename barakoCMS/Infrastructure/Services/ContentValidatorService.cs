@@ -62,10 +62,48 @@ public class ContentValidatorService : IContentValidatorService
                     var actualType = GetActualTypeName(value);
                     errors.Add($"Field '{field.DisplayName}' expects type '{expectedType}' but received '{actualType}'");
                 }
+                else if (expectedType == "reference")
+                {
+                    // The registry checked the shape. Whether the target exists, and is the type
+                    // this field declares, needs the database, which is why it is here and not
+                    // there. Checked on write rather than on read: a reference that pointed at
+                    // nothing would otherwise be stored happily and fail for whoever renders it.
+                    var error = await ValidateReferenceAsync(field, value);
+                    if (error is not null)
+                        errors.Add(error);
+                }
             }
         }
 
         return (errors.Count == 0, errors);
+    }
+
+    /// <summary>
+    /// Checks that a reference points at something, and at the right kind of something.
+    /// </summary>
+    /// <remarks>
+    /// Pointing at a real entry of the wrong type is the more interesting failure of the two. It
+    /// looks correct in the data bag, passes any shape check, and produces a resolved value the
+    /// consumer did not ask for. Naming the target type in the error matters for the same reason:
+    /// "not found" and "wrong type" are different mistakes and the caller can only fix the one they
+    /// are told about.
+    /// </remarks>
+    private async Task<string?> ValidateReferenceAsync(FieldDefinition field, object value)
+    {
+        var raw = value is JsonElement je ? je.ToString() : value.ToString();
+        if (!Guid.TryParse(raw, out var targetId))
+            return $"Field '{field.DisplayName}' expects a reference id.";
+
+        var target = await _session.LoadAsync<Models.Content>(targetId);
+
+        if (target is null)
+            return $"Field '{field.DisplayName}' references {targetId}, which does not exist.";
+
+        if (!string.Equals(target.ContentType, field.ReferenceType, StringComparison.OrdinalIgnoreCase))
+            return $"Field '{field.DisplayName}' references a '{target.ContentType}' "
+                 + $"but is declared to point at '{field.ReferenceType}'.";
+
+        return null;
     }
 
     private string GetActualTypeName(object value)
