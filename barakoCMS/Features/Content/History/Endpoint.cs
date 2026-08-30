@@ -54,43 +54,56 @@ internal class Endpoint : Endpoint<Request, barakoCMS.Models.PaginatedResponse<V
 
         var events = await _session.Events.FetchStreamAsync(req.Id, token: ct);
 
+        // Every event becomes an entry, including one this mapper does not recognise: it keeps its
+        // type name and carries no data, rather than being dropped where nobody would see it go.
         var versions = events.Select(e =>
         {
-            if (e.Data is barakoCMS.Events.ContentCreated created)
+            var version = new VersionResponse
             {
-                return new VersionResponse
-                {
-                    Id = created.Id,
-                    Data = created.Data,
-                    LastModifiedBy = created.CreatedBy,
-                    VersionId = e.Id,
-                    Timestamp = e.Timestamp.ToUniversalTime()
-                };
-            }
-            else if (e.Data is barakoCMS.Events.ContentUpdated updated)
+                Id = req.Id,
+                ChangeType = e.Data.GetType().Name,
+                VersionId = e.Id,
+                Timestamp = e.Timestamp.ToUniversalTime()
+            };
+
+            switch (e.Data)
             {
-                return new VersionResponse
-                {
-                    Id = updated.Id,
-                    Data = updated.Data,
-                    LastModifiedBy = updated.UpdatedBy,
-                    VersionId = e.Id,
-                    Timestamp = e.Timestamp.ToUniversalTime()
-                };
+                case barakoCMS.Events.ContentCreated created:
+                    version.Data = created.Data;
+                    version.LastModifiedBy = created.CreatedBy;
+                    version.Status = created.Status;
+                    version.Sensitivity = created.Sensitivity;
+                    break;
+                case barakoCMS.Events.ContentUpdated updated:
+                    version.Data = updated.Data;
+                    version.LastModifiedBy = updated.UpdatedBy;
+                    break;
+                case barakoCMS.Events.ContentStatusChanged statusChanged:
+                    version.LastModifiedBy = statusChanged.UpdatedBy;
+                    version.Status = statusChanged.NewStatus;
+                    break;
+                case barakoCMS.Events.ContentScheduled scheduled:
+                    version.LastModifiedBy = scheduled.UpdatedBy;
+                    version.ScheduledPublishAt = scheduled.ScheduledPublishAt;
+                    version.ScheduledUnpublishAt = scheduled.ScheduledUnpublishAt;
+                    break;
+                case barakoCMS.Events.ContentSensitivityChanged sensitivityChanged:
+                    version.LastModifiedBy = sensitivityChanged.UpdatedBy;
+                    version.Sensitivity = sensitivityChanged.Sensitivity;
+                    break;
             }
-            return null;
+
+            return version;
         })
-        .Where(v => v != null)
-        .Cast<VersionResponse>()
         .ToList();
 
         // 3. Apply the same document- and field-level sensitivity as Get/List to every historical
-        // version, based on the current content's sensitivity level and schema.
+        // version that carries a document, based on the current content's sensitivity level and
+        // schema. The entries with no data have nothing to mask.
         var sensitivity = Resolve<barakoCMS.Core.Interfaces.ISensitivityService>();
-        foreach (var version in versions)
+        foreach (var version in versions.Where(v => v.Data != null))
         {
-            version.Data ??= new Dictionary<string, object>();
-            await sensitivity.ApplyAsync(content.ContentType, content.Sensitivity, version.Data, HttpContext, ct);
+            await sensitivity.ApplyAsync(content.ContentType, content.Sensitivity, version.Data!, HttpContext, ct);
         }
 
         await Send.ResponseAsync(versions.ToPagedResponse(req));
