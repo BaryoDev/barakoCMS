@@ -97,6 +97,11 @@ Two limits worth stating rather than discovering:
 
 The reasoning behind all of it is in `DECISIONS.md` under D9.
 
+Per-type event sourcing, decided but not yet shipped, sidesteps this conflict rather than adding to
+it: an event-sourced content type refuses non-Public fields, so personal data cannot enter a stream
+whose value is never being altered. What that choice commits an operator to is in
+[docs/event-sourced-content-types.md](event-sourced-content-types.md).
+
 ## Reporting a vulnerability
 
 `SECURITY.md`. Private channel, 48-hour acknowledgement, one-week initial assessment.
