@@ -26,7 +26,7 @@ app.UseBarakoCMS();
 
 | Method & path | Purpose | Access |
 |---|---|---|
-| `GET    /api/feature-flags` | Flags as evaluated for the caller | Any signed-in user |
+| `GET    /api/feature-flags` | Flags as evaluated for the caller | Anyone (public flags only until signed in) |
 | `GET    /api/feature-flags/admin` | Every flag with its targeting rules | `Admin` / `SuperAdmin` |
 | `POST   /api/feature-flags/admin` | Create or update a flag | `Admin` / `SuperAdmin` |
 | `POST   /api/feature-flags/admin/{key}/toggle` | Flip a flag | `Admin` / `SuperAdmin` |
@@ -34,6 +34,24 @@ app.UseBarakoCMS();
 
 `GET /api/feature-flags` returns decisions, not rules — the client never learns why it was included,
 and cannot flip itself in by editing a response.
+
+## Public flags
+
+A flag is private until someone publishes it. `GET /api/feature-flags` is anonymous, because a public
+page rendering with flags has no user to authenticate, so an anonymous caller is handed only the flags
+with `isPublic: true`. Everything else is absent from the response, not returned as `false`: the key
+name is the leak, and `{"acquisition-of-northwind": false}` gives it away just as thoroughly.
+
+Publish one deliberately:
+
+```http
+POST /api/feature-flags/admin
+{ "key": "new-checkout", "enabled": true, "isPublic": true }
+```
+
+`isPublic` defaults to false, and the admin upsert replaces the whole flag, so a body that omits the
+field makes the flag private. Flags created before this field existed read back as private, which is
+why upgrading discloses nothing that was not already meant to be public.
 
 ## A flag is not access control
 

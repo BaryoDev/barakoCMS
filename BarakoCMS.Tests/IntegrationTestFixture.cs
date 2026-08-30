@@ -85,6 +85,11 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             // schema so those endpoints can run.
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Pwa.PwaModule(), opts));
 
+            // FeatureFlags: /api/feature-flags is anonymous, so which keys it hands out is a test
+            // this project has to be able to run.
+            new BarakoCMS.FeatureFlags.FeatureFlagsModule().ConfigureServices(services, ctx.Configuration);
+            services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.FeatureFlags.FeatureFlagsModule(), opts));
+
             // FastEndpoints 8 discovers endpoints eagerly inside AddFastEndpoints, which ran in
             // Program.cs before any module assembly above was loaded, so none of the module
             // endpoints exist in that scan. Re-register with the module assemblies explicit;
@@ -97,6 +102,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
                 typeof(BarakoCMS.Accounting.AccountingModule).Assembly,
                 typeof(BarakoCMS.Diagnostics.DiagnosticsModule).Assembly,
                 typeof(BarakoCMS.Pwa.PwaModule).Assembly,
+                typeof(BarakoCMS.FeatureFlags.FeatureFlagsModule).Assembly,
             ]);
         });
     }
