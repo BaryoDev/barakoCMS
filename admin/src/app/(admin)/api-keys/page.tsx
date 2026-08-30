@@ -143,6 +143,7 @@ function CreateApiKeyDialog({ open, onOpenChange }: { open: boolean; onOpenChang
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="CI deploy"
+                  // eslint-disable-next-line jsx-a11y/no-autofocus -- focus belongs in a dialog the moment it opens, which is what WAI-ARIA authoring practices ask for. The rule is aimed at autofocus on page load.
                   autoFocus
                 />
               </div>

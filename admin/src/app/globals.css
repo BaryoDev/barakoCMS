@@ -65,13 +65,19 @@
   --card-foreground: #222222;
   --popover: #ffffff;
   --popover-foreground: #222222;
-  --primary: #008cba;
+  /* #008cba gave white text 3.85:1, under the 4.5:1 WCAG AA asks for normal text, so every primary
+     button in the light theme failed. Same hue and saturation, four points darker, 4.68:1. Caught by
+     the axe pass added for #304 on its first run. */
+  --primary: #007da6;
   --primary-foreground: #ffffff;
   --secondary: #eeeeee;
   --secondary-foreground: #333333;
   --muted: #f8f9fa;
   /* Yeti's #888 fails WCAG AA on white (~3.5:1). #6c757d is the same gray, ~4.7:1. */
-  --muted-foreground: #6c757d;
+  /* #6c757d was 4.45:1 on the #f8f9fa sidebar, just under AA's 4.5:1, so muted text in the sidebar
+     failed while the same token passed on white. Two points darker clears both: 4.63 on the sidebar,
+     4.88 on white. */
+  --muted-foreground: #6a727a;
   --accent: #e9ecef;
   --accent-foreground: #222222;
   --destructive: #f04124;
