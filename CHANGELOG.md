@@ -124,6 +124,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   both directions, and `CreatedAt` breaks ties so paging a sort with duplicate values cannot show one
   entry twice and skip another.
 
+- **Content records who created it, and a permission rule can require ownership.** `Content.CreatedBy`
+  is set from `ContentCreated`, which has always carried it, and a rule can now say
+  `{"$createdBy": {"_eq": "$CURRENT_USER"}}` for "own records only". Document properties are named
+  with a `$` prefix so a schema field cannot collide, since a field name has to start with an
+  uppercase letter. A record with no owner is denied rather than granted, and a SuperAdmin still sees
+  everything.
+
 - **An answer to the right-to-erasure question, and a way to act on it.** `Erasure:Mode` decides how
   a deployment handles an erasure request. `Delete`, the default, removes a content item's events,
   its stream and its document in one transaction through `DELETE /api/contents/{id}/erase`

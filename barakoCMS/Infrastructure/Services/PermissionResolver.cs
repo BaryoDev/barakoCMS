@@ -79,8 +79,12 @@ public class PermissionResolver : IPermissionResolver
             if (rule.Enabled)
             {
                 // And conditions match (or are empty)...
+                // Passing the document rather than only its data bag is what lets a rule name
+                // $createdBy, which is where ownership lives. Without it an ownership condition
+                // would resolve to "field not present" and deny every record including the caller's
+                // own, which reads as a broken rule rather than as a missing capability.
                 if (content == null || rule.Conditions == null || rule.Conditions.Count == 0 ||
-                    _conditionEvaluator.Evaluate(rule.Conditions, content.Data, user))
+                    _conditionEvaluator.Evaluate(rule.Conditions, content, user))
                 {
                     return true; // Granted by at least one role
                 }
