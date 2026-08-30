@@ -60,6 +60,20 @@ public class ContentTypeValidatorService : IContentTypeValidatorService
                     var allowedList = string.Join(", ", FieldTypeRegistry.AllowedTypeNames);
                     errors.Add($"Field '{field.Name}' has invalid type '{field.Type}'. Allowed types: {allowedList}");
                 }
+                else if (string.Equals(field.Type, "reference", StringComparison.OrdinalIgnoreCase)
+                         && string.IsNullOrWhiteSpace(field.ReferenceType))
+                {
+                    // Refused at definition time rather than at write time. A reference with no
+                    // target is an untyped uuid: nothing validates what it points at and delivery
+                    // cannot resolve it, so accepting the type and discovering the gap later would
+                    // leave every entry already written unvalidatable.
+                    errors.Add($"Field '{field.Name}' is a reference and must name the content type it points at, in referenceType.");
+                }
+                else if (!string.IsNullOrWhiteSpace(field.ReferenceType)
+                         && !string.Equals(field.Type, "reference", StringComparison.OrdinalIgnoreCase))
+                {
+                    errors.Add($"Field '{field.Name}' declares referenceType but is of type '{field.Type}', not reference.");
+                }
             }
         }
 

@@ -45,7 +45,6 @@ public class ValidationTests
     [InlineData("varchar")]
     [InlineData("double")]
     [InlineData("float")]
-    [InlineData("reference")] // planned (roadmap F.6) but not yet an accepted type
     [InlineData("blob")]      // planned (roadmap F.4) but not yet an accepted type
     [InlineData("")]
     [InlineData(null)]

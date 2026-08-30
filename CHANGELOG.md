@@ -112,6 +112,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Content can reference other content.** A `reference` field names the content type it points at,
+  in `referenceType`, and a write is refused if the target does not exist or is of a different type.
+  `?include=Field` on public delivery resolves references in one batched request instead of leaving
+  every consumer to fetch each one. Resolved entries go through the same projection the list uses, so
+  published state, document sensitivity, type opt-in and the field allowlist all apply: resolving is
+  not a second way into a Draft. A target that does not survive that projection has its field removed
+  rather than left as an id, which is also what a dangling reference does.
+
 - **Public delivery can sort by a field value.** `?sort=Price` and `?sort=-Price` on
   `/api/public/{type}`, composing with the existing filters and paging. Only fields the content type
   marks Public are sortable, for the same reason only those are filterable: ordering by a field the

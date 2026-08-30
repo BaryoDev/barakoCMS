@@ -41,6 +41,136 @@ internal static class PublicDelivery
         return def.Fields.FirstOrDefault(f => string.Equals(f.Name, "slug", StringComparison.OrdinalIgnoreCase))?.Name;
     }
 
+
+    /// <summary>
+    /// Replaces reference ids with the referenced entries, for the fields a caller named in
+    /// <c>?include=</c>.
+    /// </summary>
+    /// <remarks>
+    /// One batched load for all of them, which is the entire point: without this every consumer
+    /// fetches each reference separately and a list of twenty entries is twenty-one requests.
+    ///
+    /// Every resolved entry goes through <see cref="ToPublic"/>, the same projection the list itself
+    /// uses. That is deliberate and it is what makes this safe: published state, document
+    /// sensitivity, type opt-in and the field allowlist are all enforced by that one function, so
+    /// resolving cannot become a second way into a Draft. Reimplementing those four checks here
+    /// would be the obvious way to get this wrong.
+    ///
+    /// A target that does not survive the projection has its field removed rather than left as an
+    /// id. Leaving the id would say "there is something here you may not see", and removing it
+    /// makes an unreadable target indistinguishable from no reference at all.
+    /// </remarks>
+    public static async Task<List<PublicContentResponse>> ResolveIncludesAsync(
+        IReadOnlyList<PublicContentResponse> items,
+        IReadOnlyList<string> includeFields,
+        ContentTypeDefinition def,
+        IQuerySession session,
+        CancellationToken ct)
+    {
+        if (includeFields.Count == 0 || items.Count == 0)
+            return items.ToList();
+
+        var ids = new HashSet<Guid>();
+        foreach (var item in items)
+        foreach (var field in includeFields)
+        {
+            if (item.Data.TryGetValue(field, out var raw)
+                && Guid.TryParse(raw?.ToString(), out var id))
+            {
+                ids.Add(id);
+            }
+        }
+
+        if (ids.Count == 0)
+            return items.ToList();
+
+        var idList = ids.ToArray();
+        var targets = await session.Query<ContentDoc>()
+            .Where(c => c.Id.In(idList))
+            .ToListAsync(ct);
+
+        // Each target's own type decides how it is projected, not the referring type's. A reference
+        // field names one target type, so this is usually one lookup, but resolving against the
+        // wrong schema would apply the wrong field allowlist and that is a leak rather than a bug.
+        var typeNames = targets.Select(t => t.ContentType).Distinct().ToList();
+        var defs = (await session.Query<ContentTypeDefinition>()
+                .Where(d => d.Name.In(typeNames.ToArray()))
+                .ToListAsync(ct))
+            .ToDictionary(d => d.Name, StringComparer.OrdinalIgnoreCase);
+
+        var resolved = new Dictionary<Guid, PublicContentResponse>();
+        foreach (var target in targets)
+        {
+            defs.TryGetValue(target.ContentType, out var targetDef);
+            var projected = ToPublic(target, targetDef, targetDef is null ? null : SlugField(targetDef));
+            if (projected is not null)
+                resolved[target.Id] = projected;
+        }
+
+        return items.Select(item =>
+        {
+            var data = new Dictionary<string, object>(item.Data);
+            foreach (var field in includeFields)
+            {
+                if (!data.TryGetValue(field, out var raw)) continue;
+                if (!Guid.TryParse(raw?.ToString(), out var id)) continue;
+
+                if (resolved.TryGetValue(id, out var target))
+                    data[field] = target;
+                else
+                    data.Remove(field);
+            }
+
+            return item with { Data = data };
+        }).ToList();
+    }
+
+    /// <summary>
+    /// The reference fields a caller asked to resolve, or the reason the request is refused.
+    /// </summary>
+    /// <remarks>
+    /// Refused rather than ignored, for the same reason an unknown filter is. A silently dropped
+    /// include returns ids where the caller expected objects, and nothing in the response says why.
+    ///
+    /// Naming a field that exists but is not a reference is also refused. It is a mistake either
+    /// way, and answering differently for "not a reference" and "does not exist" would say which
+    /// non-public fields a type has.
+    /// </remarks>
+    public static (List<string> Fields, string? Error) ParseIncludes(string? include, ContentTypeDefinition def)
+    {
+        if (string.IsNullOrWhiteSpace(include))
+            return ([], null);
+
+        var referenceFields = def.Fields
+            .Where(f => string.Equals(f.Type, "reference", StringComparison.OrdinalIgnoreCase)
+                        && f.Sensitivity == SensitivityLevel.Public)
+            .ToDictionary(f => f.Name, f => f.Name, StringComparer.OrdinalIgnoreCase);
+
+        var asked = include.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        if (asked.Length > MaxIncludes)
+            return ([], $"Too many includes. At most {MaxIncludes} are allowed per request.");
+
+        var fields = new List<string>();
+        foreach (var name in asked)
+        {
+            if (!referenceFields.TryGetValue(name, out var canonical))
+            {
+                var names = referenceFields.Count == 0
+                    ? "(none)"
+                    : string.Join(", ", referenceFields.Values.OrderBy(x => x, StringComparer.Ordinal));
+                return ([], $"Field '{name}' is not a resolvable reference. Resolvable fields: {names}.");
+            }
+
+            fields.Add(canonical);
+        }
+
+        return (fields, null);
+    }
+
+    /// <summary>One batched load per request regardless, but a cap keeps the response bounded.</summary>
+    public const int MaxIncludes = 5;
+
     public static string? SlugValue(ContentDoc c, string? slugField) =>
         slugField is not null && c.Data.TryGetValue(slugField, out var v) ? v?.ToString() : null;
 
@@ -153,6 +283,15 @@ internal class ListPublishedEndpoint : Endpoint<PublicListRequest, PaginatedResp
             return;
         }
 
+        var (includes, includeError) = PublicDelivery.ParseIncludes(
+            HttpContext.Request.Query["include"].FirstOrDefault(), def);
+        if (includeError is not null)
+        {
+            AddError(includeError);
+            await Send.ErrorsAsync(400, ct);
+            return;
+        }
+
         /* Published + document-Public only; the DB filters the rest out. */
         var baseQuery = _session.Query<ContentDoc>()
             .Where(c => c.ContentType == type
@@ -193,6 +332,11 @@ internal class ListPublishedEndpoint : Endpoint<PublicListRequest, PaginatedResp
             .Where(r => r is not null)
             .Select(r => r!)
             .ToList();
+
+        // Resolved after projection, never before. Projecting first means the reference id being
+        // resolved has already survived the field allowlist, so a Sensitive reference field is not
+        // resolvable by asking for it.
+        items = await PublicDelivery.ResolveIncludesAsync(items, includes, def, _session, ct);
 
         PublicDelivery.SetCache(HttpContext);
         await Send.ResponseAsync(new PaginatedResponse<PublicContentResponse>

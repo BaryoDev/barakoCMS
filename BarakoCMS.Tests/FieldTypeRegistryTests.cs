@@ -27,10 +27,20 @@ public class FieldTypeRegistryTests
             FieldTypeValidator.IsValidFieldType(type)
                 .Should().BeTrue($"FieldTypeValidator should accept registry type '{type}'");
 
-            // The runtime content-type-definition validator
+            // The runtime content-type-definition validator.
+            //
+            // A reference needs one thing more than a name and a type, because a reference with no
+            // target is an untyped uuid. That is the only type where the definition validator asks
+            // for more than the registry does, and the parity being checked here is that the two
+            // agree on which type NAMES are allowed, not that every type is declarable with the same
+            // fields filled in.
+            var definition = new FieldDefinition { Name = "Field", Type = type };
+            if (string.Equals(type, "reference", StringComparison.OrdinalIgnoreCase))
+                definition.ReferenceType = "sometype";
+
             var (isValid, errors) = _typeValidator.Validate(
                 "sample", "Sample",
-                new List<FieldDefinition> { new() { Name = "Field", Type = type } });
+                new List<FieldDefinition> { definition });
 
             isValid.Should().BeTrue(
                 $"ContentTypeValidatorService should accept registry type '{type}' but said: {string.Join("; ", errors)}");
@@ -40,7 +50,6 @@ public class FieldTypeRegistryTests
     [Theory]
     [InlineData("varchar")]
     [InlineData("double")]
-    [InlineData("reference")] // planned, not yet accepted
     [InlineData("blob")]      // planned, not yet accepted
     public void UnknownType_IsRejectedEverywhere(string type)
     {
