@@ -425,7 +425,17 @@ public static class ServiceCollectionExtensions
         // services.AddHealthChecks()
         //    .AddNpgSql(configuration.GetConnectionString("DefaultConnection")!, tags: new[] { "db", "ready" });
 
+        // AllowAutoRedirect defaults to true, and WebhookAction validates only the URL it was given.
+        // A webhook target that answers 302 Location: http://169.254.169.254/... was therefore
+        // followed to the metadata service with IsBlockedAddress never consulted for that address:
+        // the SSRF guard covered the first hop only. That needs no DNS control and no race, unlike
+        // the rebinding in #258, and works on the first attempt.
+        //
+        // A webhook receiver has no legitimate reason to redirect a delivery. If one is ever wanted,
+        // the target has to go back through IsUrlSafeAsync before it is followed, never by the
+        // handler on its own.
         services.AddHttpClient("ExternalApi")
+                .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false })
                 .AddStandardResilienceHandler();
 
         // Defaults registered with TryAdd so an opted-in module or the host can substitute a real
