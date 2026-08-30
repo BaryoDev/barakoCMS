@@ -421,3 +421,51 @@ jobs:
             echo "::error::$FOUND Critical or High severity vulnerable dependencies found — see the summary above."
             exit 1
           fi
+
+  # The SBOM is generated in the release workflow, which means it had never run: it was added after
+  # the last release, so the first time anything executed it would have been the 4.0 release itself.
+  # That is the shape this project keeps getting caught by, a gate that can only be tested by
+  # publishing, and the remedy is the same each time: run it where it is cheap to be wrong.
+  #
+  # This job proves the tooling still produces a bill of materials with contents. The release job
+  # remains the one that publishes it; nothing is uploaded here.
+  sbom:
+    name: SBOM generates
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: admin/package-lock.json
+
+      # Deliberately the same commands and the same tool versions as the release job. A smoke test
+      # that drifts from the thing it is smoke testing stops being evidence about it.
+      - name: Generate the SBOM
+        run: |
+          set -euo pipefail
+          dotnet tool install --global CycloneDX --version 5.4.0
+          export PATH="$PATH:$HOME/.dotnet/tools"
+          mkdir -p sbom
+          dotnet CycloneDX barakoCMS.sln --output sbom --filename barakoCMS.cdx.json --json
+
+          npm --prefix admin ci --ignore-scripts
+          npx --yes @cyclonedx/cyclonedx-npm --output-file sbom/barako-admin.cdx.json admin/package.json
+
+          # A tool that writes nothing still exits 0, so check the files rather than the command.
+          for f in sbom/barakoCMS.cdx.json sbom/barako-admin.cdx.json; do
+            [ -s "$f" ] || { echo "::error::$f is missing or empty."; exit 1; }
+            COMPONENTS=$(python3 -c "import json,sys; print(len(json.load(open('$f')).get('components', [])))")
+            [ "$COMPONENTS" -gt 0 ] || { echo "::error::$f lists no components, so it describes nothing."; exit 1; }
+            echo "$f: $COMPONENTS components" >> "$GITHUB_STEP_SUMMARY"
+          done
