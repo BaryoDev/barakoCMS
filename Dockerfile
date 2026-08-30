@@ -24,4 +24,14 @@ WORKDIR /app
 COPY --from=publish /app/publish .
 EXPOSE 8080
 ENV ASPNETCORE_URLS=http://+:8080
+
+# Non-root. The base image ships app as uid 1654 for this, and nothing here needs privilege: 8080 is
+# above 1024 so an unprivileged user can bind it, and the app writes nothing to the container
+# filesystem at runtime. Uploads go to the Files module's configured store.
+#
+# No compose file in this repository mounts a host path into the API, so nothing shipped breaks. The
+# caveat is for anyone who adds one: a directory owned by root is not writable by uid 1654, and that
+# fails at the mount rather than here.
+USER app
+
 ENTRYPOINT ["dotnet", "barakoCMS.dll"]

@@ -32,6 +32,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the existing lint step, and an axe scan runs over the sign-in page, the content list, the content
   types list and the entry form in the existing e2e pack. Serious and critical fail the build.
 
+### Security
+
+- **The API images run as a non-root user.** `barako-cms` and `barako-cms-decaf` ran as root while
+  the admin image did not, which is what an omission looks like rather than a decision. Both now drop
+  to the base image's `app` user (uid 1654) before the entrypoint. Nothing needs privilege: 8080 is
+  above 1024, and the app writes nothing to the container filesystem at runtime. No compose file in
+  this repository mounts a host path into the API, so no shipped configuration changes. Anyone who
+  has added their own bind mount needs it writable by uid 1654.
+
 ### Fixed
 
 - **The published images serve both amd64 and arm64.** The release built for whatever architecture
