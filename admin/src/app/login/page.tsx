@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { useAuth, useLogin, useVerifyMfa } from '@/hooks/use-auth';
+import { useAuth, useLogin, useVerifyDeviceCode, useVerifyMfa } from '@/hooks/use-auth';
 import { apiErrorMessage } from '@/lib/api';
 import { BrandMark } from '@/components/brand';
 import { Button } from '@/components/ui/button';
@@ -16,12 +16,16 @@ export default function LoginPage() {
   const { isAuthenticated, isLoading } = useAuth();
   const login = useLogin();
   const verifyMfa = useVerifyMfa();
+  const verifyDevice = useVerifyDeviceCode();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   // Set when the password was accepted but a second factor is required. Holds the short-lived
   // challenge, so the password never has to be kept around or re-sent.
   const [challengeToken, setChallengeToken] = useState<string | null>(null);
+  // Set when the server emailed a device approval code. Holds the address it sent to, because
+  // /api/auth/otp/verify identifies the account by email rather than by the username typed above.
+  const [deviceEmail, setDeviceEmail] = useState<string | null>(null);
   const [code, setCode] = useState('');
 
   useEffect(() => {
@@ -40,6 +44,16 @@ export default function LoginPage() {
             return;
           }
           if (data.requiresDeviceApproval) {
+            // The server sends the address it mailed. Without it there is nothing to verify
+            // against, so fall back to the sign-in step rather than showing a form that cannot
+            // succeed.
+            if (!data.email) {
+              toast.error('This device needs approval, but the server did not say where the code was sent.');
+              return;
+            }
+            setDeviceEmail(data.email);
+            setCode('');
+            setPassword('');
             toast.info(data.message ?? 'Check your email for a device approval code.');
             return;
           }
@@ -68,8 +82,34 @@ export default function LoginPage() {
     );
   };
 
+  const handleDeviceVerify = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!deviceEmail) return;
+    verifyDevice.mutate(
+      { email: deviceEmail, code: code.trim() },
+      {
+        onSuccess: (data) => {
+          // A correct email code on an MFA account owes a second factor and issues no tokens, so
+          // this hands off to the existing challenge step rather than treating it as signed in.
+          if (data.requiresMfa && data.mfaChallengeToken) {
+            setChallengeToken(data.mfaChallengeToken);
+            setDeviceEmail(null);
+            setCode('');
+            return;
+          }
+          router.push('/');
+        },
+        onError: (error) => {
+          setCode('');
+          toast.error(apiErrorMessage(error, 'That code was not accepted. Check the most recent email.'));
+        },
+      }
+    );
+  };
+
   const startOver = () => {
     setChallengeToken(null);
+    setDeviceEmail(null);
     setCode('');
     setPassword('');
   };
@@ -82,12 +122,42 @@ export default function LoginPage() {
           <div>
             <h1 className="font-display text-2xl font-semibold tracking-tight">BarakoCMS</h1>
             <p className="text-muted-foreground mt-1 text-sm">
-              {challengeToken ? 'Enter your authentication code' : 'Sign in to manage your content'}
+              {challengeToken
+                ? 'Enter your authentication code'
+                : deviceEmail
+                  ? 'Approve this device'
+                  : 'Sign in to manage your content'}
             </p>
           </div>
         </div>
 
-        {challengeToken ? (
+        {deviceEmail ? (
+          <form onSubmit={handleDeviceVerify} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="device-code">Device approval code</Label>
+              <Input
+                id="device-code"
+                autoComplete="one-time-code"
+                inputMode="numeric"
+                // eslint-disable-next-line jsx-a11y/no-autofocus -- this field appears after the password step, so focus follows the user's own action rather than seizing it on load.
+                autoFocus
+                required
+                placeholder="123456"
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+              />
+              <p className="text-muted-foreground text-xs">
+                Sent to {deviceEmail}. Approving here trusts this browser for future sign-ins.
+              </p>
+            </div>
+            <Button type="submit" className="w-full" disabled={verifyDevice.isPending}>
+              {verifyDevice.isPending ? 'Verifying…' : 'Approve device'}
+            </Button>
+            <Button type="button" variant="ghost" className="w-full" onClick={startOver}>
+              Back to sign in
+            </Button>
+          </form>
+        ) : challengeToken ? (
           <form onSubmit={handleVerify} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="code">Authentication code</Label>

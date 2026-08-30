@@ -101,6 +101,28 @@ export function useLogin() {
     });
 }
 
+/**
+ * Completes a device approval: the emailed code, in exchange for tokens.
+ *
+ * The server answered `requiresDeviceApproval` and emailed a code, and the admin had nowhere to put
+ * it, so turning on DeviceTrust__Enforce locked every administrator out of their own instance with
+ * no way back in. The quickstart advertises that setting.
+ *
+ * It can chain: a correct email code on an account with MFA enabled returns `requiresMfa` and a
+ * challenge token rather than a session, because possession of a mailbox is a first factor and
+ * cannot stand in for the enrolled second one.
+ */
+export function useVerifyDeviceCode() {
+    return useMutation({
+        mutationFn: async (input: { email: string; code: string }) => {
+            const { data } = await api.post<LoginResponse>('/api/auth/otp/verify', input);
+            // No tokens when a second factor is still owed; the caller moves to the MFA step.
+            if (data.token) tokenStore.set(data.token, data.refreshToken);
+            return data;
+        },
+    });
+}
+
 /** Completes a two-step sign-in: challenge token + a TOTP or recovery code, in exchange for tokens. */
 export function useVerifyMfa() {
     return useMutation({
