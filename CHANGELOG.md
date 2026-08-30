@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **An answer to the right-to-erasure question, and a way to act on it.** `Erasure:Mode` decides how
+  a deployment handles an erasure request. `Compact`, the default, removes a content item's events,
+  its stream and its document in one transaction through `DELETE /api/contents/{id}/erase`
+  (SuperAdmin, audited). `None` requires an explicit acknowledgement. `CryptoShred` is recognised and
+  **refused at startup**, because it needs an answer to which field identifies the data subject and a
+  CMS has no natural one; a setting that reads as a policy while no policy is in force is the exact
+  failure this decision exists to prevent. Reasoning in `DECISIONS.md` D9, and in
+  `docs/compliance-posture.md` for anyone answering a privacy review.
+
+
+### Added
+
 - **A support and end-of-life policy.** `SECURITY.md` had a table that stopped at 3.x and no
   statement of what "supported" means. It now carries a 4.x row, a rule rather than a date (a major
   is actively supported until twelve months after its successor ships), what each status includes,

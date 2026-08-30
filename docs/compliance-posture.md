@@ -74,12 +74,28 @@ here so that a reviewer gets an answer in one page instead of an unanswered emai
 
 **Right to erasure against an immutable event stream.** Content history is append-only, which is
 what makes rollback a forward event and the audit trail worth having. It also means that personal
-data written into an event-sourced content type cannot simply be deleted later: erasing the current
-document does not erase the events that produced it.
+data written into a content type cannot simply be deleted later: erasing the current document does
+not erase the events that produced it.
 
-This is unresolved and tracked in issue #301. If you are subject to GDPR Article 17 or an equivalent
-right, and you intend to store personal data in content, **raise it before you deploy**, not after.
-It is not reversible once the data exists.
+**This is now answered.** `Erasure:Mode` decides how a deployment handles an erasure request:
+
+| Mode | What it does |
+| --- | --- |
+| `Compact` (default) | `DELETE /api/contents/{id}/erase` removes the item's events, its stream and its read-model document in one transaction. The item's history goes with it, which is what erasure means. |
+| `None` | No erasure path, for a deployment that has decided its content never holds personal data. Requires an explicit acknowledgement to start. |
+| `CryptoShred` | Encrypt payloads per subject, destroy the key on erasure. **Not available yet**, and selecting it fails at startup rather than pretending. |
+
+Two limits worth stating rather than discovering:
+
+- **`CryptoShred` is unimplemented** because a CMS has no natural data subject: a blog post that
+  mentions a person is not owned by them, so there is nothing to key on. That question is open
+  (issue #301, decision D9). Until it is answered, erasure means deletion, not shredding.
+- **The audit trail is a second erasure surface.** `AuditEvent` carries an actor username, and
+  `AuditChain` hashes each entry over its predecessor, so removing one breaks the tamper-evidence
+  the chain exists to provide. Erasure and tamper-evidence are in direct conflict there, and that is
+  also unresolved.
+
+The reasoning behind all of it is in `DECISIONS.md` under D9.
 
 ## Reporting a vulnerability
 
