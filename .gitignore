@@ -417,6 +417,8 @@ docs/*
 !docs/compliance-posture.md
 # The restore runbook is operational documentation an operator needs at the worst possible moment.
 !docs/backup-and-restore.md
+# What the event-sourcing toggle commits a content type to, for the admin making the choice.
+!docs/event-sourced-content-types.md
 
 # POC/Experimental Projects
 AttendancePOC/
