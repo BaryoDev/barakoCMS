@@ -183,7 +183,23 @@ internal class Endpoint : Endpoint<Request, Response>
         var gate = await _deviceGate.EvaluatePasswordAsync(user, device, ct);
         if (gate.Decision == barakoCMS.Core.Interfaces.DeviceDecision.ApprovalRequired)
         {
-            await _otp.SendCodeAsync(user.Email, device, ct);
+            var sent = await _otp.SendCodeAsync(user.Email, device, ct);
+            if (!sent)
+            {
+                // Safe to say so here: the password was already correct, so there is nothing left
+                // to enumerate. Telling this caller to check their email would leave them waiting
+                // for a message that was never sent, on the one path where that reads as being
+                // locked out of their own instance.
+                _logger.LogError("Could not send the device approval code to {Username}", user.Username);
+                await Send.ResponseAsync(new Response
+                {
+                    RequiresDeviceApproval = true,
+                    Message = "This device needs approval, but the code could not be emailed. Contact your administrator.",
+                    Email = user.Email,
+                }, 503);
+                return;
+            }
+
             _logger.LogInformation("Password login from an unapproved device for {Username}; sent approval OTP", user.Username);
             await Send.ResponseAsync(new Response
             {

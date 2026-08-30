@@ -52,6 +52,9 @@ public class TokenRevocationService : ITokenRevocationService
             jti, userId, reason);
     }
 
+    /// <summary>PostgreSQL's undefined_table. The schema has not been applied yet.</summary>
+    private const string UndefinedTable = "42P01";
+
     public async Task<bool> IsTokenRevokedAsync(string jti, CancellationToken ct = default)
     {
         var cacheKey = $"revoked:{jti}";
@@ -78,11 +81,27 @@ public class TokenRevocationService : ITokenRevocationService
 
             return isRevoked;
         }
+        catch (Npgsql.PostgresException ex) when (ex.SqlState == UndefinedTable)
+        {
+            // The one case where "not revoked" is the true answer rather than a guess: with no
+            // table, nothing has ever been revoked. This is first run, before the schema apply,
+            // which is what the original catch was written for.
+            _logger.LogDebug(ex, "Revocation table does not exist yet; nothing can be revoked");
+            return false;
+        }
         catch (Exception ex)
         {
-            // Handle case where RevokedToken table doesn't exist yet (e.g., during tests or first run)
-            _logger.LogDebug(ex, "Error checking token revocation for {Jti}, assuming not revoked", jti);
-            return false;
+            // Everything else fails closed. The old catch returned "not revoked" for any exception,
+            // so a revoked token was accepted for as long as the store was unreachable, and it said
+            // so at Debug, which production does not emit. A logged-out session came back during a
+            // database blip and nothing recorded that it had.
+            //
+            // Throwing rather than returning true, on purpose. Both refuse the request, but a 401
+            // tells the caller their session expired, which is a lie that sends them to sign in and
+            // fail again. This surfaces as a server error, which is what it is.
+            _logger.LogError(ex, "Could not check token revocation for {Jti}; refusing the request", jti);
+            throw new InvalidOperationException(
+                "Token revocation could not be checked, so the request cannot be authorised.", ex);
         }
     }
 

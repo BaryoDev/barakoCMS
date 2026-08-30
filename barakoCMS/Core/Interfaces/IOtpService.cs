@@ -13,5 +13,11 @@ public interface IOtpService
     /// code, and emails it with the requesting device's context (Maya-style "DO NOT SHARE" notice).
     /// The caller is responsible for confirming the email belongs to a real user first.
     /// </summary>
-    Task SendCodeAsync(string email, DeviceContext device, CancellationToken ct);
+    /// <returns>
+    /// False when the code was stored but could not be emailed. The caller must not report success
+    /// in that case: telling somebody a code is on its way when it is not sends them to wait for an
+    /// email that will never arrive, and on the device approval path that is indistinguishable from
+    /// being locked out.
+    /// </returns>
+    Task<bool> SendCodeAsync(string email, DeviceContext device, CancellationToken ct);
 }
