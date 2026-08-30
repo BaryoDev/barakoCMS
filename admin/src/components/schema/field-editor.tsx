@@ -319,8 +319,14 @@ export function FieldEditor({ fields, onChange }: FieldEditorProps) {
                                         }
                                     />
                                     <p className="text-muted-foreground text-xs">
-                                        Comma-separated. SuperAdmin always sees every field. Leave empty for the default
-                                        (Sensitive → HR; Hidden → SuperAdmin only).
+                                        {/* The specific default used to be spelled out here as
+                                            "Sensitive to HR; Hidden to SuperAdmin only". That is server
+                                            policy transcribed into the client: it goes stale silently
+                                            when the server changes, and #272 replaces role names with
+                                            capabilities outright. Describe the behaviour, name no
+                                            roles, and let the server keep the policy. */}
+                                        Comma-separated. Leave empty to use the default policy the server applies for
+                                        this sensitivity level.
                                     </p>
                                 </div>
                                 <div className="space-y-2">

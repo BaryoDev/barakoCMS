@@ -24,6 +24,8 @@ export interface Role {
     permissions: ContentTypePermission[];
     systemCapabilities: string[];
     createdAt?: string;
+    /** Whether the server refuses to delete this role. Derived server side from the seeded ids. */
+    isSystem?: boolean;
 }
 
 export interface RoleRequest {
@@ -52,7 +54,12 @@ export interface UserGroup {
 }
 
 // Seeded, non-deletable system roles (Data/DataSeeder.cs)
-export const SYSTEM_ROLE_NAMES = ['SuperAdmin', 'Admin', 'HR', 'User'];
+// SYSTEM_ROLE_NAMES used to live here, listing SuperAdmin, Admin, HR and User, and role deletion
+// was blocked by matching a name against it. The server blocks by the ids the seeder used, so the
+// two could disagree: rename a system role and this offered a delete the server refused, create a
+// custom role called "HR" and this locked one the server would happily remove.
+//
+// The API reports isSystem per role now. Ask, do not re-derive.
 
 export function emptyRule(): PermissionRule {
     return { enabled: false };

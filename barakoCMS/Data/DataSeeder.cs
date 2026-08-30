@@ -40,10 +40,12 @@ public static class DataSeeder
     }
 
     // Well-known deterministic GUIDs for system roles (must match CachedPermissionResolver)
-    public static readonly Guid SuperAdminRoleId = Guid.Parse("00000000-0000-0000-0000-000000000001");
-    public static readonly Guid AdminRoleId = Guid.Parse("00000000-0000-0000-0000-000000000002");
-    public static readonly Guid HRRoleId = Guid.Parse("00000000-0000-0000-0000-000000000003");
-    public static readonly Guid UserRoleId = Guid.Parse("00000000-0000-0000-0000-000000000004");
+    // Kept as aliases so existing callers and tests compile. The values live in
+    // Models.SystemRoles, which is also what the API reports IsSystem from.
+    public static readonly Guid SuperAdminRoleId = barakoCMS.Models.SystemRoles.SuperAdminRoleId;
+    public static readonly Guid AdminRoleId = barakoCMS.Models.SystemRoles.AdminRoleId;
+    public static readonly Guid HRRoleId = barakoCMS.Models.SystemRoles.HRRoleId;
+    public static readonly Guid UserRoleId = barakoCMS.Models.SystemRoles.UserRoleId;
 
     private static async Task SeedRolesAsync(IDocumentSession session)
     {

@@ -4,7 +4,7 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.Roles.Get;
 
-internal class Endpoint : Endpoint<Request, Role>
+internal class Endpoint : Endpoint<Request, barakoCMS.Features.Roles.RoleResponse>
 {
     private readonly IDocumentSession _session;
 
@@ -29,6 +29,6 @@ internal class Endpoint : Endpoint<Request, Role>
             return;
         }
 
-        await Send.OkAsync(role, ct);
+        await Send.OkAsync(barakoCMS.Features.Roles.RoleResponse.From(role), ct);
     }
 }

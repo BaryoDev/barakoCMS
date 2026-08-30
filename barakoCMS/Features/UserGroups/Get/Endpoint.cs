@@ -4,7 +4,7 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.UserGroups.Get;
 
-internal class Endpoint : Endpoint<Request, UserGroup>
+internal class Endpoint : Endpoint<Request, barakoCMS.Features.UserGroups.UserGroupResponse>
 {
     private readonly IDocumentSession _session;
 
@@ -29,7 +29,7 @@ internal class Endpoint : Endpoint<Request, UserGroup>
             return;
         }
 
-        await Send.OkAsync(group, ct);
+        await Send.OkAsync(barakoCMS.Features.UserGroups.UserGroupResponse.From(group), ct);
     }
 }
 

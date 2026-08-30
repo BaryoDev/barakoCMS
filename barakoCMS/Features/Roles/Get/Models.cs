@@ -9,5 +9,5 @@ internal class Request
 
 internal class Response
 {
-    public Role? Role { get; set; }
+    public barakoCMS.Features.Roles.RoleResponse? Role { get; set; }
 }

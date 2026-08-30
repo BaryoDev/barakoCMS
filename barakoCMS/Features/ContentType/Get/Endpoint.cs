@@ -4,7 +4,7 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.ContentType.Get;
 
-internal class Endpoint : Endpoint<ListRequest, PaginatedResponse<ContentTypeDefinition>>
+internal class Endpoint : Endpoint<ListRequest, PaginatedResponse<barakoCMS.Features.ContentType.ContentTypeResponse>>
 {
     private readonly IQuerySession _session;
 
@@ -31,6 +31,12 @@ internal class Endpoint : Endpoint<ListRequest, PaginatedResponse<ContentTypeDef
             .OrderBy(x => x.Name)
             .ToPagedResponseAsync(req, ct);
 
-        await Send.OkAsync(page, ct);
+        await Send.OkAsync(new PaginatedResponse<barakoCMS.Features.ContentType.ContentTypeResponse>
+        {
+            Items = page.Items.Select(barakoCMS.Features.ContentType.ContentTypeResponse.From).ToList(),
+            Page = page.Page,
+            PageSize = page.PageSize,
+            TotalItems = page.TotalItems,
+        }, ct);
     }
 }

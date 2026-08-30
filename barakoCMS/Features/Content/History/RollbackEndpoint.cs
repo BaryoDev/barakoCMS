@@ -12,7 +12,7 @@ internal class RollbackRequest
     public Guid VersionId { get; set; } // The ID of the event to rollback to
 }
 
-internal class RollbackEndpoint : Endpoint<RollbackRequest, barakoCMS.Models.Content>
+internal class RollbackEndpoint : Endpoint<RollbackRequest, RollbackResponse>
 {
     private readonly IDocumentSession _session;
     private readonly IContentWriter _contentWriter;
@@ -113,6 +113,6 @@ internal class RollbackEndpoint : Endpoint<RollbackRequest, barakoCMS.Models.Con
         await _session.SaveChangesAsync(ct);
 
         // 8. Return the new state
-        await Send.ResponseAsync(content, cancellation: ct);
+        await Send.ResponseAsync(RollbackResponse.From(content), cancellation: ct);
     }
 }

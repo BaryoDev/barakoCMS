@@ -37,16 +37,9 @@ internal class Endpoint : Endpoint<Request, Response>
             return;
         }
 
-        // Prevent deletion of system roles
-        var systemRoleIds = new[]
-        {
-            barakoCMS.Data.DataSeeder.SuperAdminRoleId,
-            barakoCMS.Data.DataSeeder.AdminRoleId,
-            barakoCMS.Data.DataSeeder.HRRoleId,
-            barakoCMS.Data.DataSeeder.UserRoleId
-        };
-
-        if (systemRoleIds.Contains(req.Id))
+        // The same list the API reports IsSystem from, so a client cannot disagree with the server
+        // about which roles are deletable.
+        if (barakoCMS.Models.SystemRoles.Contains(req.Id))
         {
             await Send.ResponseAsync(new Response
             {

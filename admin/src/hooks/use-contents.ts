@@ -34,8 +34,11 @@ export function useContentHistory(id: string, enabled = true) {
     return useQuery({
         queryKey: ['contents', 'history', id],
         queryFn: async () => {
-            const response = await api.get<{ versions: ContentVersion[] }>(`/api/contents/${id}/history`);
-            return response.data.versions;
+            // History is a collection like any other and uses the paginated envelope. It read
+            // `versions` here, which the endpoint stopped returning when the envelope landed, so the
+            // panel has been rendering an empty list rather than failing visibly.
+            const response = await api.get<Paginated<ContentVersion>>(`/api/contents/${id}/history`);
+            return response.data.items;
         },
         enabled: !!id && enabled,
     });
