@@ -117,6 +117,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rather than substituting a dummy that points at localhost. Development keeps the dummy, which the
   codegen pass needs.
 
+- **Audit IPs and rate-limit buckets no longer come from a client-supplied `X-Forwarded-For`.**
+  `DeviceContext` read that header directly and returned its first hop, so any caller could write its
+  own address into the audit log and the OTP email just by sending one. The rate limiter never read it
+  at all, so behind a reverse proxy every client shared a single bucket and the per-IP limit on
+  `/api/auth/login` throttled the proxy instead of the attacker.
+
+  The header is now applied by the ASP.NET `ForwardedHeaders` middleware, which honours it only from a
+  hop the operator named. That middleware is off unless `ForwardedHeaders:Enabled` is true, and turning
+  it on without `ForwardedHeaders:KnownProxies` or `ForwardedHeaders:KnownNetworks` stops the host at
+  startup: an empty trusted set either does nothing or trusts every upstream, and both look like
+  working configuration.
+
+  What changes for a deployment already behind a proxy: until those keys are set, audit entries and
+  rate-limit buckets record the proxy's address rather than the header value. For an honest client
+  that is a worse answer than before, and for a dishonest one it is a much better one, because the old
+  value was whatever the caller typed. For a proxy container on the compose network:
+
+  ```json
+  "ForwardedHeaders": {
+    "Enabled": true,
+    "KnownNetworks": ["172.16.0.0/12"]
+  }
+  ```
+
+  Turning it on also applies `X-Forwarded-Proto`, so `UseHttpsRedirection` sees the scheme the client
+  used rather than the proxy-to-app hop.
+
 ### Added
 
 - **The content list reports `status` and `sensitivity`.** The single-item GET returned them and the
@@ -285,6 +312,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Files endpoints had authentication and neither had authorization. Download is now the uploader or an
   admin, refusing with 404 rather than 403 so a leaked id cannot be used to probe for others. Upload
   now carries the same role gate as every other write in the module set. Files `0.4.0`.
+
+- **The seeder no longer writes anything shaped like a Social Security number.** The demo
+  `AttendanceRecord` rows carried `123-45-6789`, `987-65-4321` and `456-78-9012`. The first is a
+  well-known placeholder that data-loss-prevention and compliance scanners treat as a real SSN, and
+  all three planted realistic sensitive values in every fresh install of a CMS that markets
+  field-level sensitivity. The sample rows now use `SAMPLE-NOT-A-REAL-SSN-n`, names that read as
+  placeholders, and mail at `example.com`, which RFC 2606 reserves for documentation.
+
+  Seeded mail addresses moved off `company.com` for the same reason: it is a registered domain, so a
+  password reset or an OTP for the seeded admin, HR or standard account left the building. A seeded
+  admin's address changes from `{username}@company.com` to `{username}@example.com` on next start.
+
+  A test asserts the shape rather than the new values, so a future edit that swaps in three different
+  realistic numbers fails too.
+
+- **`docker-compose.yml` no longer ships three defaults that are unsafe to copy.** It is labelled
+  local-development-only, but that is a comment rather than a control, and people copy what works.
+
+  The app container bind-mounted `${HOME}/.kube`, handing every context and token in the developer's
+  kubeconfig to anything running inside it; the mount is gone, and the Kubernetes monitor is off by
+  default anyway. The postgres and backup services hardcoded the password, so setting a variable left
+  the three services out of step while the built-in value kept working; all three now read
+  `DB_PASSWORD`, matching `.env.example` and the other compose files. Postgres was published on every
+  interface, which with a default password is an open database on any host that is not a private
+  laptop; it binds `127.0.0.1` now, so `psql` from the host still works and nothing else can reach it.
+
+  The file still starts with no `.env` at all.
 
 ## [3.21.0] - 2026-08-23
 

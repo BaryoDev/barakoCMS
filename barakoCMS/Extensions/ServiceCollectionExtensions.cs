@@ -518,6 +518,19 @@ public static class ServiceCollectionExtensions
         // Background service that applies scheduled publish/unpublish across all tenants
         services.AddHostedService<barakoCMS.Infrastructure.Services.ScheduledContentService>();
 
+        // Forwarded headers. Off unless configured, because reading X-Forwarded-For from an
+        // untrusted peer would let a caller choose the IP the rate limiter partitions on.
+        if (barakoCMS.Infrastructure.Security.ForwardedHeadersSetup.IsEnabled(configuration))
+        {
+            // Run the same parse once here so a bad proxy list stops the host at startup rather
+            // than on the first request that happens to resolve the options.
+            barakoCMS.Infrastructure.Security.ForwardedHeadersSetup.Configure(
+                new Microsoft.AspNetCore.Builder.ForwardedHeadersOptions(), configuration);
+
+            services.Configure<Microsoft.AspNetCore.Builder.ForwardedHeadersOptions>(
+                options => barakoCMS.Infrastructure.Security.ForwardedHeadersSetup.Configure(options, configuration));
+        }
+
         // Rate Limiting
         services.AddRateLimiter(options =>
         {
@@ -649,6 +662,13 @@ public static class ServiceCollectionExtensions
         // Global exception handler — MUST be first so it wraps every downstream middleware/endpoint.
         // Returns a structured 500 (no stack trace leak) and logs the exception via FastEndpoints.
         app.UseDefaultExceptionHandler();
+
+        // Forwarded headers, before anything that reads the client IP or the scheme. Only added
+        // when ForwardedHeaders:Enabled names a trusted proxy; see ForwardedHeadersSetup.
+        if (barakoCMS.Infrastructure.Security.ForwardedHeadersSetup.IsEnabled(configuration))
+        {
+            app.UseForwardedHeaders();
+        }
 
         // HTTPS Redirection and HSTS (Production only)
         if (env != "Development")

@@ -8,14 +8,17 @@ services:
       - "5005:8080"
     environment:
       # WARNING: This compose file is for LOCAL DEVELOPMENT ONLY. Use docker-compose.prod.yml
-      # (which requires real secrets with no defaults) for any real deployment.
+      # (which requires real secrets with no defaults) for any real deployment. Every password
+      # here comes from one variable, DB_PASSWORD, so setting it in .env changes the app, the
+      # database and the backup together instead of leaving them out of step.
       - ASPNETCORE_ENVIRONMENT=Development
-      - ConnectionStrings__DefaultConnection=Host=postgres;Database=barako_cms;Username=postgres;Password=${POSTGRES_PASSWORD:-postgres}
+      - ConnectionStrings__DefaultConnection=Host=postgres;Database=barako_cms;Username=postgres;Password=${DB_PASSWORD:-postgres}
       - JWT__Key=${JWT_SECRET:-dev-only-key-minimum-32-chars-long}
       - InitialAdmin__Username=${ADMIN_USER:-admin}
       - InitialAdmin__Password=${ADMIN_PASSWORD:-changeme-in-production}
-    volumes:
-      - ${HOME}/.kube:/root/.kube:ro # Mount kubeconfig for Kubernetes access
+    # Deliberately no host mounts. A kubeconfig bind gives anything in the container every context
+    # and token in it; the Kubernetes monitor needs read access to one namespace, so mount a
+    # service-account token scoped to that namespace instead.
     depends_on:
       postgres:
         condition: service_healthy
@@ -28,9 +31,12 @@ services:
     environment:
       POSTGRES_DB: barako_cms
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
     ports:
-      - "5432:5432"
+      # Loopback only. The app reaches postgres over the compose network; this mapping exists so a
+      # developer can attach psql. Published on all interfaces it was an open database with a
+      # known password on any host that is not a private laptop.
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -66,7 +72,7 @@ services:
       POSTGRES_HOST: postgres
       POSTGRES_DB: barako_cms
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
       # Schedule: 2:00 AM daily
       BACKUP_CRON_SCHEDULE: "0 2 * * *"
       BACKUP_KEEP_DAYS: 7
