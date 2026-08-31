@@ -10,7 +10,7 @@
             "request": "launch",
             "preLaunchTask": "build",
             // If you have changed target frameworks, make sure to update the program path.
-            "program": "${workspaceFolder}/barakoCMS/bin/Debug/net8.0/barakoCMS.dll",
+            "program": "${workspaceFolder}/barakoCMS/bin/Debug/net10.0/barakoCMS.dll",
             "args": [],
             "cwd": "${workspaceFolder}/barakoCMS",
             "stopAtEntry": false,

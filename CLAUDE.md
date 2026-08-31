@@ -1,6 +1,6 @@
 # BarakoCMS
 
-Headless CMS for .NET 8. A core web application plus optional modules shipped as NuGet packages,
+Headless CMS for .NET 10. A core web application plus optional modules shipped as NuGet packages,
 with a Next.js admin UI.
 
 Human-facing contribution rules live in `CONTRIBUTING.md`. This file is the working agreement for
@@ -56,7 +56,7 @@ hand-rolled checks inside `HandleAsync`.
 
 ## 2. Stack
 
-- **.NET 8**, one target framework for every project (set in `Directory.Build.props`)
+- **.NET 10**, one target framework for every project (set in `Directory.Build.props`)
 - **FastEndpoints** for HTTP endpoints
 - **Marten** over PostgreSQL for persistence and event sourcing
 - **Serilog** for logging, **prometheus-net** for metrics

@@ -419,6 +419,9 @@ docs/*
 !docs/backup-and-restore.md
 # What the event-sourcing toggle commits a content type to, for the admin making the choice.
 !docs/event-sourced-content-types.md
+# The public delivery contract: pagination, filter syntax, sorting, includes. A consumer has to be
+# able to read it without a checkout, and it is linked from the README and the blog-starter example.
+!docs/delivery-api.md
 
 # POC/Experimental Projects
 AttendancePOC/

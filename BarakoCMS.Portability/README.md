@@ -47,7 +47,7 @@ it leaves the system's access control behind the moment it is downloaded.
 ## Part of barakoCMS
 
 This is an optional module for [barakoCMS](https://github.com/BaryoDev/barakoCMS), an open-source
-headless CMS for .NET 8. Every module is published under the `barakocms-module` tag, so a single
+headless CMS for .NET 10. Every module is published under the `barakocms-module` tag, so a single
 search on nuget.org returns the whole set.
 
 Contributions are welcome — including a module icon or other design work. See

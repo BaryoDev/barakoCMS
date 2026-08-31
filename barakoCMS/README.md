@@ -1,7 +1,7 @@
 <div align="center">
   <img src="https://raw.githubusercontent.com/BaryoDev/barakoCMS/master/assets/icon.png" width="96" height="96" alt="BarakoCMS logo" />
   <h1>BarakoCMS</h1>
-  <p><em>An open-source headless CMS for .NET 8.</em></p>
+  <p><em>An open-source headless CMS for .NET 10.</em></p>
 </div>
 
 ---
