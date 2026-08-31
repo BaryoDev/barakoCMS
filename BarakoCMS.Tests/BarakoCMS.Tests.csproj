@@ -46,6 +46,15 @@
     <!-- Portability had no test project reference either, and its import path silently dropped a
          content type's public-delivery flag as a result. -->
     <ProjectReference Include="..\BarakoCMS.Portability\BarakoCMS.Portability.csproj" />
+    <!-- DeviceTrust decides whether an authenticated request is allowed to proceed, and its failure
+         mode is silence: if binding stops working, sign-in still succeeds and tokens are simply
+         accepted from anywhere. Nothing could reach it from here until now. See #121. -->
+    <ProjectReference Include="..\BarakoCMS.DeviceTrust\BarakoCMS.DeviceTrust.csproj" />
+    <ProjectReference Include="..\BarakoCMS.Import\BarakoCMS.Import.csproj" />
+    <!-- The Umami module exists to keep the analytics credentials server side. That is a claim about
+         what crosses the wire, so it can only be checked from a test project that can call the
+         endpoints. See #123. -->
+    <ProjectReference Include="..\BarakoCMS.Analytics.Umami\BarakoCMS.Analytics.Umami.csproj" />
   </ItemGroup>
 
 </Project>

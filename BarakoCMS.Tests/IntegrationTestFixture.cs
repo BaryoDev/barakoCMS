@@ -95,25 +95,56 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             new BarakoCMS.FeatureFlags.FeatureFlagsModule().ConfigureServices(services, ctx.Configuration);
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.FeatureFlags.FeatureFlagsModule(), opts));
 
+            // ExternalAuth: the OAuth start/callback endpoints are anonymous, so what they refuse
+            // is only checkable over real HTTP. ConfigureServices gives them IHttpClientFactory.
+            new BarakoCMS.ExternalAuth.ExternalAuthModule().ConfigureServices(services, ctx.Configuration);
+            services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.ExternalAuth.ExternalAuthModule(), opts));
+
+            // DeviceTrust: replaces core's no-op gate and contributes a global pre-processor.
+            // DeviceTrust:Enforce is unset here, so the processor returns before doing anything and
+            // the gate behaves like the no-op it replaces. The enforcement tests turn it on with
+            // WithSettings, which builds a separate host.
+            new BarakoCMS.DeviceTrust.DeviceTrustModule().ConfigureServices(services, ctx.Configuration);
+            services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.DeviceTrust.DeviceTrustModule(), opts));
+
+            // Analytics.Umami: registered with its own section, exactly as the host scopes it, and
+            // with the outbound handler stubbed. A test that let this reach the network would be
+            // asserting about the internet.
+            new BarakoCMS.Analytics.Umami.UmamiAnalyticsModule()
+                .ConfigureServices(services, ctx.Configuration.GetSection(
+                    BarakoCMS.Analytics.Umami.UmamiOptions.SectionName));
+            services.AddHttpClient<BarakoCMS.Analytics.Umami.IUmamiClient, BarakoCMS.Analytics.Umami.UmamiClient>()
+                .ConfigurePrimaryHttpMessageHandler(() => new UmamiStubHandler());
+
             // FastEndpoints 8 discovers endpoints eagerly inside AddFastEndpoints, which ran in
             // Program.cs before any module assembly above was loaded, so none of the module
             // endpoints exist in that scan. Re-register with the module assemblies explicit;
             // FE registers EndpointData with a plain AddSingleton, so this last one wins.
-            services.AddFastEndpoints(o => o.Assemblies =
-            [
-                typeof(BarakoCMS.Email.Resend.ResendEmailModule).Assembly,
-                typeof(BarakoCMS.Files.FilesModule).Assembly,
-                typeof(BarakoCMS.AI.AiModule).Assembly,
-                typeof(BarakoCMS.Accounting.AccountingModule).Assembly,
-                typeof(BarakoCMS.Diagnostics.DiagnosticsModule).Assembly,
-                typeof(BarakoCMS.Pwa.PwaModule).Assembly,
-                typeof(BarakoCMS.FeatureFlags.FeatureFlagsModule).Assembly,
-                // Portability owns no documents of its own and registers no services, so its
-                // endpoints only need discovering.
-                typeof(BarakoCMS.Portability.PortabilityModule).Assembly,
-            ]);
+            services.AddFastEndpoints(o => o.Assemblies = ModuleEndpointAssemblies);
         });
     }
+
+    /// <summary>
+    /// Every module assembly whose endpoints this host serves. Named rather than inlined so a test
+    /// that has to rebuild the host cannot quietly serve a smaller API than the fixture does.
+    /// </summary>
+    public static readonly System.Reflection.Assembly[] ModuleEndpointAssemblies =
+    [
+        typeof(BarakoCMS.Email.Resend.ResendEmailModule).Assembly,
+        typeof(BarakoCMS.Files.FilesModule).Assembly,
+        typeof(BarakoCMS.AI.AiModule).Assembly,
+        typeof(BarakoCMS.Accounting.AccountingModule).Assembly,
+        typeof(BarakoCMS.Diagnostics.DiagnosticsModule).Assembly,
+        typeof(BarakoCMS.Pwa.PwaModule).Assembly,
+        typeof(BarakoCMS.FeatureFlags.FeatureFlagsModule).Assembly,
+        // Portability owns no documents of its own and registers no services, so its
+        // endpoints only need discovering.
+        typeof(BarakoCMS.Portability.PortabilityModule).Assembly,
+        typeof(BarakoCMS.ExternalAuth.ExternalAuthModule).Assembly,
+        typeof(BarakoCMS.DeviceTrust.DeviceTrustModule).Assembly,
+        typeof(BarakoCMS.Import.ImportModule).Assembly,
+        typeof(BarakoCMS.Analytics.Umami.UmamiAnalyticsModule).Assembly,
+    ];
 
     public async ValueTask InitializeAsync()
     {
@@ -162,8 +193,18 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
     /// tears down the host for every test that runs afterwards. The fixture owns the lifetime.
     /// </summary>
     public WebApplicationFactory<Program> WithSetting(string key, string? value) =>
+        WithSettings(new Dictionary<string, string?> { { key, value } });
+
+    /// <summary>
+    /// The same, for behaviour that only appears once several settings agree. Turning a module on
+    /// usually takes more than one key, and setting them one host at a time gets you a host that
+    /// has the flag but not the URL.
+    ///
+    /// Do NOT dispose the result, for the reason given above.
+    /// </summary>
+    public WebApplicationFactory<Program> WithSettings(IDictionary<string, string?> settings) =>
         WithWebHostBuilder(b => b.ConfigureAppConfiguration((_, config) =>
-            config.AddInMemoryCollection(new Dictionary<string, string?> { { key, value } })));
+            config.AddInMemoryCollection(settings)));
 
     public string CreateToken(string[] roles, string? userId = null, Dictionary<string, string>? additionalClaims = null)
     {
