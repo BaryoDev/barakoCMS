@@ -360,6 +360,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   syntax with its seven operators and five-filter cap, `sort=field` / `sort=-field`, `include=` for
   resolving references, and which status each refusal returns (#295).
 
+- **The release tags the repository and writes a GitHub Release.** Sixty-seven versions reached
+  nuget.org while the newest git tag stayed at v3.2.0, so the repository's front page advertised a
+  release from many versions back and `git log v3.21.0..master` did not resolve. The release now
+  tags the commit it published and creates a Release whose body is that version's `CHANGELOG.md`
+  section, read by `scripts/release-notes.sh`, which fails when the section is missing or empty
+  rather than publishing a blank note. The historical tags are not backfilled (#155).
+
+- **`GET /health/build` reports the commit an image was built from.** Anonymous, like the other
+  probes, and a separate path so `/health` keeps the body every dashboard already parses. The
+  commit is stamped in through the `BARAKO_BUILD_SHA` build argument, since `.git` is in
+  `.dockerignore` and cannot be read inside the image. An image built without it answers `unknown`
+  (#157).
+
+- **CI reads the Kubernetes manifests.** Nothing ever did, which is how `memory: "128Mw"` sat in
+  `k8s/05-deployment.yaml` through several releases. A job stands up a throwaway kind cluster and
+  sends every manifest to a real API server with `--dry-run=server --validate=strict`. The two
+  cheaper options were measured against the manifests as they stood before that bug was fixed and
+  both accepted them: `kubectl --dry-run=client --validate=strict` and `kubeconform -strict`. A
+  resource quantity is a string in the OpenAPI schema, so only the API server parses it.
+  `scripts/testdata/k8s-known-bad/` keeps those manifests, and CI fails if they are ever accepted
+  (#383).
+
+- **CI fails when a tracked lockfile is watched by nothing.** A directory Dependabot does not cover
+  produces no error and no pull request, so `site/` drifted unwatched.
+  `scripts/check-dependabot-coverage.sh` compares every tracked `package-lock.json` against the npm
+  entries in `.github/dependabot.yml` (#153).
+
 ### Changed
 
 - **Every module version moves to the core's number.** The modules had drifted onto their own 0.x
@@ -369,6 +396,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   watching `BarakoCMS.Accounting` move from 0.3.1 to 0.6.0 reads a routine bump, and 0.x gives them
   no way to express "this one needs core 4". All thirteen modules are 4.0.0, so the number answers
   which core a package needs and the packed dependency range says the same thing (#294).
+
+- **The playground deploy runs before anything is published.** The order was: tests pass, fourteen
+  packages become permanent, and only then does anything get deployed and looked at. NuGet has no
+  delete, only unlist, and a version someone has already resolved stays resolved, so the
+  irreversible step now runs last. The deploy also proves the playground is running the commit being
+  released, by reading `/health/build`, because a 200 and a version string are what the previous
+  build returns too: a deploy that pulled nothing passed both (#157).
+
+- **Publishing packages waits for a person.** `publish-packages` names a `nuget` GitHub environment,
+  and its job name carries the version so the prompt asks about a specific number rather than about
+  publishing in general. Because an environment with no protection rules approves everything in
+  silence, and naming one that does not exist creates it that way, the version gate now refuses to
+  start a release unless that environment has a required reviewer (#203).
 
 ### Removed
 
