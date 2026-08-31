@@ -28,4 +28,18 @@ if [ -n "$hits" ]; then
     exit 1
 fi
 
-echo "No conflict markers."
+# The same class of damage, from the same cause. Resolving CHANGELOG.md on eight branches by taking
+# one side and pasting the other back duplicated entries instead of losing them, which no compiler
+# reads either. A repeated bold lead is the signal: every entry opens with a distinct one.
+dupes=$(grep '^- \*\*' CHANGELOG.md 2>/dev/null | sort | uniq -d || true)
+
+if [ -n "$dupes" ]; then
+    echo "Duplicate CHANGELOG entries:"
+    echo ""
+    echo "$dupes" | cut -c1-100
+    echo ""
+    echo "An entry was pasted back into a file that already held it. Keep one."
+    exit 1
+fi
+
+echo "No conflict markers, no duplicate changelog entries."
