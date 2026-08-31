@@ -37,8 +37,7 @@ public class DeploymentInfo
 public class KubernetesMonitorService : IKubernetesMonitorService
 {
     private readonly ILogger<KubernetesMonitorService> _logger;
-    private readonly Kubernetes? _client;
-    private static bool _initFailed = false;
+    private readonly KubernetesClientProvider _clients;
     private readonly IWebHostEnvironment? _env;
     private readonly IConfiguration _config;
     private readonly IServiceScopeFactory _scopeFactory;
@@ -49,40 +48,31 @@ public class KubernetesMonitorService : IKubernetesMonitorService
         _env = serviceProvider.GetService<IWebHostEnvironment>();
         _config = config;
         _scopeFactory = scopeFactory;
-        _client = CreateClient();
+        _clients = new KubernetesClientProvider(BuildClient, logger);
     }
 
-    private Kubernetes? CreateClient()
+    /// <summary>
+    /// Returns null when there is nothing to connect to, and throws when a connection was
+    /// configured and could not be built. KubernetesClientProvider retries those two differently.
+    /// </summary>
+    private Kubernetes? BuildClient()
     {
-        if (_initFailed) return null;
+        if (KubernetesClientConfiguration.IsInCluster())
+        {
+            var config = KubernetesClientConfiguration.InClusterConfig();
+            _logger.LogInformation("Kubernetes client initialized using InCluster configuration.");
+            return new Kubernetes(config);
+        }
 
         try
         {
-            // First, try in-cluster configuration
-            if (KubernetesClientConfiguration.IsInCluster())
-            {
-                var config = KubernetesClientConfiguration.InClusterConfig();
-                _logger.LogInformation("Kubernetes client initialized using InCluster configuration.");
-                return new Kubernetes(config);
-            }
-
-            // Try local kubeconfig (works for Docker Desktop with Kubernetes enabled)
-            try
-            {
-                var localConfig = KubernetesClientConfiguration.BuildConfigFromConfigFile();
-                _logger.LogInformation("Kubernetes client initialized using local kubeconfig.");
-                return new Kubernetes(localConfig);
-            }
-            catch (Exception localEx)
-            {
-                _logger.LogInformation("Local kubeconfig not available: {Error}. This is normal if Kubernetes is not installed.", localEx.Message);
-                return null;
-            }
+            var localConfig = KubernetesClientConfiguration.BuildConfigFromConfigFile();
+            _logger.LogInformation("Kubernetes client initialized using local kubeconfig.");
+            return new Kubernetes(localConfig);
         }
-        catch (Exception ex)
+        catch (Exception localEx)
         {
-            _logger.LogWarning(ex, "Failed to initialize Kubernetes Client. Monitoring will be disabled.");
-            _initFailed = true;
+            _logger.LogInformation("Local kubeconfig not available: {Error}. This is normal if Kubernetes is not installed.", localEx.Message);
             return null;
         }
     }
@@ -100,10 +90,14 @@ public class KubernetesMonitorService : IKubernetesMonitorService
             isEnabled = await configService.GetConfigValueAsync("Kubernetes__Enabled", false);
         }
 
-        _logger.LogInformation("Kubernetes monitoring enabled check: {IsEnabled}, Client initialized: {ClientInitialized}",
-            isEnabled, _client != null);
+        // Resolved per call, not once in the constructor: a client that could not be built at pod
+        // start is rebuilt on a later call rather than leaving monitoring off until a restart.
+        var client = isEnabled ? _clients.GetClient() : null;
 
-        if (!isEnabled || _client == null)
+        _logger.LogInformation("Kubernetes monitoring enabled check: {IsEnabled}, Client initialized: {ClientInitialized}",
+            isEnabled, client != null);
+
+        if (!isEnabled || client == null)
         {
             status.IsConnected = false;
             status.IsInCluster = false;
@@ -115,10 +109,10 @@ public class KubernetesMonitorService : IKubernetesMonitorService
                 status.Error = "Kubernetes monitoring is disabled via settings.";
                 _logger.LogInformation("Kubernetes monitoring is disabled via settings");
             }
-            else if (_client == null)
+            else
             {
                 status.Error = "Kubernetes monitoring is not available in this environment. No cluster connection could be established.";
-                _logger.LogWarning("Kubernetes client is null - no cluster connection available. Init failed: {InitFailed}", _initFailed);
+                _logger.LogWarning("Kubernetes client is null - no cluster connection available. Attempts so far: {Attempts}", _clients.Attempts);
             }
 
             return status;
@@ -133,7 +127,7 @@ public class KubernetesMonitorService : IKubernetesMonitorService
         {
             // Fetch Nodes
             _logger.LogDebug("Fetching Kubernetes nodes...");
-            var nodes = await _client.CoreV1.ListNodeAsync();
+            var nodes = await client.CoreV1.ListNodeAsync();
             status.Nodes = nodes.Items.Select(n => new NodeInfo
             {
                 Name = n.Metadata.Name,
@@ -150,7 +144,7 @@ public class KubernetesMonitorService : IKubernetesMonitorService
             // We will list all in 'default' for now as a POC.
 
             _logger.LogDebug("Fetching Kubernetes deployments in namespace: {Namespace}", ns);
-            var deployments = await _client.AppsV1.ListNamespacedDeploymentAsync(ns);
+            var deployments = await client.AppsV1.ListNamespacedDeploymentAsync(ns);
             status.Deployments = deployments.Items.Select(d => new DeploymentInfo
             {
                 Name = d.Metadata.Name,

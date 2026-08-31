@@ -172,6 +172,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Turning it on also applies `X-Forwarded-Proto`, so `UseHttpsRedirection` sees the scheme the client
   used rather than the proxy-to-app hop.
 
+- **A production first run no longer seeds demo content.** The demo AttendanceRecord content type,
+  its sample records and its "Attendance Confirmation Email" workflow were seeded unconditionally, so
+  every production instance came up holding an attendance schema it did not ask for and a workflow
+  stored active that mails whatever address a record's `Email` field holds. Once an operator
+  configured Resend, that demo fixture became an outbound mail path in their system.
+
+  `Seed:DemoContent` (env `Seed__DemoContent`) decides it now. Unset, it follows the environment: on
+  in Development, off everywhere else. Roles and the configured `InitialAdmin` stay unconditional.
+
+  What an existing deployment sees on upgrade: nothing is removed. Each of those seeders already
+  skipped when its document existed, so an instance that has the demo content keeps it, and deleting
+  it is a manual choice. What changes is that a new instance outside Development no longer gets it,
+  and neither does an existing one whose demo documents were already deleted by hand. The quickstart
+  runs as Production, so `SEED_DEMO_CONTENT=true` in `.env` is how a developer asks for the sample
+  content there.
+
+- **`k8s/06-service.yaml` is a ClusterIP behind an Ingress, not a LoadBalancer.** It was a
+  `LoadBalancer` commented "easy access for local testing", which on a managed cluster provisions a
+  public load balancer pointing straight at the app with no TLS and no proxy. Anyone who was reaching
+  the app through that address needs `k8s/08-ingress.yaml` (new), or
+  `kubectl -n barako-cms port-forward svc/barako-cms-service 8080:80`.
+
+- **The Kubernetes Deployment reads its database password from `barako-secrets`.** It inlined
+  `Password=postgres` while `k8s/03-postgres.yaml` took `POSTGRES_PASSWORD` from the secret whose
+  placeholder operators are told to replace, so following the manifests' own instructions handed
+  Postgres a password the app never got. `k8s/02-secret.yaml` gains
+  `ConnectionStrings__DefaultConnection`, `InitialAdmin__Username` and `InitialAdmin__Password`; set
+  all of them before applying. The manifests could not be applied at all before this, so no running
+  deployment is affected.
+
 ### Added
 
 - **The content list reports `status` and `sensitivity`.** The single-item GET returned them and the
@@ -241,6 +271,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the codebase read as though the application backed itself up.
 
 ### Fixed
+
+- **Liveness and readiness were the same probe, so a database blip restart-looped every API pod.**
+  Both pointed at `/health`, which runs every check including the database one, and the `ready` tag
+  already on the database check was filtered by nothing. One Postgres restart therefore failed
+  *liveness* on every replica at once and Kubernetes killed a whole deployment of healthy application
+  processes, turning a blip into an outage plus a cold-start stampede.
+
+  There are three endpoints now. `/health/live` runs the checks tagged `live` (Memory, the one a
+  restart actually clears) and backs the liveness probe. `/health/ready` runs the checks tagged
+  `ready` (Database, Disk Space, Memory, Startup Seeding) and backs the readiness probe. `/health` is
+  unchanged and still reports everything. `k8s/05-deployment.yaml` also gains a `startupProbe` so the
+  boot-time schema apply is not counted as a liveness failure.
+
+- **The core host reported itself ready before roles and the initial admin were seeded.** The seed ran
+  on a detached task that slept five seconds first while the app was already accepting traffic, so
+  sign-in failed in that window and a registration landing in it was stored with an empty `RoleIds`.
+  Under a rolling deploy it repeated on every new node. The seed still runs in the background, so
+  `/health` and `/health/live` keep answering while it works, but readiness stays closed until it
+  finishes.
+
+- **The Kubernetes monitor disabled itself permanently on the first init failure.** A static flag was
+  set once and never cleared, and the service is a singleton, so a single API-server hiccup at pod
+  start (normal in the environment the feature targets) left monitoring off until the process
+  restarted. The client is rebuilt on a later call now, on exponential backoff after a failed attempt
+  and on a slow fixed interval when there is simply no cluster to talk to.
+
+- **The Kubernetes manifests could not be applied.** `k8s/05-deployment.yaml` asked for
+  `memory: "128Mw"`, which the API server rejects outright, so nothing else in the directory had been
+  exercised either. Also fixed: the app pod now consumes `k8s/01-configmap.yaml` through `envFrom`,
+  so a Kubernetes deployment actually runs in Production mode; the image tag is pinned instead of
+  `latest`; `InitialAdmin` is wired to the secret, so a first boot creates an admin rather than
+  silently creating none; and the Grafana dashboard moved to `k8s/observability/`, where
+  `kubectl apply -f k8s/` no longer trips over it. `kubectl apply -f k8s/` was run against a real
+  cluster.
 
 - **Turning on device trust locked every administrator out.** With `DeviceTrust__Enforce` on, the API
   answers a password login from an unapproved device with `requiresDeviceApproval` and emails a code.

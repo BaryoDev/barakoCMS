@@ -1,3 +1,17 @@
+# The app Deployment.
+#
+# Four things here had never been exercised, because the manifest could not be applied at all: the
+# memory request read "128Mw", which the API server rejects outright (see issue #280).
+#
+#   - The database password was inlined as "postgres" while 03-postgres.yaml takes its password from
+#     the barako-secrets placeholder operators are told to replace. Following the manifests' own
+#     instructions gave Postgres a real password the app was never handed. Both now read the same
+#     secret key, so there is one place to change.
+#   - 01-configmap.yaml set ASPNETCORE_ENVIRONMENT=Production and nothing consumed it, so a
+#     Kubernetes deployment did not run in Production mode. envFrom fixes that.
+#   - No InitialAdmin was configured, so a first boot seeded no admin user and said nothing about it.
+#   - Liveness and readiness pointed at the same /health, which runs the database check, so one
+#     Postgres restart failed liveness on every replica at once. See issue #281.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -20,34 +34,66 @@ spec:
     spec:
       containers:
         - name: barako-cms
-          image: barakocms:latest # Local image tag
-          imagePullPolicy: IfNotPresent # Important for local testing!
+          # Pinned. With :latest plus IfNotPresent a node keeps whatever it cached, so two replicas
+          # can run different builds and a rollback has nothing to roll back to.
+          image: ghcr.io/baryodev/barako-cms:4.0.0
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
+          # ASPNETCORE_ENVIRONMENT and the POSTGRES_* values the app and the backup job share.
+          envFrom:
+            - configMapRef:
+                name: barako-config
           env:
             - name: ConnectionStrings__DefaultConnection
-              value: "Host=postgres-service;Database=barako_cms;Username=postgres;Password=postgres"
+              valueFrom:
+                secretKeyRef:
+                  name: barako-secrets
+                  key: ConnectionStrings__DefaultConnection
             - name: JWT__Key
               valueFrom:
                 secretKeyRef:
                   name: barako-secrets
                   key: JWT__Key
+            - name: InitialAdmin__Username
+              valueFrom:
+                secretKeyRef:
+                  name: barako-secrets
+                  key: InitialAdmin__Username
+            - name: InitialAdmin__Password
+              valueFrom:
+                secretKeyRef:
+                  name: barako-secrets
+                  key: InitialAdmin__Password
           resources:
             requests:
-              memory: "128Mw"
+              memory: "128Mi"
               cpu: "100m"
             limits:
               memory: "512Mi"
               cpu: "500m"
+          # Boot does the Marten schema work before Kestrel binds, and then seeds roles and the
+          # initial admin while readiness stays closed. The startup probe is what keeps liveness
+          # from counting that against the pod: up to 150s here, then the probes below take over.
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: 8080
+            periodSeconds: 5
+            failureThreshold: 30
+          # Process only. Nothing here fails because a dependency is down, so a failure means this
+          # process is wedged and a restart is the right answer.
           livenessProbe:
             httpGet:
-              path: /health
+              path: /health/live
               port: 8080
-            initialDelaySeconds: 10
             periodSeconds: 30
+            failureThreshold: 3
+          # Database, disk and the startup seed. A failure takes this pod out of the Service and
+          # leaves it running, which is what a shared Postgres blip should cost.
           readinessProbe:
             httpGet:
-              path: /health
+              path: /health/ready
               port: 8080
-            initialDelaySeconds: 5
             periodSeconds: 10
+            failureThreshold: 3
