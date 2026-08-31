@@ -424,9 +424,12 @@ docs/2026-08-18-espresso-first-plan.md
 # An older copy of the root MODULES.md, missing the module-or-core guidance and listing 4 of the
 # 14 first-party modules. Two copies of one document, one of them wrong.
 docs/MODULES.md
-# Opens with "planned, not built", and Tenant, Membership and Marten conjoined tenancy are all in
-# core. Which parts of the design shipped has not been checked, so it stays out until someone does.
-docs/multi-tenancy.md
+
+# Developer-machine launch profiles. These pin local ports, a launch URL and a browser on whoever
+# committed them, and on a test project launchBrowser does nothing at all. The core app's profile is
+# the deliberate exception: it is how `dotnet run` picks up ASPNETCORE_ENVIRONMENT=Development.
+**/Properties/launchSettings.json
+!barakoCMS/Properties/launchSettings.json
 
 # POC/Experimental Projects
 AttendancePOC/

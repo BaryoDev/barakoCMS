@@ -43,10 +43,11 @@ internal class Endpoint : Endpoint<Request, Response>
             ThrowError(errorMessage!);
         }
 
+        // DataSeeder creates the "User" role on startup, so this normally finds it. When it does
+        // not, the account is created with no roles rather than refused. That fails closed:
+        // PermissionResolver returns false for a user with no roles, so the account exists and can
+        // sign in but can do nothing until someone assigns a role.
         var userRole = await _session.Query<Role>().FirstOrDefaultAsync(r => r.Name == "User", ct);
-        // Note: In a real app, we should ensure the role exists or handle null. 
-        // For now, we assume DataSeeder ran or we create it? 
-        // Let's assume DataSeeder ran. If null, we might default to empty or throw.
         var roleIds = new List<Guid>();
         if (userRole != null)
         {
@@ -59,7 +60,6 @@ internal class Endpoint : Endpoint<Request, Response>
             Username = req.Username,
             Email = req.Email,
             RoleIds = roleIds,
-            // In a real app, use a proper password hasher like BCrypt
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(req.Password) 
         };
 

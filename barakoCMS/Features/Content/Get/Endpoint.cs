@@ -18,9 +18,8 @@ internal class Endpoint : Endpoint<Request, Response>
     public override void Configure()
     {
         Get("/api/contents/{id}");
-        // Removed AllowAnonymous to force authentication, assuming JWT is sent.
-        // If public access involves "Public" role logic, that should be handled by an "Anonymous User" concept.
-        // For now, removing AllowAnonymous makes it secure by default for authenticated users.
+        // Authenticated only. Anonymous reads go through the delivery API (/api/public/{type}/{slug}),
+        // which serves published entries and public fields; this is the authoring read.
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)

@@ -29,9 +29,8 @@ public class ContentValidatorService : IContentValidatorService
 
         if (schema == null)
         {
-            // If no schema exists, we assume "Loose Mode" (Hybrid) - Allow anything.
-            // Or should we fail? For Phase 2.6, if the user Defined a Type, we enforce it. 
-            // If they didn't, we act like the old system (allow anything).
+            // No content type definition, so there is no schema to check against and the entry is
+            // accepted as-is. Validation is opt-in: defining a type is what turns it on.
             return (true, errors);
         }
 

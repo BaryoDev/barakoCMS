@@ -136,12 +136,10 @@ public class KubernetesMonitorService : IKubernetesMonitorService
                 Role = n.Metadata.Labels.ContainsKey("kubernetes.io/role") ? n.Metadata.Labels["kubernetes.io/role"] : "worker"
             }).ToList();
 
-            // Fetch Deployments (in current namespace or default)
-            // We usually want to monitor barakocms deployments.
-            // If InCluster, we can try to guess namespace or use "default".
+            // Deployments in the "default" namespace only. The client does not surface the pod's own
+            // namespace without reading the service account file, and nothing here reads it, so a
+            // deployment in any other namespace is not reported.
             string ns = "default";
-            // K8s client doesn't easily expose "current namespace" without file reading, defaulting to 'default' or 'barako-cms'
-            // We will list all in 'default' for now as a POC.
 
             _logger.LogDebug("Fetching Kubernetes deployments in namespace: {Namespace}", ns);
             var deployments = await client.AppsV1.ListNamespacedDeploymentAsync(ns);

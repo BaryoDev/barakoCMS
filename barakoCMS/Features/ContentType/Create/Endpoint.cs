@@ -28,11 +28,19 @@ internal class Endpoint : Endpoint<Request, Response>
 {
     private readonly IDocumentSession _session;
     private readonly barakoCMS.Infrastructure.Services.IContentTypeValidatorService _validator;
+    private readonly barakoCMS.Infrastructure.OpenApi.DeliveryDocumentCache _openApiCache;
+    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
 
-    public Endpoint(IDocumentSession session, barakoCMS.Infrastructure.Services.IContentTypeValidatorService validator)
+    public Endpoint(
+        IDocumentSession session,
+        barakoCMS.Infrastructure.Services.IContentTypeValidatorService validator,
+        barakoCMS.Infrastructure.OpenApi.DeliveryDocumentCache openApiCache,
+        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
     {
         _session = session;
         _validator = validator;
+        _openApiCache = openApiCache;
+        _tenant = tenant;
     }
 
     public override void Configure()
@@ -97,6 +105,10 @@ internal class Endpoint : Endpoint<Request, Response>
             // refused the second. Same answer as the read above rather than the raw Postgres error.
             ThrowError(DuplicateName, 409);
         }
+
+        // A new deliverable type is three new paths in the OpenAPI document, and the point is that
+        // they show up without a restart.
+        _openApiCache.Invalidate(_tenant.Slug);
 
         await Send.OkAsync(new Response { Id = def.Id, Name = def.Name }, ct);
     }

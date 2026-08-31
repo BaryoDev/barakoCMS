@@ -1,6 +1,9 @@
 <!-- Title format: Area: Description (closes #123)
      e.g. "Auth: Reject expired OTP codes on the second attempt (closes #142)" -->
 
+<!-- The coding standard is CLAUDE.md (CODING_STANDARDS.md points at it). Most review comments here
+     are already written down in it. -->
+
 ## What changed and why
 
 <!-- What was wrong, and what this does about it. Link the issue. -->
