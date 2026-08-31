@@ -27,6 +27,11 @@ jobs:
       - name: Check module versions
         run: bash scripts/check-module-versions.sh
 
+      # Markdown and YAML are where a botched merge hides: nothing compiles them, so a CHANGELOG
+      # full of conflict markers passed every other gate and reached master.
+      - name: Check for conflict markers
+        run: bash scripts/check-conflict-markers.sh
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
