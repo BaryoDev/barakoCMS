@@ -15,3 +15,16 @@ data:
   # workflow. Off here on purpose: that workflow is stored active and mails whatever address a
   # record's Email field holds, so it must not appear in a production instance by default.
   Seed__DemoContent: "false"
+
+  # The Ingress terminates TLS and forwards plain HTTP to the Service on port 80. Production turns
+  # on UseHttpsRedirection, which decides from Request.IsHttps, so without these the app sees HTTP,
+  # redirects to HTTPS, the Ingress forwards HTTP again, and the browser loops until it gives up.
+  #
+  # The Service is a ClusterIP, so nothing outside the cluster can reach the app except through the
+  # Ingress, and the private ranges below are where the controller's pod sits. ForwardLimit is 1, so
+  # only the nearest hop is believed. Narrow KnownNetworks to your pod CIDR if you know it, or
+  # replace it with the controller pod's address in KnownProxies.
+  ForwardedHeaders__Enabled: "true"
+  ForwardedHeaders__KnownNetworks__0: "10.0.0.0/8"
+  ForwardedHeaders__KnownNetworks__1: "172.16.0.0/12"
+  ForwardedHeaders__KnownNetworks__2: "192.168.0.0/16"

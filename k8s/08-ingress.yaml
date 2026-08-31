@@ -1,4 +1,11 @@
-# TLS termination and routing. Assumes an ingress controller and cert-manager are installed; neither
+# TLS termination and routing.
+#
+# This controller terminates TLS and forwards plain HTTP to the Service. The app runs as Production,
+# where UseHttpsRedirection is on and decides from Request.IsHttps, so it has to be told the original
+# request was HTTPS or it redirects a request that already arrived over TLS and the browser loops.
+# 01-configmap.yaml turns on ForwardedHeaders for that reason. Read the note there before narrowing
+# the trusted ranges.
+# Assumes an ingress controller and cert-manager are installed; neither
 # ships here. The host below is the RFC 2606 documentation domain, so this applies cleanly and
 # routes nothing until you replace it. Or delete this file and port-forward the Service instead.
 apiVersion: networking.k8s.io/v1

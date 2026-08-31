@@ -57,7 +57,7 @@ public class StartupSeedReadinessTests
     [Fact]
     public async Task The_admin_can_sign_in_on_the_first_request_accepted_after_readiness()
     {
-        var connectionString = await CreateEmptyDatabaseAsync();
+        var (connectionString, database) = await CreateEmptyDatabaseAsync();
         var port = FreePort();
 
         using var host = StartHost(connectionString, port);
@@ -99,6 +99,10 @@ public class StartupSeedReadinessTests
 
             await stdout;
             await stderr;
+
+            // After the host has exited, so nothing is still holding a connection to it. This also
+            // covers a StartHost that never became ready, which is the path that used to leak.
+            await DropDatabaseAsync(database);
         }
     }
 
@@ -135,7 +139,7 @@ public class StartupSeedReadinessTests
         return false;
     }
 
-    private async Task<string> CreateEmptyDatabaseAsync()
+    private async Task<(string ConnectionString, string Database)> CreateEmptyDatabaseAsync()
     {
         var database = "seedgate_" + Guid.NewGuid().ToString("n")[..8];
 
@@ -146,8 +150,33 @@ public class StartupSeedReadinessTests
             await create.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
         }
 
-        return new NpgsqlConnectionStringBuilder(_fixture.ConnectionString) { Database = database }
-            .ConnectionString;
+        return (new NpgsqlConnectionStringBuilder(_fixture.ConnectionString) { Database = database }
+            .ConnectionString, database);
+    }
+
+    /// <summary>
+    /// Drops the database this test created.
+    /// </summary>
+    /// <remarks>
+    /// Every run left one behind, named after a fresh guid, so nothing ever reused or cleaned them
+    /// and a CI machine accumulated one per run forever. WITH (FORCE) because the host process may
+    /// still be releasing its pool as this runs, and a drop that loses a race to a dying connection
+    /// would fail the test for a reason that has nothing to do with what it asserts.
+    /// </remarks>
+    private async Task DropDatabaseAsync(string database)
+    {
+        try
+        {
+            await using var connection = new NpgsqlConnection(_fixture.ConnectionString);
+            await connection.OpenAsync(TestContext.Current.CancellationToken);
+            await using var drop = new NpgsqlCommand(
+                $"drop database if exists {database} with (force)", connection);
+            await drop.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+        }
+        catch (PostgresException)
+        {
+            // Cleanup, not an assertion. A test that already passed must not fail here.
+        }
     }
 
     private static int FreePort()

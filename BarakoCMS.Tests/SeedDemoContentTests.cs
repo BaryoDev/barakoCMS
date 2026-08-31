@@ -41,38 +41,45 @@ public class SeedDemoContentTests
             .AddInMemoryCollection(new Dictionary<string, string?> { { "Seed:DemoContent", demoContent } })
             .Build();
 
-    private static T WithEnvironment<T>(string? environment, Func<T> body)
+    /// <summary>
+    /// An environment passed in, rather than set on the process.
+    /// </summary>
+    /// <remarks>
+    /// This used to swap ASPNETCORE_ENVIRONMENT around the call and put it back. Process-wide state
+    /// is visible to every other test, and nothing here declares that collections may not run
+    /// alongside each other, so anything reading the environment during the window saw the wrong
+    /// value. Nothing to restore is the fix.
+    /// </remarks>
+    private static IHostEnvironment Env(string environment) =>
+        new StubEnvironment { EnvironmentName = environment };
+
+    private sealed class StubEnvironment : IHostEnvironment
     {
-        var previous = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
-        Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", environment);
-        try
-        {
-            return body();
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", previous);
-        }
+        public string EnvironmentName { get; set; } = Environments.Production;
+        public string ApplicationName { get; set; } = "BarakoCMS.Tests";
+        public string ContentRootPath { get; set; } = AppContext.BaseDirectory;
+        public Microsoft.Extensions.FileProviders.IFileProvider ContentRootFileProvider { get; set; } =
+            new Microsoft.Extensions.FileProviders.NullFileProvider();
     }
 
     [Fact]
     public void Unset_the_demo_content_switch_follows_the_environment()
     {
-        WithEnvironment("Production", () => DataSeeder.SeedsDemoContent(Config(null)))
+        DataSeeder.SeedsDemoContent(Config(null), Env(Environments.Production))
             .Should().BeFalse("a production instance must not come up holding somebody else's demo data");
 
-        WithEnvironment("Development", () => DataSeeder.SeedsDemoContent(Config(null)))
+        DataSeeder.SeedsDemoContent(Config(null), Env(Environments.Development))
             .Should().BeTrue("a local run is unchanged, and the demo content is the worked example");
     }
 
     [Fact]
     public void The_switch_overrides_the_environment_in_both_directions()
     {
-        WithEnvironment("Production", () => DataSeeder.SeedsDemoContent(Config("true")))
+        DataSeeder.SeedsDemoContent(Config("true"), Env(Environments.Production))
             .Should().BeTrue("the quickstart runs as Production, and someone trying the product there "
                            + "has to be able to ask for the sample content");
 
-        WithEnvironment("Development", () => DataSeeder.SeedsDemoContent(Config("false")))
+        DataSeeder.SeedsDemoContent(Config("false"), Env(Environments.Development))
             .Should().BeFalse();
     }
 

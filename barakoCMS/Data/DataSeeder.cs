@@ -1,4 +1,5 @@
 using Marten;
+using Microsoft.Extensions.Hosting;
 using barakoCMS.Models;
 
 namespace barakoCMS.Data;
@@ -14,6 +15,7 @@ public static class DataSeeder
         using var scope = host.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
         var configuration = scope.ServiceProvider.GetRequiredService<IConfiguration>();
+        var environment = scope.ServiceProvider.GetRequiredService<IHostEnvironment>();
 
         Console.WriteLine("[DataSeeder] Starting comprehensive data seeding...");
 
@@ -25,7 +27,7 @@ public static class DataSeeder
 
         // 3-5. Everything demo. One gate at the top so the next demo seeder added below inherits it
         // instead of having to remember. See SeedsDemoContent for what decides this.
-        if (SeedsDemoContent(configuration))
+        if (SeedsDemoContent(configuration, environment))
         {
             await SeedAttendanceContentTypeAsync(session);
             await SeedAttendanceWorkflowAsync(session);
@@ -58,12 +60,14 @@ public static class DataSeeder
     /// quickstart, which runs as Production, safe without anyone reading this file. A developer who
     /// wants the sample content there sets the variable. See issue #283.
     /// </remarks>
-    internal static bool SeedsDemoContent(IConfiguration configuration)
+    internal static bool SeedsDemoContent(IConfiguration configuration, IHostEnvironment environment)
     {
-        var isDevelopment =
-            Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development";
-
-        return configuration.GetValue("Seed:DemoContent", isDevelopment);
+        // The host's own answer, not ASPNETCORE_ENVIRONMENT read back directly. The two disagree:
+        // a host started with only DOTNET_ENVIRONMENT=Development is in Development and that
+        // variable is empty, so reading it would refuse the demo content in exactly the environment
+        // that wants it. Taking it as a parameter also keeps the decision testable without any test
+        // reaching for a process-wide variable that every other test can see.
+        return configuration.GetValue("Seed:DemoContent", environment.IsDevelopment());
     }
 
     // Well-known deterministic GUIDs for system roles (must match CachedPermissionResolver)
