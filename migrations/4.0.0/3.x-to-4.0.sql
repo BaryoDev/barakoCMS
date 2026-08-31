@@ -21,6 +21,15 @@
 --                         and nullable, so existing rows are untouched.
 --   mt_quick_append_events Marten 9 changed the signature (bdatas, expected_version) and the body.
 --                         Function only, no data.
+--   mt_doc_contenttypedefinition
+--                         Adds the unique index on a content type's name, per tenant. Uniqueness
+--                         used to be a read before the write with nothing behind it, so two
+--                         concurrent creates both landed and every lookup by name then resolved the
+--                         ambiguity its own way. This is the one statement here that can fail on
+--                         real data: run the duplicate check above it first and merge or rename
+--                         whatever it finds, because the index cannot be created while a duplicate
+--                         exists. Nothing else in 4.0 depends on it, so a database that keeps the
+--                         duplicates still boots -- it just keeps the old read-then-write behaviour.
 --
 -- Rollback is migrations/4.0.0/rollback-to-3.x.sql, which must be applied while 4.0 is stopped.
 
@@ -137,3 +146,19 @@ BEGIN
 END
 $$ LANGUAGE plpgsql;
 
+-- ---------------------------------------------------------------------------
+-- Content-type name uniqueness, per tenant.
+--
+-- Run this first. Every row it returns has to be merged or renamed before the
+-- CREATE UNIQUE INDEX below will succeed:
+--
+--   select tenant_id, data ->> 'Name' as name, count(*)
+--   from public.mt_doc_contenttypedefinition
+--   group by tenant_id, data ->> 'Name'
+--   having count(*) > 1;
+--
+-- The column order matches what Marten generates, so a database that has run
+-- this is indistinguishable from a freshly created one.
+-- ---------------------------------------------------------------------------
+CREATE UNIQUE INDEX IF NOT EXISTS mt_doc_contenttypedefinition_uidx_name
+    ON public.mt_doc_contenttypedefinition USING btree (((data ->> 'Name'::text)), tenant_id);

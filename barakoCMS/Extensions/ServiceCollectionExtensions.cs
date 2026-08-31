@@ -339,6 +339,24 @@ public static class ServiceCollectionExtensions
                 // delta on the existing mt_doc_contents table, which the prod/playground AutoCreate.
                 // CreateOnly policy refuses at startup (there is no online-migration step yet — H.40).
 
+            // The name is the lookup key for a content type: ContentValidatorService, SensitivityService
+            // and the search-text backfill all resolve a definition by it, and each resolved a
+            // duplicate differently. Uniqueness was enforced only by a read before the write, so two
+            // concurrent creates both missed the read and both inserted. PerTenant, not global: under
+            // conjoined tenancy one customer's "article" must not block another's.
+            //
+            // On an existing database this index is NOT created: production runs AutoCreate.CreateOnly,
+            // which never alters an object that already exists. Such a store keeps today's
+            // read-then-write behaviour until the index is applied by hand. See
+            // migrations/4.0.0/3.x-to-4.0.sql, which also finds the duplicates that would make the
+            // CREATE UNIQUE INDEX fail.
+            options.Schema.For<ContentTypeDefinition>()
+                .Index(x => x.Name, idx =>
+                {
+                    idx.IsUnique = true;
+                    idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
+                });
+
             // Navigation menus are a "menu" content type served through public delivery, not a bespoke
             // doc. Keeping them as content keeps them pluggable and drops a whole CRUD surface. The old
             // Menu document + /api/menus endpoints were removed; existing "menus" tables are just left

@@ -101,9 +101,13 @@ public class SeedDemoContentTests
     /// unconditionally, so a test of the predicate alone would pass against the broken code.
     /// </summary>
     /// <remarks>
-    /// The fixture host sets SKIP_SEEDER, so none of this exists before the test runs. Both cases
-    /// live in one method because the order matters: "off leaves nothing behind" is only meaningful
-    /// before "on creates it".
+    /// Both cases live in one method because the order matters: "off leaves nothing behind" is only
+    /// meaningful before "on creates it".
+    ///
+    /// It clears the demo documents first rather than assuming an empty database. The seeder used to
+    /// write the content type to a table nothing else read, so nothing could have put one there
+    /// ahead of this test. It writes to the real one now, which is the point of the fix, and that
+    /// makes "count is zero" a claim about the whole suite rather than about this test.
     /// </remarks>
     [Fact]
     public async Task SeedAsync_creates_the_demo_content_only_when_the_switch_is_on()
@@ -127,6 +131,8 @@ public class SeedDemoContentTests
 
         try
         {
+            await ClearDemoContentAsync(ct);
+
             await DataSeeder.SeedAsync(new HostShim(_fixture.WithSetting("Seed:DemoContent", "false").Services));
 
             (await CountDemoContentAsync(ct)).Should().Be(
@@ -143,11 +149,20 @@ public class SeedDemoContentTests
         finally
         {
             await using var cleanup = _fixture.Services.GetRequiredService<IDocumentStore>().LightweightSession();
-            cleanup.DeleteWhere<ContentType>(x => x.Name == ContentTypeName);
+            cleanup.DeleteWhere<ContentTypeDefinition>(x => x.Name == ContentTypeName);
             cleanup.DeleteWhere<WorkflowDefinition>(x => x.Name == WorkflowName);
             cleanup.DeleteWhere<Content>(x => x.ContentType == ContentTypeName);
             await cleanup.SaveChangesAsync(ct);
         }
+    }
+
+    private async Task ClearDemoContentAsync(CancellationToken ct)
+    {
+        await using var session = _fixture.Services.GetRequiredService<IDocumentStore>().LightweightSession();
+        session.DeleteWhere<ContentTypeDefinition>(x => x.Name == ContentTypeName);
+        session.DeleteWhere<WorkflowDefinition>(x => x.Name == WorkflowName);
+        session.DeleteWhere<Content>(x => x.ContentType == ContentTypeName);
+        await session.SaveChangesAsync(ct);
     }
 
     private async Task<(int ContentTypes, int Workflows, int Records)> CountDemoContentAsync(CancellationToken ct)
@@ -155,7 +170,7 @@ public class SeedDemoContentTests
         await using var session = _fixture.Services.GetRequiredService<IDocumentStore>().LightweightSession();
 
         return (
-            await session.Query<ContentType>().CountAsync(x => x.Name == ContentTypeName, ct),
+            await session.Query<ContentTypeDefinition>().CountAsync(x => x.Name == ContentTypeName, ct),
             await session.Query<WorkflowDefinition>().CountAsync(x => x.Name == WorkflowName, ct),
             await session.Query<Content>().CountAsync(x => x.ContentType == ContentTypeName, ct));
     }

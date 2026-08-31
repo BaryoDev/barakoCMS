@@ -38,6 +38,10 @@ public static class DataSeeder
             Console.WriteLine("[DataSeeder] Demo content skipped (Seed:DemoContent is off)");
         }
 
+        // Committed before the backfill, which queries for content that needs indexing and would
+        // otherwise not see anything seeded in this run until the next boot.
+        await session.SaveChangesAsync();
+
         // 6. Backfill SearchText for existing content
         await BackfillSearchTextAsync(session);
 
@@ -175,10 +179,27 @@ public static class DataSeeder
         }
     }
 
-    private static async Task SeedAttendanceContentTypeAsync(IDocumentSession session)
+    /// <summary>
+    /// The demo content type. Fixed rather than generated so a re-seed upserts the same row instead
+    /// of racing a second one in beside it.
+    /// </summary>
+    internal static readonly Guid AttendanceContentTypeId = new("6f3b1c9e-2a44-4d1e-9a1c-2f0d5b8e7c11");
+
+    /// <summary>
+    /// Seeds the demo content type as a <see cref="ContentTypeDefinition"/>, the type the API and the
+    /// admin both read.
+    /// </summary>
+    /// <remarks>
+    /// This used to write a <c>Models.ContentType</c>, a different class in a different table that
+    /// nothing outside this file read. A freshly seeded instance therefore logged that it had created
+    /// a content type while <c>GET /api/content-types</c> returned nothing and the schema editor was
+    /// empty, and the demo entries validated against no schema at all, because a missing definition
+    /// means loose mode. See issue #322.
+    /// </remarks>
+    internal static async Task SeedAttendanceContentTypeAsync(IDocumentSession session)
     {
-        var existing = await session.Query<ContentType>()
-            .FirstOrDefaultAsync(ct => ct.Name == "AttendanceRecord");
+        var existing = await session.Query<ContentTypeDefinition>()
+            .FirstOrDefaultAsync(d => d.Name == AttendanceContentTypeName);
 
         if (existing != null)
         {
@@ -186,27 +207,42 @@ public static class DataSeeder
             return;
         }
 
-        var attendanceType = new ContentType
-        {
-            Id = Guid.NewGuid(),
-            Name = "AttendanceRecord",
-            Slug = "attendance-record",
-            Fields = new Dictionary<string, string>
-            {
-                { "FirstName", "string" },
-                { "LastName", "string" },
-                { "Email", "string" },
-                { "BirthDay", "datetime" },
-                { "JobDescription", "string" },
-                { "Gender", "string" },
-                { "SSN", "string" }
-            },
-            CreatedAt = DateTime.UtcNow
-        };
+        session.Store(AttendanceContentType());
 
-        session.Store(attendanceType);
+        // Committed here rather than at the end of the seed run: the records seeded next are
+        // validated and search-indexed against this definition, and a query in the same session does
+        // not see an uncommitted store.
+        await session.SaveChangesAsync();
         Console.WriteLine("[DataSeeder] Created AttendanceRecord content type");
     }
+
+    internal const string AttendanceContentTypeName = "AttendanceRecord";
+
+    /// <summary>The demo schema. SSN is Sensitive, so it is masked on read and stays out of SearchText.</summary>
+    internal static ContentTypeDefinition AttendanceContentType() => new()
+    {
+        Id = AttendanceContentTypeId,
+        Name = AttendanceContentTypeName,
+        DisplayName = "Attendance Record",
+        Description = "Demo content type seeded on a fresh install.",
+        Fields = new List<FieldDefinition>
+        {
+            new() { Name = "FirstName", DisplayName = "First Name", Type = "string", IsRequired = true },
+            new() { Name = "LastName", DisplayName = "Last Name", Type = "string", IsRequired = true },
+            new() { Name = "Email", DisplayName = "Email", Type = "email" },
+            new() { Name = "BirthDay", DisplayName = "Birth Day", Type = "date" },
+            new() { Name = "JobDescription", DisplayName = "Job Description", Type = "string" },
+            new() { Name = "Gender", DisplayName = "Gender", Type = "string" },
+            new()
+            {
+                Name = "SSN",
+                DisplayName = "SSN",
+                Type = "string",
+                Sensitivity = SensitivityLevel.Sensitive,
+                Mask = FieldMask.Last4,
+            },
+        },
+    };
 
     private static async Task SeedAttendanceWorkflowAsync(IDocumentSession session)
     {
@@ -308,65 +344,101 @@ public static class DataSeeder
             UpdatedAt = DateTime.UtcNow
         };
 
-    internal static async Task BackfillSearchTextAsync(IDocumentSession session)
+    /// <summary>
+    /// Fills SearchText for content that predates it, one batch at a time.
+    /// </summary>
+    /// <remarks>
+    /// The seeder runs in an un-awaited Task.Run whose catch only logs, so a backfill that runs out
+    /// of memory or time on a large corpus leaves the application serving traffic with public search
+    /// returning nothing for pre-existing content, indefinitely. That is why a run that does not
+    /// reach the end says so, and says how far it got, before rethrowing: a partial run and a
+    /// completed one used to leave identical evidence. See issue #167.
+    /// </remarks>
+    internal static async Task BackfillSearchTextAsync(
+        IDocumentSession session, CancellationToken ct = default)
     {
-        // Grouped rather than ToDictionary. Name is not unique: ContentType/Create/Endpoint.cs:59
-        // enforces uniqueness by reading before writing, with no unique index behind it, so two
-        // definitions can share a name. ToDictionary throws ArgumentException on the second one,
-        // and this runs inside the seeder's catch, so the backfill would silently never happen.
-        // First wins, which is what the FirstOrDefault this replaced already did.
-        var defMap = (await session.Query<ContentTypeDefinition>().ToListAsync())
-            .GroupBy(d => d.Name, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(
-                g => g.Key,
-                g => g.First().Fields
-                    .Where(f => f.Sensitivity == SensitivityLevel.Public)
-                    .Select(f => f.Name)
-                    .ToHashSet(StringComparer.OrdinalIgnoreCase),
-                StringComparer.OrdinalIgnoreCase);
-
         var updatedCount = 0;
-        Guid? lastId = null;
+        var scannedCount = 0;
+        var batchNumber = 0;
 
-        while (true)
+        try
         {
-            var query = session.Query<Content>()
-                .Where(c => c.SearchText == null);
+            // Grouped rather than ToDictionary. Name is unique per tenant from 4.0 on, but the index
+            // that enforces it is not applied to an existing database under AutoCreate.CreateOnly, so
+            // a store seeded before then can still hold two definitions sharing a name. ToDictionary
+            // throws ArgumentException on the second one, and that throw used to be swallowed by the
+            // seeder's catch, so the backfill would silently never happen. First wins, which is what
+            // the FirstOrDefault this replaced already did.
+            var defMap = (await session.Query<ContentTypeDefinition>().ToListAsync(ct))
+                .GroupBy(d => d.Name, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.First().Fields
+                        .Where(f => f.Sensitivity == SensitivityLevel.Public)
+                        .Select(f => f.Name)
+                        .ToHashSet(StringComparer.OrdinalIgnoreCase),
+                    StringComparer.OrdinalIgnoreCase);
 
-            if (lastId.HasValue)
-                query = query.Where(c => c.Id > lastId.Value);
+            Guid? lastId = null;
 
-            var contents = await query
-                .OrderBy(c => c.Id)
-                .Take(batchSize)
-                .ToListAsync();
-
-            if (contents.Count == 0)
-                break;
-
-            foreach (var content in contents)
+            while (true)
             {
-                if (!defMap.TryGetValue(content.ContentType, out var publicFields))
-                    continue;
+                var query = session.Query<Content>()
+                    .Where(c => c.SearchText == null);
 
-                content.SearchText = string.Join(
-                    ' ',
-                    content.Data
-                        .Where(kv => publicFields.Contains(kv.Key))
-                        .Select(kv => kv.Value?.ToString())
-                        .Where(v => !string.IsNullOrWhiteSpace(v)));
+                if (lastId.HasValue)
+                    query = query.Where(c => c.Id > lastId.Value);
 
-                session.Store(content);
-                updatedCount++;
+                var contents = await query
+                    .OrderBy(c => c.Id)
+                    .Take(batchSize)
+                    .ToListAsync(ct);
+
+                if (contents.Count == 0)
+                    break;
+
+                batchNumber++;
+                scannedCount += contents.Count;
+
+                foreach (var content in contents)
+                {
+                    if (!defMap.TryGetValue(content.ContentType, out var publicFields))
+                        continue;
+
+                    content.SearchText = string.Join(
+                        ' ',
+                        content.Data
+                            .Where(kv => publicFields.Contains(kv.Key))
+                            .Select(kv => kv.Value?.ToString())
+                            .Where(v => !string.IsNullOrWhiteSpace(v)));
+
+                    session.Store(content);
+                    updatedCount++;
+                }
+
+                lastId = contents[^1].Id;
+
+                await session.SaveChangesAsync(ct);
+
+                // Per batch, not once at the end. A run that dies partway leaves the log as the only
+                // record of how far it got.
+                Console.WriteLine(
+                    $"[DataSeeder] SearchText backfill batch {batchNumber}: {scannedCount} scanned, "
+                    + $"{updatedCount} updated so far.");
             }
-
-            lastId = contents[^1].Id;
-
-            await session.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(
+                $"[DataSeeder] SearchText backfill DID NOT COMPLETE after {batchNumber} batch(es), "
+                + $"{scannedCount} scanned, {updatedCount} updated: {ex.GetType().Name}: {ex.Message}. "
+                + "Public search will return nothing for content that was not reached. Rerun the seeder.");
+            throw;
         }
 
         Console.WriteLine(
-            $"[DataSeeder] Backfilled SearchText for {updatedCount} content documents.");
+            $"[DataSeeder] Backfilled SearchText for {updatedCount} content documents. "
+            + $"Completed: {scannedCount} scanned in {batchNumber} batch(es).");
     }
 
 }

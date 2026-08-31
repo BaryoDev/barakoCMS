@@ -74,7 +74,9 @@ public class SitemapTests
         using var scope = _factory.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
 
-        const string type = "sitemap_lastmod";
+        // Unique per test: the content-type name carries a unique index now, so two tests sharing
+        // one literal collide on the second insert.
+        var type = $"sitemap_lastmod_{Guid.NewGuid():N}";
         var createdAt = new DateTime(2026, 3, 15, 10, 30, 0, DateTimeKind.Utc);
 
         session.Store(
@@ -189,7 +191,7 @@ public class SitemapTests
     [Fact]
     public async Task Sitemap_LastMod_UsesUpdatedAt()
     {
-        var type = "sitemap_lastmod";
+        var type = $"sitemap_lastmod_{Guid.NewGuid():N}";
 
         using var scope = _factory.Services.CreateScope();
         var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();

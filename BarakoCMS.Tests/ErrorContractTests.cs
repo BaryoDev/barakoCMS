@@ -75,7 +75,10 @@ public class ErrorContractTests
 
         var response = await _client.PostAsJsonAsync("/api/content-types", body);
 
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        // 409 rather than the 400 a field-validation failure gets: the request is well formed and
+        // conflicts with what is already there. The shape is what this test is about, and it is the
+        // same ProblemDetails either way.
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
         (await ProblemDetailReasonsAsync(response))
             .Should().Contain(reason => reason.Contains("already exists", StringComparison.OrdinalIgnoreCase));
     }

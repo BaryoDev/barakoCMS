@@ -103,6 +103,9 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
                 typeof(BarakoCMS.Diagnostics.DiagnosticsModule).Assembly,
                 typeof(BarakoCMS.Pwa.PwaModule).Assembly,
                 typeof(BarakoCMS.FeatureFlags.FeatureFlagsModule).Assembly,
+                // Portability owns no documents of its own and registers no services, so its
+                // endpoints only need discovering.
+                typeof(BarakoCMS.Portability.PortabilityModule).Assembly,
             ]);
         });
     }
