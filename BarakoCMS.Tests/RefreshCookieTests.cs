@@ -1,8 +1,11 @@
+using Microsoft.Extensions.Hosting;
+using Microsoft.AspNetCore.Http;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using FluentAssertions;
 using Marten;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 using barakoCMS.Models;
@@ -157,5 +160,54 @@ public class RefreshCookieTests
         res.StatusCode.Should().Be(HttpStatusCode.Unauthorized,
             "the same answer an unknown token gets, because saying which is which tells a prober "
           + "their request was well formed");
+    }
+
+    /*
+     * Secure is decided by the host environment, not by Request.IsHttps.
+     *
+     * IsHttps describes the hop that reached the process. Behind a TLS-terminating ingress that is
+     * not forwarding headers, a request the user made over https arrives as http, and the cookie
+     * would have shipped without Secure on exactly the deployment that needs it most.
+     *
+     * Tested on the decision rather than end to end. The version of this that stood up a host with
+     * UseEnvironment("Production") passed on its own and failed in the full suite, because which
+     * environment the derived host resolves to depends on the order tests build their hosts in. A
+     * flaky assertion about a security attribute is worse than not having one.
+     *
+     * Both directions, because always-Secure would pass the production case on its own and break
+     * every local http stack.
+     */
+
+    private static HttpContext ContextOn(string environment)
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<IHostEnvironment>(new StubEnvironment { EnvironmentName = environment });
+        return new DefaultHttpContext { RequestServices = services.BuildServiceProvider() };
+    }
+
+    private sealed class StubEnvironment : IHostEnvironment
+    {
+        public string EnvironmentName { get; set; } = Environments.Production;
+        public string ApplicationName { get; set; } = "BarakoCMS.Tests";
+        public string ContentRootPath { get; set; } = AppContext.BaseDirectory;
+        public Microsoft.Extensions.FileProviders.IFileProvider ContentRootFileProvider { get; set; } =
+            new Microsoft.Extensions.FileProviders.NullFileProvider();
+    }
+
+    [Fact]
+    public void The_refresh_cookie_is_Secure_on_a_production_host()
+    {
+        barakoCMS.Infrastructure.Auth.RefreshTokenCookie.IsSecure(ContextOn(Environments.Production))
+            .Should().BeTrue(
+                "the request can reach a production host over plain http through a proxy that "
+                + "terminated TLS, so following Request.IsHttps would drop Secure exactly there");
+    }
+
+    [Fact]
+    public void The_refresh_cookie_is_not_Secure_on_a_development_host()
+    {
+        barakoCMS.Infrastructure.Auth.RefreshTokenCookie.IsSecure(ContextOn(Environments.Development))
+            .Should().BeFalse(
+                "a Secure cookie is not sent over http, so marking it here breaks every local stack");
     }
 }

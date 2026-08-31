@@ -28,8 +28,14 @@ build, was a week of account takeover rather than fifteen minutes of nuisance.
 ## What it does now
 
 **The refresh token is an httpOnly cookie.** The server sets it; the browser sends it back; the page
-has no way to read it. An XSS that lands after you have signed in finds nothing to take, because the
-durable credential was never in reach of script.
+has no way to read it. The durable credential is never in reach of script, so an XSS cannot copy it
+out and keep refreshing from somewhere else next week.
+
+Be clear about what that does not buy you. Script running on the page can still call
+`POST /api/auth/refresh`, and the browser will attach the cookie for it, exactly as it does for the
+admin. So an active XSS can use your session for as long as it is running. What it cannot do is take
+the session with it. That is the difference between a bug you fix and a credential you have to
+revoke, and it is the whole reason for the change, but it is not immunity.
 
 The cookie is scoped to `/api/auth/refresh`, so it is not attached to every API call, only to the one
 route that consumes it.
@@ -73,18 +79,24 @@ same site.
 - **Same origin, or same site with different paths.** Works with no configuration. The bundled
   playground serves the admin at `/barakocms` and the API at `/barakocms-api`, which is why it works
   there.
-- **Different origins entirely**, for example the admin on `:3000` and the API on `:5005` in local
-  development. The cookie is not sent. The admin falls back to nothing, so it will use the response
-  body path, and you get the pre-4.0 behaviour rather than an error.
+- **Different port, same host**, for example the admin on `:3000` and the API on `:5005` in local
+  development. These are different origins but the same site, and `SameSite=Lax` is about the site,
+  so the cookie is sent. It needs credentialed CORS to be useful, which the API already configures
+  for `http://localhost:3000`. If you move the admin to another port, add that origin.
+- **Genuinely different sites**, the admin and the API on separate domains. The cookie is not sent,
+  and there is no fallback: the admin posts an empty refresh, gets nothing back, clears its
+  in-memory token and sends you to the sign-in page. It does not read the refresh token out of the
+  response body.
 
-If you want the cookie protection and you are running the two on separate hosts, put them behind one
-reverse proxy so they share an origin. That is the same thing you would do for cookie auth on any
-other application, and it is worth doing.
+So if the two halves are on separate domains, put them behind one reverse proxy so they share an
+origin. That is the same thing you would do for cookie auth on any other application.
 
-`Secure` follows the request rather than being hardcoded on, because a `Secure` cookie is not sent
-over plain http and hardcoding it would break every http development stack with a symptom that looks
-like "refresh is broken" rather than like a cookie policy. Production is https, which is where it
-counts.
+`Secure` is set on every host except Development, rather than following the scheme of the request.
+`Request.IsHttps` describes the hop that reached the process, not the one the browser made, so
+behind a proxy that terminates TLS the request arrives as plain http and the cookie would have gone
+out without `Secure` on exactly the deployment that needs it. Development is exempt because a
+`Secure` cookie is not sent over http and every local stack would break with a symptom that looks
+like "refresh is broken" rather than like a cookie policy.
 
 ## What this does not fix
 

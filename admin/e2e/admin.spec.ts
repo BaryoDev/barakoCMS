@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { MOCK_TOKEN, pageOf, stubContentTypes, authed } from './helpers';
+import { pageOf, stubContentTypes, authed } from './helpers';
 
 const SCHEMAS = [
     {

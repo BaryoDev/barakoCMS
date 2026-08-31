@@ -18,6 +18,9 @@ describe('client error reporter', () => {
     beforeEach(() => {
         __resetClientErrorsForTests();
         localStorage.clear();
+        // The access token is a module variable now, so localStorage.clear() no longer reaches it
+        // and a test that signs in leaves the next one authenticated.
+        tokenStore.clear();
         fetchMock = vi.fn().mockResolvedValue({ ok: true });
         vi.stubGlobal('fetch', fetchMock);
         vi.useFakeTimers();
