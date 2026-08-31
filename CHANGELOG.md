@@ -309,6 +309,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **A revoked permission could come back.** Permission-cache invalidation bumped a version counter
+  that formed part of the cache key, and that counter was itself an entry in the same cache: same
+  five minute expiry, same size limit, same eviction under pressure. Once it was gone the next
+  invalidation read zero, wrote one, and rebuilt a key that was already cached, so the revoked
+  decision was served again and the log said "Invalidated permission cache" either way. Invalidation
+  now uses expiration tokens held outside the cache, so cancelling one evicts every decision that
+  registered against it, and there is no version arithmetic left to lose.
+
 - **A system proxy silently bypassed the webhook address guard.** With a proxy in use the connect
   callback dials the proxy, and the proxy then resolves and connects to the target, so the guard was
   inspecting the wrong hop. `UseProxy` is off on that client now. A system proxy can arrive from an
