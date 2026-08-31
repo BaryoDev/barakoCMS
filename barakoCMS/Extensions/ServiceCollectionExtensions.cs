@@ -914,6 +914,7 @@ public static class ServiceCollectionExtensions
         //   /health/live   the liveness probe. Process-only. A failure here means restart me.
         //   /health/ready  the readiness probe. Database, disk, and the startup seed. A failure
         //                  here means take me out of rotation and leave me running.
+        //   /health/build  which build is answering. Not a check; see below.
         //   /health        the full report, for humans and dashboards.
         //
         // Pointing liveness at the full report is what turned a Postgres restart into a
@@ -929,6 +930,36 @@ public static class ServiceCollectionExtensions
                     await context.Response.WriteAsync($"{{\"status\":\"{report.Status}\"}}");
                 }
             };
+
+        // Which build is answering, as the commit it was built from. Anonymous, like the probes,
+        // and for the same reason: the caller is a deploy pipeline, not a signed-in user.
+        //
+        // A release used to prove a deploy by asking for a 200 and reading back a version string,
+        // and a version string cannot tell two builds apart. Today's 3.20.2 and yesterday's 3.20.2
+        // are the same characters. A deploy that pulled nothing and restarted nothing answers that
+        // check exactly like a deploy that worked. A commit sha cannot (#157).
+        //
+        // Stamped in at image build time (BARAKO_BUILD_SHA), not read from assembly metadata:
+        // .git is in .dockerignore, so SourceLink has nothing to stamp inside the image. Unset
+        // means "unknown", which fails the comparison rather than passing it.
+        //
+        // Its own path rather than a field on /health, so the probe body stays exactly what every
+        // dashboard and kubelet already parses.
+        var buildSha = Environment.GetEnvironmentVariable("BARAKO_BUILD_SHA");
+        if (string.IsNullOrWhiteSpace(buildSha))
+        {
+            buildSha = "unknown";
+        }
+
+        // Serialized rather than interpolated: the value comes from the environment, and a quote in
+        // it would otherwise produce a body that is not JSON.
+        var buildBody = System.Text.Json.JsonSerializer.Serialize(new { sha = buildSha });
+
+        app.Map("/health/build", branch => branch.Run(async context =>
+        {
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync(buildBody);
+        }));
 
         app.UseHealthChecks("/health/live", Probe(check => check.Tags.Contains("live")));
         app.UseHealthChecks("/health/ready", Probe(check => check.Tags.Contains("ready")));

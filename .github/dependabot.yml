@@ -61,6 +61,26 @@ updates:
       - dependency-name: "eslint-config-next"
         update-types: ["version-update:semver-minor", "version-update:semver-major"]
 
+  # barakocms.baryo.dev. Its own Next app, its own lockfile, and unwatched until now (#153): a
+  # missing ecosystem entry is silence rather than an error, so nothing ever said the landing page
+  # was drifting. scripts/check-dependabot-coverage.sh is what says it now, and CI runs it.
+  #
+  # No `next` hold here, unlike /admin. That hold exists because the admin's end-to-end suite fails
+  # on Next 16.1+; the site has no such suite and is already on 16.3.0, so copying the hold across
+  # would pin it below the version it is running.
+  - package-ecosystem: "npm"
+    directory: "/site"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      site:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+      site-major:
+        patterns: ["*"]
+        update-types: ["major"]
+
   # Keep the Actions themselves current — the same "insufficient logging/CVE surfaces late" concern
   # the NuGet/npm gates exist for applies to third-party Actions too.
   - package-ecosystem: "github-actions"

@@ -36,6 +36,28 @@ jobs:
       - name: Check changelog fragments
         run: bash scripts/changelog-assemble.sh --check
 
+      # A directory Dependabot does not watch produces no error and no pull request, which is why
+      # site/ drifted unwatched (#153). This fails the build instead of saying nothing.
+      - name: Check Dependabot covers every lockfile
+        run: bash scripts/check-dependabot-coverage.sh
+
+      # The check above is only worth its minute if it can fail. Hide the site entry in a copy of
+      # the config and confirm it does, the same shape as the secret-scan proof in the security job.
+      - name: Prove the Dependabot check can fail
+        run: |
+          set -euo pipefail
+          TMP=$(mktemp -d)
+          ruby -ryaml -e '
+            cfg = YAML.load_file(".github/dependabot.yml")
+            cfg["updates"] = cfg["updates"].reject { |u| u["directory"] == "/site" }
+            File.write(ARGV[0], YAML.dump(cfg))
+          ' "$TMP/dependabot.yml"
+          if bash scripts/check-dependabot-coverage.sh "$TMP/dependabot.yml"; then
+            echo "::error::The Dependabot coverage check passed a config with no /site entry. The gate is not working."
+            exit 1
+          fi
+          echo "Unwatched lockfile was caught. The check is live."
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
@@ -550,3 +572,42 @@ jobs:
             [ "$COMPONENTS" -gt 0 ] || { echo "::error::$f lists no components, so it describes nothing."; exit 1; }
             echo "$f: $COMPONENTS components" >> "$GITHUB_STEP_SUMMARY"
           done
+
+  # Nothing in CI ever read k8s/ (#383). That is how an unparseable memory quantity, 128Mw, sat in
+  # the repo through several releases: the manifests are only ever read by a human running kubectl.
+  #
+  # This job sends them to a real API server. The two cheaper options were both tried against the
+  # manifests as they stood before #280 was fixed, and both passed them:
+  #
+  #   kubectl apply --dry-run=client --validate=strict  ->  exit 0, "deployment.apps/barako-cms created (dry run)"
+  #   kubeconform -strict -summary                      ->  exit 0, "Valid: 1, Invalid: 0"
+  #
+  # A resource quantity is just a string in the OpenAPI schema, so schema validation has nothing to
+  # check it against. Only the API server runs the quantity parser, which is why this job pays for a
+  # cluster. kind boots in about half a minute and nothing is deployed into it.
+  k8s:
+    name: Kubernetes manifests apply
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Start a throwaway cluster
+        uses: helm/kind-action@v1.14.0
+        with:
+          cluster_name: barako-manifest-check
+
+      - name: The manifests apply
+        run: bash scripts/check-k8s-manifests.sh k8s
+
+      # The manifests are correct today, so a green run here proves nothing on its own: the same
+      # green is what a broken validator produces. scripts/testdata/k8s-known-bad/ holds the
+      # pre-#280 deployment verbatim, 128Mw and all, and this step fails the build if the API
+      # server accepts it.
+      - name: Prove the check can fail
+        run: |
+          set -euo pipefail
+          if bash scripts/check-k8s-manifests.sh scripts/testdata/k8s-known-bad; then
+            echo "::error::The API server accepted the pre-#280 manifests, which contain memory: \"128Mw\". This gate is not working."
+            exit 1
+          fi
+          echo "The known-bad manifests were rejected. The gate is live."

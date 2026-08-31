@@ -10,6 +10,18 @@ name: Release (master)
 #
 # The breakable dev-playground tier (deploy-dev-playground.yml) is where you
 # iterate; this is the deliberate, versioned promotion to production.
+#
+# The order runs from cheap and reversible to expensive and permanent:
+#
+#   gate -> test -> verify-packages -> build images
+#        -> deploy-playground (and prove it is running THIS commit)
+#        -> approval on the `nuget` environment
+#        -> publish-packages, publish-images
+#        -> tag v<version> and write the GitHub Release
+#
+# Publishing used to come before the deploy, which put the one step that cannot be
+# undone ahead of the one that finds the failures (#157). NuGet has no delete, only
+# unlist, and a version anyone has already resolved stays resolved.
 on:
   push:
     branches: ["master"]
@@ -57,6 +69,39 @@ jobs:
             echo "should_release=true" >> "$GITHUB_OUTPUT"
             echo "::notice::Releasing BarakoCMS $VERSION."
           fi
+
+      # The publish job names the `nuget` environment so a person has to approve the one step that
+      # cannot be undone (#203). An environment with no protection rules approves everything
+      # silently, and naming one that does not exist creates it that way, so the approval would be
+      # a line of YAML and nothing else. The `playground` environment on this same workflow has
+      # protection_rules: [] today, which is what that looks like from the outside: an environment
+      # in the job, no gate in the run.
+      #
+      # Checked here rather than in the publish job, because by then the packages are built and the
+      # playground is deployed, and the answer would arrive after the expensive part.
+      #
+      # Fails closed. If this step cannot read the environment it stops the release, which is the
+      # only safe direction for a check whose whole purpose is to confirm a gate exists.
+      - name: A human is required on the nuget environment
+        if: steps.check.outputs.should_release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if ! gh api "repos/${{ github.repository }}/environments/nuget" > /tmp/env.json 2>/tmp/env.err; then
+            echo "::error::Could not read the 'nuget' environment. Create it in Settings > Environments and add yourself as a required reviewer."
+            cat /tmp/env.err
+            exit 1
+          fi
+
+          REVIEWERS=$(jq '[.protection_rules[]? | select(.type == "required_reviewers")] | length' /tmp/env.json)
+          case "$REVIEWERS" in ''|*[!0-9]*) echo "::error::Could not read the environment's protection rules, so failing closed."; exit 1 ;; esac
+
+          if [ "$REVIEWERS" -eq 0 ]; then
+            echo "::error::The 'nuget' environment has no required reviewers, so the approval on publish-packages approves itself. Add a reviewer in Settings > Environments > nuget."
+            exit 1
+          fi
+          echo "::notice::The nuget environment has a required reviewer. Publishing will wait for approval."
 
   test:
     name: Build, test, pack
@@ -313,10 +358,20 @@ jobs:
   # actions/checkout: without the source this job *cannot* rebuild, even by accident. If you find
   # yourself adding a checkout here, what you actually want is a step in the test job.
   publish-packages:
-    name: Publish packages
-    needs: [gate, test, verify-packages]
+    # The version is in the job name because that is what the approval prompt shows. Approving
+    # "Publish packages" is a habit; approving "Publish packages 3.21.0 to NuGet" is a decision
+    # about a number (#203).
+    name: Publish packages ${{ needs.gate.outputs.version }} to NuGet
+    # Waits on the playground, which is the ordering change in #157: the irreversible step runs
+    # last. NuGet has no delete, only unlist, and anyone who already resolved a version keeps it.
+    needs: [gate, test, verify-packages, deploy-playground]
     if: needs.gate.outputs.should_release == 'true'
     runs-on: ubuntu-latest
+    # The approval (#203). The gate job has already checked this environment has a required
+    # reviewer, because an environment without one waves everything through in silence.
+    environment:
+      name: nuget
+      url: https://www.nuget.org/packages/BarakoCMS/${{ needs.gate.outputs.version }}
     permissions:
       contents: read
       packages: write
@@ -399,8 +454,12 @@ jobs:
           platforms: ${{ matrix.platform }}
           # Stamped from the release version rather than read from package.json, which has said
           # 0.1.0 since the beginning. Harmless on the two API images, which ignore it.
+          #
+          # BARAKO_BUILD_SHA is what /health/build answers with. .git is in .dockerignore, so the
+          # commit cannot be read inside the build; it has to be handed in here.
           build-args: |
             BARAKO_VERSION=${{ env.VERSION }}
+            BARAKO_BUILD_SHA=${{ github.sha }}
           labels: org.opencontainers.image.source=https://github.com/BaryoDev/barakoCMS
           outputs: type=image,name=ghcr.io/baryodev/${{ matrix.image.name }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=${{ matrix.image.name }}-${{ matrix.arch }}
@@ -430,7 +489,10 @@ jobs:
   # Keeps the name publish-images because deploy-playground and notify-failure both depend on it.
   publish-images:
     name: Publish public images
-    needs: [gate, build-images]
+    # Also behind the playground now. An image tag is mutable, so this is not the irreversible step,
+    # but publishing :latest for a build nobody has run is still how a bad version reaches whoever
+    # pulls next.
+    needs: [gate, build-images, deploy-playground]
     if: needs.gate.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -538,6 +600,10 @@ jobs:
           file: Dockerfile.suite
           platforms: linux/arm64
           push: true
+          # The image the deploy check reads back from /health/build. Without this the playground
+          # reports "unknown" and the release stops, which is the correct direction to fail.
+          build-args: |
+            BARAKO_BUILD_SHA=${{ github.sha }}
           tags: |
             ghcr.io/baryodev/barako-cms:playground
             ghcr.io/baryodev/barako-cms:playground-${{ env.VERSION }}
@@ -563,9 +629,20 @@ jobs:
           cache-from: type=gha,scope=pg-admin
           cache-to: type=gha,mode=max,scope=pg-admin
 
+  # Runs before anything is published, which is the whole of #157. It used to need publish-packages
+  # and publish-images, so the order was: tests pass, fourteen packages become permanent, and only
+  # then does anything get deployed and looked at.
+  #
+  # A test host is not where this project's releases have broken. 3.14.0 crash-looped on any
+  # existing database because a new Marten index is a delta CreateOnly refuses, and CI was green on
+  # a fresh one. That class of failure needs a deployment to find, and a deployment is reversible in
+  # a way a NuGet version is not.
+  #
+  # It no longer needs the public images either: the playground runs the arm64 :playground tags from
+  # build-playground-images, not the multi-arch public ones.
   deploy-playground:
     name: Deploy to playground
-    needs: [gate, publish-packages, publish-images, build-playground-images]
+    needs: [gate, build-playground-images]
     if: needs.gate.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     environment:
@@ -610,6 +687,60 @@ jobs:
       - name: Smoke test (read-only)
         run: bash scripts/smoke-test.sh https://playground.baryo.dev/barakocms-api
 
+      # Everything above this line is satisfied by the build that was already running. A 401, a 200
+      # and a healthy database are what the previous release returns too, so a deploy that pulled
+      # nothing would pass all of them and the publish behind it would ship a build nothing had run.
+      #
+      # This compares the commit the deployed image was built from against the commit being
+      # released. Identity, not a version string: two builds of 3.20.2 are the same characters
+      # (#157).
+      - name: The playground is running this build
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: bash scripts/check-deployed-build.sh https://playground.baryo.dev/barakocms-api "$EXPECTED_SHA"
+
+  # Sixty-seven versions went to nuget.org and the newest git tag was v3.2.0, so the repository's
+  # front page advertised a release from many versions ago and `git log v3.21.0..master` did not
+  # resolve (#155). Nothing was broken; nothing said so either.
+  #
+  # After publishing, deliberately. A tag is a claim that this commit is that version, and until
+  # the packages are up it is not one. The changelog section is read first, so a missing release
+  # note fails before anything is tagged rather than producing an empty GitHub Release.
+  #
+  # Nothing here backfills the historical tags. Mapping sixty-odd versions to commits is a bigger
+  # job than it is worth, and tagging from here forward fixes both the front page and the diff.
+  tag-release:
+    name: Tag v${{ needs.gate.outputs.version }} and write the release
+    needs: [gate, publish-packages, publish-images]
+    if: needs.gate.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.gate.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Read the release notes out of the changelog
+        run: bash scripts/release-notes.sh "$VERSION" > /tmp/notes.md
+
+      # Re-runnable. A release that already exists is left alone rather than failing the job, so
+      # re-running a partially failed release run does not need someone to delete a tag first.
+      - name: Tag the release commit and publish the release
+        run: |
+          set -euo pipefail
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo "::notice::Release v$VERSION already exists; leaving it alone."
+            exit 0
+          fi
+
+          gh release create "v$VERSION" \
+            --target "${{ github.sha }}" \
+            --title "v$VERSION" \
+            --notes-file /tmp/notes.md
+          echo "::notice::Tagged v$VERSION and published the release."
+
   # Org discussions (best-effort). Discord is handled by announce-discord below, NOT here: passing the
   # multiline changelog through a job-output into a reusable-workflow input silently emptied it, so
   # every Discord post fell back to a generic line. No DISCORD_WEBHOOK is passed here on purpose.
@@ -643,7 +774,7 @@ jobs:
 
   # A failed release (bad publish, deploy, or smoke) should ping. Best-effort; never fails the run.
   notify-failure:
-    needs: [gate, test, verify-packages, publish-packages, publish-images, build-playground-images, deploy-playground]
+    needs: [gate, test, verify-packages, publish-packages, publish-images, build-playground-images, deploy-playground, tag-release]
     if: failure()
     runs-on: ubuntu-latest
     steps:

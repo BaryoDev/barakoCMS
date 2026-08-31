@@ -34,6 +34,23 @@ readiness probe and covers the database, disk, and the startup seed. They are de
 different: a database outage has to fail readiness and not liveness, or a shared Postgres blip
 restarts every replica at once. `/health` is the full report, for dashboards.
 
+`/health/build` is not a probe. It answers with the commit the image was built from, so a deploy can
+prove it is running the build it just pushed rather than the one that was already there. The commit
+is passed in at image build time as `BARAKO_BUILD_SHA`; an image built without it answers `unknown`.
+
+## Validating these manifests
+
+CI applies everything here to a throwaway kind cluster with `--dry-run=server --validate=strict`, via
+`scripts/check-k8s-manifests.sh`. Run it locally the same way against any cluster:
+
+```bash
+kind create cluster
+bash scripts/check-k8s-manifests.sh k8s
+```
+
+Server side, and not `--dry-run=client` or `kubeconform`, because neither parses a resource quantity:
+both accepted `memory: "128Mw"` when it was in this directory.
+
 ## Demo content
 
 Nothing here sets `Seed__DemoContent`, so a first boot creates the system roles and the admin from
