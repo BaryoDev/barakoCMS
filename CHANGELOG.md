@@ -594,12 +594,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   concurrency to close exactly this race and `OtpCode` did not, so two requests with the same code
   could both see it unconsumed and both mint tokens. Device approval and passwordless sign-in both
   rest on that path.
-- **Two endpoints granted access to a role that does not exist.** `/api/content-types` and the Files
-  upload endpoint both named "Editor" in their `Roles(...)` gate and nothing has ever seeded it. It
-  granted nothing, because a token only carries roles its user holds, but it misdescribed the
-  permission model to anyone reading the line, and it would have started granting silently the day
-  somebody created a role by that name for an unrelated reason. A test now refuses any gate naming a
-  role nothing creates, in the core or in a module.
 
 - **A system proxy silently bypassed the webhook address guard.** With a proxy in use the connect
   callback dials the proxy, and the proxy then resolves and connects to the target, so the guard was
