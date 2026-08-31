@@ -22,7 +22,7 @@ internal class Endpoint : Endpoint<ListRequest, PaginatedResponse<barakoCMS.Feat
         Get("/api/content-types", "/api/schemas");
         // NOTE: AllowAnonymous() must NOT be combined with Roles() — in ASP.NET Core
         // AllowAnonymous short-circuits authorization and silently disables the role check.
-        Roles("SuperAdmin", "Admin", "Editor");
+        Roles("SuperAdmin", "Admin");
     }
 
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)
