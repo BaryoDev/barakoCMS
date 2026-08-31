@@ -14,8 +14,10 @@ namespace barakoCMS.Features.Public;
 /// route. Anonymous and cacheable.
 ///
 /// Item links point at the caller's frontend (the CMS is headless, so it can't know the URL): set
-/// <c>Feeds:SiteUrl</c> (falls back to the request host) and, per type, <c>Feeds:Paths:{type}</c>
-/// (a template like <c>/blog/{slug}</c>; defaults to <c>/{type}/{slug}</c>).
+/// <c>Feeds:SiteUrl</c> and, per type, <c>Feeds:Paths:{type}</c> (a template like <c>/blog/{slug}</c>;
+/// defaults to <c>/{type}/{slug}</c>). With neither <c>Feeds:SiteUrl</c> nor <c>App:BaseUrl</c> set,
+/// the feed answers 503 unless <c>AllowedHosts</c> makes the request host trustworthy, because a feed
+/// is fetched by aggregators and its links must not come from a header the caller wrote (#147).
 /// </summary>
 internal class FeedEndpoint : EndpointWithoutRequest
 {
@@ -53,7 +55,17 @@ internal class FeedEndpoint : EndpointWithoutRequest
             .Take(MaxItems)
             .ToListAsync(ct);
 
-        var siteUrl = (_config["Feeds:SiteUrl"] ?? $"{HttpContext.Request.Scheme}://{HttpContext.Request.Host}").TrimEnd('/');
+        var siteUrl = barakoCMS.Infrastructure.Security.CanonicalHost.BaseUrl(
+            _config, HttpContext.Request, "Feeds:SiteUrl");
+
+        if (siteUrl is null)
+        {
+            await Send.StringAsync(
+                barakoCMS.Infrastructure.Security.CanonicalHost.NotConfigured("Feeds:SiteUrl"),
+                503, "text/plain; charset=utf-8", ct);
+            return;
+        }
+
         var pathTemplate = _config[$"Feeds:Paths:{type}"] ?? $"/{type}/{{slug}}";
         var channelTitle = _config[$"Feeds:Titles:{type}"] ?? type;
 

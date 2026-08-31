@@ -146,7 +146,8 @@ The rule above about a failing test has three cousins, each of which has caused 
 A contributor was told to make a new endpoint match the behaviour of the one next to it. He declined,
 because a review had flagged that behaviour as a security problem. He was right: the neighbouring
 endpoint builds a URL from the request `Host` header, and `AllowedHosts` is `"*"`, so the value is
-attacker-controlled. Copying it would have spread the problem to a second endpoint.
+attacker-controlled. Copying it would have spread the problem to a second endpoint. The URLs now
+come from `App:BaseUrl`, and the header is only used where `AllowedHosts` has already vetted it.
 
 If you are matching an existing pattern, check the pattern first. If you are asked to match one and
 it looks wrong, say so. Being new is not a reason to defer.

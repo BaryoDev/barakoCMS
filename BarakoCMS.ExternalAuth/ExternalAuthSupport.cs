@@ -6,9 +6,22 @@ namespace BarakoCMS.ExternalAuth;
 /// <summary>Shared helpers for the OAuth redirect flows (base URL + the short-lived CSRF/state cookie).</summary>
 public static class ExternalAuthSupport
 {
-    /// <summary>The public base URL of the app (App:BaseUrl, else the request's scheme+host).</summary>
+    /// <summary>
+    /// The public base URL of the app, which every provider's <c>redirect_uri</c> is built from.
+    /// </summary>
+    /// <remarks>
+    /// <c>App:BaseUrl</c>, else the request's scheme and host but only where <c>AllowedHosts</c>
+    /// makes that host trustworthy. This used to take the <c>Host</c> header unconditionally, which
+    /// let a caller put their own domain into the redirect_uri of an authorization request. The
+    /// providers reject a redirect_uri they have not been given, so nothing was known to be
+    /// exploitable, but that control belongs to Google and GitHub rather than to us.
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">Nothing configured a base URL and the host is not constrained.</exception>
     public static string BaseUrl(IConfiguration config, HttpContext ctx) =>
-        (config["App:BaseUrl"] ?? $"{ctx.Request.Scheme}://{ctx.Request.Host}").TrimEnd('/');
+        barakoCMS.Infrastructure.Security.CanonicalHost.BaseUrl(config, ctx.Request)
+        ?? throw new InvalidOperationException(
+            barakoCMS.Infrastructure.Security.CanonicalHost.NotConfigured(
+                barakoCMS.Infrastructure.Security.CanonicalHost.BaseUrlKey));
 
     /// <summary>A short-lived, HttpOnly, Lax cookie — survives the top-level GET redirect back from the provider.</summary>
     public static CookieOptions ShortCookie() => new()

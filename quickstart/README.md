@@ -67,9 +67,37 @@ Caddy, Traefik) terminating TLS, then set:
 ```env
 ASPNETCORE_ENVIRONMENT=Production
 PUBLIC_API_URL=https://cms.example.com      # what the browser calls
+APP_BASE_URL=https://cms.example.com        # what the API puts in links it hands out
+ALLOWED_HOSTS=cms.example.com               # the Host headers the API answers to
 ALLOWED_ORIGINS=https://admin.example.com   # where the admin is served
 BARAKO_TAG=3.21.0                            # pin a release rather than :latest
 ```
+
+`APP_BASE_URL` and `ALLOWED_HOSTS` are the pair that keeps a caller from choosing the origin of the
+links this API produces. The `Host` header is written by whoever sent the request, so an RSS feed or
+an OAuth `redirect_uri` built from it points wherever the caller likes. Set `APP_BASE_URL` and the
+links come from configuration instead. Set `ALLOWED_HOSTS` and anything with another `Host` gets a
+400 before it reaches any code, which makes the header trustworthy again and is the better fix if
+you can enumerate your hostnames.
+
+With neither set, the RSS feed answers 503 and the OAuth start endpoints fail, naming the setting.
+That is deliberate: guessing produces a working-looking link to somebody else's domain.
+
+One trap with `ALLOWED_HOSTS`: a Kubernetes `httpGet` probe sends the pod IP as the `Host` header
+unless you add one, so a list of real hostnames makes the probes 400 and the pod never goes ready.
+Either add a `Host` header to the probe or leave `ALLOWED_HOSTS` at `*` and rely on `APP_BASE_URL`.
+
+TLS is terminated by the proxy, so add HSTS there:
+
+```nginx
+add_header Strict-Transport-Security "max-age=7776000" always;
+```
+
+The API sends the same header itself outside Development, but only on requests it can see are
+HTTPS, which behind a proxy means only once `FORWARDED_HEADERS_ENABLED` is on. 90 days and no
+`includeSubDomains` are the defaults, tunable with `Hsts__MaxAgeDays` and `Hsts__IncludeSubDomains`.
+Turn `includeSubDomains` on only once every subdomain is on HTTPS: a browser that has seen it keeps
+it for the whole max-age whatever you deploy afterwards.
 
 The app ignores `X-Forwarded-For` until you say which hop to believe, because the header is written
 by the caller and honouring it from anywhere lets anyone choose the IP that rate limiting and the

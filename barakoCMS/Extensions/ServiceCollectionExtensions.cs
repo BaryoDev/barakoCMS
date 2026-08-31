@@ -216,6 +216,11 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<barakoCMS.Infrastructure.Auth.ApiKeyService>();
 
         services.AddAuthorization();
+
+        // Strict-Transport-Security. Registered here, applied by UseHsts outside Development.
+        services.AddHsts(options =>
+            barakoCMS.Infrastructure.Security.HstsPolicy.Configure(options, configuration));
+
         services.AddCors(options =>
         {
             options.AddPolicy("SecurePolicy", builder =>
@@ -756,12 +761,11 @@ public static class ServiceCollectionExtensions
                 : csp;
             context.Response.Headers.Append("Content-Security-Policy", policy);
 
-            // HSTS (HTTP Strict Transport Security)
-            if (context.Request.IsHttps)
-            {
-                context.Response.Headers.Append("Strict-Transport-Security",
-                    "max-age=31536000; includeSubDomains");
-            }
+            // Strict-Transport-Security is NOT written here. UseHsts above owns it, configured by
+            // HstsPolicy. This block used to append a second copy of the header on every HTTPS
+            // request, in every environment: browsers take the first value and ignore the rest, so
+            // the effective policy was the framework default rather than the one written here, and a
+            // developer on https://localhost was being pinned too.
 
             await next();
         });

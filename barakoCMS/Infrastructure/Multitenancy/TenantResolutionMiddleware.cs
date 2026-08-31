@@ -18,6 +18,12 @@ public readonly record struct TenantResolution(string? Slug, bool Unrecognised);
 /// the default tenant. For authenticated requests, TenantAccessMiddleware still verifies the token
 /// was minted for the resolved tenant, so the header only ever selects a tenant the caller is
 /// already authorized for (or public data).
+///
+/// The host is read here even though it is the caller's own <c>Host</c> header, and #147 asked
+/// whether that is an escalation. It is not: <c>X-Tenant</c> above already lets any anonymous caller
+/// name any tenant, by design, because that is how path-based routing works. Forging the host
+/// selects exactly the same set of tenants by a longer route, and reaches exactly the same data.
+/// Nothing here builds a URL from the host, which is the part of #147 that was a real problem.
 /// </summary>
 public class TenantResolutionMiddleware
 {

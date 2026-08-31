@@ -201,6 +201,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ConnectionStrings__DefaultConnection`, `InitialAdmin__Username` and `InitialAdmin__Password`; set
   all of them before applying. The manifests could not be applied at all before this, so no running
   deployment is affected.
+- **HSTS is sent, and the policy it sends changed.** The application configured
+  Strict-Transport-Security twice, once through `UseHsts` and once by appending the header by hand,
+  and a browser processes only the first value it receives, so the effective policy was the
+  framework's 30 day default rather than the year the hand-written copy asked for. There is one
+  policy now, in `HstsPolicy`: 90 days, `includeSubDomains` off, no `preload`. Operational
+  consequence: a browser that reaches a deployment over HTTPS refuses plain HTTP to that host for 90
+  days and cannot be told otherwise before then, so confirm the host is staying on TLS before taking
+  this. `Hsts:MaxAgeDays` and `Hsts:IncludeSubDomains` tune it, and `includeSubDomains` should go on
+  only once every subdomain is on HTTPS, because it covers subdomains that do not exist yet and
+  cannot be recalled. Nothing is sent in Development, where the hand-written copy had been pinning
+  developers' browsers against `https://localhost`.
+
+- **Absolute URLs come from configuration rather than the `Host` header.** The RSS feed and the
+  OAuth `redirect_uri` were built from `Request.Host` whenever nothing was configured, and
+  `AllowedHosts` ships as `"*"`, so the caller chose the origin of links this application hands to
+  crawlers and identity providers. Operational consequence for a deployment that has configured
+  neither `Feeds:SiteUrl` or `App:BaseUrl` nor a real `AllowedHosts`: the feed answers 503 and the
+  external-auth start endpoints throw, each naming the setting that fixes it. Set `App:BaseUrl` to
+  the deployment's public URL, or set `AllowedHosts` to the hostnames it answers on, after which the
+  request host is vetted and usable again. `AllowedHosts` itself still defaults to `"*"`, so nothing
+  else changes on upgrade. One trap if you narrow it: a Kubernetes `httpGet` probe sends the pod IP
+  as `Host`, so a list of real hostnames makes the probes 400 and the pod never goes ready unless
+  the probe carries a `Host` header.
 
 ### Added
 
@@ -533,6 +556,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The workflow daemon lost the event's tenant.** It resolved the workflow engine from a scope
   sitting on the platform default tenant, so a tenant's workflow definitions were invisible to it
   and a default-tenant workflow's writes landed in the wrong partition.
+
+- **The scheduled publish sweep read every due item in one query.** No limit, so the sweep's memory
+  and the size of its transaction were whatever had accumulated: nothing on a healthy deployment,
+  and the entire backlog after downtime or a bulk import that carried schedules. It works in batches
+  of 200 now, up to 25 batches per tick, committing each batch. A caller expecting one
+  `SweepTenantAsync` to drain everything still gets that up to 5000 items per tenant, and the
+  remainder is applied by the next tick a minute later. The method gained an overload taking the
+  batch size and the cap; the three-argument one is unchanged and uses the defaults.
 
 ### Security
 

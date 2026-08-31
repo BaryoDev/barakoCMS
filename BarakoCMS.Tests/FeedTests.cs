@@ -83,8 +83,58 @@ public class FeedTests
     {
         var type = "feed_c"; await SeedAsync(type);
         var xml = await (await _client.GetAsync($"/api/public/{type}/feed.xml")).Content.ReadAsStringAsync();
-        // With no Feeds:SiteUrl config, the site URL falls back to the request host; the default path is /{type}/{slug}.
+        // The fixture sets Feeds:SiteUrl; with no Feeds:Paths:{type} the default path is /{type}/{slug}.
         xml.Should().Contain($"/{type}/newer").And.Contain($"/{type}/older");
+    }
+
+    /// <summary>
+    /// The links in a feed are read by crawlers and aggregators, so they must not come from a header
+    /// the caller wrote. With nothing configured and AllowedHosts accepting every host, there is no
+    /// trustworthy origin to build them from and the feed refuses rather than guessing (#147).
+    /// </summary>
+    /// <remarks>
+    /// A two-label host on purpose. Tenant resolution reads the leading subdomain, so a three-label
+    /// forgery would move the request to a tenant that holds none of this test's content and the 404
+    /// would hide what is being asserted.
+    /// </remarks>
+    private static HttpRequestMessage ForgedHost(string type) =>
+        new(HttpMethod.Get, $"/api/public/{type}/feed.xml")
+        {
+            Headers = { Host = "attacker-example.net" },
+        };
+
+    [Fact]
+    public async Task A_forged_host_never_becomes_the_link_origin()
+    {
+        var type = "feed_forged"; await SeedAsync(type);
+
+        // Feeds:SiteUrl removed, App:BaseUrl was never set, and AllowedHosts is "*": the shipped
+        // defaults, which is the configuration this was exploitable under.
+        var client = _factory.WithSetting("Feeds:SiteUrl", null).CreateClient();
+
+        var res = await client.SendAsync(ForgedHost(type));
+        var body = await res.Content.ReadAsStringAsync();
+
+        res.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        body.Should().NotContain("attacker-example.net", "the caller does not get to choose the origin");
+        body.Should().Contain("Feeds:SiteUrl", "the refusal names the setting that fixes it");
+    }
+
+    /// <summary>
+    /// The positive control. A feed that refused every request would pass the test above, and the
+    /// configured deployment is the one that has to keep working.
+    /// </summary>
+    [Fact]
+    public async Task A_configured_site_url_serves_the_feed_and_survives_a_forged_host()
+    {
+        var type = "feed_configured"; await SeedAsync(type);
+
+        var res = await _client.SendAsync(ForgedHost(type));
+        var body = await res.Content.ReadAsStringAsync();
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        body.Should().Contain("https://test.example.com", "the fixture configures Feeds:SiteUrl");
+        body.Should().NotContain("attacker-example.net");
     }
 
     [Fact]

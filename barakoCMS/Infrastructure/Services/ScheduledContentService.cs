@@ -152,45 +152,86 @@ public class ScheduledContentService : BackgroundService
         }
     }
 
+    /// <summary>How many due items one query loads, and one transaction commits.</summary>
+    public const int DefaultBatchSize = 200;
+
+    /// <summary>
+    /// How many batches one sweep will take before leaving the rest to the next tick, a minute later.
+    /// </summary>
+    public const int DefaultMaxBatchesPerSweep = 25;
+
     /// <summary>
     /// Applies all due transitions in one tenant session and saves. Returns the number of items flipped.
     /// Pure over the session so tests can drive it directly without the timer.
     /// </summary>
-    public static async Task<int> SweepTenantAsync(IDocumentSession session, DateTime nowUtc, CancellationToken ct)
+    public static Task<int> SweepTenantAsync(IDocumentSession session, DateTime nowUtc, CancellationToken ct) =>
+        SweepTenantAsync(session, nowUtc, DefaultBatchSize, DefaultMaxBatchesPerSweep, ct);
+
+    /// <summary>
+    /// Applies due transitions in batches, saving each one, until nothing is due or
+    /// <paramref name="maxBatches"/> is reached. Returns the number of items flipped.
+    /// </summary>
+    /// <remarks>
+    /// The query used to have no limit, so the sweep's memory was however much had accumulated:
+    /// normally nothing, but after downtime or a bulk import with schedules it is the whole backlog
+    /// in one list and one transaction. Batching makes the worst case a property of the code rather
+    /// than of how long the service was off (#127).
+    ///
+    /// The cap is what guarantees the loop ends. Each batch commits before the next query runs and a
+    /// transitioned item no longer matches the predicate, so a drained sweep is the normal outcome,
+    /// but a sweep holds the cross-instance advisory lock and must not be able to hold it forever.
+    /// Whatever is left is due on the next tick.
+    /// </remarks>
+    public static async Task<int> SweepTenantAsync(
+        IDocumentSession session, DateTime nowUtc, int batchSize, int maxBatches, CancellationToken ct)
     {
-        var due = await session.Query<Content>()
-            .Where(c => (c.Status == ContentStatus.Draft
-                         && c.ScheduledPublishAt != null && c.ScheduledPublishAt <= nowUtc)
-                     || (c.Status == ContentStatus.Published
-                         && c.ScheduledUnpublishAt != null && c.ScheduledUnpublishAt <= nowUtc))
-            .ToListAsync(ct);
+        ArgumentOutOfRangeException.ThrowIfLessThan(batchSize, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxBatches, 1);
 
-        if (due.Count == 0) return 0;
+        var applied = 0;
 
-        // Constructed rather than injected: this sweep opens its own session per tenant, so there
-        // is no scoped writer to resolve.
-        var writer = new ContentWriter(session);
-
-        foreach (var content in due)
+        for (var batch = 0; batch < maxBatches; batch++)
         {
-            var newStatus = content.Status == ContentStatus.Draft
-                ? ContentStatus.Published
-                : ContentStatus.Archived;
+            var due = await session.Query<Content>()
+                .Where(c => (c.Status == ContentStatus.Draft
+                             && c.ScheduledPublishAt != null && c.ScheduledPublishAt <= nowUtc)
+                         || (c.Status == ContentStatus.Published
+                             && c.ScheduledUnpublishAt != null && c.ScheduledUnpublishAt <= nowUtc))
+                .OrderBy(c => c.Id)
+                .Take(batchSize)
+                .ToListAsync(ct);
 
-            writer.Append(content, new ContentStatusChanged(content.Id, newStatus, SystemActor));
+            if (due.Count == 0) break;
 
-            // Clear only the field just consumed; the opposite one stays armed, since a Published
-            // item can still carry a future unpublish time. Recorded as an event rather than
-            // written straight to the document: consuming a schedule is a state change, and one
-            // that happened without a user, so the trail is the only place it is visible.
-            writer.Append(
-                content,
-                newStatus == ContentStatus.Published
-                    ? new ContentScheduled(content.Id, null, content.ScheduledUnpublishAt, SystemActor)
-                    : new ContentScheduled(content.Id, content.ScheduledPublishAt, null, SystemActor));
+            // Constructed rather than injected: this sweep opens its own session per tenant, so there
+            // is no scoped writer to resolve.
+            var writer = new ContentWriter(session);
+
+            foreach (var content in due)
+            {
+                var newStatus = content.Status == ContentStatus.Draft
+                    ? ContentStatus.Published
+                    : ContentStatus.Archived;
+
+                writer.Append(content, new ContentStatusChanged(content.Id, newStatus, SystemActor));
+
+                // Clear only the field just consumed; the opposite one stays armed, since a Published
+                // item can still carry a future unpublish time. Recorded as an event rather than
+                // written straight to the document: consuming a schedule is a state change, and one
+                // that happened without a user, so the trail is the only place it is visible.
+                writer.Append(
+                    content,
+                    newStatus == ContentStatus.Published
+                        ? new ContentScheduled(content.Id, null, content.ScheduledUnpublishAt, SystemActor)
+                        : new ContentScheduled(content.Id, content.ScheduledPublishAt, null, SystemActor));
+            }
+
+            await session.SaveChangesAsync(ct);
+            applied += due.Count;
+
+            if (due.Count < batchSize) break;
         }
 
-        await session.SaveChangesAsync(ct);
-        return due.Count;
+        return applied;
     }
 }
