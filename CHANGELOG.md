@@ -780,6 +780,13 @@ refreshed afterward (outstanding short-lived access tokens still expire on their
   that mints the tokens is the one that matters: losing it refuses, rather than returning the tokens
   it had already computed.
 
+- **Two endpoints granted access to a role that does not exist.** `/api/content-types` and the Files
+  upload endpoint both named "Editor" in their `Roles(...)` gate and nothing has ever seeded it. It
+  granted nothing, because a token only carries roles its user holds, but it misdescribed the
+  permission model to anyone reading the line, and it would have started granting silently the day
+  somebody created a role by that name for an unrelated reason. A test now refuses any gate naming a
+  role nothing creates, in the core or in a module.
+
 ### Security
 
 **A webhook could be redirected past the SSRF guard.** `WebhookAction` validates the URL it is
