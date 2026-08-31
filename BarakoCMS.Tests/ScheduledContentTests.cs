@@ -118,7 +118,7 @@ public class ScheduledContentTests
 
         int flipped;
         await using (var s = TenantSession(tenant))
-            flipped = await ScheduledContentService.SweepTenantAsync(s, DateTime.UtcNow, batchSize: 2, maxBatches: 1, default);
+            flipped = await ScheduledContentService.SweepTenantAsync(s, DateTime.UtcNow, null, batchSize: 2, maxBatches: 1, default);
 
         flipped.Should().Be(2, "one batch of two, then the cap");
 
@@ -141,7 +141,7 @@ public class ScheduledContentTests
 
         int flipped;
         await using (var s = TenantSession(tenant))
-            flipped = await ScheduledContentService.SweepTenantAsync(s, DateTime.UtcNow, batchSize: 2, maxBatches: 25, default);
+            flipped = await ScheduledContentService.SweepTenantAsync(s, DateTime.UtcNow, null, batchSize: 2, maxBatches: 25, default);
 
         flipped.Should().Be(5, "three batches of two, two and one, and then nothing is due");
 
@@ -158,7 +158,7 @@ public class ScheduledContentTests
         using var s = NewSession();
 
         var act = async () => await ScheduledContentService.SweepTenantAsync(
-            s, DateTime.UtcNow, batchSize, maxBatches, default);
+            s, DateTime.UtcNow, null, batchSize, maxBatches, default);
 
         await act.Should().ThrowAsync<ArgumentOutOfRangeException>(
             "a zero batch size would query for nothing forever and a zero cap would sweep nothing at all");

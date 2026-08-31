@@ -292,8 +292,4 @@ public class ScheduledContentService : BackgroundService
 
         return applied;
     }
-        }
-
-        return applied;
-    }
 }
