@@ -15,7 +15,8 @@ Any field the content type marks as something other than `Public` is stripped fr
 A type that has not opted in and a type that does not exist both return 404. That is deliberate:
 answering differently would confirm which types exist.
 
-Responses carry `Cache-Control: public, max-age=60`.
+Responses carry `Cache-Control: public, max-age=60`. The one exception is a slug read served under a
+valid `?preview=` token, which is `no-store` because it can return an unpublished entry.
 
 ## Routes
 
@@ -73,7 +74,7 @@ An entry looks like this:
 
 ## Filtering
 
-```
+```text
 filter[field][op]=value
 ```
 
@@ -103,13 +104,13 @@ numerically: `filter[price][lt]=10` puts 9 below 10 instead of after it.
 
 Filters narrow what the published-and-public predicate already allows. No filter can widen it.
 
-```
+```text
 GET /api/public/blog-post?filter[category][eq]=engineering&filter[title][contains]=marten
 ```
 
 ## Sorting
 
-```
+```text
 sort=field      ascending
 sort=-field     descending
 ```
@@ -124,7 +125,7 @@ Entries missing the sort field collect at the end in both directions.
 
 ## Resolving references
 
-```
+```text
 include=author,category
 ```
 
@@ -139,7 +140,7 @@ indistinguishable from no reference at all.
 
 ## Search
 
-```
+```text
 GET /api/public/{type}/search?q=marten&limit=20
 ```
 
