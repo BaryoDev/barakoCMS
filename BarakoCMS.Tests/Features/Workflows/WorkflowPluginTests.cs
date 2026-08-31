@@ -180,26 +180,61 @@ public class WorkflowPluginTests
         await act.Should().NotThrowAsync();
     }
 
+    /// <summary>
+    /// Every registered action is reachable by the type a workflow names.
+    /// </summary>
+    /// <remarks>
+    /// This replaces a test with the same promise in its name that constructed a WorkflowEngine,
+    /// never called it, and then asserted that the list it had just built contained the item it had
+    /// just put in it. It had an assertion, which is what made it look like a test, and the
+    /// assertion could not fail.
+    ///
+    /// Resolution by type is what this is actually about: a workflow names "Email" as a string and
+    /// something has to find the action that answers to it. Duplicates matter for the same reason,
+    /// because two actions claiming one type makes which one runs an accident of registration order.
+    /// </remarks>
     [Fact]
-    public async Task WorkflowEngine_Should_ExecuteCorrectPlugin_BasedOnType()
+    public void Every_registered_action_is_reachable_by_its_declared_type()
     {
-        // Arrange
-        var mockSession = new Mock<Marten.IDocumentSession>();
-        var mockEmailService = new Mock<IEmailService>();
-        var mockLogger = new Mock<ILogger<WorkflowEngine>>();
+        var actions = new List<IWorkflowAction>
+        {
+            new EmailAction(new Mock<IEmailService>().Object),
+        };
 
-        var emailAction = new EmailAction(mockEmailService.Object);
-        var actions = new List<IWorkflowAction> { emailAction };
-        var mockVariableExtractor = new Mock<barakoCMS.Infrastructure.Services.ITemplateVariableExtractor>();
+        var byType = actions.ToDictionary(a => a.Type, StringComparer.OrdinalIgnoreCase);
 
-        var mockDebugger = new Mock<barakoCMS.Infrastructure.Services.IWorkflowDebugger>();
+        byType.Should().ContainKey("Email", "a workflow naming Email has to resolve to something");
+        byType["Email"].Should().BeOfType<EmailAction>();
+    }
 
-        var engine = new WorkflowEngine(mockSession.Object, actions, mockVariableExtractor.Object, mockDebugger.Object, mockLogger.Object);
+    /// <summary>
+    /// Every action the host registers declares a distinct, non-empty type.
+    /// </summary>
+    /// <remarks>
+    /// The check worth having, because it runs over what is actually wired up rather than over a
+    /// list a test made. Two actions claiming one type is not a compile error and not a startup
+    /// error: it silently makes which one runs depend on registration order.
+    /// </remarks>
+    [Fact]
+    public void No_two_registered_actions_claim_the_same_type()
+    {
+        var actionTypes = typeof(WorkflowEngine).Assembly.GetTypes()
+            .Where(t => typeof(IWorkflowAction).IsAssignableFrom(t) && t is { IsAbstract: false, IsInterface: false })
+            .ToArray();
 
-        // Note: This test validates the plugin discovery mechanism
-        // The engine should be able to resolve EmailAction from the IEnumerable<IWorkflowAction>
-        actions.Should().Contain(a => a.Type == "Email");
+        actionTypes.Should().HaveCountGreaterThan(3,
+            "only {0} actions were found, so a duplicate check over them proves little",
+            actionTypes.Length);
 
-        await Task.CompletedTask; // Placeholder to avoid CS1998 warning
+        var declared = actionTypes
+            .Select(t => (Type: t, Name: (string)t.GetProperty("Type")!.GetValue(
+                System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(t))!))
+            .ToArray();
+
+        declared.Should().OnlyContain(d => !string.IsNullOrWhiteSpace(d.Name),
+            "an action with no type cannot be named by a workflow");
+
+        declared.Select(d => d.Name).Should().OnlyHaveUniqueItems(
+            "two actions claiming one type makes which one runs an accident of registration order");
     }
 }
