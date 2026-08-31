@@ -255,6 +255,10 @@ internal class Endpoint : Endpoint<Request, Response>
             "Successful login for user: {Username}, UserId: {UserId}",
             user.Username, user.Id);
 
+        // Also in a cookie page script cannot read. The body still carries it for
+        // non-browser callers; see RefreshTokenCookie for why this is an addition.
+        barakoCMS.Infrastructure.Auth.RefreshTokenCookie.Set(HttpContext, refreshTokenString, refreshTokenExpiry);
+
         await Send.ResponseAsync(new Response
         {
             Token = jwtToken,

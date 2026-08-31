@@ -110,7 +110,18 @@ test.describe('P.3 — tenant switcher reaches Home', () => {
             })
         ).toString('base64url');
         const acmeToken = `eyJhbGciOiJIUzI1NiJ9.${acmePayload}.sig`;
-        await page.addInitScript((t) => window.localStorage.setItem('barako_token', t), acmeToken);
+        // Same shape as the shared authed() helper, with a tenant-specific token: the session
+        // arrives through the bootstrap refresh rather than from storage.
+        await page.route('**/api/auth/refresh', (route) =>
+            route.fulfill({
+                json: {
+                    token: acmeToken,
+                    expiry: new Date(Date.now() + 900_000).toISOString(),
+                    refreshToken: 'mock-refresh',
+                    refreshTokenExpiry: new Date(Date.now() + 7 * 86400_000).toISOString(),
+                },
+            })
+        );
 
         await page.route('**/api/monitoring/**', (r) => r.fulfill({ json: {} }));
         await page.route('**/health**', (r) => r.fulfill({ json: { status: 'Healthy', entries: {} } }));

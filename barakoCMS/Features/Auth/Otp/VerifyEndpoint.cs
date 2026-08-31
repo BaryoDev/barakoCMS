@@ -182,6 +182,10 @@ internal class VerifyEndpoint : Endpoint<OtpVerifyRequest, OtpVerifyResponse>
         // which is the race the optimistic concurrency was added to stop.
         if (!await TrySaveAsync(ct)) { ThrowError("Invalid or expired code."); return; }
 
+        // Also in a cookie page script cannot read. The body still carries it for
+        // non-browser callers; see RefreshTokenCookie for why this is an addition.
+        barakoCMS.Infrastructure.Auth.RefreshTokenCookie.Set(HttpContext, refreshTokenString, refreshTokenExpiry);
+
         await Send.ResponseAsync(new OtpVerifyResponse
         {
             Token = jwtToken,

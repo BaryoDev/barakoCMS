@@ -819,6 +819,16 @@ refreshed afterward (outstanding short-lived access tokens still expire on their
   `docs/access-control.md`, `docs/device-trust.md` and `docs/workflow-engine-rethink.md` are readable
   without a checkout for the first time (#312).
 
+- **The admin no longer keeps either token in `localStorage`.** The refresh token is an httpOnly
+  cookie the page cannot read; the access token is a variable in memory and is gone on reload, which
+  a silent refresh replaces. Any script on the origin could read both before, and the refresh token
+  is seven days and renewable, so one cross-site scripting bug or one compromised dependency in the
+  admin build was a week of account takeover rather than fifteen minutes. The API still returns the
+  refresh token in the response body, so the generated clients and anything not in a browser are
+  unaffected: what changed is that the admin stops persisting it. Reasoning, the two things you will
+  notice, and what the cookie needs from your deployment topology are in
+  `docs/session-and-token-storage.md`.
+
 ### Security
 
 **A webhook could be redirected past the SSRF guard.** `WebhookAction` validates the URL it is

@@ -132,6 +132,10 @@ internal class VerifyEndpoint : Endpoint<VerifyRequest, VerifyResponse>
             ipAddress: device.IpAddress, ct: ct);
         await _session.SaveChangesAsync(ct);
 
+        // Also in a cookie page script cannot read. The body still carries it for
+        // non-browser callers; see RefreshTokenCookie for why this is an addition.
+        barakoCMS.Infrastructure.Auth.RefreshTokenCookie.Set(HttpContext, refreshTokenString, refreshTokenExpiry);
+
         await Send.ResponseAsync(new VerifyResponse
         {
             Token = issued.Token,
