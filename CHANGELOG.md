@@ -773,6 +773,13 @@ anything.
 
 refreshed afterward (outstanding short-lived access tokens still expire on their own).
 
+- **Losing the OTP race answered 500.** Giving `OtpCode` optimistic concurrency stopped two
+  requests from consuming one code, but left the loser's save throwing into the global handler, so a
+  code another request had just used came back as a server error instead of "Invalid or expired
+  code." The verify endpoint and the send path now both treat a lost race as a refusal. The save
+  that mints the tokens is the one that matters: losing it refuses, rather than returning the tokens
+  it had already computed.
+
 ### Security
 
 **A webhook could be redirected past the SSRF guard.** `WebhookAction` validates the URL it is
