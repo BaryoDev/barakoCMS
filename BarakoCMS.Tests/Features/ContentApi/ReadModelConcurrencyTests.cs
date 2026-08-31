@@ -230,9 +230,11 @@ public class ReadModelConcurrencyTests
 
         var edited = false;
 
-        async Task EditOnceAsync(barakoCMS.Models.Content _, CancellationToken ct)
+        async Task EditOnceAsync(barakoCMS.Models.Content item, CancellationToken ct)
         {
-            if (edited) return; // the sweep may see this item again on a later batch
+            // Only this test's item. The sweep processes whatever else the suite has left due, and
+            // editing one of those would be a different test with a worse name.
+            if (item.Id != id || edited) return;
             edited = true;
 
             using var editorScope = Scope();
@@ -246,11 +248,10 @@ public class ReadModelConcurrencyTests
             await session.SaveChangesAsync(ct);
         }
 
-        int flipped;
         using (var scope = Scope())
         {
             var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-            flipped = await ScheduledContentService.SweepTenantAsync(
+            await ScheduledContentService.SweepTenantAsync(
                 session,
                 DateTime.UtcNow,
                 logger: null,
@@ -260,9 +261,11 @@ public class ReadModelConcurrencyTests
                 default);
         }
 
-        edited.Should().BeTrue("the hook has to have run, or this test proves nothing");
-        flipped.Should().Be(0, "the only due item was taken by the editor first");
+        edited.Should().BeTrue("the hook has to have run against this item, or this test proves nothing");
 
+        // Deliberately not asserting on the flip count. Other tests leave due content behind, so
+        // that number belongs to the whole suite and not to this test. What this item did is the
+        // claim worth making.
         var stored = await StoredAsync(id);
         var replayed = await ReplayAsync(id);
 
