@@ -277,5 +277,15 @@ public class ReadModelConcurrencyTests
         stored.Data["Title"].ToString().Should().Be(replayed.Data["Title"].ToString(),
             "the document is a projection of the stream");
         stored.Status.Should().Be(replayed.Status);
+
+        // This item is deliberately left Draft with a publish time in the past, which is to say
+        // still due. Every other sweep test in the suite runs the same sweep, so leaving it behind
+        // makes this test's state their problem. Delete it.
+        using (var cleanup = Scope())
+        {
+            var session = cleanup.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Delete<barakoCMS.Models.Content>(id);
+            await session.SaveChangesAsync();
+        }
     }
 }
