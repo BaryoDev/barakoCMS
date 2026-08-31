@@ -225,6 +225,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   as `Host`, so a list of real hostnames makes the probes 400 and the pod never goes ready unless
   the probe carries a `Host` header.
 
+- **`Models.ContentType` is removed.** A public document type written and read by nothing but the
+  seeder, in a table no query touched. The content types the API serves are `ContentTypeDefinition`,
+  and always were. An existing `mt_doc_contenttype` table is left where it is, which is safe under
+  `AutoCreate.CreateOnly`.
+
 ### Added
 
 - **A workflow action can report that it failed.** `IWorkflowAction` gains
@@ -712,6 +717,61 @@ anything.
   keys. So `"Salary"` and `"salary"` could both be stored, and the mask removed the first and handed
   over the second. A writer who could not set a field could also set it under another casing. Public
   delivery already treated the two as one field; the authenticated path does now.
+
+- **A content type's name is unique per tenant, and a duplicate create answers 409 instead of 400.**
+  Uniqueness was a read followed by a write with nothing in the database behind it, so two requests
+  close enough together both read nothing and both inserted. The name is a lookup key for the
+  validator, the sensitivity service and the search-text backfill, and each of them resolved the
+  ambiguity differently, which for a type carrying `Sensitivity` and `Mask` decides what gets masked.
+  The index is per tenant, so one customer's "article" does not block another's.
+
+  On upgrade the index is not created for you. Production runs `AutoCreate.CreateOnly`, which never
+  alters an object that already exists, so an existing database keeps the old read-then-write
+  behaviour until `migrations/4.0.0/3.x-to-4.0.sql` is applied by hand. That file carries the
+  statement and the query that finds the duplicates first, because `CREATE UNIQUE INDEX` fails while
+  one exists and the duplicates have to be merged or renamed before it will run.
+- **A status change that loses a race answers 409.** `PUT /api/contents/{id}/status` appends under an
+  expected-version check now, so a request built on a copy another writer has already moved past is
+  refused rather than applied over the top. 409 rather than the 412 the update endpoint returns:
+  nothing about this request was conditional on a version the client sent, so there is no
+  precondition to have failed.
+- **A scheduled publish and a concurrent edit could silently undo each other.** The writer stored the
+  document the request had loaded at its start, with the new events applied on top, and the
+  expected-version check covered only the stream from the append onwards. So the scheduler published
+  a due draft and committed, an edit that had loaded the earlier copy appended cleanly afterward,
+  and the document it stored said Draft. Nothing recorded the reversal: replaying the stream gave
+  Published while the read model said Draft, permanently, and delivery stopped serving an item that
+  had been published. The mirror interleaving reverted the editor's data instead. The document is now
+  rebuilt from the committed state before the events are applied, and the scheduler sweep saves one
+  item at a time under the same check, leaving anything another writer overtook for the next tick
+  rather than overwriting it.
+- **A role held only through tenant memberships could be deleted.** The referential-integrity guard
+  read `User.RoleIds`, which is not where a tenant member's roles live: `MembershipRoles
+  .EffectiveRoleIdsAsync` unions the membership list into the global one, and creating a tenant writes
+  the membership list when it seeds that tenant's admin. So a role granted to every member of a tenant
+  passed the check, the delete succeeded, and each membership was left holding an id that resolves to
+  nothing, which the permission resolver treats as denied. The 409 now names the tenants the role is
+  held in, so a blocked delete says where to go and unassign it.
+- **The seeder created a content type the API could not see.** It wrote a `Models.ContentType` into a
+  table nothing else reads, so a freshly seeded instance logged "Created AttendanceRecord content
+  type" while `GET /api/content-types` returned an empty envelope and the schema editor showed
+  nothing. The demo entries validated against no schema at all, because a content type with no
+  definition means loose mode. It seeds a `ContentTypeDefinition` now, with the demo SSN field marked
+  Sensitive, and the demo content is committed before the search-text backfill runs so a first boot
+  leaves it indexed rather than waiting for the next one.
+- **A failed SearchText backfill looked exactly like a completed one.** The seeder runs in an
+  un-awaited `Task.Run` whose catch only logs, so a backfill that runs out of memory or time on a
+  large corpus leaves the application serving traffic with public search empty for every pre-existing
+  document, indefinitely, and nothing distinguishes that from a run that finished. It logs per batch
+  now, and a run that does not reach the end says so and says how far it got before rethrowing.
+- **An import dropped a content type's public-delivery flag.** Every other attribute of a type
+  carried across and that one did not, so a bundle exported from one instance and imported into
+  another created the type and the content correctly and left them off the public API, with the
+  import reporting success. Records whose content type is in neither the store nor the bundle are
+  also counted and named in the report now, rather than being created with empty search text and
+  discovered later as content that never appears in search.
+
+refreshed afterward (outstanding short-lived access tokens still expire on their own).
 
 ### Security
 
