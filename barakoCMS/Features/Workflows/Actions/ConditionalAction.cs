@@ -80,7 +80,12 @@ internal class ConditionalAction : IWorkflowAction
                     continue;
                 }
 
-                await plugin.ExecuteAsync(childAction.Parameters, content, ct);
+                var childResult = await plugin.RunAsync(childAction.Parameters, content, ct);
+                if (!childResult.Succeeded)
+                {
+                    _logger.LogWarning(
+                        "Child action {Type} failed: {Error}", childAction.Type, childResult.Error);
+                }
             }
 
             _logger.LogInformation(

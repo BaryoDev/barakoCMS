@@ -129,6 +129,12 @@ public static class ServiceCollectionExtensions
         // See issue #281.
         services.AddSingleton<barakoCMS.Infrastructure.Health.StartupSeedGate>();
 
+        // A stopped projection shard halts every workflow and is invisible to the checks above:
+        // the database is up, the disk is fine, memory is fine, and nothing fires. Degraded rather
+        // than Unhealthy on purpose; see ProjectionLag.
+        var maxProjectionLag = configuration.GetValue<long?>("HealthChecks:MaxProjectionLagEvents")
+            ?? barakoCMS.Infrastructure.Health.ProjectionLag.DefaultTolerance;
+
         services.AddHealthChecks()
             .AddNpgSql(connectionString, name: "Database", tags: new[] { "db", "ready" })
             .AddDiskStorageHealthCheck(setup =>
@@ -142,7 +148,17 @@ public static class ServiceCollectionExtensions
                 tags: new[] { "memory", "live", "ready" })
             .AddCheck<barakoCMS.Infrastructure.Health.StartupSeedHealthCheck>(
                 "Startup Seeding",
-                tags: new[] { "seed", "ready" });
+                tags: new[] { "seed", "ready" })
+            // Neither live nor ready on purpose. A halted shard is not fixed by killing this
+            // process, and it reports Degraded rather than Unhealthy, so putting it on readiness
+            // would risk pulling every replica out of service over workflow lag. It is here to be
+            // seen on the health page, not to gate traffic. See ProjectionLag.
+            .AddCheck<barakoCMS.Infrastructure.Health.WorkflowProjectionHealthCheck>(
+                barakoCMS.Infrastructure.Health.WorkflowProjectionHealthCheck.Name,
+                tags: new[] { "workflow", "projection" });
+
+        services.AddSingleton(sp => new barakoCMS.Infrastructure.Health.WorkflowProjectionHealthCheck(
+            sp.GetRequiredService<IDocumentStore>(), maxProjectionLag));
 
         // Validate JWT key exists and has minimum length for security. Fail fast rather than
         // booting with broken or insecure auth. Check both config and the JWT__Key env var.

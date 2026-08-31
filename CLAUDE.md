@@ -125,8 +125,8 @@ the accident of what happens to be marked `public`. In scope:
 
 - `Modules/*` and `Core/Interfaces/*`, the module contract
 - `Models/*` and `Events/*`, the documents and events a consumer stores and reads
-- `Features/Workflows/IWorkflowAction` and `IWorkflowEngine`, since custom actions are a documented
-  extension point
+- `Features/Workflows/IWorkflowAction`, `IWorkflowEngine` and `WorkflowActionResult`, since custom
+  actions are a documented extension point and the result is what one returns
 - `AddBarakoCMS` and `UseBarakoCMS`, the entry points
 - `DataSeeder`, which a host assembling its own startup calls
 

@@ -45,7 +45,11 @@ internal partial class WorkflowProjection : EventProjection
     private async Task ProcessEventAsync(string eventType, Guid contentId, string tenantId, IDocumentOperations ops)
     {
         // This runs inside Marten's async projection daemon. Any unhandled exception here stops the
-        // projection shard and halts ALL workflows until a manual rebuild — so nothing may escape.
+        // projection shard, and every workflow stops firing with no further signal in the logs, so
+        // nothing may escape. There is no cheap remedy for that state: restarting resumes at the
+        // same event, and a rebuild re-runs every action for every event ever stored, so it re-sends
+        // every email and re-fires every webhook. The Workflow Projection health check is what makes
+        // the state visible. See docs/operating-workflows.md.
         try
         {
             // The scope has to carry the event's tenant. A plain CreateScope() lands on the default

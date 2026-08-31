@@ -62,6 +62,22 @@ internal class Endpoint : Endpoint<Request, Response>
         }
 
         var newStatus = req.NewStatus!.Value;
+
+        // A no-op request appends nothing. ContentStatusChanged carries only the new status, so the
+        // workflow projection cannot tell "moved to Published" from "set to Published while already
+        // Published": a second event fires every Published workflow again, and the confirmation
+        // email goes out twice for a double-clicked button or a client retry. The Update slice has
+        // always guarded this; this one did not. It also keeps transitions that changed nothing out
+        // of the stream, which is the source of truth for history and replay.
+        if (content.Status == newStatus)
+        {
+            await Send.ResponseAsync(new Response
+            {
+                Message = $"Content status is already {newStatus}"
+            });
+            return;
+        }
+
         var @event = new barakoCMS.Events.ContentStatusChanged(req.Id, newStatus, userId);
 
         // Append the event AND update the read-model document in one transaction so they can't

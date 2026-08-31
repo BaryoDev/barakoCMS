@@ -43,12 +43,21 @@ internal class WebhookAction : IWorkflowAction
 
     /// <inheritdoc />
     public async Task ExecuteAsync(Dictionary<string, string> parameters, barakoCMS.Models.Content content, CancellationToken ct)
+        => await RunAsync(parameters, content, ct);
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Every way a delivery can fail here is an expected outcome of a configured target rather than
+    /// a defect, so each one is a reason on the result. They used to be log lines and nothing else,
+    /// which is why a webhook could answer 500 for a week without the workflow looking unhealthy.
+    /// </remarks>
+    public async Task<WorkflowActionResult> RunAsync(Dictionary<string, string> parameters, barakoCMS.Models.Content content, CancellationToken ct)
     {
         var url = parameters.GetValueOrDefault("Url");
         if (string.IsNullOrEmpty(url))
         {
             _logger.LogWarning("Webhook URL not provided. Skipping webhook action.");
-            return;
+            return WorkflowActionResult.Failure("No Url parameter was configured for this webhook action.");
         }
 
         // Early, logged refusal for a URL that is obviously out of bounds. It is not the guard: the
@@ -57,7 +66,7 @@ internal class WebhookAction : IWorkflowAction
         if (!await IsUrlSafeAsync(url, ct))
         {
             _logger.LogWarning("Webhook URL {Url} is not allowed (must be http/https to a non-internal host). Skipping webhook action.", url);
-            return;
+            return WorkflowActionResult.Failure($"Webhook URL {url} is not allowed: it must be http or https to a non-internal host.");
         }
 
         try
@@ -79,11 +88,11 @@ internal class WebhookAction : IWorkflowAction
             if (response.IsSuccessStatusCode)
             {
                 _logger.LogInformation("Webhook successfully sent to {Url} for content {ContentId}", url, content.Id);
+                return WorkflowActionResult.Success();
             }
-            else
-            {
-                _logger.LogWarning("Webhook to {Url} returned status {StatusCode}", url, response.StatusCode);
-            }
+
+            _logger.LogWarning("Webhook to {Url} returned status {StatusCode}", url, response.StatusCode);
+            return WorkflowActionResult.Failure($"Webhook to {url} returned status {(int)response.StatusCode}.");
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -95,10 +104,12 @@ internal class WebhookAction : IWorkflowAction
         catch (HttpRequestException ex)
         {
             _logger.LogError(ex, "Failed to send webhook to {Url}", url);
+            return WorkflowActionResult.Failure($"Webhook to {url} could not be delivered: {ex.Message}");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Unexpected error while sending webhook to {Url}", url);
+            return WorkflowActionResult.Failure($"Webhook to {url} failed unexpectedly: {ex.Message}");
         }
     }
 

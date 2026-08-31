@@ -19,6 +19,14 @@ metadata:
   namespace: barako-cms
 spec:
   replicas: 2
+  # RollingUpdate keeps the site up, and for the length of the rollout an old pod runs alongside a
+  # new one. Both process the workflow projection, because the old pod is running the code it
+  # shipped with and does not participate in whatever the new one coordinates on, so a workflow
+  # action can fire twice: two emails, two webhook calls, two created tasks.
+  #
+  # Use `type: Recreate` instead if duplicate actions are unacceptable. That drains the old pods
+  # before starting the new ones, which removes the overlap and adds downtime for the length of the
+  # rollout. docs/operating-workflows.md has the trade-off in full.
   strategy:
     type: RollingUpdate
     rollingUpdate:

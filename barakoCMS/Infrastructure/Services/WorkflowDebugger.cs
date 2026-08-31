@@ -31,6 +31,29 @@ public interface IWorkflowDebugger
     void LogActionFailure(WorkflowExecutionLog log, string actionType, Stopwatch timer, Exception ex, Dictionary<string, string> resolvedParams);
 
     /// <summary>
+    /// Log a failed action execution that reported its own reason rather than throwing.
+    /// </summary>
+    /// <remarks>
+    /// Default implementation so an existing implementor still compiles. It records the same entry
+    /// the exception overload does, minus the log line, which needs the concrete logger.
+    /// </remarks>
+    void LogActionFailure(WorkflowExecutionLog log, string actionType, Stopwatch timer, string error, Dictionary<string, string> resolvedParams)
+    {
+        timer.Stop();
+
+        log.Actions.Add(new ActionExecutionLog
+        {
+            ActionType = actionType,
+            Success = false,
+            ErrorMessage = error,
+            ResolvedParameters = new Dictionary<string, string>(resolvedParams),
+            Duration = timer.Elapsed
+        });
+
+        log.Success = false;
+    }
+
+    /// <summary>
     /// Complete the workflow execution log and save it.
     /// </summary>
     Task CompleteExecutionAsync(WorkflowExecutionLog log, Stopwatch overallTimer, CancellationToken ct = default);
@@ -101,23 +124,37 @@ public class WorkflowDebugger : IWorkflowDebugger
 
     public void LogActionFailure(WorkflowExecutionLog log, string actionType, Stopwatch timer, Exception ex, Dictionary<string, string> resolvedParams)
     {
+        RecordFailure(log, actionType, timer, ex.Message, resolvedParams);
+
+        _logger.LogError(ex,
+            "Action failed: {ActionType} after {Duration}ms",
+            actionType, timer.ElapsedMilliseconds);
+    }
+
+    public void LogActionFailure(WorkflowExecutionLog log, string actionType, Stopwatch timer, string error, Dictionary<string, string> resolvedParams)
+    {
+        RecordFailure(log, actionType, timer, error, resolvedParams);
+
+        _logger.LogError(
+            "Action failed: {ActionType} after {Duration}ms: {Error}",
+            actionType, timer.ElapsedMilliseconds, error);
+    }
+
+    private static void RecordFailure(WorkflowExecutionLog log, string actionType, Stopwatch timer, string error, Dictionary<string, string> resolvedParams)
+    {
         timer.Stop();
 
         var actionLog = new ActionExecutionLog
         {
             ActionType = actionType,
             Success = false,
-            ErrorMessage = ex.Message,
+            ErrorMessage = error,
             ResolvedParameters = new Dictionary<string, string>(resolvedParams),
             Duration = timer.Elapsed
         };
 
         log.Actions.Add(actionLog);
         log.Success = false; // Mark overall execution as failed
-
-        _logger.LogError(ex,
-            "Action failed: {ActionType} after {Duration}ms",
-            actionType, timer.ElapsedMilliseconds);
     }
 
     public async Task CompleteExecutionAsync(WorkflowExecutionLog log, Stopwatch overallTimer, CancellationToken ct = default)
