@@ -208,51 +208,71 @@ public class ReadModelConcurrencyTests
     }
 
     /// <summary>
-    /// The real race, both sides running at once: a scheduler sweep and an edit of the same item.
-    /// Whichever wins, the document must still say what the stream says.
+    /// The sweep loses a race it is actually in, and leaves the edit alone.
     /// </summary>
+    /// <remarks>
+    /// This replaces a version that started a sweep and an edit with Task.WhenAll and asserted the
+    /// document agreed with the stream. Nothing made the two collide, and the assertion holds
+    /// trivially when they do not, so deleting the expected-version append from the sweep left it
+    /// green. A guard whose test passes without it is not guarded. See #393.
+    ///
+    /// The edit commits from the hook, which fires after the sweep has loaded the item and before it
+    /// saves. That is the exact interleaving, every run, rather than one the scheduler might produce.
+    ///
+    /// Note what is asserted. The sweep losing is the correct outcome, not a failure: the schedule
+    /// is still armed and the next tick picks it up against fresh state. What must never happen is
+    /// the sweep writing its stale copy over the editor's data.
+    /// </remarks>
     [Fact]
-    public async Task A_sweep_racing_an_edit_leaves_the_document_agreeing_with_the_stream()
+    public async Task A_sweep_that_loses_to_an_editor_does_not_overwrite_the_edit()
     {
         var id = await DraftAsync("v1", publishAt: DateTime.UtcNow.AddMinutes(-5));
 
-        async Task SweepAsync()
+        var edited = false;
+
+        async Task EditOnceAsync(barakoCMS.Models.Content _, CancellationToken ct)
         {
-            using var scope = Scope();
-            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-            await ScheduledContentService.SweepTenantAsync(session, DateTime.UtcNow, default);
+            if (edited) return; // the sweep may see this item again on a later batch
+            edited = true;
+
+            using var editorScope = Scope();
+            var session = editorScope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var writer = editorScope.ServiceProvider.GetRequiredService<IContentWriter>();
+            var content = (await session.LoadAsync<barakoCMS.Models.Content>(id, ct))!;
+            await writer.AppendOptimisticAsync(
+                content,
+                new object[] { new ContentUpdated(id, new Dictionary<string, object> { ["Title"] = "v2" }, Guid.NewGuid(), "v2") },
+                ct);
+            await session.SaveChangesAsync(ct);
         }
 
-        async Task EditAsync()
+        int flipped;
+        using (var scope = Scope())
         {
-            using var scope = Scope();
             var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-            var writer = scope.ServiceProvider.GetRequiredService<IContentWriter>();
-            var content = (await session.LoadAsync<Content>(id))!;
-
-            try
-            {
-                await writer.AppendOptimisticAsync(
-                    content,
-                    new object[] { new ContentUpdated(id, new Dictionary<string, object> { ["Title"] = "v2" }, Guid.NewGuid(), "v2") },
-                    default);
-                await session.SaveChangesAsync();
-            }
-            catch (Exception ex) when (ex.GetType().Name.Contains("Concurrency")
-                || ex.GetType().Name.Contains("UnexpectedMaxEventId"))
-            {
-                // A rejected edit is a correct outcome here. A silently reverted one is not, and that
-                // is what the assertions below are about.
-            }
+            flipped = await ScheduledContentService.SweepTenantAsync(
+                session,
+                DateTime.UtcNow,
+                logger: null,
+                ScheduledContentService.DefaultBatchSize,
+                ScheduledContentService.DefaultMaxBatchesPerSweep,
+                beforeSave: EditOnceAsync,
+                default);
         }
 
-        await Task.WhenAll(SweepAsync(), EditAsync());
+        edited.Should().BeTrue("the hook has to have run, or this test proves nothing");
+        flipped.Should().Be(0, "the only due item was taken by the editor first");
 
         var stored = await StoredAsync(id);
         var replayed = await ReplayAsync(id);
 
-        stored.Status.Should().Be(replayed.Status, "the document is a projection of the stream");
-        stored.Data["Title"].ToString().Should().Be(replayed.Data["Title"].ToString());
-        stored.SearchText.Should().Be(replayed.SearchText);
+        stored.Data["Title"].ToString().Should().Be("v2",
+            "the sweep held a copy loaded before the edit, and saving it would have reverted the "
+            + "editor's data with no event recording it");
+        stored.Status.Should().Be(ContentStatus.Draft,
+            "the sweep lost, so the transition did not happen and the schedule is still armed");
+        stored.Data["Title"].ToString().Should().Be(replayed.Data["Title"].ToString(),
+            "the document is a projection of the stream");
+        stored.Status.Should().Be(replayed.Status);
     }
 }

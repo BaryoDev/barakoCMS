@@ -41,6 +41,14 @@ public class PackagingTests
         foreach (var proj in Directory.EnumerateFiles(RepoRoot(), "*.csproj", SearchOption.AllDirectories))
         {
             if (proj.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")) continue;
+
+            // Nested working copies are not this checkout. A git worktree placed inside the repo,
+            // which is how parallel agents and `git worktree add ./wt` both behave, puts a second
+            // copy of every csproj under the root. This walk then finds several files per package
+            // and the Single() below throws "Sequence contains more than one matching element",
+            // which reads like a packaging defect and is nothing of the kind.
+            if (proj.Contains($"{Path.DirectorySeparatorChar}.claude{Path.DirectorySeparatorChar}")
+                || proj.Contains($"{Path.DirectorySeparatorChar}.git{Path.DirectorySeparatorChar}")) continue;
             var doc = XDocument.Load(proj);
             var packable = doc.Descendants("IsPackable").FirstOrDefault()?.Value;
             if (string.Equals(packable, "true", StringComparison.OrdinalIgnoreCase))
