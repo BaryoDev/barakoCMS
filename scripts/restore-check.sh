@@ -68,6 +68,7 @@ start_host() {
         InitialAdmin__Username=admin \
         InitialAdmin__Password="$ADMIN_PASSWORD" \
         Kubernetes__Enabled=false \
+        Seed__DemoContent=true \
         dotnet exec "$WORK/publish/barakoCMS.dll" "$@"
 }
 
@@ -108,6 +109,9 @@ wait_for_health first.log
 
 # The seeder runs in the background after the host is already answering /health, so this waits for
 # it rather than reading once. A count of zero here would make every comparison below vacuous.
+#
+# start_host asks for the demo content explicitly. This boots as Production, where the seed is off by
+# default, and the restore is only worth anything if there are rows to lose.
 for _ in $(seq 1 40); do
     CONTENT_BEFORE=$(psql_q "select count(*) from public.mt_doc_contents;" 2>/dev/null || echo 0)
     [ "${CONTENT_BEFORE:-0}" -gt 0 ] && break
