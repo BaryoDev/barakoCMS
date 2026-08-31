@@ -71,6 +71,38 @@ chmod +x /backup_job.sh
 
 # Run once at startup so a broken backup surfaces at deploy time rather than in
 # six months, which is how the last one stayed broken.
+# Wait for there to be something worth backing up.
+#
+# Postgres accepting connections is not the same as the schema existing. On a fresh stack this
+# container starts as soon as the database is healthy, which races the API creating its tables, and
+# the proof backup below then failed on every first deployment with "archive is only 368 bytes".
+# Nothing was lost, but the stack had no recovery point until an operator noticed, and a failure
+# logged on every first deploy teaches people to ignore this log.
+#
+# Asked of Postgres rather than of the API's readiness endpoint on purpose: this is the actual
+# precondition, it needs no second service to be reachable, and it works against every published
+# image. /health/ready would have been the tidier signal and it does not exist before 4.0.
+WAIT_SECONDS="${BACKUP_SCHEMA_WAIT_SECONDS:-300}"
+waited=0
+while [ "$waited" -lt "$WAIT_SECONDS" ]; do
+    if PGPASSWORD="$POSTGRES_PASSWORD" psql -h "$POSTGRES_HOST" -U "$POSTGRES_USER" \
+        -d "$POSTGRES_DB" -tAc "select to_regclass('public.mt_doc_users') is not null" 2>/dev/null \
+        | grep -q '^t$'; then
+        break
+    fi
+    sleep 5
+    waited=$((waited + 5))
+done
+
+if [ "$waited" -ge "$WAIT_SECONDS" ]; then
+    # Not fatal. The schedule still runs, and tonight's backup may well succeed. But say plainly
+    # that this deployment has no recovery point yet, rather than letting it look routine.
+    echo "WARNING: no application schema after ${WAIT_SECONDS}s, so there is nothing to back up yet." >&2
+    echo "         The nightly schedule is still active. Check that the API started." >&2
+else
+    echo "Application schema present after ${waited}s"
+fi
+
 echo "Running an initial backup to prove the configuration works"
 /backup_job.sh || echo "WARNING: the initial backup failed, see the error above"
 
