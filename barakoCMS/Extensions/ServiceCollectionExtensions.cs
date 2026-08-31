@@ -115,14 +115,34 @@ public static class ServiceCollectionExtensions
         var maxMemoryMb = configuration.GetValue<long?>("HealthChecks:MaxPrivateMemoryMegabytes") ?? 4096;
         var minFreeDiskMb = configuration.GetValue<long?>("HealthChecks:MinimumFreeDiskMegabytes") ?? 512;
 
+        // Liveness answers "is this process wedged, restart it". Readiness answers "can this process
+        // serve traffic right now". Only a check a restart can actually fix belongs on liveness, so
+        // the tags split like this:
+        //
+        //   live  : Memory                         a process past its private-memory ceiling is
+        //                                          exactly what a restart clears.
+        //   ready : Database, Disk Space, Memory,  none of these is fixed by killing the process,
+        //           Startup Seeding                and the database one is shared, so tagging it
+        //                                          live would restart every replica at once on a
+        //                                          single Postgres blip.
+        //
+        // See issue #281.
+        services.AddSingleton<barakoCMS.Infrastructure.Health.StartupSeedGate>();
+
         services.AddHealthChecks()
             .AddNpgSql(connectionString, name: "Database", tags: new[] { "db", "ready" })
             .AddDiskStorageHealthCheck(setup =>
             {
                 setup.AddDrive(@"/", minimumFreeMegabytes: minFreeDiskMb);
                 setup.CheckAllDrives = false;
-            }, name: "Disk Space")
-            .AddPrivateMemoryHealthCheck(maxMemoryMb * 1024 * 1024, name: "Memory");
+            }, name: "Disk Space", tags: new[] { "disk", "ready" })
+            .AddPrivateMemoryHealthCheck(
+                maxMemoryMb * 1024 * 1024,
+                name: "Memory",
+                tags: new[] { "memory", "live", "ready" })
+            .AddCheck<barakoCMS.Infrastructure.Health.StartupSeedHealthCheck>(
+                "Startup Seeding",
+                tags: new[] { "seed", "ready" });
 
         // Validate JWT key exists and has minimum length for security. Fail fast rather than
         // booting with broken or insecure auth. Check both config and the JWT__Key env var.
@@ -824,18 +844,35 @@ public static class ServiceCollectionExtensions
             };
         });
 
-        // Health Checks Endpoint — unauthenticated for k8s liveness/readiness probes.
-        // All checks still run (status code reflects DB/disk/memory), but the response body is
-        // minimal so anonymous callers can't enumerate internal check names/descriptions/timings.
-        app.UseHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
-        {
-            Predicate = _ => true,
-            ResponseWriter = async (context, report) =>
+        // Health check endpoints, unauthenticated because kubelet cannot present a token. The
+        // response body stays minimal on all three so anonymous callers cannot enumerate internal
+        // check names, descriptions or timings.
+        //
+        // Three endpoints, not one. UseHealthChecks maps a path prefix, so the more specific paths
+        // have to be registered first or "/health" swallows them.
+        //
+        //   /health/live   the liveness probe. Process-only. A failure here means restart me.
+        //   /health/ready  the readiness probe. Database, disk, and the startup seed. A failure
+        //                  here means take me out of rotation and leave me running.
+        //   /health        the full report, for humans and dashboards.
+        //
+        // Pointing liveness at the full report is what turned a Postgres restart into a
+        // simultaneous restart of every replica. See issue #281.
+        static Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions Probe(
+            Func<Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckRegistration, bool> predicate) =>
+            new()
             {
-                context.Response.ContentType = "application/json";
-                await context.Response.WriteAsync($"{{\"status\":\"{report.Status}\"}}");
-            }
-        });
+                Predicate = predicate,
+                ResponseWriter = async (context, report) =>
+                {
+                    context.Response.ContentType = "application/json";
+                    await context.Response.WriteAsync($"{{\"status\":\"{report.Status}\"}}");
+                }
+            };
+
+        app.UseHealthChecks("/health/live", Probe(check => check.Tags.Contains("live")));
+        app.UseHealthChecks("/health/ready", Probe(check => check.Tags.Contains("ready")));
+        app.UseHealthChecks("/health", Probe(_ => true));
 
         // Health Checks UI Dashboard (Config-Gated)
         if (configuration.GetValue<bool>("HealthChecksUI:Enabled"))

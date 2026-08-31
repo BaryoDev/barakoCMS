@@ -23,20 +23,47 @@ public static class DataSeeder
         // 2. Seed Users (Admin, HR, Standard users)
         await SeedUsersAsync(session, configuration);
 
-        // 3. Seed attendance demo Content Type
-        await SeedAttendanceContentTypeAsync(session);
-
-        // 4. Seed attendance demo Workflow (Email confirmation)
-        await SeedAttendanceWorkflowAsync(session);
-
-        // 5. Seed Sample Attendance Records
-        await SeedAttendanceRecordsAsync(session);
+        // 3-5. Everything demo. One gate at the top so the next demo seeder added below inherits it
+        // instead of having to remember. See SeedsDemoContent for what decides this.
+        if (SeedsDemoContent(configuration))
+        {
+            await SeedAttendanceContentTypeAsync(session);
+            await SeedAttendanceWorkflowAsync(session);
+            await SeedAttendanceRecordsAsync(session);
+        }
+        else
+        {
+            Console.WriteLine("[DataSeeder] Demo content skipped (Seed:DemoContent is off)");
+        }
 
         // 6. Backfill SearchText for existing content
         await BackfillSearchTextAsync(session);
 
         await session.SaveChangesAsync();
         Console.WriteLine("[DataSeeder] ✅ Seeding complete!");
+    }
+
+    /// <summary>
+    /// Whether this host seeds the demo AttendanceRecord content type, its sample records and the
+    /// "Attendance Confirmation Email" workflow.
+    /// </summary>
+    /// <remarks>
+    /// These used to be unconditional, so every production first run came up with an attendance
+    /// schema nobody asked for and a stored-active workflow that mails whatever address
+    /// <c>{{data.Email}}</c> holds. Once an operator configures Resend, a demo fixture becomes an
+    /// outbound mail path in their system.
+    ///
+    /// Setting <c>Seed:DemoContent</c> (env <c>Seed__DemoContent</c>) decides it. Unset, it follows
+    /// the environment: on in Development, off everywhere else. That default is what makes the
+    /// quickstart, which runs as Production, safe without anyone reading this file. A developer who
+    /// wants the sample content there sets the variable. See issue #283.
+    /// </remarks>
+    internal static bool SeedsDemoContent(IConfiguration configuration)
+    {
+        var isDevelopment =
+            Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development";
+
+        return configuration.GetValue("Seed:DemoContent", isDevelopment);
     }
 
     // Well-known deterministic GUIDs for system roles (must match CachedPermissionResolver)

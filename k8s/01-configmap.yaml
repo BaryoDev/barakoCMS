@@ -1,3 +1,6 @@
+# Non-secret settings shared by the app pod (via envFrom in 05-deployment.yaml) and the Postgres
+# StatefulSet. Nothing consumed this in the app until 05-deployment.yaml grew an envFrom, so a
+# Kubernetes deployment did not actually run in Production mode.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -8,3 +11,7 @@ data:
   POSTGRES_HOST: "postgres-service"
   POSTGRES_DB: "barako_cms"
   POSTGRES_USER: "postgres"
+  # Set to "true" for the sample AttendanceRecord content type, its demo records and its email
+  # workflow. Off here on purpose: that workflow is stored active and mails whatever address a
+  # record's Email field holds, so it must not appear in a production instance by default.
+  Seed__DemoContent: "false"

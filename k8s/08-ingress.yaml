@@ -1,0 +1,27 @@
+# TLS termination and routing. Assumes an ingress controller and cert-manager are installed; neither
+# ships here. The host below is the RFC 2606 documentation domain, so this applies cleanly and
+# routes nothing until you replace it. Or delete this file and port-forward the Service instead.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: barako-cms
+  namespace: barako-cms
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - barakocms.example.com
+      secretName: barako-cms-tls
+  rules:
+    - host: barakocms.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: barako-cms-service
+                port:
+                  number: 80

@@ -44,6 +44,10 @@ services:
       InitialAdmin__Username: ${ADMIN_USERNAME:-admin}
       InitialAdmin__Password: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}
       CORS__AllowedOrigins: ${ALLOWED_ORIGINS:-http://localhost:3000}
+      # Sample AttendanceRecord content type, records and email workflow. Off by default:
+      # that workflow is stored active and mails whatever address a record's Email field
+      # holds, which is not something a real instance should start with.
+      Seed__DemoContent: ${SEED_DEMO_CONTENT:-false}
 
       # Behind a reverse proxy, name it here or every client shares one rate-limit bucket and the
       # audit log records the proxy. Left unset the app ignores X-Forwarded-For, which is the safe

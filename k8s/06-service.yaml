@@ -1,10 +1,16 @@
+# ClusterIP, with 08-ingress.yaml in front. This was a LoadBalancer commented "easy access for local
+# testing", which on a managed cluster provisions a public load balancer pointing straight at the
+# app with no TLS and no proxy. The compose path puts Caddy in front; nothing did here.
+#
+# For local access without an ingress controller:
+#   kubectl -n barako-cms port-forward svc/barako-cms-service 8080:80
 apiVersion: v1
 kind: Service
 metadata:
   name: barako-cms-service
   namespace: barako-cms
 spec:
-  type: LoadBalancer # Easy access for local testing (localhost:8080)
+  type: ClusterIP
   ports:
     - port: 80
       targetPort: 8080

@@ -50,8 +50,9 @@ catch (Exception ex)
     throw;
 }
 
-// NOTE: /health is mapped once, inside UseBarakoCMS (see ServiceCollectionExtensions),
-// with a minimal response writer so it doesn't leak internal check details to anonymous callers.
+// NOTE: /health, /health/live and /health/ready are mapped inside UseBarakoCMS (see
+// ServiceCollectionExtensions), each with a minimal response writer so they don't leak internal
+// check details to anonymous callers.
 
 // Prometheus Metrics
 app.UseHttpMetrics();
@@ -78,23 +79,29 @@ try
         await app.ApplyMartenSchemaAsync();
     }
 
-    // Run Seeder in background to avoid blocking startup and timeouts.
+    // The seed stays in the background so the process can answer probes while it runs, but
+    // readiness is held closed until it finishes. Before this, the host was ready the moment
+    // Kestrel bound and then slept five seconds before seeding, so every request in that window saw
+    // no roles and no admin: sign-in failed, and a registration was stored with an empty RoleIds.
+    // /health and /health/live keep answering throughout, so a slow seed cannot get the pod killed.
+    // See issue #256.
     if (willServe && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("SKIP_SEEDER")))
     {
+        var seedGate = app.Services.GetRequiredService<barakoCMS.Infrastructure.Health.StartupSeedGate>();
+        seedGate.MarkPending();
+
         _ = Task.Run(async () =>
         {
             try
             {
-                await Task.Delay(5000); // Wait 5s for app to warm up
                 Log.Information("[Background] Starting Data Seeder...");
-                using (var scope = app.Services.CreateScope())
-                {
-                    await barakoCMS.Data.DataSeeder.SeedAsync(app);
-                }
+                await barakoCMS.Data.DataSeeder.SeedAsync(app);
+                seedGate.MarkCompleted();
                 Log.Information("[Background] Data Seeder Completed.");
             }
             catch (Exception ex)
             {
+                seedGate.MarkFailed(ex);
                 Log.Error(ex, "[Background] Data Seeder Failed!");
             }
         });
