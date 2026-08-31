@@ -95,12 +95,18 @@ public class OpenApiTagTests
         // Tagging by convention means a namespace rename silently renames a client's method group,
         // which is a breaking change for consumers with nothing in the diff that looks like one.
         // This list is that diff. Adding a slice adds a line here on purpose.
+        //
+        // Analytics.Umami, DeviceTrust and Import were missing from this list until the module test
+        // suites landed. Not because those modules had no endpoints, but because nothing in the test
+        // host referenced them, so their assemblies were never loaded and their operations never
+        // reached the document. The shipped suite loads all of them. The pin was describing the test
+        // host rather than the product, which is worth remembering if a tag ever goes missing here.
         var expected = new[]
         {
-            "AI", "Accounting", "ApiKeys", "Audit", "Auth", "Content", "ContentType", "Diagnostics",
-            "Email.Resend", "ExternalAuth", "FeatureFlags", "Files", "Me", "Monitoring",
-            "Portability", "Preview", "Public", "Pwa", "Roles", "Settings", "Tenants", "UserGroups",
-            "Users", "Workflows",
+            "AI", "Accounting", "Analytics.Umami", "ApiKeys", "Audit", "Auth", "Content",
+            "ContentType", "DeviceTrust", "Diagnostics", "Email.Resend", "ExternalAuth",
+            "FeatureFlags", "Files", "Import", "Me", "Monitoring", "Portability", "Preview",
+            "Public", "Pwa", "Roles", "Settings", "Tenants", "UserGroups", "Users", "Workflows",
         };
 
         tags.Should().BeEquivalentTo(expected);

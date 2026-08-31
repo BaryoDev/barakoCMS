@@ -123,6 +123,23 @@ jobs:
           dotnet restore barakoCMS.sln
           dotnet build barakoCMS.sln --no-restore --configuration Release
 
+      # The step below names one project. That is fine while there is one, and it is a silent hole
+      # the moment somebody adds a second: a new suite would sit in the repo, never run, and the
+      # release would go out anyway. Discovering the projects here means the omission is a failed
+      # build rather than something nobody notices until the package it covered ships broken.
+      - name: Every test project is covered by the step below
+        run: |
+          set -euo pipefail
+          FOUND=$(find . -name '*.Tests.csproj' -not -path './**/bin/*' -not -path './**/obj/*' | sort)
+          EXPECTED="./BarakoCMS.Tests/BarakoCMS.Tests.csproj"
+          [ "$FOUND" = "$EXPECTED" ] || {
+            echo "::error::Test projects on disk do not match what this workflow runs."
+            echo "found:"; echo "$FOUND"
+            echo "run:";   echo "$EXPECTED"
+            echo "Add the new project to the Backend tests step, then update this list."
+            exit 1
+          }
+
       - name: Backend tests
         run: >
           dotnet test --project BarakoCMS.Tests/BarakoCMS.Tests.csproj --no-build --configuration Release
@@ -151,9 +168,9 @@ jobs:
           echo "ran $TOTAL, failed $FAILED"
 
           # A floor, not an exact count. An exact count becomes a chore on every PR and then gets
-          # deleted; a floor only moves when someone removes a lot of tests. 577 pass today.
-          [ "${TOTAL:-0}" -ge 500 ] || {
-            echo "::error::Only $TOTAL tests ran, expected at least 500. The suite did not run."
+          # deleted; a floor only moves when someone removes a lot of tests. 1057 pass today.
+          [ "${TOTAL:-0}" -ge 900 ] || {
+            echo "::error::Only $TOTAL tests ran, expected at least 900. The suite did not run."
             exit 1
           }
 
