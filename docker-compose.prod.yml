@@ -120,6 +120,9 @@ services:
     image: postgres:16-alpine
     container_name: barako-db-backup
     restart: always
+    # Postgres accepting connections is not the same as there being anything to back up, so
+    # backup-cron.sh waits for the application schema before taking its proof backup. See the
+    # comment there for why that wait is asked of Postgres rather than of the API.
     depends_on:
       postgres:
         condition: service_healthy
@@ -127,6 +130,10 @@ services:
       - postgres_prod_backups:/backups
       - ./scripts:/scripts:ro
     environment:
+      # How long to wait for the API to create the schema before giving up and leaving the first
+      # backup to the nightly schedule. Passed explicitly: a value in .env is only Compose
+      # interpolation and never reaches the container on its own.
+      BACKUP_SCHEMA_WAIT_SECONDS: ${BACKUP_SCHEMA_WAIT_SECONDS:-300}
       POSTGRES_HOST: postgres
       POSTGRES_DB: ${DB_NAME:-barako_cms}
       POSTGRES_USER: ${DB_USER:-postgres}
