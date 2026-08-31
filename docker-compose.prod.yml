@@ -130,6 +130,10 @@ services:
       - postgres_prod_backups:/backups
       - ./scripts:/scripts:ro
     environment:
+      # How long to wait for the API to create the schema before giving up and leaving the first
+      # backup to the nightly schedule. Passed explicitly: a value in .env is only Compose
+      # interpolation and never reaches the container on its own.
+      BACKUP_SCHEMA_WAIT_SECONDS: ${BACKUP_SCHEMA_WAIT_SECONDS:-300}
       POSTGRES_HOST: postgres
       POSTGRES_DB: ${DB_NAME:-barako_cms}
       POSTGRES_USER: ${DB_USER:-postgres}

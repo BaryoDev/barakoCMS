@@ -84,27 +84,35 @@ chmod +x /backup_job.sh
 # image. /health/ready would have been the tidier signal and it does not exist before 4.0.
 WAIT_SECONDS="${BACKUP_SCHEMA_WAIT_SECONDS:-300}"
 waited=0
+schema_ready=0
 while [ "$waited" -lt "$WAIT_SECONDS" ]; do
     if PGPASSWORD="$POSTGRES_PASSWORD" psql -h "$POSTGRES_HOST" -U "$POSTGRES_USER" \
         -d "$POSTGRES_DB" -tAc "select to_regclass('public.mt_doc_users') is not null" 2>/dev/null \
         | grep -q '^t$'; then
+        schema_ready=1
         break
     fi
-    sleep 5
-    waited=$((waited + 5))
+    # The smaller of five seconds and what is left, so a configured limit is honoured rather than
+    # rounded up to the next step. BACKUP_SCHEMA_WAIT_SECONDS=1 should wait one second, not five.
+    remaining=$((WAIT_SECONDS - waited))
+    step=5
+    [ "$remaining" -lt 5 ] && step="$remaining"
+    sleep "$step"
+    waited=$((waited + step))
 done
 
-if [ "$waited" -ge "$WAIT_SECONDS" ]; then
-    # Not fatal. The schedule still runs, and tonight's backup may well succeed. But say plainly
-    # that this deployment has no recovery point yet, rather than letting it look routine.
-    echo "WARNING: no application schema after ${WAIT_SECONDS}s, so there is nothing to back up yet." >&2
-    echo "         The nightly schedule is still active. Check that the API started." >&2
-else
+if [ "$schema_ready" = 1 ]; then
     echo "Application schema present after ${waited}s"
+    echo "Running an initial backup to prove the configuration works"
+    /backup_job.sh || echo "WARNING: the initial backup failed, see the error above"
+else
+    # Not fatal, and deliberately not attempted. Dumping now produces the tiny archive this wait
+    # exists to avoid, so it would fail loudly for a reason already reported and teach an operator
+    # to ignore this log. The schedule stays active and tonight's backup runs normally.
+    echo "WARNING: no application schema after ${WAIT_SECONDS}s, so there is nothing to back up yet." >&2
+    echo "         The initial backup is skipped. The nightly schedule is still active." >&2
+    echo "         Check that the API started." >&2
 fi
-
-echo "Running an initial backup to prove the configuration works"
-/backup_job.sh || echo "WARNING: the initial backup failed, see the error above"
 
 echo "$BACKUP_CRON_SCHEDULE /backup_job.sh >> /var/log/cron.log 2>&1" > /etc/crontabs/root
 
