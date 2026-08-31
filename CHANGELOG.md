@@ -787,6 +787,7 @@ refreshed afterward (outstanding short-lived access tokens still expire on their
   somebody created a role by that name for an unrelated reason. A test now refuses any gate naming a
   role nothing creates, in the core or in a module.
 
+<<<<<<< HEAD
 - **A production compose file that runs the published images.** `docker-compose.prod.yml` used to
   build the API and the admin from source, so nobody holding only the images we publish could use
   the file that has the production shape, and every deploy compiled a .NET solution and a Next.js
@@ -818,6 +819,17 @@ refreshed afterward (outstanding short-lived access tokens still expire on their
   paths that stay out are named individually with the reason next to each, and
   `docs/access-control.md`, `docs/device-trust.md` and `docs/workflow-engine-rethink.md` are readable
   without a checkout for the first time (#312).
+=======
+- **The admin no longer keeps either token in `localStorage`.** The refresh token is an httpOnly
+  cookie the page cannot read; the access token is a variable in memory and is gone on reload, which
+  a silent refresh replaces. Any script on the origin could read both before, and the refresh token
+  is seven days and renewable, so one cross-site scripting bug or one compromised dependency in the
+  admin build was a week of account takeover rather than fifteen minutes. The API still returns the
+  refresh token in the response body, so the generated clients and anything not in a browser are
+  unaffected: what changed is that the admin stops persisting it. Reasoning, the two things you will
+  notice, and what the cookie needs from your deployment topology are in
+  `docs/session-and-token-storage.md`.
+>>>>>>> c90f634 (restore the changelog entries after taking master's file)
 
 ### Security
 
