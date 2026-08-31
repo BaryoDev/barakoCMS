@@ -41,6 +41,11 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
                 { "JWT:Key", "test-super-secret-key-that-is-at-least-32-chars-long" },
                 { "JWT:Issuer", "BarakoTest" },
                 { "JWT:Audience", "BarakoClient" },
+                // The OpenAPI document is a shipped artifact (tags group a generated client, and the
+                // delivery paths are generated per tenant), so tests assert against it. Explicit
+                // rather than relying on ASPNETCORE_ENVIRONMENT, which is process-global and set by
+                // whichever factory happened to construct last.
+                { "Swagger:Enabled", "true" },
                 { "Feeds:SiteUrl", "https://test.example.com" },
                 { "Feeds:Paths:sitemap_paths", "/articles/{slug}" },
             });

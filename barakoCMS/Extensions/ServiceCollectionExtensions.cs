@@ -104,8 +104,23 @@ public static class ServiceCollectionExtensions
             Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development";
         if (configuration.GetValue("Swagger:Enabled", swaggerOnByDefault))
         {
-            services.SwaggerDocument();
+            services.SwaggerDocument(o =>
+            {
+                // FastEndpoints tags by path segment, and every route here starts /api/, so all but
+                // the three endpoints that tag themselves landed on one tag: "Api". A generator
+                // groups methods by tag, so that document generates one class with every method on
+                // it. Off, and NamespaceTagProcessor tags by namespace instead.
+                o.AutoTagPathSegmentIndex = 0;
+                o.DocumentSettings = s =>
+                    s.OperationProcessors.Add(new barakoCMS.Infrastructure.OpenApi.NamespaceTagProcessor());
+            });
         }
+
+        // Holds the rendered OpenAPI document per tenant. Registered whether or not Swagger is on,
+        // because the content-type endpoints invalidate it and a constructor dependency that exists
+        // only under a config flag is a startup failure waiting for the first deployment that turns
+        // the flag off. Nothing populates it when Swagger is off, so it costs an empty dictionary.
+        services.AddSingleton<barakoCMS.Infrastructure.OpenApi.DeliveryDocumentCache>();
 
         var connectionString = ResolveConnectionString(configuration);
 
@@ -899,6 +914,7 @@ public static class ServiceCollectionExtensions
         //   /health/live   the liveness probe. Process-only. A failure here means restart me.
         //   /health/ready  the readiness probe. Database, disk, and the startup seed. A failure
         //                  here means take me out of rotation and leave me running.
+        //   /health/build  which build is answering. Not a check; see below.
         //   /health        the full report, for humans and dashboards.
         //
         // Pointing liveness at the full report is what turned a Postgres restart into a
@@ -914,6 +930,36 @@ public static class ServiceCollectionExtensions
                     await context.Response.WriteAsync($"{{\"status\":\"{report.Status}\"}}");
                 }
             };
+
+        // Which build is answering, as the commit it was built from. Anonymous, like the probes,
+        // and for the same reason: the caller is a deploy pipeline, not a signed-in user.
+        //
+        // A release used to prove a deploy by asking for a 200 and reading back a version string,
+        // and a version string cannot tell two builds apart. Today's 3.20.2 and yesterday's 3.20.2
+        // are the same characters. A deploy that pulled nothing and restarted nothing answers that
+        // check exactly like a deploy that worked. A commit sha cannot (#157).
+        //
+        // Stamped in at image build time (BARAKO_BUILD_SHA), not read from assembly metadata:
+        // .git is in .dockerignore, so SourceLink has nothing to stamp inside the image. Unset
+        // means "unknown", which fails the comparison rather than passing it.
+        //
+        // Its own path rather than a field on /health, so the probe body stays exactly what every
+        // dashboard and kubelet already parses.
+        var buildSha = Environment.GetEnvironmentVariable("BARAKO_BUILD_SHA");
+        if (string.IsNullOrWhiteSpace(buildSha))
+        {
+            buildSha = "unknown";
+        }
+
+        // Serialized rather than interpolated: the value comes from the environment, and a quote in
+        // it would otherwise produce a body that is not JSON.
+        var buildBody = System.Text.Json.JsonSerializer.Serialize(new { sha = buildSha });
+
+        app.Map("/health/build", branch => branch.Run(async context =>
+        {
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync(buildBody);
+        }));
 
         app.UseHealthChecks("/health/live", Probe(check => check.Tags.Contains("live")));
         app.UseHealthChecks("/health/ready", Probe(check => check.Tags.Contains("ready")));
@@ -931,6 +977,9 @@ public static class ServiceCollectionExtensions
 
         if (configuration.GetValue("Swagger:Enabled", env == "Development"))
         {
+            // Before UseSwaggerGen, because it rewrites that middleware's response: content types
+            // are created at runtime, so /api/public/students can only reach the document here.
+            app.UseMiddleware<barakoCMS.Infrastructure.OpenApi.DeliveryDocumentMiddleware>();
             app.UseSwaggerGen();
         }
 

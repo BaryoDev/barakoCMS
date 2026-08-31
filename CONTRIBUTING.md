@@ -8,6 +8,17 @@ We love your input! We want to make contributing to BarakoCMS as easy and transp
 - Proposing new features
 - Becoming a maintainer
 
+## The coding standard
+
+**The coding standard is [`CLAUDE.md`](CLAUDE.md)**, and [`CODING_STANDARDS.md`](CODING_STANDARDS.md)
+is a signpost to it. It has that name because Claude Code, Cursor and the `AGENTS.md` tools each read
+a fixed filename automatically, so keeping the rules there holds agents and people to one document
+rather than to copies that drift.
+
+Read it before you write code. It covers the vertical-slice layout, the build and dependency rules,
+the testing discipline, public API stability and the comment policy. Most of what gets asked for in
+review here is already written down in it.
+
 ## Contributor terms
 
 There is nothing to sign. Opening a pull request means you agree to the
@@ -182,6 +193,28 @@ proposing, not on a similar one, and not before your last change.
 - No floating versions (`3.7.*`). They make a build of the same commit non-reproducible.
 - Formatting is settled by `.editorconfig` and enforced at build time. If the build complains
   about style, fix the code rather than arguing in review.
+- Developer-machine files stay out of the repository. `launchSettings.json` pins ports and a browser
+  on whoever committed it, and on a test project it does nothing at all. `.gitignore` covers it.
+
+## Four rules that came out of real pull requests
+
+Each of these was got wrong by someone who checked their work carefully. They are here because they
+were not written down anywhere, not because anyone was careless.
+
+**A config default must preserve existing behaviour.** Adding a flag should not turn off something
+that used to work. A default that removes Swagger for every existing developer is a breaking change
+wearing a feature's clothes; make the default match what happens today and let people opt in.
+
+**A new list endpoint needs a bound.** Paginate it, or cap it. An unbounded query on an anonymous
+endpoint is an availability problem anyone can trigger, and `PaginatedRequest` already exists.
+
+**Prefer an existing pattern over a new one.** If a neighbouring endpoint solves the same problem,
+match it, or say in the PR why not. One endpoint returning 500 where the one beside it falls back to
+the request host is a difference nobody chose. Check the pattern first, though: see the section below
+on a pattern being existing not making it correct.
+
+**Fix the whole class, not the instance.** If a bug came from a missing rule, the rule belongs in
+`CLAUDE.md` alongside the fix.
 
 ## Avoiding breaking changes
 

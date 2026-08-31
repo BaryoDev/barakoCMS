@@ -3,8 +3,9 @@
 Headless CMS for .NET 10. A core web application plus optional modules shipped as NuGet packages,
 with a Next.js admin UI.
 
-Human-facing contribution rules live in `CONTRIBUTING.md`. This file is the working agreement for
-anyone (person or agent) changing code here.
+Human-facing contribution rules live in `CONTRIBUTING.md`. This file is the coding standard, and it
+is the working agreement for anyone (person or agent) changing code here. It is named for the tool
+that reads it automatically; `CODING_STANDARDS.md` is the signpost that makes it findable by name.
 
 ---
 
@@ -45,6 +46,13 @@ await session.SaveChangesAsync(ct);       // commit
 **Validation** uses FluentValidation through the FastEndpoints `Validator<T>` base class, not
 hand-rolled checks inside `HandleAsync`.
 
+**A list endpoint is bounded.** Take `PaginatedRequest` (or cap the result), always. An unbounded
+query on an anonymous endpoint is an availability problem anyone can trigger.
+
+**Prefer an existing pattern over a new one.** If a neighbouring endpoint solves the same problem,
+match it or say in the pull request why not. Check the pattern first: a pattern being existing is
+not evidence it is correct, and if it looks wrong, say so rather than spreading it.
+
 ### Adding an endpoint
 
 1. Create `Features/<FeatureName>/<ActionName>/`.
@@ -79,6 +87,16 @@ modules resolving different versions of the same dependency.
 
 **No floating versions.** `3.7.*` makes two builds of the same commit non-reproducible. Pin it.
 
+**Developer-machine files stay out of the repository.** `launchSettings.json` pins ports, a launch
+URL and a browser on whoever committed it, and on a test project it does nothing at all.
+`.gitignore` covers it; the core app's profile is the one deliberate exception, because it is how
+`dotnet run` picks up the Development environment.
+
+**A config default must preserve existing behaviour.** Adding a flag must not turn off something
+that used to work. Default it to what happens today and let people opt in. A default that silently
+removes a feature from every existing deployment is a breaking change with no signature change to
+show for it.
+
 **Formatting is `.editorconfig`'s job**, enforced at build time via `EnforceCodeStyleInBuild`. Do
 not reformat code you are not otherwise changing; it buries the real diff.
 
@@ -102,6 +120,20 @@ before re-applying it. A test that passes both ways proves nothing.
 Beware coincidental passes. Default ordering, seed data, or an empty collection can make a broken
 path produce the right answer for the input you happened to pick. Construct inputs where broken
 and fixed behaviour differ visibly.
+
+**An assertion over a collection must first assert the collection is not empty.**
+
+```csharp
+items.Should().OnlyHaveUniqueItems();   // passes on an empty list, proving nothing
+```
+
+```csharp
+items.Should().HaveCount(3);           // now the uniqueness assertion has something to run on
+items.Should().OnlyHaveUniqueItems();
+```
+
+This is the specific form of coincidental pass that keeps recurring, and it was got wrong here in a
+test whose whole purpose was to catch a bug.
 
 ### Naming
 

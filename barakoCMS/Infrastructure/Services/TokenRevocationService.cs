@@ -107,19 +107,9 @@ public class TokenRevocationService : ITokenRevocationService
 
     public async Task RevokeAllUserTokensAsync(Guid userId, string reason, CancellationToken ct = default)
     {
-        // Note: This is a simplified implementation.
-        // In production, you might want to track active tokens per user
-        // or implement a user-level revocation timestamp.
-        
-        _logger.LogWarning(
-            "RevokeAllUserTokensAsync called for UserId={UserId}, Reason={Reason}. " +
-            "This requires tracking active tokens or implementing user-level revocation.",
-            userId, reason);
-
-        // For now, we'll just log this. A full implementation would:
-        // 1. Query all active refresh tokens for the user and revoke them
-        // 2. Implement a user-level "tokens_revoked_after" timestamp
-        
+        // Revokes every unexpired refresh token the user holds, so no new access token can be
+        // minted. Access tokens already issued stay valid until they expire; a user-level
+        // "tokens_revoked_after" timestamp that would cut those short is issue #82.
         var refreshTokens = await _session.Query<RefreshToken>()
             .Where(rt => rt.UserId == userId && !rt.IsRevoked && rt.ExpiresAt > DateTime.UtcNow)
             .ToListAsync(ct);

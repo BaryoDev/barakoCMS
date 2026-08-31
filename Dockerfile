@@ -25,6 +25,11 @@ COPY --from=publish /app/publish .
 EXPOSE 8080
 ENV ASPNETCORE_URLS=http://+:8080
 
+# The commit this image was built from, served back on /health/build. Same reasoning as
+# Dockerfile.suite: .git is in .dockerignore, so it has to be passed in.
+ARG BARAKO_BUILD_SHA=""
+ENV BARAKO_BUILD_SHA=$BARAKO_BUILD_SHA
+
 # Non-root. The base image ships app as uid 1654 for this, and nothing here needs privilege: 8080 is
 # above 1024 so an unprivileged user can bind it, and the app writes nothing to the container
 # filesystem at runtime. Uploads go to the Files module's configured store.

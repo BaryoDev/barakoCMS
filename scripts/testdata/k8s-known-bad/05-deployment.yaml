@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: barako-cms
+  namespace: barako-cms
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: barako-cms
+  template:
+    metadata:
+      labels:
+        app: barako-cms
+    spec:
+      containers:
+        - name: barako-cms
+          image: barakocms:latest # Local image tag
+          imagePullPolicy: IfNotPresent # Important for local testing!
+          ports:
+            - containerPort: 8080
+          env:
+            - name: ConnectionStrings__DefaultConnection
+              value: "Host=postgres-service;Database=barako_cms;Username=postgres;Password=postgres"
+            - name: JWT__Key
+              valueFrom:
+                secretKeyRef:
+                  name: barako-secrets
+                  key: JWT__Key
+          resources:
+            requests:
+              memory: "128Mw"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
