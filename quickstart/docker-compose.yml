@@ -49,6 +49,15 @@ services:
       # holds, which is not something a real instance should start with.
       Seed__DemoContent: ${SEED_DEMO_CONTENT:-false}
 
+      # The public URL of this deployment. Every absolute link the API hands to something else (an
+      # RSS item, an OAuth redirect_uri) is built from this. Left unset those links have no origin,
+      # because the alternative is the caller's own Host header. See README, "Behind a domain".
+      App__BaseUrl: ${APP_BASE_URL:-}
+
+      # Which Host headers this API answers to. "*" accepts any, which is fine on localhost and is
+      # the reason App__BaseUrl has to be set once there is a real domain in front of it.
+      AllowedHosts: ${ALLOWED_HOSTS:-*}
+
       # Behind a reverse proxy, name it here or every client shares one rate-limit bucket and the
       # audit log records the proxy. Left unset the app ignores X-Forwarded-For, which is the safe
       # default because the header is client-supplied. See README, "Behind a domain".

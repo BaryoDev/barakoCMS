@@ -75,6 +75,95 @@ public class ScheduledContentTests
         after.ScheduledPublishAt.Should().BeNull("the consumed schedule field is cleared");
     }
 
+    /// <summary>
+    /// A session on a tenant of this test's own. The sweep is tenant-wide rather than type-wide, so
+    /// counting transitions on the default partition would count whatever every other test left
+    /// scheduled there. This slug is never registered as a Tenant, so the hosted sweeper running on
+    /// its timer inside the test host does not visit it either.
+    /// </summary>
+    private IDocumentSession TenantSession(string slug) =>
+        _factory.Services.GetRequiredService<IDocumentStore>().LightweightSession(slug);
+
+    private async Task<List<Content>> SeedDueDraftsAsync(string tenant, string prefix, int count)
+    {
+        var docs = Enumerable.Range(0, count)
+            .Select(i => Doc("sched_batch", $"{prefix}-{i}", ContentStatus.Draft,
+                publishAt: DateTime.UtcNow.AddMinutes(-5)))
+            .ToList();
+
+        await using var s = TenantSession(tenant);
+        foreach (var d in docs) s.Store(d);
+        await s.SaveChangesAsync();
+        return docs;
+    }
+
+    private async Task<List<Content>> ReloadAsync(string tenant, List<Content> docs)
+    {
+        await using var s = TenantSession(tenant);
+        var loaded = new List<Content>();
+        foreach (var d in docs) loaded.Add((await s.LoadAsync<Content>(d.Id))!);
+        return loaded;
+    }
+
+    /// <summary>
+    /// One sweep applies at most batchSize * maxBatches transitions and leaves the rest for the next
+    /// tick, so the memory and the transaction size are properties of the code rather than of how
+    /// long the service was switched off (#127).
+    /// </summary>
+    [Fact]
+    public async Task A_sweep_stops_at_its_batch_cap_and_leaves_the_rest_for_the_next_tick()
+    {
+        const string tenant = "schedbatchcap";
+        var docs = await SeedDueDraftsAsync(tenant, "capped", 5);
+
+        int flipped;
+        await using (var s = TenantSession(tenant))
+            flipped = await ScheduledContentService.SweepTenantAsync(s, DateTime.UtcNow, batchSize: 2, maxBatches: 1, default);
+
+        flipped.Should().Be(2, "one batch of two, then the cap");
+
+        var after = await ReloadAsync(tenant, docs);
+        after.Should().HaveCount(5);
+        after.Count(c => c.Status == ContentStatus.Published).Should().Be(2);
+        after.Count(c => c.Status == ContentStatus.Draft).Should().Be(3,
+            "the unswept remainder is still due, and the next tick a minute later picks it up");
+    }
+
+    /// <summary>
+    /// The positive control for the cap. A sweep that stopped after one batch and never came back
+    /// would satisfy the test above and quietly stop publishing anything past the first batch.
+    /// </summary>
+    [Fact]
+    public async Task The_default_sweep_drains_more_than_one_batch()
+    {
+        const string tenant = "schedbatchdrain";
+        var docs = await SeedDueDraftsAsync(tenant, "drained", 5);
+
+        int flipped;
+        await using (var s = TenantSession(tenant))
+            flipped = await ScheduledContentService.SweepTenantAsync(s, DateTime.UtcNow, batchSize: 2, maxBatches: 25, default);
+
+        flipped.Should().Be(5, "three batches of two, two and one, and then nothing is due");
+
+        var after = await ReloadAsync(tenant, docs);
+        after.Should().OnlyContain(c => c.Status == ContentStatus.Published);
+    }
+
+    [Theory]
+    [InlineData(0, 1)]
+    [InlineData(1, 0)]
+    [InlineData(-1, 1)]
+    public async Task A_batch_size_or_cap_below_one_is_refused(int batchSize, int maxBatches)
+    {
+        using var s = NewSession();
+
+        var act = async () => await ScheduledContentService.SweepTenantAsync(
+            s, DateTime.UtcNow, batchSize, maxBatches, default);
+
+        await act.Should().ThrowAsync<ArgumentOutOfRangeException>(
+            "a zero batch size would query for nothing forever and a zero cap would sweep nothing at all");
+    }
+
     [Fact]
     public async Task FutureDraft_StaysDraft()
     {
