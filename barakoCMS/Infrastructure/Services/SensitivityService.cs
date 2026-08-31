@@ -52,7 +52,11 @@ public class SensitivityService : ISensitivityService
         {
             foreach (var field in definition.Fields)
             {
-                if (field.Sensitivity == SensitivityLevel.Public || !data.ContainsKey(field.Name))
+                // Case-insensitive, like validation and public delivery. A record holding "salary"
+                // against a schema field named "Salary" is validated as that field and delivered as
+                // that field; masking matched ordinally and did not, so a Sensitive value escaped
+                // exactly the mismatch DeliveryQuery documents as normal and expected.
+                if (field.Sensitivity == SensitivityLevel.Public || StoredKey(data, field.Name) is null)
                     continue;
                 if (CallerMaySee(field, user))
                     continue;
@@ -85,10 +89,16 @@ public class SensitivityService : ISensitivityService
 
             // The caller cannot see this field, so they cannot set it. Revert to the stored value
             // on update, or drop it entirely on create.
-            if (existing != null && existing.TryGetValue(field.Name, out var current))
-                incoming[field.Name] = current;
-            else
-                incoming.Remove(field.Name);
+            // Same lookup as the read path, for the same reason. A caller who cannot see a field
+            // could otherwise set it by spelling it differently from the schema, and the value would
+            // still be validated and delivered as that field.
+            var incomingKey = StoredKey(incoming, field.Name);
+            var existingKey = existing is null ? null : StoredKey(existing, field.Name);
+
+            if (existingKey is not null)
+                incoming[incomingKey ?? field.Name] = existing![existingKey];
+            else if (incomingKey is not null)
+                incoming.Remove(incomingKey);
         }
     }
 
@@ -123,23 +133,45 @@ public class SensitivityService : ISensitivityService
         _ => Array.Empty<string>(),
     };
 
+    /// <summary>The key a record actually stores a field under, whatever casing it used.</summary>
+    /// <remarks>
+    /// Validation matches the schema with OrdinalIgnoreCase and so does public delivery, which
+    /// documents the mismatch as normal. Masking is the third reader of the same data and has to
+    /// agree with the other two, or a field is the same field to two of them and a different one to
+    /// the third, and the third is the one deciding whether to hide it.
+    /// </remarks>
+    private static string? StoredKey<T>(IEnumerable<KeyValuePair<string, T>> data, string fieldName)
+    {
+        foreach (var kv in data)
+        {
+            if (string.Equals(kv.Key, fieldName, StringComparison.OrdinalIgnoreCase))
+                return kv.Key;
+        }
+
+        return null;
+    }
+
     private static void ApplyMask(IDictionary<string, object> data, FieldDefinition field)
     {
         var mask = field.Mask;
         if (mask == FieldMask.Default)
             mask = field.Sensitivity == SensitivityLevel.Hidden ? FieldMask.Remove : FieldMask.Redact;
 
+        // The record's own spelling, not the schema's, or a Redact would add a second key beside the
+        // one holding the value and leave the original in place.
+        var key = StoredKey(data, field.Name) ?? field.Name;
+
         switch (mask)
         {
             case FieldMask.Remove:
-                data.Remove(field.Name);
+                data.Remove(key);
                 break;
             case FieldMask.Last4:
-                var s = data[field.Name]?.ToString() ?? string.Empty;
-                data[field.Name] = s.Length <= 4 ? "****" : new string('*', s.Length - 4) + s[^4..];
+                var s = data[key]?.ToString() ?? string.Empty;
+                data[key] = s.Length <= 4 ? "****" : new string('*', s.Length - 4) + s[^4..];
                 break;
             default: // Redact
-                data[field.Name] = "***";
+                data[key] = "***";
                 break;
         }
     }

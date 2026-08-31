@@ -86,6 +86,47 @@ internal class RollbackEndpoint : Endpoint<RollbackRequest, RollbackResponse>
             return;
         }
 
+        // A rollback is an update, so it runs the same three gates an update runs. It used to run
+        // none of them, which meant restoring an old version could put back data the current schema
+        // rejects, change a field the caller is not allowed to change, or break an invariant that
+        // was introduced after the version being restored.
+        //
+        // The awkward part is that the "new" data here is old data rather than something a caller
+        // typed, so an operator can be refused a rollback for a reason that predates them. That is
+        // the correct answer: the alternative is a write path that launders rejected data back in,
+        // and it is reachable by anyone who can press Restore.
+
+        // WRITE-PATH SENSITIVITY: a caller who may not see a field may not change it, and restoring
+        // an old value is a change. Reverts any such field to what is stored.
+        await Resolve<barakoCMS.Core.Interfaces.ISensitivityService>()
+            .ApplyWriteAsync(content.ContentType, data, content.Data, HttpContext, ct);
+
+        var validationResult = await Resolve<barakoCMS.Infrastructure.Services.IContentValidatorService>()
+            .ValidateAsync(content.ContentType, data);
+        if (!validationResult.IsValid)
+        {
+            foreach (var error in validationResult.Errors)
+            {
+                AddError($"This version cannot be restored: {error}");
+            }
+
+            await Send.ErrorsAsync(400, ct);
+            return;
+        }
+
+        var hookErrors = await Resolve<barakoCMS.Infrastructure.Services.IContentLifecycleRunner>()
+            .RunBeforeSaveAsync(content.ContentType, data, content.Data, userId, ct);
+        if (hookErrors.Count > 0)
+        {
+            foreach (var error in hookErrors)
+            {
+                AddError($"This version cannot be restored: {error}");
+            }
+
+            await Send.ErrorsAsync(400, ct);
+            return;
+        }
+
         // Rebuild SearchText using the current field-sensitivity definition so a rollback
         // cannot reintroduce values that are no longer Public into the searchable text.
         var definition = await _session.Query<ContentTypeDefinition>()
