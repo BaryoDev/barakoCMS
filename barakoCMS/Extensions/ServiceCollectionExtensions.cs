@@ -366,6 +366,13 @@ public static class ServiceCollectionExtensions
             options.Schema.For<OtpCode>()
                 .SingleTenanted() // sign-in codes are keyed by global email, not by club
                 .DocumentAlias("otp_codes")
+                // Same reason RefreshToken and MfaSecret above have it, and this one was the odd
+                // one out. Consuming a code is a read, a check and a write with nothing between
+                // them, so two requests carrying the same code could both see Consumed still false
+                // and both mint tokens. Device approval and passwordless sign-in both rest on this
+                // path, and the login endpoint next door already uses an atomic Patch().Increment
+                // for exactly this class of race.
+                .UseOptimisticConcurrency(true)
                 .Index(x => x.Email)
                 .Index(x => x.ExpiresAt);
 
