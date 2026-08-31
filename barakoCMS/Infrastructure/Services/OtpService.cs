@@ -38,7 +38,18 @@ public class OtpService : IOtpService
             CodeHash = BCrypt.Net.BCrypt.HashPassword(code),
             ExpiresAt = DateTime.UtcNow.AddMinutes(10),
         });
-        await _session.SaveChangesAsync(ct);
+        try
+        {
+            await _session.SaveChangesAsync(ct);
+        }
+        catch (JasperFx.ConcurrencyException)
+        {
+            // Invalidating the outstanding codes is an update of optimistic documents, so two
+            // concurrent requests for the same address race. Nothing was stored, so no code exists
+            // to send, and the caller has to hear that rather than be told to check an inbox.
+            _logger.LogWarning("Concurrent OTP request for the same address; no code was issued");
+            return false;
+        }
 
         var appName = _config["Branding:AppName"] ?? "BarakoCMS";
         var body =

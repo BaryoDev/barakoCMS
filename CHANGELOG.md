@@ -590,6 +590,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ordinally, so a record holding `salary` against a field declared `Salary` was validated as that
   field, delivered as that field, and not hidden as that field. All three now agree.
 
+- **Losing the OTP race answered 500.** Giving `OtpCode` optimistic concurrency stopped two
+  requests from consuming one code, but left the loser's save throwing into the global handler, so a
+  code another request had just used came back as a server error instead of "Invalid or expired
+  code." The verify endpoint and the send path now both treat a lost race as a refusal. The save
+  that mints the tokens is the one that matters: losing it refuses, rather than returning the tokens
+  it had already computed.
+
 - **An OTP code could be verified twice.** `RefreshToken` and `MfaSecret` both carry optimistic
   concurrency to close exactly this race and `OtpCode` did not, so two requests with the same code
   could both see it unconsumed and both mint tokens. Device approval and passwordless sign-in both
