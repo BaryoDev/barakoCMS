@@ -371,7 +371,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The shipped Kubernetes Deployment asked for `128Mw` of memory.** Not a valid quantity, so the
   manifest was rejected on apply.
-<<<<<<< HEAD
 - **Two tests that could not fail are gone, and the cross-tenant join is covered.** One built a
   workflow and ended on `await Task.CompletedTask` with no act and no assert; the other constructed a
   workflow engine, never called it, and asserted that the list it had just built contained the item
@@ -379,7 +378,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the first test to put two authenticated users in different tenants against the content API: tenant
   isolation was proven in two halves that never met, and the guard between them is one `if` that
   nothing was checking.
-=======
 - **Assigning a role or a group to an unknown user id fabricated a user.** Both assign endpoints
   carried a "load or create user (for testing, we'll create if not exists)" branch into production.
   On a miss they stored a `User` with a synthesized `user_{guid}@example.com` and no password hash,
@@ -434,7 +432,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `OperationCanceledException` into `null`, so an abandoned search reported "no results" rather than
   stopping and the caller could not tell an empty index from a request that never finished. An
   unreachable backend still degrades to `null`.
->>>>>>> 30edc53 (stop inventing users, undefined enums and unbounded OTP rows)
 - **The install command in every release announcement named a version that does not exist.** The
   announce step interpolated the gate's version, which is the core's, into
   `dotnet add package BarakoCMS.Accounting --version …`. No module has ever shared the core's number,
@@ -471,7 +468,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   place of the `media` and `list` types no validator accepts, and `isPubliclyDeliverable: true`,
   without which delivery 404s), the README shows the request that creates it, and the fetch uses the
   public delivery route and reports a failure instead of hiding it (#295).
->>>>>>> e0f0203 (say .NET 10 everywhere and give the modules the core's version)
 
 - **Turning on device trust locked every administrator out.** With `DeviceTrust__Enforce` on, the API
   answers a password login from an unapproved device with `requiresDeviceApproval` and emails a code.
