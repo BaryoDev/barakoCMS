@@ -829,6 +829,13 @@ refreshed afterward (outstanding short-lived access tokens still expire on their
   notice, and what the cookie needs from your deployment topology are in
   `docs/session-and-token-storage.md`.
 
+- **A fresh deployment's first backup always failed.** `db-backup` started as soon as Postgres was
+  healthy and took its proof backup immediately, racing the API creating its tables, so every first
+  deployment logged `archive is only 369 bytes`. The size guard did its job and nothing was written,
+  but the stack had no recovery point until somebody noticed, and a failure logged on every first
+  deploy is a good way to teach people to ignore the backup log. It waits for the application schema
+  now, asked of Postgres rather than of the API so it needs no second service to be reachable.
+
 ### Security
 
 **A webhook could be redirected past the SSRF guard.** `WebhookAction` validates the URL it is
