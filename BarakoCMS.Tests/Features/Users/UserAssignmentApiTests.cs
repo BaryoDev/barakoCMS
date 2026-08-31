@@ -3,6 +3,9 @@ using FluentAssertions;
 using System.Net;
 using System.Net.Http.Json;
 using FastEndpoints.Security;
+using Marten;
+using Microsoft.Extensions.DependencyInjection;
+using barakoCMS.Models;
 
 namespace BarakoCMS.Tests.Features.Users;
 
@@ -21,6 +24,30 @@ public class UserAssignmentApiTests
     private string CreateAdminToken()
     {
         return _fixture.CreateToken(roles: new[] { "SuperAdmin" });
+    }
+
+    /// <summary>
+    /// A real user to assign things to.
+    /// </summary>
+    /// <remarks>
+    /// These tests used to post a bare <c>Guid.NewGuid()</c>, because the assign endpoints
+    /// fabricated a user on a miss and answered 200. That is the defect in #297, so the tests that
+    /// depended on it have to stop depending on it.
+    /// </remarks>
+    private async Task<Guid> CreateUserAsync()
+    {
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+
+        var id = Guid.NewGuid();
+        session.Store(new User
+        {
+            Id = id,
+            Username = $"assignable-{id:N}",
+            Email = $"assignable-{id:N}@test.com",
+        });
+        await session.SaveChangesAsync();
+        return id;
     }
 
     [Fact]
@@ -46,7 +73,7 @@ public class UserAssignmentApiTests
 
         var role = await roleResponse.Content.ReadFromJsonAsync<barakoCMS.Features.Roles.Create.Response>();
 
-        var userId = Guid.NewGuid();
+        var userId = await CreateUserAsync();
 
         // Act
         var response = await _client.PostAsJsonAsync($"/api/users/{userId}/roles", new { roleId = role!.Id });
@@ -70,7 +97,7 @@ public class UserAssignmentApiTests
 
         var roleResponse = await _client.PostAsJsonAsync("/api/roles", new { name = "Viewer" });
         var role = await roleResponse.Content.ReadFromJsonAsync<barakoCMS.Features.Roles.Create.Response>();
-        var userId = Guid.NewGuid();
+        var userId = await CreateUserAsync();
 
         // Assign role first
         await _client.PostAsJsonAsync($"/api/users/{userId}/roles", new { roleId = role!.Id });
@@ -96,7 +123,7 @@ public class UserAssignmentApiTests
             description = "Eng team"
         });
         var group = await groupResponse.Content.ReadFromJsonAsync<barakoCMS.Features.UserGroups.Create.Response>();
-        var userId = Guid.NewGuid();
+        var userId = await CreateUserAsync();
 
         // Act
         var response = await _client.PostAsJsonAsync($"/api/users/{userId}/groups", new { groupId = group!.Id });
@@ -115,7 +142,7 @@ public class UserAssignmentApiTests
 
         var groupResponse = await _client.PostAsJsonAsync("/api/user-groups", new { name = "HR" });
         var group = await groupResponse.Content.ReadFromJsonAsync<barakoCMS.Features.UserGroups.Create.Response>();
-        var userId = Guid.NewGuid();
+        var userId = await CreateUserAsync();
 
         // Add user first
         await _client.PostAsJsonAsync($"/api/users/{userId}/groups", new { groupId = group!.Id });

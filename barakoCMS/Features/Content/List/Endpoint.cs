@@ -49,7 +49,10 @@ internal class Endpoint : Endpoint<Request, PaginatedResponse<ContentResponse>>
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
         // 1. Authenticate
-        var userIdClaim = User.FindFirst("System.Security.Claims.ClaimTypes.NameIdentifier") ?? User.FindFirst("UserId");
+        // "UserId" is the only identity claim the token carries. This used to look first for the
+        // literal string System.Security.Claims.ClaimTypes.NameIdentifier, which is the name of a
+        // constant and not its value, so it never matched and the fallback was always what ran.
+        var userIdClaim = User.FindFirst("UserId");
         if (userIdClaim == null || !Guid.TryParse(userIdClaim.Value, out var userId))
         {
             await Send.UnauthorizedAsync(ct);
