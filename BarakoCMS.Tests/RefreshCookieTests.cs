@@ -33,7 +33,20 @@ public class RefreshCookieTests
 
     public RefreshCookieTests(IntegrationTestFixture factory) => _factory = factory;
 
-    private async Task<(HttpClient Client, string Username, string Password)> UserAsync(string ip)
+    private Task<(HttpClient Client, string Username, string Password)> UserAsync(string ip) =>
+        UserAsync(ip, handleCookies: true);
+
+    /// <summary>
+    /// A user and a client. <paramref name="handleCookies"/> false is the important one.
+    /// </summary>
+    /// <remarks>
+    /// <c>WebApplicationFactoryClientOptions.HandleCookies</c> defaults to true, so a client that
+    /// has signed in carries the refresh cookie on every later request whether the test wants it or
+    /// not. A test meaning to exercise the body-token path gets the cookie path as well, and passes
+    /// through the fallback even if body handling is broken.
+    /// </remarks>
+    private async Task<(HttpClient Client, string Username, string Password)> UserAsync(
+        string ip, bool handleCookies)
     {
         var username = $"ck_{Guid.NewGuid():n}"[..14];
         const string password = "Ck!Passw0rd123";
@@ -51,7 +64,11 @@ public class RefreshCookieTests
             await s.SaveChangesAsync();
         }
 
-        var client = _factory.CreateClient();
+        var client = _factory.CreateClient(
+            new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions
+            {
+                HandleCookies = handleCookies,
+            });
         // Its own rate-limit bucket, or the suite's other auth traffic refuses this one first.
         client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, ip);
         return (client, username, password);
@@ -123,7 +140,10 @@ public class RefreshCookieTests
     [Fact]
     public async Task The_body_still_carries_the_refresh_token_for_non_browser_callers()
     {
-        var (client, username, password) = await UserAsync("203.0.113.73");
+        // Cookies off, or the client attaches the login cookie to the refresh below and the
+        // endpoint's cookie fallback answers it. The test would then pass with body-token handling
+        // removed entirely, which is the opposite of what it claims to prove.
+        var (client, username, password) = await UserAsync("203.0.113.73", handleCookies: false);
 
         var login = await client.PostAsJsonAsync("/api/auth/login", new { username, password });
         using var loginDoc = JsonDocument.Parse(await login.Content.ReadAsStringAsync());
@@ -131,7 +151,7 @@ public class RefreshCookieTests
 
         refreshToken.Should().NotBeNullOrEmpty("a non-browser caller reads it from the response");
 
-        // No cookie on this request at all.
+        // No cookie on this request, and none on the client either.
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/auth/refresh")
         {
             Content = JsonContent.Create(new { refreshToken }),
