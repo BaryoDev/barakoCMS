@@ -49,6 +49,7 @@ public class WorkflowTests
             session,
             [spy],
             scope.ServiceProvider.GetRequiredService<barakoCMS.Infrastructure.Services.ITemplateVariableExtractor>(),
+            scope.ServiceProvider.GetRequiredService<barakoCMS.Infrastructure.Services.IWorkflowDebugger>(),
             scope.ServiceProvider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<barakoCMS.Features.Workflows.WorkflowEngine>>());
 
         return (engine, spy, scope);
@@ -145,6 +146,7 @@ public class WorkflowTests
             session,
             [spy, new ThrowingAction()],
             scope.ServiceProvider.GetRequiredService<barakoCMS.Infrastructure.Services.ITemplateVariableExtractor>(),
+            scope.ServiceProvider.GetRequiredService<barakoCMS.Infrastructure.Services.IWorkflowDebugger>(),
             scope.ServiceProvider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<barakoCMS.Features.Workflows.WorkflowEngine>>());
 
         var workflow = Definition(type, new());
