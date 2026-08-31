@@ -170,6 +170,12 @@ public class BulkCreateTests
         report.RootElement.GetProperty("created").GetInt32().Should().Be(1);
         report.RootElement.GetProperty("failed").GetInt32().Should().Be(1);
 
+        // Which row, not just how many. A count alone passes if the report names the wrong row or
+        // carries no detail at all, and the row number is the only part an operator can act on.
+        report.RootElement.GetProperty("errors").EnumerateArray()
+            .Select(e => e.GetProperty("row").GetInt32())
+            .Should().BeEquivalentTo([1], "the report names the row, so the file can be fixed");
+
         (await CountAsync(type)).Should().Be(1);
     }
 

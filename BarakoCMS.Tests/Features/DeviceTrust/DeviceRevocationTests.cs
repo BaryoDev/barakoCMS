@@ -43,11 +43,22 @@ public class DeviceRevocationTests
         _anonymous.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, _ip);
     }
 
-    private HttpClient ClientFor(Guid userId)
+    /// <summary>
+    /// A client for this user. <paramref name="deviceId"/> binds the token to a device.
+    /// </summary>
+    /// <remarks>
+    /// A token with no <c>did</c> claim is not device-bound, and enforcement ignores those by
+    /// design. So a test about what revocation does to a device's token has to ask for one, or it
+    /// is asserting about a token the feature was never going to touch.
+    /// </remarks>
+    private HttpClient ClientFor(Guid userId, string? deviceId = null)
     {
         var client = _fixture.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+        var claims = deviceId is null
+            ? null
+            : new Dictionary<string, string> { [DeviceGate.DeviceClaim] = deviceId };
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
-            "Bearer", _fixture.CreateToken(["SuperAdmin"], userId.ToString()));
+            "Bearer", _fixture.CreateToken(["SuperAdmin"], userId.ToString(), claims));
         client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, _ip);
         return client;
     }
@@ -162,8 +173,11 @@ public class DeviceRevocationTests
     public async Task A_revoked_device_keeps_its_existing_access_token_until_it_expires()
     {
         var userId = await SeedUserAsync();
-        var (recordId, _, _) = await DeviceWithSessionAsync(userId);
-        var alreadyIssued = ClientFor(userId);
+        var (recordId, deviceId, _) = await DeviceWithSessionAsync(userId);
+
+        // Bound to the device being revoked. Without the did claim this request would stay
+        // authorized whatever revocation did, so the assertion below would hold for the wrong reason.
+        var alreadyIssued = ClientFor(userId, deviceId);
 
         await alreadyIssued.PostAsync(
             $"/api/devices/{recordId}/revoke", null, TestContext.Current.CancellationToken);
