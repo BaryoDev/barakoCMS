@@ -18,12 +18,14 @@ public class PublicSurfaceTests
 {
     private static readonly Assembly Core = typeof(barakoCMS.Modules.IBarakoModule).Assembly;
 
-    // The two documented extension points. A module author implements IWorkflowAction and the engine
-    // is resolvable, so both are contract rather than accident.
+    // The documented extension points. A module author implements IWorkflowAction and the engine is
+    // resolvable, so both are contract rather than accident. WorkflowActionResult is the outcome an
+    // action returns, so it is reachable by necessity once IWorkflowAction is.
     private static readonly string[] Allowed =
     [
         "barakoCMS.Features.Workflows.IWorkflowAction",
         "barakoCMS.Features.Workflows.IWorkflowEngine",
+        "barakoCMS.Features.Workflows.WorkflowActionResult",
     ];
 
     [Fact]
@@ -46,12 +48,13 @@ public class PublicSurfaceTests
     // The control. Without it a typo in the namespace filter finds nothing and the assertion above
     // passes on an empty set, which is the shape of gate this project has been bitten by repeatedly.
     [Fact]
-    public void The_two_extension_points_are_actually_public()
+    public void The_documented_extension_points_are_actually_public()
     {
         var exported = Core.GetExportedTypes().Select(t => t.FullName).ToArray();
 
         exported.Should().Contain(Allowed[0], "a module author implements this, so it has to be reachable");
         exported.Should().Contain(Allowed[1], "and resolve the engine that runs it");
+        exported.Should().Contain(Allowed[2], "and return the outcome type the interface is declared in terms of");
     }
 
     // FastEndpoints discovers internal endpoint classes, and InternalsVisibleTo covers the tests, so

@@ -204,6 +204,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A workflow action can report that it failed.** `IWorkflowAction` gains
+  `RunAsync`, which returns a `WorkflowActionResult`. It has a default implementation that calls the
+  existing `ExecuteAsync` and reports success, so an action written against the old contract compiles
+  and behaves exactly as before; `ExecuteAsync` is marked `[Obsolete]` and is removed in 5.0. This is
+  not a break: nothing existing has to change. `WorkflowActionResult` is a new public type under
+  `Features/Workflows`, added to CLAUDE.md section 6 and to the public-surface allowlist, because an
+  extension point cannot return a type a module author cannot name.
+
+  Every live workflow run is now recorded as a `WorkflowExecutionLog` with a per-action outcome, so
+  `GET /api/workflows/{id}/debug` shows which actions ran, which failed and why, instead of only
+  dry-runs. `WebhookAction` reports its real outcomes through it: a missing URL, a URL the outbound
+  guard refuses, a non-2xx response, and a delivery that could not be made were all log lines and
+  nothing more, which is how a webhook could answer 500 for a week without the workflow ever looking
+  unhealthy.
+
+- **A `Workflow Projection` health check and a `barakocms_projection_lag_events` gauge.** The workflow
+  projection runs in Marten's async daemon, and an unhandled exception there stops the shard: every
+  workflow silently stops firing while database, disk and memory checks all stay green. The check
+  compares the projection's progress against the event high-water mark and reports it at
+  `GET /api/monitoring/health`. It reports `Degraded`, never `Unhealthy`, because `/health` is what
+  the liveness probe reads and restarting a pod does not restart a stopped shard. Tunable with
+  `HealthChecks:MaxProjectionLagEvents`.
+
+- **`docs/operating-workflows.md`** covers when a workflow action can fire twice, what the run
+  records say, and what to do when workflows stop firing. It also states what a projection rebuild
+  would actually cost, which is where two code comments were wrong.
+
+  It documents the rolling-deploy window in particular: `HotCold` and the scheduled-content lock
+  both need every node to be running the new code, and during a rollout the old node is not, so a
+  workflow action can fire twice for the length of the deploy. No code can prevent that, since the
+  half that does not participate has already shipped. `k8s/05-deployment.yaml` says so at the
+  strategy, with the `Recreate` alternative for deployments that cannot tolerate a duplicate.
+
 - **The content list reports `status` and `sensitivity`.** The single-item GET returned them and the
   list did not, so an entries table could not show which rows were Drafts without a request per row.
   The admin list has a status column again.
@@ -305,6 +338,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   silently creating none; and the Grafana dashboard moved to `k8s/observability/`, where
   `kubectl apply -f k8s/` no longer trips over it. `kubectl apply -f k8s/` was run against a real
   cluster.
+- **Re-publishing already-published content fired every Published workflow again.**
+  `PUT /api/contents/{id}/status` appended a `ContentStatusChanged` without checking whether the
+  status had actually changed, and the projection fires on any such event whose new status is
+  Published. A double-clicked publish button, a client retry after a timeout or a form that resubmits
+  the current status sent the confirmation email twice, called the webhook twice and created the task
+  twice. It also wrote transitions that changed nothing into the stream, which is the source of truth
+  for history and replay. The endpoint now short-circuits an unchanged status, the way the update
+  slice always has. A real transition back to Draft and out again still fires the workflow both
+  times.
+
+- **The workflow code named a manual rebuild as the remedy for a halted projection.** No such command
+  exists, and running one as the projection is written would re-run every action for every event ever
+  stored: every confirmation email re-sent, every webhook re-fired. The comments say what a rebuild
+  would cost, and `docs/operating-workflows.md` says what recovery actually looks like until the side
+  effects are separated from the projection.
+
+- **The shipped Kubernetes Deployment asked for `128Mw` of memory.** Not a valid quantity, so the
+  manifest was rejected on apply.
 
 - **Turning on device trust locked every administrator out.** With `DeviceTrust__Enforce` on, the API
   answers a password login from an unapproved device with `requiresDeviceApproval` and emails a code.

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using barakoCMS.Models;
 using barakoCMS.Infrastructure.Services;
 using Microsoft.Extensions.Logging;
@@ -10,13 +11,20 @@ internal class WorkflowEngine : IWorkflowEngine
     private readonly IDocumentSession _session;
     private readonly IEnumerable<IWorkflowAction> _actions;
     private readonly ITemplateVariableExtractor _variableExtractor;
+    private readonly IWorkflowDebugger _debugger;
     private readonly ILogger<WorkflowEngine> _logger;
 
-    public WorkflowEngine(IDocumentSession session, IEnumerable<IWorkflowAction> actions, ITemplateVariableExtractor variableExtractor, ILogger<WorkflowEngine> logger)
+    public WorkflowEngine(
+        IDocumentSession session,
+        IEnumerable<IWorkflowAction> actions,
+        ITemplateVariableExtractor variableExtractor,
+        IWorkflowDebugger debugger,
+        ILogger<WorkflowEngine> logger)
     {
         _session = session;
         _actions = actions;
         _variableExtractor = variableExtractor;
+        _debugger = debugger;
         _logger = logger;
     }
 
@@ -24,7 +32,8 @@ internal class WorkflowEngine : IWorkflowEngine
     {
         // Fault isolation: this method must never throw. It runs inside the async projection
         // daemon, where an unhandled exception stops the projection and silently halts ALL
-        // workflows system-wide until a manual rebuild.
+        // workflows system-wide. Recovery from that state is documented in docs/operating-workflows.md
+        // and is expensive, because a rebuild re-runs every action for every event ever stored.
         IReadOnlyList<WorkflowDefinition> workflows;
         try
         {
@@ -80,34 +89,63 @@ internal class WorkflowEngine : IWorkflowEngine
 
     private async Task ExecuteActionsAsync(WorkflowDefinition workflow, barakoCMS.Models.Content content, CancellationToken ct)
     {
+        var run = _debugger.StartExecution(workflow.Id, content.Id);
+        var overallTimer = Stopwatch.StartNew();
+
         foreach (var action in workflow.Actions)
         {
             var handler = _actions.FirstOrDefault(a => a.Type == action.Type);
             if (handler == null)
             {
                 _logger.LogWarning("Unknown workflow action type '{ActionType}' in workflow '{WorkflowName}'. Skipping.", action.Type, workflow.Name);
+                _debugger.LogActionFailure(run, action.Type, Stopwatch.StartNew(),
+                    $"No handler is registered for action type '{action.Type}'.", action.Parameters);
                 continue;
             }
+
+            var resolvedParams = new Dictionary<string, string>(action.Parameters.Count);
+            var timer = _debugger.StartAction(run, action.Type);
 
             try
             {
                 // Resolve {{...}} template variables against the content BEFORE executing, so live
                 // runs behave like the dry-run preview (previously only dry-run resolved them).
-                var resolvedParams = new Dictionary<string, string>(action.Parameters.Count);
                 foreach (var param in action.Parameters)
                 {
                     resolvedParams[param.Key] = _variableExtractor.ResolveVariables(param.Value, content);
                 }
 
                 _logger.LogInformation("Executing workflow action '{ActionType}' for workflow '{WorkflowName}'", action.Type, workflow.Name);
-                await handler.ExecuteAsync(resolvedParams, content, ct);
+                var result = await handler.RunAsync(resolvedParams, content, ct);
+
+                if (result.Succeeded)
+                {
+                    _debugger.LogActionSuccess(run, action.Type, timer, resolvedParams);
+                }
+                else
+                {
+                    _debugger.LogActionFailure(run, action.Type, timer, result.Error ?? "The action reported failure without a reason.", resolvedParams);
+                }
             }
             catch (Exception ex)
             {
                 // Isolate per-action failures: a bad webhook/email must not prevent the remaining
-                // actions in this workflow from running.
+                // actions in this workflow from running. An action that throws is a failed action,
+                // which is what the run record has to say.
+                _debugger.LogActionFailure(run, action.Type, timer, ex, resolvedParams);
                 _logger.LogError(ex, "Workflow action '{ActionType}' in workflow '{WorkflowName}' failed", action.Type, workflow.Name);
             }
+        }
+
+        try
+        {
+            await _debugger.CompleteExecutionAsync(run, overallTimer, ct);
+        }
+        catch (Exception ex)
+        {
+            // The actions already ran. Failing to write the record must not be reported as the
+            // workflow failing, and must not reach the daemon.
+            _logger.LogError(ex, "Could not record the run of workflow '{WorkflowName}' ({WorkflowId})", workflow.Name, workflow.Id);
         }
     }
 }

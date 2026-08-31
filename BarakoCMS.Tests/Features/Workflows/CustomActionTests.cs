@@ -200,6 +200,9 @@ public class CustomActionTests
 
         var mockEmailAction = new Mock<IWorkflowAction>();
         mockEmailAction.Setup(x => x.Type).Returns("Email");
+        mockEmailAction
+            .Setup(x => x.RunAsync(It.IsAny<Dictionary<string, string>>(), It.IsAny<Content>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(WorkflowActionResult.Success());
 
         var availableActions = new List<IWorkflowAction> { mockEmailAction.Object };
 
@@ -227,7 +230,7 @@ public class CustomActionTests
 
         // Assert
         mockEmailAction.Verify(
-            x => x.ExecuteAsync(It.IsAny<Dictionary<string, string>>(), content, It.IsAny<CancellationToken>()),
+            x => x.RunAsync(It.IsAny<Dictionary<string, string>>(), content, It.IsAny<CancellationToken>()),
             Times.Once);
     }
 
@@ -245,6 +248,9 @@ public class CustomActionTests
 
         var mockSmsAction = new Mock<IWorkflowAction>();
         mockSmsAction.Setup(x => x.Type).Returns("SMS");
+        mockSmsAction
+            .Setup(x => x.RunAsync(It.IsAny<Dictionary<string, string>>(), It.IsAny<Content>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(WorkflowActionResult.Success());
 
         var availableActions = new List<IWorkflowAction> { mockSmsAction.Object };
 
@@ -272,7 +278,7 @@ public class CustomActionTests
 
         // Assert
         mockSmsAction.Verify(
-            x => x.ExecuteAsync(It.IsAny<Dictionary<string, string>>(), content, It.IsAny<CancellationToken>()),
+            x => x.RunAsync(It.IsAny<Dictionary<string, string>>(), content, It.IsAny<CancellationToken>()),
             Times.Once);
     }
 
