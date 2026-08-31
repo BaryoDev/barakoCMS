@@ -28,6 +28,12 @@ DOMAIN_API=$DOMAIN_API
 DOMAIN_ADMIN=$DOMAIN_ADMIN
 ACME_EMAIL=$ACME_EMAIL
 
+# Origins allowed to call the API from a browser, on top of the admin domain.
+FRONTEND_ORIGINS=https://$DOMAIN_ADMIN
+
+# Which published images to run. latest is right here; production pins a version.
+BARAKO_TAG=latest
+
 # Database
 DB_NAME=barako_cms
 DB_USER=barako_user
@@ -118,10 +124,11 @@ echo "Configured for nip.io domains (Loopback)."
 echo "- Admin: https://admin.127.0.0.1.nip.io"
 echo "- API:   https://api.127.0.0.1.nip.io"
 
-docker compose -f docker-compose.prod.yml -f docker-compose.override.yml up -d --build
+# No --build: docker-compose.prod.yml runs published images now, so there is nothing to compile.
+docker compose -f docker-compose.prod.yml -f docker-compose.override.yml up -d
 
 echo ""
 echo "✅ Stack Started!"
-echo "Please allow a few minutes for the build."
+echo "Please allow a moment for the images to pull."
 echo "Access Admin UI: https://admin.127.0.0.1.nip.io (Accept Self-Signed Cert)"
 rm docker-compose.override.yml

@@ -61,8 +61,13 @@ Each module block in `.env` is optional. Fill it in and `docker compose up -d` a
 
 ## Behind a domain (production)
 
-The compose exposes the API and admin on localhost. In front of them put a reverse proxy (nginx,
-Caddy, Traefik) terminating TLS, then set:
+If you have no proxy already and just want two domains with TLS, use the repository's
+`docker-compose.prod.yml` instead of this one. It runs the same published images with Caddy in
+front, refuses to start without real secrets, and is the file the project supports for production.
+See [docs/deploy-in-production.md](../docs/deploy-in-production.md).
+
+To keep this compose and put your own proxy in front, the compose exposes the API and admin on
+localhost. In front of them put a reverse proxy (nginx, Caddy, Traefik) terminating TLS, then set:
 
 ```env
 ASPNETCORE_ENVIRONMENT=Production
