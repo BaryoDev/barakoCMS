@@ -3,7 +3,7 @@
 
 # BarakoCMS AI Context Rules
 
-You are working on BarakoCMS, a .NET 8 Headless CMS using FastEndpoints and MartenDB.
+You are working on BarakoCMS, a .NET 10 Headless CMS using FastEndpoints and MartenDB.
 
 ## Architectural Principles
 
@@ -22,7 +22,7 @@ You are working on BarakoCMS, a .NET 8 Headless CMS using FastEndpoints and Mart
 
 ## Technology Stack
 
-- **Framework**: .NET 8 (ASP.NET Core)
+- **Framework**: .NET 10 (ASP.NET Core)
 - **API**: FastEndpoints
 - **Database**: PostgreSQL (MartenDB - Document Store)
 - **Auth**: JWT

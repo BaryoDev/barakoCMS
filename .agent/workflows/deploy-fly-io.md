@@ -16,7 +16,7 @@ This workflow will guide you through deploying your PostgreSQL database, .NET Ba
    *(Adjust `--region` close to you, e.g., `sin` for Singapore, `sjc` for San Jose).*
    **Note:** Save the `connection string` and `username/password` from the output!
 
-### Phase 2: Deploy the Backend (.NET 8)
+### Phase 2: Deploy the Backend (.NET 10)
 
 1. Initialize the backend app (Run from Project Root).
    ```bash

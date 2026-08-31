@@ -5,7 +5,7 @@
     <PackageId>BarakoCMS</PackageId>
     <Version>3.21.0</Version>
 
-    <Description>The AI-Native, High-Performance Headless CMS for .NET 8. Plugin-based workflow system with 6 built-in actions, advanced RBAC, event sourcing, and production-grade security.</Description>
+    <Description>The AI-Native, High-Performance Headless CMS for .NET 10. Plugin-based workflow system with 6 built-in actions, advanced RBAC, event sourcing, and production-grade security.</Description>
     <IsPackable>true</IsPackable>
     <StaticWebAssetsEnabled>false</StaticWebAssetsEnabled>
 

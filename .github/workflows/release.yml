@@ -117,9 +117,11 @@ jobs:
           [ "${FAILED:-0}" -eq 0 ] || { echo "::error::$FAILED test(s) failed."; exit 1; }
 
       # --no-build throughout: these packages come out of the build the tests just ran against.
-      # Each module carries its own <Version> in its csproj (Accounting is 0.3.1 while the core
-      # is 3.20.x), so a nupkg filename is <id>.<that module's version>.nupkg, not the release
-      # version. Anything reading these filenames has to parse both halves.
+      #
+      # Every module still carries its own <Version> in its csproj; from 4.0.0 they are set to the
+      # same number as the core rather than each drifting on its own 0.x track. Nothing here reads
+      # the release version to build a filename, so a module that ever diverges again still packs
+      # correctly, and anything parsing these filenames must keep taking the version from the name.
       - name: Pack
         run: |
           set -euo pipefail
@@ -164,11 +166,16 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
+      # `*.*nupkg`, not `*.nupkg`, so the symbol packages come along. Directory.Build.props has set
+      # IncludeSymbols and SymbolPackageFormat=snupkg since Source Link went in, and pack has been
+      # writing out/*.snupkg all along, but this pattern never matched them. The publish job pushes
+      # from this artifact and nothing else, so every Source Link build shipped no symbols at all
+      # and no step went red about it. The assertion in verify-packages keeps it that way.
       - name: Upload the packages
         uses: actions/upload-artifact@v7
         with:
           name: nupkg
-          path: out/*.nupkg
+          path: out/*.*nupkg
           if-no-files-found: error
           retention-days: 7
 
@@ -215,6 +222,26 @@ jobs:
             [ "$COMPONENTS" -gt 0 ] || { echo "::error::$f lists no components."; exit 1; }
             echo "$f: $COMPONENTS components"
           done
+
+      # The release claims Source Link, and Source Link without a published .snupkg gives a consumer
+      # nothing to step into. The upload pattern silently dropped every symbol package for as long
+      # as it read `out/*.nupkg`, and no step noticed, so assert the pairing rather than trust the
+      # pattern.
+      #
+      # The loops below still read `*.nupkg` and still see exactly the fourteen packages: a glob
+      # ending in the literal `.nupkg` does not match a file ending in `.snupkg`. That is why the
+      # upload above needed `*.*nupkg` in the first place.
+      - name: Confirm a symbol package sits beside every package
+        run: |
+          set -euo pipefail
+          COUNT=0
+          for f in packages/*.nupkg; do
+            sym="${f%.nupkg}.snupkg"
+            [ -s "$sym" ] || { echo "::error::$(basename "$f") has no .snupkg beside it, so it ships no symbols."; exit 1; }
+            COUNT=$((COUNT + 1))
+          done
+          [ "$COUNT" -eq 14 ] || { echo "::error::Checked $COUNT packages for symbols, expected 14."; exit 1; }
+          echo "all $COUNT packages have a symbol package"
 
       - name: Restore, build and load every package from a scratch project
         run: |
@@ -303,11 +330,15 @@ jobs:
           name: nupkg
           path: out
 
+      # The pattern stays `*.nupkg`. `dotnet nuget push` is symbol-aware: it pushes each .nupkg and
+      # then the .snupkg sitting next to it, which is why the artifact above has to carry both.
       - name: Publish to NuGet.org
         run: dotnet nuget push "out/*.nupkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
 
+      # --no-symbols here because GitHub Packages has no symbol server. nuget.org is where the
+      # .snupkg belongs, and it is pushed by the step above.
       - name: Publish to GitHub Packages
-        run: dotnet nuget push "out/*.nupkg" --api-key ${{ secrets.GITHUB_TOKEN }} --source https://nuget.pkg.github.com/BaryoDev/index.json --skip-duplicate
+        run: dotnet nuget push "out/*.nupkg" --api-key ${{ secrets.GITHUB_TOKEN }} --source https://nuget.pkg.github.com/BaryoDev/index.json --skip-duplicate --no-symbols
 
   # Keeps its checkout: a Docker build genuinely needs the source tree.
   # Each architecture is built on a runner of that architecture and pushed by digest, then joined
@@ -590,7 +621,12 @@ jobs:
     with:
       package: "barakoCMS suite"
       version: ${{ needs.gate.outputs.version }}
-      install: "dotnet add package BarakoCMS.Accounting --version ${{ needs.gate.outputs.version }}"
+      # The core package, not a module. This line interpolates the gate's version, which is core's
+      # <Version>, so naming a module here only resolved if that module happened to share core's
+      # number. None ever did: the highest BarakoCMS.Accounting on nuget.org is 0.3.1 against a core
+      # at 3.21.0, so the announced command has never worked. Core is the one id that is guaranteed
+      # to exist at this version, because publish-packages just pushed it.
+      install: "dotnet add package BarakoCMS --version ${{ needs.gate.outputs.version }}"
     secrets:
       ANNOUNCE_TOKEN: ${{ secrets.ANNOUNCE_TOKEN }}
 

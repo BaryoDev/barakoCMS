@@ -58,7 +58,7 @@ can import members, and nothing else.
 
 ## Requires
 
-barakoCMS ≥ 2.2.0 and Talaan. Targets .NET 8.
+barakoCMS ≥ 4.0.0 and Talaan. Targets .NET 10.
 
 ## License
 

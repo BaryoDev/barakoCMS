@@ -5,7 +5,7 @@
 
     <IsPackable>true</IsPackable>
     <PackageId>BarakoCMS.Analytics.Umami</PackageId>
-    <Version>0.4.1</Version>
+    <Version>4.0.0</Version>
     <Description>Umami web-analytics module for barakoCMS: proxies a self-hosted Umami instance behind admin-only endpoints so the CMS admin can show visitors, top pages, referrers and countries, and register new tracked sites, without exposing an Umami API key to the browser.</Description>
   </PropertyGroup>
 

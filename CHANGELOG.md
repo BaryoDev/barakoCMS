@@ -298,6 +298,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `db-patch`, `db-assert` and `db-apply` on the host, so a schema change can reach an existing
   database as a reviewed SQL file instead of having no route at all.
 
+- **`docs/delivery-api.md`.** The parts of the public contract a consumer needs most existed only as
+  C# comments: the `page`/`pageSize` bounds and the response envelope, the `filter[field][op]=value`
+  syntax with its seven operators and five-filter cap, `sort=field` / `sort=-field`, `include=` for
+  resolving references, and which status each refusal returns (#295).
+
+### Changed
+
+- **Every module version moves to the core's number.** The modules had drifted onto their own 0.x
+  tracks (Accounting at 0.6.0, Portability at 0.3.1) while the core sat at 3.21.0, and the release
+  gate reads the core's `<Version>` alone, so module bumps queued up invisibly until a core bump
+  flushed them. Everything queued is compiled against net10.0, Marten 9 and core 4.0, but a consumer
+  watching `BarakoCMS.Accounting` move from 0.3.1 to 0.6.0 reads a routine bump, and 0.x gives them
+  no way to express "this one needs core 4". All thirteen modules are 4.0.0, so the number answers
+  which core a package needs and the packed dependency range says the same thing (#294).
+
 ### Removed
 
 - **`IBackupService` and `BackupService`.** Registered in DI and called by nothing, repo-wide, so
@@ -338,7 +353,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   silently creating none; and the Grafana dashboard moved to `k8s/observability/`, where
   `kubectl apply -f k8s/` no longer trips over it. `kubectl apply -f k8s/` was run against a real
   cluster.
-<<<<<<< HEAD
 - **Re-publishing already-published content fired every Published workflow again.**
   `PUT /api/contents/{id}/status` appended a `ContentStatusChanged` without checking whether the
   status had actually changed, and the projection fires on any such event whose new status is
@@ -357,6 +371,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The shipped Kubernetes Deployment asked for `128Mw` of memory.** Not a valid quantity, so the
   manifest was rejected on apply.
+<<<<<<< HEAD
 - **Two tests that could not fail are gone, and the cross-tenant join is covered.** One built a
   workflow and ended on `await Task.CompletedTask` with no act and no assert; the other constructed a
   workflow engine, never called it, and asserted that the list it had just built contained the item
@@ -420,6 +435,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stopping and the caller could not tell an empty index from a request that never finished. An
   unreachable backend still degrades to `null`.
 >>>>>>> 30edc53 (stop inventing users, undefined enums and unbounded OTP rows)
+- **The install command in every release announcement named a version that does not exist.** The
+  announce step interpolated the gate's version, which is the core's, into
+  `dotnet add package BarakoCMS.Accounting --version …`. No module has ever shared the core's number,
+  so the command has failed for every release so far: at 3.21.0 it asked nuget.org for
+  BarakoCMS.Accounting 3.21.0, where the highest published is 0.3.1. It names the core package now,
+  which is the one id guaranteed to exist at that version, because the publish job just pushed it
+  (#294).
+
+- **No release ever published a symbol package.** `Directory.Build.props` has set `IncludeSymbols`
+  and `SymbolPackageFormat=snupkg` since Source Link went in, and pack has been writing
+  `out/*.snupkg` all along, but the artifact upload matched `out/*.nupkg` and the publish job pushes
+  from that artifact and nothing else. Every symbol package was discarded between the two, and no
+  step went red about it, so the whole Source Link investment shipped nothing. The upload takes both
+  now, and `verify-packages` fails unless all fourteen packages have a `.snupkg` beside them (#294).
+
+- **The project still advertised .NET 8 in fourteen NuGet storefront pages.** The move to .NET 10,
+  Marten 9 and FastEndpoints 8 changed `Directory.Build.props`, `global.json` and the Dockerfiles and
+  almost nothing else. The core package Description (the text NuGet search results render), the core
+  README and eleven module READMEs all said .NET 8, and four of the module READMEs also claimed
+  `barakoCMS ≥ 2.2.0`, so every package page would have been wrong twice over the moment 4.0.0
+  published. `README.md`, `llms.txt`, `CLAUDE.md`, `.cursorrules`, the site copy, the bug-report
+  template and the quickstart's `BARAKO_TAG` pin are corrected too. `CLAUDE.md` mattered most of
+  these: agents are pointed at it as the working agreement and would have followed its ".NET 8, one
+  target framework" when adding a package (#295).
+
+- **F5 could not launch the project.** `.vscode/launch.json` pointed at
+  `bin/Debug/net8.0/barakoCMS.dll`, which no build has produced since the retarget (#295).
+
+- **The blog-starter example failed at both of its steps.** Step 1 said to import
+  `blog-schema.json` through the admin, which has no schema import. Step 2 fetched
+  `/api/contents?contentType=blog-post` with no auth; that is the authoring API, so it answered 401
+  and the example's `catch` rendered an empty blog rather than saying anything. The schema is now a
+  valid `POST /api/content-types` body (`isRequired` rather than `required`, `slug`/`url`/`array` in
+  place of the `media` and `list` types no validator accepts, and `isPubliclyDeliverable: true`,
+  without which delivery 404s), the README shows the request that creates it, and the fetch uses the
+  public delivery route and reports a failure instead of hiding it (#295).
+>>>>>>> e0f0203 (say .NET 10 everywhere and give the modules the core's version)
 
 - **Turning on device trust locked every administrator out.** With `DeviceTrust__Enforce` on, the API
   answers a password login from an unapproved device with `requiresDeviceApproval` and emails a code.

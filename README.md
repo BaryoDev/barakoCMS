@@ -4,7 +4,7 @@
 
 <h1 align="center">BarakoCMS</h1>
 
-<p align="center"><strong>A headless CMS suite for .NET 8: an event-sourced engine, opt-in modules, an admin UI, and a PWA kit.</strong></p>
+<p align="center"><strong>A headless CMS suite for .NET 10: an event-sourced engine, opt-in modules, an admin UI, and a PWA kit.</strong></p>
 
 <p align="center">
   <a href="https://www.nuget.org/packages/BarakoCMS"><img src="https://img.shields.io/nuget/v/BarakoCMS.svg" alt="NuGet" /></a>
@@ -378,6 +378,12 @@ content modeling, extending BarakoCMS, and deployment.
 
 Full docs at **<https://baryo.dev/docs>**: getting started, guides, module references, API
 reference, and architecture. Changelog: [CHANGELOG.md](CHANGELOG.md).
+
+In this repo: [the public delivery API](docs/delivery-api.md) (pagination, the `filter[field][op]`
+syntax, sorting, resolving references), [upgrading to 4.0](docs/upgrading-to-4.0.md),
+[event-sourced content types](docs/event-sourced-content-types.md),
+[backup and restore](docs/backup-and-restore.md), and
+[compliance posture](docs/compliance-posture.md).
 
 How this project is built and shipped: [AI Development Lifecycle](AI_DEVELOPMENT_LIFECYCLE.md),
 the breakable-staging discipline, version-gated releases, and how tests gate every promotion.

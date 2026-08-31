@@ -1,17 +1,17 @@
 # BarakoCMS
 
-> A lightweight, high-performance Headless CMS built with .NET 8, FastEndpoints, and MartenDB (PostgreSQL).
+> A lightweight, high-performance Headless CMS built with .NET 10, FastEndpoints, and MartenDB (PostgreSQL).
 
 ## Project Overview
 
 BarakoCMS is designed to be a simple, fast, and developer-friendly headless CMS. It avoids the complexity of traditional CMSs by leveraging the power of:
 - **FastEndpoints**: For high-performance, minimal API endpoints.
 - **MartenDB**: For document storage within PostgreSQL, enabling a schema-less experience with ACID compliance.
-- **.NET 8**: For modern, cross-platform performance.
+- **.NET 10**: For modern, cross-platform performance.
 
 ## Architecture
 
-- **Backend**: ASP.NET Core Web API (.NET 8)
+- **Backend**: ASP.NET Core Web API (.NET 10)
 - **Database**: PostgreSQL (via MartenDB)
 - **API Pattern**: REPR (Request-Endpoint-Response) using FastEndpoints.
 - **Authentication**: JWT Bearer Auth.

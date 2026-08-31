@@ -35,7 +35,7 @@ volumes of small files; for large-scale blob storage, use an object store instea
 
 ## Requires
 
-barakoCMS ≥ 2.2.0. Targets .NET 8.
+barakoCMS ≥ 4.0.0. Targets .NET 10.
 
 ## License
 

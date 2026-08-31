@@ -68,7 +68,7 @@ Caddy, Traefik) terminating TLS, then set:
 ASPNETCORE_ENVIRONMENT=Production
 PUBLIC_API_URL=https://cms.example.com      # what the browser calls
 ALLOWED_ORIGINS=https://admin.example.com   # where the admin is served
-BARAKO_TAG=3.1.0                            # pin a release rather than :latest
+BARAKO_TAG=3.21.0                            # pin a release rather than :latest
 ```
 
 The app ignores `X-Forwarded-For` until you say which hop to believe, because the header is written

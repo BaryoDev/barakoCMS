@@ -55,7 +55,7 @@ per customer or member under a single control account.
 
 ## Requires
 
-barakoCMS ≥ 2.2.0 (for the module system). Targets .NET 8.
+barakoCMS ≥ 4.0.0 (for the module system). Targets .NET 10.
 
 ## License
 
