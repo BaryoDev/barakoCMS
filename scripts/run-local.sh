@@ -29,7 +29,10 @@ DOMAIN_ADMIN=$DOMAIN_ADMIN
 ACME_EMAIL=$ACME_EMAIL
 
 # Origins allowed to call the API from a browser, on top of the admin domain.
-FRONTEND_ORIGINS=https://$DOMAIN_ADMIN
+# http, not https. The local admin is served over plain http, and the browser sends
+# "http://localhost:3000" as its Origin, so an https entry here matches nothing and every
+# admin API call fails CORS.
+FRONTEND_ORIGINS=http://$DOMAIN_ADMIN
 
 # Which published images to run. latest is right here; production pins a version.
 BARAKO_TAG=latest

@@ -121,7 +121,9 @@ backup, so do it once before you have data worth keeping.
   docker buildx imagetools inspect ghcr.io/baryodev/barako-cms:$BARAKO_TAG | grep Platform
   ```
 
-- **The first nightly-backup container logs a failure.** `db-backup` starts as soon as Postgres is
+  Tracked as #394.
+
+- **The first nightly-backup container logs a failure** (#395). `db-backup` starts as soon as Postgres is
   healthy and takes a proof backup immediately, which on a fresh stack races the API's schema
   creation. The dump comes out empty, the size guard rejects it, and you get
   `BACKUP FAILED: archive is only 368 bytes` once. That guard is the point, and nothing was written.

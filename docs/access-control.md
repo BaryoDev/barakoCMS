@@ -41,12 +41,18 @@ with both Treasurer and Secretary gets the union.
 { "Read": { "Enabled": true, "Conditions": { "memberId": { "_eq": "$CURRENT_USER" } } } }
 ```
 
-## Layer 3: Field + document sensitivity (POC, needs generalizing)
+## Layer 3: Field + document sensitivity
 
 This is the "Employee has SIN + birthday sensitive, rest viewable" ask, plus the
-Off / SensitiveOnly / All mode. Here is the honest current state.
+Off / SensitiveOnly / All mode. It is built. `SensitivityService` reads each
+field's `Sensitivity` off the content type's own schema, masks on read and
+reverts on write, and `Sensitivity:Mode` selects the mode. See "What it does now"
+below for the shipped behaviour.
 
-### What exists (a hardcoded proof of concept)
+### What it started as, kept for the history (a hardcoded proof of concept)
+
+The section below describes the state this replaced. `SensitivityFilter` no
+longer exists and nothing names `AttendanceRecord` in the filtering path.
 
 - **Document-level** works: `Content.Sensitivity` enum (`Public` / `Sensitive` /
   `Hidden`). But the role mapping is **hardcoded in the filter**: `Hidden` =>
@@ -181,19 +187,20 @@ real and testable, and these red tests go green.
 
 The seeder creates an `AttendanceRecord` content type (fields incl. `SSN`,
 `BirthDay`), three records marked `Sensitivity = Sensitive`, and roles
-`SuperAdmin` + `HR`. Sign in as each and `GET /api/content/{id}`:
+`SuperAdmin` + `HR`. Sign in as each and `GET /api/contents/{id}`:
 
 - **SuperAdmin** sees `SSN` and `BirthDay`.
 - **HR** sees `BirthDay`, not `SSN`.
 - **Plain user** sees neither (`SSN` removed, `BirthDay` = `***`).
 
-That proves the mechanism; the work above makes it configurable per field/type
-and per role instead of hardcoded.
+That proves the mechanism, and the work below made it configurable per field and
+per type instead of hardcoded.
 
-## Phasing
+## Phasing, and where it got to
 
-1. Move field sensitivity onto `FieldDefinition` + data-driven filter (remove the
-   AttendanceRecord hardcode, debug spam, and duplicate service). Behaviour-
-   compatible with the POC once `Employee`/`AttendanceRecord` are configured.
-2. Mode config (`Off`/`SensitiveOnly`/`All`) + configurable level->roles policy.
-3. Write-path protection + admin UI per-field toggles.
+1. **Done.** Field sensitivity lives on `FieldDefinition` and the filter is data
+   driven. The AttendanceRecord hardcode and the duplicate service are gone.
+2. **Done.** `Sensitivity:Mode` selects `Off`, `SensitiveOnly` or `All`.
+3. **Write-path protection done**, in `ISensitivityService.ApplyWriteAsync`: a
+   caller who cannot see a field cannot set it, and omitting it is not a way to
+   delete it. Admin UI per-field toggles are still outstanding.

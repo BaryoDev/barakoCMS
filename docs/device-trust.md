@@ -94,12 +94,31 @@ Plus the core `RefreshToken.DeviceId` from seam #3.
 
 ## What counts as "must be an approved device"
 
-Config `DeviceTrust:Enforcement = Off | SensitiveOnly | All`:
+### What shipped
+
+One boolean, `DeviceTrust:Enforce` (env `DeviceTrust__Enforce`).
+
+Off, which is the default, records devices and blocks nothing. On, a request
+whose token carries a `did` claim must send a matching `X-Device-Id`.
+
+Read the second half of that carefully, because it is the part an operator will
+get wrong. Enforcement applies to **device-bound tokens only**. A token with no
+`did` claim passes through untouched, by design: anonymous endpoints and tokens
+issued before the feature was switched on would otherwise all start failing.
+So turning `Enforce` on does not mean every authenticated endpoint now requires
+an approved device. It means a token that was bound to a device cannot be
+replayed from a different one.
+
+### The three modes below are design, not code
+
+Nothing implements `Off`, `SensitiveOnly` or `All`, and there is no
+`DeviceTrust:Enforcement` setting. Kept because the shape is still the intended
+direction, not because you can configure it:
 
 - **Off**: observe only (record devices, no blocking). Good first rollout.
-- **SensitiveOnly**: enforce on endpoints marked sensitive (barakoCMS already
-  has a `SensitivityFilter`; reuse that marker). BaryoClub tags payment/journal
-  endpoints sensitive, so transactions are device-gated while reads are not.
+- **SensitiveOnly**: enforce on endpoints marked sensitive. BaryoClub tags
+  payment and journal endpoints sensitive, so transactions are device-gated
+  while reads are not.
 - **All**: every authenticated endpoint requires a trusted device.
 
 ## Why binding beats a bare check
