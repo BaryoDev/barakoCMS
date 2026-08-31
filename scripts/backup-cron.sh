@@ -71,8 +71,53 @@ chmod +x /backup_job.sh
 
 # Run once at startup so a broken backup surfaces at deploy time rather than in
 # six months, which is how the last one stayed broken.
-echo "Running an initial backup to prove the configuration works"
-/backup_job.sh || echo "WARNING: the initial backup failed, see the error above"
+# Wait for there to be something worth backing up.
+#
+# Postgres accepting connections is not the same as the schema existing. On a fresh stack this
+# container starts as soon as the database is healthy, which races the API creating its tables, and
+# the proof backup below then failed on every first deployment with "archive is only 368 bytes".
+# Nothing was lost, but the stack had no recovery point until an operator noticed, and a failure
+# logged on every first deploy teaches people to ignore this log.
+#
+# Asked of Postgres rather than of the API's readiness endpoint on purpose: this is the actual
+# precondition, it needs no second service to be reachable, and it works against every published
+# image. /health/ready would have been the tidier signal and it does not exist before 4.0.
+WAIT_SECONDS="${BACKUP_SCHEMA_WAIT_SECONDS:-300}"
+waited=0
+schema_ready=0
+# Unconditional, so the probe runs once more after the final sleep. A loop that tests the elapsed
+# time first stops without asking, and a schema that appeared during that last second is missed.
+while true; do
+    if PGPASSWORD="$POSTGRES_PASSWORD" psql -h "$POSTGRES_HOST" -U "$POSTGRES_USER" \
+        -d "$POSTGRES_DB" -tAc "select to_regclass('public.mt_doc_users') is not null" 2>/dev/null \
+        | grep -q '^t$'; then
+        schema_ready=1
+        break
+    fi
+
+    [ "$waited" -ge "$WAIT_SECONDS" ] && break
+
+    # The smaller of five seconds and what is left, so a configured limit is honoured rather than
+    # rounded up to the next step. BACKUP_SCHEMA_WAIT_SECONDS=1 should wait one second, not five.
+    remaining=$((WAIT_SECONDS - waited))
+    step=5
+    [ "$remaining" -lt 5 ] && step="$remaining"
+    sleep "$step"
+    waited=$((waited + step))
+done
+
+if [ "$schema_ready" = 1 ]; then
+    echo "Application schema present after ${waited}s"
+    echo "Running an initial backup to prove the configuration works"
+    /backup_job.sh || echo "WARNING: the initial backup failed, see the error above"
+else
+    # Not fatal, and deliberately not attempted. Dumping now produces the tiny archive this wait
+    # exists to avoid, so it would fail loudly for a reason already reported and teach an operator
+    # to ignore this log. The schedule stays active and tonight's backup runs normally.
+    echo "WARNING: no application schema after ${WAIT_SECONDS}s, so there is nothing to back up yet." >&2
+    echo "         The initial backup is skipped. The nightly schedule is still active." >&2
+    echo "         Check that the API started." >&2
+fi
 
 echo "$BACKUP_CRON_SCHEDULE /backup_job.sh >> /var/log/cron.log 2>&1" > /etc/crontabs/root
 

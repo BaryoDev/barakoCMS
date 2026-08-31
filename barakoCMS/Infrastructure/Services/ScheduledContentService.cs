@@ -201,9 +201,30 @@ public class ScheduledContentService : BackgroundService
     /// the predicate, so the same batch can come back. The cap bounds that, and a sweep holds the
     /// cross-instance advisory lock and must not be able to hold it forever.
     /// </remarks>
-    public static async Task<int> SweepTenantAsync(
+    public static Task<int> SweepTenantAsync(
         IDocumentSession session, DateTime nowUtc, ILogger? logger, int batchSize, int maxBatches,
-        CancellationToken ct)
+        CancellationToken ct) =>
+        SweepTenantAsync(session, nowUtc, logger, batchSize, maxBatches, beforeSave: null, ct);
+
+    /// <summary>
+    /// The implementation, with a hook that runs after an item is loaded and before its save.
+    /// </summary>
+    /// <remarks>
+    /// The hook exists for one test and has no production caller: every public overload passes null.
+    /// It fires between the append and the commit, because that is the window AppendOptimistic
+    /// guards. An edit that commits before the append is not a conflict at all: the writer rebuilds
+    /// the document from what is committed at that point, so the sweep simply picks up fresh state.
+    ///
+    /// It is here because the guard above cannot otherwise be proved. The test that covered it
+    /// started a sweep and an edit with Task.WhenAll and asserted the document agreed with the
+    /// stream, which holds trivially whenever the two do not actually overlap. Deleting the
+    /// expected-version append left that test green, which is the same as having no test. The sweep
+    /// constructs its own writer, so a decorator cannot reach in, and this is the smallest seam that
+    /// makes the collision certain rather than likely. See #393.
+    /// </remarks>
+    internal static async Task<int> SweepTenantAsync(
+        IDocumentSession session, DateTime nowUtc, ILogger? logger, int batchSize, int maxBatches,
+        Func<Content, CancellationToken, Task>? beforeSave, CancellationToken ct)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(batchSize, 1);
         ArgumentOutOfRangeException.ThrowIfLessThan(maxBatches, 1);
@@ -264,6 +285,13 @@ public class ScheduledContentService : BackgroundService
                     else
                     {
                         await writer.AppendOptimisticAsync(content, events, ct);
+                    }
+
+                    // Between the append and the commit, which is the window AppendOptimistic
+                    // guards and therefore the only interleaving that can make this save lose.
+                    if (beforeSave is not null)
+                    {
+                        await beforeSave(content, ct);
                     }
 
                     await session.SaveChangesAsync(ct);

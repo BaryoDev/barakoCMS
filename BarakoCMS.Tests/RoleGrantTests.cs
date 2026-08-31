@@ -43,10 +43,37 @@ public class RoleGrantTests
     /// </remarks>
     private static IEnumerable<string> SourceFiles(string root) =>
         Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories)
-            .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")
-                     && !f.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}")
-                     && !f.Contains($"{Path.DirectorySeparatorChar}BarakoCMS.Tests{Path.DirectorySeparatorChar}")
-                     && !f.Contains($"{Path.DirectorySeparatorChar}.claude{Path.DirectorySeparatorChar}"));
+            // Path components, not substrings, and nested checkouts detected by their own .git
+            // rather than by name. A worktree writes .git as a file in its root and can live
+            // anywhere, so matching on a ".claude" segment misses one created as ./wt. Comparing
+            // components also stops a directory merely ending in "bin" from being dropped.
+            .Where(f => !HasOwnGitEntryBelow(root, Path.GetDirectoryName(f)!))
+            .Where(f => !Components(root, f).Any(c =>
+                c is "obj" or "bin" or "BarakoCMS.Tests"));
+
+
+    private static IEnumerable<string> Components(string root, string file) =>
+        Path.GetRelativePath(root, file).Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+    /// <summary>
+    /// Whether any directory from <paramref name="start"/> up to but excluding <paramref name="root"/>
+    /// holds its own <c>.git</c>, which makes it a separate checkout.
+    /// </summary>
+    private static bool HasOwnGitEntryBelow(string root, string start)
+    {
+        var rootFull = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar);
+        var dir = new DirectoryInfo(Path.GetFullPath(start));
+
+        while (dir is not null
+            && dir.FullName.TrimEnd(Path.DirectorySeparatorChar) != rootFull)
+        {
+            var git = Path.Combine(dir.FullName, ".git");
+            if (File.Exists(git) || Directory.Exists(git)) return true;
+            dir = dir.Parent;
+        }
+
+        return false;
+    }
 
     /// <summary>Roles handed to a FastEndpoints <c>Roles(...)</c> gate.</summary>
     private static readonly Regex Granted = new(@"\bRoles\(([^)]*)\)", RegexOptions.Compiled);
