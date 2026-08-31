@@ -787,6 +787,38 @@ refreshed afterward (outstanding short-lived access tokens still expire on their
   somebody created a role by that name for an unrelated reason. A test now refuses any gate naming a
   role nothing creates, in the core or in a module.
 
+- **A production compose file that runs the published images.** `docker-compose.prod.yml` used to
+  build the API and the admin from source, so nobody holding only the images we publish could use
+  the file that has the production shape, and every deploy compiled a .NET solution and a Next.js
+  app on a box that should need only Docker. It now runs `ghcr.io/baryodev/barako-cms` and
+  `ghcr.io/baryodev/barako-admin` behind Caddy, with `${VAR:?}` guards so the stack refuses to start
+  without a real database password, JWT key, admin password and pinned tag, and with
+  `FRONTEND_ORIGINS` asked for at deploy time rather than discovered as a browser CORS error. This
+  is the only production compose file; the headers of the other three now say what each is for
+  (#307, #309).
+- **`.env.prod.example` and `docs/deploy-in-production.md`.** The variables with the command that
+  generates each one, and the deploy itself: DNS first, what a healthy stack answers, how a frontend
+  reaches the delivery API, and the rough edges an operator hits on day one instead of finding them
+  alone.
+- **CI resolves every compose file.** A `compose` job runs `docker compose config` on all four,
+  asserts the production one resolves to no build step and to the published image names, and asserts
+  it refuses to resolve at all with `JWT_KEY` unset. A production compose file nobody has run is
+  what #307 was about.
+- **A comment claiming Next.js needs the API URL at build time, which cost the production deploy its
+  images.** It is true of Next.js in general and false of this image: `admin/entrypoint.sh`
+  regenerates `public/env-config.js` from any `NEXT_PUBLIC_*` variable at container start and
+  `getApiUrl()` reads that first, which is why `docker-compose.hub.yml` and the quickstart already
+  passed it as a plain runtime variable. The comment is gone, `NEXT_PUBLIC_API_URL` is a runtime
+  `environment:` entry in the production compose, and the published `barako-admin` image can be
+  pointed at any domain (#309).
+- **`docs/` was gitignored, so documentation shipped nowhere.** The rule was `docs/*` plus a growing
+  allowlist, which meant a new file was ignored by default: `git add docs/whatever.md` did nothing
+  and said nothing, and the 4.0 readiness pass concluded documentation was largely absent partly
+  because the directory looked almost empty on GitHub. It is inverted. `docs/` is tracked, the few
+  paths that stay out are named individually with the reason next to each, and
+  `docs/access-control.md`, `docs/device-trust.md` and `docs/workflow-engine-rethink.md` are readable
+  without a checkout for the first time (#312).
+
 ### Security
 
 **A webhook could be redirected past the SSRF guard.** `WebhookAction` validates the URL it is
