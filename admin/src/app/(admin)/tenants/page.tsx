@@ -30,6 +30,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { IconPlus, IconServer } from '@/components/icons';
+import { TenantMembers } from '@/components/tenant-members';
 
 // Handle rules mirror the server (TenantHandles): 3-40 chars, lowercase alphanumerics + hyphens,
 // no leading/trailing hyphen. Validated inline so the user sees the rule before submitting.
@@ -223,6 +224,8 @@ export default function TenantsPage() {
           </Table>
         </div>
       )}
+
+      <TenantMembers />
 
       <CreateTenantDialog open={dialogOpen} onOpenChange={setDialogOpen} />
     </>

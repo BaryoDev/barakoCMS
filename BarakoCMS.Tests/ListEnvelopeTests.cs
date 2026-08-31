@@ -41,6 +41,8 @@ public class ListEnvelopeTests
         "/api/api-keys",
         "/api/workflows",
         "/api/me/tenants",
+        "/api/tenants/members",
+        "/api/tenants/members/roles",
         "/api/settings",
         "/api/accounting/accounts",
         "/api/pwa/installs",
