@@ -69,7 +69,10 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
                 var definition = new ContentTypeDefinition
                 {
                     Id = Guid.NewGuid(),
-                    Name = type.Name,
+                    // Normalized, like the create endpoint. Storing the file's spelling let an
+                    // import put "Article" beside an existing "article": distinct to the unique
+                    // index, the same to every reader.
+                    Name = barakoCMS.Core.ContentTypeName.Normalize(type.Name),
                     DisplayName = type.DisplayName,
                     Description = type.Description,
                     Fields = type.Fields,

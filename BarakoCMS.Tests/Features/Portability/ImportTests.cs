@@ -65,7 +65,7 @@ public class ImportTests
 
     /// <summary>
     /// A record whose type is created by the same bundle is findable through public search
-    /// afterwards, which is the end-to-end statement of "the record and its schema arrived together
+    /// afterward, which is the end-to-end statement of "the record and its schema arrived together
     /// and the import understood that".
     /// </summary>
     [Fact]
@@ -168,5 +168,46 @@ public class ImportTests
         var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
         (await session.Query<ContentTypeDefinition>().AnyAsync(d => d.Name == type))
             .Should().BeFalse("a dry run writes nothing");
+    }
+
+    /// <summary>
+    /// An imported content type is stored under the same normalized name a created one would get.
+    /// </summary>
+    /// <remarks>
+    /// The create endpoint slugified the name to lowercase and the importer stored the file's own
+    /// spelling, while the unique index is on the raw value.
+    ///
+    /// The sequential case was never broken: the importer looks up an existing type with
+    /// OrdinalIgnoreCase, so importing "Article" over a created "article" matches and updates. What
+    /// the raw name left open is the race, where two concurrent imports both miss the lookup and the
+    /// index is the only thing left, and it considered "Article" and "article" different rows.
+    ///
+    /// Racing two imports is not something this suite can do deterministically, so this asserts the
+    /// property that closes it: what gets written is normalized, so the index compares like with
+    /// like. Reverting the importer fails this on the stored value.
+    /// </remarks>
+    [Fact]
+    public async Task An_imported_type_is_stored_under_its_normalized_name()
+    {
+        var lower = "casing" + Guid.NewGuid().ToString("n")[..8];
+        var mixed = char.ToUpperInvariant(lower[0]) + lower[1..];
+
+        // A type that does not exist yet, so the importer takes the create branch rather than
+        // matching an existing row. That branch is the one the index has to police.
+        var imported = await _client.PostAsJsonAsync(
+            "/api/portability/import", Bundle(mixed, deliverable: true, title: "Case Variant"));
+        imported.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}",
+            imported.StatusCode, await imported.Content.ReadAsStringAsync());
+
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<Marten.IQuerySession>();
+        var stored = await session.Query<barakoCMS.Models.ContentTypeDefinition>()
+            .Where(x => x.Name == lower || x.Name == mixed)
+            .ToListAsync(TestContext.Current.CancellationToken);
+
+        stored.Select(x => x.Name).Should().BeEquivalentTo([lower],
+            "a create would have stored this name lowercased, and the unique index compares the "
+            + "stored value, so an importer that keeps the file's spelling leaves a name the index "
+            + "will not recognise as a duplicate of the created one");
     }
 }

@@ -57,8 +57,9 @@ internal class Endpoint : Endpoint<Request, Response>
             ThrowIfAnyErrors();
         }
 
-        // 2. Normalize Name (slugify)
-        var slug = req.Name.ToLowerInvariant().Trim().Replace(" ", "-");
+        // 2. Normalize Name (slugify). Shared with the importer, which is the other way a name is
+        // stored; see ContentTypeName for what went wrong when they each had their own.
+        var slug = barakoCMS.Core.ContentTypeName.Normalize(req.Name);
 
         // 3. Check Uniqueness. This read is the friendly path, not the guarantee: the unique index on
         // the name is what actually stops two concurrent creates, and the catch below turns its
