@@ -67,6 +67,9 @@ test.describe('P.2 — Tenants admin page', () => {
             }
             return route.fulfill({ json: { id: 't2', slug: 'new', name: 'New' } });
         });
+        // Registered after the generic route so it wins: Playwright checks newest first, and
+        // /api/tenants/members would otherwise be answered with the tenants list.
+        await page.route('**/api/tenants/members**', (r) => r.fulfill({ json: pageOf([]) }));
 
         await page.goto('/tenants');
         await expect(page.getByRole('heading', { name: 'Tenants' })).toBeVisible();
@@ -83,11 +86,49 @@ test.describe('P.2 — Tenants admin page', () => {
         await authed(page);
         await stubShell(page);
         await page.route('**/api/tenants**', (r) => r.fulfill({ json: pageOf([]) }));
+        await page.route('**/api/tenants/members**', (r) => r.fulfill({ json: pageOf([]) }));
 
         await page.goto('/tenants');
         await page.getByRole('button', { name: 'New tenant' }).first().click();
         await page.getByLabel('Name').fill('X'); // too short → handle "x" fails the 3-char rule
         await expect(page.getByRole('button', { name: /Create tenant/i })).toBeDisabled();
+    });
+
+    // #184 — a tenant could only ever have the member who created it, because nothing but tenant
+    // creation wrote a Membership and no screen offered a second one.
+    test('lists the members of the current tenant and offers to add one', async ({ page }) => {
+        await authed(page);
+        await stubShell(page);
+        await page.route('**/api/tenants**', (r) => r.fulfill({ json: pageOf([]) }));
+        await page.route('**/api/tenants/members**', (r) =>
+            r.fulfill({
+                json: pageOf([
+                    {
+                        userId: 'u1',
+                        username: 'ana',
+                        email: 'ana@example.com',
+                        roleIds: ['r1'],
+                        status: 'Active',
+                        joinedAt: new Date().toISOString(),
+                    },
+                ]),
+            })
+        );
+        // Last wins: Playwright checks newest routes first, and /members/roles also matches the
+        // pattern above, so registering it the other way round answers the roles call with a roster.
+        await page.route('**/api/tenants/members/roles**', (r) =>
+            r.fulfill({ json: pageOf([{ id: 'r1', name: 'Admin', description: 'Administrator' }]) })
+        );
+
+        await page.goto('/tenants');
+        await expect(
+            page.getByRole('cell', { name: 'ana@example.com', exact: true })
+        ).toBeVisible({ timeout: 10000 });
+
+        await page.getByRole('button', { name: 'Add member' }).first().click();
+        await expect(page.getByLabel('Email')).toBeVisible();
+        // The roles offered come from the server's own list, which never contains SuperAdmin.
+        await expect(page.getByRole('checkbox', { name: /Admin/ })).toBeVisible();
     });
 });
 
