@@ -89,8 +89,15 @@ dotnet publish barakoCMS/barakoCMS.csproj -c Release -o "$WORK/publish" --nologo
 step "starting postgres"
 docker run -d --name "$PG" -e POSTGRES_DB="$DB" -e POSTGRES_USER=postgres \
     -e POSTGRES_PASSWORD=postgres -p "${PG_PORT}:5432" postgres:16-alpine >/dev/null
-for _ in $(seq 1 60); do docker exec "$PG" pg_isready -U postgres >/dev/null 2>&1 && break; sleep 2; done
-docker exec "$PG" pg_isready -U postgres >/dev/null 2>&1 || {
+# pg_isready over the Unix socket is satisfied by the WRONG server. The postgres image boots a
+# temporary initdb instance on the socket only, creates the database, shuts it down, and then starts
+# the real one listening on TCP. So a socket check succeeds during bootstrap, the wait breaks early,
+# and the verification a moment later lands in the shutdown window and reports that postgres never
+# became ready. The whole failure takes four seconds out of a two minute budget.
+#
+# -h 127.0.0.1 forces TCP, which only the real server accepts. Same loop, right server.
+for _ in $(seq 1 60); do docker exec "$PG" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1 && break; sleep 2; done
+docker exec "$PG" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1 || {
     docker logs "$PG" 2>&1 | tail -20 >&2; fail "postgres never became ready"
 }
 
