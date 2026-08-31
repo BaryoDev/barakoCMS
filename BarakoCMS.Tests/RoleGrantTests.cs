@@ -34,10 +34,19 @@ public class RoleGrantTests
         return dir!.FullName;
     }
 
+    /// <summary>Production and module code. Not tests.</summary>
+    /// <remarks>
+    /// Test fixtures construct roles to set up their own scenarios, so scanning them would let a
+    /// role that only a fixture creates count as seeded. The check would then pass while the
+    /// application seeds nothing, which is the failure it exists to catch: a gate that is satisfied
+    /// by its own test data proves nothing.
+    /// </remarks>
     private static IEnumerable<string> SourceFiles(string root) =>
         Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories)
             .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")
-                     && !f.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}"));
+                     && !f.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}")
+                     && !f.Contains($"{Path.DirectorySeparatorChar}BarakoCMS.Tests{Path.DirectorySeparatorChar}")
+                     && !f.Contains($"{Path.DirectorySeparatorChar}.claude{Path.DirectorySeparatorChar}"));
 
     /// <summary>Roles handed to a FastEndpoints <c>Roles(...)</c> gate.</summary>
     private static readonly Regex Granted = new(@"\bRoles\(([^)]*)\)", RegexOptions.Compiled);
@@ -98,3 +107,4 @@ public class RoleGrantTests
           + "somebody adds that name for an unrelated reason");
     }
 }
+
