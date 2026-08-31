@@ -85,13 +85,18 @@ chmod +x /backup_job.sh
 WAIT_SECONDS="${BACKUP_SCHEMA_WAIT_SECONDS:-300}"
 waited=0
 schema_ready=0
-while [ "$waited" -lt "$WAIT_SECONDS" ]; do
+# Unconditional, so the probe runs once more after the final sleep. A loop that tests the elapsed
+# time first stops without asking, and a schema that appeared during that last second is missed.
+while true; do
     if PGPASSWORD="$POSTGRES_PASSWORD" psql -h "$POSTGRES_HOST" -U "$POSTGRES_USER" \
         -d "$POSTGRES_DB" -tAc "select to_regclass('public.mt_doc_users') is not null" 2>/dev/null \
         | grep -q '^t$'; then
         schema_ready=1
         break
     fi
+
+    [ "$waited" -ge "$WAIT_SECONDS" ] && break
+
     # The smaller of five seconds and what is left, so a configured limit is honoured rather than
     # rounded up to the next step. BACKUP_SCHEMA_WAIT_SECONDS=1 should wait one second, not five.
     remaining=$((WAIT_SECONDS - waited))

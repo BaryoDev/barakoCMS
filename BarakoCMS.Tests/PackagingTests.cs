@@ -35,6 +35,27 @@ public class PackagingTests
         return data;
     }
 
+
+    /// <summary>
+    /// Whether any directory from <paramref name="start"/> up to but excluding <paramref name="root"/>
+    /// holds its own <c>.git</c>, which makes it a separate checkout.
+    /// </summary>
+    private static bool HasOwnGitEntryBelow(string root, string start)
+    {
+        var rootFull = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar);
+        var dir = new DirectoryInfo(Path.GetFullPath(start));
+
+        while (dir is not null
+            && dir.FullName.TrimEnd(Path.DirectorySeparatorChar) != rootFull)
+        {
+            var git = Path.Combine(dir.FullName, ".git");
+            if (File.Exists(git) || Directory.Exists(git)) return true;
+            dir = dir.Parent;
+        }
+
+        return false;
+    }
+
     private static List<(string Path, XDocument Doc)> Packable()
     {
         var found = new List<(string, XDocument)>();
@@ -43,19 +64,14 @@ public class PackagingTests
         {
             if (proj.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")) continue;
 
-            // Nested working copies are not this checkout. A git worktree placed inside the repo,
-            // which is how parallel agents and `git worktree add ./wt` both behave, puts a second
-            // copy of every csproj under the root. This walk then finds several files per package
-            // and the Single() below throws "Sequence contains more than one matching element",
-            // which reads like a packaging defect and is nothing of the kind.
+            // Nested working copies are not this checkout.
             //
-            // Compared relative to the root, not against the absolute path. When the checkout being
-            // tested is itself inside a worktree directory, every absolute path contains the
-            // excluded segment, and an absolute comparison throws the whole repository away and
-            // leaves the test asserting over nothing.
-            var relative = Path.GetRelativePath(root, proj);
-            if (relative.Contains($".claude{Path.DirectorySeparatorChar}")
-                || relative.Contains($".git{Path.DirectorySeparatorChar}")) continue;
+            // Detected by looking for a .git entry between the project and the root, rather than by
+            // matching path text. A git worktree writes .git as a FILE in its own root, not a
+            // directory, and it can live anywhere, so a check for a ".claude" or ".git" path
+            // segment misses a worktree created as ./wt or ../elsewhere-inside-the-repo. Anything
+            // with its own .git below the root is a separate checkout by definition.
+            if (HasOwnGitEntryBelow(root, Path.GetDirectoryName(proj)!)) continue;
             var doc = XDocument.Load(proj);
             var packable = doc.Descendants("IsPackable").FirstOrDefault()?.Value;
             if (string.Equals(packable, "true", StringComparison.OrdinalIgnoreCase))

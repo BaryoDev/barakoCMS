@@ -230,59 +230,64 @@ public class ReadModelConcurrencyTests
 
         var edited = false;
 
-        async Task EditOnceAsync(barakoCMS.Models.Content item, CancellationToken ct)
+        try
         {
-            // Only this test's item. The sweep processes whatever else the suite has left due, and
-            // editing one of those would be a different test with a worse name.
-            if (item.Id != id || edited) return;
-            edited = true;
 
-            using var editorScope = Scope();
-            var session = editorScope.ServiceProvider.GetRequiredService<IDocumentSession>();
-            var writer = editorScope.ServiceProvider.GetRequiredService<IContentWriter>();
-            var content = (await session.LoadAsync<barakoCMS.Models.Content>(id, ct))!;
-            await writer.AppendOptimisticAsync(
-                content,
-                new object[] { new ContentUpdated(id, new Dictionary<string, object> { ["Title"] = "v2" }, Guid.NewGuid(), "v2") },
-                ct);
-            await session.SaveChangesAsync(ct);
+            async Task EditOnceAsync(barakoCMS.Models.Content item, CancellationToken ct)
+            {
+                // Only this test's item. The sweep processes whatever else the suite has left due, and
+                // editing one of those would be a different test with a worse name.
+                if (item.Id != id || edited) return;
+                edited = true;
+
+                using var editorScope = Scope();
+                var session = editorScope.ServiceProvider.GetRequiredService<IDocumentSession>();
+                var writer = editorScope.ServiceProvider.GetRequiredService<IContentWriter>();
+                var content = (await session.LoadAsync<barakoCMS.Models.Content>(id, ct))!;
+                await writer.AppendOptimisticAsync(
+                    content,
+                    new object[] { new ContentUpdated(id, new Dictionary<string, object> { ["Title"] = "v2" }, Guid.NewGuid(), "v2") },
+                    ct);
+                await session.SaveChangesAsync(ct);
+            }
+
+            using (var scope = Scope())
+            {
+                var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+                await ScheduledContentService.SweepTenantAsync(
+                    session,
+                    DateTime.UtcNow,
+                    logger: null,
+                    ScheduledContentService.DefaultBatchSize,
+                    ScheduledContentService.DefaultMaxBatchesPerSweep,
+                    beforeSave: EditOnceAsync,
+                    default);
+            }
+
+            edited.Should().BeTrue("the hook has to have run against this item, or this test proves nothing");
+
+            // Deliberately not asserting on the flip count. Other tests leave due content behind, so
+            // that number belongs to the whole suite and not to this test. What this item did is the
+            // claim worth making.
+            var stored = await StoredAsync(id);
+            var replayed = await ReplayAsync(id);
+
+            stored.Data["Title"].ToString().Should().Be("v2",
+                "the sweep held a copy loaded before the edit, and saving it would have reverted the "
+                + "editor's data with no event recording it");
+            stored.Status.Should().Be(ContentStatus.Draft,
+                "the sweep lost, so the transition did not happen and the schedule is still armed");
+            stored.Data["Title"].ToString().Should().Be(replayed.Data["Title"].ToString(),
+                "the document is a projection of the stream");
+            stored.Status.Should().Be(replayed.Status);
         }
-
-        using (var scope = Scope())
+        finally
         {
-            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-            await ScheduledContentService.SweepTenantAsync(
-                session,
-                DateTime.UtcNow,
-                logger: null,
-                ScheduledContentService.DefaultBatchSize,
-                ScheduledContentService.DefaultMaxBatchesPerSweep,
-                beforeSave: EditOnceAsync,
-                default);
-        }
-
-        edited.Should().BeTrue("the hook has to have run against this item, or this test proves nothing");
-
-        // Deliberately not asserting on the flip count. Other tests leave due content behind, so
-        // that number belongs to the whole suite and not to this test. What this item did is the
-        // claim worth making.
-        var stored = await StoredAsync(id);
-        var replayed = await ReplayAsync(id);
-
-        stored.Data["Title"].ToString().Should().Be("v2",
-            "the sweep held a copy loaded before the edit, and saving it would have reverted the "
-            + "editor's data with no event recording it");
-        stored.Status.Should().Be(ContentStatus.Draft,
-            "the sweep lost, so the transition did not happen and the schedule is still armed");
-        stored.Data["Title"].ToString().Should().Be(replayed.Data["Title"].ToString(),
-            "the document is a projection of the stream");
-        stored.Status.Should().Be(replayed.Status);
-
-        // This item is deliberately left Draft with a publish time in the past, which is to say
-        // still due. Every other sweep test in the suite runs the same sweep, so leaving it behind
-        // makes this test's state their problem. Delete it.
-        using (var cleanup = Scope())
-        {
+            // In finally, not after the assertions. The sweep, the reads or any assertion can throw,
+            // and this item is deliberately left Draft with a publish time in the past, which is to
+            // say still due. Leaving it behind makes this test's state every other sweep test's
+            // problem, and a failure here would then cause failures elsewhere that look unrelated.
+            using var cleanup = Scope();
             var session = cleanup.ServiceProvider.GetRequiredService<IDocumentSession>();
             session.Delete<barakoCMS.Models.Content>(id);
             await session.SaveChangesAsync();
