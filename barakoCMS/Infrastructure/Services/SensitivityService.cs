@@ -52,15 +52,12 @@ public class SensitivityService : ISensitivityService
         {
             foreach (var field in definition.Fields)
             {
-                // Case-insensitive, like validation and public delivery. A record holding "salary"
-                // against a schema field named "Salary" is validated as that field and delivered as
-                // that field; masking matched ordinally and did not, so a Sensitive value escaped
-                // exactly the mismatch DeliveryQuery documents as normal and expected.
-                if (field.Sensitivity == SensitivityLevel.Public || StoredKey(data, field.Name) is null)
+                if (field.Sensitivity == SensitivityLevel.Public)
                     continue;
                 if (CallerMaySee(field, user))
                     continue;
-                ApplyMask(data, field);
+                foreach (var key in MatchingKeys(data, field.Name))
+                    ApplyMask(data, key, field);
             }
         }
 
@@ -89,16 +86,17 @@ public class SensitivityService : ISensitivityService
 
             // The caller cannot see this field, so they cannot set it. Revert to the stored value
             // on update, or drop it entirely on create.
-            // Same lookup as the read path, for the same reason. A caller who cannot see a field
-            // could otherwise set it by spelling it differently from the schema, and the value would
-            // still be validated and delivered as that field.
-            var incomingKey = StoredKey(incoming, field.Name);
-            var existingKey = existing is null ? null : StoredKey(existing, field.Name);
+            // Drop every casing the caller sent, then put the stored value back under the casing it
+            // was stored as. Removing first matters: the caller may have sent "salary" where the
+            // store holds "Salary", and leaving theirs behind would keep their value in the document.
+            foreach (var key in MatchingKeys(incoming, field.Name))
+                incoming.Remove(key);
 
-            if (existingKey is not null)
-                incoming[incomingKey ?? field.Name] = existing![existingKey];
-            else if (incomingKey is not null)
-                incoming.Remove(incomingKey);
+            // Restore unconditionally, not only when the caller sent the field. Omitting a field they
+            // cannot see must not be a way to delete it.
+            var stored = existing is null ? [] : MatchingKeys(existing, field.Name);
+            if (stored.Count > 0)
+                incoming[stored[0]] = existing![stored[0]];
         }
     }
 
@@ -133,34 +131,30 @@ public class SensitivityService : ISensitivityService
         _ => Array.Empty<string>(),
     };
 
-    /// <summary>The key a record actually stores a field under, whatever casing it used.</summary>
+    /// <summary>
+    /// Every stored key that matches <paramref name="name"/> ignoring case.
+    /// </summary>
     /// <remarks>
-    /// Validation matches the schema with OrdinalIgnoreCase and so does public delivery, which
-    /// documents the mismatch as normal. Masking is the third reader of the same data and has to
-    /// agree with the other two, or a field is the same field to two of them and a different one to
-    /// the third, and the third is the one deciding whether to hide it.
+    /// Content data is a plain case-sensitive dictionary and nothing at the write boundary rejects a
+    /// key that only differs from a schema field by case, so "Salary" and "salary" can both be
+    /// stored. Masking one and leaving the other would hand the value to a caller who may not see the
+    /// field. <c>ToPublic</c> already treats the two as the same field (its allowlist is
+    /// OrdinalIgnoreCase); this is the same rule on the authenticated path.
+    /// Materialised, because callers mutate the dictionary while walking the result.
     /// </remarks>
-    private static string? StoredKey<T>(IEnumerable<KeyValuePair<string, T>> data, string fieldName)
-    {
-        foreach (var kv in data)
-        {
-            if (string.Equals(kv.Key, fieldName, StringComparison.OrdinalIgnoreCase))
-                return kv.Key;
-        }
+    private static List<string> MatchingKeys(IEnumerable<KeyValuePair<string, object>> data, string name) =>
+        data.Where(kv => string.Equals(kv.Key, name, StringComparison.OrdinalIgnoreCase))
+            .Select(kv => kv.Key)
+            .ToList();
 
-        return null;
-    }
-
-    private static void ApplyMask(IDictionary<string, object> data, FieldDefinition field)
+    private static void ApplyMask(IDictionary<string, object> data, string key, FieldDefinition field)
     {
         var mask = field.Mask;
         if (mask == FieldMask.Default)
             mask = field.Sensitivity == SensitivityLevel.Hidden ? FieldMask.Remove : FieldMask.Redact;
 
-        // The record's own spelling, not the schema's, or a Redact would add a second key beside the
-        // one holding the value and leave the original in place.
-        var key = StoredKey(data, field.Name) ?? field.Name;
-
+        // Keyed by the record's own spelling, passed in by the caller, or a Redact would add a
+        // second key beside the one holding the value and leave the original in place.
         switch (mask)
         {
             case FieldMask.Remove:
