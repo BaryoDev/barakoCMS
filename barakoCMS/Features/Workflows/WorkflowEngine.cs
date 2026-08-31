@@ -109,7 +109,7 @@ internal class WorkflowEngine : IWorkflowEngine
             try
             {
                 // Resolve {{...}} template variables against the content BEFORE executing, so live
-                // runs behave like the dry-run preview (previously only dry-run resolved them).
+                // runs behave like the dry-run preview.
                 foreach (var param in action.Parameters)
                 {
                     resolvedParams[param.Key] = _variableExtractor.ResolveVariables(param.Value, content);

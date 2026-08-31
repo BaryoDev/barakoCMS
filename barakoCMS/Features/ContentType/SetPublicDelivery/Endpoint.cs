@@ -22,8 +22,18 @@ namespace barakoCMS.Features.ContentType.SetPublicDelivery;
 internal class Endpoint : Endpoint<Request, Response>
 {
     private readonly IDocumentSession _session;
+    private readonly barakoCMS.Infrastructure.OpenApi.DeliveryDocumentCache _openApiCache;
+    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
 
-    public Endpoint(IDocumentSession session) => _session = session;
+    public Endpoint(
+        IDocumentSession session,
+        barakoCMS.Infrastructure.OpenApi.DeliveryDocumentCache openApiCache,
+        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
+    {
+        _session = session;
+        _openApiCache = openApiCache;
+        _tenant = tenant;
+    }
 
     public override void Configure()
     {
@@ -48,6 +58,9 @@ internal class Endpoint : Endpoint<Request, Response>
         def.UpdatedAt = DateTimeOffset.UtcNow;
         _session.Store(def);
         await _session.SaveChangesAsync(ct);
+
+        // The OpenAPI document lists the deliverable types, so turning one on or off changes it.
+        _openApiCache.Invalidate(_tenant.Slug);
 
         await Send.OkAsync(new Response
         {
