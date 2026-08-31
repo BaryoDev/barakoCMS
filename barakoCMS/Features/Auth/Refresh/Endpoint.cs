@@ -46,10 +46,27 @@ internal class Endpoint : Endpoint<Request, Response>
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
+        // Body first, then the cookie. The body keeps working for every non-browser caller, and the
+        // admin sends neither: its cookie rides along automatically and page script never holds the
+        // value at all.
+        var presented = !string.IsNullOrWhiteSpace(req.RefreshToken)
+            ? req.RefreshToken
+            : barakoCMS.Infrastructure.Auth.RefreshTokenCookie.Read(HttpContext);
+
+        if (string.IsNullOrWhiteSpace(presented))
+        {
+            // Same answer as an unknown token. "You sent nothing" and "that is not a token" are the
+            // same thing to a caller, and saying which is which tells an attacker their probe was
+            // well formed.
+            _logger.LogWarning("Refresh attempt with no token");
+            ThrowError("Invalid refresh token", 401);
+            return;
+        }
+
         // Load via the document session so Marten tracks the version for the optimistic-concurrency
         // guard on rotation below.
         var refreshToken = await _documentSession.Query<RefreshToken>()
-            .FirstOrDefaultAsync(rt => rt.Token == req.RefreshToken, ct);
+            .FirstOrDefaultAsync(rt => rt.Token == presented, ct);
 
         if (refreshToken == null)
         {
@@ -172,6 +189,10 @@ internal class Endpoint : Endpoint<Request, Response>
         _logger.LogInformation(
             "Token refreshed for user: {Username}, UserId: {UserId}",
             user.Username, user.Id);
+
+        // Also in a cookie page script cannot read. The body still carries it for
+        // non-browser callers; see RefreshTokenCookie for why this is an addition.
+        barakoCMS.Infrastructure.Auth.RefreshTokenCookie.Set(HttpContext, newRefreshTokenString, newRefreshTokenExpiry);
 
         await Send.ResponseAsync(new Response
         {

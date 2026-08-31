@@ -85,7 +85,7 @@ export function useSwitchTenant() {
   return useMutation({
     mutationFn: async (slug: string) => {
       const { data } = await api.post<SwitchResponse>('/api/me/switch', { Club: slug });
-      tokenStore.set(data.token, data.refreshToken);
+      tokenStore.set(data.token);
       return data;
     },
     onSuccess: () => {

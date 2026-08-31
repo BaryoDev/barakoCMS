@@ -13,11 +13,27 @@ const payload = Buffer.from(
 
 export const MOCK_TOKEN = `eyJhbGciOiJIUzI1NiJ9.${payload}.sig`;
 
-/** Seed the auth token so a page loads authenticated. Call before page.goto. */
-export function authed(page: Page) {
-    return page.addInitScript((token) => {
-        window.localStorage.setItem('barako_token', token);
-    }, MOCK_TOKEN);
+/**
+ * Make a page load authenticated, the way a real browser now does.
+ *
+ * Seeding localStorage no longer works and should not: the access token lives in memory and the
+ * refresh cookie carries the session, so a page load starts with no token and does one silent
+ * refresh to get one. Stubbing that refresh is the honest simulation, and it exercises the bootstrap
+ * path on every authenticated spec rather than leaving it untested.
+ *
+ * Call before page.goto.
+ */
+export async function authed(page: Page) {
+    await page.route('**/api/auth/refresh', (route) =>
+        route.fulfill({
+            json: {
+                token: MOCK_TOKEN,
+                expiry: new Date(Date.now() + 900_000).toISOString(),
+                refreshToken: 'mock-refresh',
+                refreshTokenExpiry: new Date(Date.now() + 7 * 86400_000).toISOString(),
+            },
+        })
+    );
 }
 
 /** Stub the always-loaded shell calls so an unrelated 500 doesn't disturb the page under test.

@@ -68,6 +68,10 @@ internal class Endpoint : EndpointWithoutRequest<Response>
 
         _logger.LogInformation("User logged out: UserId={UserId}", userId);
 
+        // Signing out clears the cookie too, or the browser keeps presenting a refresh token the
+        // server has already revoked and the next refresh is a 401 nobody can explain.
+        barakoCMS.Infrastructure.Auth.RefreshTokenCookie.Clear(HttpContext);
+
         await Send.ResponseAsync(new Response
         {
             Message = "Successfully logged out"

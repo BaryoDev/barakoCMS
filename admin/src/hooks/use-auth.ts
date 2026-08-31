@@ -1,9 +1,9 @@
 'use client';
 
-import { useCallback, useMemo, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation } from '@tanstack/react-query';
-import { api, subscribeToAuth, tokenStore } from '@/lib/api';
+import { api, ensureSession, subscribeToAuth, tokenStore } from '@/lib/api';
 
 interface LoginResponse {
     token: string;
@@ -52,6 +52,21 @@ export function useAuth() {
         () => true,
         () => false
     );
+
+    // The access token is in memory, so a reload starts with none and the refresh cookie is what
+    // carries the session. Until that one silent refresh has settled we do not know whether there
+    // is a session, and treating "no token yet" as "signed out" would redirect to the login page on
+    // every reload.
+    const [bootstrapped, setBootstrapped] = useState(false);
+    useEffect(() => {
+        let cancelled = false;
+        ensureSession().finally(() => {
+            if (!cancelled) setBootstrapped(true);
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
     const token = useSyncExternalStore(
         subscribeToAuth,
         () => tokenStore.token,
@@ -59,7 +74,7 @@ export function useAuth() {
     );
 
     const user = useMemo(() => decodeSession(token), [token]);
-    const isLoading = !hydrated;
+    const isLoading = !hydrated || !bootstrapped;
 
     const logout = useCallback(async () => {
         try {
@@ -94,7 +109,7 @@ export function useLogin() {
             // empty string here would look like a session and lock the user out of the UI, so only
             // persist when a real token came back; the caller drives the second step.
             if (data.token) {
-                tokenStore.set(data.token, data.refreshToken);
+                tokenStore.set(data.token);
             }
             return data;
         },
@@ -117,7 +132,7 @@ export function useVerifyDeviceCode() {
         mutationFn: async (input: { email: string; code: string }) => {
             const { data } = await api.post<LoginResponse>('/api/auth/otp/verify', input);
             // No tokens when a second factor is still owed; the caller moves to the MFA step.
-            if (data.token) tokenStore.set(data.token, data.refreshToken);
+            if (data.token) tokenStore.set(data.token);
             return data;
         },
     });
@@ -128,7 +143,7 @@ export function useVerifyMfa() {
     return useMutation({
         mutationFn: async (input: { challengeToken: string; code: string }) => {
             const { data } = await api.post<LoginResponse>('/api/auth/mfa/verify', input);
-            tokenStore.set(data.token, data.refreshToken);
+            tokenStore.set(data.token);
             return data;
         },
     });

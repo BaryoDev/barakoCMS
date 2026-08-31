@@ -5,6 +5,7 @@ import {
     installClientErrorHandlers,
     __resetClientErrorsForTests,
 } from './client-errors';
+import { tokenStore } from './api';
 
 /**
  * The reporter's job is to get faults to the API without ever becoming a fault itself. These cover the
@@ -95,7 +96,8 @@ describe('client error reporter', () => {
         expect(fetchMock.mock.calls[0][1].headers.Authorization).toBeUndefined();
 
         __resetClientErrorsForTests();
-        localStorage.setItem('barako_token', 'header.payload.sig');
+        // The token lives in memory now, not storage, so this is how a signed-in state is made.
+        tokenStore.set('header.payload.sig');
         reportClientError({ kind: 'error', message: 'authed' });
         await vi.advanceTimersByTimeAsync(2500);
         expect(fetchMock.mock.calls[1][1].headers.Authorization).toBe('Bearer header.payload.sig');

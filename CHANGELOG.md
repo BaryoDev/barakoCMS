@@ -594,6 +594,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   concurrency to close exactly this race and `OtpCode` did not, so two requests with the same code
   could both see it unconsumed and both mint tokens. Device approval and passwordless sign-in both
   rest on that path.
+- **The admin no longer keeps either token in `localStorage`.** The refresh token is an httpOnly
+  cookie the page cannot read; the access token is a variable in memory and is gone on reload, which
+  a silent refresh replaces. Any script on the origin could read both before, and the refresh token
+  is seven days and renewable, so one cross-site scripting bug or one compromised dependency in the
+  admin build was a week of account takeover rather than fifteen minutes. The API still returns the
+  refresh token in the response body, so the generated clients and anything not in a browser are
+  unaffected: what changed is that the admin stops persisting it. Reasoning, the two things you will
+  notice, and what the cookie needs from your deployment topology are in
+  `docs/session-and-token-storage.md`.
 
 - **A system proxy silently bypassed the webhook address guard.** With a proxy in use the connect
   callback dials the proxy, and the proxy then resolves and connects to the target, so the guard was

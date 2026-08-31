@@ -102,6 +102,17 @@ it: an event-sourced content type refuses non-Public fields, so personal data ca
 whose value is never being altered. What that choice commits an operator to is in
 [docs/event-sourced-content-types.md](event-sourced-content-types.md).
 
+## Where the admin keeps your session
+
+The admin holds the access token in memory and the refresh token in an httpOnly cookie the page
+cannot read. Before 4.0 both sat in `localStorage`, where any script on the origin could read them,
+which made one cross-site scripting bug worth seven days of renewable sessions rather than fifteen
+minutes.
+
+The reasoning, what you will notice, and what your deployment topology needs for the cookie to be
+sent are all in `docs/session-and-token-storage.md`. Worth reading before answering a questionnaire
+about session handling, because the honest answer includes what this does not fix.
+
 ## Reporting a vulnerability
 
 `SECURITY.md`. Private channel, 48-hour acknowledgement, one-week initial assessment.

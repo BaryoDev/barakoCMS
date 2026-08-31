@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { MOCK_TOKEN, pageOf, stubContentTypes } from './helpers';
+import { MOCK_TOKEN, pageOf, stubContentTypes, authed } from './helpers';
 
 const SCHEMAS = [
     {
@@ -12,9 +12,7 @@ const SCHEMAS = [
 
 test.describe('Admin flows (mocked API)', () => {
     test.beforeEach(async ({ page }) => {
-        await page.addInitScript((token) => {
-            window.localStorage.setItem('barako_token', token);
-        }, MOCK_TOKEN);
+        await authed(page);
 
         await stubContentTypes(page, SCHEMAS);
         await page.route('**/api/workflows', (route) => route.fulfill({ json: pageOf([]) }));
