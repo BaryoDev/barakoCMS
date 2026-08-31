@@ -128,6 +128,78 @@ jobs:
       - name: Back up, destroy, restore, and serve
         run: bash scripts/restore-check.sh
 
+  compose:
+    name: Compose files resolve
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # `docker compose config` is the only cheap thing that proves a compose file is more than
+      # plausible YAML: it parses it, resolves every variable and fails on the first one that has
+      # no value. A production compose file nobody has run is what #307 was about, so the one this
+      # repository ships gets checked on every change to it.
+      - name: The development and try-out files parse
+        run: |
+          set -euo pipefail
+          for f in docker-compose.yml docker-compose.hub.yml; do
+            docker compose -f "$f" config >/dev/null
+            echo "$f resolves"
+          done
+
+      # The quickstart has the same required-secret guards as production, so it gets the same
+      # treatment. Its README tells you to copy a .env.example that the quickstart folder does not
+      # contain, which is why the values are supplied here rather than from a file.
+      - name: The quickstart file parses
+        env:
+          DB_PASSWORD: ci-not-a-real-password
+          JWT_KEY: ci-not-a-real-key-at-least-32-characters
+          ADMIN_PASSWORD: ci-not-a-real-password
+        run: |
+          set -euo pipefail
+          docker compose -f quickstart/docker-compose.yml config >/dev/null
+          echo "quickstart/docker-compose.yml resolves"
+
+      # The production file deliberately has no defaults for the secrets, so it is checked twice:
+      # once with a filled env, and once without, where it has to fail rather than boot on a blank.
+      - name: The production file resolves with a filled env
+        run: |
+          set -euo pipefail
+          cp .env.prod.example /tmp/ci.env
+          cat >> /tmp/ci.env <<'ENV'
+          DB_PASSWORD=ci-not-a-real-password
+          JWT_KEY=ci-not-a-real-key-at-least-32-characters
+          ADMIN_PASSWORD=ci-not-a-real-password
+          ENV
+          docker compose --env-file /tmp/ci.env -f docker-compose.prod.yml config > /tmp/prod.resolved
+
+          # Nothing may build. The whole point of the file is that a host with only Docker can run it.
+          if grep -qE '^[[:space:]]+build:' /tmp/prod.resolved; then
+            echo "::error::docker-compose.prod.yml resolves to a build step; it must run published images"
+            exit 1
+          fi
+          grep -q 'ghcr.io/baryodev/barako-cms:' /tmp/prod.resolved
+          grep -q 'ghcr.io/baryodev/barako-admin:' /tmp/prod.resolved
+          # The admin's API URL is a runtime variable, not a build arg (#309).
+          grep -q 'NEXT_PUBLIC_API_URL: https://api.example.com' /tmp/prod.resolved
+
+      - name: The production file refuses to resolve without a JWT key
+        run: |
+          set -euo pipefail
+          cp .env.prod.example /tmp/ci-nojwt.env
+          cat >> /tmp/ci-nojwt.env <<'ENV'
+          DB_PASSWORD=ci-not-a-real-password
+          ADMIN_PASSWORD=ci-not-a-real-password
+          ENV
+          if docker compose --env-file /tmp/ci-nojwt.env -f docker-compose.prod.yml config >/dev/null 2>&1; then
+            echo "::error::docker-compose.prod.yml resolved with no JWT_KEY set"
+            exit 1
+          fi
+          echo "refused, as it should"
+
   admin:
     name: Admin UI (Next.js)
     runs-on: ubuntu-latest

@@ -1,3 +1,25 @@
+# barakoCMS production stack, from published images. This is the only production compose file.
+#
+#   cp .env.prod.example .env
+#   # edit .env, then point both domains' DNS A records at this machine
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# Nothing is built here. Every service is an image the release workflow publishes
+# (ghcr.io/baryodev/barako-cms, barako-cms-decaf, barako-admin, mirrored to
+# arnelirobles/* on Docker Hub), so the host needs Docker and this file, not a .NET
+# SDK and a Node toolchain.
+#
+# The admin used to be built here because of a comment claiming Next.js needs the API
+# URL at build time. It does not for this image: admin/entrypoint.sh regenerates
+# public/env-config.js from any NEXT_PUBLIC_* variable at container start, and the
+# browser reads that. See #309.
+#
+# Caddy requests TLS certificates on first start, so both domains must already resolve
+# here before you bring the stack up. See docs/deploy-in-production.md.
+#
+# For local development use docker-compose.yml. For a local try-out of the published
+# images with no TLS use docker-compose.hub.yml.
+
 services:
   # 1. Reverse Proxy (Caddy) - Handles HTTPS & Routing
   caddy:
@@ -8,12 +30,14 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     environment:
-      - DOMAIN_API=${DOMAIN_API}
-      - DOMAIN_ADMIN=${DOMAIN_ADMIN}
+      - DOMAIN_API=${DOMAIN_API:?set DOMAIN_API in .env, for example api.example.com}
+      - DOMAIN_ADMIN=${DOMAIN_ADMIN:?set DOMAIN_ADMIN in .env, for example admin.example.com}
+      # Certificate expiry warnings go here. Let's Encrypt wants a contact address.
+      - ACME_EMAIL=${ACME_EMAIL:?set ACME_EMAIL in .env}
     depends_on:
       - app
       - admin
@@ -26,7 +50,7 @@ services:
     environment:
       POSTGRES_DB: ${DB_NAME:-barako_cms}
       POSTGRES_USER: ${DB_USER:-postgres}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env, do not run production on the default}
     volumes:
       - postgres_prod_data:/var/lib/postgresql/data
     healthcheck:
@@ -36,18 +60,27 @@ services:
       retries: 5
 
   # 3. Backend API
+  #
+  # The full suite: engine plus every module. For the lean core swap in
+  # ghcr.io/baryodev/barako-cms-decaf and add only the modules you want in your own host.
+  #
+  # BARAKO_TAG is required rather than defaulting to latest, because with a default the
+  # next `docker compose pull` is an unplanned major upgrade.
   app:
+    image: ghcr.io/baryodev/barako-cms:${BARAKO_TAG:?pin a version in .env, for example 3.21.0}
     container_name: barako-api
-    build:
-      context: .
-      dockerfile: Dockerfile
     restart: always
     environment:
+      - ASPNETCORE_ENVIRONMENT=Production
       - ConnectionStrings__DefaultConnection=Host=postgres;Database=${DB_NAME:-barako_cms};Username=${DB_USER:-postgres};Password=${DB_PASSWORD}
-      - JWT__Key=${JWT_KEY}
-      - CORS__AllowedOrigins=https://${DOMAIN_ADMIN}
+      # Refuses to start below 32 characters, deliberately.
+      - JWT__Key=${JWT_KEY:?set JWT_KEY in .env to at least 32 random characters}
+      # The admin domain plus your own site. A browser request from an origin that is not
+      # listed fails CORS, which reads as a broken API rather than a missing setting, so
+      # FRONTEND_ORIGINS is asked for at deploy time instead of found later.
+      - CORS__AllowedOrigins=https://${DOMAIN_ADMIN},${FRONTEND_ORIGINS:?set FRONTEND_ORIGINS in .env}
       - InitialAdmin__Username=${ADMIN_USER:-admin}
-      - InitialAdmin__Password=${ADMIN_PASSWORD}
+      - InitialAdmin__Password=${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env, this is your first sign-in}
       - Kubernetes__Enabled=false
       # Caddy terminates TLS and is the only thing that reaches the app, so its X-Forwarded-For is
       # what rate limiting and the audit log key on. Named by network because the compose bridge
@@ -60,14 +93,16 @@ services:
 
   # 4. Frontend Admin UI
   admin:
+    image: ghcr.io/baryodev/barako-admin:${BARAKO_TAG}
     container_name: barako-admin
-    build:
-      context: ./admin
-      dockerfile: Dockerfile
-      args:
-        # ⚠️ CRITICAL: Next.js needs this at BUILD TIME
-        NEXT_PUBLIC_API_URL: https://${DOMAIN_API}
     restart: always
+    environment:
+      # Read at container start by entrypoint.sh, which writes public/env-config.js. The
+      # browser reads that file, so this is the API address as the browser sees it, not as
+      # the container sees it.
+      - NEXT_PUBLIC_API_URL=https://${DOMAIN_API}
+    depends_on:
+      - app
 
   # 5. Nightly backup
   #

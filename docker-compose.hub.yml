@@ -2,8 +2,11 @@
 #
 #   docker compose -f docker-compose.hub.yml up -d
 #
-# Then open http://localhost:3000 (admin UI) — the API is on http://localhost:5005.
-# Override the defaults below with a .env file for anything beyond a local try-out.
+# Then open http://localhost:3000 (admin UI). The API is on http://localhost:5005.
+#
+# This is a local try-out: no TLS, dev defaults, and a JWT key printed in this file. For a real
+# deployment use docker-compose.prod.yml, which runs these same published images behind Caddy with
+# required secrets. See docs/deploy-in-production.md.
 
 services:
   postgres:
