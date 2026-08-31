@@ -21,6 +21,12 @@ internal class RequestValidator : FastEndpoints.Validator<Request>
     {
         RuleFor(x => x.ContentType).NotEmpty().WithMessage("ContentType is required");
         RuleFor(x => x.Data).NotEmpty().WithMessage("Data is required");
+
+        // A number outside the enum binds cleanly and stores content with an undefined status,
+        // which is then invisible to the scheduler, to status-filtered lists and to delivery, with
+        // no error anywhere. ChangeStatus has checked this since it was written; Create did not.
+        RuleFor(x => x.Status).IsInEnum().WithMessage("Status is not a valid value");
+        RuleFor(x => x.Sensitivity).IsInEnum().WithMessage("Sensitivity is not a valid value");
     }
 }
 

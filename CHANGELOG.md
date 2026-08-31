@@ -357,7 +357,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The shipped Kubernetes Deployment asked for `128Mw` of memory.** Not a valid quantity, so the
   manifest was rejected on apply.
-=======
 - **Two tests that could not fail are gone, and the cross-tenant join is covered.** One built a
   workflow and ended on `await Task.CompletedTask` with no act and no assert; the other constructed a
   workflow engine, never called it, and asserted that the list it had just built contained the item
@@ -365,7 +364,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the first test to put two authenticated users in different tenants against the content API: tenant
   isolation was proven in two halves that never met, and the guard between them is one `if` that
   nothing was checking.
->>>>>>> c612919 (replace two tests that could not fail, and cover the tenant join)
+=======
+- **Assigning a role or a group to an unknown user id fabricated a user.** Both assign endpoints
+  carried a "load or create user (for testing, we'll create if not exists)" branch into production.
+  On a miss they stored a `User` with a synthesized `user_{guid}@example.com` and no password hash,
+  holding the role, and answered "Role assigned to user successfully". A mistyped id therefore left a
+  ghost identity row behind while the real account still lacked the role, and the caller was told it
+  had worked. The role and group ids were never checked at all, so a mistyped one also reported
+  success and granted nothing. All four cases are 404s now, and nothing is written.
+
+- **Create and Update accepted status and sensitivity values no enum member names.**
+  `POST /api/contents` with `"status": 7` bound cleanly and stored content with an undefined status,
+  invisible to the scheduler, to status-filtered lists and to delivery, with no error anywhere.
+  `ChangeStatus` has validated this since it was written. Both slices do now. A defined value sent as
+  a number still works, so a 3.x client posting `"status": 1` is unaffected.
+
+- **A PUT that omitted `Status` silently un-published the content.** An absent status bound to 0,
+  which is `Draft`, and the endpoint treated any difference from the stored status as a transition.
+  A consumer sending only `id`, `data` and `version`, which is what a data-only edit looks like,
+  un-published the item and emitted a `ContentStatusChanged` saying so. `Status` is nullable now and
+  absent means unchanged.
+
+- **An update reported a version it computed before the append.** The reported version was the stream
+  state read before the append plus the number of events appended. When `version` is 0 the staleness
+  check is deliberately bypassed, so another writer can advance the stream in that window and the sum
+  then under-reports. The client echoes the reported version into its next update, so an under-report
+  turned an ordinary follow-up edit into a 412 blaming a conflict that never happened. The version is
+  read back after the commit.
+
+- **Expired OTP codes were never deleted.** `TokenCleanupService` swept `RefreshToken`, `RevokedToken`
+  and `IdempotencyRecord`, and no deletion path for `OtpCode` existed anywhere. `OtpService` only
+  marks outstanding codes `Consumed` when a new one is issued, so every sign-in request left a
+  permanent row and the "this email, not consumed" scan in send and verify degraded with the table.
+  The `ExpiresAt` index was already registered. All four passes are now a single `DeleteWhere` each,
+  one DELETE statement per document type, instead of loading the full expired set and deleting row by
+  row.
+
+- **The anonymous slug route loaded every published entry of the type.** `GET /api/public/{type}/{slug}`
+  queried all published, Public content of the type and matched the slug in memory, so a blog with
+  20k posts deserialized 20k documents to return one and a 404 probe cost exactly the same. The match
+  runs in Postgres now, reusing the case-insensitive jsonb key lookup the delivery filters already
+  had. It stays case-insensitive, and `_` and `%` in a slug are still ordinary characters.
+
+- **Three endpoints checked a claim that could never exist.** `Content/List`, `Content/History` and
+  `Content/Get` looked up the literal string `System.Security.Claims.ClaimTypes.NameIdentifier`,
+  which is the name of a constant and not its value, so it matched nothing on any token this project
+  issues and the `UserId` fallback beside it was always what ran. No behaviour change, but it read as
+  though a second identity source was being consulted.
+
+- **`WebhookAction` never disposed its `HttpResponseMessage`**, on a path a workflow can fire on every
+  content change.
+
+- **`OllamaEmbeddingClient.EmbedAsync` swallowed cancellation.** A bare `catch` turned
+  `OperationCanceledException` into `null`, so an abandoned search reported "no results" rather than
+  stopping and the caller could not tell an empty index from a request that never finished. An
+  unreachable backend still degrades to `null`.
+>>>>>>> 30edc53 (stop inventing users, undefined enums and unbounded OTP rows)
 
 - **Turning on device trust locked every administrator out.** With `DeviceTrust__Enforce` on, the API
   answers a password login from an unapproved device with `requiresDeviceApproval` and emails a code.

@@ -5,7 +5,8 @@ namespace barakoCMS.Infrastructure.Services;
 
 /// <summary>
 /// Background service that periodically cleans up expired tokens.
-/// Removes expired RefreshTokens and RevokedTokens to prevent unbounded database growth.
+/// Removes expired RefreshTokens, RevokedTokens, OtpCodes and old IdempotencyRecords to prevent
+/// unbounded database growth.
 /// </summary>
 public class TokenCleanupService : BackgroundService
 {
@@ -48,58 +49,34 @@ public class TokenCleanupService : BackgroundService
         _logger.LogInformation("Token cleanup service stopped");
     }
 
-    private async Task CleanupExpiredTokensAsync(CancellationToken ct)
+    /// <summary>
+    /// One sweep. Internal so a test can run it directly instead of waiting on the timer.
+    /// </summary>
+    /// <remarks>
+    /// Every pass is a <c>DeleteWhere</c>, which is one DELETE statement per document type. The
+    /// previous shape loaded the full expired set into memory and deleted row by row, which is the
+    /// work this service exists to avoid doing.
+    /// </remarks>
+    internal async Task CleanupExpiredTokensAsync(CancellationToken ct)
     {
         using var scope = _serviceProvider.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
 
         var now = DateTime.UtcNow;
+        var idempotencyCutoff = now.AddHours(-24);
 
-        // Delete expired refresh tokens
-        var expiredRefreshTokens = await session.Query<RefreshToken>()
-            .Where(t => t.ExpiresAt < now)
-            .ToListAsync(ct);
+        session.DeleteWhere<RefreshToken>(t => t.ExpiresAt < now);
+        session.DeleteWhere<RevokedToken>(t => t.ExpiresAt < now);
+        session.DeleteWhere<IdempotencyRecord>(r => r.CreatedAt < idempotencyCutoff);
 
-        if (expiredRefreshTokens.Count > 0)
-        {
-            foreach (var token in expiredRefreshTokens)
-            {
-                session.Delete(token);
-            }
-            _logger.LogInformation("Deleted {Count} expired refresh tokens", expiredRefreshTokens.Count);
-        }
+        // Expired sign-in codes were never deleted by anything. OtpService only marks outstanding
+        // codes Consumed when a new one is issued, so every OTP request left a permanent row and the
+        // "this email, not consumed" scan in send and verify got slower with each one. The ExpiresAt
+        // index is already registered, so this pass costs an indexed delete.
+        session.DeleteWhere<OtpCode>(o => o.ExpiresAt < now);
 
-        // Delete expired revoked tokens
-        var expiredRevokedTokens = await session.Query<RevokedToken>()
-            .Where(t => t.ExpiresAt < now)
-            .ToListAsync(ct);
+        await session.SaveChangesAsync(ct);
 
-        if (expiredRevokedTokens.Count > 0)
-        {
-            foreach (var token in expiredRevokedTokens)
-            {
-                session.Delete(token);
-            }
-            _logger.LogInformation("Deleted {Count} expired revoked tokens", expiredRevokedTokens.Count);
-        }
-
-        // Delete old idempotency records (older than 24 hours)
-        var oldIdempotencyRecords = await session.Query<IdempotencyRecord>()
-            .Where(r => r.CreatedAt < now.AddHours(-24))
-            .ToListAsync(ct);
-
-        if (oldIdempotencyRecords.Count > 0)
-        {
-            foreach (var record in oldIdempotencyRecords)
-            {
-                session.Delete(record);
-            }
-            _logger.LogInformation("Deleted {Count} old idempotency records", oldIdempotencyRecords.Count);
-        }
-
-        if (expiredRefreshTokens.Count > 0 || expiredRevokedTokens.Count > 0 || oldIdempotencyRecords.Count > 0)
-        {
-            await session.SaveChangesAsync(ct);
-        }
+        _logger.LogInformation("Token cleanup swept expired refresh tokens, revoked tokens, OTP codes and idempotency records older than {Cutoff}", idempotencyCutoff);
     }
 }

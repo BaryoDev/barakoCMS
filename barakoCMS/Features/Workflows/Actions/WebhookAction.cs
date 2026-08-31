@@ -83,7 +83,7 @@ internal class WebhookAction : IWorkflowAction
                 updatedAt = content.UpdatedAt
             };
 
-            var response = await client.PostAsJsonAsync(url, payload, ct);
+            using var response = await client.PostAsJsonAsync(url, payload, ct);
 
             if (response.IsSuccessStatusCode)
             {

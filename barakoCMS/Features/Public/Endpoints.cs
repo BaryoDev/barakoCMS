@@ -495,13 +495,16 @@ internal class GetBySlugEndpoint : EndpointWithoutRequest<PublicContentResponse>
         }
         else
         {
-            var candidates = await _session.Query<ContentDoc>()
+            /* The slug match runs in Postgres. This used to pull every published entry of the type
+             * back and match in memory, so a blog with 20k posts deserialized 20k documents to
+             * answer one request, and a 404 probe cost exactly the same. */
+            var (sql, parameters) = DeliveryQuery.FieldEqualsIgnoreCaseSql(slugField, slug);
+            match = await _session.Query<ContentDoc>()
                 .Where(c => c.ContentType == type
                             && c.Status == ContentStatus.Published
-                            && c.Sensitivity == SensitivityLevel.Public)
-                .ToListAsync(ct);
-            match = candidates.FirstOrDefault(c =>
-                string.Equals(PublicDelivery.SlugValue(c, slugField), slug, StringComparison.OrdinalIgnoreCase));
+                            && c.Sensitivity == SensitivityLevel.Public
+                            && c.MatchesSql(sql, parameters))
+                .FirstOrDefaultAsync(ct);
         }
 
         var projected = match is null ? null : PublicDelivery.ToPublic(match, def, slugField, allowUnpublished: previewId is not null);

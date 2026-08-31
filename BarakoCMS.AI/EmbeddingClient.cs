@@ -43,6 +43,13 @@ public sealed class OllamaEmbeddingClient : IEmbeddingClient
             var body = await res.Content.ReadFromJsonAsync<EmbedResponse>(cancellationToken: ct);
             return body?.Embedding is { Length: > 0 } v ? v : null;
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // A cancelled request is not an unreachable backend. Swallowing this returned null, so
+            // an abandoned search reported "no results" instead of stopping, and the caller could
+            // not tell an empty index from a request that never finished.
+            throw;
+        }
         catch
         {
             return null;

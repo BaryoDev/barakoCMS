@@ -178,6 +178,26 @@ internal sealed class DeliveryQuery
     private const string KeyLookup =
         "(SELECT e.value FROM jsonb_each(d.data -> 'Data') e WHERE lower(e.key) = lower(?) LIMIT 1)";
 
+    /// <summary>
+    /// A case-insensitive equality match on one data field, for <c>MatchesSql</c>.
+    /// </summary>
+    /// <remarks>
+    /// Written for the slug route, which used to load every published entry of the type and match in
+    /// memory. On a blog with 20k posts that deserialized 20k documents to return one, and a 404
+    /// probe cost the same.
+    ///
+    /// Not <c>ToSql</c> with <see cref="FilterOp.Eq"/>: that compares in jsonb, so the match would be
+    /// case sensitive, while <c>PublicDelivery.SlugValue</c> compares with OrdinalIgnoreCase. Not
+    /// <see cref="FilterOp.Contains"/> either: ILIKE would treat % and _ in a slug as wildcards, so
+    /// a request for "a_b" could answer with "axb". <c>#&gt;&gt; '{}'</c> unwraps the jsonb scalar to
+    /// text so a stored "hello" compares as hello rather than "hello", and lower() on both sides is
+    /// the ASCII case folding OrdinalIgnoreCase does over the character set a slug can hold.
+    ///
+    /// Both the field name and the value are bound; neither reaches the SQL text.
+    /// </remarks>
+    public static (string Sql, object[] Parameters) FieldEqualsIgnoreCaseSql(string field, string value)
+        => ($"lower({KeyLookup} #>> '{{}}') = lower(?)", [field, value]);
+
     /// <summary>The ORDER BY fragment for a validated sort.</summary>
     /// <remarks>
     /// Marten's <c>OrderBySql</c> takes a SQL string and binds nothing, so unlike the filter path

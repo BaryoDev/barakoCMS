@@ -97,12 +97,14 @@ internal class Endpoint : Endpoint<Request, Response>
         var updateEvent = new barakoCMS.Events.ContentUpdated(req.Id, req.Data, userId, searchText);
         events.Add(updateEvent);
 
-        bool statusChanged = existingContent.Status != req.Status;
+        // An omitted Status means "leave it alone". Comparing against a defaulted enum instead made
+        // a data-only edit look like a move to Draft and un-published the item.
+        bool statusChanged = req.Status.HasValue && existingContent.Status != req.Status.Value;
 
         // 2. Status Change Event (if changed)
         if (statusChanged)
         {
-            var statusEvent = new barakoCMS.Events.ContentStatusChanged(req.Id, req.Status, userId);
+            var statusEvent = new barakoCMS.Events.ContentStatusChanged(req.Id, req.Status!.Value, userId);
             events.Add(statusEvent);
         }
 
@@ -121,7 +123,13 @@ internal class Endpoint : Endpoint<Request, Response>
             await _contentWriter.AppendOptimisticAsync(existingContent, events, ct);
             await _session.SaveChangesAsync(ct);
 
-            newVersion = (state?.Version ?? 0) + events.Count;
+            // Read the version back rather than deriving it from the state fetched above. That state
+            // was read before the append, and when req.Version is 0 the staleness check above is
+            // bypassed, so another writer could have advanced the stream in between. Deriving from
+            // the stale read then under-reported the version, and the client echoing it back got a
+            // spurious 412 on its next update.
+            var committed = await _session.Events.FetchStreamStateAsync(req.Id, ct);
+            newVersion = committed?.Version ?? (state?.Version ?? 0) + events.Count;
         }
         catch (Exception ex) when (ex is JasperFx.ConcurrencyException
             || ex.GetType().Name.Contains("Concurrency")
