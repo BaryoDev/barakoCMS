@@ -35,7 +35,7 @@ internal partial class WorkflowProjection : EventProjection
     public async Task Project(IEvent<barakoCMS.Events.ContentStatusChanged> e, IDocumentOperations ops, CancellationToken ct)
     {
         // Map a status transition to the "Published" trigger event when applicable, so workflows
-        // configured with TriggerEvent = "Published" actually fire (previously nothing emitted it).
+        // configured with TriggerEvent = "Published" actually fire.
         if (e.Data.NewStatus == barakoCMS.Models.ContentStatus.Published)
         {
             await ProcessEventAsync(barakoCMS.Models.WorkflowEvents.Published, e.Data.Id, e.TenantId, ops);

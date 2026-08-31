@@ -32,6 +32,10 @@ jobs:
       - name: Check for conflict markers
         run: bash scripts/check-conflict-markers.sh
 
+      # Fragments are validated where a mistake is cheap to fix. Assembly happens at release time.
+      - name: Check changelog fragments
+        run: bash scripts/changelog-assemble.sh --check
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:

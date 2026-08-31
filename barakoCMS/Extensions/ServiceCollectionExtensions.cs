@@ -104,8 +104,23 @@ public static class ServiceCollectionExtensions
             Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development";
         if (configuration.GetValue("Swagger:Enabled", swaggerOnByDefault))
         {
-            services.SwaggerDocument();
+            services.SwaggerDocument(o =>
+            {
+                // FastEndpoints tags by path segment, and every route here starts /api/, so all but
+                // the three endpoints that tag themselves landed on one tag: "Api". A generator
+                // groups methods by tag, so that document generates one class with every method on
+                // it. Off, and NamespaceTagProcessor tags by namespace instead.
+                o.AutoTagPathSegmentIndex = 0;
+                o.DocumentSettings = s =>
+                    s.OperationProcessors.Add(new barakoCMS.Infrastructure.OpenApi.NamespaceTagProcessor());
+            });
         }
+
+        // Holds the rendered OpenAPI document per tenant. Registered whether or not Swagger is on,
+        // because the content-type endpoints invalidate it and a constructor dependency that exists
+        // only under a config flag is a startup failure waiting for the first deployment that turns
+        // the flag off. Nothing populates it when Swagger is off, so it costs an empty dictionary.
+        services.AddSingleton<barakoCMS.Infrastructure.OpenApi.DeliveryDocumentCache>();
 
         var connectionString = ResolveConnectionString(configuration);
 
@@ -931,6 +946,9 @@ public static class ServiceCollectionExtensions
 
         if (configuration.GetValue("Swagger:Enabled", env == "Development"))
         {
+            // Before UseSwaggerGen, because it rewrites that middleware's response: content types
+            // are created at runtime, so /api/public/students can only reach the document here.
+            app.UseMiddleware<barakoCMS.Infrastructure.OpenApi.DeliveryDocumentMiddleware>();
             app.UseSwaggerGen();
         }
 
