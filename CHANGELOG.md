@@ -338,6 +338,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   silently creating none; and the Grafana dashboard moved to `k8s/observability/`, where
   `kubectl apply -f k8s/` no longer trips over it. `kubectl apply -f k8s/` was run against a real
   cluster.
+<<<<<<< HEAD
 - **Re-publishing already-published content fired every Published workflow again.**
   `PUT /api/contents/{id}/status` appended a `ContentStatusChanged` without checking whether the
   status had actually changed, and the projection fires on any such event whose new status is
@@ -356,6 +357,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The shipped Kubernetes Deployment asked for `128Mw` of memory.** Not a valid quantity, so the
   manifest was rejected on apply.
+=======
+- **Two tests that could not fail are gone, and the cross-tenant join is covered.** One built a
+  workflow and ended on `await Task.CompletedTask` with no act and no assert; the other constructed a
+  workflow engine, never called it, and asserted that the list it had just built contained the item
+  it had just put in. Both ran on every build. Replaced with tests that drive the real engine, plus
+  the first test to put two authenticated users in different tenants against the content API: tenant
+  isolation was proven in two halves that never met, and the guard between them is one `if` that
+  nothing was checking.
+>>>>>>> c612919 (replace two tests that could not fail, and cover the tenant join)
 
 - **Turning on device trust locked every administrator out.** With `DeviceTrust__Enforce` on, the API
   answers a password login from an unapproved device with `requiresDeviceApproval` and emails a code.
