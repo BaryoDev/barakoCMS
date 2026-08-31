@@ -63,6 +63,29 @@ internal class VerifyEndpoint : Endpoint<OtpVerifyRequest, OtpVerifyResponse>
         Options(x => x.RequireRateLimiting("auth"));
     }
 
+    /// <summary>
+    /// Saves, reporting a lost optimistic-concurrency race rather than throwing.
+    /// </summary>
+    /// <remarks>
+    /// <c>OtpCode</c> carries optimistic concurrency so two requests holding the same code cannot
+    /// both consume it. That closes the race, but it means the loser's save throws, and an uncaught
+    /// <c>ConcurrencyException</c> leaves this endpoint answering 500 to what is really just a code
+    /// that has already been used. The loser is refused with the same message every other rejection
+    /// here uses, so a caller cannot tell a lost race from a bad code.
+    /// </remarks>
+    private async Task<bool> TrySaveAsync(CancellationToken ct)
+    {
+        try
+        {
+            await _session.SaveChangesAsync(ct);
+            return true;
+        }
+        catch (JasperFx.ConcurrencyException)
+        {
+            return false;
+        }
+    }
+
     public override async Task HandleAsync(OtpVerifyRequest req, CancellationToken ct)
     {
         var email = (req.Email ?? string.Empty).Trim().ToLowerInvariant();
@@ -89,7 +112,9 @@ internal class VerifyEndpoint : Endpoint<OtpVerifyRequest, OtpVerifyResponse>
         {
             otp.Attempts += 1;
             _session.Update(otp);
-            await _session.SaveChangesAsync(ct);
+            // A lost race here means a concurrent request already touched this code. The answer is
+            // the same either way, so the result of the save does not change it.
+            await TrySaveAsync(ct);
             ThrowError("Invalid or expired code.");
             return;
         }
@@ -103,7 +128,7 @@ internal class VerifyEndpoint : Endpoint<OtpVerifyRequest, OtpVerifyResponse>
             .FirstOrDefaultAsync(ct);
         if (user == null)
         {
-            await _session.SaveChangesAsync(ct);
+            await TrySaveAsync(ct);
             ThrowError("Invalid or expired code.");
             return;
         }
@@ -113,7 +138,9 @@ internal class VerifyEndpoint : Endpoint<OtpVerifyRequest, OtpVerifyResponse>
         // Return the same challenge the password path does; the client completes /api/auth/mfa/verify.
         if (await _mfa.IsEnabledAsync(user.Id, ct))
         {
-            await _session.SaveChangesAsync(ct); // keep the code consumed
+            // Refuse on a lost race instead of issuing the challenge: the code was consumed by
+            // the request that won, and one code must not yield two challenges.
+            if (!await TrySaveAsync(ct)) { ThrowError("Invalid or expired code."); return; }
             var (challenge, _) = barakoCMS.Infrastructure.Auth.Mfa.MfaChallengeToken.Create(_config, user.Id);
             await Send.ResponseAsync(new OtpVerifyResponse { RequiresMfa = true, MfaChallengeToken = challenge });
             return;
@@ -129,7 +156,7 @@ internal class VerifyEndpoint : Endpoint<OtpVerifyRequest, OtpVerifyResponse>
         var issued = await _tokenIssuer.IssueAccessTokenAsync(user, _tenant.Slug, deviceClaims, ct);
         if (!issued.Allowed)
         {
-            await _session.SaveChangesAsync(ct); // keep the code consumed
+            await TrySaveAsync(ct); // keep the code consumed; refused either way
             ThrowError("Invalid or expired code.");
             return;
         }
@@ -150,7 +177,10 @@ internal class VerifyEndpoint : Endpoint<OtpVerifyRequest, OtpVerifyResponse>
             IsRevoked = false,
             DeviceId = device.DeviceId,
         });
-        await _session.SaveChangesAsync(ct);
+        // The one that must not be best-effort. Losing here means another request consumed this
+        // code, so returning the tokens computed above would mint a second session from one code,
+        // which is the race the optimistic concurrency was added to stop.
+        if (!await TrySaveAsync(ct)) { ThrowError("Invalid or expired code."); return; }
 
         await Send.ResponseAsync(new OtpVerifyResponse
         {
