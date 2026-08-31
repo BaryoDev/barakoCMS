@@ -38,7 +38,8 @@ public class PackagingTests
     private static List<(string Path, XDocument Doc)> Packable()
     {
         var found = new List<(string, XDocument)>();
-        foreach (var proj in Directory.EnumerateFiles(RepoRoot(), "*.csproj", SearchOption.AllDirectories))
+        var root = RepoRoot();
+        foreach (var proj in Directory.EnumerateFiles(root, "*.csproj", SearchOption.AllDirectories))
         {
             if (proj.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")) continue;
 
@@ -47,13 +48,23 @@ public class PackagingTests
             // copy of every csproj under the root. This walk then finds several files per package
             // and the Single() below throws "Sequence contains more than one matching element",
             // which reads like a packaging defect and is nothing of the kind.
-            if (proj.Contains($"{Path.DirectorySeparatorChar}.claude{Path.DirectorySeparatorChar}")
-                || proj.Contains($"{Path.DirectorySeparatorChar}.git{Path.DirectorySeparatorChar}")) continue;
+            //
+            // Compared relative to the root, not against the absolute path. When the checkout being
+            // tested is itself inside a worktree directory, every absolute path contains the
+            // excluded segment, and an absolute comparison throws the whole repository away and
+            // leaves the test asserting over nothing.
+            var relative = Path.GetRelativePath(root, proj);
+            if (relative.Contains($".claude{Path.DirectorySeparatorChar}")
+                || relative.Contains($".git{Path.DirectorySeparatorChar}")) continue;
             var doc = XDocument.Load(proj);
             var packable = doc.Descendants("IsPackable").FirstOrDefault()?.Value;
             if (string.Equals(packable, "true", StringComparison.OrdinalIgnoreCase))
                 found.Add((proj, doc));
         }
+        // A scan that finds nothing would make every assertion over this list hold vacuously, which
+        // is exactly what an over-broad exclusion produces and is invisible in a green run.
+        found.Should().NotBeEmpty("the repository has packable projects, so finding none means the "
+                                + "scan excluded them rather than that they are absent");
         return found;
     }
 

@@ -43,10 +43,16 @@ public class RoleGrantTests
     /// </remarks>
     private static IEnumerable<string> SourceFiles(string root) =>
         Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories)
-            .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")
-                     && !f.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}")
-                     && !f.Contains($"{Path.DirectorySeparatorChar}BarakoCMS.Tests{Path.DirectorySeparatorChar}")
-                     && !f.Contains($"{Path.DirectorySeparatorChar}.claude{Path.DirectorySeparatorChar}"));
+            // Relative to the root, not the absolute path. A checkout that itself lives under a
+            // worktree directory has that segment in every absolute path, and excluding on it throws
+            // away the whole repository. The control below catches that, but only after the scan has
+            // already silently become an empty one.
+            .Select(f => (Full: f, Relative: Path.GetRelativePath(root, f)))
+            .Where(x => !x.Relative.Contains($"obj{Path.DirectorySeparatorChar}")
+                     && !x.Relative.Contains($"bin{Path.DirectorySeparatorChar}")
+                     && !x.Relative.Contains($"BarakoCMS.Tests{Path.DirectorySeparatorChar}")
+                     && !x.Relative.Contains($".claude{Path.DirectorySeparatorChar}"))
+            .Select(x => x.Full);
 
     /// <summary>Roles handed to a FastEndpoints <c>Roles(...)</c> gate.</summary>
     private static readonly Regex Granted = new(@"\bRoles\(([^)]*)\)", RegexOptions.Compiled);
