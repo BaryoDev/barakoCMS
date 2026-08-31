@@ -10,6 +10,13 @@ public sealed class ContentWriter : IContentWriter
 {
     private readonly IDocumentSession _session;
 
+    /// <summary>Streams this session has already staged writes for.</summary>
+    /// <remarks>
+    /// A refresh from the committed document would undo them: what is in the database is the state
+    /// before this session's own uncommitted work. For those the caller's copy is the current one.
+    /// </remarks>
+    private readonly HashSet<Guid> _staged = new();
+
     public ContentWriter(IDocumentSession session) => _session = session;
 
     /// <inheritdoc />
@@ -22,6 +29,7 @@ public sealed class ContentWriter : IContentWriter
         // without the other.
         _session.Events.StartStream<Content>(@event.Id, @event);
         _session.Store(content);
+        _staged.Add(@event.Id);
 
         return content;
     }
@@ -33,6 +41,7 @@ public sealed class ContentWriter : IContentWriter
 
         _session.Events.Append(content.Id, @event);
         _session.Store(content);
+        _staged.Add(content.Id);
     }
 
     /// <inheritdoc />
@@ -49,12 +58,55 @@ public sealed class ContentWriter : IContentWriter
 
         await _session.Events.AppendOptimistic(content.Id, cancellationToken, events.ToArray());
 
+        // The document is rebuilt on top of what is committed now, not on top of the caller's load.
+        //
+        // AppendOptimistic guards the stream from here to the commit, and nothing at all before it.
+        // The caller's copy was read at the start of the request, so a writer that committed in
+        // between is invisible to it: the scheduler publishes a due draft at v6, this request loaded
+        // v5 where the status was Draft, and storing that snapshot alongside a ContentUpdated at v7
+        // silently un-publishes the item with no event recording it. The stream then says Published
+        // and the read model says Draft, permanently, and delivery stops serving it.
+        //
+        // Reading here rather than before the append is what makes it safe: from the append onwards
+        // any further write to this stream fails this commit, so what is read now is still true when
+        // it is stored.
+        if (_staged.Add(content.Id))
+        {
+            var committed = await _session.LoadAsync<Content>(content.Id, cancellationToken);
+            if (committed is not null)
+            {
+                CopyState(committed, content);
+            }
+        }
+
         foreach (var @event in events)
         {
             ApplyToDocument(content, @event);
         }
 
         _session.Store(content);
+    }
+
+    private static readonly System.Reflection.PropertyInfo[] ContentState = typeof(Content)
+        .GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
+        .Where(p => p.CanRead && p.CanWrite)
+        .ToArray();
+
+    /// <summary>
+    /// Overwrites <paramref name="target"/> with the state of <paramref name="source"/>, in place.
+    /// </summary>
+    /// <remarks>
+    /// In place because the caller holds the reference and reads it back after the write returns.
+    /// Reflected over rather than assigned field by field on purpose: a hand-written list silently
+    /// stops copying a property the day one is added, and the symptom would be that one field
+    /// reverting under concurrency, which is precisely the bug this exists to prevent.
+    /// </remarks>
+    private static void CopyState(Content source, Content target)
+    {
+        foreach (var property in ContentState)
+        {
+            property.SetValue(target, property.GetValue(source));
+        }
     }
 
     private static void AssertHasProjection(object @event)

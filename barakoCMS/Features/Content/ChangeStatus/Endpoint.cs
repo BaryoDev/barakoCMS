@@ -83,18 +83,33 @@ internal class Endpoint : Endpoint<Request, Response>
         // Append the event AND update the read-model document in one transaction so they can't
         // diverge. Workflows fire out-of-band via the async WorkflowProjection, which is driven off the
         // event stream — so the append is what makes "Published" workflows actually run.
-        _contentWriter.Append(content, @event);
-
-        // There's no content-delete endpoint in barakoCMS today — archiving is the closest
-        // destructive-equivalent action, so it's what gets audited here rather than every routine
-        // draft→published transition, which would just be noise.
-        if (newStatus == barakoCMS.Models.ContentStatus.Archived)
+        //
+        // Under an expected-version check rather than a plain append: this is a whole-document write
+        // built from a document loaded at the top of the request, so an unguarded append would let it
+        // overwrite a scheduler transition or an edit that landed in between.
+        try
         {
-            await AuditLog.RecordAsync(_session, _tenant.Slug, "content.archived", userId, user.Username,
-                targetType: content.ContentType, targetId: content.Id.ToString(), ct: ct);
-        }
+            await _contentWriter.AppendOptimisticAsync(content, new[] { @event }, ct);
 
-        await _session.SaveChangesAsync(ct);
+            // There's no content-delete endpoint in barakoCMS today, and archiving is the closest
+            // destructive-equivalent action, so it's what gets audited here rather than every routine
+            // draft-to-published transition, which would just be noise.
+            if (newStatus == barakoCMS.Models.ContentStatus.Archived)
+            {
+                await AuditLog.RecordAsync(_session, _tenant.Slug, "content.archived", userId, user.Username,
+                    targetType: content.ContentType, targetId: content.Id.ToString(), ct: ct);
+            }
+
+            await _session.SaveChangesAsync(ct);
+        }
+        catch (Exception ex) when (ex is JasperFx.ConcurrencyException
+            || ex.GetType().Name.Contains("Concurrency")
+            || ex.GetType().Name.Contains("UnexpectedMaxEventId"))
+        {
+            // 409 rather than the 412 the update endpoint returns: nothing here was conditional on a
+            // version the client sent, so there is no precondition to have failed.
+            ThrowError("The content was changed by another writer. Please refresh and try again.", 409);
+        }
 
         await Send.ResponseAsync(new Response
         {

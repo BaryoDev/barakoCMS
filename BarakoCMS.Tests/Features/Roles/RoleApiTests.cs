@@ -3,6 +3,7 @@ using FluentAssertions;
 using System.Net;
 using System.Net.Http.Json;
 using FastEndpoints.Security;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace BarakoCMS.Tests.Features.Roles;
 
@@ -214,5 +215,84 @@ public class RoleApiTests
         // Verify deletion
         var getResponse = await _client.GetAsync($"/api/roles/{roleId}");
         getResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    /// <summary>
+    /// A role nobody holds globally, but which fifty tenant members hold through their memberships,
+    /// cannot be deleted.
+    /// </summary>
+    /// <remarks>
+    /// The guard only looked at <c>User.RoleIds</c>, which is not where a tenant member's roles live:
+    /// <c>MembershipRoles.EffectiveRoleIdsAsync</c> unions the membership list into the global one,
+    /// and <c>CreateTenantEndpoint</c> writes the membership list when it seeds a tenant admin. So the
+    /// delete succeeded, every one of those memberships was left holding an id that resolves to
+    /// nothing, and PermissionResolver denies rather than errors. See issue #290.
+    /// </remarks>
+    [Fact]
+    public async Task A_role_held_only_through_a_membership_cannot_be_deleted()
+    {
+        var roleId = await CreateRoleAsync("membership-held");
+        var tenant = "clubx-" + Guid.NewGuid().ToString("n")[..8];
+
+        await StoreMembershipAsync(tenant, roleId);
+
+        var response = await _client.DeleteAsync($"/api/roles/{roleId}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await response.Content.ReadAsStringAsync()).Should().Contain(tenant,
+            "a refusal that does not say where the role is held cannot be acted on");
+
+        (await _client.GetAsync($"/api/roles/{roleId}")).StatusCode.Should().Be(HttpStatusCode.OK,
+            "the role must still be there after a refused delete");
+    }
+
+    /// <summary>
+    /// The positive control: memberships exist, they just do not hold this role, so the delete goes
+    /// through. Without it, a guard that refused every delete would pass the test above.
+    /// </summary>
+    [Fact]
+    public async Task A_role_no_membership_holds_is_still_deletable()
+    {
+        var otherRoleId = await CreateRoleAsync("held-elsewhere");
+        var roleId = await CreateRoleAsync("held-by-nobody");
+
+        await StoreMembershipAsync("clubz-" + Guid.NewGuid().ToString("n")[..8], otherRoleId);
+
+        var response = await _client.DeleteAsync($"/api/roles/{roleId}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await _client.GetAsync($"/api/roles/{roleId}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    private async Task<Guid> CreateRoleAsync(string label)
+    {
+        _client.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", CreateAdminToken());
+
+        var response = await _client.PostAsJsonAsync("/api/roles", new
+        {
+            name = $"{label}-{Guid.NewGuid():N}",
+            description = label,
+            permissions = new object[] { },
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        return (await response.Content.ReadFromJsonAsync<barakoCMS.Features.Roles.Create.Response>())!.Id;
+    }
+
+    private async Task StoreMembershipAsync(string tenantSlug, Guid roleId)
+    {
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<Marten.IDocumentSession>();
+
+        session.Store(new barakoCMS.Models.Membership
+        {
+            Id = Guid.NewGuid(),
+            UserId = Guid.NewGuid(),
+            TenantSlug = tenantSlug,
+            RoleIds = new List<Guid> { roleId },
+        });
+
+        await session.SaveChangesAsync();
     }
 }

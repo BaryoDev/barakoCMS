@@ -40,6 +40,10 @@ public interface IContentWriter
     /// Separate from <see cref="Append"/> because the concurrency guarantee differs and that
     /// difference is deliberate: an edit made against a stale read should be rejected rather than
     /// silently overwriting someone else's.
+    ///
+    /// The document is refreshed from the committed state before the events are applied, so what is
+    /// stored reflects everything on the stream and not just the caller's load. Expect
+    /// <paramref name="content"/> to come back carrying changes the caller never made.
     /// </remarks>
     Task AppendOptimisticAsync(Content content, IReadOnlyList<object> events, CancellationToken cancellationToken);
 }

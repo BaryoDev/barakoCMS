@@ -61,6 +61,31 @@ internal class Endpoint : Endpoint<Request, Response>
             return;
         }
 
+        // A role is also held through a tenant membership, which is the list MembershipRoles
+        // .EffectiveRoleIdsAsync unions into the global one. Checking User.RoleIds alone let a role
+        // held by every member of a tenant be deleted, leaving each membership with a dangling id
+        // that PermissionResolver resolves to nothing and therefore denies.
+        var tenantsHoldingRole = (await _session.Query<Membership>()
+                .Where(m => m.RoleIds.Contains(req.Id))
+                .ToListAsync(ct))
+            .Select(m => m.TenantSlug)
+            .Where(slug => !string.IsNullOrWhiteSpace(slug))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(slug => slug, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (tenantsHoldingRole.Count > 0)
+        {
+            // Named rather than merely refused: "still assigned" with no location is a dead end for
+            // whoever has to go and unassign it.
+            await Send.ResponseAsync(new Response
+            {
+                Message = "Cannot delete role: it is still assigned through memberships in "
+                    + $"{string.Join(", ", tenantsHoldingRole)}. Remove the role from those members first."
+            }, 409, ct);
+            return;
+        }
+
         _session.Delete(role);
         Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
         await AuditLog.RecordAsync(_session, _tenant.Slug, "role.deleted", actorId, User.FindFirst("Username")?.Value,

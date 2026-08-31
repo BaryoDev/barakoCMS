@@ -60,13 +60,15 @@ internal class Endpoint : Endpoint<Request, Response>
         // 2. Normalize Name (slugify)
         var slug = req.Name.ToLowerInvariant().Trim().Replace(" ", "-");
 
-        // 3. Check Uniqueness
+        // 3. Check Uniqueness. This read is the friendly path, not the guarantee: the unique index on
+        // the name is what actually stops two concurrent creates, and the catch below turns its
+        // constraint violation into this same answer instead of a 500.
         var existing = await _session.Query<ContentTypeDefinition>()
             .FirstOrDefaultAsync(x => x.Name == slug, ct);
 
         if (existing != null)
         {
-            ThrowError("A Content Type with this name already exists.");
+            ThrowError(DuplicateName, 409);
         }
 
         // 4. Create
@@ -83,8 +85,40 @@ internal class Endpoint : Endpoint<Request, Response>
         };
 
         _session.Store(def);
-        await _session.SaveChangesAsync(ct);
+
+        try
+        {
+            await _session.SaveChangesAsync(ct);
+        }
+        catch (Exception ex) when (IsUniqueViolation(ex))
+        {
+            // The other half of the race: both requests read nothing, both inserted, and the database
+            // refused the second. Same answer as the read above rather than the raw Postgres error.
+            ThrowError(DuplicateName, 409);
+        }
 
         await Send.OkAsync(new Response { Id = def.Id, Name = def.Name }, ct);
+    }
+
+    private const string DuplicateName = "A Content Type with this name already exists.";
+
+    /// <summary>
+    /// Is this a Postgres unique-constraint violation (SQLSTATE 23505), at any depth?
+    /// </summary>
+    /// <remarks>
+    /// Marten wraps the Npgsql exception, and how deeply depends on which command failed, so the
+    /// chain is walked rather than the top-level type matched.
+    /// </remarks>
+    private static bool IsUniqueViolation(Exception? ex)
+    {
+        for (var current = ex; current is not null; current = current.InnerException)
+        {
+            if (current is Npgsql.PostgresException { SqlState: "23505" })
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

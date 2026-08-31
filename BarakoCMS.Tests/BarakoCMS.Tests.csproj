@@ -43,6 +43,9 @@
          was verified. A module that cannot be reached by a test is not under-tested, it is
          untestable. -->
     <ProjectReference Include="..\BarakoCMS.ExternalAuth\BarakoCMS.ExternalAuth.csproj" />
+    <!-- Portability had no test project reference either, and its import path silently dropped a
+         content type's public-delivery flag as a result. -->
+    <ProjectReference Include="..\BarakoCMS.Portability\BarakoCMS.Portability.csproj" />
   </ItemGroup>
 
 </Project>

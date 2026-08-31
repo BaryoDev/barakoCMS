@@ -48,12 +48,17 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
             {
                 report.ContentTypesUpdated++;
 
+                match.DisplayName = type.DisplayName;
+                match.Description = type.Description;
+                match.Fields = type.Fields;
+                // Carried like every other attribute of the schema. Dropping it silently reverted an
+                // exported type to not-deliverable, so a round trip through export/import took the
+                // content off the public API with the import still reporting success.
+                match.IsPubliclyDeliverable = type.IsPubliclyDeliverable;
+                match.UpdatedAt = DateTimeOffset.UtcNow;
+
                 if (!req.DryRun)
                 {
-                    match.DisplayName = type.DisplayName;
-                    match.Description = type.Description;
-                    match.Fields = type.Fields;
-                    match.UpdatedAt = DateTimeOffset.UtcNow;
                     _session.Store(match);
                 }
             }
@@ -61,21 +66,27 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
             {
                 report.ContentTypesCreated++;
 
+                var definition = new ContentTypeDefinition
+                {
+                    Id = Guid.NewGuid(),
+                    Name = type.Name,
+                    DisplayName = type.DisplayName,
+                    Description = type.Description,
+                    Fields = type.Fields,
+                    IsPubliclyDeliverable = type.IsPubliclyDeliverable,
+                    CreatedAt = DateTimeOffset.UtcNow,
+                    UpdatedAt = DateTimeOffset.UtcNow,
+                };
+
+                // Added to the lookup whether or not this is a dry run, so records later in the same
+                // bundle resolve against a type this bundle creates. Without it the dry run reports
+                // every one of them as having no schema, and the real run indexed them against no
+                // fields at all.
+                existing.Add(definition);
+
                 if (!req.DryRun)
                 {
-                    var definition = new ContentTypeDefinition
-                    {
-                        Id = Guid.NewGuid(),
-                        Name = type.Name,
-                        DisplayName = type.DisplayName,
-                        Description = type.Description,
-                        Fields = type.Fields,
-                        CreatedAt = DateTimeOffset.UtcNow,
-                        UpdatedAt = DateTimeOffset.UtcNow,
-                    };
-
                     _session.Store(definition);
-                    existing.Add(definition);
                 }
             }
         }
@@ -84,12 +95,26 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
         {
             if (string.IsNullOrWhiteSpace(rec.ContentType)) continue;
             report.ContentsCreated++;
+
+            var definition = existing.FirstOrDefault(t =>
+                t.Name.Equals(rec.ContentType, StringComparison.OrdinalIgnoreCase));
+
+            // A record whose type is in neither the store nor the bundle gets no public fields, so
+            // its SearchText comes out empty and it is unsearchable while the import still reports
+            // success. Counted and named in the report rather than left to be discovered later.
+            if (definition is null)
+            {
+                report.ContentsWithoutContentType++;
+                if (!report.UnknownContentTypes.Contains(rec.ContentType, StringComparer.OrdinalIgnoreCase))
+                {
+                    report.UnknownContentTypes.Add(rec.ContentType);
+                }
+            }
+
             if (!req.DryRun)
             {
                 var status = Enum.TryParse<ContentStatus>(rec.Status, ignoreCase: true, out var s) ? s : ContentStatus.Published;
                 var contentId = Guid.NewGuid();
-                var definition = existing.FirstOrDefault(t =>
-                    t.Name.Equals(rec.ContentType, StringComparison.OrdinalIgnoreCase));
 
                 var publicFields = definition?.Fields
                     .Where(f => f.Sensitivity == SensitivityLevel.Public)

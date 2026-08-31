@@ -79,3 +79,7 @@ BEGIN
 	return return_value;
 END
 $function$;
+
+-- The content-type name index. 3.x has no such constraint, so dropping it only widens what the
+-- database accepts and no data has to move.
+DROP INDEX IF EXISTS public.mt_doc_contenttypedefinition_uidx_name;
