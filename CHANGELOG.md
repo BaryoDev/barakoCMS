@@ -706,6 +706,13 @@ The release-readiness pass. Most of what follows is about the gates around a rel
 features, because an audit on 19 August found several of them reported success without checking
 anything.
 
+- **A sensitive field was masked under one spelling and returned under another.** Content data is a
+  plain case-sensitive dictionary and nothing at the write boundary rejects a key that differs from a
+  schema field only by case, because validation walks the schema's fields rather than the data's
+  keys. So `"Salary"` and `"salary"` could both be stored, and the mask removed the first and handed
+  over the second. A writer who could not set a field could also set it under another casing. Public
+  delivery already treated the two as one field; the authenticated path does now.
+
 ### Security
 
 **A webhook could be redirected past the SSRF guard.** `WebhookAction` validates the URL it is
