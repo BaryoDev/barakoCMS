@@ -82,6 +82,33 @@ public class ModuleOrderTests
         act.Should().Throw<InvalidOperationException>().WithMessage("*both named*");
     }
 
+    /// <summary>
+    /// The ordering used to recurse, one call frame per link, so depth was bounded by the call
+    /// stack and by nothing this method checked. A chain this long killed the process.
+    /// </summary>
+    /// <remarks>
+    /// A stack overflow cannot be caught, so there is no assertion to write against the old
+    /// behaviour: with the iterative traversal reverted this test takes the runner down with it.
+    /// The assertable half is what the fix does, which is sort.
+    /// </remarks>
+    [Fact]
+    public void A_chain_far_deeper_than_the_call_stack_is_ordered_rather_than_overflowing()
+    {
+        const int depth = 50_000;
+
+        // M0 -> M1 -> ... -> M49999. Declared shallowest-first, so the traversal has to walk the
+        // whole chain before it can emit anything.
+        var chain = new IBarakoModule[depth];
+        for (var i = 0; i < depth; i++)
+            chain[i] = i == depth - 1 ? new Fake($"M{i}") : new Fake($"M{i}", $"M{i + 1}");
+
+        var order = ModuleOrder.Sort(chain).Select(m => m.Name).ToArray();
+
+        order.Should().HaveCount(depth);
+        order[0].Should().Be($"M{depth - 1}", "the end of the chain depends on nothing, so it goes first");
+        order[^1].Should().Be("M0", "everything else has to be configured before it");
+    }
+
     [Fact]
     public void The_real_dependency_is_declared_and_ordered()
     {
@@ -94,9 +121,9 @@ public class ModuleOrderTests
     /// Records the order in which the host actually configured it.
     /// </summary>
     /// <remarks>
-    /// Two distinct types rather than two instances of one: BarakoModuleBuilder.Add deduplicates by
-    /// type, so two instances of the same class silently collapse into one. Worth knowing when
-    /// writing any test that registers more than one module.
+    /// Two distinct types rather than two instances of one: BarakoModuleBuilder.Add refuses a
+    /// module class it already holds. Worth knowing when writing any test that registers more
+    /// than one module. See ModuleRegistrationTests.
     /// </remarks>
     private abstract class Recorder(List<string> log) : IBarakoModule
     {

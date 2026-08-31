@@ -40,6 +40,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`IUserRepository` and `MartenUserRepository` are internal.**
 
+- **Registering the same module twice is refused rather than skipped.** `BarakoModuleBuilder.Add`
+  dropped a module whose type was already registered and said nothing, so a host that deliberately
+  added two configured instances got one of them and no explanation, and a test registering more
+  than one module quietly lost one. It throws now, naming the type, which is what the duplicate-name
+  check in `ModuleOrder` already did for the same class of mistake. `DiscoverFrom` still skips a type
+  already registered: discovery is a sweep, so adding a module by hand and then scanning the assembly
+  it lives in is a normal combination rather than an error.
+
 - **Enums cross the wire as names, not numbers.** `ContentStatus` and `SensitivityLevel` were 0/1/2,
   and the admin had the numbering transcribed into its own source to cope. Inserting a member
   renumbered every client. Requests may still send a number, so an existing caller keeps working when
@@ -232,6 +240,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A tenant can have a second member.** One thing created a `Membership`: `POST /api/tenants`,
+  provisioning the creator as an Active admin. There was no supported way to add anyone else, change
+  what they hold, or remove them, which made a multi-tenant CMS into a single-operator one. Five
+  endpoints under `Features/Tenants/Members/` close it: `GET /api/tenants/members` (roster, active
+  and suspended, newest first), `POST /api/tenants/members` (add by email), `PUT
+  /api/tenants/members/{userId}` (roles or status), `DELETE /api/tenants/members/{userId}` (mark
+  `Removed`) and `GET /api/tenants/members/roles` (what an administrator may assign).
+
+  The tenant is the caller's current one rather than a route parameter. `TenantAccessMiddleware`
+  already refuses a request whose token was minted for another tenant, and `TokenIssuer` puts the
+  caller's effective roles for that tenant into the token, so `Roles("SuperAdmin", "Admin")` reaching
+  a handler already means an administrator of this tenant. A handle in the route would mean
+  re-deriving that in every endpoint.
+
+  `SuperAdmin` is never assignable here, whatever the caller holds, on both the add and the edit
+  path. Removal marks `Removed` and never deletes, so history and audit survive. An unknown email
+  creates an OTP-only account (no password, they sign in with an emailed code), a known one reuses
+  the existing user, and re-adding somebody removed reactivates the membership they already had
+  rather than writing a second row. The tenants page in the admin grows a members section for all of
+  it.
+
 - **A workflow action can report that it failed.** `IWorkflowAction` gains
   `RunAsync`, which returns a `WorkflowActionResult`. It has a default implementation that calls the
   existing `ExecuteAsync` and reports success, so an action written against the old contract compiles
@@ -387,6 +416,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the codebase read as though the application backed itself up.
 
 ### Fixed
+
+- **Module ordering recursed, so a deep dependency chain killed the process.** `ModuleOrder.Sort`
+  traversed recursively, which bounded dependency depth by the call stack rather than by anything the
+  method checked: a long enough chain overflowed instead of reporting a cycle or a missing
+  dependency, and an overflow cannot be caught. The traversal keeps its own stack on the heap now.
+  Nothing caps depth, because any number picked would refuse a legal graph, and the existing
+  guarantees are unchanged: stable order for independent modules, a missing dependency refused by
+  name, a cycle refused with the cycle printed.
 
 - **Liveness and readiness were the same probe, so a database blip restart-looped every API pod.**
   Both pointed at `/health`, which runs every check including the database one, and the `ready` tag

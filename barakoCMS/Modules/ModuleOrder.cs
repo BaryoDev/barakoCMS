@@ -5,6 +5,14 @@ namespace barakoCMS.Modules;
 /// </summary>
 internal static class ModuleOrder
 {
+    /// <summary>One module's place in the traversal: which dependency it is up to.</summary>
+    private sealed class Frame(IBarakoModule module, string[] dependencies)
+    {
+        public IBarakoModule Module { get; } = module;
+        public string[] Dependencies { get; } = dependencies;
+        public int Next { get; set; }
+    }
+
     /// <summary>
     /// Topologically sorts <paramref name="modules"/> by <see cref="IBarakoModule.DependsOn"/>.
     /// </summary>
@@ -12,16 +20,16 @@ internal static class ModuleOrder
     /// Stable: modules with no dependency relationship keep the order they were given, so the same
     /// inputs always produce the same build. That matters more once discovery replaces a hand-written
     /// list, because assembly scan order is not something to rely on.
+    ///
+    /// The traversal keeps its own stack on the heap rather than recursing. Recursion bounded
+    /// dependency depth by the call stack, which this method never checked, so a deep enough chain
+    /// killed the process instead of reporting anything. Nothing here caps depth: the graph is the
+    /// host's, and any number picked would refuse a legal one. Depth now costs heap, which runs out
+    /// with an exception a host can catch and a message that says which module it was on.
     /// </remarks>
     /// <exception cref="InvalidOperationException">
     /// A declared dependency is not registered, or the graph contains a cycle.
     /// </exception>
-    /// <remarks>
-    /// The traversal is recursive, so dependency depth is bounded by the stack rather than by
-    /// anything this method checks. A deep enough chain overflows instead of reporting a cycle or a
-    /// missing dependency. An iterative traversal is needed before module registration stops being
-    /// a hand-written list.
-    /// </remarks>
     public static IReadOnlyList<IBarakoModule> Sort(IReadOnlyList<IBarakoModule> modules)
     {
         var byName = new Dictionary<string, IBarakoModule>(StringComparer.OrdinalIgnoreCase);
@@ -36,48 +44,70 @@ internal static class ModuleOrder
             byName[m.Name] = m;
         }
 
+        const int Visiting = 1;
+        const int Done = 2;
+
         var ordered = new List<IBarakoModule>(modules.Count);
-        var state = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase); // 1 visiting, 2 done
-        var path = new Stack<string>();
+        var state = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
-        void Visit(IBarakoModule module)
+        // The chain currently being walked, root first, so a back edge can print the cycle.
+        var path = new List<string>();
+        var stack = new List<Frame>();
+
+        void Push(IBarakoModule module)
         {
-            if (state.TryGetValue(module.Name, out var s))
-            {
-                if (s == 2) return;
-
-                // Back edge: the path from here to the repeat is the cycle, printed so the reader
-                // does not have to reconstruct it from a list of names.
-                var cycle = path.Reverse().SkipWhile(n => !n.Equals(module.Name, StringComparison.OrdinalIgnoreCase));
-                throw new InvalidOperationException(
-                    "Module dependencies form a cycle: "
-                    + string.Join(" -> ", cycle) + " -> " + module.Name
-                    + ". One of these DependsOn declarations has to go.");
-            }
-
-            state[module.Name] = 1;
-            path.Push(module.Name);
-
-            foreach (var dependency in module.DependsOn)
-            {
-                if (!byName.TryGetValue(dependency, out var target))
-                {
-                    throw new InvalidOperationException(
-                        $"Module '{module.Name}' depends on '{dependency}', which is not registered. "
-                        + $"Register it, or remove it from {module.GetType().Name}.DependsOn. "
-                        + $"Registered modules: {string.Join(", ", modules.Select(m => m.Name))}.");
-                }
-                Visit(target);
-            }
-
-            path.Pop();
-            state[module.Name] = 2;
-            ordered.Add(module);
+            state[module.Name] = Visiting;
+            path.Add(module.Name);
+            stack.Add(new Frame(module, module.DependsOn?.ToArray() ?? Array.Empty<string>()));
         }
 
         // Iterated in the given order, so independent modules come out in the order they went in.
-        foreach (var module in modules)
-            Visit(module);
+        foreach (var root in modules)
+        {
+            if (state.TryGetValue(root.Name, out var rootState) && rootState == Done)
+                continue;
+
+            Push(root);
+
+            while (stack.Count > 0)
+            {
+                var frame = stack[^1];
+
+                if (frame.Next >= frame.Dependencies.Length)
+                {
+                    stack.RemoveAt(stack.Count - 1);
+                    path.RemoveAt(path.Count - 1);
+                    state[frame.Module.Name] = Done;
+                    ordered.Add(frame.Module);
+                    continue;
+                }
+
+                var dependency = frame.Dependencies[frame.Next++];
+
+                if (!byName.TryGetValue(dependency, out var target))
+                {
+                    throw new InvalidOperationException(
+                        $"Module '{frame.Module.Name}' depends on '{dependency}', which is not registered. "
+                        + $"Register it, or remove it from {frame.Module.GetType().Name}.DependsOn. "
+                        + $"Registered modules: {string.Join(", ", modules.Select(m => m.Name))}.");
+                }
+
+                if (state.TryGetValue(target.Name, out var targetState))
+                {
+                    if (targetState == Done) continue;
+
+                    // Back edge: the path from the repeat onwards is the cycle, printed so the
+                    // reader does not have to reconstruct it from a list of names.
+                    var cycle = path.SkipWhile(n => !n.Equals(target.Name, StringComparison.OrdinalIgnoreCase));
+                    throw new InvalidOperationException(
+                        "Module dependencies form a cycle: "
+                        + string.Join(" -> ", cycle) + " -> " + target.Name
+                        + ". One of these DependsOn declarations has to go.");
+                }
+
+                Push(target);
+            }
+        }
 
         return ordered;
     }
