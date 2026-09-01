@@ -120,9 +120,14 @@ internal class Endpoint : Endpoint<Request, barakoCMS.Models.PaginatedResponse<V
     /// free to change, so the discriminator has to be a decision rather than a reflection of the
     /// type it happens to be built from.
     ///
-    /// An unrecognised event still falls back to its type name, because appearing under an ugly
-    /// label beats disappearing, and it makes the omission visible the first time somebody adds an
-    /// event and forgets this switch.
+    /// An unrecognised event still produces an entry, because appearing beats disappearing, and the
+    /// count of entries has to keep matching the count of events in the stream.
+    ///
+    /// It does NOT fall back to the CLR type name. That was the first version and it defeated the
+    /// point: adding an event and forgetting this switch would have put its class name on the wire,
+    /// which is the leak #229 forbids, and no reflection guard can see it because by then it is a
+    /// string. "Unknown" says the same thing to a client, and the omission is still visible, in the
+    /// place that can act on it rather than in a response.
     /// </remarks>
     private static string ChangeTypeOf(object @event) => @event switch
     {
@@ -131,6 +136,13 @@ internal class Endpoint : Endpoint<Request, barakoCMS.Models.PaginatedResponse<V
         barakoCMS.Events.ContentStatusChanged => "StatusChanged",
         barakoCMS.Events.ContentScheduled => "Scheduled",
         barakoCMS.Events.ContentSensitivityChanged => "SensitivityChanged",
-        _ => @event.GetType().Name,
+        _ => UnknownChangeType,
     };
+
+    /// <summary>What an event this mapper does not know is reported as.</summary>
+    /// <remarks>
+    /// Public so a test can pin it. It is wire contract like the other five, and the value being
+    /// deliberately uninformative is the property worth asserting.
+    /// </remarks>
+    internal const string UnknownChangeType = "Unknown";
 }
