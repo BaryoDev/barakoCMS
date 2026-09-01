@@ -228,7 +228,9 @@ public class ReadModelConcurrencyTests
     {
         var id = await DraftAsync("v1", publishAt: DateTime.UtcNow.AddMinutes(-5));
 
+        var attempted = false;
         var edited = false;
+        Exception? editorFailure = null;
 
         try
         {
@@ -237,18 +239,37 @@ public class ReadModelConcurrencyTests
             {
                 // Only this test's item. The sweep processes whatever else the suite has left due, and
                 // editing one of those would be a different test with a worse name.
-                if (item.Id != id || edited) return;
-                edited = true;
+                if (item.Id != id || attempted) return;
+                attempted = true;
 
-                using var editorScope = Scope();
-                var session = editorScope.ServiceProvider.GetRequiredService<IDocumentSession>();
-                var writer = editorScope.ServiceProvider.GetRequiredService<IContentWriter>();
-                var content = (await session.LoadAsync<barakoCMS.Models.Content>(id, ct))!;
-                await writer.AppendOptimisticAsync(
-                    content,
-                    new object[] { new ContentUpdated(id, new Dictionary<string, object> { ["Title"] = "v2" }, Guid.NewGuid(), "v2") },
-                    ct);
-                await session.SaveChangesAsync(ct);
+                // Two flags, not one, and the exception is kept rather than allowed to escape.
+                //
+                // This used to set a single flag on entry and let anything thrown propagate. Both
+                // were wrong in the same direction. The flag proved the hook was entered, not that
+                // the edit committed, and the sweep's catch filter matches any exception whose type
+                // name contains "Concurrency", so an editor append that lost its own race was
+                // swallowed by the sweep and read as the sweep winning. The test then failed on the
+                // title with a message about the sweep overwriting an edit that never landed.
+                //
+                // That is the shape of the intermittent CI failure in #424, and whether or not it is
+                // the only cause, a test cannot report the difference while the two look identical.
+                try
+                {
+                    using var editorScope = Scope();
+                    var session = editorScope.ServiceProvider.GetRequiredService<IDocumentSession>();
+                    var writer = editorScope.ServiceProvider.GetRequiredService<IContentWriter>();
+                    var content = (await session.LoadAsync<barakoCMS.Models.Content>(id, ct))!;
+                    await writer.AppendOptimisticAsync(
+                        content,
+                        new object[] { new ContentUpdated(id, new Dictionary<string, object> { ["Title"] = "v2" }, Guid.NewGuid(), "v2") },
+                        ct);
+                    await session.SaveChangesAsync(ct);
+                    edited = true;
+                }
+                catch (Exception ex)
+                {
+                    editorFailure = ex;
+                }
             }
 
             using (var scope = Scope())
@@ -264,7 +285,14 @@ public class ReadModelConcurrencyTests
                     default);
             }
 
-            edited.Should().BeTrue("the hook has to have run against this item, or this test proves nothing");
+            attempted.Should().BeTrue("the hook has to have run against this item, or this test proves nothing");
+
+            // Named before the outcome assertions, so a failing editor reports itself instead of
+            // surfacing as "the sweep overwrote the edit" three lines further down.
+            editorFailure.Should().BeNull(
+                "the editor's own append has to commit for there to be a race at all. It threw {0}: {1}",
+                editorFailure?.GetType().Name, editorFailure?.Message);
+            edited.Should().BeTrue("the edit has to have committed, not merely been attempted");
 
             // Deliberately not asserting on the flip count. Other tests leave due content behind, so
             // that number belongs to the whole suite and not to this test. What this item did is the
