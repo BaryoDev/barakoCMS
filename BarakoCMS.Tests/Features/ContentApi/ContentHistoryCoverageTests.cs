@@ -111,4 +111,65 @@ public class ContentHistoryCoverageTests
                 ["Created", "Updated", "StatusChanged", "Scheduled", "SensitivityChanged"],
                 "these five strings are the contract, independent of what the event records are called");
     }
+
+    /// <summary>
+    /// An event the mapper does not know is reported as "Unknown", not as its class name.
+    /// </summary>
+    /// <remarks>
+    /// The hole `EventSurfaceTests` cannot see. That guard reflects over types, and a CLR type name
+    /// turned into a string is invisible to it: by the time the value is on the wire it is a
+    /// `string` property, which the guard reads as safe.
+    ///
+    /// So the leak #229 forbids was reachable through the one line meant to be helpful. The mapper
+    /// fell back to `@event.GetType().Name` for an unrecognised event, on the reasoning that
+    /// appearing under an ugly label beats disappearing. Both halves of that are right except the
+    /// label: adding an event and forgetting the switch would have published its class name, and
+    /// nothing would have failed.
+    ///
+    /// Appending a raw event through Marten rather than through `IContentWriter`, because the writer
+    /// refuses an event with no `Content.Apply` overload, which is the correct behaviour and is
+    /// exactly what makes this case hard to reach on purpose.
+    /// </remarks>
+    [Fact]
+    public async Task An_unmapped_event_is_reported_as_Unknown_rather_than_its_class_name()
+    {
+        var (token, _) = await TestHelpers.CreateAdminUserAsync(_factory);
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var createResp = await _client.PostAsJsonAsync("/api/contents", new
+        {
+            ContentType = "Article",
+            Data = new Dictionary<string, object> { { "Title", "unmapped" } },
+        });
+        createResp.EnsureSuccessStatusCode();
+        var id = (await createResp.Content.ReadFromJsonAsync<barakoCMS.Features.Content.Create.Response>(ApiJson.Options))!.Id;
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Events.Append(id, new UnmappedProbeEvent(id, "should not reach the wire"));
+            await session.SaveChangesAsync();
+        }
+
+        var historyResp = await _client.GetAsync($"/api/contents/{id}/history");
+        historyResp.EnsureSuccessStatusCode();
+        var raw = await historyResp.Content.ReadAsStringAsync();
+
+        raw.Should().NotContain("UnmappedProbeEvent",
+            "an event this mapper does not know must not put its CLR type name on the wire, which is "
+          + "the leak #229 forbids and the one EventSurfaceTests cannot see");
+
+        using var document = JsonDocument.Parse(raw);
+        var types = document.RootElement.GetProperty("items").EnumerateArray()
+            .Select(e => e.GetProperty("changeType").GetString())
+            .ToList();
+
+        types.Should().Contain("Unknown",
+            "the entry still appears, because the count of entries has to keep matching the count of "
+          + "events in the stream");
+        types.Should().Contain("Created", "and the events the mapper does know are unaffected");
+    }
+
+    /// <summary>An event type the history mapper has never heard of. Test-only.</summary>
+    private sealed record UnmappedProbeEvent(Guid Id, string Note);
 }
