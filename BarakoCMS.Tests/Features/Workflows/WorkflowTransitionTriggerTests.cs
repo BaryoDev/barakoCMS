@@ -29,10 +29,16 @@ public class WorkflowTransitionTriggerTests
     private readonly IntegrationTestFixture _factory;
     private readonly HttpClient _client;
 
+    // Transitions go through a second person. #341 refuses a transition by whoever raised the entry,
+    // administrator included, so the creator moving its own invoice on is a 403 and every firing
+    // assertion here would be waiting on an event that was never appended.
+    private readonly HttpClient _approver;
+
     public WorkflowTransitionTriggerTests(IntegrationTestFixture factory)
     {
         _factory = factory;
         _client = factory.CreateClient();
+        _approver = factory.CreateClient();
     }
 
     /// <summary>
@@ -183,6 +189,9 @@ public class WorkflowTransitionTriggerTests
     {
         var (token, _) = await TestHelpers.CreateAdminUserAsync(_factory);
         _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var (approverToken, _) = await TestHelpers.CreateAdminUserAsync(_factory);
+        _approver.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", approverToken);
     }
 
     // One content type per test. The daemon is asynchronous, so one test's events can still be in
@@ -225,7 +234,7 @@ public class WorkflowTransitionTriggerTests
     }
 
     private Task<HttpResponseMessage> TransitionAsync(Guid id, string transition) =>
-        _client.PutAsJsonAsync($"/api/contents/{id}/status", new { id, transition });
+        _approver.PutAsJsonAsync($"/api/contents/{id}/status", new { id, transition });
 
     private Task<HttpResponseMessage> EditAsync(Guid id) =>
         _client.PutAsJsonAsync($"/api/contents/{id}", new
