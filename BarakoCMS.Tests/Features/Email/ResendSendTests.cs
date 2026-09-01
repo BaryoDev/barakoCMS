@@ -1,3 +1,4 @@
+using barakoCMS.Core.Interfaces;
 using System.Net;
 using System.Text.Json;
 using BarakoCMS.Email.Resend;
@@ -48,13 +49,27 @@ public class ResendSendTests
 {
     private const string ApiKey = "re_test_ThisIsNotARealResendKey_0123456789";
 
-    private static IConfiguration Config(params (string Key, string? Value)[] settings) =>
-        new ConfigurationBuilder()
-            .AddInMemoryCollection(settings.ToDictionary(s => s.Key, s => s.Value))
-            .Build();
+    private static ResendEmailService Service(RecordingHandler handler, string? apiKey, string? from = null) =>
+        new(new HttpClient(handler), new StubSettings(apiKey, from));
 
-    private static ResendEmailService Service(RecordingHandler handler, IConfiguration config) =>
-        new(new HttpClient(handler), config);
+    /// <summary>
+    /// Stands in for the resolved settings, so these tests stay about the bytes on the wire.
+    /// </summary>
+    /// <remarks>
+    /// The module reads credentials through <see cref="IEmailSettingsProvider"/> now rather than
+    /// from IConfiguration, so that precedence lives in one place and an admin can set them without
+    /// editing the deployment. Where a value came from is asserted against the real provider in
+    /// EmailSettingsTests; stubbing it here would be the wrong test for the wrong claim.
+    /// </remarks>
+    private sealed record StubSettings(string? ApiKey, string? From) : IEmailSettingsProvider
+    {
+        public Task<ResolvedEmailSettings> GetAsync(CancellationToken ct = default) =>
+            Task.FromResult(new ResolvedEmailSettings(
+                ApiKey,
+                From,
+                ApiKey is null ? EmailSettingSource.None : EmailSettingSource.Configuration,
+                From is null ? EmailSettingSource.None : EmailSettingSource.Configuration));
+    }
 
     /// <summary>
     /// The positive control: a configured service sends what it was asked to send.
@@ -63,8 +78,7 @@ public class ResendSendTests
     public async Task A_send_posts_the_message_to_resend()
     {
         var handler = new RecordingHandler();
-        var service = Service(handler, Config(
-            ("Resend:ApiKey", ApiKey), ("Resend:From", "BarakoCMS <hello@example.com>")));
+        var service = Service(handler, ApiKey, "BarakoCMS <hello@example.com>");
 
         await service.SendEmailAsync("someone@example.com", "Your code", "<p>123456</p>", TestContext.Current.CancellationToken);
 
@@ -88,7 +102,7 @@ public class ResendSendTests
     {
         var handler = new RecordingHandler();
 
-        await Service(handler, Config(("Resend:ApiKey", ApiKey)))
+        await Service(handler, ApiKey)
             .SendEmailAsync("someone@example.com", "s", "b", TestContext.Current.CancellationToken);
 
         handler.Request!.Headers.Authorization!.Scheme.Should().Be("Bearer");
@@ -112,7 +126,7 @@ public class ResendSendTests
         var handler = new RecordingHandler(
             HttpStatusCode.Forbidden, """{"message":"API key is invalid","name":"validation_error"}""");
 
-        var send = async () => await Service(handler, Config(("Resend:ApiKey", ApiKey)))
+        var send = async () => await Service(handler, ApiKey)
             .SendEmailAsync("someone@example.com", "s", "b", TestContext.Current.CancellationToken);
 
         var thrown = await send.Should().ThrowAsync<InvalidOperationException>();
@@ -137,7 +151,7 @@ public class ResendSendTests
         Environment.SetEnvironmentVariable("RESEND_API_KEY", null);
         try
         {
-            var send = async () => await Service(handler, Config(("Resend:ApiKey", null)))
+            var send = async () => await Service(handler, null)
                 .SendEmailAsync("someone@example.com", "s", "b", TestContext.Current.CancellationToken);
 
             (await send.Should().ThrowAsync<InvalidOperationException>())

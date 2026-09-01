@@ -17,9 +17,6 @@ public interface IMfaSecretProtector
 
 public sealed class MfaSecretProtector : IMfaSecretProtector
 {
-    private const int NonceLen = 12; // AesGcm.NonceByteSizes.MaxSize
-    private const int TagLen = 16;   // AesGcm.TagByteSizes.MaxSize
-
     private readonly byte[] _key;
 
     public MfaSecretProtector(IConfiguration config)
@@ -28,39 +25,15 @@ public sealed class MfaSecretProtector : IMfaSecretProtector
         if (string.IsNullOrEmpty(material)) material = config["JWT:Key"];
         if (string.IsNullOrEmpty(material))
             throw new InvalidOperationException("Mfa:Key or JWT:Key must be configured to protect MFA secrets.");
-        _key = SHA256.HashData(Encoding.UTF8.GetBytes(material)); // 32-byte AES-256 key
+        _key = barakoCMS.Infrastructure.Security.AesGcmEnvelope.DeriveKey(material); // 32-byte AES-256 key
     }
 
-    public string Protect(string plaintext)
-    {
-        var nonce = RandomNumberGenerator.GetBytes(NonceLen);
-        var plain = Encoding.UTF8.GetBytes(plaintext);
-        var cipher = new byte[plain.Length];
-        var tag = new byte[TagLen];
+    // The key derivation above stays here rather than moving with the cipher. It reads Mfa:Key, and
+    // secrets already stored were encrypted under it, so a shared derivation would silently retire
+    // every second factor in the database.
+    public string Protect(string plaintext) =>
+        barakoCMS.Infrastructure.Security.AesGcmEnvelope.Protect(_key, plaintext);
 
-        using var aes = new AesGcm(_key, TagLen);
-        aes.Encrypt(nonce, plain, cipher, tag);
-
-        var outBytes = new byte[NonceLen + TagLen + cipher.Length];
-        Buffer.BlockCopy(nonce, 0, outBytes, 0, NonceLen);
-        Buffer.BlockCopy(tag, 0, outBytes, NonceLen, TagLen);
-        Buffer.BlockCopy(cipher, 0, outBytes, NonceLen + TagLen, cipher.Length);
-        return Convert.ToBase64String(outBytes);
-    }
-
-    public string Unprotect(string protectedValue)
-    {
-        var raw = Convert.FromBase64String(protectedValue);
-        if (raw.Length < NonceLen + TagLen)
-            throw new CryptographicException("Malformed protected MFA secret.");
-
-        var nonce = raw.AsSpan(0, NonceLen);
-        var tag = raw.AsSpan(NonceLen, TagLen);
-        var cipher = raw.AsSpan(NonceLen + TagLen);
-        var plain = new byte[cipher.Length];
-
-        using var aes = new AesGcm(_key, TagLen);
-        aes.Decrypt(nonce, cipher, tag, plain);
-        return Encoding.UTF8.GetString(plain);
-    }
+    public string Unprotect(string protectedValue) =>
+        barakoCMS.Infrastructure.Security.AesGcmEnvelope.Unprotect(_key, protectedValue);
 }

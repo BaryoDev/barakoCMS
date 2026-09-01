@@ -392,6 +392,10 @@ public static class ServiceCollectionExtensions
                 .SingleTenanted()
                 .DocumentAlias("system_settings");
 
+            options.Schema.For<EmailSettings>()
+                .SingleTenanted() // one mail provider for the deployment, not one per tenant
+                .DocumentAlias("email_settings");
+
             options.Schema.For<Models.Role>()
                 .SingleTenanted() // roles are global; per-tenant assignment lives on Membership
                 .DocumentAlias("roles")
@@ -579,6 +583,8 @@ public static class ServiceCollectionExtensions
 
         // MFA (TOTP): secret protection (AES-GCM) + enrollment/verification.
         services.AddSingleton<barakoCMS.Infrastructure.Auth.Mfa.IMfaSecretProtector, barakoCMS.Infrastructure.Auth.Mfa.MfaSecretProtector>();
+        services.AddSingleton<barakoCMS.Infrastructure.Security.ISecretProtector, barakoCMS.Infrastructure.Security.SecretProtector>();
+        services.AddScoped<barakoCMS.Core.Interfaces.IEmailSettingsProvider, barakoCMS.Infrastructure.Services.EmailSettingsProvider>();
         services.AddScoped<barakoCMS.Infrastructure.Auth.Mfa.IMfaService, barakoCMS.Infrastructure.Auth.Mfa.MfaService>();
         // Device trust is opt-in: the default gate does nothing. The DeviceTrust module overrides it.
         services.TryAddScoped<barakoCMS.Core.Interfaces.IDeviceGate, barakoCMS.Core.Interfaces.NoopDeviceGate>();
