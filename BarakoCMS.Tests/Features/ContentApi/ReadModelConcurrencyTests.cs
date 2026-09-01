@@ -321,4 +321,5 @@ public class ReadModelConcurrencyTests
             await session.SaveChangesAsync();
         }
     }
+
 }
