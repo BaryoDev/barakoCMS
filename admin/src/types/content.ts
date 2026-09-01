@@ -15,6 +15,15 @@ export interface ContentListItem {
 export interface ContentDetail extends ContentListItem {
     lastModifiedBy?: string;
     version: number; // echo back on update, the backend enforces optimistic concurrency (412)
+    // Null when nothing is armed. Both UTC with a zone, so new Date() reads them correctly wherever
+    // the browser is.
+    scheduledPublishAt?: string | null;
+    scheduledUnpublishAt?: string | null;
+}
+
+export interface ScheduleContentRequest {
+    scheduledPublishAt: string | null;
+    scheduledUnpublishAt: string | null;
 }
 
 // Names, not numbers, matching the API from 4.0. These used to be 0/1/2, transcribed from the

@@ -240,6 +240,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Scheduled publishing is reachable from the admin.** A Schedule tab on a content entry arms or
+  clears the publish and archive times, and shows what is armed. The server has had
+  `PUT /api/contents/{id}/schedule` and the background sweeper for a while, and the README advertised
+  arming any item, but nothing in the admin called it. `GET /api/contents/{id}` now returns
+  `scheduledPublishAt` and `scheduledUnpublishAt` so a client can read back what it set.
+
 - **A tenant can have a second member.** One thing created a `Membership`: `POST /api/tenants`,
   provisioning the creator as an Active admin. There was no supported way to add anyone else, change
   what they hold, or remove them, which made a multi-tenant CMS into a single-operator one. Five

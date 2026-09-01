@@ -18,6 +18,12 @@ answering differently would confirm which types exist.
 Responses carry `Cache-Control: public, max-age=60`. The one exception is a slug read served under a
 valid `?preview=` token, which is `no-store` because it can return an unpublished entry.
 
+**Preview tokens are minted through the API, not the admin.** `POST /api/preview` returns a token
+bound to a tenant, a content type and a slug. There is no button for it in barakoCMS itself, so a
+front end that wants preview links calls that endpoint from its own code. Deferred deliberately
+rather than overlooked (#306), and recorded here so nobody goes looking for a screen that does not
+exist.
+
 ## Routes
 
 | Method | Route | Returns |

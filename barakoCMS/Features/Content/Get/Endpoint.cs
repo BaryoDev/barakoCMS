@@ -75,6 +75,14 @@ internal class Endpoint : Endpoint<Request, Response>
             Status = content.Status,
             LastModifiedBy = content.LastModifiedBy,
             Sensitivity = content.Sensitivity,
+            // Stored as DateTime with Kind Utc. Stated explicitly rather than relying on the
+            // implicit conversion, which would read an Unspecified Kind as local time.
+            ScheduledPublishAt = content.ScheduledPublishAt is { } p
+                ? new DateTimeOffset(DateTime.SpecifyKind(p, DateTimeKind.Utc))
+                : null,
+            ScheduledUnpublishAt = content.ScheduledUnpublishAt is { } u
+                ? new DateTimeOffset(DateTime.SpecifyKind(u, DateTimeKind.Utc))
+                : null,
             Version = streamState?.Version ?? 0
         };
 

@@ -10,16 +10,20 @@ import {
   useContentHistory,
   useRollbackContent,
   useUpdateContent,
+  useScheduleContent,
   useUpdateContentStatus,
 } from '@/hooks/use-contents';
 import { apiErrorMessage } from '@/lib/api';
 import { ContentStatus, SENSITIVITY_META, statusMeta } from '@/types/content';
+import type { ContentDetail } from '@/types/content';
 import { PageHeader } from '@/components/patterns/page-header';
 import { StatusBadge } from '@/components/patterns/status-badge';
 import { TableSkeleton } from '@/components/patterns/table-skeleton';
 import { ConfirmDialog } from '@/components/patterns/confirm-dialog';
 import { DynamicForm } from '@/components/content/dynamic-form';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { IconArchive, IconHistory, IconRollback } from '@/components/icons';
@@ -121,6 +125,7 @@ export default function ContentDetailPage({ params }: { params: Promise<{ id: st
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           <TabsTrigger value="edit">Edit</TabsTrigger>
+          <TabsTrigger value="schedule">Schedule</TabsTrigger>
           <TabsTrigger value="history">
             <IconHistory className="size-3.5" />
             History
@@ -149,12 +154,147 @@ export default function ContentDetailPage({ params }: { params: Promise<{ id: st
           )}
         </TabsContent>
 
+        <TabsContent value="schedule" className="mt-4">
+          <SchedulePanel content={content} />
+        </TabsContent>
+
         <TabsContent value="history" className="mt-4">
           <HistoryPanel id={id} active={tab === 'history'} canRollback={canRollback} />
         </TabsContent>
       </Tabs>
     </>
   );
+}
+
+/**
+ * Arm or clear the times the background sweeper acts on.
+ *
+ * The panel shows what is armed as well as setting it. Arming a publish time and having no way to
+ * read it back means the only way to know it took is to wait and see whether it happened, which is
+ * why the Get endpoint returns these alongside the entry.
+ *
+ * Times are entered in the browser's zone and sent as UTC. `datetime-local` has no zone at all, so
+ * the conversion has to be explicit: `new Date(local).toISOString()`. Treating the string as if it
+ * were already UTC is the mistake this makes easy, and it is silently wrong by the reader's offset.
+ */
+function SchedulePanel({ content }: { content: ContentDetail }) {
+  const scheduleContent = useScheduleContent();
+
+  const [publishAt, setPublishAt] = useState(toLocalInput(content.scheduledPublishAt));
+  const [unpublishAt, setUnpublishAt] = useState(toLocalInput(content.scheduledUnpublishAt));
+
+  const armed = content.scheduledPublishAt || content.scheduledUnpublishAt;
+
+  // The server refuses this too. Saying so here as well means the person gets told before the
+  // round trip, and the server stays the one that actually enforces it.
+  const inverted =
+    publishAt !== '' && unpublishAt !== '' && new Date(unpublishAt) <= new Date(publishAt);
+
+  const save = (next: { publish: string; unpublish: string }) =>
+    scheduleContent.mutate(
+      {
+        id: content.id,
+        schedule: {
+          scheduledPublishAt: next.publish === '' ? null : new Date(next.publish).toISOString(),
+          scheduledUnpublishAt: next.unpublish === '' ? null : new Date(next.unpublish).toISOString(),
+        },
+      },
+      {
+        onSuccess: () =>
+          toast.success(
+            next.publish === '' && next.unpublish === '' ? 'Schedule cleared' : 'Schedule saved',
+          ),
+        onError: (error: unknown) => toast.error(apiErrorMessage(error)),
+      },
+    );
+
+  return (
+    <div className="max-w-2xl space-y-6">
+      <div>
+        <h3 className="text-sm font-medium">Scheduled publishing</h3>
+        <p className="text-muted-foreground mt-1 text-sm">
+          A background sweep publishes a draft at its publish time and archives a published entry at
+          its unpublish time. Leave a field empty to arm nothing.
+        </p>
+      </div>
+
+      {armed ? (
+        <p className="text-sm" data-testid="schedule-armed">
+          {content.scheduledPublishAt
+            ? `Publishing ${format(new Date(content.scheduledPublishAt), 'PPpp')}. `
+            : ''}
+          {content.scheduledUnpublishAt
+            ? `Archiving ${format(new Date(content.scheduledUnpublishAt), 'PPpp')}.`
+            : ''}
+        </p>
+      ) : (
+        <p className="text-muted-foreground text-sm" data-testid="schedule-armed">
+          Nothing is scheduled for this entry.
+        </p>
+      )}
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-2">
+          <Label htmlFor="publishAt">Publish at</Label>
+          <Input
+            id="publishAt"
+            type="datetime-local"
+            value={publishAt}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPublishAt(e.target.value)}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="unpublishAt">Archive at</Label>
+          <Input
+            id="unpublishAt"
+            type="datetime-local"
+            value={unpublishAt}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setUnpublishAt(e.target.value)}
+          />
+        </div>
+      </div>
+
+      {inverted && (
+        <p className="text-destructive text-sm" role="alert" data-testid="schedule-inverted">
+          Archive time has to be after publish time, or the entry would retire before it went live.
+        </p>
+      )}
+
+      <div className="flex items-center gap-2">
+        <Button
+          onClick={() => save({ publish: publishAt, unpublish: unpublishAt })}
+          disabled={scheduleContent.isPending || inverted}
+        >
+          {scheduleContent.isPending ? 'Saving…' : 'Save schedule'}
+        </Button>
+        <Button
+          variant="ghost"
+          disabled={scheduleContent.isPending || (!armed && publishAt === '' && unpublishAt === '')}
+          onClick={() => {
+            setPublishAt('');
+            setUnpublishAt('');
+            save({ publish: '', unpublish: '' });
+          }}
+        >
+          Clear schedule
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A UTC instant as the local wall-clock string `datetime-local` expects.
+ *
+ * `toISOString().slice(0, 16)` is the tempting one-liner and it is wrong: it renders the UTC clock
+ * into a control the browser reads as local, so the value shifts by the reader's offset every time
+ * the form is opened and saved.
+ */
+function toLocalInput(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const local = new Date(d.getTime() - d.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
 }
 
 function HistoryPanel({
