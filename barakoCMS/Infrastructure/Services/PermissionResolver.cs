@@ -101,8 +101,38 @@ public class PermissionResolver : IPermissionResolver
 
     public void InvalidateAllPermissions() { }
 
+    /// <summary>The prefix an action uses to name a lifecycle transition rather than a CRUD verb.</summary>
+    /// <remarks>
+    /// Prefixed so a transition can never collide with a CRUD action, whatever somebody names it. A
+    /// content type declaring a transition called "Update" would otherwise silently reuse the CRUD
+    /// rule, and the collision would look like a permission that mysteriously already applied.
+    /// </remarks>
+    public const string TransitionActionPrefix = "transition:";
+
     private Models.PermissionRule? GetRuleForAction(Models.ContentTypePermission permission, string action)
     {
+        if (action.StartsWith(TransitionActionPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            var name = action[TransitionActionPrefix.Length..];
+
+            // Compared here rather than trusting the dictionary's comparer. Transitions is built
+            // with StringComparer.OrdinalIgnoreCase, and that comparer does not survive the trip
+            // through the database: System.Text.Json constructs a fresh Dictionary with the default
+            // comparer when it deserialises the role, so a rule saved as "approve" would stop
+            // matching a transition named "Approve" once the document was reloaded. The failure is
+            // a 403 on a permission the operator can see granted in the admin UI.
+            foreach (var candidate in permission.Transitions)
+            {
+                if (string.Equals(candidate.Key, name, StringComparison.OrdinalIgnoreCase))
+                    return candidate.Value;
+            }
+
+            // Missing means refused, not inherited from Update. Returning the Update rule here is the
+            // obvious way to keep existing configurations working and it is exactly the defect: it
+            // grants approval to everyone who can edit.
+            return null;
+        }
+
         return action.ToLower() switch
         {
             "create" => permission.Create,
