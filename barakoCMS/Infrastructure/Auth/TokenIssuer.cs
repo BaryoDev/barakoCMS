@@ -59,6 +59,16 @@ public sealed class TokenIssuer : ITokenIssuer
             o.Audience = _config["JWT:Audience"];
             var u = o.User;
                 u.Claims.Add(new(JwtRegisteredClaimNames.Jti, jti));
+
+                // Set explicitly rather than left to the library. The session epoch check in
+                // TokenValidationMiddleware compares this against the user's TokensValidFrom, and it
+                // serves the request when it cannot read an iat, because refusing on a parse failure
+                // would lock out every user at once. So an absent iat is not an error anywhere: it
+                // is a security control that silently does nothing, which is the worst of the three
+                // possible outcomes. TokenIssuerTests asserts the claim is present for that reason.
+                u.Claims.Add(new(
+                    JwtRegisteredClaimNames.Iat,
+                    DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture)));
                 u.Claims.Add(new("UserId", user.Id.ToString()));
                 u.Claims.Add(new("Username", user.Username));
                 u.Claims.Add(new("tenant", slug));
