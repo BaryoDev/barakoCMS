@@ -188,6 +188,17 @@ internal class Endpoint : Endpoint<Request, Response>
             ThrowError($"Content type '{content.ContentType}' declares a lifecycle, so it takes Transition rather than NewStatus.", 400);
         }
 
+        // Nothing below this line may be reached by a caller with no rights on the type. Removing
+        // the shared Update check is what makes this necessary: the refusals further down name the
+        // type's declared transitions and the entry's current lifecycle state, which is a workflow
+        // map handed to anyone holding a valid token. Read is the floor rather than Update, because
+        // requiring Update is the coupling this whole change exists to remove.
+        if (!await _permissionResolver.CanPerformActionAsync(user, content.ContentType, "read", content, ct))
+        {
+            await Send.ForbiddenAsync(ct);
+            return;
+        }
+
         // An entry written before the type declared a lifecycle has no state. It starts at the
         // declared initial state rather than being unmovable, because the alternative is content
         // that can never be transitioned and no way to fix it short of editing the database.
@@ -205,28 +216,10 @@ internal class Endpoint : Endpoint<Request, Response>
             return;
         }
 
-        if (!string.Equals(transition.From, currentState, StringComparison.OrdinalIgnoreCase))
-        {
-            var enforce = _configuration.GetValue("Lifecycle:EnforceTransitions", true);
-            var message = $"'{transition.Name}' moves {transition.From} to {transition.To}, and this entry is {currentState}.";
-
-            if (enforce)
-            {
-                ThrowError(message, 409);
-                return;
-            }
-
-            // Recorded at warning level rather than passed over. The setting exists to let existing
-            // data through, and an operator who turned it on should be able to see what it let
-            // through and how often.
-            _logger.LogWarning(
-                "Lifecycle:EnforceTransitions is off and permitted an out-of-order transition on {ContentId}: {Message}",
-                content.Id, message);
-        }
-
         // Checked here rather than at the top with the CRUD check, because which permission applies
         // depends on which transition was named, and that is only known once the request has been
-        // matched against the lifecycle.
+        // matched against the lifecycle. It runs before the state check below, so a caller who may
+        // not perform a transition is not told which state the entry is sitting in.
         //
         // A transition permission is not implied by Update. Falling back to the Update rule is the
         // obvious way to keep existing configurations working and it is the defect this exists to
@@ -254,6 +247,25 @@ internal class Endpoint : Endpoint<Request, Response>
 
             await Send.ForbiddenAsync(ct);
             return;
+        }
+
+        if (!string.Equals(transition.From, currentState, StringComparison.OrdinalIgnoreCase))
+        {
+            var enforce = _configuration.GetValue("Lifecycle:EnforceTransitions", true);
+            var message = $"'{transition.Name}' moves {transition.From} to {transition.To}, and this entry is {currentState}.";
+
+            if (enforce)
+            {
+                ThrowError(message, 409);
+                return;
+            }
+
+            // Recorded at warning level rather than passed over. The setting exists to let existing
+            // data through, and an operator who turned it on should be able to see what it let
+            // through and how often.
+            _logger.LogWarning(
+                "Lifecycle:EnforceTransitions is off and permitted an out-of-order transition on {ContentId}: {Message}",
+                content.Id, message);
         }
 
         var transitioned = new barakoCMS.Events.ContentTransitioned(

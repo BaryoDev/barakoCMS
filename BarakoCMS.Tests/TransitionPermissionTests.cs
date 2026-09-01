@@ -83,6 +83,22 @@ public class TransitionPermissionTests
         },
     };
 
+    /// <summary>
+    /// The same manager, with the rule stored as "approve" against a transition declared "Approve".
+    /// </summary>
+    private static ContentTypePermission ManagerInAnotherCasing(string type) => new()
+    {
+        ContentTypeSlug = type,
+        Read = new PermissionRule { Enabled = true },
+        Transitions = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["approve"] = new PermissionRule { Enabled = true },
+        },
+    };
+
+    /// <summary>A role with the content type named and nothing on it enabled.</summary>
+    private static ContentTypePermission Nothing(string type) => new() { ContentTypeSlug = type };
+
     private static ContentTypePermission Manager(string type) => new()
     {
         ContentTypeSlug = type,
@@ -213,7 +229,8 @@ public class TransitionPermissionTests
             data = new Dictionary<string, object> { ["Title"] = "changed the amount" },
         });
 
-        res.IsSuccessStatusCode.Should().BeFalse("the manager role grants a transition and not Update");
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "the manager role grants a transition and not Update");
     }
 
     /// <summary>
@@ -275,5 +292,149 @@ public class TransitionPermissionTests
 
         res.StatusCode.Should().Be(HttpStatusCode.Forbidden,
             "a separation of duties an administrator can ignore is not one");
+    }
+
+    /// <summary>
+    /// A rule saved in one casing matches a transition declared in another.
+    /// </summary>
+    /// <remarks>
+    /// Transitions is constructed with StringComparer.OrdinalIgnoreCase and that comparer does not
+    /// survive persistence: System.Text.Json builds a fresh Dictionary with the default comparer
+    /// when Marten deserialises the role, so the lookup silently became case sensitive as soon as
+    /// the document was reloaded. The lifecycle matches a transition name case insensitively, so
+    /// the two halves disagreed and the result was a 403 on a permission the admin UI showed as
+    /// granted.
+    ///
+    /// This has to go through the database to mean anything. Asserting against a Role still held in
+    /// memory tests the comparer in the initialiser, which was never the broken part.
+    /// </remarks>
+    [Fact]
+    public async Task A_rule_saved_in_another_casing_still_matches()
+    {
+        var type = await TypeAsync();
+        var (clerk, _) = await UserAsync(type, Clerk(type));
+        var (submitter, _) = await UserAsync(type, Clerk(type));
+        var (manager, _) = await UserAsync(type, ManagerInAnotherCasing(type));
+
+        var id = await EntryAsync(clerk, type);
+        await submitter.PutAsJsonAsync($"/api/contents/{id}/status", new { id, transition = "Submit" });
+
+        var res = await manager.PutAsJsonAsync($"/api/contents/{id}/status", new { id, transition = "Approve" });
+
+        res.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", res.StatusCode, await res.Content.ReadAsStringAsync());
+    }
+
+    /// <summary>
+    /// Someone with no rights on the type is not told what its transitions are.
+    /// </summary>
+    /// <remarks>
+    /// Dropping the shared Update check is what opened this. The refusals in the transition path
+    /// name the type's declared transitions and the entry's lifecycle state, and with no check above
+    /// them any authenticated token could read a workflow map off a 400 and a 409.
+    ///
+    /// Read is the floor rather than Update. Requiring Update here would put back the coupling the
+    /// whole change exists to remove, and a manager who may approve without editing has to get past
+    /// this line.
+    /// </remarks>
+    [Fact]
+    public async Task Someone_with_no_rights_on_the_type_is_not_told_its_transitions()
+    {
+        var type = await TypeAsync();
+        var (clerk, _) = await UserAsync(type, Clerk(type));
+        var (outsider, _) = await UserAsync(type, Nothing(type));
+
+        var id = await EntryAsync(clerk, type);
+
+        var res = await outsider.PutAsJsonAsync($"/api/contents/{id}/status", new { id, transition = "NoSuchThing" });
+        var body = await res.Content.ReadAsStringAsync();
+
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden, "got {0}: {1}", res.StatusCode, body);
+        body.Should().NotContain("Approve", "the declared transitions are a workflow map, not a 400 message");
+        body.Should().NotContain("Submit");
+    }
+
+    /// <summary>
+    /// A transition permission does not stand in for read.
+    /// </summary>
+    /// <remarks>
+    /// This role grants Approve and leaves Read off, which is a configuration an operator can reach
+    /// by granting the transition and forgetting the rest. Without the read floor it walks straight
+    /// past the transition check and is told the entry's lifecycle state by the 409, so the floor is
+    /// the only thing between this caller and the answer.
+    ///
+    /// It is also the rule worth stating on its own: acting on an entry you may not read is not a
+    /// permission anybody meant to grant.
+    /// </remarks>
+    [Fact]
+    public async Task A_transition_permission_does_not_stand_in_for_read()
+    {
+        var type = await TypeAsync();
+        var (clerk, _) = await UserAsync(type, Clerk(type));
+        var (ghost, _) = await UserAsync(type, new ContentTypePermission
+        {
+            ContentTypeSlug = type,
+            Transitions = new(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Approve"] = new PermissionRule { Enabled = true },
+            },
+        });
+
+        // Left in Draft, so the state check would answer 409 and name it.
+        var id = await EntryAsync(clerk, type);
+
+        var res = await ghost.PutAsJsonAsync($"/api/contents/{id}/status", new { id, transition = "Approve" });
+        var body = await res.Content.ReadAsStringAsync();
+
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden, "got {0}: {1}", res.StatusCode, body);
+        body.Should().NotContain("Draft", "the entry's position in the lifecycle is not public either");
+    }
+
+    /// <summary>
+    /// A refusal says the caller may not do it, rather than to come back later.
+    /// </summary>
+    /// <remarks>
+    /// The clerk role grants Submit and not Approve, and the entry is in Draft, so both the
+    /// permission check and the state check would refuse. Which one answers decides what the caller
+    /// is told: 409 reads as "not yet, try once it is Submitted", and the clerk can never approve it
+    /// at any state. The permission check runs first so the answer is the true one.
+    /// </remarks>
+    [Fact]
+    public async Task Someone_who_may_not_perform_a_transition_is_not_told_to_come_back_later()
+    {
+        var type = await TypeAsync();
+        var (clerk, _) = await UserAsync(type, Clerk(type));
+        var (other, _) = await UserAsync(type, Clerk(type));
+
+        var id = await EntryAsync(clerk, type);
+
+        var res = await other.PutAsJsonAsync($"/api/contents/{id}/status", new { id, transition = "Approve" });
+
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "the clerk cannot approve at any state, so 409 would be the wrong answer");
+    }
+
+    /// <summary>
+    /// The control for the two above: an out-of-order transition still explains itself to someone
+    /// entitled to perform it.
+    /// </summary>
+    /// <remarks>
+    /// Without this, refusing every transition with a bare 403 would satisfy both of the disclosure
+    /// tests while removing the message an operator needs.
+    /// </remarks>
+    [Fact]
+    public async Task An_out_of_order_transition_still_names_the_state_for_someone_who_may_perform_it()
+    {
+        var type = await TypeAsync();
+        var (clerk, _) = await UserAsync(type, Clerk(type));
+        var (manager, _) = await UserAsync(type, Manager(type));
+
+        // Left in Draft, so Approve (Submitted to Approved) does not apply yet.
+        var id = await EntryAsync(clerk, type);
+
+        var res = await manager.PutAsJsonAsync($"/api/contents/{id}/status", new { id, transition = "Approve" });
+        var body = await res.Content.ReadAsStringAsync();
+
+        res.StatusCode.Should().Be(HttpStatusCode.Conflict, "got {0}: {1}", res.StatusCode, body);
+        body.Should().Contain("Draft", "an operator entitled to approve is told why it did not apply");
     }
 }
