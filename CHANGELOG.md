@@ -240,6 +240,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **CI runs the admin against the real API, with nothing mocked.** Every other admin job mocks the
+  API with `page.route`, so it proves the admin behaves correctly given fixtures the same person
+  wrote and cannot prove those fixtures match the server. `scripts/smoke-check.sh` stands up
+  Postgres, the API and the admin, seeds content through the API, and runs `admin/smoke`, which
+  refuses to contain a route mock. It covers signing in, the error shape, the list envelope, string
+  enums on the wire and the History panel.
+
 - **Scheduled publishing is reachable from the admin.** A Schedule tab on a content entry arms or
   clears the publish and archive times, and shows what is armed. The server has had
   `PUT /api/contents/{id}/schedule` and the background sweeper for a while, and the README advertised
