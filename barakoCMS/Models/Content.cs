@@ -105,6 +105,21 @@ public class Content
         LastModifiedBy = @event.UpdatedBy;
     }
 
+    /// <summary>Rebuilds only the derived search text.</summary>
+    /// <remarks>
+    /// The one Apply that leaves <see cref="UpdatedAt"/> and <see cref="LastModifiedBy"/> alone, and
+    /// that is the point of it. The entry was not edited: a schema decision changed which part of it
+    /// is public. Stamping it would move every entry of the type to the top of any "recently
+    /// updated" list, change what the sitemap reports as lastmod for all of them at once, and name an
+    /// administrator as the last person to touch content they never opened.
+    ///
+    /// <paramref name="occurredAt"/> is taken and unused for that reason, not by oversight.
+    /// </remarks>
+    public void Apply(barakoCMS.Events.ContentFieldSensitivityChanged @event, DateTime occurredAt)
+    {
+        SearchText = @event.SearchText;
+    }
+
     // The single-argument forms these replace. Kept because Content ships in the BarakoCMS package
     // and external code compiles against it. Each delegates with UtcNow, which is what the old body
     // read, so a caller that has not moved across behaves exactly as before. A rebuild must not use

@@ -94,6 +94,9 @@ internal class Endpoint : Endpoint<Request, barakoCMS.Models.PaginatedResponse<V
                     version.LastModifiedBy = sensitivityChanged.UpdatedBy;
                     version.Sensitivity = sensitivityChanged.Sensitivity;
                     break;
+                case barakoCMS.Events.ContentFieldSensitivityChanged fieldSensitivityChanged:
+                    version.LastModifiedBy = fieldSensitivityChanged.ChangedBy;
+                    break;
             }
 
             return version;
@@ -136,6 +139,7 @@ internal class Endpoint : Endpoint<Request, barakoCMS.Models.PaginatedResponse<V
         barakoCMS.Events.ContentStatusChanged => "StatusChanged",
         barakoCMS.Events.ContentScheduled => "Scheduled",
         barakoCMS.Events.ContentSensitivityChanged => "SensitivityChanged",
+        barakoCMS.Events.ContentFieldSensitivityChanged => "FieldSensitivityChanged",
         _ => UnknownChangeType,
     };
 

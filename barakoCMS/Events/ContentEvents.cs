@@ -49,3 +49,25 @@ public record ContentSensitivityChanged(
     Guid Id,
     Models.SensitivityLevel Sensitivity,
     Guid UpdatedBy);
+
+/// <summary>
+/// A field's sensitivity changed on the content type, so this entry's derived
+/// <see cref="Models.Content.SearchText"/> was rebuilt.
+/// </summary>
+/// <remarks>
+/// Appended once per affected entry rather than once against the type, because SearchText lives on
+/// the entry and is carried by its events. Scrubbing it with a plain store would hold only until the
+/// next projection rebuild, which replays the last ContentCreated or ContentUpdated and writes the
+/// old text back: a field taken out of anonymous search would quietly return to it, and nothing
+/// about the rebuild would look wrong.
+///
+/// Both levels travel with it so the stream says why the text changed rather than only that it did.
+/// </remarks>
+[method: JsonConstructor]
+public record ContentFieldSensitivityChanged(
+    Guid Id,
+    string Field,
+    Models.SensitivityLevel From,
+    Models.SensitivityLevel To,
+    string? SearchText,
+    Guid ChangedBy);
