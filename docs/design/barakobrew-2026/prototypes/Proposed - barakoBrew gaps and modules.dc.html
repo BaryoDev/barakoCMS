@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="./icon-sprite.js"></script>
+<style>
+  body { margin: 0; background: #e8e8ea; -webkit-font-smoothing: antialiased; }
+  * { box-sizing: border-box; }
+  a { color: inherit; text-decoration: none; }
+  a:hover { color: inherit; }
+  pre, code { margin: 0; }
+  @keyframes sgPulse { 0%, 100% { opacity: 1 } 50% { opacity: .3 } }
+</style>
+</helmet>
+
+<div style="padding:56px;display:flex;flex-direction:column;gap:56px;font-family:'Manrope',system-ui,sans-serif;align-items:flex-start;color:#101223">
+
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+    <pattern id="pgStripe" width="9" height="9" patternTransform="rotate(45)" patternUnits="userSpaceOnUse"><rect width="9" height="9" fill="#F2F3F9"></rect><rect width="3" height="9" fill="#E7E8F1"></rect></pattern>
+  </defs></svg>
+
+  <div style="max-width:840px;display:flex;flex-direction:column;gap:12px">
+    <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#63687D">Proposals · read from ROADMAP.md and the README gap table</span>
+    <h1 style="margin:0;font-family:'Sora',sans-serif;font-size:32px;font-weight:600;letter-spacing:-.025em">What is missing, and what it looks like</h1>
+    <p style="margin:0;font-size:15px;line-height:1.68;color:#4A4E66">Your own roadmap names the gaps and ranks them. Four of them have real UI consequences, so I drew those in the Signal system: <strong>Modules</strong> (issue #185 wants an instance to report what it runs, and the marketplace already discovers packages by the <code style="font-family:'JetBrains Mono',monospace;font-size:13px">barakocms-module</code> tag), <strong>Agents</strong> for the 3.26.0 MCP server, <strong>Media</strong> and <strong>Review</strong> from the "what it does not do yet" table. Below those, nine candidate primitives with your own module-or-core tests applied, including the two that fail them.</p>
+    <p style="margin:0;font-size:13.5px;line-height:1.6;color:#63687D">One caveat worth stating: I could not read the issue tracker directly, so every issue number below is one the roadmap itself cites. Anything opened since is not here.</p>
+  </div>
+
+  <!-- =============================== MODULES =============================== -->
+  <div data-screen-label="Admin — Modules" style="display:flex;flex-direction:column;gap:14px">
+    <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#63687D">admin · modules · answers #185</span>
+    <div style="width:1280px;background:#fff;border:1px solid #d4d4d8;border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08)">
+      <header style="height:60px;display:flex;align-items:center;gap:12px;padding:0 24px;border-bottom:1px solid #E7E8F1">
+        <h1 style="margin:0;font-family:'Sora',sans-serif;font-size:18px;font-weight:600;letter-spacing:-.025em">Modules</h1>
+        <span style="padding:3px 10px;border-radius:999px;background:#F2F3F9;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;color:#4A4E66">5 running</span>
+        <div style="flex:1"></div>
+        <span style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#63687D">image ghcr.io/baryodev/barako-cms · 4.2.1</span>
+        <button type="button" style="height:38px;display:inline-flex;align-items:center;gap:8px;padding:0 14px;border:1px solid #E7E8F1;border-radius:10px;background:#fff;font-family:inherit;font-size:13px;font-weight:600;color:#4A4E66;cursor:pointer" style-hover="border-color:#5A46D6;color:#4034A8"><svg viewBox="0 0 32 32" style="width:13px;height:13px;fill:currentColor"><use href="#ic-copy"></use></svg>Copy manifest</button>
+      </header>
+
+      <div style="padding:24px;display:flex;flex-direction:column;gap:20px">
+        <div style="display:flex;align-items:center;gap:14px;padding:14px 18px;border-radius:14px;background:#FAFAFC;border:1px solid #E7E8F1">
+          <span style="width:34px;height:34px;flex-shrink:0;border-radius:10px;background:#EEEBFD;color:#4034A8;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 32 32" style="width:16px;height:16px;fill:currentColor"><use href="#ic-info"></use></svg></span>
+          <p style="margin:0;flex:1;font-size:13px;line-height:1.6;color:#4A4E66">This list is what the running instance actually loaded, read from <code style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#4034A8">/api/meta/modules</code>. An agent or a support engineer can ask the deployment what it is rather than guess from the compose file.</p>
+        </div>
+
+        <div>
+          <div style="display:flex;align-items:baseline;gap:10px;padding-bottom:10px;border-bottom:1px solid #E7E8F1">
+            <h2 style="margin:0;font-family:'Sora',sans-serif;font-size:15px;font-weight:600">Running here</h2>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D">5</span>
+          </div>
+          <div style="margin-top:14px;display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+            <div style="padding:16px;border:1px solid #E7E8F1;border-radius:14px;box-shadow:0 1px 2px rgba(16,18,35,.04)">
+              <div style="display:flex;align-items:flex-start;gap:11px">
+                <span style="width:32px;height:32px;flex-shrink:0;border-radius:10px;background:#EEEBFD;color:#4034A8;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 32 32" style="width:15px;height:15px;fill:currentColor"><use href="#ic-coins"></use></svg></span>
+                <span style="flex:1;min-width:0"><span style="display:block;font-size:14px;font-weight:700">Accounting</span><span style="display:block;font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D">BarakoCMS.Accounting 4.2.1</span></span>
+                <span style="display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:999px;background:#E6F7F4;color:#0B7A6B;font-size:10.5px;font-weight:700"><span style="width:5px;height:5px;border-radius:999px;background:currentColor"></span>Live</span>
+              </div>
+              <p style="margin:11px 0 0;font-size:12.5px;line-height:1.6;color:#4A4E66">Double-entry ledger. Contributes 3 content types, 6 endpoints, 1 seeder.</p>
+              <div style="margin-top:11px;padding-top:11px;border-top:1px solid #F2F3F9;display:flex;gap:14px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D"><span>2 documents</span><span>6 routes</span><span>seeded</span></div>
+            </div>
+            <div style="padding:16px;border:1px solid #E7E8F1;border-radius:14px;box-shadow:0 1px 2px rgba(16,18,35,.04)">
+              <div style="display:flex;align-items:flex-start;gap:11px">
+                <span style="width:32px;height:32px;flex-shrink:0;border-radius:10px;background:#EEEBFD;color:#4034A8;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 32 32" style="width:15px;height:15px;fill:currentColor"><use href="#ic-analytics"></use></svg></span>
+                <span style="flex:1;min-width:0"><span style="display:block;font-size:14px;font-weight:700">Analytics</span><span style="display:block;font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D">Analytics.Umami 4.2.1</span></span>
+                <span style="display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:999px;background:#E6F7F4;color:#0B7A6B;font-size:10.5px;font-weight:700"><span style="width:5px;height:5px;border-radius:999px;background:currentColor"></span>Live</span>
+              </div>
+              <p style="margin:11px 0 0;font-size:12.5px;line-height:1.6;color:#4A4E66">Server-side proxy over your own Umami. Keys present, reachable.</p>
+              <div style="margin-top:11px;padding-top:11px;border-top:1px solid #F2F3F9;display:flex;gap:14px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D"><span>0 documents</span><span>9 routes</span><span>configured</span></div>
+            </div>
+            <div style="padding:16px;border:1px solid #E7E8F1;border-radius:14px;box-shadow:0 1px 2px rgba(16,18,35,.04)">
+              <div style="display:flex;align-items:flex-start;gap:11px">
+                <span style="width:32px;height:32px;flex-shrink:0;border-radius:10px;background:#FDF2E3;color:#8A5A10;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 32 32" style="width:15px;height:15px;fill:currentColor"><use href="#ic-envelope"></use></svg></span>
+                <span style="flex:1;min-width:0"><span style="display:block;font-size:14px;font-weight:700">Email</span><span style="display:block;font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D">Email.Resend 4.2.1</span></span>
+                <span style="display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:999px;background:#FDF2E3;color:#8A5A10;font-size:10.5px;font-weight:700">2 bounces</span>
+              </div>
+              <p style="margin:11px 0 0;font-size:12.5px;line-height:1.6;color:#4A4E66">Delivery webhook verified. Two bounces to the same domain since yesterday.</p>
+              <div style="margin-top:11px;padding-top:11px;border-top:1px solid #F2F3F9;display:flex;gap:14px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D"><span>1 document</span><span>2 routes</span><span>webhook ok</span></div>
+            </div>
+            <div style="padding:16px;border:1px solid #E7E8F1;border-radius:14px;box-shadow:0 1px 2px rgba(16,18,35,.04)">
+              <div style="display:flex;align-items:flex-start;gap:11px">
+                <span style="width:32px;height:32px;flex-shrink:0;border-radius:10px;background:#EEEBFD;color:#4034A8;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 32 32" style="width:15px;height:15px;fill:currentColor"><use href="#ic-flag"></use></svg></span>
+                <span style="flex:1;min-width:0"><span style="display:block;font-size:14px;font-weight:700">Feature flags</span><span style="display:block;font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D">FeatureFlags 4.2.1</span></span>
+                <span style="display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:999px;background:#E6F7F4;color:#0B7A6B;font-size:10.5px;font-weight:700"><span style="width:5px;height:5px;border-radius:999px;background:currentColor"></span>Live</span>
+              </div>
+              <p style="margin:11px 0 0;font-size:12.5px;line-height:1.6;color:#4A4E66">7 flags, 2 targeted by percentage.</p>
+              <div style="margin-top:11px;padding-top:11px;border-top:1px solid #F2F3F9;display:flex;gap:14px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D"><span>1 document</span><span>5 routes</span><span>seeded</span></div>
+            </div>
+            <div style="padding:16px;border:1px solid #E7E8F1;border-radius:14px;box-shadow:0 1px 2px rgba(16,18,35,.04)">
+              <div style="display:flex;align-items:flex-start;gap:11px">
+                <span style="width:32px;height:32px;flex-shrink:0;border-radius:10px;background:#EEEBFD;color:#4034A8;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 32 32" style="width:15px;height:15px;fill:currentColor"><use href="#ic-mobile"></use></svg></span>
+                <span style="flex:1;min-width:0"><span style="display:block;font-size:14px;font-weight:700">PWA</span><span style="display:block;font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D">Pwa 4.2.1</span></span>
+                <span style="display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:999px;background:#E6F7F4;color:#0B7A6B;font-size:10.5px;font-weight:700"><span style="width:5px;height:5px;border-radius:999px;background:currentColor"></span>Live</span>
+              </div>
+              <p style="margin:11px 0 0;font-size:12.5px;line-height:1.6;color:#4A4E66">412 installs tracked, 96 tied to a signed-in user.</p>
+              <div style="margin-top:11px;padding-top:11px;border-top:1px solid #F2F3F9;display:flex;gap:14px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D"><span>1 document</span><span>3 routes</span><span>seeded</span></div>
+            </div>
+            <div style="padding:16px;border:1px dashed #DED8FB;border-radius:14px;background:#FAFAFC;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;gap:8px">
+              <p style="margin:0;font-size:13px;font-weight:700;color:#4A4E66">7 more shipped in this image, switched off</p>
+              <p style="margin:0;font-size:12.5px;line-height:1.6;color:#63687D">AI, DeviceTrust, Diagnostics, ExternalAuth, Files, Import, Portability. Each stays mock until its keys are set.</p>
+              <a href="#" style="font-size:12.5px;font-weight:700;color:#5A46D6">Show all 12</a>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div style="display:flex;align-items:baseline;gap:10px;padding-bottom:10px;border-bottom:1px solid #E7E8F1">
+            <h2 style="margin:0;font-family:'Sora',sans-serif;font-size:15px;font-weight:600">Available on NuGet</h2>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D">tagged barakocms-module</span>
+            <div style="flex:1"></div>
+            <span style="font-size:12.5px;color:#63687D">No submission queue. Anything published with the tag appears here.</span>
+          </div>
+          <div style="margin-top:14px;display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+            <div style="padding:15px;border:1px solid #E7E8F1;border-radius:14px">
+              <div style="display:flex;align-items:center;gap:10px"><span style="width:28px;height:28px;border-radius:9px;background:#F2F3F9;color:#4A4E66;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:currentColor"><use href="#ic-disk"></use></svg></span><span style="flex:1;min-width:0;font-size:13.5px;font-weight:700">Files.S3</span></div>
+              <p style="margin:9px 0 0;font-size:12px;line-height:1.55;color:#63687D">Object storage behind IFileStorage.</p>
+              <div style="margin-top:11px;display:flex;align-items:center;gap:8px"><span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#63687D">official</span><div style="flex:1"></div><span style="padding:5px 11px;border-radius:8px;background:#EEEBFD;color:#4034A8;font-size:11.5px;font-weight:700;cursor:pointer">Install</span></div>
+            </div>
+            <div style="padding:15px;border:1px solid #E7E8F1;border-radius:14px">
+              <div style="display:flex;align-items:center;gap:10px"><span style="width:28px;height:28px;border-radius:9px;background:#F2F3F9;color:#4A4E66;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:currentColor"><use href="#ic-database"></use></svg></span><span style="flex:1;min-width:0;font-size:13.5px;font-weight:700">AI</span></div>
+              <p style="margin:9px 0 0;font-size:12px;line-height:1.55;color:#63687D">Semantic search over published content.</p>
+              <div style="margin-top:11px;display:flex;align-items:center;gap:8px"><span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#63687D">in image</span><div style="flex:1"></div><span style="padding:5px 11px;border-radius:8px;background:#F2F3F9;color:#4A4E66;font-size:11.5px;font-weight:700;cursor:pointer">Enable</span></div>
+            </div>
+            <div style="padding:15px;border:1px solid #E7E8F1;border-radius:14px">
+              <div style="display:flex;align-items:center;gap:10px"><span style="width:28px;height:28px;border-radius:9px;background:#F2F3F9;color:#4A4E66;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:currentColor"><use href="#ic-external-link"></use></svg></span><span style="flex:1;min-width:0;font-size:13.5px;font-weight:700">Redirects</span></div>
+              <p style="margin:9px 0 0;font-size:12px;line-height:1.55;color:#63687D">301 map, auto-written on slug change.</p>
+              <div style="margin-top:11px;display:flex;align-items:center;gap:8px"><span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#63687D">proposed</span><div style="flex:1"></div><span style="padding:5px 11px;border-radius:8px;background:#fff;border:1px solid #E7E8F1;color:#63687D;font-size:11.5px;font-weight:700">Not built</span></div>
+            </div>
+            <div style="padding:15px;border:1px solid #E7E8F1;border-radius:14px">
+              <div style="display:flex;align-items:center;gap:10px"><span style="width:28px;height:28px;border-radius:9px;background:#F2F3F9;color:#4A4E66;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:currentColor"><use href="#ic-user-plus"></use></svg></span><span style="flex:1;min-width:0;font-size:13.5px;font-weight:700">Contribute</span></div>
+              <p style="margin:9px 0 0;font-size:12px;line-height:1.55;color:#63687D">Publish under your own name with the tag.</p>
+              <div style="margin-top:11px;display:flex;align-items:center;gap:8px"><div style="flex:1"></div><span style="padding:5px 11px;border-radius:8px;background:#fff;border:1px solid #E7E8F1;color:#4A4E66;font-size:11.5px;font-weight:700;cursor:pointer">How to</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =============================== AGENTS / MCP =============================== -->
+  <div data-screen-label="Admin — Agents (MCP)" style="display:flex;flex-direction:column;gap:14px">
+    <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#63687D">admin · agents · roadmap 3.26.0</span>
+    <div style="width:1280px;background:#fff;border:1px solid #d4d4d8;border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08)">
+      <header style="height:60px;display:flex;align-items:center;gap:12px;padding:0 24px;border-bottom:1px solid #E7E8F1">
+        <h1 style="margin:0;font-family:'Sora',sans-serif;font-size:18px;font-weight:600;letter-spacing:-.025em">Agents</h1>
+        <span style="padding:3px 10px;border-radius:999px;background:#EEEBFD;color:#4034A8;font-size:11px;font-weight:700">MCP server</span>
+        <div style="flex:1"></div>
+        <span style="display:inline-flex;align-items:center;gap:7px;padding:6px 11px;border-radius:999px;background:#E6F7F4;color:#0B7A6B;font-size:12px;font-weight:700"><span style="width:6px;height:6px;border-radius:999px;background:currentColor;animation:sgPulse 2s ease-in-out infinite"></span>2 clients connected</span>
+        <button type="button" style="height:38px;display:inline-flex;align-items:center;gap:8px;padding:0 15px;border:0;border-radius:10px;background:#5A46D6;color:#fff;font-family:inherit;font-size:13.5px;font-weight:700;cursor:pointer;box-shadow:0 5px 14px -7px rgba(90,70,214,.8)"><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:currentColor"><use href="#ic-plus"></use></svg>Issue agent key</button>
+      </header>
+
+      <div style="padding:24px;display:grid;grid-template-columns:1.45fr 1fr;gap:16px;align-items:start">
+        <div style="display:flex;flex-direction:column;gap:16px">
+          <div style="padding:18px;border:1px solid #E7E8F1;border-radius:14px;box-shadow:0 1px 2px rgba(16,18,35,.04)">
+            <h2 style="margin:0;font-family:'Sora',sans-serif;font-size:15px;font-weight:600">Connect a client</h2>
+            <p style="margin:7px 0 0;font-size:13px;line-height:1.6;color:#4A4E66">The endpoint speaks MCP over HTTP. An agent key is an API key with an agent flag, so it resolves through the same RBAC as everything else rather than a separate agent permission model.</p>
+            <div style="margin-top:14px;background:#101223;border-radius:12px;overflow:hidden">
+              <div style="height:34px;display:flex;align-items:center;gap:9px;padding:0 14px;border-bottom:1px solid #26294A"><span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;color:#C9C1F5">mcp.json</span><div style="flex:1"></div><svg viewBox="0 0 32 32" style="width:13px;height:13px;fill:#6E7396"><use href="#ic-copy"></use></svg></div>
+              <pre style="padding:16px;overflow-x:auto"><code style="font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:1.8;color:#E6E7F3">{
+  <span style="color:#7FD1C1">"barakoBrew"</span>: {
+    <span style="color:#7FD1C1">"url"</span>: <span style="color:#A99BF7">"https://api.bakersguild.ph/mcp"</span>,
+    <span style="color:#7FD1C1">"headers"</span>: { <span style="color:#7FD1C1">"X-Api-Key"</span>: <span style="color:#A99BF7">"bk_agent_••••••••"</span> }
+  }
+}</code></pre>
+            </div>
+          </div>
+
+          <div style="border:1px solid #E7E8F1;border-radius:14px;box-shadow:0 1px 2px rgba(16,18,35,.04);overflow:hidden">
+            <div style="padding:15px 18px;display:flex;align-items:center;gap:10px;border-bottom:1px solid #E7E8F1">
+              <h2 style="margin:0;font-family:'Sora',sans-serif;font-size:15px;font-weight:600">Tools</h2>
+              <span style="padding:2px 9px;border-radius:999px;background:#F2F3F9;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;color:#4A4E66">18</span>
+              <span style="font-size:12.5px;color:#63687D">generated from your content schema</span>
+            </div>
+            <div style="padding:8px">
+              <div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:10px" style-hover="background:#FAFAFC"><code style="flex:1;min-width:0;font-family:'JetBrains Mono',monospace;font-size:12.5px;font-weight:700">content.search</code><span style="font-size:12px;color:#63687D">keyword and semantic, published only</span><span style="padding:2px 8px;border-radius:6px;background:#E6F7F4;color:#0B7A6B;font-size:10.5px;font-weight:700">read</span></div>
+              <div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:10px" style-hover="background:#FAFAFC"><code style="flex:1;min-width:0;font-family:'JetBrains Mono',monospace;font-size:12.5px;font-weight:700">article.list</code><span style="font-size:12px;color:#63687D">filter, sort, paginate</span><span style="padding:2px 8px;border-radius:6px;background:#E6F7F4;color:#0B7A6B;font-size:10.5px;font-weight:700">read</span></div>
+              <div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:10px" style-hover="background:#FAFAFC"><code style="flex:1;min-width:0;font-family:'JetBrains Mono',monospace;font-size:12.5px;font-weight:700">article.create</code><span style="font-size:12px;color:#63687D">drafts only, never publishes</span><span style="padding:2px 8px;border-radius:6px;background:#FDF2E3;color:#8A5A10;font-size:10.5px;font-weight:700">write</span></div>
+              <div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:10px" style-hover="background:#FAFAFC"><code style="flex:1;min-width:0;font-family:'JetBrains Mono',monospace;font-size:12.5px;font-weight:700">article.history</code><span style="font-size:12px;color:#63687D">event stream for one entry</span><span style="padding:2px 8px;border-radius:6px;background:#E6F7F4;color:#0B7A6B;font-size:10.5px;font-weight:700">read</span></div>
+              <div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:10px;opacity:.55" style-hover="background:#FAFAFC"><code style="flex:1;min-width:0;font-family:'JetBrains Mono',monospace;font-size:12.5px;font-weight:700">member.list</code><span style="font-size:12px;color:#63687D">blocked, type is not publicly deliverable</span><span style="padding:2px 8px;border-radius:6px;background:#F2F3F9;color:#4A4E66;font-size:10.5px;font-weight:700">off</span></div>
+              <div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:10px;opacity:.55" style-hover="background:#FAFAFC"><code style="flex:1;min-width:0;font-family:'JetBrains Mono',monospace;font-size:12.5px;font-weight:700">journal.post</code><span style="font-size:12px;color:#63687D">off by default, money moves</span><span style="padding:2px 8px;border-radius:6px;background:#F2F3F9;color:#4A4E66;font-size:10.5px;font-weight:700">off</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:16px">
+          <div style="padding:18px;border:1px solid #DED8FB;border-radius:14px;background:#FAFAFC">
+            <h2 style="margin:0;font-family:'Sora',sans-serif;font-size:15px;font-weight:600">Guardrails</h2>
+            <p style="margin:7px 0 0;font-size:12.5px;line-height:1.6;color:#63687D">The MCP spec makes rate limiting and input validation a MUST and says clients should log tool use. For a product claiming audit-grade, that is the floor.</p>
+            <div style="margin-top:14px;display:flex;flex-direction:column;gap:10px">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 13px;background:#fff;border:1px solid #E7E8F1;border-radius:11px"><span style="font-size:13px;font-weight:600">Writes need a human to publish</span><span style="width:34px;height:20px;border-radius:999px;background:#5A46D6;display:inline-flex;align-items:center;justify-content:flex-end;padding:2px"><span style="width:16px;height:16px;border-radius:999px;background:#fff"></span></span></div>
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 13px;background:#fff;border:1px solid #E7E8F1;border-radius:11px"><span style="font-size:13px;font-weight:600">Log every tool call to audit</span><span style="width:34px;height:20px;border-radius:999px;background:#5A46D6;display:inline-flex;align-items:center;justify-content:flex-end;padding:2px"><span style="width:16px;height:16px;border-radius:999px;background:#fff"></span></span></div>
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 13px;background:#fff;border:1px solid #E7E8F1;border-radius:11px"><span style="font-size:13px;font-weight:600">Mask sensitive fields</span><span style="width:34px;height:20px;border-radius:999px;background:#5A46D6;display:inline-flex;align-items:center;justify-content:flex-end;padding:2px"><span style="width:16px;height:16px;border-radius:999px;background:#fff"></span></span></div>
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 13px;background:#fff;border:1px solid #E7E8F1;border-radius:11px"><span style="font-size:13px;font-weight:600">Rate limit<span style="margin-left:8px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D">60/min</span></span><span style="width:34px;height:20px;border-radius:999px;background:#5A46D6;display:inline-flex;align-items:center;justify-content:flex-end;padding:2px"><span style="width:16px;height:16px;border-radius:999px;background:#fff"></span></span></div>
+            </div>
+          </div>
+
+          <div style="border:1px solid #E7E8F1;border-radius:14px;box-shadow:0 1px 2px rgba(16,18,35,.04);overflow:hidden">
+            <div style="padding:15px 18px;display:flex;align-items:center;gap:9px;border-bottom:1px solid #E7E8F1">
+              <h2 style="margin:0;font-family:'Sora',sans-serif;font-size:15px;font-weight:600">Recent tool calls</h2>
+              <span style="width:6px;height:6px;border-radius:999px;background:#5A46D6;animation:sgPulse 1.8s ease-in-out infinite"></span>
+              <div style="flex:1"></div>
+              <a href="#" style="font-size:12.5px;font-weight:700;color:#5A46D6">Audit log</a>
+            </div>
+            <div style="padding:12px 18px 16px;display:flex;flex-direction:column">
+              <div style="display:flex;align-items:baseline;gap:10px;padding:8px 0;font-family:'JetBrains Mono',monospace;font-size:11.5px"><span style="color:#6E7387">15:02</span><span style="flex:1;font-weight:500">content.search</span><span style="color:#0B7A6B;font-weight:700">12 hits</span></div>
+              <div style="display:flex;align-items:baseline;gap:10px;padding:8px 0;border-top:1px solid #F2F3F9;font-family:'JetBrains Mono',monospace;font-size:11.5px"><span style="color:#6E7387">15:01</span><span style="flex:1;font-weight:500">article.create</span><span style="color:#8A5A10;font-weight:700">draft v1</span></div>
+              <div style="display:flex;align-items:baseline;gap:10px;padding:8px 0;border-top:1px solid #F2F3F9;font-family:'JetBrains Mono',monospace;font-size:11.5px"><span style="color:#6E7387">14:58</span><span style="flex:1;font-weight:500">member.list</span><span style="color:#A22C2C;font-weight:700">403</span></div>
+              <div style="display:flex;align-items:baseline;gap:10px;padding:8px 0;border-top:1px solid #F2F3F9;font-family:'JetBrains Mono',monospace;font-size:11.5px"><span style="color:#6E7387">14:52</span><span style="flex:1;font-weight:500">article.history</span><span style="color:#0B7A6B;font-weight:700">7 events</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =============================== MEDIA + REVIEW =============================== -->
+  <div style="display:flex;gap:32px;align-items:flex-start;flex-wrap:wrap">
+
+    <div data-screen-label="Admin — Media library" style="display:flex;flex-direction:column;gap:14px;flex-shrink:0">
+      <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#63687D">admin · media · named gap</span>
+      <div style="width:740px;height:700px;background:#fff;border:1px solid #d4d4d8;border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08);display:flex;flex-direction:column">
+        <header style="height:60px;flex-shrink:0;display:flex;align-items:center;gap:12px;padding:0 24px;border-bottom:1px solid #E7E8F1">
+          <h1 style="margin:0;font-family:'Sora',sans-serif;font-size:18px;font-weight:600;letter-spacing:-.025em">Media</h1>
+          <span style="padding:3px 10px;border-radius:999px;background:#F2F3F9;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;color:#4A4E66">248</span>
+          <div style="flex:1"></div>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D">1.4 GB · postgres</span>
+          <button type="button" style="height:36px;display:inline-flex;align-items:center;gap:8px;padding:0 14px;border:0;border-radius:10px;background:#5A46D6;color:#fff;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer"><svg viewBox="0 0 32 32" style="width:13px;height:13px;fill:currentColor"><use href="#ic-plus"></use></svg>Upload</button>
+        </header>
+        <div style="flex:1;min-height:0;display:flex">
+          <div style="flex:1;min-width:0;overflow:auto;padding:18px">
+            <div style="display:flex;gap:2px;padding:3px;background:#F2F3F9;border-radius:999px;width:fit-content">
+              <span style="padding:6px 13px;border-radius:999px;background:#fff;font-size:12px;font-weight:700;box-shadow:0 1px 2px rgba(16,18,35,.08)">All</span>
+              <span style="padding:6px 13px;border-radius:999px;font-size:12px;font-weight:600;color:#63687D">Images</span>
+              <span style="padding:6px 13px;border-radius:999px;font-size:12px;font-weight:600;color:#63687D">Documents</span>
+              <span style="padding:6px 13px;border-radius:999px;font-size:12px;font-weight:600;color:#63687D">Unused</span>
+            </div>
+            <div style="margin-top:16px;display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+              <div style="border:2px solid #5A46D6;border-radius:12px;overflow:hidden;box-shadow:0 0 0 3px rgba(90,70,214,.14)">
+                <svg viewBox="0 0 200 130" style="display:block;width:100%;height:auto"><rect width="200" height="130" fill="url(#pgStripe)"></rect><text x="100" y="69" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="10" fill="#63687D">roast-curve.jpg</text></svg>
+                <div style="padding:9px 10px"><p style="margin:0;font-size:12px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">roast-curve.jpg</p><p style="margin:2px 0 0;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#63687D">2400×1600 · 840 KB</p></div>
+              </div>
+              <div style="border:1px solid #E7E8F1;border-radius:12px;overflow:hidden">
+                <svg viewBox="0 0 200 130" style="display:block;width:100%;height:auto"><rect width="200" height="130" fill="url(#pgStripe)"></rect><text x="100" y="69" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="10" fill="#63687D">green-lot-02.jpg</text></svg>
+                <div style="padding:9px 10px"><p style="margin:0;font-size:12px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">green-lot-02.jpg</p><p style="margin:2px 0 0;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#63687D">1800×1200 · 612 KB</p></div>
+              </div>
+              <div style="border:1px solid #E7E8F1;border-radius:12px;overflow:hidden">
+                <svg viewBox="0 0 200 130" style="display:block;width:100%;height:auto"><rect width="200" height="130" fill="url(#pgStripe)"></rect><text x="100" y="69" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="10" fill="#63687D">guild-hall.jpg</text></svg>
+                <div style="padding:9px 10px"><p style="margin:0;font-size:12px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">guild-hall.jpg</p><p style="margin:2px 0 0;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#63687D">3000×2000 · 1.2 MB</p></div>
+              </div>
+              <div style="border:1px solid #E7E8F1;border-radius:12px;overflow:hidden">
+                <svg viewBox="0 0 200 130" style="display:block;width:100%;height:auto"><rect width="200" height="130" fill="url(#pgStripe)"></rect><text x="100" y="69" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="10" fill="#63687D">bylaws-2026.pdf</text></svg>
+                <div style="padding:9px 10px"><p style="margin:0;font-size:12px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">bylaws-2026.pdf</p><p style="margin:2px 0 0;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#63687D">14 pages · 320 KB</p></div>
+              </div>
+              <div style="border:1px solid #E7E8F1;border-radius:12px;overflow:hidden">
+                <svg viewBox="0 0 200 130" style="display:block;width:100%;height:auto"><rect width="200" height="130" fill="url(#pgStripe)"></rect><text x="100" y="69" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="10" fill="#63687D">cupping-form.png</text></svg>
+                <div style="padding:9px 10px"><p style="margin:0;font-size:12px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">cupping-form.png</p><p style="margin:2px 0 0;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#63687D">1200×900 · 210 KB</p></div>
+              </div>
+              <div style="border:1px dashed #DED8FB;border-radius:12px;background:#FAFAFC;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;padding:20px;text-align:center">
+                <svg viewBox="0 0 32 32" style="width:18px;height:18px;fill:#5A46D6"><use href="#ic-plus"></use></svg>
+                <p style="margin:0;font-size:12px;font-weight:700;color:#4034A8">Drop files</p>
+                <p style="margin:0;font-size:11px;color:#63687D">or paste from clipboard</p>
+              </div>
+            </div>
+          </div>
+
+          <div style="width:250px;flex-shrink:0;border-left:1px solid #E7E8F1;background:#FAFAFC;overflow:auto;padding:18px;display:flex;flex-direction:column;gap:16px">
+            <div>
+              <p style="margin:0;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#63687D">Focal point</p>
+              <div style="margin-top:10px;position:relative;border-radius:11px;overflow:hidden;border:1px solid #E7E8F1">
+                <svg viewBox="0 0 200 130" style="display:block;width:100%;height:auto"><rect width="200" height="130" fill="url(#pgStripe)"></rect></svg>
+                <span style="position:absolute;left:38%;top:34%;width:18px;height:18px;margin:-9px 0 0 -9px;border-radius:999px;border:2px solid #fff;background:#5A46D6;box-shadow:0 2px 8px rgba(16,18,35,.4)"></span>
+              </div>
+              <p style="margin:8px 0 0;font-size:11.5px;line-height:1.55;color:#63687D">Every crop keeps this point in frame, so a square thumbnail never beheads anyone.</p>
+            </div>
+            <div>
+              <p style="margin:0;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#63687D">Variants</p>
+              <div style="margin-top:10px;display:flex;flex-direction:column;gap:6px">
+                <div style="display:flex;align-items:center;gap:9px;padding:8px 10px;background:#fff;border:1px solid #E7E8F1;border-radius:10px"><span style="flex:1;font-size:12px;font-weight:700">thumb</span><span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#63687D">320×320</span></div>
+                <div style="display:flex;align-items:center;gap:9px;padding:8px 10px;background:#fff;border:1px solid #E7E8F1;border-radius:10px"><span style="flex:1;font-size:12px;font-weight:700">card</span><span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#63687D">800×500</span></div>
+                <div style="display:flex;align-items:center;gap:9px;padding:8px 10px;background:#fff;border:1px solid #E7E8F1;border-radius:10px"><span style="flex:1;font-size:12px;font-weight:700">hero</span><span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#63687D">1600×900</span></div>
+              </div>
+            </div>
+            <div>
+              <p style="margin:0;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#63687D">Used by</p>
+              <div style="margin-top:10px;display:flex;flex-direction:column;gap:6px">
+                <div style="padding:9px 11px;background:#fff;border:1px solid #E7E8F1;border-radius:10px"><p style="margin:0;font-size:12px;font-weight:700">Spring roast notes</p><p style="margin:2px 0 0;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#63687D">article · hero</p></div>
+                <div style="padding:9px 11px;background:#fff;border:1px solid #E7E8F1;border-radius:10px"><p style="margin:0;font-size:12px;font-weight:700">Roast curve reference</p><p style="margin:2px 0 0;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#63687D">article · body</p></div>
+              </div>
+              <p style="margin:9px 0 0;font-size:11.5px;line-height:1.55;color:#63687D">Deleting is blocked while an entry references it. The reference count is a projection, not a scan.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div data-screen-label="Admin — Review queue" style="display:flex;flex-direction:column;gap:14px;flex-shrink:0">
+      <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#63687D">admin · review · named gap</span>
+      <div style="width:740px;height:700px;background:#fff;border:1px solid #d4d4d8;border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08);display:flex;flex-direction:column">
+        <header style="height:60px;flex-shrink:0;display:flex;align-items:center;gap:12px;padding:0 24px;border-bottom:1px solid #E7E8F1">
+          <h1 style="margin:0;font-family:'Sora',sans-serif;font-size:18px;font-weight:600;letter-spacing:-.025em">Review</h1>
+          <span style="padding:3px 10px;border-radius:999px;background:#FDF2E3;color:#8A5A10;font-size:11px;font-weight:700">4 waiting on you</span>
+          <div style="flex:1"></div>
+          <span style="font-size:12.5px;color:#63687D">Not the same thing as Workflows</span>
+        </header>
+
+        <div style="padding:16px 24px;border-bottom:1px solid #E7E8F1;background:#FAFAFC">
+          <p style="margin:0;font-size:12.5px;line-height:1.6;color:#4A4E66"><strong style="font-weight:700">A word collision worth pre-empting.</strong> "Workflow" in barakoBrew means automation rules that fire on content events. This screen is draft, review and sign-off. The two do not overlap, so they get different names rather than a shared one.</p>
+        </div>
+
+        <div style="padding:16px 24px 0;display:flex;gap:2px;padding-bottom:0">
+          <div style="display:flex;gap:2px;padding:3px;background:#F2F3F9;border-radius:999px;width:fit-content">
+            <span style="padding:6px 13px;border-radius:999px;background:#fff;font-size:12px;font-weight:700;box-shadow:0 1px 2px rgba(16,18,35,.08)">Waiting on you</span>
+            <span style="padding:6px 13px;border-radius:999px;font-size:12px;font-weight:600;color:#63687D">Your requests</span>
+            <span style="padding:6px 13px;border-radius:999px;font-size:12px;font-weight:600;color:#63687D">Approved</span>
+          </div>
+        </div>
+
+        <div style="flex:1;min-height:0;overflow:auto;padding:16px 24px 24px;display:flex;flex-direction:column;gap:10px">
+          <div style="flex-shrink:0;border:1px solid #DED8FB;border-radius:14px;overflow:hidden;box-shadow:0 1px 2px rgba(90,70,214,.07)">
+            <div style="padding:14px 16px;display:flex;align-items:center;gap:11px;background:#FAFAFC;border-bottom:1px solid #E7E8F1">
+              <span style="width:30px;height:30px;flex-shrink:0;border-radius:999px;background:#EEEBFD;color:#4034A8;display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700">R</span>
+              <span style="flex:1;min-width:0"><span style="display:block;font-size:13.5px;font-weight:700">Spring roast notes</span><span style="display:block;font-size:12px;color:#63687D">Rosa asked for review 2 hours ago · article · v7</span></span>
+              <span style="padding:3px 9px;border-radius:999px;background:#FDF2E3;color:#8A5A10;font-size:11px;font-weight:700">In review</span>
+            </div>
+            <div style="padding:14px 16px">
+              <p style="margin:0;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#63687D">Changed since v6</p>
+              <div style="margin-top:9px;border:1px solid #E7E8F1;border-radius:10px;overflow:hidden;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.7">
+                <div style="display:flex;gap:10px;padding:6px 11px;background:#FDECEC"><span style="color:#A22C2C;font-weight:700">-</span><span style="flex:1;color:#7A2222">Development time ran long on the first two.</span></div>
+                <div style="display:flex;gap:10px;padding:6px 11px;background:#E6F7F4"><span style="color:#0B7A6B;font-weight:700">+</span><span style="flex:1;color:#0A5C51">Development time ran long on the first two, so we pulled the drop temperature down by six degrees.</span></div>
+              </div>
+              <div style="margin-top:12px;display:flex;align-items:center;gap:9px">
+                <button type="button" style="flex-shrink:0;height:36px;display:inline-flex;align-items:center;gap:8px;padding:0 14px;border:0;border-radius:10px;background:#5A46D6;color:#fff;font-family:inherit;font-size:13px;font-weight:700;white-space:nowrap;cursor:pointer"><svg viewBox="0 0 32 32" style="width:13px;height:13px;fill:currentColor"><use href="#ic-check"></use></svg>Approve and publish</button>
+                <button type="button" style="flex-shrink:0;height:36px;display:inline-flex;align-items:center;gap:8px;padding:0 14px;border:1px solid #E7E8F1;border-radius:10px;background:#fff;font-family:inherit;font-size:13px;font-weight:600;color:#4A4E66;white-space:nowrap;cursor:pointer" style-hover="border-color:#5A46D6;color:#4034A8">Request changes</button>
+                <div style="flex:1"></div>
+                <span style="font-size:12px;color:#63687D">Approving emits an event, so history records who signed off.</span>
+              </div>
+            </div>
+          </div>
+
+          <div style="flex-shrink:0;display:flex;align-items:center;gap:12px;padding:13px 16px;border:1px solid #E7E8F1;border-radius:14px" style-hover="background:#FAFAFC">
+            <span style="width:30px;height:30px;flex-shrink:0;border-radius:999px;background:#F2F3F9;color:#4A4E66;display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700">M</span>
+            <span style="flex:1;min-width:0"><span style="display:block;font-size:13.5px;font-weight:700">Barako Weekly, issue 12</span><span style="display:block;font-size:12px;color:#63687D">Miguel · newsletter · v4 · 1 day ago</span></span>
+            <span style="padding:3px 9px;border-radius:999px;background:#FDF2E3;color:#8A5A10;font-size:11px;font-weight:700">In review</span>
+          </div>
+          <div style="flex-shrink:0;display:flex;align-items:center;gap:12px;padding:13px 16px;border:1px solid #E7E8F1;border-radius:14px" style-hover="background:#FAFAFC">
+            <span style="width:30px;height:30px;flex-shrink:0;border-radius:999px;background:#F2F3F9;color:#4A4E66;display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700">A</span>
+            <span style="flex:1;min-width:0"><span style="display:block;font-size:13.5px;font-weight:700">Guild bylaws 2026</span><span style="display:block;font-size:12px;color:#63687D">Ana · page · v6 · 2 days ago</span></span>
+            <span style="padding:3px 9px;border-radius:999px;background:#FDECEC;color:#A22C2C;font-size:11px;font-weight:700">Changes requested</span>
+          </div>
+          <div style="flex-shrink:0;display:flex;align-items:center;gap:12px;padding:13px 16px;border:1px solid #E7E8F1;border-radius:14px" style-hover="background:#FAFAFC">
+            <span style="width:30px;height:30px;flex-shrink:0;border-radius:999px;background:#F2F3F9;color:#4A4E66;display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700">R</span>
+            <span style="flex:1;min-width:0"><span style="display:block;font-size:13.5px;font-weight:700">Founding members page</span><span style="display:block;font-size:12px;color:#63687D">Rosa · page · v1 · 3 days ago</span></span>
+            <span style="padding:3px 9px;border-radius:999px;background:#FDF2E3;color:#8A5A10;font-size:11px;font-weight:700">In review</span>
+          </div>
+
+          <div style="flex-shrink:0;margin-top:6px;padding:14px 16px;border:1px solid #E7E8F1;border-radius:14px;background:#FAFAFC">
+            <p style="margin:0;font-size:12.5px;font-weight:700;color:#4A4E66">Who may approve</p>
+            <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:7px">
+              <span style="display:inline-flex;align-items:center;gap:7px;padding:6px 11px;border-radius:9px;background:#fff;border:1px solid #E7E8F1;font-size:12.5px;font-weight:600"><svg viewBox="0 0 32 32" style="width:12px;height:12px;fill:#63687D"><use href="#ic-roles"></use></svg>Admin</span>
+              <span style="display:inline-flex;align-items:center;gap:7px;padding:6px 11px;border-radius:9px;background:#fff;border:1px solid #E7E8F1;font-size:12.5px;font-weight:600"><svg viewBox="0 0 32 32" style="width:12px;height:12px;fill:#63687D"><use href="#ic-roles"></use></svg>Editor</span>
+              <span style="display:inline-flex;align-items:center;gap:7px;padding:6px 11px;border-radius:9px;border:1px dashed #DED8FB;background:#fff;font-size:12.5px;font-weight:700;color:#4034A8;cursor:pointer"><svg viewBox="0 0 32 32" style="width:12px;height:12px;fill:currentColor"><use href="#ic-plus"></use></svg>Add role</span>
+            </div>
+            <p style="margin:10px 0 0;font-size:11.5px;line-height:1.55;color:#63687D">Per content type, so a journal entry can need an Accountant while an article needs an Editor.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =============================== MODULE PROPOSALS =============================== -->
+  <div data-screen-label="Proposal — candidate primitives" style="display:flex;flex-direction:column;gap:14px">
+    <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#63687D">Proposal · nine candidates against your own tests</span>
+    <div style="width:1280px;background:#fff;border:1px solid #d4d4d8;border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08)">
+      <div style="padding:28px 32px;border-bottom:1px solid #E7E8F1">
+        <h2 style="margin:0;font-family:'Sora',sans-serif;font-size:24px;font-weight:600;letter-spacing:-.03em">Candidate primitives</h2>
+        <p style="margin:10px 0 0;max-width:84ch;font-size:14px;line-height:1.7;color:#4A4E66">Each one run through the tests in your README. A module if two sensible projects would disagree about wanting it, if it names a vendor or a business domain, if it brings a dependency the core does not carry, or if removing it still leaves a working CMS. Core if something else cannot work without it, if core would need to know it exists, or if it changes the shape of content, auth, tenancy or delivery. Two of these fail the module tests, and saying so is more useful than nine green ticks.</p>
+      </div>
+
+      <table style="width:100%;border-collapse:collapse;font-size:13.5px">
+        <thead>
+          <tr style="background:#FAFAFC;border-bottom:1px solid #E7E8F1">
+            <th style="text-align:left;padding:12px 32px;font-size:10.5px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#63687D">Candidate</th>
+            <th style="text-align:left;padding:12px 16px;font-size:10.5px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#63687D">What it adds</th>
+            <th style="text-align:left;padding:12px 16px;font-size:10.5px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#63687D">Verdict</th>
+            <th style="text-align:left;padding:12px 32px;font-size:10.5px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#63687D">Because</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="border-bottom:1px solid #F2F3F9">
+            <td style="padding:15px 32px"><div style="display:flex;align-items:center;gap:10px"><span style="width:28px;height:28px;flex-shrink:0;border-radius:9px;background:#EEEBFD;color:#4034A8;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:currentColor"><use href="#ic-disk"></use></svg></span><span><span style="display:block;font-weight:700">Media</span><span style="display:block;font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D">BarakoCMS.Media</span></span></div></td>
+            <td style="padding:15px 16px;color:#4A4E66">Crops, focal points, variants and reference counting on top of the existing IFileStorage.</td>
+            <td style="padding:15px 16px"><span style="padding:3px 9px;border-radius:999px;background:#EEEBFD;color:#4034A8;font-size:11px;font-weight:700">Module</span></td>
+            <td style="padding:15px 32px;color:#63687D">Brings an imaging dependency core should not carry, and a headless API for a mobile app may not want it.</td>
+          </tr>
+          <tr style="border-bottom:1px solid #F2F3F9">
+            <td style="padding:15px 32px"><div style="display:flex;align-items:center;gap:10px"><span style="width:28px;height:28px;flex-shrink:0;border-radius:9px;background:#EEEBFD;color:#4034A8;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:currentColor"><use href="#ic-tasks"></use></svg></span><span><span style="display:block;font-weight:700">Forms</span><span style="display:block;font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D">BarakoCMS.Forms</span></span></div></td>
+            <td style="padding:15px 16px;color:#4A4E66">Public form definitions, submissions stored as content, spam gate, notification on submit.</td>
+            <td style="padding:15px 16px"><span style="padding:3px 9px;border-radius:999px;background:#EEEBFD;color:#4034A8;font-size:11px;font-weight:700">Module</span></td>
+            <td style="padding:15px 32px;color:#63687D">Removing it leaves a working CMS. Worth building because Umbraco charges €250 per domain for it and your roadmap already promises it free.</td>
+          </tr>
+          <tr style="border-bottom:1px solid #F2F3F9">
+            <td style="padding:15px 32px"><div style="display:flex;align-items:center;gap:10px"><span style="width:28px;height:28px;flex-shrink:0;border-radius:9px;background:#EEEBFD;color:#4034A8;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:currentColor"><use href="#ic-external-link"></use></svg></span><span><span style="display:block;font-weight:700">Redirects</span><span style="display:block;font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D">BarakoCMS.Redirects</span></span></div></td>
+            <td style="padding:15px 16px;color:#4A4E66">A 301 and 410 map, written automatically when a slug changes, served ahead of delivery.</td>
+            <td style="padding:15px 16px"><span style="padding:3px 9px;border-radius:999px;background:#EEEBFD;color:#4034A8;font-size:11px;font-weight:700">Module</span></td>
+            <td style="padding:15px 32px;color:#63687D">Named in #108. Subscribes to the slug-change event that core already emits, so it needs no core change at all.</td>
+          </tr>
+          <tr style="border-bottom:1px solid #F2F3F9">
+            <td style="padding:15px 32px"><div style="display:flex;align-items:center;gap:10px"><span style="width:28px;height:28px;flex-shrink:0;border-radius:9px;background:#EEEBFD;color:#4034A8;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:currentColor"><use href="#ic-search"></use></svg></span><span><span style="display:block;font-weight:700">Seo</span><span style="display:block;font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D">BarakoCMS.Seo</span></span></div></td>
+            <td style="padding:15px 16px;color:#4A4E66">Meta fields per type, sitemap.xml, robots.txt, canonical URLs, an Open Graph payload on delivery.</td>
+            <td style="padding:15px 16px"><span style="padding:3px 9px;border-radius:999px;background:#EEEBFD;color:#4034A8;font-size:11px;font-weight:700">Module</span></td>
+            <td style="padding:15px 32px;color:#63687D">Also #108. A treasury or a membership system wants none of it, which is the first test passing cleanly.</td>
+          </tr>
+          <tr style="border-bottom:1px solid #F2F3F9">
+            <td style="padding:15px 32px"><div style="display:flex;align-items:center;gap:10px"><span style="width:28px;height:28px;flex-shrink:0;border-radius:9px;background:#EEEBFD;color:#4034A8;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:currentColor"><use href="#ic-webhook"></use></svg></span><span><span style="display:block;font-weight:700">Mcp</span><span style="display:block;font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D">BarakoCMS.Mcp</span></span></div></td>
+            <td style="padding:15px 16px;color:#4A4E66">An MCP endpoint whose tools are generated from the content schema and routed through existing RBAC.</td>
+            <td style="padding:15px 16px"><span style="padding:3px 9px;border-radius:999px;background:#EEEBFD;color:#4034A8;font-size:11px;font-weight:700">Module</span></td>
+            <td style="padding:15px 32px;color:#63687D">Names a protocol and brings its SDK. Your roadmap has it at 3.26.0 and calls the current position "behind, not ahead".</td>
+          </tr>
+          <tr style="border-bottom:1px solid #F2F3F9">
+            <td style="padding:15px 32px"><div style="display:flex;align-items:center;gap:10px"><span style="width:28px;height:28px;flex-shrink:0;border-radius:9px;background:#EEEBFD;color:#4034A8;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:currentColor"><use href="#ic-database"></use></svg></span><span><span style="display:block;font-weight:700">Search.Postgres</span><span style="display:block;font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D">BarakoCMS.Search.Postgres</span></span></div></td>
+            <td style="padding:15px 16px;color:#4A4E66">Ranked full-text search with tsvector and GIN, no embedding model and no Ollama to run.</td>
+            <td style="padding:15px 16px"><span style="padding:3px 9px;border-radius:999px;background:#EEEBFD;color:#4034A8;font-size:11px;font-weight:700">Module</span></td>
+            <td style="padding:15px 32px;color:#63687D">The honest middle between core's keyword match and the AI module. Most deployments want this and not a GPU.</td>
+          </tr>
+          <tr style="border-bottom:1px solid #F2F3F9">
+            <td style="padding:15px 32px"><div style="display:flex;align-items:center;gap:10px"><span style="width:28px;height:28px;flex-shrink:0;border-radius:9px;background:#EEEBFD;color:#4034A8;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:currentColor"><use href="#ic-info"></use></svg></span><span><span style="display:block;font-weight:700">Notifications</span><span style="display:block;font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D">BarakoCMS.Notifications</span></span></div></td>
+            <td style="padding:15px 16px;color:#4A4E66">An in-app feed for the things the admin currently discovers by accident: bounces, failed workflow runs, unbalanced journals.</td>
+            <td style="padding:15px 16px"><span style="padding:3px 9px;border-radius:999px;background:#EEEBFD;color:#4034A8;font-size:11px;font-weight:700">Module</span></td>
+            <td style="padding:15px 32px;color:#63687D">Subscribes to events other modules already emit. The one caveat: it wants a projection, and the contract cannot give it one yet.</td>
+          </tr>
+          <tr style="border-bottom:1px solid #F2F3F9;background:#FFFCF7">
+            <td style="padding:15px 32px"><div style="display:flex;align-items:center;gap:10px"><span style="width:28px;height:28px;flex-shrink:0;border-radius:9px;background:#FDF2E3;color:#8A5A10;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:currentColor"><use href="#ic-check-circle"></use></svg></span><span><span style="display:block;font-weight:700">Review</span><span style="display:block;font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D">approval, sign-off</span></span></div></td>
+            <td style="padding:15px 16px;color:#4A4E66">Draft, review, changes requested, approved. The screen above.</td>
+            <td style="padding:15px 16px"><span style="padding:3px 9px;border-radius:999px;background:#FDF2E3;color:#8A5A10;font-size:11px;font-weight:700">Core</span></td>
+            <td style="padding:15px 32px;color:#63687D">Fails the module tests: it changes the shape of content status and delivery has to know an approved-but-unpublished state exists. Same reason Workflows is correctly core.</td>
+          </tr>
+          <tr style="background:#FFFCF7">
+            <td style="padding:15px 32px"><div style="display:flex;align-items:center;gap:10px"><span style="width:28px;height:28px;flex-shrink:0;border-radius:9px;background:#FDF2E3;color:#8A5A10;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:currentColor"><use href="#ic-text"></use></svg></span><span><span style="display:block;font-weight:700">Localization</span><span style="display:block;font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D">language variants</span></span></div></td>
+            <td style="padding:15px 16px;color:#4A4E66">One entry, many language variants, with fallback and per-variant publish state.</td>
+            <td style="padding:15px 16px"><span style="padding:3px 9px;border-radius:999px;background:#FDF2E3;color:#8A5A10;font-size:11px;font-weight:700">Core</span></td>
+            <td style="padding:15px 32px;color:#63687D">Changes the shape of content and of delivery, which are contracts other modules stand on. A one-way door: retrofitting variants later is a data migration.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div style="padding:24px 32px;border-top:1px solid #E7E8F1;background:#FAFAFC;display:grid;grid-template-columns:1fr 1fr;gap:32px">
+        <div>
+          <p style="margin:0;font-size:13px;font-weight:700;color:#4A4E66">The blocker worth fixing first</p>
+          <p style="margin:8px 0 0;font-size:13px;line-height:1.7;color:#63687D">Notifications, and any future module that needs to fold a stream into a read model, cannot exist because <code style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#4034A8">IModuleSchema</code> exposes only <code style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#4034A8">For&lt;T&gt;()</code>. Your own DECISIONS entry already flags this as the thing to change first if a module ever needs a projection. Three of the nine above want one, so that moment has arrived.</p>
+        </div>
+        <div>
+          <p style="margin:0;font-size:13px;font-weight:700;color:#4A4E66">What I would build in this order</p>
+          <p style="margin:8px 0 0;font-size:13px;line-height:1.7;color:#63687D">Modules screen first, because it is small, answers #185, and makes every later module visible the day it lands. Then Mcp, because the roadmap already dates it and the admin needs somewhere to put agent keys. Then Media, which unblocks the editor experience more than anything else on the list. Redirects and Seo are a weekend each and close #108.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</x-dc>
+</body>
+</html>
