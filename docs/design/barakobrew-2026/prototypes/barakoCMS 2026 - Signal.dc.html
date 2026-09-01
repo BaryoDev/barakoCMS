@@ -1,0 +1,1203 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="./icon-sprite.js"></script>
+<style>
+  body { margin: 0; background: #e8e8ea; -webkit-font-smoothing: antialiased; }
+  * { box-sizing: border-box; }
+  a { color: inherit; text-decoration: none; }
+  a:hover { color: inherit; }
+  pre, code { margin: 0; }
+  @keyframes sgPulse { 0%, 100% { opacity: 1 } 50% { opacity: .3 } }
+</style>
+</helmet>
+
+<div style="padding:56px;display:flex;flex-direction:column;gap:56px;font-family:'Manrope',system-ui,sans-serif;align-items:flex-start">
+
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+    <linearGradient id="sgBean" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9C8DF5"></stop><stop offset="0.55" stop-color="#5A46D6"></stop><stop offset="1" stop-color="#33257F"></stop></linearGradient>
+    <linearGradient id="sgBeanLight" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffffff"></stop><stop offset="1" stop-color="#DED8FB"></stop></linearGradient>
+  </defs></svg>
+
+  <div style="max-width:780px;display:flex;flex-direction:column;gap:10px">
+    <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#63687D">Signal · full build</span>
+    <h1 style="margin:0;font-family:'Sora',sans-serif;font-size:32px;font-weight:600;letter-spacing:-.025em;color:#101223">barakoCMS, 2026</h1>
+    <p style="margin:0;font-size:15px;line-height:1.65;color:#4A4E66">Sora for headings, Manrope for interface, JetBrains Mono for anything a machine produced. One accent, indigo <code style="font-family:'JetBrains Mono',monospace;font-size:13px">#5A46D6</code>. 14px cards, soft elevation, light first. The bean keeps its exact geometry from <code style="font-family:'JetBrains Mono',monospace;font-size:13px">site/app/bean.tsx</code> and takes the new palette; icons are your own Line Awesome set. Nine screens below. The admin now carries the barakoBrew name; the marketing site stays BarakoCMS.</p>
+  </div>
+
+  <!-- =============================== LANDING =============================== -->
+  <div data-screen-label="Site — Landing" style="display:flex;flex-direction:column;gap:14px">
+    <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#63687D">barakocms.com</span>
+    <div style="width:1440px;background:#FAFAFC;color:#101223;border:1px solid #d4d4d8;border-radius:16px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08)">
+
+      <nav style="height:72px;display:flex;align-items:center;gap:8px;padding:0 40px">
+        <a href="#" style="display:flex;align-items:center;gap:10px;font-family:'Sora',sans-serif;font-size:18px;font-weight:600;letter-spacing:-.025em;margin-right:24px">
+          <svg width="30" height="30" viewBox="0 0 128 128" aria-label="BarakoCMS"><g transform="rotate(-32 64 64)"><ellipse cx="64" cy="64" rx="33" ry="50" fill="url(#sgBean)"></ellipse><ellipse cx="52" cy="44" rx="9" ry="17" fill="#C9C1F5" opacity="0.35"></ellipse><path d="M64 17 C 51 41, 77 55, 64 64 C 51 73, 77 87, 64 111" fill="none" stroke="#241C6B" stroke-width="6.5" stroke-linecap="round"></path></g></svg>
+          BarakoCMS
+        </a>
+        <div style="display:flex;gap:2px;padding:4px;background:#F2F3F9;border-radius:999px">
+          <a href="#" style="padding:7px 15px;border-radius:999px;font-size:13.5px;font-weight:700;background:#fff;box-shadow:0 1px 2px rgba(16,18,35,.08)">Product</a>
+          <a href="#" style="padding:7px 15px;border-radius:999px;font-size:13.5px;font-weight:600;color:#4A4E66" style-hover="color:#101223">Modules</a>
+          <a href="#" style="padding:7px 15px;border-radius:999px;font-size:13.5px;font-weight:600;color:#4A4E66" style-hover="color:#101223">Docs</a>
+          <a href="#" style="padding:7px 15px;border-radius:999px;font-size:13.5px;font-weight:600;color:#4A4E66" style-hover="color:#101223">Changelog</a>
+          <a href="#" style="padding:7px 15px;border-radius:999px;font-size:13.5px;font-weight:600;color:#4A4E66" style-hover="color:#101223">Discord</a>
+        </div>
+        <div style="flex:1"></div>
+        <a href="#" style="display:inline-flex;align-items:center;gap:7px;font-size:13.5px;font-weight:600;color:#4A4E66;padding:9px 14px;border-radius:10px" style-hover="background:#F2F3F9;color:#101223">
+          <svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:currentColor"><use href="#ic-external-link"></use></svg>
+          GitHub
+          <span style="font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;color:#63687D">1.2k</span>
+        </a>
+        <a href="#" style="font-size:13.5px;font-weight:600;color:#4A4E66;padding:9px 14px;border-radius:10px" style-hover="background:#F2F3F9;color:#101223">Sign in</a>
+        <a href="#" style="font-size:13.5px;font-weight:700;padding:11px 17px;border-radius:11px;background:#101223;color:#fff" style-hover="background:#241C6B">Get started</a>
+      </nav>
+
+      <div style="padding:56px 40px 0;text-align:center">
+        <div style="display:inline-flex;align-items:center;gap:9px;padding:5px 13px 5px 6px;background:#fff;border:1px solid #E7E8F1;border-radius:999px;font-size:12.5px;font-weight:600;color:#4A4E66;box-shadow:0 1px 2px rgba(16,18,35,.05)">
+          <span style="padding:3px 9px;border-radius:999px;background:#EEEBFD;color:#4034A8;font-weight:800;font-size:11px;letter-spacing:.04em">NEW</span>
+          Semantic search over published content, no third party API key
+          <svg viewBox="0 0 32 32" style="width:11px;height:11px;fill:#63687D"><use href="#ic-arrow-right"></use></svg>
+        </div>
+
+        <h1 style="margin:26px auto 0;max-width:19ch;font-family:'Sora',sans-serif;font-size:76px;line-height:1.02;font-weight:600;letter-spacing:-.04em;text-wrap:balance">Ship the boring 80% on day one</h1>
+        <p style="margin:24px auto 0;max-width:66ch;font-size:18px;line-height:1.6;color:#4A4E66">Content modelling, users, roles, per-field permissions, workflow, audit history and multi-tenancy, event-sourced on PostgreSQL, exposed as a REST delivery API. Bring your own frontend.</p>
+
+        <div style="margin-top:32px;display:flex;justify-content:center;align-items:center;gap:12px">
+          <a href="#" style="display:inline-flex;align-items:center;gap:9px;height:50px;padding:0 24px;border-radius:13px;background:#5A46D6;color:#fff;font-size:15.5px;font-weight:700;box-shadow:0 10px 24px -10px rgba(90,70,214,.7)" style-hover="background:#4A38C0">Deploy in 3 minutes<svg viewBox="0 0 32 32" style="width:15px;height:15px;fill:currentColor"><use href="#ic-arrow-right"></use></svg></a>
+          <div style="display:flex;align-items:center;gap:12px;height:50px;padding:0 8px 0 18px;border-radius:13px;background:#fff;border:1px solid #E7E8F1;font-family:'JetBrains Mono',monospace;font-size:13.5px;box-shadow:0 1px 2px rgba(16,18,35,.05)">
+            <span style="color:#63687D">$</span>docker compose up -d
+            <button type="button" style="width:34px;height:34px;display:flex;align-items:center;justify-content:center;border:0;border-radius:9px;background:#F2F3F9;color:#4A4E66;cursor:pointer" style-hover="background:#EEEBFD;color:#4034A8"><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:currentColor"><use href="#ic-copy"></use></svg></button>
+          </div>
+        </div>
+        <p style="margin:16px 0 0;font-size:12.5px;font-weight:600;color:#63687D">MPL-2.0, self-hosted, no seat cap, no revenue cap, no metered AI</p>
+
+        <div style="margin-top:52px;padding:12px 12px 0;background:#F2F3F9;border:1px solid #E7E8F1;border-radius:22px 22px 0 0">
+          <div style="background:#fff;border:1px solid #E7E8F1;border-radius:16px 16px 0 0;overflow:hidden;text-align:left;box-shadow:0 30px 70px -34px rgba(16,18,35,.38)">
+            <div style="height:44px;display:flex;align-items:center;gap:10px;padding:0 16px;border-bottom:1px solid #E7E8F1">
+              <span style="width:10px;height:10px;border-radius:999px;background:#E7E8F1"></span><span style="width:10px;height:10px;border-radius:999px;background:#E7E8F1"></span><span style="width:10px;height:10px;border-radius:999px;background:#E7E8F1"></span>
+              <span style="margin-left:12px;width:360px;height:26px;display:flex;align-items:center;gap:8px;padding:0 11px;border-radius:999px;background:#F2F3F9;font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D"><svg viewBox="0 0 32 32" style="width:10px;height:10px;fill:currentColor"><use href="#ic-lock"></use></svg>admin.bakersguild.ph/content/spring-roast</span>
+            </div>
+            <div style="display:flex;min-height:420px">
+              <div style="width:210px;flex-shrink:0;border-right:1px solid #E7E8F1;padding:14px;display:flex;flex-direction:column;gap:3px">
+                <div style="display:flex;align-items:center;gap:10px;padding:0 4px 12px">
+                  <svg width="24" height="24" viewBox="0 0 128 128"><g transform="rotate(-32 64 64)"><ellipse cx="64" cy="64" rx="33" ry="50" fill="url(#sgBean)"></ellipse><ellipse cx="52" cy="44" rx="9" ry="17" fill="#C9C1F5" opacity="0.35"></ellipse><path d="M64 17 C 51 41, 77 55, 64 64 C 51 73, 77 87, 64 111" fill="none" stroke="#241C6B" stroke-width="6.5" stroke-linecap="round"></path></g></svg>
+                  <span style="font-family:'Sora',sans-serif;font-size:14px;font-weight:600;letter-spacing:-.02em">barako<span style="color:#5A46D6">Brew</span></span>
+                </div>
+                <div style="height:32px;display:flex;align-items:center;gap:10px;padding:0 11px;border-radius:10px;background:#EEEBFD;color:#4034A8;font-size:13px;font-weight:700"><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:currentColor"><use href="#ic-content"></use></svg>Entries<span style="margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:10.5px">148</span></div>
+                <div style="height:32px;display:flex;align-items:center;gap:10px;padding:0 11px;border-radius:10px;font-size:13px;font-weight:500;color:#4A4E66"><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:#63687D"><use href="#ic-content-types"></use></svg>Content types</div>
+                <div style="height:32px;display:flex;align-items:center;gap:10px;padding:0 11px;border-radius:10px;font-size:13px;font-weight:500;color:#4A4E66"><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:#63687D"><use href="#ic-workflows"></use></svg>Workflows</div>
+                <div style="height:32px;display:flex;align-items:center;gap:10px;padding:0 11px;border-radius:10px;font-size:13px;font-weight:500;color:#4A4E66"><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:#63687D"><use href="#ic-coins"></use></svg>Accounting</div>
+                <div style="height:32px;display:flex;align-items:center;gap:10px;padding:0 11px;border-radius:10px;font-size:13px;font-weight:500;color:#4A4E66"><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:#63687D"><use href="#ic-analytics"></use></svg>Analytics</div>
+                <div style="height:32px;display:flex;align-items:center;gap:10px;padding:0 11px;border-radius:10px;font-size:13px;font-weight:500;color:#4A4E66"><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:#63687D"><use href="#ic-users"></use></svg>Users</div>
+              </div>
+
+              <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+                <div style="padding:16px 20px;border-bottom:1px solid #E7E8F1;display:flex;align-items:center;gap:12px">
+                  <div style="flex:1;min-width:0">
+                    <div style="display:flex;align-items:center;gap:9px">
+                      <h3 style="margin:0;font-family:'Sora',sans-serif;font-size:17px;font-weight:600;letter-spacing:-.02em">Spring roast notes</h3>
+                      <span style="padding:3px 9px;border-radius:999px;background:#E6F7F4;color:#0B7A6B;font-size:11px;font-weight:700">Published</span>
+                    </div>
+                    <p style="margin:4px 0 0;font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D">article · v7 · /api/public/article/spring-roast</p>
+                  </div>
+                  <span style="padding:8px 14px;border-radius:10px;background:#5A46D6;color:#fff;font-size:12.5px;font-weight:700">Save</span>
+                </div>
+                <div style="flex:1;padding:18px 20px;display:flex;flex-direction:column;gap:14px">
+                  <div><p style="margin:0 0 6px;font-size:12px;font-weight:700;color:#63687D">Title</p><div style="padding:10px 12px;border:1px solid #E7E8F1;border-radius:10px;font-size:13.5px;font-weight:600">Spring roast notes</div></div>
+                  <div><p style="margin:0 0 6px;font-size:12px;font-weight:700;color:#63687D">Slug</p><div style="padding:10px 12px;border:1px solid #E7E8F1;border-radius:10px;font-family:'JetBrains Mono',monospace;font-size:12.5px">spring-roast</div></div>
+                  <div><p style="margin:0 0 6px;font-size:12px;font-weight:700;color:#63687D">Body</p><div style="padding:10px 12px;border:1px solid #E7E8F1;border-radius:10px;font-size:13.5px;line-height:1.65;color:#4A4E66">The lot came in two weeks early this year. Cupping notes below, plus the roast curve we settled on after four batches.</div></div>
+                  <div style="display:flex;align-items:center;justify-content:space-between;padding:11px 12px;border:1px solid #E7E8F1;border-radius:10px"><span style="font-size:13.5px;font-weight:600">Serve publicly</span><span style="width:34px;height:20px;border-radius:999px;background:#5A46D6;display:inline-flex;align-items:center;justify-content:flex-end;padding:2px"><span style="width:16px;height:16px;border-radius:999px;background:#fff"></span></span></div>
+                </div>
+              </div>
+
+              <div style="width:250px;flex-shrink:0;border-left:1px solid #E7E8F1;background:#FAFAFC;padding:18px">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <p style="margin:0;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#63687D">Event stream</p>
+                  <span style="width:6px;height:6px;border-radius:999px;background:#5A46D6;animation:sgPulse 1.8s ease-in-out infinite"></span>
+                </div>
+                <div style="margin-top:12px;display:flex;flex-direction:column;gap:7px">
+                  <div style="padding:10px 12px;background:#fff;border:1px solid #DED8FB;border-radius:11px;box-shadow:0 1px 2px rgba(90,70,214,.08)"><p style="margin:0;font-size:12.5px;font-weight:700">Published</p><p style="margin:3px 0 0;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#63687D">v7 · Rosa · 14:52</p></div>
+                  <div style="padding:10px 12px;background:#fff;border:1px solid #E7E8F1;border-radius:11px"><p style="margin:0;font-size:12.5px;font-weight:700">Scheduled</p><p style="margin:3px 0 0;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#63687D">v6 · Rosa · 11:20</p></div>
+                  <div style="padding:10px 12px;background:#fff;border:1px solid #E7E8F1;border-radius:11px;opacity:.75"><p style="margin:0;font-size:12.5px;font-weight:700">Body edited</p><p style="margin:3px 0 0;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#63687D">v5 · Rosa · 09:02</p></div>
+                  <div style="padding:10px 12px;background:#fff;border:1px solid #E7E8F1;border-radius:11px;opacity:.5"><p style="margin:0;font-size:12.5px;font-weight:700">Created</p><p style="margin:3px 0 0;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#63687D">v1 · Rosa · Mar 2</p></div>
+                </div>
+                <p style="margin:14px 0 0;font-size:12px;line-height:1.55;color:#63687D">Restore any version. The restore is itself an event.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- what you inherit -->
+      <div style="background:#fff;border-top:1px solid #E7E8F1;padding:88px 40px">
+        <div style="max-width:1160px;margin:0 auto">
+          <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:40px">
+            <div>
+              <p style="margin:0;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#63687D">What you inherit</p>
+              <h2 style="margin:14px 0 0;max-width:24ch;font-family:'Sora',sans-serif;font-size:42px;line-height:1.08;font-weight:600;letter-spacing:-.03em">A blog and a treasury have the same foundations</h2>
+            </div>
+            <p style="margin:0;max-width:44ch;font-size:15.5px;line-height:1.7;color:#4A4E66">Every project needs somewhere to define records, decide who may read which field, keep an audit trail, and serve it over an API. That layer is what you get. Your frontend and your domain rules stay yours.</p>
+          </div>
+
+          <div style="margin-top:40px;display:grid;grid-template-columns:repeat(3,1fr);gap:14px">
+            <div style="padding:24px;border:1px solid #E7E8F1;border-radius:16px;box-shadow:0 1px 2px rgba(16,18,35,.04)" style-hover="border-color:#DED8FB;box-shadow:0 8px 24px -12px rgba(90,70,214,.22)">
+              <span style="width:38px;height:38px;border-radius:11px;background:#EEEBFD;color:#4034A8;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 32 32" style="width:19px;height:19px;fill:currentColor"><use href="#ic-content-types"></use></svg></span>
+              <h3 style="margin:16px 0 0;font-family:'Sora',sans-serif;font-size:17px;font-weight:600;letter-spacing:-.02em">Records defined at runtime</h3>
+              <p style="margin:8px 0 0;font-size:14.5px;line-height:1.65;color:#4A4E66">Add a field without a rebuild or a migration. Types are data, not classes you deploy.</p>
+            </div>
+            <div style="padding:24px;border:1px solid #E7E8F1;border-radius:16px;box-shadow:0 1px 2px rgba(16,18,35,.04)" style-hover="border-color:#DED8FB;box-shadow:0 8px 24px -12px rgba(90,70,214,.22)">
+              <span style="width:38px;height:38px;border-radius:11px;background:#EEEBFD;color:#4034A8;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 32 32" style="width:19px;height:19px;fill:currentColor"><use href="#ic-shield"></use></svg></span>
+              <h3 style="margin:16px 0 0;font-family:'Sora',sans-serif;font-size:17px;font-weight:600;letter-spacing:-.02em">Sensitivity per field</h3>
+              <p style="margin:8px 0 0;font-size:14.5px;line-height:1.65;color:#4A4E66">Hide a phone number without hiding the record. The public API emits an allowlist, so a renamed field cannot leak by accident.</p>
+            </div>
+            <div style="padding:24px;border:1px solid #E7E8F1;border-radius:16px;box-shadow:0 1px 2px rgba(16,18,35,.04)" style-hover="border-color:#DED8FB;box-shadow:0 8px 24px -12px rgba(90,70,214,.22)">
+              <span style="width:38px;height:38px;border-radius:11px;background:#EEEBFD;color:#4034A8;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 32 32" style="width:19px;height:19px;fill:currentColor"><use href="#ic-history"></use></svg></span>
+              <h3 style="margin:16px 0 0;font-family:'Sora',sans-serif;font-size:17px;font-weight:600;letter-spacing:-.02em">Real history</h3>
+              <p style="margin:8px 0 0;font-size:14.5px;line-height:1.65;color:#4A4E66">Event sourced on Marten and PostgreSQL, so a record has a past rather than one row that keeps being overwritten.</p>
+            </div>
+            <div style="padding:24px;border:1px solid #E7E8F1;border-radius:16px;box-shadow:0 1px 2px rgba(16,18,35,.04)" style-hover="border-color:#DED8FB;box-shadow:0 8px 24px -12px rgba(90,70,214,.22)">
+              <span style="width:38px;height:38px;border-radius:11px;background:#EEEBFD;color:#4034A8;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 32 32" style="width:19px;height:19px;fill:currentColor"><use href="#ic-server"></use></svg></span>
+              <h3 style="margin:16px 0 0;font-family:'Sora',sans-serif;font-size:17px;font-weight:600;letter-spacing:-.02em">Multi-tenant out of the box</h3>
+              <p style="margin:8px 0 0;font-size:14.5px;line-height:1.65;color:#4A4E66">One deployment, many customers, one database, scoped per tenant. A new client is a POST to /api/tenants.</p>
+            </div>
+            <div style="padding:24px;border:1px solid #E7E8F1;border-radius:16px;box-shadow:0 1px 2px rgba(16,18,35,.04)" style-hover="border-color:#DED8FB;box-shadow:0 8px 24px -12px rgba(90,70,214,.22)">
+              <span style="width:38px;height:38px;border-radius:11px;background:#EEEBFD;color:#4034A8;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 32 32" style="width:19px;height:19px;fill:currentColor"><use href="#ic-lock"></use></svg></span>
+              <h3 style="margin:16px 0 0;font-family:'Sora',sans-serif;font-size:17px;font-weight:600;letter-spacing:-.02em">Publishing is a decision</h3>
+              <p style="margin:8px 0 0;font-size:14.5px;line-height:1.65;color:#4A4E66">Nothing is served anonymously until a content type opts in. Private is the default, so forgetting to choose is safe.</p>
+            </div>
+            <div style="padding:24px;border:1px solid #E7E8F1;border-radius:16px;box-shadow:0 1px 2px rgba(16,18,35,.04)" style-hover="border-color:#DED8FB;box-shadow:0 8px 24px -12px rgba(90,70,214,.22)">
+              <span style="width:38px;height:38px;border-radius:11px;background:#EEEBFD;color:#4034A8;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 32 32" style="width:19px;height:19px;fill:currentColor"><use href="#ic-cube"></use></svg></span>
+              <h3 style="margin:16px 0 0;font-family:'Sora',sans-serif;font-size:17px;font-weight:600;letter-spacing:-.02em">Modules, not a monolith</h3>
+              <p style="margin:8px 0 0;font-size:14.5px;line-height:1.65;color:#4A4E66">Accounting, semantic search, feature flags, file storage, social sign-in. Take what you need and the core stays small.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- three lines to start -->
+      <div style="padding:88px 40px;border-top:1px solid #E7E8F1">
+        <div style="max-width:1160px;margin:0 auto;display:grid;grid-template-columns:1fr 1.1fr;gap:64px;align-items:center">
+          <div>
+            <p style="margin:0;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#63687D">Three lines to start</p>
+            <h2 style="margin:14px 0 0;max-width:20ch;font-family:'Sora',sans-serif;font-size:42px;line-height:1.08;font-weight:600;letter-spacing:-.03em">A service registration, not a scaffold</h2>
+            <p style="margin:20px 0 0;max-width:48ch;font-size:15.5px;line-height:1.7;color:#4A4E66">No scaffolding step, no generated project to maintain. It is a service registration in an ASP.NET app you already have. Needs PostgreSQL. Content, authentication, roles, workflow and the delivery API come with it.</p>
+            <div style="margin-top:28px;display:flex;gap:10px">
+              <a href="#" style="display:inline-flex;align-items:center;gap:8px;height:44px;padding:0 18px;border-radius:11px;background:#5A46D6;color:#fff;font-size:14px;font-weight:700">Read the quickstart<svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:currentColor"><use href="#ic-arrow-right"></use></svg></a>
+              <a href="#" style="display:inline-flex;align-items:center;gap:8px;height:44px;padding:0 18px;border-radius:11px;background:#fff;border:1px solid #E7E8F1;font-size:14px;font-weight:600;box-shadow:0 1px 2px rgba(16,18,35,.05)" style-hover="border-color:#5A46D6;color:#4034A8"><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:currentColor"><use href="#ic-play"></use></svg>Open the demo admin</a>
+            </div>
+          </div>
+          <div style="background:#101223;border-radius:16px;overflow:hidden;box-shadow:0 24px 56px -28px rgba(16,18,35,.5)">
+            <div style="height:40px;display:flex;align-items:center;gap:10px;padding:0 16px;border-bottom:1px solid #26294A">
+              <span style="padding:4px 10px;border-radius:8px;background:#26294A;color:#C9C1F5;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700">Program.cs</span>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#6E7396">C#</span>
+            </div>
+            <pre style="padding:22px;overflow-x:auto"><code style="font-family:'JetBrains Mono',monospace;font-size:13.5px;line-height:1.85;color:#E6E7F3"><span style="color:#63687D">builder.Services.</span><span style="color:#A99BF7">AddBarakoCMS</span>(builder.Configuration, modules =&gt;
+{
+    modules.<span style="color:#A99BF7">Add</span>(<span style="color:#63687D">new</span> <span style="color:#7FD1C1">AccountingModule</span>());
+    modules.<span style="color:#A99BF7">Add</span>(<span style="color:#63687D">new</span> <span style="color:#7FD1C1">UmamiAnalyticsModule</span>());
+    modules.<span style="color:#A99BF7">Add</span>(<span style="color:#63687D">new</span> <span style="color:#7FD1C1">AiModule</span>());
+});
+
+<span style="color:#63687D">var</span> app = builder.<span style="color:#A99BF7">Build</span>();
+app.<span style="color:#A99BF7">UseBarakoCMS</span>();
+app.<span style="color:#A99BF7">Run</span>();</code></pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- comparison -->
+      <div style="background:#fff;border-top:1px solid #E7E8F1;padding:88px 40px">
+        <div style="max-width:1160px;margin:0 auto">
+          <p style="margin:0;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#63687D">What tends to sit behind a licence</p>
+          <h2 style="margin:14px 0 0;max-width:22ch;font-family:'Sora',sans-serif;font-size:42px;line-height:1.08;font-weight:600;letter-spacing:-.03em">The comparison, made fairly</h2>
+          <p style="margin:20px 0 0;max-width:70ch;font-size:15.5px;line-height:1.7;color:#4A4E66">Umbraco is the closest reference point in .NET and a good one. The CMS itself is MIT and free. What an agency runs into is that several pieces a client project needs are separate commercial products. This compares self-hosted Umbraco, which is the like for like case.</p>
+
+          <div style="margin-top:36px;border:1px solid #E7E8F1;border-radius:16px;overflow:hidden;box-shadow:0 1px 2px rgba(16,18,35,.04)">
+            <table style="width:100%;border-collapse:collapse;font-size:14.5px">
+              <thead>
+                <tr style="background:#FAFAFC;border-bottom:1px solid #E7E8F1">
+                  <th style="text-align:left;padding:14px 24px;font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#63687D">Capability</th>
+                  <th style="text-align:left;padding:14px 24px;font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#63687D">Umbraco, self-hosted</th>
+                  <th style="text-align:left;padding:14px 24px;font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#63687D">BarakoCMS</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr style="border-bottom:1px solid #EFF0F6"><td style="padding:15px 24px;font-weight:600">The CMS itself</td><td style="padding:15px 24px;color:#4A4E66">Free, MIT</td><td style="padding:15px 24px"><span style="display:inline-flex;align-items:center;gap:7px;font-weight:700;color:#0B7A6B"><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:currentColor"><use href="#ic-check-circle"></use></svg>Free, MPL-2.0</span></td></tr>
+                <tr style="border-bottom:1px solid #EFF0F6"><td style="padding:15px 24px;font-weight:600">Editorial workflow</td><td style="padding:15px 24px;color:#4A4E66">Umbraco Workflow, licensed</td><td style="padding:15px 24px"><span style="display:inline-flex;align-items:center;gap:7px;font-weight:700;color:#0B7A6B"><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:currentColor"><use href="#ic-check-circle"></use></svg>In the core</span></td></tr>
+                <tr style="border-bottom:1px solid #EFF0F6"><td style="padding:15px 24px;font-weight:600">Environment and content transfer</td><td style="padding:15px 24px;color:#4A4E66">Umbraco Deploy, licensed</td><td style="padding:15px 24px"><span style="display:inline-flex;align-items:center;gap:7px;font-weight:700;color:#0B7A6B"><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:currentColor"><use href="#ic-check-circle"></use></svg>Portability module</span></td></tr>
+                <tr style="border-bottom:1px solid #EFF0F6"><td style="padding:15px 24px;font-weight:600">Analytics</td><td style="padding:15px 24px;color:#4A4E66">Umbraco Engage, licensed</td><td style="padding:15px 24px"><span style="display:inline-flex;align-items:center;gap:7px;font-weight:700;color:#0B7A6B"><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:currentColor"><use href="#ic-check-circle"></use></svg>Analytics module</span></td></tr>
+                <tr><td style="padding:15px 24px;font-weight:600">Forms</td><td style="padding:15px 24px;color:#4A4E66">Umbraco Forms, licensed</td><td style="padding:15px 24px;color:#63687D;font-weight:600">Planned, and it will be free</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p style="margin:20px 0 0;max-width:70ch;font-size:13.5px;line-height:1.7;color:#63687D">To be fair about it, those licences are how Umbraco funds a mature product with real support behind it, and their add-ons are further along than ours. BarakoCMS is younger and comes with no support contract. Licensing details come from Umbraco&rsquo;s own documentation and can change, so check theirs before you decide.</p>
+        </div>
+      </div>
+
+      <!-- agency angle + cta -->
+      <div style="padding:88px 40px;border-top:1px solid #E7E8F1">
+        <div style="max-width:1160px;margin:0 auto;padding:56px;border-radius:20px;background:#101223;color:#fff;position:relative;overflow:hidden">
+          <svg width="340" height="340" viewBox="0 0 128 128" style="position:absolute;right:-60px;top:-70px;opacity:.16"><g transform="rotate(-32 64 64)"><ellipse cx="64" cy="64" rx="33" ry="50" fill="url(#sgBeanLight)"></ellipse><path d="M64 17 C 51 41, 77 55, 64 64 C 51 73, 77 87, 64 111" fill="none" stroke="#5A46D6" stroke-width="6.5" stroke-linecap="round"></path></g></svg>
+          <div style="position:relative;max-width:62ch">
+            <p style="margin:0;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#A99BF7">If you build for other people</p>
+            <h2 style="margin:14px 0 0;font-family:'Sora',sans-serif;font-size:44px;line-height:1.06;font-weight:600;letter-spacing:-.03em">The weeks no client ever asked you to spend</h2>
+            <p style="margin:20px 0 0;font-size:16px;line-height:1.7;color:#C4C7DC">Run one deployment and give each customer a tenant. Model what they asked for as content types, without a rebuild. Point any frontend at the delivery API, and hand the whole thing over as a JSON export when the engagement ends.</p>
+            <div style="margin-top:32px;display:grid;grid-template-columns:repeat(2,1fr);gap:20px 40px;max-width:640px">
+              <div style="padding-top:16px;border-top:1px solid #2C2F52"><p style="margin:0;font-size:14.5px;font-weight:700">One deployment, many customers</p><p style="margin:5px 0 0;font-size:13.5px;line-height:1.6;color:#63687D">Tenants share a database and stay scoped apart.</p></div>
+              <div style="padding-top:16px;border-top:1px solid #2C2F52"><p style="margin:0;font-size:14.5px;font-weight:700">A new client is an API call</p><p style="margin:5px 0 0;font-size:13.5px;line-height:1.6;color:#63687D">POST /api/tenants, then model their content.</p></div>
+              <div style="padding-top:16px;border-top:1px solid #2C2F52"><p style="margin:0;font-size:14.5px;font-weight:700">Their site, their content</p><p style="margin:5px 0 0;font-size:13.5px;line-height:1.6;color:#63687D">Editors work in the admin, so you are not the bottleneck.</p></div>
+              <div style="padding-top:16px;border-top:1px solid #2C2F52"><p style="margin:0;font-size:14.5px;font-weight:700">Nobody is locked in</p><p style="margin:5px 0 0;font-size:13.5px;line-height:1.6;color:#63687D">Export content and schema as JSON at any time.</p></div>
+            </div>
+            <div style="margin-top:36px;display:flex;gap:12px">
+              <a href="#" style="display:inline-flex;align-items:center;gap:9px;height:48px;padding:0 22px;border-radius:12px;background:#5A46D6;color:#fff;font-size:15px;font-weight:700">Get started<svg viewBox="0 0 32 32" style="width:15px;height:15px;fill:currentColor"><use href="#ic-arrow-right"></use></svg></a>
+              <a href="#" style="display:inline-flex;align-items:center;height:48px;padding:0 22px;border-radius:12px;border:1px solid #2C2F52;font-size:15px;font-weight:600;color:#E6E7F3" style-hover="border-color:#5A46D6">Browse 12 modules</a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <footer style="border-top:1px solid #E7E8F1;background:#fff;padding:40px">
+        <div style="max-width:1160px;margin:0 auto;display:flex;flex-wrap:wrap;align-items:center;gap:12px 28px;font-size:13.5px;color:#63687D">
+          <span style="display:flex;align-items:center;gap:9px;font-weight:700;color:#101223">
+            <svg width="20" height="20" viewBox="0 0 128 128"><g transform="rotate(-32 64 64)"><ellipse cx="64" cy="64" rx="33" ry="50" fill="url(#sgBean)"></ellipse><path d="M64 17 C 51 41, 77 55, 64 64 C 51 73, 77 87, 64 111" fill="none" stroke="#241C6B" stroke-width="6.5" stroke-linecap="round"></path></g></svg>
+            BarakoCMS
+          </span>
+          <span>MPL-2.0</span>
+          <a href="#" style="font-weight:600" style-hover="color:#5A46D6">Source</a>
+          <a href="#" style="font-weight:600" style-hover="color:#5A46D6">Changelog</a>
+          <a href="#" style="font-weight:600" style-hover="color:#5A46D6">Contributing</a>
+          <a href="#" style="font-weight:600" style-hover="color:#5A46D6">Discord</a>
+          <span style="flex:1"></span>
+          <span>A star on <a href="#" style="color:#5A46D6;font-weight:700">GitHub</a> helps other people find it.</span>
+        </div>
+      </footer>
+    </div>
+  </div>
+
+  <!-- =============================== ADMIN OVERVIEW =============================== -->
+  <div data-screen-label="Admin — Overview" style="display:flex;flex-direction:column;gap:14px">
+    <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#63687D">admin · overview</span>
+    <div style="width:1440px;height:900px;background:#FAFAFC;color:#101223;border:1px solid #d4d4d8;border-radius:16px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08);display:flex">
+
+      <aside style="width:248px;flex-shrink:0;padding:16px;display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;align-items:center;gap:10px;padding:0 4px">
+          <svg width="30" height="30" viewBox="0 0 128 128"><g transform="rotate(-32 64 64)"><ellipse cx="64" cy="64" rx="33" ry="50" fill="url(#sgBean)"></ellipse><ellipse cx="52" cy="44" rx="9" ry="17" fill="#C9C1F5" opacity="0.35"></ellipse><path d="M64 17 C 51 41, 77 55, 64 64 C 51 73, 77 87, 64 111" fill="none" stroke="#241C6B" stroke-width="6.5" stroke-linecap="round"></path></g></svg>
+          <span style="font-family:'Sora',sans-serif;font-size:15.5px;font-weight:600;letter-spacing:-.025em;flex:1">barako<span style="color:#5A46D6">Brew</span></span>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;color:#63687D">4.2.1</span>
+        </div>
+
+        <button type="button" style="width:100%;height:40px;display:flex;align-items:center;gap:10px;padding:0 12px;border:1px solid #E7E8F1;background:#fff;border-radius:11px;font-family:inherit;font-size:13.5px;color:#63687D;cursor:pointer;box-shadow:0 1px 2px rgba(16,18,35,.05)" style-hover="border-color:#5A46D6;color:#4A4E66">
+          <svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:currentColor"><use href="#ic-search"></use></svg><span style="flex:1;text-align:left">Search or jump to</span><kbd style="font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;padding:3px 7px;border-radius:6px;background:#F2F3F9">⌘K</kbd>
+        </button>
+
+        <button type="button" style="width:100%;display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid #E7E8F1;background:#fff;border-radius:11px;font-family:inherit;cursor:pointer;box-shadow:0 1px 2px rgba(16,18,35,.05)" style-hover="border-color:#DED8FB">
+          <span style="width:28px;height:28px;border-radius:9px;background:#5A46D6;color:#fff;display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700">BG</span>
+          <span style="flex:1;text-align:left;min-width:0"><span style="display:block;font-size:13.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Bakers&rsquo; Guild</span><span style="display:block;font-size:11.5px;color:#63687D">3 tenants available</span></span>
+          <svg viewBox="0 0 32 32" style="width:12px;height:12px;fill:#63687D"><use href="#ic-chevron-down"></use></svg>
+        </button>
+
+        <div style="flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:18px">
+          <div style="display:flex;flex-direction:column;gap:3px">
+            <a href="#" style="height:38px;display:flex;align-items:center;gap:11px;padding:0 12px;border-radius:11px;font-size:13.5px;font-weight:700;background:#fff;color:#101223;box-shadow:0 1px 2px rgba(16,18,35,.06)"><svg viewBox="0 0 32 32" style="width:16px;height:16px;fill:#5A46D6"><use href="#ic-dashboard"></use></svg>Overview</a>
+            <a href="#" style="height:38px;display:flex;align-items:center;gap:11px;padding:0 12px;border-radius:11px;font-size:13.5px;font-weight:500;color:#4A4E66" style-hover="background:#F2F3F9;color:#101223"><svg viewBox="0 0 32 32" style="width:16px;height:16px;fill:#63687D"><use href="#ic-content"></use></svg>Entries<span style="margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;color:#63687D">148</span></a>
+            <a href="#" style="height:38px;display:flex;align-items:center;gap:11px;padding:0 12px;border-radius:11px;font-size:13.5px;font-weight:500;color:#4A4E66" style-hover="background:#F2F3F9;color:#101223"><svg viewBox="0 0 32 32" style="width:16px;height:16px;fill:#63687D"><use href="#ic-content-types"></use></svg>Content types<span style="margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;color:#63687D">6</span></a>
+            <a href="#" style="height:38px;display:flex;align-items:center;gap:11px;padding:0 12px;border-radius:11px;font-size:13.5px;font-weight:500;color:#4A4E66" style-hover="background:#F2F3F9;color:#101223"><svg viewBox="0 0 32 32" style="width:16px;height:16px;fill:#63687D"><use href="#ic-workflows"></use></svg>Workflows<span style="margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;color:#63687D">3</span></a>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:3px">
+            <p style="margin:0;padding:0 12px 5px;font-size:10.5px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#6E7387">Access</p>
+            <a href="#" style="height:34px;display:flex;align-items:center;gap:11px;padding:0 12px;border-radius:10px;font-size:13.5px;font-weight:500;color:#4A4E66" style-hover="background:#F2F3F9;color:#101223"><svg viewBox="0 0 32 32" style="width:16px;height:16px;fill:#63687D"><use href="#ic-users"></use></svg>Users and roles</a>
+            <a href="#" style="height:34px;display:flex;align-items:center;gap:11px;padding:0 12px;border-radius:10px;font-size:13.5px;font-weight:500;color:#4A4E66" style-hover="background:#F2F3F9;color:#101223"><svg viewBox="0 0 32 32" style="width:16px;height:16px;fill:#63687D"><use href="#ic-groups"></use></svg>Groups</a>
+            <a href="#" style="height:34px;display:flex;align-items:center;gap:11px;padding:0 12px;border-radius:10px;font-size:13.5px;font-weight:500;color:#4A4E66" style-hover="background:#F2F3F9;color:#101223"><svg viewBox="0 0 32 32" style="width:16px;height:16px;fill:#63687D"><use href="#ic-server"></use></svg>Tenants</a>
+            <a href="#" style="height:34px;display:flex;align-items:center;gap:11px;padding:0 12px;border-radius:10px;font-size:13.5px;font-weight:500;color:#4A4E66" style-hover="background:#F2F3F9;color:#101223"><svg viewBox="0 0 32 32" style="width:16px;height:16px;fill:#63687D"><use href="#ic-key"></use></svg>API keys</a>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:3px">
+            <p style="margin:0;padding:0 12px 5px;font-size:10.5px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#6E7387">Modules, 5 installed</p>
+            <a href="#" style="height:34px;display:flex;align-items:center;gap:11px;padding:0 12px;border-radius:10px;font-size:13.5px;font-weight:500;color:#4A4E66" style-hover="background:#F2F3F9;color:#101223"><svg viewBox="0 0 32 32" style="width:16px;height:16px;fill:#63687D"><use href="#ic-coins"></use></svg>Accounting</a>
+            <a href="#" style="height:34px;display:flex;align-items:center;gap:11px;padding:0 12px;border-radius:10px;font-size:13.5px;font-weight:500;color:#4A4E66" style-hover="background:#F2F3F9;color:#101223"><svg viewBox="0 0 32 32" style="width:16px;height:16px;fill:#63687D"><use href="#ic-analytics"></use></svg>Analytics</a>
+            <a href="#" style="height:34px;display:flex;align-items:center;gap:11px;padding:0 12px;border-radius:10px;font-size:13.5px;font-weight:500;color:#4A4E66" style-hover="background:#F2F3F9;color:#101223"><svg viewBox="0 0 32 32" style="width:16px;height:16px;fill:#63687D"><use href="#ic-envelope"></use></svg>Email events<span style="margin-left:auto;padding:2px 8px;border-radius:999px;background:#FDF2E3;color:#8A5A10;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700">2</span></a>
+            <a href="#" style="height:34px;display:flex;align-items:center;gap:11px;padding:0 12px;border-radius:10px;font-size:13.5px;font-weight:500;color:#4A4E66" style-hover="background:#F2F3F9;color:#101223"><svg viewBox="0 0 32 32" style="width:16px;height:16px;fill:#63687D"><use href="#ic-flag"></use></svg>Feature flags</a>
+            <a href="#" style="height:34px;display:flex;align-items:center;gap:11px;padding:0 12px;border-radius:10px;font-size:13.5px;font-weight:500;color:#4A4E66" style-hover="background:#F2F3F9;color:#101223"><svg viewBox="0 0 32 32" style="width:16px;height:16px;fill:#63687D"><use href="#ic-mobile"></use></svg>PWA installs</a>
+            <a href="#" style="height:34px;display:flex;align-items:center;gap:11px;padding:0 12px;border-radius:10px;font-size:13px;font-weight:700;color:#5A46D6" style-hover="background:#EEEBFD"><svg viewBox="0 0 32 32" style="width:16px;height:16px;fill:currentColor"><use href="#ic-plus"></use></svg>Add a module</a>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:3px">
+            <p style="margin:0;padding:0 12px 5px;font-size:10.5px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#6E7387">System</p>
+            <a href="#" style="height:34px;display:flex;align-items:center;gap:11px;padding:0 12px;border-radius:10px;font-size:13.5px;font-weight:500;color:#4A4E66" style-hover="background:#F2F3F9;color:#101223"><svg viewBox="0 0 32 32" style="width:16px;height:16px;fill:#63687D"><use href="#ic-history"></use></svg>Audit log</a>
+            <a href="#" style="height:34px;display:flex;align-items:center;gap:11px;padding:0 12px;border-radius:10px;font-size:13.5px;font-weight:500;color:#4A4E66" style-hover="background:#F2F3F9;color:#101223"><svg viewBox="0 0 32 32" style="width:16px;height:16px;fill:#63687D"><use href="#ic-bug"></use></svg>Errors<span style="margin-left:auto;padding:2px 8px;border-radius:999px;background:#FDECEC;color:#A22C2C;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700">3</span></a>
+            <a href="#" style="height:34px;display:flex;align-items:center;gap:11px;padding:0 12px;border-radius:10px;font-size:13.5px;font-weight:500;color:#4A4E66" style-hover="background:#F2F3F9;color:#101223"><svg viewBox="0 0 32 32" style="width:16px;height:16px;fill:#63687D"><use href="#ic-health"></use></svg>Health</a>
+            <a href="#" style="height:34px;display:flex;align-items:center;gap:11px;padding:0 12px;border-radius:10px;font-size:13.5px;font-weight:500;color:#4A4E66" style-hover="background:#F2F3F9;color:#101223"><svg viewBox="0 0 32 32" style="width:16px;height:16px;fill:#63687D"><use href="#ic-shield"></use></svg>Security</a>
+            <a href="#" style="height:34px;display:flex;align-items:center;gap:11px;padding:0 12px;border-radius:10px;font-size:13.5px;font-weight:500;color:#4A4E66" style-hover="background:#F2F3F9;color:#101223"><svg viewBox="0 0 32 32" style="width:16px;height:16px;fill:#63687D"><use href="#ic-settings"></use></svg>Settings</a>
+          </div>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:#fff;border:1px solid #E7E8F1;border-radius:11px;box-shadow:0 1px 2px rgba(16,18,35,.05)">
+          <span style="width:28px;height:28px;border-radius:999px;background:#101223;color:#fff;display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700">DA</span>
+          <span style="flex:1;min-width:0"><span style="display:block;font-size:13px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">demo_admin</span><span style="display:block;font-size:11.5px;color:#63687D">SuperAdmin</span></span>
+          <svg viewBox="0 0 32 32" style="width:15px;height:15px;fill:#63687D"><use href="#ic-more"></use></svg>
+        </div>
+      </aside>
+
+      <div style="flex:1;min-width:0;display:flex;flex-direction:column;background:#fff;margin:16px 16px 16px 0;border:1px solid #E7E8F1;border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(16,18,35,.06)">
+        <header style="height:60px;flex-shrink:0;display:flex;align-items:center;gap:12px;padding:0 24px;border-bottom:1px solid #E7E8F1">
+          <h1 style="margin:0;font-family:'Sora',sans-serif;font-size:18px;font-weight:600;letter-spacing:-.025em">Overview</h1>
+          <div style="flex:1"></div>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#63687D">p95 38ms · err 0.04%</span>
+          <span style="display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border-radius:999px;background:#E6F7F4;color:#0B7A6B;font-size:12px;font-weight:700"><span style="width:6px;height:6px;border-radius:999px;background:currentColor;animation:sgPulse 2.4s ease-in-out infinite"></span>Healthy</span>
+          <button type="button" style="width:38px;height:38px;display:flex;align-items:center;justify-content:center;border:1px solid #E7E8F1;border-radius:10px;background:#fff;cursor:pointer;color:#4A4E66;position:relative" style-hover="border-color:#5A46D6;color:#4034A8"><svg viewBox="0 0 32 32" style="width:15px;height:15px;fill:currentColor"><use href="#ic-bolt"></use></svg><span style="position:absolute;top:7px;right:7px;width:7px;height:7px;border-radius:999px;background:#5A46D6"></span></button>
+          <a href="#" style="display:inline-flex;align-items:center;gap:8px;height:38px;padding:0 15px;border-radius:10px;background:#5A46D6;color:#fff;font-size:13.5px;font-weight:700;box-shadow:0 5px 14px -7px rgba(90,70,214,.8)" style-hover="background:#4A38C0"><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:currentColor"><use href="#ic-plus"></use></svg>New entry</a>
+        </header>
+
+        <main style="flex:1;min-height:0;overflow:auto;padding:24px;display:flex;flex-direction:column;gap:20px">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:24px">
+            <div>
+              <h2 style="margin:0;font-family:'Sora',sans-serif;font-size:26px;font-weight:600;letter-spacing:-.03em">Good morning, Rosa</h2>
+              <p style="margin:6px 0 0;font-size:14px;color:#4A4E66">Three entries publish on schedule today, two email bounces are waiting, and the ledger has one unbalanced entry.</p>
+            </div>
+            <div style="display:flex;gap:2px;padding:3px;background:#F2F3F9;border-radius:999px;flex-shrink:0">
+              <span style="padding:6px 13px;border-radius:999px;background:#fff;font-size:12px;font-weight:700;box-shadow:0 1px 2px rgba(16,18,35,.08)">7 days</span>
+              <span style="padding:6px 13px;border-radius:999px;font-size:12px;font-weight:600;color:#63687D">30 days</span>
+              <span style="padding:6px 13px;border-radius:999px;font-size:12px;font-weight:600;color:#63687D">90 days</span>
+            </div>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:16px;padding:16px 20px;border-radius:14px;background:#EEEBFD;border:1px solid #DED8FB">
+            <span style="width:38px;height:38px;flex-shrink:0;border-radius:11px;background:#5A46D6;color:#fff;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 32 32" style="width:18px;height:18px;fill:currentColor"><use href="#ic-clock"></use></svg></span>
+            <div style="flex:1"><p style="margin:0;font-size:14px;font-weight:700;color:#241C6B">Scheduled publishing runs at 09:00</p><p style="margin:3px 0 0;font-size:13px;color:#4A4E66">Spring roast notes goes live first, then two newsletter issues. Nothing to do unless you want to hold them.</p></div>
+            <a href="#" style="padding:9px 15px;border-radius:10px;background:#fff;font-size:13px;font-weight:700;color:#4034A8;box-shadow:0 1px 2px rgba(16,18,35,.06)">Review schedule</a>
+          </div>
+
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+            <div style="padding:18px;border:1px solid #E7E8F1;border-radius:14px;box-shadow:0 1px 2px rgba(16,18,35,.04)">
+              <div style="display:flex;align-items:center;justify-content:space-between"><p style="margin:0;font-size:12.5px;font-weight:700;color:#63687D">Entries</p><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:#C3C6D6"><use href="#ic-content"></use></svg></div>
+              <p style="margin:11px 0 0;font-family:'JetBrains Mono',monospace;font-size:30px;font-weight:700;letter-spacing:-.035em;line-height:1;font-variant-numeric:tabular-nums">148</p>
+              <p style="margin:9px 0 0;font-size:12.5px;font-weight:700;color:#0B7A6B">12 new this week</p>
+            </div>
+            <div style="padding:18px;border:1px solid #E7E8F1;border-radius:14px;box-shadow:0 1px 2px rgba(16,18,35,.04)">
+              <div style="display:flex;align-items:center;justify-content:space-between"><p style="margin:0;font-size:12.5px;font-weight:700;color:#63687D">Published</p><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:#C3C6D6"><use href="#ic-check-circle"></use></svg></div>
+              <p style="margin:11px 0 0;font-family:'JetBrains Mono',monospace;font-size:30px;font-weight:700;letter-spacing:-.035em;line-height:1;font-variant-numeric:tabular-nums">121</p>
+              <div style="margin-top:11px;height:6px;border-radius:999px;background:#F2F3F9;overflow:hidden;display:flex"><span style="width:82%;background:#5A46D6"></span><span style="width:12%;background:#C9C1F5"></span><span style="width:6%;background:#EFC98A"></span></div>
+              <p style="margin:7px 0 0;font-size:12px;color:#63687D">27 draft, 3 scheduled</p>
+            </div>
+            <div style="padding:18px;border:1px solid #E7E8F1;border-radius:14px;box-shadow:0 1px 2px rgba(16,18,35,.04)">
+              <div style="display:flex;align-items:center;justify-content:space-between"><p style="margin:0;font-size:12.5px;font-weight:700;color:#63687D">Delivery API, 24h</p><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:#C3C6D6"><use href="#ic-bolt"></use></svg></div>
+              <p style="margin:11px 0 0;font-family:'JetBrains Mono',monospace;font-size:30px;font-weight:700;letter-spacing:-.035em;line-height:1;font-variant-numeric:tabular-nums">42.9k</p>
+              <p style="margin:9px 0 0;font-size:12.5px;color:#63687D">cache hit <span style="font-family:'JetBrains Mono',monospace;font-weight:700;color:#4A4E66">91%</span></p>
+            </div>
+            <div style="padding:18px;border:1px solid #E7E8F1;border-radius:14px;box-shadow:0 1px 2px rgba(16,18,35,.04)">
+              <div style="display:flex;align-items:center;justify-content:space-between"><p style="margin:0;font-size:12.5px;font-weight:700;color:#63687D">Visitors, 7d</p><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:#C3C6D6"><use href="#ic-analytics"></use></svg></div>
+              <p style="margin:11px 0 0;font-family:'JetBrains Mono',monospace;font-size:30px;font-weight:700;letter-spacing:-.035em;line-height:1;font-variant-numeric:tabular-nums">2,940</p>
+              <svg viewBox="0 0 120 22" preserveAspectRatio="none" style="margin-top:9px;display:block;width:100%;height:22px"><path d="M0,17 L17,13 L34,19 L51,9 L68,12 L85,4 L102,7 L120,2 L120,22 L0,22 Z" fill="rgba(90,70,214,.12)"></path><path d="M0,17 L17,13 L34,19 L51,9 L68,12 L85,4 L102,7 L120,2" fill="none" stroke="#5A46D6" stroke-width="1.75" vector-effect="non-scaling-stroke"></path></svg>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1.55fr 1fr;gap:14px;align-items:start">
+            <div style="border:1px solid #E7E8F1;border-radius:14px;overflow:hidden;box-shadow:0 1px 2px rgba(16,18,35,.04)">
+              <div style="padding:15px 18px;display:flex;align-items:center;gap:10px;border-bottom:1px solid #E7E8F1">
+                <h3 style="margin:0;font-family:'Sora',sans-serif;font-size:15px;font-weight:600">Needs you</h3>
+                <span style="padding:2px 9px;border-radius:999px;background:#FDF2E3;color:#8A5A10;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700">5</span>
+                <div style="flex:1"></div>
+                <a href="#" style="font-size:12.5px;font-weight:700;color:#5A46D6">All entries</a>
+              </div>
+              <div style="padding:8px">
+                <a href="#" style="display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:11px" style-hover="background:#FAFAFC"><span style="width:32px;height:32px;flex-shrink:0;border-radius:9px;background:#FDF2E3;color:#8A5A10;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 32 32" style="width:15px;height:15px;fill:currentColor"><use href="#ic-clock"></use></svg></span><span style="flex:1;min-width:0"><span style="display:block;font-size:13.5px;font-weight:700">Spring roast notes</span><span style="display:block;font-size:12px;color:#63687D">article · publishes today at 09:00</span></span><span style="padding:3px 9px;border-radius:999px;background:#FDF2E3;color:#8A5A10;font-size:11px;font-weight:700">Scheduled</span></a>
+                <a href="#" style="display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:11px" style-hover="background:#FAFAFC"><span style="width:32px;height:32px;flex-shrink:0;border-radius:9px;background:#FDECEC;color:#A22C2C;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 32 32" style="width:15px;height:15px;fill:currentColor"><use href="#ic-coins"></use></svg></span><span style="flex:1;min-width:0"><span style="display:block;font-size:13.5px;font-weight:700">Journal entry JE-2044</span><span style="display:block;font-size:12px;color:#63687D">journal-entry · debits and credits differ by 40.00</span></span><span style="padding:3px 9px;border-radius:999px;background:#FDECEC;color:#A22C2C;font-size:11px;font-weight:700">Unbalanced</span></a>
+                <a href="#" style="display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:11px" style-hover="background:#FAFAFC"><span style="width:32px;height:32px;flex-shrink:0;border-radius:9px;background:#FDECEC;color:#A22C2C;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 32 32" style="width:15px;height:15px;fill:currentColor"><use href="#ic-envelope"></use></svg></span><span style="flex:1;min-width:0"><span style="display:block;font-size:13.5px;font-weight:700">Two delivery bounces</span><span style="display:block;font-size:12px;color:#63687D">Email events · both to the same domain</span></span><span style="padding:3px 9px;border-radius:999px;background:#FDECEC;color:#A22C2C;font-size:11px;font-weight:700">Bounced</span></a>
+                <a href="#" style="display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:11px" style-hover="background:#FAFAFC"><span style="width:32px;height:32px;flex-shrink:0;border-radius:9px;background:#F2F3F9;color:#4A4E66;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 32 32" style="width:15px;height:15px;fill:currentColor"><use href="#ic-pen"></use></svg></span><span style="flex:1;min-width:0"><span style="display:block;font-size:13.5px;font-weight:700">Founding members page</span><span style="display:block;font-size:12px;color:#63687D">page · draft, never published</span></span><span style="padding:3px 9px;border-radius:999px;background:#F2F3F9;color:#4A4E66;font-size:11px;font-weight:700">Draft</span></a>
+                <a href="#" style="display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:11px" style-hover="background:#FAFAFC"><span style="width:32px;height:32px;flex-shrink:0;border-radius:9px;background:#F2F3F9;color:#4A4E66;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 32 32" style="width:15px;height:15px;fill:currentColor"><use href="#ic-content"></use></svg></span><span style="flex:1;min-width:0"><span style="display:block;font-size:13.5px;font-weight:700">Barako Weekly, issue 12</span><span style="display:block;font-size:12px;color:#63687D">newsletter · draft since Tuesday</span></span><span style="padding:3px 9px;border-radius:999px;background:#F2F3F9;color:#4A4E66;font-size:11px;font-weight:700">Draft</span></a>
+              </div>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:14px">
+              <div style="border:1px solid #E7E8F1;border-radius:14px;overflow:hidden;box-shadow:0 1px 2px rgba(16,18,35,.04)">
+                <div style="padding:15px 18px;display:flex;align-items:center;gap:9px;border-bottom:1px solid #E7E8F1">
+                  <h3 style="margin:0;font-family:'Sora',sans-serif;font-size:15px;font-weight:600">Event stream</h3>
+                  <span style="width:6px;height:6px;border-radius:999px;background:#5A46D6;animation:sgPulse 1.8s ease-in-out infinite"></span>
+                  <div style="flex:1"></div>
+                  <a href="#" style="font-size:12.5px;font-weight:700;color:#5A46D6">Audit log</a>
+                </div>
+                <div style="padding:12px 18px 16px;display:flex;flex-direction:column">
+                  <div style="display:flex;align-items:baseline;gap:11px;padding:7px 0;font-family:'JetBrains Mono',monospace;font-size:11.5px"><span style="color:#6E7387;font-variant-numeric:tabular-nums">14:52</span><span style="flex:1;color:#101223;font-weight:500">ContentStatusChanged</span></div>
+                  <div style="display:flex;align-items:baseline;gap:11px;padding:7px 0;font-family:'JetBrains Mono',monospace;font-size:11.5px;border-top:1px solid #F2F3F9"><span style="color:#6E7387;font-variant-numeric:tabular-nums">14:51</span><span style="flex:1;color:#101223;font-weight:500">FieldUpdated</span></div>
+                  <div style="display:flex;align-items:baseline;gap:11px;padding:7px 0;font-family:'JetBrains Mono',monospace;font-size:11.5px;border-top:1px solid #F2F3F9"><span style="color:#6E7387;font-variant-numeric:tabular-nums">14:44</span><span style="flex:1;color:#101223;font-weight:500">JournalEntryPosted</span></div>
+                  <div style="display:flex;align-items:baseline;gap:11px;padding:7px 0;font-family:'JetBrains Mono',monospace;font-size:11.5px;border-top:1px solid #F2F3F9"><span style="color:#6E7387;font-variant-numeric:tabular-nums">14:39</span><span style="flex:1;color:#101223;font-weight:500">UserSignedIn</span></div>
+                  <div style="display:flex;align-items:baseline;gap:11px;padding:7px 0;font-family:'JetBrains Mono',monospace;font-size:11.5px;border-top:1px solid #F2F3F9;opacity:.6"><span style="color:#6E7387;font-variant-numeric:tabular-nums">14:31</span><span style="flex:1;color:#101223;font-weight:500">ContentCreated</span></div>
+                </div>
+              </div>
+
+              <div style="padding:18px;border:1px solid #E7E8F1;border-radius:14px;box-shadow:0 1px 2px rgba(16,18,35,.04)">
+                <h3 style="margin:0;font-family:'Sora',sans-serif;font-size:15px;font-weight:600">System</h3>
+                <div style="margin-top:13px;display:flex;flex-direction:column;gap:10px;font-size:13.5px">
+                  <div style="display:flex;align-items:center;justify-content:space-between"><span style="color:#63687D">postgres</span><span style="font-weight:700;color:#0B7A6B">Healthy</span></div>
+                  <div style="display:flex;align-items:center;justify-content:space-between"><span style="color:#63687D">marten projections</span><span style="font-weight:700;color:#0B7A6B">Caught up</span></div>
+                  <div style="display:flex;align-items:center;justify-content:space-between"><span style="color:#63687D">resend webhook</span><span style="font-weight:700;color:#8A5A10">2 bounces</span></div>
+                  <div style="height:1px;background:#F2F3F9"></div>
+                  <div style="display:flex;align-items:center;justify-content:space-between"><span style="color:#63687D">requests served</span><span style="font-family:'JetBrains Mono',monospace;font-size:12.5px;font-weight:700">1,284,903</span></div>
+                  <div style="display:flex;align-items:center;justify-content:space-between"><span style="color:#63687D">uptime</span><span style="font-family:'JetBrains Mono',monospace;font-size:12.5px;font-weight:700">18d 4h</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+  </div>
+
+  <!-- =============================== ENTRIES + EDITOR =============================== -->
+  <div style="display:flex;gap:32px;align-items:flex-start;flex-wrap:wrap">
+
+    <div data-screen-label="Admin — Entries" style="display:flex;flex-direction:column;gap:14px;flex-shrink:0">
+      <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#63687D">admin · entries</span>
+      <div style="width:960px;height:700px;background:#fff;color:#101223;border:1px solid #d4d4d8;border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08);display:flex;flex-direction:column">
+        <header style="height:60px;flex-shrink:0;display:flex;align-items:center;gap:12px;padding:0 24px;border-bottom:1px solid #E7E8F1">
+          <h1 style="margin:0;font-family:'Sora',sans-serif;font-size:18px;font-weight:600;letter-spacing:-.025em">Entries</h1>
+          <span style="padding:3px 10px;border-radius:999px;background:#F2F3F9;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;color:#4A4E66">148</span>
+          <div style="flex:1"></div>
+          <a href="#" style="display:inline-flex;align-items:center;gap:8px;height:38px;padding:0 15px;border-radius:10px;background:#5A46D6;color:#fff;font-size:13.5px;font-weight:700;box-shadow:0 5px 14px -7px rgba(90,70,214,.8)"><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:currentColor"><use href="#ic-plus"></use></svg>New entry</a>
+        </header>
+
+        <div style="padding:18px 24px;display:flex;align-items:center;gap:10px;border-bottom:1px solid #E7E8F1">
+          <div style="position:relative;width:280px">
+            <svg viewBox="0 0 32 32" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);width:14px;height:14px;fill:#63687D"><use href="#ic-search"></use></svg>
+            <input type="text" placeholder="Search 148 entries" style="width:100%;height:38px;padding:0 12px 0 34px;border:1px solid #E7E8F1;border-radius:10px;font-family:inherit;font-size:13.5px;outline:none;color:#101223;box-shadow:0 1px 2px rgba(16,18,35,.04)">
+          </div>
+          <div style="display:flex;gap:2px;padding:3px;background:#F2F3F9;border-radius:999px">
+            <span style="padding:6px 13px;border-radius:999px;background:#fff;font-size:12px;font-weight:700;box-shadow:0 1px 2px rgba(16,18,35,.08)">All</span>
+            <span style="padding:6px 13px;border-radius:999px;font-size:12px;font-weight:600;color:#63687D">Published</span>
+            <span style="padding:6px 13px;border-radius:999px;font-size:12px;font-weight:600;color:#63687D">Draft</span>
+            <span style="padding:6px 13px;border-radius:999px;font-size:12px;font-weight:600;color:#63687D">Scheduled</span>
+            <span style="padding:6px 13px;border-radius:999px;font-size:12px;font-weight:600;color:#63687D">Archived</span>
+          </div>
+          <div style="flex:1"></div>
+          <button type="button" style="height:38px;display:inline-flex;align-items:center;gap:8px;padding:0 13px;border:1px solid #E7E8F1;border-radius:10px;background:#fff;font-family:inherit;font-size:13px;font-weight:600;color:#4A4E66;cursor:pointer;box-shadow:0 1px 2px rgba(16,18,35,.04)" style-hover="border-color:#5A46D6;color:#4034A8"><svg viewBox="0 0 32 32" style="width:13px;height:13px;fill:currentColor"><use href="#ic-filter"></use></svg>All types<svg viewBox="0 0 32 32" style="width:11px;height:11px;fill:#63687D"><use href="#ic-chevron-down"></use></svg></button>
+        </div>
+
+        <div style="flex:1;min-height:0;overflow:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:13.5px">
+            <thead>
+              <tr style="background:#FAFAFC;border-bottom:1px solid #E7E8F1">
+                <th style="text-align:left;padding:11px 24px;font-size:10.5px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#63687D">Entry</th>
+                <th style="text-align:left;padding:11px 14px;font-size:10.5px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#63687D">Type</th>
+                <th style="text-align:left;padding:11px 14px;font-size:10.5px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#63687D">Status</th>
+                <th style="text-align:right;padding:11px 14px;font-size:10.5px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#63687D">v</th>
+                <th style="text-align:right;padding:11px 24px;font-size:10.5px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#63687D">Updated</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr style="border-bottom:1px solid #F2F3F9;cursor:pointer" style-hover="background:#FAFAFC"><td style="padding:13px 24px;font-weight:700">Spring roast notes</td><td style="padding:13px 14px;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#63687D">article</td><td style="padding:13px 14px"><span style="padding:3px 9px;border-radius:999px;background:#FDF2E3;color:#8A5A10;font-size:11px;font-weight:700">Scheduled</span></td><td style="padding:13px 14px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#63687D">7</td><td style="padding:13px 24px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#63687D">2h ago</td></tr>
+              <tr style="border-bottom:1px solid #F2F3F9;cursor:pointer" style-hover="background:#FAFAFC"><td style="padding:13px 24px;font-weight:700">Journal entry JE-2044</td><td style="padding:13px 14px;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#63687D">journal-entry</td><td style="padding:13px 14px"><span style="padding:3px 9px;border-radius:999px;background:#FDECEC;color:#A22C2C;font-size:11px;font-weight:700">Unbalanced</span></td><td style="padding:13px 14px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#63687D">2</td><td style="padding:13px 24px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#63687D">5h ago</td></tr>
+              <tr style="border-bottom:1px solid #F2F3F9;cursor:pointer" style-hover="background:#FAFAFC"><td style="padding:13px 24px;font-weight:700">Barako Weekly, issue 12</td><td style="padding:13px 14px;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#63687D">newsletter</td><td style="padding:13px 14px"><span style="padding:3px 9px;border-radius:999px;background:#F2F3F9;color:#4A4E66;font-size:11px;font-weight:700">Draft</span></td><td style="padding:13px 14px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#63687D">4</td><td style="padding:13px 24px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#63687D">1d ago</td></tr>
+              <tr style="border-bottom:1px solid #F2F3F9;cursor:pointer" style-hover="background:#FAFAFC"><td style="padding:13px 24px;font-weight:700">Chart of accounts, 4100 Sales</td><td style="padding:13px 14px;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#63687D">account</td><td style="padding:13px 14px"><span style="padding:3px 9px;border-radius:999px;background:#E6F7F4;color:#0B7A6B;font-size:11px;font-weight:700">Published</span></td><td style="padding:13px 14px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#63687D">3</td><td style="padding:13px 24px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#63687D">2d ago</td></tr>
+              <tr style="border-bottom:1px solid #F2F3F9;cursor:pointer" style-hover="background:#FAFAFC"><td style="padding:13px 24px;font-weight:700">Founding members page</td><td style="padding:13px 14px;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#63687D">page</td><td style="padding:13px 14px"><span style="padding:3px 9px;border-radius:999px;background:#F2F3F9;color:#4A4E66;font-size:11px;font-weight:700">Draft</span></td><td style="padding:13px 14px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#63687D">1</td><td style="padding:13px 24px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#63687D">3d ago</td></tr>
+              <tr style="border-bottom:1px solid #F2F3F9;cursor:pointer" style-hover="background:#FAFAFC"><td style="padding:13px 24px;font-weight:700">Member, A. Reyes</td><td style="padding:13px 14px;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#63687D">member</td><td style="padding:13px 14px"><span style="display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;background:#EEEBFD;color:#4034A8;font-size:11px;font-weight:700"><svg viewBox="0 0 32 32" style="width:10px;height:10px;fill:currentColor"><use href="#ic-lock"></use></svg>Private</span></td><td style="padding:13px 14px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#63687D">9</td><td style="padding:13px 24px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#63687D">4d ago</td></tr>
+              <tr style="border-bottom:1px solid #F2F3F9;cursor:pointer" style-hover="background:#FAFAFC"><td style="padding:13px 24px;font-weight:700">Roast curve reference</td><td style="padding:13px 14px;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#63687D">article</td><td style="padding:13px 14px"><span style="padding:3px 9px;border-radius:999px;background:#E6F7F4;color:#0B7A6B;font-size:11px;font-weight:700">Published</span></td><td style="padding:13px 14px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#63687D">12</td><td style="padding:13px 24px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#63687D">5d ago</td></tr>
+              <tr style="border-bottom:1px solid #F2F3F9;cursor:pointer" style-hover="background:#FAFAFC"><td style="padding:13px 24px;font-weight:700">Guild bylaws 2026</td><td style="padding:13px 14px;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#63687D">page</td><td style="padding:13px 14px"><span style="padding:3px 9px;border-radius:999px;background:#E6F7F4;color:#0B7A6B;font-size:11px;font-weight:700">Published</span></td><td style="padding:13px 14px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#63687D">5</td><td style="padding:13px 24px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#63687D">6d ago</td></tr>
+              <tr style="border-bottom:1px solid #F2F3F9;cursor:pointer" style-hover="background:#FAFAFC"><td style="padding:13px 24px;font-weight:700">Journal entry JE-2043</td><td style="padding:13px 14px;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#63687D">journal-entry</td><td style="padding:13px 14px"><span style="padding:3px 9px;border-radius:999px;background:#E6F7F4;color:#0B7A6B;font-size:11px;font-weight:700">Posted</span></td><td style="padding:13px 14px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#63687D">1</td><td style="padding:13px 24px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#63687D">1w ago</td></tr>
+              <tr style="cursor:pointer" style-hover="background:#FAFAFC"><td style="padding:13px 24px;font-weight:700">Old landing copy</td><td style="padding:13px 14px;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#63687D">page</td><td style="padding:13px 14px"><span style="padding:3px 9px;border-radius:999px;background:#F2F3F9;color:#63687D;font-size:11px;font-weight:700">Archived</span></td><td style="padding:13px 14px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#63687D">8</td><td style="padding:13px 24px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#63687D">2w ago</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div style="flex-shrink:0;padding:14px 24px;border-top:1px solid #E7E8F1;display:flex;align-items:center;justify-content:space-between">
+          <p style="margin:0;font-size:13px;color:#63687D"><span style="font-family:'JetBrains Mono',monospace;font-weight:700;color:#4A4E66">1 to 20</span> of 148</p>
+          <div style="display:flex;gap:8px">
+            <button type="button" style="height:34px;display:inline-flex;align-items:center;gap:7px;padding:0 12px;border:1px solid #E7E8F1;border-radius:10px;background:#fff;font-family:inherit;font-size:13px;font-weight:600;color:#C3C6D6;cursor:not-allowed"><svg viewBox="0 0 32 32" style="width:12px;height:12px;fill:currentColor"><use href="#ic-chevron-left"></use></svg>Previous</button>
+            <button type="button" style="height:34px;display:inline-flex;align-items:center;gap:7px;padding:0 12px;border:1px solid #E7E8F1;border-radius:10px;background:#fff;font-family:inherit;font-size:13px;font-weight:600;color:#4A4E66;cursor:pointer;box-shadow:0 1px 2px rgba(16,18,35,.04)" style-hover="border-color:#5A46D6;color:#4034A8">Next<svg viewBox="0 0 32 32" style="width:12px;height:12px;fill:currentColor"><use href="#ic-chevron-right"></use></svg></button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div data-screen-label="Admin — Sign in" style="display:flex;flex-direction:column;gap:14px;flex-shrink:0">
+      <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#63687D">admin · sign in</span>
+      <div style="width:448px;height:700px;background:#FAFAFC;color:#101223;border:1px solid #d4d4d8;border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px;position:relative">
+        <svg width="300" height="300" viewBox="0 0 128 128" style="position:absolute;left:-90px;bottom:-90px;opacity:.07"><g transform="rotate(-32 64 64)"><ellipse cx="64" cy="64" rx="33" ry="50" fill="url(#sgBean)"></ellipse><path d="M64 17 C 51 41, 77 55, 64 64 C 51 73, 77 87, 64 111" fill="none" stroke="#241C6B" stroke-width="6.5" stroke-linecap="round"></path></g></svg>
+        <div style="width:100%;max-width:340px;position:relative">
+          <div style="display:flex;flex-direction:column;align-items:center;gap:14px;text-align:center">
+            <svg width="44" height="44" viewBox="0 0 128 128"><g transform="rotate(-32 64 64)"><ellipse cx="64" cy="64" rx="33" ry="50" fill="url(#sgBean)"></ellipse><ellipse cx="52" cy="44" rx="9" ry="17" fill="#C9C1F5" opacity="0.35"></ellipse><path d="M64 17 C 51 41, 77 55, 64 64 C 51 73, 77 87, 64 111" fill="none" stroke="#241C6B" stroke-width="6.5" stroke-linecap="round"></path></g></svg>
+            <div>
+              <h1 style="margin:0;font-family:'Sora',sans-serif;font-size:24px;font-weight:600;letter-spacing:-.03em">Sign in to barako<span style="color:#5A46D6">Brew</span></h1>
+              <p style="margin:6px 0 0;font-size:13.5px;color:#63687D">Bakers&rsquo; Guild workspace</p>
+            </div>
+          </div>
+
+          <div style="margin-top:28px;padding:24px;background:#fff;border:1px solid #E7E8F1;border-radius:16px;box-shadow:0 4px 16px -8px rgba(16,18,35,.12);display:flex;flex-direction:column;gap:16px">
+            <div style="display:flex;flex-direction:column;gap:7px">
+              <label style="font-size:12.5px;font-weight:700;color:#4A4E66">Username</label>
+              <input type="text" value="demo_admin" style="width:100%;height:42px;padding:0 13px;border:1px solid #E7E8F1;border-radius:11px;font-family:inherit;font-size:14px;outline:none;color:#101223;background:#FAFAFC">
+            </div>
+            <div style="display:flex;flex-direction:column;gap:7px">
+              <div style="display:flex;align-items:baseline;justify-content:space-between"><label style="font-size:12.5px;font-weight:700;color:#4A4E66">Password</label><a href="#" style="font-size:12px;font-weight:700;color:#5A46D6">Forgot?</a></div>
+              <div style="position:relative">
+                <input type="password" value="passwordpassword" style="width:100%;height:42px;padding:0 42px 0 13px;border:1px solid #E7E8F1;border-radius:11px;font-family:inherit;font-size:14px;outline:none;color:#101223;background:#FAFAFC">
+                <button type="button" style="position:absolute;right:5px;top:5px;width:32px;height:32px;display:flex;align-items:center;justify-content:center;border:0;border-radius:8px;background:none;color:#63687D;cursor:pointer" style-hover="background:#F2F3F9"><svg viewBox="0 0 32 32" style="width:15px;height:15px;fill:currentColor"><use href="#ic-eye"></use></svg></button>
+              </div>
+            </div>
+            <button type="button" style="width:100%;height:44px;display:inline-flex;align-items:center;justify-content:center;gap:8px;border:0;border-radius:11px;background:#5A46D6;color:#fff;font-family:inherit;font-size:14.5px;font-weight:700;cursor:pointer;box-shadow:0 6px 16px -8px rgba(90,70,214,.8)" style-hover="background:#4A38C0">Sign in<svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:currentColor"><use href="#ic-arrow-right"></use></svg></button>
+
+            <div style="display:flex;align-items:center;gap:12px"><span style="flex:1;height:1px;background:#E7E8F1"></span><span style="font-size:11.5px;font-weight:700;color:#6E7387">OR</span><span style="flex:1;height:1px;background:#E7E8F1"></span></div>
+
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <button type="button" style="width:100%;height:40px;display:inline-flex;align-items:center;justify-content:center;gap:9px;border:1px solid #E7E8F1;border-radius:11px;background:#fff;font-family:inherit;font-size:13.5px;font-weight:600;color:#4A4E66;cursor:pointer" style-hover="border-color:#5A46D6;color:#4034A8"><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:currentColor"><use href="#ic-envelope"></use></svg>Email me a sign-in code</button>
+              <button type="button" style="width:100%;height:40px;display:inline-flex;align-items:center;justify-content:center;gap:9px;border:1px solid #E7E8F1;border-radius:11px;background:#fff;font-family:inherit;font-size:13.5px;font-weight:600;color:#4A4E66;cursor:pointer" style-hover="border-color:#5A46D6;color:#4034A8"><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:currentColor"><use href="#ic-external-link"></use></svg>Continue with GitHub</button>
+            </div>
+          </div>
+
+          <p style="margin:18px 0 0;text-align:center;font-size:12px;line-height:1.6;color:#6E7387">Five failed attempts locks the account for 15 minutes. A new device asks for an emailed code.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =============================== EDITOR + BUILDER =============================== -->
+  <div style="display:flex;gap:32px;align-items:flex-start;flex-wrap:wrap">
+
+    <div data-screen-label="Admin — Entry editor" style="display:flex;flex-direction:column;gap:14px;flex-shrink:0">
+      <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#63687D">admin · entry editor</span>
+      <div style="width:1000px;height:760px;background:#fff;color:#101223;border:1px solid #d4d4d8;border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08);display:flex;flex-direction:column">
+        <header style="flex-shrink:0;padding:16px 24px;border-bottom:1px solid #E7E8F1;display:flex;align-items:center;gap:14px">
+          <button type="button" style="width:34px;height:34px;flex-shrink:0;display:flex;align-items:center;justify-content:center;border:1px solid #E7E8F1;border-radius:10px;background:#fff;cursor:pointer;color:#4A4E66" style-hover="border-color:#5A46D6;color:#4034A8"><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:currentColor"><use href="#ic-arrow-left"></use></svg></button>
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:9px">
+              <h1 style="margin:0;font-family:'Sora',sans-serif;font-size:19px;font-weight:600;letter-spacing:-.025em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Spring roast notes</h1>
+              <span style="padding:3px 9px;border-radius:999px;background:#FDF2E3;color:#8A5A10;font-size:11px;font-weight:700">Scheduled</span>
+              <span style="display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;background:#E6F7F4;color:#0B7A6B;font-size:11px;font-weight:700"><svg viewBox="0 0 32 32" style="width:10px;height:10px;fill:currentColor"><use href="#ic-check"></use></svg>Saved</span>
+            </div>
+            <p style="margin:4px 0 0;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#63687D">article · v7 · publishes today 09:00 · /api/public/article/spring-roast</p>
+          </div>
+          <button type="button" style="height:38px;display:inline-flex;align-items:center;gap:8px;padding:0 14px;border:1px solid #E7E8F1;border-radius:10px;background:#fff;font-family:inherit;font-size:13px;font-weight:600;color:#4A4E66;cursor:pointer" style-hover="border-color:#5A46D6;color:#4034A8"><svg viewBox="0 0 32 32" style="width:13px;height:13px;fill:currentColor"><use href="#ic-eye"></use></svg>Preview</button>
+          <button type="button" style="height:38px;display:inline-flex;align-items:center;gap:8px;padding:0 14px;border:1px solid #E7E8F1;border-radius:10px;background:#fff;font-family:inherit;font-size:13px;font-weight:600;color:#4A4E66;cursor:pointer" style-hover="border-color:#5A46D6;color:#4034A8"><svg viewBox="0 0 32 32" style="width:13px;height:13px;fill:currentColor"><use href="#ic-archive"></use></svg>Archive</button>
+          <button type="button" style="height:38px;display:inline-flex;align-items:center;gap:8px;padding:0 16px;border:0;border-radius:10px;background:#5A46D6;color:#fff;font-family:inherit;font-size:13.5px;font-weight:700;cursor:pointer;box-shadow:0 5px 14px -7px rgba(90,70,214,.8)" style-hover="background:#4A38C0">Publish now</button>
+        </header>
+
+        <div style="flex:1;min-height:0;display:flex">
+          <div style="flex:1;min-width:0;overflow:auto;padding:24px 28px;display:flex;flex-direction:column;gap:18px">
+            <div style="display:flex;gap:2px;padding:3px;background:#F2F3F9;border-radius:999px;width:fit-content">
+              <span style="padding:7px 15px;border-radius:999px;background:#fff;font-size:12.5px;font-weight:700;box-shadow:0 1px 2px rgba(16,18,35,.08)">Content</span>
+              <span style="padding:7px 15px;border-radius:999px;font-size:12.5px;font-weight:600;color:#63687D">Scheduling</span>
+              <span style="padding:7px 15px;border-radius:999px;font-size:12.5px;font-weight:600;color:#63687D">Permissions</span>
+              <span style="padding:7px 15px;border-radius:999px;font-size:12.5px;font-weight:600;color:#63687D">History</span>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:7px">
+              <div style="display:flex;align-items:baseline;gap:8px"><label style="font-size:12.5px;font-weight:700;color:#4A4E66">Title</label><span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#6E7387">string · required</span></div>
+              <input type="text" value="Spring roast notes" style="width:100%;height:44px;padding:0 14px;border:1px solid #E7E8F1;border-radius:11px;font-family:inherit;font-size:15px;font-weight:600;outline:none;color:#101223;box-shadow:0 1px 2px rgba(16,18,35,.04)">
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:7px">
+              <div style="display:flex;align-items:baseline;gap:8px"><label style="font-size:12.5px;font-weight:700;color:#4A4E66">Slug</label><span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#6E7387">slug · required</span></div>
+              <input type="text" value="spring-roast" style="width:100%;height:42px;padding:0 14px;border:1px solid #E7E8F1;border-radius:11px;font-family:'JetBrains Mono',monospace;font-size:13.5px;outline:none;color:#101223;box-shadow:0 1px 2px rgba(16,18,35,.04)">
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:7px">
+              <div style="display:flex;align-items:baseline;gap:8px"><label style="font-size:12.5px;font-weight:700;color:#4A4E66">Body</label><span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#6E7387">markdown</span></div>
+              <div style="border:1px solid #E7E8F1;border-radius:11px;overflow:hidden;box-shadow:0 1px 2px rgba(16,18,35,.04)">
+                <div style="height:38px;display:flex;align-items:center;gap:2px;padding:0 8px;border-bottom:1px solid #E7E8F1;background:#FAFAFC">
+                  <span style="width:28px;height:26px;display:flex;align-items:center;justify-content:center;border-radius:7px;font-size:12px;font-weight:800;color:#4A4E66">B</span>
+                  <span style="width:28px;height:26px;display:flex;align-items:center;justify-content:center;border-radius:7px;font-size:12px;font-style:italic;font-weight:700;color:#4A4E66">I</span>
+                  <span style="width:28px;height:26px;display:flex;align-items:center;justify-content:center;border-radius:7px;color:#4A4E66"><svg viewBox="0 0 32 32" style="width:13px;height:13px;fill:currentColor"><use href="#ic-list"></use></svg></span>
+                  <span style="width:28px;height:26px;display:flex;align-items:center;justify-content:center;border-radius:7px;color:#4A4E66"><svg viewBox="0 0 32 32" style="width:13px;height:13px;fill:currentColor"><use href="#ic-hashtag"></use></svg></span>
+                  <span style="width:1px;height:16px;background:#E7E8F1;margin:0 5px"></span>
+                  <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#63687D">markdown</span>
+                  <div style="flex:1"></div>
+                  <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#63687D">412 words</span>
+                </div>
+                <textarea rows="7" style="width:100%;padding:14px;border:0;font-family:inherit;font-size:14px;line-height:1.7;outline:none;resize:vertical;color:#4A4E66">The lot came in two weeks early this year. Cupping notes below, plus the roast curve we settled on after four batches.
+
+Development time ran long on the first two, so we pulled the drop temperature down by six degrees and the acidity came back.</textarea>
+              </div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+              <div style="display:flex;flex-direction:column;gap:7px">
+                <div style="display:flex;align-items:baseline;gap:8px"><label style="font-size:12.5px;font-weight:700;color:#4A4E66">Author</label><span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#6E7387">reference</span></div>
+                <button type="button" style="height:42px;display:flex;align-items:center;gap:10px;padding:0 13px;border:1px solid #E7E8F1;border-radius:11px;background:#fff;font-family:inherit;cursor:pointer;box-shadow:0 1px 2px rgba(16,18,35,.04)"><span style="width:24px;height:24px;border-radius:999px;background:#EEEBFD;color:#4034A8;display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700">R</span><span style="flex:1;text-align:left;font-size:13.5px;font-weight:600">Rosa</span><svg viewBox="0 0 32 32" style="width:11px;height:11px;fill:#63687D"><use href="#ic-chevron-down"></use></svg></button>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:7px">
+                <div style="display:flex;align-items:baseline;gap:8px"><label style="font-size:12.5px;font-weight:700;color:#4A4E66">Publish at</label><span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#6E7387">datetime</span></div>
+                <div style="height:42px;display:flex;align-items:center;gap:10px;padding:0 13px;border:1px solid #DED8FB;border-radius:11px;background:#EEEBFD"><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:#4034A8"><use href="#ic-calendar"></use></svg><span style="flex:1;font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;color:#241C6B">2026-08-31 09:00</span></div>
+              </div>
+            </div>
+
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 16px;border:1px solid #E7E8F1;border-radius:12px">
+              <div><p style="margin:0;font-size:13.5px;font-weight:700">Serve this entry publicly</p><p style="margin:3px 0 0;font-size:12.5px;color:#63687D">Anyone can read it once published. Sensitive fields stay masked either way.</p></div>
+              <span style="width:38px;height:22px;flex-shrink:0;border-radius:999px;background:#5A46D6;display:inline-flex;align-items:center;justify-content:flex-end;padding:2px"><span style="width:18px;height:18px;border-radius:999px;background:#fff"></span></span>
+            </div>
+          </div>
+
+          <div style="width:290px;flex-shrink:0;border-left:1px solid #E7E8F1;background:#FAFAFC;overflow:auto;padding:24px 20px;display:flex;flex-direction:column;gap:20px">
+            <div>
+              <div style="display:flex;align-items:center;gap:8px">
+                <p style="margin:0;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#63687D">Event stream</p>
+                <span style="width:6px;height:6px;border-radius:999px;background:#5A46D6;animation:sgPulse 1.8s ease-in-out infinite"></span>
+              </div>
+              <div style="margin-top:12px;display:flex;flex-direction:column;gap:7px">
+                <div style="padding:11px 13px;background:#fff;border:1px solid #DED8FB;border-radius:11px;box-shadow:0 1px 2px rgba(90,70,214,.08)"><div style="display:flex;align-items:center;justify-content:space-between"><p style="margin:0;font-size:12.5px;font-weight:700">Scheduled</p><span style="font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;color:#4034A8">v7</span></div><p style="margin:3px 0 0;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#63687D">Rosa · 14:52 today</p></div>
+                <div style="padding:11px 13px;background:#fff;border:1px solid #E7E8F1;border-radius:11px"><div style="display:flex;align-items:center;justify-content:space-between"><p style="margin:0;font-size:12.5px;font-weight:700">Body edited</p><span style="font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;color:#63687D">v6</span></div><p style="margin:3px 0 0;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#63687D">Rosa · 11:20 today</p><button type="button" style="margin-top:8px;height:28px;width:100%;display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid #E7E8F1;border-radius:8px;background:#fff;font-family:inherit;font-size:11.5px;font-weight:700;color:#4A4E66;cursor:pointer" style-hover="border-color:#5A46D6;color:#4034A8"><svg viewBox="0 0 32 32" style="width:11px;height:11px;fill:currentColor"><use href="#ic-rollback"></use></svg>Restore this version</button></div>
+                <div style="padding:11px 13px;background:#fff;border:1px solid #E7E8F1;border-radius:11px;opacity:.8"><div style="display:flex;align-items:center;justify-content:space-between"><p style="margin:0;font-size:12.5px;font-weight:700">Title edited</p><span style="font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;color:#63687D">v5</span></div><p style="margin:3px 0 0;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#63687D">Rosa · 09:02 today</p></div>
+                <div style="padding:11px 13px;background:#fff;border:1px solid #E7E8F1;border-radius:11px;opacity:.55"><div style="display:flex;align-items:center;justify-content:space-between"><p style="margin:0;font-size:12.5px;font-weight:700">Created</p><span style="font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;color:#63687D">v1</span></div><p style="margin:3px 0 0;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#63687D">Rosa · 2 Mar</p></div>
+              </div>
+            </div>
+
+            <div>
+              <p style="margin:0;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#63687D">Workflows watching</p>
+              <div style="margin-top:12px;display:flex;flex-direction:column;gap:7px">
+                <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:#fff;border:1px solid #E7E8F1;border-radius:11px"><span style="width:26px;height:26px;flex-shrink:0;border-radius:8px;background:#F2F3F9;color:#4A4E66;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 32 32" style="width:13px;height:13px;fill:currentColor"><use href="#ic-envelope"></use></svg></span><span style="flex:1;min-width:0"><span style="display:block;font-size:12.5px;font-weight:700">Notify subscribers</span><span style="display:block;font-size:11px;color:#63687D">on published</span></span></div>
+                <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:#fff;border:1px solid #E7E8F1;border-radius:11px"><span style="width:26px;height:26px;flex-shrink:0;border-radius:8px;background:#F2F3F9;color:#4A4E66;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 32 32" style="width:13px;height:13px;fill:currentColor"><use href="#ic-webhook"></use></svg></span><span style="flex:1;min-width:0"><span style="display:block;font-size:12.5px;font-weight:700">Purge CDN cache</span><span style="display:block;font-size:11px;color:#63687D">on published</span></span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div data-screen-label="Admin — Content type builder" style="display:flex;flex-direction:column;gap:14px;flex-shrink:0">
+      <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#63687D">admin · content type builder</span>
+      <div style="width:760px;height:760px;background:#fff;color:#101223;border:1px solid #d4d4d8;border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08);display:flex;flex-direction:column">
+        <header style="flex-shrink:0;padding:16px 24px;border-bottom:1px solid #E7E8F1;display:flex;align-items:center;gap:14px">
+          <div style="flex:1;min-width:0">
+            <h1 style="margin:0;font-family:'Sora',sans-serif;font-size:19px;font-weight:600;letter-spacing:-.025em">New content type</h1>
+            <p style="margin:4px 0 0;font-size:12.5px;color:#63687D">Types cannot be edited or deleted through the API once created, so check the fields first.</p>
+          </div>
+          <button type="button" style="height:38px;display:inline-flex;align-items:center;padding:0 14px;border:1px solid #E7E8F1;border-radius:10px;background:#fff;font-family:inherit;font-size:13px;font-weight:600;color:#4A4E66;cursor:pointer">Cancel</button>
+          <button type="button" style="height:38px;display:inline-flex;align-items:center;gap:8px;padding:0 16px;border:0;border-radius:10px;background:#5A46D6;color:#fff;font-family:inherit;font-size:13.5px;font-weight:700;cursor:pointer;box-shadow:0 5px 14px -7px rgba(90,70,214,.8)">Create type</button>
+        </header>
+
+        <div style="flex:1;min-height:0;overflow:auto;padding:24px;display:flex;flex-direction:column;gap:20px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div style="display:flex;flex-direction:column;gap:7px">
+              <label style="font-size:12.5px;font-weight:700;color:#4A4E66">Display name</label>
+              <input type="text" value="Roast log" style="width:100%;height:42px;padding:0 13px;border:1px solid #E7E8F1;border-radius:11px;font-family:inherit;font-size:14px;font-weight:600;outline:none;color:#101223;box-shadow:0 1px 2px rgba(16,18,35,.04)">
+            </div>
+            <div style="display:flex;flex-direction:column;gap:7px">
+              <div style="display:flex;align-items:baseline;justify-content:space-between"><label style="font-size:12.5px;font-weight:700;color:#4A4E66">API name</label><span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#6E7387">auto</span></div>
+              <input type="text" value="roast-log" style="width:100%;height:42px;padding:0 13px;border:1px solid #E7E8F1;border-radius:11px;font-family:'JetBrains Mono',monospace;font-size:13.5px;outline:none;color:#101223;box-shadow:0 1px 2px rgba(16,18,35,.04)">
+            </div>
+          </div>
+
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 16px;border:1px solid #E7E8F1;border-radius:12px">
+            <div style="min-width:0"><p style="margin:0;font-size:13.5px;font-weight:700">Serve this type publicly</p><p style="margin:3px 0 0;font-size:12.5px;line-height:1.55;color:#63687D">Published entries readable at <code style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#4034A8">/api/public/roast-log</code> without signing in. Leave off for anything private.</p></div>
+            <span style="width:38px;height:22px;flex-shrink:0;border-radius:999px;background:#E7E8F1;display:inline-flex;align-items:center;padding:2px"><span style="width:18px;height:18px;border-radius:999px;background:#fff;box-shadow:0 1px 2px rgba(16,18,35,.2)"></span></span>
+          </div>
+
+          <div>
+            <div style="display:flex;align-items:center;gap:10px">
+              <h2 style="margin:0;font-family:'Sora',sans-serif;font-size:15px;font-weight:600">Fields</h2>
+              <span style="padding:2px 9px;border-radius:999px;background:#F2F3F9;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;color:#4A4E66">4</span>
+              <div style="flex:1"></div>
+              <button type="button" style="height:32px;display:inline-flex;align-items:center;gap:7px;padding:0 12px;border:1px solid #E7E8F1;border-radius:9px;background:#fff;font-family:inherit;font-size:12.5px;font-weight:700;color:#4034A8;cursor:pointer" style-hover="border-color:#5A46D6;background:#EEEBFD"><svg viewBox="0 0 32 32" style="width:12px;height:12px;fill:currentColor"><use href="#ic-plus"></use></svg>Add field</button>
+            </div>
+
+            <div style="margin-top:14px;display:flex;flex-direction:column;gap:8px">
+              <div style="display:flex;align-items:center;gap:12px;padding:13px 14px;border:1px solid #E7E8F1;border-radius:12px;box-shadow:0 1px 2px rgba(16,18,35,.04)">
+                <svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:#C3C6D6;cursor:grab;flex-shrink:0"><use href="#ic-more"></use></svg>
+                <span style="width:30px;height:30px;flex-shrink:0;border-radius:9px;background:#EEEBFD;color:#4034A8;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:currentColor"><use href="#ic-text"></use></svg></span>
+                <span style="flex:1;min-width:0"><span style="display:block;font-size:13.5px;font-weight:700">Batch name</span><span style="display:block;font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D">batchName · string</span></span>
+                <span style="padding:3px 9px;border-radius:999px;background:#F2F3F9;color:#4A4E66;font-size:11px;font-weight:700">Required</span>
+                <svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:#C3C6D6;flex-shrink:0"><use href="#ic-trash"></use></svg>
+              </div>
+              <div style="display:flex;align-items:center;gap:12px;padding:13px 14px;border:1px solid #E7E8F1;border-radius:12px;box-shadow:0 1px 2px rgba(16,18,35,.04)">
+                <svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:#C3C6D6;cursor:grab;flex-shrink:0"><use href="#ic-more"></use></svg>
+                <span style="width:30px;height:30px;flex-shrink:0;border-radius:9px;background:#EEEBFD;color:#4034A8;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:currentColor"><use href="#ic-calendar"></use></svg></span>
+                <span style="flex:1;min-width:0"><span style="display:block;font-size:13.5px;font-weight:700">Roasted on</span><span style="display:block;font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D">roastedOn · date</span></span>
+                <span style="padding:3px 9px;border-radius:999px;background:#F2F3F9;color:#4A4E66;font-size:11px;font-weight:700">Required</span>
+                <svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:#C3C6D6;flex-shrink:0"><use href="#ic-trash"></use></svg>
+              </div>
+              <div style="display:flex;align-items:center;gap:12px;padding:13px 14px;border:1px solid #E7E8F1;border-radius:12px;box-shadow:0 1px 2px rgba(16,18,35,.04)">
+                <svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:#C3C6D6;cursor:grab;flex-shrink:0"><use href="#ic-more"></use></svg>
+                <span style="width:30px;height:30px;flex-shrink:0;border-radius:9px;background:#EEEBFD;color:#4034A8;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:currentColor"><use href="#ic-hashtag"></use></svg></span>
+                <span style="flex:1;min-width:0"><span style="display:block;font-size:13.5px;font-weight:700">Drop temperature</span><span style="display:block;font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D">dropTemp · decimal</span></span>
+                <svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:#C3C6D6;flex-shrink:0"><use href="#ic-trash"></use></svg>
+              </div>
+              <div style="padding:13px 14px;border:1px solid #DED8FB;border-radius:12px;background:#FAFAFC;box-shadow:0 1px 2px rgba(90,70,214,.06)">
+                <div style="display:flex;align-items:center;gap:12px">
+                  <svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:#C3C6D6;cursor:grab;flex-shrink:0"><use href="#ic-more"></use></svg>
+                  <span style="width:30px;height:30px;flex-shrink:0;border-radius:9px;background:#5A46D6;color:#fff;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:currentColor"><use href="#ic-lock"></use></svg></span>
+                  <span style="flex:1;min-width:0"><span style="display:block;font-size:13.5px;font-weight:700">Supplier cost</span><span style="display:block;font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D">supplierCost · money</span></span>
+                  <span style="padding:3px 9px;border-radius:999px;background:#EEEBFD;color:#4034A8;font-size:11px;font-weight:700">Editing</span>
+                </div>
+                <div style="margin-top:14px;padding-top:14px;border-top:1px solid #E7E8F1;display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                  <div style="display:flex;flex-direction:column;gap:6px"><label style="font-size:12px;font-weight:700;color:#4A4E66">Type</label><button type="button" style="height:38px;display:flex;align-items:center;gap:9px;padding:0 12px;border:1px solid #E7E8F1;border-radius:10px;background:#fff;font-family:inherit;cursor:pointer"><svg viewBox="0 0 32 32" style="width:13px;height:13px;fill:#63687D"><use href="#ic-coins"></use></svg><span style="flex:1;text-align:left;font-size:13px;font-weight:600">money</span><svg viewBox="0 0 32 32" style="width:11px;height:11px;fill:#63687D"><use href="#ic-chevron-down"></use></svg></button></div>
+                  <div style="display:flex;flex-direction:column;gap:6px"><label style="font-size:12px;font-weight:700;color:#4A4E66">Sensitivity</label><button type="button" style="height:38px;display:flex;align-items:center;gap:9px;padding:0 12px;border:1px solid #DED8FB;border-radius:10px;background:#EEEBFD;font-family:inherit;cursor:pointer"><svg viewBox="0 0 32 32" style="width:13px;height:13px;fill:#4034A8"><use href="#ic-lock"></use></svg><span style="flex:1;text-align:left;font-size:13px;font-weight:700;color:#241C6B">Masked</span><svg viewBox="0 0 32 32" style="width:11px;height:11px;fill:#4034A8"><use href="#ic-chevron-down"></use></svg></button></div>
+                  <div style="grid-column:span 2;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 13px;background:#fff;border:1px solid #E7E8F1;border-radius:10px">
+                    <span style="font-size:13px;font-weight:600">Required</span>
+                    <span style="width:34px;height:20px;border-radius:999px;background:#E7E8F1;display:inline-flex;align-items:center;padding:2px"><span style="width:16px;height:16px;border-radius:999px;background:#fff;box-shadow:0 1px 2px rgba(16,18,35,.2)"></span></span>
+                  </div>
+                  <p style="grid-column:span 2;margin:0;font-size:12px;line-height:1.55;color:#63687D">Masked fields never leave the API in cleartext, including in version history. An Admin sees the value; an Editor sees dots.</p>
+                </div>
+              </div>
+            </div>
+
+            <div style="margin-top:14px;padding:14px 16px;border:1px dashed #DED8FB;border-radius:12px;background:#FAFAFC">
+              <p style="margin:0;font-size:12.5px;font-weight:700;color:#4A4E66">Add a field</p>
+              <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:7px">
+                <span style="display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border:1px solid #E7E8F1;border-radius:9px;background:#fff;font-size:12.5px;font-weight:600;color:#4A4E66;cursor:pointer"><svg viewBox="0 0 32 32" style="width:12px;height:12px;fill:#63687D"><use href="#ic-text"></use></svg>string</span>
+                <span style="display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border:1px solid #E7E8F1;border-radius:9px;background:#fff;font-size:12.5px;font-weight:600;color:#4A4E66;cursor:pointer"><svg viewBox="0 0 32 32" style="width:12px;height:12px;fill:#63687D"><use href="#ic-hashtag"></use></svg>int</span>
+                <span style="display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border:1px solid #E7E8F1;border-radius:9px;background:#fff;font-size:12.5px;font-weight:600;color:#4A4E66;cursor:pointer"><svg viewBox="0 0 32 32" style="width:12px;height:12px;fill:#63687D"><use href="#ic-coins"></use></svg>money</span>
+                <span style="display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border:1px solid #E7E8F1;border-radius:9px;background:#fff;font-size:12.5px;font-weight:600;color:#4A4E66;cursor:pointer"><svg viewBox="0 0 32 32" style="width:12px;height:12px;fill:#63687D"><use href="#ic-calendar"></use></svg>date</span>
+                <span style="display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border:1px solid #E7E8F1;border-radius:9px;background:#fff;font-size:12.5px;font-weight:600;color:#4A4E66;cursor:pointer"><svg viewBox="0 0 32 32" style="width:12px;height:12px;fill:#63687D"><use href="#ic-toggle"></use></svg>bool</span>
+                <span style="display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border:1px solid #E7E8F1;border-radius:9px;background:#fff;font-size:12.5px;font-weight:600;color:#4A4E66;cursor:pointer"><svg viewBox="0 0 32 32" style="width:12px;height:12px;fill:#63687D"><use href="#ic-envelope"></use></svg>email</span>
+                <span style="display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border:1px solid #E7E8F1;border-radius:9px;background:#fff;font-size:12.5px;font-weight:600;color:#4A4E66;cursor:pointer"><svg viewBox="0 0 32 32" style="width:12px;height:12px;fill:#63687D"><use href="#ic-cube"></use></svg>json</span>
+                <span style="display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border:1px solid #E7E8F1;border-radius:9px;background:#fff;font-size:12.5px;font-weight:600;color:#4A4E66;cursor:pointer"><svg viewBox="0 0 32 32" style="width:12px;height:12px;fill:#63687D"><use href="#ic-list"></use></svg>reference</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+
+<div style="padding:0 56px 56px;display:flex;flex-direction:column;gap:56px;font-family:'Manrope',system-ui,sans-serif;align-items:flex-start;color:#101223">
+
+  <!-- =============================== WORKFLOWS =============================== -->
+  <div data-screen-label="Admin — Workflows" style="display:flex;flex-direction:column;gap:14px">
+    <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#63687D">admin · workflows</span>
+    <div style="width:1280px;height:840px;background:#fff;border:1px solid #d4d4d8;border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08);display:flex;flex-direction:column">
+      <header style="height:60px;flex-shrink:0;display:flex;align-items:center;gap:12px;padding:0 24px;border-bottom:1px solid #E7E8F1">
+        <h1 style="margin:0;font-family:'Sora',sans-serif;font-size:18px;font-weight:600;letter-spacing:-.025em">Workflows</h1>
+        <span style="padding:3px 10px;border-radius:999px;background:#F2F3F9;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;color:#4A4E66">4</span>
+        <div style="flex:1"></div>
+        <span style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#63687D">312 runs in 24h · 1 failed</span>
+        <a href="#" style="display:inline-flex;align-items:center;gap:8px;height:38px;padding:0 15px;border-radius:10px;background:#5A46D6;color:#fff;font-size:13.5px;font-weight:700;box-shadow:0 5px 14px -7px rgba(90,70,214,.8)" style-hover="background:#4A38C0"><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:currentColor"><use href="#ic-plus"></use></svg>New workflow</a>
+      </header>
+
+      <div style="flex:1;min-height:0;display:flex">
+        <div style="width:336px;flex-shrink:0;border-right:1px solid #E7E8F1;display:flex;flex-direction:column">
+          <div style="padding:14px 16px;border-bottom:1px solid #E7E8F1">
+            <div style="position:relative">
+              <svg viewBox="0 0 32 32" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);width:13px;height:13px;fill:#63687D"><use href="#ic-search"></use></svg>
+              <input type="text" placeholder="Filter workflows" style="width:100%;height:36px;padding:0 12px 0 33px;border:1px solid #E7E8F1;border-radius:10px;font-family:inherit;font-size:13px;outline:none;color:#101223">
+            </div>
+          </div>
+          <div style="flex:1;min-height:0;overflow:auto;padding:8px;display:flex;flex-direction:column;gap:8px">
+            <a href="#" style="display:block;padding:13px 14px;border:1px solid #DED8FB;border-radius:12px;background:#FAFAFC;box-shadow:0 1px 2px rgba(90,70,214,.07)">
+              <div style="display:flex;align-items:center;gap:9px">
+                <span style="flex:1;min-width:0;font-size:13.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Notify subscribers on publish</span>
+                <span style="width:32px;height:18px;flex-shrink:0;border-radius:999px;background:#5A46D6;display:inline-flex;align-items:center;justify-content:flex-end;padding:2px"><span style="width:14px;height:14px;border-radius:999px;background:#fff"></span></span>
+              </div>
+              <p style="margin:6px 0 0;font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D">article · Updated</p>
+              <div style="margin-top:9px;display:flex;flex-wrap:wrap;gap:5px">
+                <span style="display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:7px;background:#EEEBFD;color:#4034A8;font-size:11px;font-weight:700"><svg viewBox="0 0 32 32" style="width:10px;height:10px;fill:currentColor"><use href="#ic-envelope"></use></svg>Email</span>
+                <span style="display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:7px;background:#EEEBFD;color:#4034A8;font-size:11px;font-weight:700"><svg viewBox="0 0 32 32" style="width:10px;height:10px;fill:currentColor"><use href="#ic-webhook"></use></svg>Webhook</span>
+              </div>
+              <p style="margin:9px 0 0;font-size:11.5px;font-weight:700;color:#0B7A6B">184 runs, all clean</p>
+            </a>
+            <a href="#" style="display:block;padding:13px 14px;border:1px solid #E7E8F1;border-radius:12px" style-hover="background:#FAFAFC">
+              <div style="display:flex;align-items:center;gap:9px">
+                <span style="flex:1;min-width:0;font-size:13.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Purge CDN cache</span>
+                <span style="width:32px;height:18px;flex-shrink:0;border-radius:999px;background:#5A46D6;display:inline-flex;align-items:center;justify-content:flex-end;padding:2px"><span style="width:14px;height:14px;border-radius:999px;background:#fff"></span></span>
+              </div>
+              <p style="margin:6px 0 0;font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D">article · Updated</p>
+              <div style="margin-top:9px;display:flex;gap:5px"><span style="display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:7px;background:#F2F3F9;color:#4A4E66;font-size:11px;font-weight:700"><svg viewBox="0 0 32 32" style="width:10px;height:10px;fill:currentColor"><use href="#ic-webhook"></use></svg>Webhook</span></div>
+              <p style="margin:9px 0 0;font-size:11.5px;font-weight:600;color:#63687D">96 runs, all clean</p>
+            </a>
+            <a href="#" style="display:block;padding:13px 14px;border:1px solid #E7E8F1;border-radius:12px" style-hover="background:#FAFAFC">
+              <div style="display:flex;align-items:center;gap:9px">
+                <span style="flex:1;min-width:0;font-size:13.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Flag unbalanced journals</span>
+                <span style="width:32px;height:18px;flex-shrink:0;border-radius:999px;background:#5A46D6;display:inline-flex;align-items:center;justify-content:flex-end;padding:2px"><span style="width:14px;height:14px;border-radius:999px;background:#fff"></span></span>
+              </div>
+              <p style="margin:6px 0 0;font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D">journal-entry · Created</p>
+              <div style="margin-top:9px;display:flex;gap:5px"><span style="display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:7px;background:#F2F3F9;color:#4A4E66;font-size:11px;font-weight:700"><svg viewBox="0 0 32 32" style="width:10px;height:10px;fill:currentColor"><use href="#ic-conditional"></use></svg>Conditional</span><span style="display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:7px;background:#F2F3F9;color:#4A4E66;font-size:11px;font-weight:700"><svg viewBox="0 0 32 32" style="width:10px;height:10px;fill:currentColor"><use href="#ic-tasks"></use></svg>CreateTask</span></div>
+              <p style="margin:9px 0 0;font-size:11.5px;font-weight:700;color:#A22C2C">31 runs, 1 failed</p>
+            </a>
+            <a href="#" style="display:block;padding:13px 14px;border:1px solid #E7E8F1;border-radius:12px;opacity:.72" style-hover="background:#FAFAFC">
+              <div style="display:flex;align-items:center;gap:9px">
+                <span style="flex:1;min-width:0;font-size:13.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Welcome new members</span>
+                <span style="width:32px;height:18px;flex-shrink:0;border-radius:999px;background:#E7E8F1;display:inline-flex;align-items:center;padding:2px"><span style="width:14px;height:14px;border-radius:999px;background:#fff;box-shadow:0 1px 2px rgba(16,18,35,.2)"></span></span>
+              </div>
+              <p style="margin:6px 0 0;font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D">member · Created</p>
+              <div style="margin-top:9px;display:flex;gap:5px"><span style="display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:7px;background:#F2F3F9;color:#4A4E66;font-size:11px;font-weight:700"><svg viewBox="0 0 32 32" style="width:10px;height:10px;fill:currentColor"><use href="#ic-envelope"></use></svg>Email</span></div>
+              <p style="margin:9px 0 0;font-size:11.5px;font-weight:600;color:#63687D">Paused</p>
+            </a>
+          </div>
+        </div>
+
+        <div style="flex:1;min-width:0;overflow:auto;padding:24px 28px">
+          <div style="display:flex;align-items:flex-start;gap:12px">
+            <div style="flex:1;min-width:0">
+              <h2 style="margin:0;font-family:'Sora',sans-serif;font-size:21px;font-weight:600;letter-spacing:-.03em">Notify subscribers on publish</h2>
+              <p style="margin:5px 0 0;font-size:13px;color:#63687D">Runs after the entry is saved. It never blocks saving, and a failed action does not roll the entry back.</p>
+            </div>
+            <button type="button" style="height:36px;flex-shrink:0;display:inline-flex;align-items:center;gap:8px;padding:0 13px;border:1px solid #E7E8F1;border-radius:10px;background:#fff;font-family:inherit;font-size:13px;font-weight:600;color:#4A4E66;cursor:pointer" style-hover="border-color:#5A46D6;color:#4034A8"><svg viewBox="0 0 32 32" style="width:13px;height:13px;fill:currentColor"><use href="#ic-play"></use></svg>Dry run</button>
+            <button type="button" style="height:36px;flex-shrink:0;display:inline-flex;align-items:center;gap:8px;padding:0 15px;border:0;border-radius:10px;background:#5A46D6;color:#fff;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 5px 14px -7px rgba(90,70,214,.8)">Save changes</button>
+          </div>
+
+          <div style="margin-top:22px;display:flex;flex-direction:column">
+
+            <div style="display:flex;gap:16px">
+              <div style="width:34px;flex-shrink:0;display:flex;flex-direction:column;align-items:center">
+                <span style="width:34px;height:34px;border-radius:11px;background:#5A46D6;color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px -6px rgba(90,70,214,.8)"><svg viewBox="0 0 32 32" style="width:16px;height:16px;fill:currentColor"><use href="#ic-bolt"></use></svg></span>
+                <span style="flex:1;width:2px;background:#E7E8F1;margin:6px 0"></span>
+              </div>
+              <div style="flex:1;min-width:0;padding-bottom:20px">
+                <p style="margin:0;padding-top:9px;font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:#63687D">When</p>
+                <div style="margin-top:10px;padding:16px;border:1px solid #E7E8F1;border-radius:13px;box-shadow:0 1px 2px rgba(16,18,35,.04);display:flex;align-items:center;gap:11px;flex-wrap:wrap">
+                  <span style="font-size:13.5px;color:#4A4E66">an entry of type</span>
+                  <button type="button" style="height:38px;display:inline-flex;align-items:center;gap:9px;padding:0 12px;border:1px solid #E7E8F1;border-radius:10px;background:#fff;font-family:inherit;cursor:pointer;box-shadow:0 1px 2px rgba(16,18,35,.04)"><svg viewBox="0 0 32 32" style="width:13px;height:13px;fill:#63687D"><use href="#ic-content-types"></use></svg><span style="font-size:13.5px;font-weight:700">Article</span><span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D">article</span><svg viewBox="0 0 32 32" style="width:11px;height:11px;fill:#63687D"><use href="#ic-chevron-down"></use></svg></button>
+                  <span style="font-size:13.5px;color:#4A4E66">is</span>
+                  <div style="display:flex;gap:2px;padding:3px;background:#F2F3F9;border-radius:999px">
+                    <span style="padding:6px 14px;border-radius:999px;font-size:12.5px;font-weight:600;color:#63687D">Created</span>
+                    <span style="padding:6px 14px;border-radius:999px;background:#fff;font-size:12.5px;font-weight:700;box-shadow:0 1px 2px rgba(16,18,35,.08)">Updated</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div style="display:flex;gap:16px">
+              <div style="width:34px;flex-shrink:0;display:flex;flex-direction:column;align-items:center">
+                <span style="width:34px;height:34px;border-radius:11px;background:#EEEBFD;color:#4034A8;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 32 32" style="width:16px;height:16px;fill:currentColor"><use href="#ic-filter"></use></svg></span>
+                <span style="flex:1;width:2px;background:#E7E8F1;margin:6px 0"></span>
+              </div>
+              <div style="flex:1;min-width:0;padding-bottom:20px">
+                <div style="padding-top:9px;display:flex;align-items:baseline;gap:10px">
+                  <p style="margin:0;font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:#63687D">Only when</p>
+                  <span style="font-size:12px;color:#6E7387">every condition matches</span>
+                </div>
+                <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px">
+                  <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;border:1px solid #E7E8F1;border-radius:13px;box-shadow:0 1px 2px rgba(16,18,35,.04)">
+                    <span style="height:34px;flex:1;display:flex;align-items:center;padding:0 11px;border:1px solid #E7E8F1;border-radius:9px;background:#FAFAFC;font-family:'JetBrains Mono',monospace;font-size:12.5px">Status</span>
+                    <span style="font-size:12.5px;font-weight:700;color:#63687D">equals</span>
+                    <span style="height:34px;flex:1;display:flex;align-items:center;padding:0 11px;border:1px solid #E7E8F1;border-radius:9px;background:#FAFAFC;font-family:'JetBrains Mono',monospace;font-size:12.5px">Published</span>
+                    <svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:#C3C6D6;flex-shrink:0;cursor:pointer"><use href="#ic-trash"></use></svg>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;border:1px solid #E7E8F1;border-radius:13px;box-shadow:0 1px 2px rgba(16,18,35,.04)">
+                    <span style="height:34px;flex:1;display:flex;align-items:center;padding:0 11px;border:1px solid #E7E8F1;border-radius:9px;background:#FAFAFC;font-family:'JetBrains Mono',monospace;font-size:12.5px">featured</span>
+                    <span style="font-size:12.5px;font-weight:700;color:#63687D">equals</span>
+                    <span style="height:34px;flex:1;display:flex;align-items:center;padding:0 11px;border:1px solid #E7E8F1;border-radius:9px;background:#FAFAFC;font-family:'JetBrains Mono',monospace;font-size:12.5px">true</span>
+                    <svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:#C3C6D6;flex-shrink:0;cursor:pointer"><use href="#ic-trash"></use></svg>
+                  </div>
+                  <button type="button" style="height:36px;width:fit-content;display:inline-flex;align-items:center;gap:7px;padding:0 13px;border:1px dashed #DED8FB;border-radius:10px;background:#FAFAFC;font-family:inherit;font-size:12.5px;font-weight:700;color:#4034A8;cursor:pointer" style-hover="border-color:#5A46D6;background:#EEEBFD"><svg viewBox="0 0 32 32" style="width:12px;height:12px;fill:currentColor"><use href="#ic-plus"></use></svg>Add condition</button>
+                </div>
+              </div>
+            </div>
+
+            <div style="display:flex;gap:16px">
+              <div style="width:34px;flex-shrink:0;display:flex;flex-direction:column;align-items:center">
+                <span style="width:34px;height:34px;border-radius:11px;background:#EEEBFD;color:#4034A8;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 32 32" style="width:16px;height:16px;fill:currentColor"><use href="#ic-play"></use></svg></span>
+              </div>
+              <div style="flex:1;min-width:0">
+                <div style="padding-top:9px;display:flex;align-items:baseline;gap:10px">
+                  <p style="margin:0;font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:#63687D">Then do</p>
+                  <span style="font-size:12px;color:#6E7387">in order</span>
+                </div>
+
+                <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px">
+                  <div style="border:1px solid #E7E8F1;border-radius:13px;box-shadow:0 1px 2px rgba(16,18,35,.04);overflow:hidden">
+                    <div style="padding:12px 14px;display:flex;align-items:center;gap:11px;background:#FAFAFC;border-bottom:1px solid #E7E8F1">
+                      <span style="width:22px;height:22px;flex-shrink:0;border-radius:7px;background:#101223;color:#fff;display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700">1</span>
+                      <svg viewBox="0 0 32 32" style="width:15px;height:15px;fill:#4034A8;flex-shrink:0"><use href="#ic-envelope"></use></svg>
+                      <span style="flex:1;min-width:0"><span style="display:block;font-size:13.5px;font-weight:700">Email</span><span style="display:block;font-size:11.5px;color:#63687D">Sends a message through the configured email service</span></span>
+                      <svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:#C3C6D6;flex-shrink:0;cursor:pointer"><use href="#ic-trash"></use></svg>
+                    </div>
+                    <div style="padding:14px;display:flex;flex-direction:column;gap:11px">
+                      <div style="display:flex;flex-direction:column;gap:6px"><label style="font-size:11.5px;font-weight:700;color:#4A4E66">to</label><input type="text" value="subscribers@bakersguild.ph" style="width:100%;height:36px;padding:0 11px;border:1px solid #E7E8F1;border-radius:9px;font-family:'JetBrains Mono',monospace;font-size:12.5px;outline:none;color:#101223"></div>
+                      <div style="display:flex;flex-direction:column;gap:6px"><label style="font-size:11.5px;font-weight:700;color:#4A4E66">subject</label><input type="text" value="{{ emailSubject }}" style="width:100%;height:36px;padding:0 11px;border:1px solid #E7E8F1;border-radius:9px;font-family:'JetBrains Mono',monospace;font-size:12.5px;outline:none;color:#101223"></div>
+                      <div style="display:flex;flex-direction:column;gap:6px"><label style="font-size:11.5px;font-weight:700;color:#4A4E66">body</label><textarea rows="2" style="width:100%;padding:9px 11px;border:1px solid #E7E8F1;border-radius:9px;font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:1.6;outline:none;resize:vertical;color:#101223" value="{{ emailBody }}"></textarea></div>
+                    </div>
+                  </div>
+
+                  <div style="display:flex;align-items:center;gap:11px;padding:12px 14px;border:1px solid #E7E8F1;border-radius:13px;box-shadow:0 1px 2px rgba(16,18,35,.04)">
+                    <span style="width:22px;height:22px;flex-shrink:0;border-radius:7px;background:#101223;color:#fff;display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700">2</span>
+                    <svg viewBox="0 0 32 32" style="width:15px;height:15px;fill:#4034A8;flex-shrink:0"><use href="#ic-webhook"></use></svg>
+                    <span style="flex:1;min-width:0"><span style="display:block;font-size:13.5px;font-weight:700">Webhook</span><span style="display:block;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#63687D">POST https://cdn.bakersguild.ph/purge</span></span>
+                    <svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:#C3C6D6;flex-shrink:0;cursor:pointer"><use href="#ic-chevron-down"></use></svg>
+                  </div>
+
+                  <div style="display:flex;flex-wrap:wrap;gap:7px;align-items:center">
+                    <span style="font-size:12.5px;font-weight:700;color:#63687D">Add:</span>
+                    <span style="display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border:1px solid #E7E8F1;border-radius:9px;background:#fff;font-size:12.5px;font-weight:600;color:#4A4E66;cursor:pointer" style-hover="border-color:#5A46D6;color:#4034A8"><svg viewBox="0 0 32 32" style="width:12px;height:12px;fill:#63687D"><use href="#ic-sms"></use></svg>SMS</span>
+                    <span style="display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border:1px solid #E7E8F1;border-radius:9px;background:#fff;font-size:12.5px;font-weight:600;color:#4A4E66;cursor:pointer" style-hover="border-color:#5A46D6;color:#4034A8"><svg viewBox="0 0 32 32" style="width:12px;height:12px;fill:#63687D"><use href="#ic-tasks"></use></svg>CreateTask</span>
+                    <span style="display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border:1px solid #E7E8F1;border-radius:9px;background:#fff;font-size:12.5px;font-weight:600;color:#4A4E66;cursor:pointer" style-hover="border-color:#5A46D6;color:#4034A8"><svg viewBox="0 0 32 32" style="width:12px;height:12px;fill:#63687D"><use href="#ic-field-edit"></use></svg>UpdateField</span>
+                    <span style="display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border:1px solid #E7E8F1;border-radius:9px;background:#fff;font-size:12.5px;font-weight:600;color:#4A4E66;cursor:pointer" style-hover="border-color:#5A46D6;color:#4034A8"><svg viewBox="0 0 32 32" style="width:12px;height:12px;fill:#63687D"><use href="#ic-conditional"></use></svg>Conditional</span>
+                  </div>
+
+                  <div style="margin-top:6px;padding:14px 16px;border:1px solid #E7E8F1;border-radius:13px;background:#FAFAFC">
+                    <div style="display:flex;align-items:center;gap:9px">
+                      <p style="margin:0;font-size:12.5px;font-weight:700;color:#4A4E66">Variables available to this trigger</p>
+                      <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D">article</span>
+                    </div>
+                    <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px">
+                      <code style="padding:3px 8px;border-radius:7px;background:#fff;border:1px solid #E7E8F1;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#4034A8">{<span>{title}</span>}</code>
+                      <code style="padding:3px 8px;border-radius:7px;background:#fff;border:1px solid #E7E8F1;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#4034A8">{<span>{slug}</span>}</code>
+                      <code style="padding:3px 8px;border-radius:7px;background:#fff;border:1px solid #E7E8F1;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#4034A8">{<span>{body}</span>}</code>
+                      <code style="padding:3px 8px;border-radius:7px;background:#fff;border:1px solid #E7E8F1;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#4034A8">{<span>{author}</span>}</code>
+                      <code style="padding:3px 8px;border-radius:7px;background:#fff;border:1px solid #E7E8F1;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#63687D">{<span>{id}</span>}</code>
+                      <code style="padding:3px 8px;border-radius:7px;background:#fff;border:1px solid #E7E8F1;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#63687D">{<span>{status}</span>}</code>
+                      <code style="padding:3px 8px;border-radius:7px;background:#fff;border:1px solid #E7E8F1;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#63687D">{<span>{version}</span>}</code>
+                      <code style="padding:3px 8px;border-radius:7px;background:#fff;border:1px solid #E7E8F1;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#63687D">{<span>{publishedAt}</span>}</code>
+                      <code style="padding:3px 8px;border-radius:7px;background:#fff;border:1px solid #E7E8F1;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#63687D">{<span>{lastModifiedBy}</span>}</code>
+                    </div>
+                  </div>
+
+                  <div style="margin-top:6px;border:1px solid #E7E8F1;border-radius:13px;overflow:hidden">
+                    <div style="padding:12px 16px;display:flex;align-items:center;gap:10px;border-bottom:1px solid #E7E8F1">
+                      <p style="margin:0;font-size:13px;font-weight:700">Last runs</p>
+                      <div style="flex:1"></div>
+                      <a href="#" style="font-size:12.5px;font-weight:700;color:#5A46D6">Full log</a>
+                    </div>
+                    <div style="display:flex;flex-direction:column">
+                      <div style="display:flex;align-items:center;gap:11px;padding:10px 16px;border-bottom:1px solid #F2F3F9"><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:#0B7A6B;flex-shrink:0"><use href="#ic-check-circle"></use></svg><span style="flex:1;min-width:0;font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Spring roast notes</span><span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D">2 actions · 412ms</span><span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D">14:52</span></div>
+                      <div style="display:flex;align-items:center;gap:11px;padding:10px 16px;border-bottom:1px solid #F2F3F9"><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:#0B7A6B;flex-shrink:0"><use href="#ic-check-circle"></use></svg><span style="flex:1;min-width:0;font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Roast curve reference</span><span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D">2 actions · 388ms</span><span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D">09:14</span></div>
+                      <div style="display:flex;align-items:center;gap:11px;padding:10px 16px"><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:#63687D;flex-shrink:0"><use href="#ic-play"></use></svg><span style="flex:1;min-width:0;font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Guild bylaws 2026<span style="margin-left:8px;padding:2px 7px;border-radius:6px;background:#F2F3F9;font-size:10.5px;font-weight:700;color:#4A4E66">dry run</span></span><span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D">2 actions · 6ms</span><span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D">Tue</span></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =============================== ANALYTICS =============================== -->
+  <div data-screen-label="Admin — Analytics" style="display:flex;flex-direction:column;gap:14px">
+    <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#63687D">admin · analytics, umami module</span>
+    <div style="width:1280px;background:#fff;border:1px solid #d4d4d8;border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08);display:flex;flex-direction:column">
+      <header style="height:60px;flex-shrink:0;display:flex;align-items:center;gap:12px;padding:0 24px;border-bottom:1px solid #E7E8F1">
+        <h1 style="margin:0;font-family:'Sora',sans-serif;font-size:18px;font-weight:600;letter-spacing:-.025em">Analytics</h1>
+        <button type="button" style="height:34px;display:inline-flex;align-items:center;gap:9px;padding:0 12px;border:1px solid #E7E8F1;border-radius:10px;background:#fff;font-family:inherit;cursor:pointer;box-shadow:0 1px 2px rgba(16,18,35,.04)">
+          <span style="width:7px;height:7px;border-radius:999px;background:#0B7A6B"></span>
+          <span style="font-size:13px;font-weight:700">bakersguild.ph</span>
+          <svg viewBox="0 0 32 32" style="width:11px;height:11px;fill:#63687D"><use href="#ic-chevron-down"></use></svg>
+        </button>
+        <div style="flex:1"></div>
+        <span style="display:inline-flex;align-items:center;gap:7px;padding:6px 11px;border-radius:999px;background:#E6F7F4;color:#0B7A6B;font-size:12px;font-weight:700"><span style="width:6px;height:6px;border-radius:999px;background:currentColor;animation:sgPulse 1.8s ease-in-out infinite"></span>14 active now</span>
+        <div style="display:flex;gap:2px;padding:3px;background:#F2F3F9;border-radius:999px">
+          <span style="padding:6px 13px;border-radius:999px;font-size:12px;font-weight:600;color:#63687D">24h</span>
+          <span style="padding:6px 13px;border-radius:999px;background:#fff;font-size:12px;font-weight:700;box-shadow:0 1px 2px rgba(16,18,35,.08)">7d</span>
+          <span style="padding:6px 13px;border-radius:999px;font-size:12px;font-weight:600;color:#63687D">30d</span>
+          <span style="padding:6px 13px;border-radius:999px;font-size:12px;font-weight:600;color:#63687D">90d</span>
+        </div>
+        <button type="button" style="width:38px;height:38px;display:flex;align-items:center;justify-content:center;border:1px solid #E7E8F1;border-radius:10px;background:#fff;cursor:pointer;color:#4A4E66" style-hover="border-color:#5A46D6;color:#4034A8"><svg viewBox="0 0 32 32" style="width:15px;height:15px;fill:currentColor"><use href="#ic-refresh"></use></svg></button>
+        <button type="button" style="height:38px;display:inline-flex;align-items:center;gap:8px;padding:0 15px;border:0;border-radius:10px;background:#5A46D6;color:#fff;font-family:inherit;font-size:13.5px;font-weight:700;cursor:pointer;box-shadow:0 5px 14px -7px rgba(90,70,214,.8)"><svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:currentColor"><use href="#ic-plus"></use></svg>Add website</button>
+      </header>
+
+      <div style="padding:24px;display:flex;flex-direction:column;gap:16px">
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+          <div style="padding:18px;border:1px solid #E7E8F1;border-radius:14px;box-shadow:0 1px 2px rgba(16,18,35,.04)">
+            <p style="margin:0;font-size:12px;font-weight:700;color:#63687D">Visitors</p>
+            <p style="margin:10px 0 0;font-family:'JetBrains Mono',monospace;font-size:30px;font-weight:700;letter-spacing:-.035em;line-height:1;font-variant-numeric:tabular-nums">2,940</p>
+            <p style="margin:8px 0 0;font-size:12px;font-weight:700;color:#0B7A6B">18% vs previous 7d</p>
+          </div>
+          <div style="padding:18px;border:1px solid #E7E8F1;border-radius:14px;box-shadow:0 1px 2px rgba(16,18,35,.04)">
+            <p style="margin:0;font-size:12px;font-weight:700;color:#63687D">Pageviews</p>
+            <p style="margin:10px 0 0;font-family:'JetBrains Mono',monospace;font-size:30px;font-weight:700;letter-spacing:-.035em;line-height:1;font-variant-numeric:tabular-nums">7,318</p>
+            <p style="margin:8px 0 0;font-size:12px;font-weight:700;color:#0B7A6B">11% vs previous 7d</p>
+          </div>
+          <div style="padding:18px;border:1px solid #E7E8F1;border-radius:14px;box-shadow:0 1px 2px rgba(16,18,35,.04)">
+            <p style="margin:0;font-size:12px;font-weight:700;color:#63687D">Average visit</p>
+            <p style="margin:10px 0 0;font-family:'JetBrains Mono',monospace;font-size:30px;font-weight:700;letter-spacing:-.035em;line-height:1;font-variant-numeric:tabular-nums">2m 14s</p>
+            <p style="margin:8px 0 0;font-size:12px;color:#63687D">3,602 visits</p>
+          </div>
+          <div style="padding:18px;border:1px solid #E7E8F1;border-radius:14px;box-shadow:0 1px 2px rgba(16,18,35,.04)">
+            <p style="margin:0;font-size:12px;font-weight:700;color:#63687D">Bounce rate</p>
+            <p style="margin:10px 0 0;font-family:'JetBrains Mono',monospace;font-size:30px;font-weight:700;letter-spacing:-.035em;line-height:1;font-variant-numeric:tabular-nums">41%</p>
+            <p style="margin:8px 0 0;font-size:12px;font-weight:700;color:#A22C2C">4% vs previous 7d</p>
+          </div>
+        </div>
+
+        <div style="border:1px solid #E7E8F1;border-radius:14px;box-shadow:0 1px 2px rgba(16,18,35,.04);overflow:hidden">
+          <div style="padding:15px 18px;display:flex;align-items:center;gap:12px;border-bottom:1px solid #E7E8F1">
+            <h2 style="margin:0;font-family:'Sora',sans-serif;font-size:15px;font-weight:600">Pageviews over time</h2>
+            <div style="flex:1"></div>
+            <span style="display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:#63687D"><span style="width:10px;height:3px;border-radius:2px;background:#5A46D6"></span>this period</span>
+            <span style="display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:#63687D"><span style="width:10px;height:3px;border-radius:2px;background:#C9C1F5"></span>previous</span>
+          </div>
+          <div style="padding:18px">
+            <svg viewBox="0 0 700 160" preserveAspectRatio="none" style="display:block;width:100%;height:160px">
+              <path d="M0,120 L100,128 L200,104 L300,112 L400,86 L500,96 L600,74 L700,68" fill="none" stroke="#C9C1F5" stroke-width="2" stroke-dasharray="5 4" vector-effect="non-scaling-stroke"></path>
+              <path d="M0,104 L100,88 L200,116 L300,60 L400,76 L500,28 L600,44 L700,12 L700,160 L0,160 Z" fill="rgba(90,70,214,.10)"></path>
+              <path d="M0,104 L100,88 L200,116 L300,60 L400,76 L500,28 L600,44 L700,12" fill="none" stroke="#5A46D6" stroke-width="2.25" vector-effect="non-scaling-stroke"></path>
+            </svg>
+            <div style="margin-top:8px;display:flex;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#6E7387">
+              <span>Aug 25</span><span>Aug 26</span><span>Aug 27</span><span>Aug 28</span><span>Aug 29</span><span>Aug 30</span><span>Aug 31</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+          <div style="border:1px solid #E7E8F1;border-radius:14px;box-shadow:0 1px 2px rgba(16,18,35,.04);overflow:hidden">
+            <div style="padding:14px 16px;border-bottom:1px solid #E7E8F1"><h2 style="margin:0;font-family:'Sora',sans-serif;font-size:14.5px;font-weight:600">Top pages</h2></div>
+            <div style="padding:8px">
+              <div style="position:relative;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:8px"><span style="position:absolute;left:0;top:0;bottom:0;width:100%;border-radius:8px;background:rgba(90,70,214,.1)"></span><span style="position:relative;min-width:0;font-family:'JetBrains Mono',monospace;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">/spring-roast</span><span style="position:relative;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums">1,842</span></div>
+              <div style="position:relative;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:8px"><span style="position:absolute;left:0;top:0;bottom:0;width:64%;border-radius:8px;background:rgba(90,70,214,.1)"></span><span style="position:relative;min-width:0;font-family:'JetBrains Mono',monospace;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">/</span><span style="position:relative;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums">1,180</span></div>
+              <div style="position:relative;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:8px"><span style="position:absolute;left:0;top:0;bottom:0;width:47%;border-radius:8px;background:rgba(90,70,214,.1)"></span><span style="position:relative;min-width:0;font-family:'JetBrains Mono',monospace;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">/roast-curve-reference</span><span style="position:relative;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums">864</span></div>
+              <div style="position:relative;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:8px"><span style="position:absolute;left:0;top:0;bottom:0;width:33%;border-radius:8px;background:rgba(90,70,214,.1)"></span><span style="position:relative;min-width:0;font-family:'JetBrains Mono',monospace;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">/guild-bylaws-2026</span><span style="position:relative;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums">602</span></div>
+              <div style="position:relative;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:8px"><span style="position:absolute;left:0;top:0;bottom:0;width:24%;border-radius:8px;background:rgba(90,70,214,.1)"></span><span style="position:relative;min-width:0;font-family:'JetBrains Mono',monospace;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">/newsletter/12</span><span style="position:relative;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums">441</span></div>
+              <div style="position:relative;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:8px"><span style="position:absolute;left:0;top:0;bottom:0;width:13%;border-radius:8px;background:rgba(90,70,214,.1)"></span><span style="position:relative;min-width:0;font-family:'JetBrains Mono',monospace;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">/members</span><span style="position:relative;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums">238</span></div>
+            </div>
+          </div>
+
+          <div style="border:1px solid #E7E8F1;border-radius:14px;box-shadow:0 1px 2px rgba(16,18,35,.04);overflow:hidden">
+            <div style="padding:14px 16px;border-bottom:1px solid #E7E8F1"><h2 style="margin:0;font-family:'Sora',sans-serif;font-size:14.5px;font-weight:600">Referrers</h2></div>
+            <div style="padding:8px">
+              <div style="position:relative;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:8px"><span style="position:absolute;left:0;top:0;bottom:0;width:100%;border-radius:8px;background:rgba(90,70,214,.1)"></span><span style="position:relative;min-width:0;font-size:13px;font-weight:600">Direct</span><span style="position:relative;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums">1,406</span></div>
+              <div style="position:relative;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:8px"><span style="position:absolute;left:0;top:0;bottom:0;width:58%;border-radius:8px;background:rgba(90,70,214,.1)"></span><span style="position:relative;min-width:0;font-size:13px;font-weight:600">news.ycombinator.com</span><span style="position:relative;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums">812</span></div>
+              <div style="position:relative;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:8px"><span style="position:absolute;left:0;top:0;bottom:0;width:39%;border-radius:8px;background:rgba(90,70,214,.1)"></span><span style="position:relative;min-width:0;font-size:13px;font-weight:600">google.com</span><span style="position:relative;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums">544</span></div>
+              <div style="position:relative;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:8px"><span style="position:absolute;left:0;top:0;bottom:0;width:19%;border-radius:8px;background:rgba(90,70,214,.1)"></span><span style="position:relative;min-width:0;font-size:13px;font-weight:600">reddit.com</span><span style="position:relative;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums">268</span></div>
+              <div style="position:relative;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:8px"><span style="position:absolute;left:0;top:0;bottom:0;width:12%;border-radius:8px;background:rgba(90,70,214,.1)"></span><span style="position:relative;min-width:0;font-size:13px;font-weight:600">linkedin.com</span><span style="position:relative;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums">171</span></div>
+              <div style="position:relative;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:8px"><span style="position:absolute;left:0;top:0;bottom:0;width:8%;border-radius:8px;background:rgba(90,70,214,.1)"></span><span style="position:relative;min-width:0;font-size:13px;font-weight:600">nuget.org</span><span style="position:relative;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums">112</span></div>
+            </div>
+          </div>
+
+          <div style="border:1px solid #E7E8F1;border-radius:14px;box-shadow:0 1px 2px rgba(16,18,35,.04);overflow:hidden">
+            <div style="padding:14px 16px;border-bottom:1px solid #E7E8F1"><h2 style="margin:0;font-family:'Sora',sans-serif;font-size:14.5px;font-weight:600">Countries</h2></div>
+            <div style="padding:8px">
+              <div style="position:relative;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:8px"><span style="position:absolute;left:0;top:0;bottom:0;width:100%;border-radius:8px;background:rgba(90,70,214,.1)"></span><span style="position:relative;min-width:0;font-size:13px;font-weight:600">🇵🇭 Philippines</span><span style="position:relative;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums">1,102</span></div>
+              <div style="position:relative;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:8px"><span style="position:absolute;left:0;top:0;bottom:0;width:61%;border-radius:8px;background:rgba(90,70,214,.1)"></span><span style="position:relative;min-width:0;font-size:13px;font-weight:600">🇺🇸 United States</span><span style="position:relative;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums">674</span></div>
+              <div style="position:relative;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:8px"><span style="position:absolute;left:0;top:0;bottom:0;width:31%;border-radius:8px;background:rgba(90,70,214,.1)"></span><span style="position:relative;min-width:0;font-size:13px;font-weight:600">🇩🇪 Germany</span><span style="position:relative;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums">342</span></div>
+              <div style="position:relative;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:8px"><span style="position:absolute;left:0;top:0;bottom:0;width:24%;border-radius:8px;background:rgba(90,70,214,.1)"></span><span style="position:relative;min-width:0;font-size:13px;font-weight:600">🇬🇧 United Kingdom</span><span style="position:relative;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums">261</span></div>
+              <div style="position:relative;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:8px"><span style="position:absolute;left:0;top:0;bottom:0;width:17%;border-radius:8px;background:rgba(90,70,214,.1)"></span><span style="position:relative;min-width:0;font-size:13px;font-weight:600">🇸🇬 Singapore</span><span style="position:relative;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums">188</span></div>
+              <div style="position:relative;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:8px"><span style="position:absolute;left:0;top:0;bottom:0;width:11%;border-radius:8px;background:rgba(90,70,214,.1)"></span><span style="position:relative;min-width:0;font-size:13px;font-weight:600">🇦🇺 Australia</span><span style="position:relative;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums">124</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+          <div style="border:1px solid #E7E8F1;border-radius:14px;box-shadow:0 1px 2px rgba(16,18,35,.04);overflow:hidden">
+            <div style="padding:14px 16px;border-bottom:1px solid #E7E8F1"><h2 style="margin:0;font-family:'Sora',sans-serif;font-size:14.5px;font-weight:600">Devices</h2></div>
+            <div style="padding:8px">
+              <div style="position:relative;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:8px"><span style="position:absolute;left:0;top:0;bottom:0;width:100%;border-radius:8px;background:rgba(90,70,214,.1)"></span><span style="position:relative;font-size:13px;font-weight:600">mobile</span><span style="position:relative;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums">1,708</span></div>
+              <div style="position:relative;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:8px"><span style="position:absolute;left:0;top:0;bottom:0;width:62%;border-radius:8px;background:rgba(90,70,214,.1)"></span><span style="position:relative;font-size:13px;font-weight:600">desktop</span><span style="position:relative;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums">1,062</span></div>
+              <div style="position:relative;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:8px"><span style="position:absolute;left:0;top:0;bottom:0;width:10%;border-radius:8px;background:rgba(90,70,214,.1)"></span><span style="position:relative;font-size:13px;font-weight:600">tablet</span><span style="position:relative;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums">170</span></div>
+            </div>
+          </div>
+          <div style="border:1px solid #E7E8F1;border-radius:14px;box-shadow:0 1px 2px rgba(16,18,35,.04);overflow:hidden">
+            <div style="padding:14px 16px;border-bottom:1px solid #E7E8F1"><h2 style="margin:0;font-family:'Sora',sans-serif;font-size:14.5px;font-weight:600">Operating systems</h2></div>
+            <div style="padding:8px">
+              <div style="position:relative;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:8px"><span style="position:absolute;left:0;top:0;bottom:0;width:100%;border-radius:8px;background:rgba(90,70,214,.1)"></span><span style="position:relative;font-size:13px;font-weight:600">Android</span><span style="position:relative;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums">1,024</span></div>
+              <div style="position:relative;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:8px"><span style="position:absolute;left:0;top:0;bottom:0;width:71%;border-radius:8px;background:rgba(90,70,214,.1)"></span><span style="position:relative;font-size:13px;font-weight:600">iOS</span><span style="position:relative;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums">728</span></div>
+              <div style="position:relative;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:8px"><span style="position:absolute;left:0;top:0;bottom:0;width:58%;border-radius:8px;background:rgba(90,70,214,.1)"></span><span style="position:relative;font-size:13px;font-weight:600">Windows</span><span style="position:relative;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums">596</span></div>
+              <div style="position:relative;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:8px"><span style="position:absolute;left:0;top:0;bottom:0;width:37%;border-radius:8px;background:rgba(90,70,214,.1)"></span><span style="position:relative;font-size:13px;font-weight:600">macOS</span><span style="position:relative;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums">382</span></div>
+            </div>
+          </div>
+          <div style="border:1px solid #E7E8F1;border-radius:14px;box-shadow:0 1px 2px rgba(16,18,35,.04);overflow:hidden">
+            <div style="padding:14px 16px;border-bottom:1px solid #E7E8F1"><h2 style="margin:0;font-family:'Sora',sans-serif;font-size:14.5px;font-weight:600">Browsers</h2></div>
+            <div style="padding:8px">
+              <div style="position:relative;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:8px"><span style="position:absolute;left:0;top:0;bottom:0;width:100%;border-radius:8px;background:rgba(90,70,214,.1)"></span><span style="position:relative;font-size:13px;font-weight:600">Chrome</span><span style="position:relative;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums">1,584</span></div>
+              <div style="position:relative;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:8px"><span style="position:absolute;left:0;top:0;bottom:0;width:54%;border-radius:8px;background:rgba(90,70,214,.1)"></span><span style="position:relative;font-size:13px;font-weight:600">Safari</span><span style="position:relative;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums">852</span></div>
+              <div style="position:relative;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:8px"><span style="position:absolute;left:0;top:0;bottom:0;width:22%;border-radius:8px;background:rgba(90,70,214,.1)"></span><span style="position:relative;font-size:13px;font-weight:600">Edge</span><span style="position:relative;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums">348</span></div>
+              <div style="position:relative;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:8px"><span style="position:absolute;left:0;top:0;bottom:0;width:10%;border-radius:8px;background:rgba(90,70,214,.1)"></span><span style="position:relative;font-size:13px;font-weight:600">Firefox</span><span style="position:relative;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums">156</span></div>
+            </div>
+          </div>
+        </div>
+
+        <p style="margin:0;font-size:12px;color:#6E7387">Showing Bakers&rsquo; Guild (bakersguild.ph). Numbers come from your own Umami instance through the server-side proxy, so no third party sees your visitors.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- =============================== TENANT SWITCHER =============================== -->
+  <div data-screen-label="Admin — Tenant switcher, open" style="display:flex;flex-direction:column;gap:14px">
+    <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#63687D">admin · tenant switcher, open</span>
+    <div style="width:900px;height:640px;background:#FAFAFC;border:1px solid #d4d4d8;border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08);display:flex;position:relative">
+
+      <aside style="width:248px;flex-shrink:0;padding:16px;display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;align-items:center;gap:10px;padding:0 4px">
+          <svg width="30" height="30" viewBox="0 0 128 128"><g transform="rotate(-32 64 64)"><ellipse cx="64" cy="64" rx="33" ry="50" fill="url(#sgBean)"></ellipse><ellipse cx="52" cy="44" rx="9" ry="17" fill="#C9C1F5" opacity="0.35"></ellipse><path d="M64 17 C 51 41, 77 55, 64 64 C 51 73, 77 87, 64 111" fill="none" stroke="#241C6B" stroke-width="6.5" stroke-linecap="round"></path></g></svg>
+          <span style="font-family:'Sora',sans-serif;font-size:15.5px;font-weight:600;letter-spacing:-.025em;flex:1">barako<span style="color:#5A46D6">Brew</span></span>
+        </div>
+        <div style="width:100%;height:40px;display:flex;align-items:center;gap:10px;padding:0 12px;border:1px solid #E7E8F1;background:#fff;border-radius:11px;font-size:13.5px;color:#63687D;box-shadow:0 1px 2px rgba(16,18,35,.05)">
+          <svg viewBox="0 0 32 32" style="width:14px;height:14px;fill:currentColor"><use href="#ic-search"></use></svg><span style="flex:1">Search or jump to</span><kbd style="font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;padding:3px 7px;border-radius:6px;background:#F2F3F9">⌘K</kbd>
+        </div>
+
+        <button type="button" style="width:100%;display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid #5A46D6;background:#fff;border-radius:11px;font-family:inherit;cursor:pointer;box-shadow:0 0 0 3px rgba(90,70,214,.14)">
+          <span style="width:28px;height:28px;border-radius:9px;background:#5A46D6;color:#fff;display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700">BG</span>
+          <span style="flex:1;text-align:left;min-width:0"><span style="display:block;font-size:13.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Bakers&rsquo; Guild</span><span style="display:block;font-size:11.5px;color:#63687D">3 tenants available</span></span>
+          <svg viewBox="0 0 32 32" style="width:12px;height:12px;fill:#5A46D6"><use href="#ic-chevron-down"></use></svg>
+        </button>
+
+        <div style="flex:1;min-height:0;display:flex;flex-direction:column;gap:3px;opacity:.4">
+          <span style="height:38px;display:flex;align-items:center;gap:11px;padding:0 12px;border-radius:11px;font-size:13.5px;font-weight:700;background:#fff;box-shadow:0 1px 2px rgba(16,18,35,.06)"><svg viewBox="0 0 32 32" style="width:16px;height:16px;fill:#5A46D6"><use href="#ic-dashboard"></use></svg>Overview</span>
+          <span style="height:38px;display:flex;align-items:center;gap:11px;padding:0 12px;border-radius:11px;font-size:13.5px;font-weight:500;color:#4A4E66"><svg viewBox="0 0 32 32" style="width:16px;height:16px;fill:#63687D"><use href="#ic-content"></use></svg>Entries</span>
+          <span style="height:38px;display:flex;align-items:center;gap:11px;padding:0 12px;border-radius:11px;font-size:13.5px;font-weight:500;color:#4A4E66"><svg viewBox="0 0 32 32" style="width:16px;height:16px;fill:#63687D"><use href="#ic-content-types"></use></svg>Content types</span>
+          <span style="height:38px;display:flex;align-items:center;gap:11px;padding:0 12px;border-radius:11px;font-size:13.5px;font-weight:500;color:#4A4E66"><svg viewBox="0 0 32 32" style="width:16px;height:16px;fill:#63687D"><use href="#ic-workflows"></use></svg>Workflows</span>
+        </div>
+      </aside>
+
+      <div style="flex:1;min-width:0;display:flex;flex-direction:column;background:#fff;margin:16px 16px 16px 0;border:1px solid #E7E8F1;border-radius:14px;overflow:hidden;opacity:.4">
+        <div style="height:60px;flex-shrink:0;display:flex;align-items:center;padding:0 24px;border-bottom:1px solid #E7E8F1">
+          <h1 style="margin:0;font-family:'Sora',sans-serif;font-size:18px;font-weight:600;letter-spacing:-.025em">Overview</h1>
+        </div>
+        <div style="padding:24px">
+          <h2 style="margin:0;font-family:'Sora',sans-serif;font-size:26px;font-weight:600;letter-spacing:-.03em">Good morning, Rosa</h2>
+        </div>
+      </div>
+
+      <!-- the open popover -->
+      <div style="position:absolute;left:16px;top:178px;width:330px;background:#fff;border:1px solid #E7E8F1;border-radius:14px;box-shadow:0 24px 56px -20px rgba(16,18,35,.32);overflow:hidden">
+        <div style="padding:12px 14px;border-bottom:1px solid #E7E8F1">
+          <div style="position:relative">
+            <svg viewBox="0 0 32 32" style="position:absolute;left:11px;top:50%;transform:translateY(-50%);width:13px;height:13px;fill:#63687D"><use href="#ic-search"></use></svg>
+            <input type="text" placeholder="Find a tenant" style="width:100%;height:34px;padding:0 11px 0 32px;border:1px solid #E7E8F1;border-radius:9px;font-family:inherit;font-size:13px;outline:none;color:#101223;background:#FAFAFC">
+          </div>
+        </div>
+
+        <div style="padding:8px">
+          <p style="margin:0;padding:4px 10px 6px;font-size:10.5px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#6E7387">Your tenants</p>
+
+          <a href="#" style="display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:10px;background:#EEEBFD">
+            <span style="width:30px;height:30px;flex-shrink:0;border-radius:9px;background:#5A46D6;color:#fff;display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700">BG</span>
+            <span style="flex:1;min-width:0"><span style="display:block;font-size:13.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Bakers&rsquo; Guild</span><span style="display:block;font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D">bakers-guild · Admin</span></span>
+            <svg viewBox="0 0 32 32" style="width:15px;height:15px;fill:#5A46D6;flex-shrink:0"><use href="#ic-check"></use></svg>
+          </a>
+
+          <a href="#" style="display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:10px" style-hover="background:#FAFAFC">
+            <span style="width:30px;height:30px;flex-shrink:0;border-radius:9px;background:#F2F3F9;color:#4A4E66;display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700">RC</span>
+            <span style="flex:1;min-width:0"><span style="display:block;font-size:13.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Roastery Co-op</span><span style="display:block;font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D">roastery-coop · Editor</span></span>
+          </a>
+
+          <a href="#" style="display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:10px" style-hover="background:#FAFAFC">
+            <span style="width:30px;height:30px;flex-shrink:0;border-radius:9px;background:#F2F3F9;color:#4A4E66;display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700">CB</span>
+            <span style="flex:1;min-width:0"><span style="display:block;font-size:13.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Cavite Bean Trade</span><span style="display:block;font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D">cavite-bean · Accountant</span></span>
+          </a>
+
+          <div style="height:1px;background:#F2F3F9;margin:8px 10px"></div>
+
+          <a href="#" style="display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:10px" style-hover="background:#FAFAFC">
+            <span style="width:30px;height:30px;flex-shrink:0;border-radius:9px;background:#F2F3F9;color:#4A4E66;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 32 32" style="width:15px;height:15px;fill:currentColor"><use href="#ic-server"></use></svg></span>
+            <span style="flex:1;min-width:0"><span style="display:block;font-size:13.5px;font-weight:700">Home</span><span style="display:block;font-family:'JetBrains Mono',monospace;font-size:11px;color:#63687D">default · platform scope</span></span>
+          </a>
+        </div>
+
+        <div style="padding:12px 14px;border-top:1px solid #E7E8F1;background:#FAFAFC">
+          <a href="#" style="display:flex;align-items:center;gap:9px;font-size:12.5px;font-weight:700;color:#5A46D6"><svg viewBox="0 0 32 32" style="width:13px;height:13px;fill:currentColor"><use href="#ic-plus"></use></svg>Create a tenant</a>
+          <p style="margin:9px 0 0;font-size:11.5px;line-height:1.55;color:#63687D">Switching re-issues your token for that tenant. Everything on screen reloads under it, and your role can differ per tenant.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div></x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  renderVals() {
+    // Braces inside JS string literals are never hole-parsed, which is the only
+    // reliable way to show barakoCMS's own {{variable}} syntax in a form field.
+    const open = '{' + '{';
+    const close = '}' + '}';
+    const v = (name) => open + name + close;
+    return {
+      emailSubject: 'New from the Guild: ' + v('title'),
+      emailBody: v('title') + ' is live at /' + v('slug') + '. Published ' + v('publishedAt') + ' by ' + v('lastModifiedBy') + '.',
+    };
+  }
+}
+</script>
+</body>
+</html>
