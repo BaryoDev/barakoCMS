@@ -278,6 +278,7 @@ public static class ServiceCollectionExtensions
         // this tenant?" check, so no endpoint can skip it by omission. See ITokenIssuer.
         services.AddScoped<barakoCMS.Infrastructure.Auth.ITokenIssuer, barakoCMS.Infrastructure.Auth.TokenIssuer>();
         services.AddScoped<ITokenRevocationService, TokenRevocationService>();
+        services.AddScoped<ISessionEpochService, SessionEpochService>();
         services.AddScoped<IPasswordPolicyValidator, PasswordPolicyValidator>();
         
         // Memory Cache for token revocation and permissions

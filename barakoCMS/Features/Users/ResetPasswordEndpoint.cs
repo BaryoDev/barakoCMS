@@ -56,7 +56,7 @@ internal class ResetPasswordEndpoint : Endpoint<ResetPasswordRequest>
         _session.Store(user);
 
         // Revoke the user's refresh tokens so existing sessions can't be refreshed after the reset.
-        await RevokeRefreshTokens.ForUserAsync(_session, user.Id, "Password reset by administrator", ct);
+        await RevokeRefreshTokens.ForUserAsync(_session, user.Id, "Password reset by administrator", ct, Resolve<barakoCMS.Infrastructure.Services.ISessionEpochService>());
 
         await _session.SaveChangesAsync(ct);
 

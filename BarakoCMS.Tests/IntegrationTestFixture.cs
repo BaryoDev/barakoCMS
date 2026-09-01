@@ -226,6 +226,13 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
 
         claims.Add(new System.Security.Claims.Claim("UserId", userId ?? Guid.NewGuid().ToString()));
 
+        // Matches what TokenIssuer mints. Without it the session epoch check has nothing to compare
+        // against and serves every request, so a test suite using this helper would report the
+        // control as working while it did nothing.
+        claims.Add(new System.Security.Claims.Claim(
+            System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Iat,
+            DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture)));
+
         if (additionalClaims != null)
         {
             foreach (var kvp in additionalClaims)

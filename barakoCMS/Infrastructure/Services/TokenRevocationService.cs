@@ -44,7 +44,11 @@ public class TokenRevocationService : ITokenRevocationService
         var ttl = expiry - DateTime.UtcNow;
         if (ttl > TimeSpan.Zero)
         {
-            _cache.Set(cacheKey, true, ttl);
+            _cache.Set(cacheKey, true, new MemoryCacheEntryOptions
+            {
+                AbsoluteExpirationRelativeToNow = ttl,
+                Size = 1,
+            });
         }
 
         _logger.LogInformation(
@@ -75,7 +79,11 @@ public class TokenRevocationService : ITokenRevocationService
             if (isRevoked)
             {
                 // Cache the result
-                _cache.Set(cacheKey, true, CacheDuration);
+                _cache.Set(cacheKey, true, new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = CacheDuration,
+                    Size = 1,
+                });
                 _logger.LogDebug("Token revocation database hit: {Jti}", jti);
             }
 
