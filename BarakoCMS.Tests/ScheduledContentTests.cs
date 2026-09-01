@@ -220,15 +220,16 @@ public class ScheduledContentTests
     /// An item whose publish time has passed is delivered once a sweep has run.
     /// </summary>
     /// <remarks>
-    /// The "before" check uses an unscheduled Draft rather than the scheduled one. ScheduledContentService
-    /// is registered as a hosted service, so a sweeper is running on a timer inside the test host and
-    /// can publish the scheduled item between the seed and the read. Asserting that the scheduled
-    /// item is absent before the manual sweep is therefore a race, and it failed the full suite while
-    /// passing every time in isolation.
+    /// The "before" check asserts on the scheduled item again, which is the stronger claim: that an
+    /// item due for publishing is still not delivered until something publishes it.
     ///
-    /// An unscheduled Draft is something no sweeper will ever touch, so it states the same invariant,
-    /// that delivery excludes Drafts, without depending on the timing of a background service. The
-    /// scheduled item is still what the second half asserts on, which is the part this test is for.
+    /// It was weakened to an unscheduled Draft for a while, because the hosted ScheduledContentService
+    /// ran on a timer inside the test host and could publish the scheduled item between the seed and
+    /// the read. That service is no longer registered in the fixture (#424), so the only sweep that
+    /// happens here is the one this test performs, and the assertion can say what it means again.
+    ///
+    /// The unscheduled Draft stays as a second assertion: a sweep publishes what was scheduled and
+    /// nothing else.
     /// </remarks>
     [Fact]
     public async Task ScheduledItem_AppearsInPublicDeliveryOnceDue()
@@ -240,6 +241,7 @@ public class ScheduledContentTests
 
         var anon = _factory.CreateClient();
         var before = await anon.GetStringAsync($"/api/public/{type}");
+        before.Should().NotContain("goes-live", "a due item is not delivered until a sweep publishes it");
         before.Should().NotContain("stays-draft", "a Draft is not delivered");
 
         using (var s = NewSession()) await ScheduledContentService.SweepTenantAsync(s, DateTime.UtcNow, default);
