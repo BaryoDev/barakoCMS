@@ -53,7 +53,7 @@ public class EventSurfaceTests
     /// and taking the second argument is the response in every case. Reading the argument by
     /// position off whatever generic base appears first would take TRequest from Endpoint&lt;TRequest&gt;.
     /// </remarks>
-    private static Type? DeclaredResponseType(Type endpoint)
+    internal static Type? DeclaredResponseType(Type endpoint)
     {
         for (var t = endpoint.BaseType; t is not null; t = t.BaseType)
         {
@@ -67,7 +67,7 @@ public class EventSurfaceTests
         return null;
     }
 
-    private sealed record Walk(List<string> Leaks, HashSet<Type> Examined);
+    internal sealed record Walk(List<string> Leaks, HashSet<Type> Examined);
 
     /// <summary>
     /// Follows everything that can put a type on the wire: property types, constructor parameters,
@@ -75,7 +75,7 @@ public class EventSurfaceTests
     /// or a List&lt;ContentCreated&gt; is the same leak one level down, and a positional record puts
     /// its payload in a constructor parameter before it is ever a property.
     /// </summary>
-    private static Walk Reachable(IEnumerable<Type> roots)
+    internal static Walk Reachable(IEnumerable<Type> roots)
     {
         var walk = new Walk([], []);
 
