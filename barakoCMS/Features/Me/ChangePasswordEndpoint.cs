@@ -94,7 +94,7 @@ internal class ChangePasswordEndpoint : Endpoint<ChangePasswordRequest, ChangePa
 
         // Revoke the user's refresh tokens so a token stolen before the change can't be refreshed
         // afterwards. (Outstanding short-lived access tokens still expire on their own.)
-        await RevokeRefreshTokens.ForUserAsync(_session, user.Id, "Password changed", ct);
+        await RevokeRefreshTokens.ForUserAsync(_session, user.Id, "Password changed", ct, Resolve<barakoCMS.Infrastructure.Services.ISessionEpochService>());
 
         await _session.SaveChangesAsync(ct);
 
