@@ -29,6 +29,9 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         Environment.SetEnvironmentVariable("JWT__Key", "test-super-secret-key-that-is-at-least-32-chars-long");
     }
 
+    /// <summary>The API key this host is configured with, standing in for a deployment's own.</summary>
+    public const string ConfiguredResendKey = "re_from_the_deployment_not_the_admin";
+
     public string ConnectionString => _postgresContainer.GetConnectionString().Replace("localhost", "127.0.0.1").Replace("Host=", "Server=") + ";Pooling=false";
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -46,6 +49,10 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
                 // rather than relying on ASPNETCORE_ENVIRONMENT, which is process-global and set by
                 // whichever factory happened to construct last.
                 { "Swagger:Enabled", "true" },
+                // Seeded the way a deployment with no database row yet seeds it, so the precedence
+                // tests have a configured value for a stored one to beat, and a value to fall back
+                // to when the stored one is cleared.
+                { "Resend:ApiKey", ConfiguredResendKey },
                 { "Feeds:SiteUrl", "https://test.example.com" },
                 { "Feeds:Paths:sitemap_paths", "/articles/{slug}" },
             });
