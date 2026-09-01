@@ -161,10 +161,15 @@ test('a content status crosses the wire as a name, not a number', async ({ reque
     const body = await response.json();
     expect(body, 'the collection envelope is items plus totals').toHaveProperty('items');
 
-    if (body.items.length > 0) {
-        expect(typeof body.items[0].status).toBe('string');
-        expect(['Draft', 'Published', 'Archived']).toContain(body.items[0].status);
-    }
+    // Asserted, not guarded. scripts/smoke-check.sh seeds an entry and refuses to continue if the
+    // API does not report it, so an empty array here means the list endpoint broke rather than that
+    // there is nothing to check. An `if (length > 0)` around the two assertions below would make
+    // this test pass in exactly the case it exists to catch.
+    expect(Array.isArray(body.items), 'items must be an array').toBe(true);
+    expect(body.items.length, 'the seeded entry must be in the list').toBeGreaterThan(0);
+
+    expect(typeof body.items[0].status).toBe('string');
+    expect(['Draft', 'Published', 'Archived']).toContain(body.items[0].status);
 });
 
 /**
