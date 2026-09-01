@@ -7,6 +7,7 @@ import type {
     CreateContentRequest,
     UpdateContentRequest,
     ContentStatus,
+    ScheduleContentRequest,
 } from '@/types/content';
 
 export function useContents(params: PageParams & { contentType?: string } = {}) {
@@ -66,6 +67,24 @@ export function useUpdateContent() {
             const response = await api.put<{ id: string; version: number }>(`/api/contents/${id}`, {
                 id,
                 ...data,
+            });
+            return response.data;
+        },
+        onSuccess: (_data, { id }) => {
+            queryClient.invalidateQueries({ queryKey: ['contents'] });
+            queryClient.invalidateQueries({ queryKey: ['contents', 'detail', id] });
+        },
+    });
+}
+
+export function useScheduleContent() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async ({ id, schedule }: { id: string; schedule: ScheduleContentRequest }) => {
+            const response = await api.put<{ id: string }>(`/api/contents/${id}/schedule`, {
+                id,
+                ...schedule,
             });
             return response.data;
         },

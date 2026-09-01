@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Xunit;
 using FluentAssertions;
 using System.Net;
@@ -297,4 +298,59 @@ public class ScheduledContentTests
             });
         bad.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
+
+    /// <summary>
+    /// What is armed can be read back.
+    /// </summary>
+    /// <remarks>
+    /// The schedule endpoint had no way to answer "when is this going out", so the only way to know
+    /// an arming took was to wait and see whether it happened. The admin needs it to show anything
+    /// at all, and adding a field to a response is not a breaking change, so it can go in a major or
+    /// out of one.
+    ///
+    /// The zone is asserted because the document stores DateTime and the response is
+    /// DateTimeOffset. An implicit conversion reads an Unspecified Kind as local time, which is the
+    /// silent-by-the-server's-offset failure that DateWireFormatTests exists for. That sweep walks
+    /// this endpoint too, but only sees fields that are populated, and nothing else populates these.
+    /// </remarks>
+    [Fact]
+    public async Task GetContent_ReportsWhatIsScheduled_WithAZone()
+    {
+        var (token, _) = await TestHelpers.CreateAdminUserAsync(_factory);
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var createRes = await client.PostAsJsonAsync("/api/contents", new CreateContentRequest
+        {
+            ContentType = "Article",
+            Data = new Dictionary<string, object> { { "Title", "Readable schedule" } },
+        });
+        createRes.IsSuccessStatusCode.Should().BeTrue();
+        var contentId = (await createRes.Content.ReadFromJsonAsync<CreateContentResponse>())!.Id;
+
+        var before = await client.GetFromJsonAsync<JsonElement>($"/api/contents/{contentId}");
+        before.GetProperty("scheduledPublishAt").ValueKind.Should().Be(JsonValueKind.Null,
+            "nothing is armed on a new entry, and null says so more clearly than an absent key");
+
+        var publishAt = new DateTime(2027, 3, 4, 5, 6, 7, DateTimeKind.Utc);
+        var arm = await client.PutAsJsonAsync($"/api/contents/{contentId}/schedule",
+            new barakoCMS.Features.Content.Schedule.Request
+            {
+                Id = contentId, ScheduledPublishAt = publishAt,
+            });
+        arm.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var after = await client.GetFromJsonAsync<JsonElement>($"/api/contents/{contentId}");
+        var raw = after.GetProperty("scheduledPublishAt").GetString();
+
+        raw.Should().NotBeNull();
+        DateTimeOffset.Parse(raw!, System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.RoundtripKind)
+            .Should().Be(new DateTimeOffset(publishAt),
+                "the instant that comes back is the instant that was armed, wherever the server is");
+
+        after.GetProperty("scheduledUnpublishAt").ValueKind.Should().Be(JsonValueKind.Null,
+            "arming one time does not arm the other");
+    }
+
 }
