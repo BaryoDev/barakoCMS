@@ -60,9 +60,7 @@ internal class Endpoint : Endpoint<Request, Response>
             return;
         }
 
-        // PERMISSION CHECK
-        // Treating status change as an "Update" action.
-        if (user == null || !await _permissionResolver.CanPerformActionAsync(user, content.ContentType, "update", content, ct))
+        if (user == null)
         {
             await Send.ForbiddenAsync(ct);
             return;
@@ -75,6 +73,16 @@ internal class Endpoint : Endpoint<Request, Response>
             .FirstOrDefaultAsync(d => d.Name == content.ContentType, ct);
         var lifecycle = definition?.Lifecycle;
 
+        // The permission check is deliberately not shared between the two paths.
+        //
+        // A status change is an edit, so it checks Update, which is what it has always done. A
+        // transition is not: the whole point of #341 is that a manager approves an amount they may
+        // not edit, so requiring Update as well would make the interesting half of separation of
+        // duties unreachable. Checking both would have looked more careful and been strictly worse.
+        //
+        // The transition check lives further in, because which permission applies depends on which
+        // transition was named and that is only known once the request has been matched against the
+        // lifecycle.
         if (lifecycle is not null)
         {
             await HandleTransitionAsync(req, content, lifecycle, user, userId, ct);
@@ -84,6 +92,13 @@ internal class Endpoint : Endpoint<Request, Response>
         if (req.Transition is not null)
         {
             ThrowError($"Content type '{content.ContentType}' declares no lifecycle, so it takes NewStatus rather than a transition.", 400);
+        }
+
+        // A status change is an edit of the entry, so it is governed by Update, unchanged.
+        if (!await _permissionResolver.CanPerformActionAsync(user, content.ContentType, "update", content, ct))
+        {
+            await Send.ForbiddenAsync(ct);
+            return;
         }
 
         var newStatus = req.NewStatus!.Value;
@@ -207,6 +222,38 @@ internal class Endpoint : Endpoint<Request, Response>
             _logger.LogWarning(
                 "Lifecycle:EnforceTransitions is off and permitted an out-of-order transition on {ContentId}: {Message}",
                 content.Id, message);
+        }
+
+        // Checked here rather than at the top with the CRUD check, because which permission applies
+        // depends on which transition was named, and that is only known once the request has been
+        // matched against the lifecycle.
+        //
+        // A transition permission is not implied by Update. Falling back to the Update rule is the
+        // obvious way to keep existing configurations working and it is the defect this exists to
+        // fix: it grants approval to everyone who can edit. Undeclared means refused.
+        var transitionAction = barakoCMS.Infrastructure.Services.PermissionResolver.TransitionActionPrefix + transition.Name;
+        if (!await _permissionResolver.CanPerformActionAsync(user, content.ContentType, transitionAction, content, ct))
+        {
+            await Send.ForbiddenAsync(ct);
+            return;
+        }
+
+        // Whether the person who raised a record may move it on is a policy, not a bug, and
+        // organisations answer it differently. Refused by default because that is the direction that
+        // can be relaxed later: granting it and tightening afterwards takes away something people
+        // were relying on, and an approval that should not have happened cannot be undone.
+        //
+        // CreatedBy is what this reads, not LastModifiedBy, which moves to whoever edited last and
+        // would make the check mean nothing after any edit.
+        if (content.CreatedBy == userId
+            && !_configuration.GetValue($"Lifecycle:AllowSelfTransition:{transition.Name}", false))
+        {
+            _logger.LogInformation(
+                "Refused a self transition of {ContentId} by its creator. Set Lifecycle:AllowSelfTransition:{Transition} to allow it.",
+                content.Id, transition.Name);
+
+            await Send.ForbiddenAsync(ct);
+            return;
         }
 
         var transitioned = new barakoCMS.Events.ContentTransitioned(

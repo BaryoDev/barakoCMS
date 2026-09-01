@@ -39,6 +39,16 @@ public class ContentLifecycleTests
         ],
     };
 
+    /// <summary>
+    /// A second administrator, for performing a transition on somebody else's entry.
+    /// </summary>
+    /// <remarks>
+    /// Separation of duties applies to everyone, SuperAdmin included, which is the point of it. So
+    /// the creator of an entry cannot move it on by default and these tests need two people, which is
+    /// also what the real flow looks like: a clerk raises an invoice and a manager approves it.
+    /// </remarks>
+    private Task<HttpClient> ApproverAsync() => AdminAsync();
+
     private async Task<HttpClient> AdminAsync()
     {
         using var scope = _factory.Services.CreateScope();
@@ -157,8 +167,9 @@ public class ContentLifecycleTests
         var client = await AdminAsync();
         var type = await TypeAsync(client, InvoiceLifecycle());
         var id = await EntryAsync(client, type);
+        var approver = await ApproverAsync();
 
-        var res = await client.PutAsJsonAsync($"/api/contents/{id}/status", new { id, transition = "Submit" });
+        var res = await approver.PutAsJsonAsync($"/api/contents/{id}/status", new { id, transition = "Submit" });
 
         res.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", res.StatusCode, await res.Content.ReadAsStringAsync());
         (await LoadAsync(id)).LifecycleState.Should().Be("Submitted");
@@ -178,14 +189,16 @@ public class ContentLifecycleTests
         var type = await TypeAsync(client, InvoiceLifecycle());
         var id = await EntryAsync(client, type);
 
+        var approver = await ApproverAsync();
+
         // Draft, and Approve moves Submitted to Approved.
-        var refused = await client.PutAsJsonAsync($"/api/contents/{id}/status", new { id, transition = "Approve" });
+        var refused = await approver.PutAsJsonAsync($"/api/contents/{id}/status", new { id, transition = "Approve" });
 
         refused.StatusCode.Should().Be(HttpStatusCode.Conflict,
             "Paid does not go back to Draft, and Draft does not jump to Approved");
         (await LoadAsync(id)).LifecycleState.Should().Be("Draft", "a refused transition changes nothing");
 
-        var allowed = await client.PutAsJsonAsync($"/api/contents/{id}/status", new { id, transition = "Submit" });
+        var allowed = await approver.PutAsJsonAsync($"/api/contents/{id}/status", new { id, transition = "Submit" });
         allowed.IsSuccessStatusCode.Should().BeTrue("the declared move from Draft still works");
     }
 
@@ -233,9 +246,10 @@ public class ContentLifecycleTests
         var id = await EntryAsync(client, type);
 
         var before = (await LoadAsync(id)).Status;
+        var approver = await ApproverAsync();
 
-        await client.PutAsJsonAsync($"/api/contents/{id}/status", new { id, transition = "Submit" });
-        await client.PutAsJsonAsync($"/api/contents/{id}/status", new { id, transition = "Approve" });
+        await approver.PutAsJsonAsync($"/api/contents/{id}/status", new { id, transition = "Submit" });
+        await approver.PutAsJsonAsync($"/api/contents/{id}/status", new { id, transition = "Approve" });
 
         var after = await LoadAsync(id);
         after.LifecycleState.Should().Be("Approved");
@@ -249,8 +263,9 @@ public class ContentLifecycleTests
         var client = await AdminAsync();
         var type = await TypeAsync(client, InvoiceLifecycle());
         var id = await EntryAsync(client, type);
+        var approver = await ApproverAsync();
 
-        await client.PutAsJsonAsync($"/api/contents/{id}/status", new { id, transition = "Submit" });
+        await approver.PutAsJsonAsync($"/api/contents/{id}/status", new { id, transition = "Submit" });
 
         var res = await client.GetAsync($"/api/contents/{id}/history");
         res.IsSuccessStatusCode.Should().BeTrue();

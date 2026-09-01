@@ -29,4 +29,22 @@ public class ContentTypePermission
     /// DELETE permission rule
     /// </summary>
     public PermissionRule Delete { get; set; } = new();
+
+    /// <summary>
+    /// Permission per named transition, for a content type that declares its own lifecycle.
+    /// Keyed by transition name, case-insensitively.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <see cref="Update"/>, and deliberately not implied by it. Whoever may edit an
+    /// invoice was also whoever could approve it, so separation of duties could not be expressed at
+    /// all, and it is the first thing an auditor asks about.
+    ///
+    /// They are genuinely different questions. A clerk edits and may not approve. A manager approves
+    /// and may not edit the amount being approved. Neither is reachable from CRUD.
+    ///
+    /// **Undeclared means refused.** The tempting shortcut is to let an ungoverned transition fall
+    /// back to Update so existing configurations keep working, and it would silently grant approval
+    /// to everyone who can edit, which is the defect being fixed rather than a migration path.
+    /// </remarks>
+    public Dictionary<string, PermissionRule> Transitions { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
