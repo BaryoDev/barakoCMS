@@ -280,6 +280,47 @@ public class ConnectorTests
         act.Should().NotThrow("an absent key means connectors are off, not that the deployment is broken");
     }
 
+    /// <summary>
+    /// Two tenants can each hold a connector with the same slug.
+    /// </summary>
+    /// <remarks>
+    /// The unique index on the slug has to be scoped per tenant. Marten does not infer that from the
+    /// document being multi-tenanted: without `TenancyScope.PerTenant` the index is global, and the
+    /// first tenant to name a connector "company-jira" stops every other tenant using that name,
+    /// with a 409 that says the slug is taken by something they cannot see.
+    ///
+    /// Written against the store rather than over HTTP, because it is the index that is under test
+    /// and a request only reaches one tenant at a time.
+    /// </remarks>
+    [Fact]
+    public async Task Two_tenants_can_hold_the_same_connector_slug()
+    {
+        var slug = NewSlug();
+        var store = _factory.Services.GetRequiredService<IDocumentStore>();
+
+        foreach (var tenant in new[] { "conn-tenancy-a", "conn-tenancy-b" })
+        {
+            await using var session = store.LightweightSession(tenant);
+            session.Store(new Connector
+            {
+                Id = Guid.NewGuid(),
+                Name = "Company Jira",
+                Slug = slug,
+                BaseUrl = "https://example.com",
+                Auth = ConnectorAuth.None,
+            });
+
+            // The second SaveChanges is the assertion. A global unique index throws here, and the
+            // message names a constraint rather than anything about tenants.
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        await using var check = store.QuerySession("conn-tenancy-b");
+        var mine = await check.Query<Connector>().CountAsync(c => c.Slug == slug, TestContext.Current.CancellationToken);
+
+        mine.Should().Be(1, "each tenant sees its own, and neither blocked the other");
+    }
+
     private HttpClient AdminClient()
     {
         var client = _factory.CreateClient();

@@ -398,7 +398,14 @@ public static class ServiceCollectionExtensions
             options.Schema.For<Connector>()
                 .MultiTenanted()
                 .DocumentAlias("connectors")
-                .Index(x => x.Slug, idx => idx.IsUnique = true);
+                .Index(x => x.Slug, idx =>
+                {
+                    idx.IsUnique = true;
+                    // PerTenant, or the index is global and the first tenant to take "company-jira"
+                    // stops every other tenant using that name. Marten does not infer this from the
+                    // document being multi-tenanted, which is why ContentTypeDefinition says it too.
+                    idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
+                });
 
             options.Schema.For<ConnectorSecret>()
                 .MultiTenanted()

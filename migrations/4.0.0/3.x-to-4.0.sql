@@ -224,11 +224,16 @@ CREATE TABLE IF NOT EXISTS public.mt_doc_connectors (
     mt_version          uuid                        NOT NULL DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
     mt_dotnet_type      varchar                     NULL,
     tenant_id           varchar                     NOT NULL DEFAULT '*DEFAULT*',
-    CONSTRAINT pkey_mt_doc_connectors_id PRIMARY KEY (tenant_id, id)
+    -- Named for the columns it covers, which is what Marten generates for a conjoined document.
+    -- pkey_mt_doc_connectors_id would be a schema difference and db-assert refuses the deployment.
+    CONSTRAINT pkey_mt_doc_connectors_tenant_id_id PRIMARY KEY (tenant_id, id)
 );
 
+-- Per tenant, so one tenant taking "company-jira" does not stop another using it. tenant_id is the
+-- second column of the index, which is what TenancyScope.PerTenant generates and what
+-- mt_doc_contenttypedefinition_uidx_name above already does.
 CREATE UNIQUE INDEX IF NOT EXISTS mt_doc_connectors_uidx_slug
-    ON public.mt_doc_connectors USING btree (((data ->> 'Slug')), tenant_id);
+    ON public.mt_doc_connectors USING btree ((data ->> 'Slug'), tenant_id);
 
 CREATE TABLE IF NOT EXISTS public.mt_doc_connector_secrets (
     id                  uuid                        NOT NULL,
@@ -237,11 +242,13 @@ CREATE TABLE IF NOT EXISTS public.mt_doc_connector_secrets (
     mt_version          uuid                        NOT NULL DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
     mt_dotnet_type      varchar                     NULL,
     tenant_id           varchar                     NOT NULL DEFAULT '*DEFAULT*',
-    CONSTRAINT pkey_mt_doc_connector_secrets_id PRIMARY KEY (tenant_id, id)
+    CONSTRAINT pkey_mt_doc_connector_secrets_tenant_id_id PRIMARY KEY (tenant_id, id)
 );
 
+-- Cast to uuid, not left as text. Marten indexes the typed value and a text index is a difference
+-- db-assert reports.
 CREATE INDEX IF NOT EXISTS mt_doc_connector_secrets_idx_connector_id
-    ON public.mt_doc_connector_secrets USING btree (((data ->> 'ConnectorId')));
+    ON public.mt_doc_connector_secrets USING btree ((CAST(data ->> 'ConnectorId' as uuid)));
 
 CREATE TABLE IF NOT EXISTS public.mt_doc_email_settings (
     id                  uuid                        NOT NULL,
