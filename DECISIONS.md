@@ -103,7 +103,7 @@ is documented as the direction of travel rather than presented as an inconsisten
 
 ## D4. The event stream is internal, and nothing may leak it through the API
 
-**Decided:** 22 Aug 2026. **Issue:** #229. **Status:** accepted, guard test not yet written.
+**Decided:** 22 Aug 2026. **Issue:** #229. **Status:** accepted, enforced by `EventSurfaceTests`.
 
 History is exposed only as a projected, versioned view. No API response carries an event type name
 or an event payload.
@@ -123,6 +123,18 @@ edit, someone adds `EventType`, and the cost is invisible for a year.
 
 So the decision is not "do not expose it". It is "do not expose it, and make that mechanical", via a
 test that fails when a response model references `barakoCMS.Events.*`.
+
+`EventSurfaceTests` is that test. It reads the response types off the endpoints themselves, by
+walking each endpoint's base chain to the `Endpoint<TRequest, TResponse>` it collapses to, so a
+response added next year is covered without anyone remembering to list it. From each response it
+follows property types, constructor parameters, public fields, array elements and generic arguments,
+because a `List<ContentCreated>` or a `Dictionary<string, ContentUpdated>` is the same leak one level
+down and a positional record carries its payload in a constructor parameter before it is ever a
+property.
+
+It carries its own controls: that the query found the real response surface rather than an empty set,
+and that the walk does report a leak when one is planted. A reflection guard with a typo finds
+nothing and passes, which is a failure this project has shipped before.
 
 ---
 
