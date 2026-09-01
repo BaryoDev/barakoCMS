@@ -155,7 +155,14 @@ export default function ContentDetailPage({ params }: { params: Promise<{ id: st
         </TabsContent>
 
         <TabsContent value="schedule" className="mt-4">
-          <SchedulePanel content={content} />
+          <SchedulePanel
+            // Keyed by the armed times, so saving and refetching remounts the panel with the
+            // server's answer. useState initialisers run once, and without this the inputs keep
+            // their pre-save values while the summary above them shows the new ones. The endpoint
+            // replaces both times, so editing one and saving would then send the stale other back.
+            key={`${content.scheduledPublishAt ?? ''}|${content.scheduledUnpublishAt ?? ''}`}
+            content={content}
+          />
         </TabsContent>
 
         <TabsContent value="history" className="mt-4">

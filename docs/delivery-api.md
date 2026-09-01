@@ -19,8 +19,10 @@ Responses carry `Cache-Control: public, max-age=60`. The one exception is a slug
 valid `?preview=` token, which is `no-store` because it can return an unpublished entry.
 
 **Preview tokens are minted through the API, not the admin.** `POST /api/preview` returns a token
-bound to a tenant, a content type and a slug. There is no button for it in barakoCMS itself, so a
-front end that wants preview links calls that endpoint from its own code. Deferred deliberately
+bound to a tenant, a content type and a slug. It is authenticated, and the caller also needs `read`
+on the entry being previewed, so minting a token is not a way around the permissions that guard
+reading it normally. There is no button for it in barakoCMS itself, so a front end that wants preview
+links calls that endpoint from its own code with a token that satisfies both. Deferred deliberately
 rather than overlooked (#306), and recorded here so nobody goes looking for a screen that does not
 exist.
 

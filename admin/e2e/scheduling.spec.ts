@@ -126,3 +126,41 @@ test('clearing sends nulls rather than omitting the fields', async ({ page }) =>
     expect(body!.scheduledPublishAt).toBeNull();
     expect(body!.scheduledUnpublishAt).toBeNull();
 });
+
+/**
+ * After a save, the inputs show what the server now holds.
+ *
+ * `useState` initialisers run once. Without a reset the summary above the form updated from the
+ * refetched entry while the inputs kept their pre-save values, so the two halves of the same panel
+ * disagreed. The endpoint replaces both times, so editing one afterwards would send the stale other
+ * back and silently unarm it.
+ */
+test('the inputs pick up the server answer after saving', async ({ page }) => {
+    let detail = contentDetail();
+
+    await authed(page);
+    await stubShell(page);
+    await stubContentTypes(page, [
+        { name: 'article', displayName: 'Article', fields: [{ name: 'Title', type: 'string' }] },
+    ]);
+    await page.route('**/api/contents**', (r) => r.fulfill({ json: pageOf([detail]) }));
+    await page.route(`**/api/contents/${CONTENT_ID}`, (r) => r.fulfill({ json: detail }));
+    await page.route(`**/api/contents/${CONTENT_ID}/history**`, (r) => r.fulfill({ json: pageOf([]) }));
+
+    // The server arms a different time than the one typed, so the assertion cannot pass by the
+    // input simply keeping what was entered.
+    await page.route(`**/api/contents/${CONTENT_ID}/schedule`, (route) => {
+        detail = contentDetail({ scheduledUnpublishAt: '2028-09-09T09:09:00Z' });
+        return route.fulfill({ json: { id: CONTENT_ID } });
+    });
+
+    await page.goto(`/content/${CONTENT_ID}`);
+    await page.getByRole('tab', { name: 'Schedule' }).click();
+
+    await page.getByLabel('Publish at').fill('2027-03-04T05:06');
+    await page.getByRole('button', { name: 'Save schedule' }).click();
+
+    await expect(page.getByTestId('schedule-armed')).toContainText('Archiving');
+    await expect(page.getByLabel('Archive at')).not.toHaveValue('');
+    await expect(page.getByLabel('Publish at')).toHaveValue('');
+});
