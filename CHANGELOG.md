@@ -249,16 +249,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **A test refuses to let an event type reach an API response.** The event stream is internal and
-  history goes out as a projected, versioned view, and until now that held by luck: the history
-  endpoint projects to a DTO because whoever wrote it projected out of ordinary API hygiene. The
-  moment one response carries an event type the record's shape is public API and reshaping it behind
-  an upcaster is a wire break. `EventSurfaceTests` takes the response types off the endpoints
-  themselves rather than from a list, so a response added later is covered, and follows property
-  types, constructor parameters, public fields, array elements and generic arguments, because a
-  `List<ContentCreated>` is the same leak one level down. It found no existing violation. The rule is
-  DECISIONS.md D4.
-
 - **CI runs the admin against the real API, with nothing mocked.** Every other admin job mocks the
   API with `page.route`, so it proves the admin behaves correctly given fixtures the same person
   wrote and cannot prove those fixtures match the server. `scripts/smoke-check.sh` stands up
