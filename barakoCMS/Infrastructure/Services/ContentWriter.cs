@@ -112,7 +112,8 @@ public sealed class ContentWriter : IContentWriter
     private static void AssertHasProjection(object @event)
     {
         if (@event is ContentCreated or ContentUpdated or ContentStatusChanged
-            or ContentScheduled or ContentSensitivityChanged or ContentTransitioned)
+            or ContentScheduled or ContentSensitivityChanged or ContentTransitioned
+            or ContentFieldSensitivityChanged)
         {
             return;
         }
@@ -158,6 +159,9 @@ public sealed class ContentWriter : IContentWriter
                 break;
             case ContentSensitivityChanged sensitivityChanged:
                 content.Apply(sensitivityChanged, occurredAt);
+                break;
+            case ContentFieldSensitivityChanged fieldSensitivityChanged:
+                content.Apply(fieldSensitivityChanged, occurredAt);
                 break;
             default:
                 throw new InvalidOperationException(

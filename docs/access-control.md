@@ -146,6 +146,56 @@ out of its own reads (#371).
 **Still open:** the admin UI has no per-field sensitivity controls, so a
 content type's field sensitivity is set through the API.
 
+## Update (2026-09-01): changing a field's sensitivity after the fact
+
+`PUT /api/content-types/{name}/fields/{field}/sensitivity`, admin only. Until
+this there was no update path on a content type at all, so the level a field was
+created with was the level it kept.
+
+It is deliberately not a general content-type update. Field names, field types
+and a reference target are load-bearing once entries exist, and changing those
+is a separate decision (#163).
+
+The two directions are not the same operation.
+
+**Raising** (Public towards Hidden) stops the value being served, and that is
+all it does. The value is still in the entry's JSONB data, in every backup and
+in the event stream. Nothing here erases it, and a document saying otherwise
+would be wrong. Erasure is `DELETE /api/contents/{id}/erase`.
+
+Raising is not finished when the definition changes, though. Anonymous search
+matches against `Content.SearchText`, a column derived from whichever fields
+were Public the last time each entry was written, so updating the definition and
+stopping there would change what is *returned* and not what is *matched*: a
+caller could still search for a value they may no longer read and learn which
+entries contain it, one guess at a time. The endpoint rebuilds the search text
+for every existing entry of the type, before the definition changes, and it does
+so through an event (`ContentFieldSensitivityChanged`) so a later projection
+rebuild cannot replay the old text back over it.
+
+**Lowering** is a disclosure. Every value written while the field was masked
+becomes readable to everyone who can read the type, retroactively, and to
+anonymous callers as well when the type is publicly deliverable. It is allowed,
+because refusing it would make raising a one-way door and a field marked
+Sensitive by mistake would need direct database access to recover. It is allowed
+only when the request sets `acknowledgeDisclosure`; the refusal names how many
+existing entries the decision covers. It is recorded as
+`contenttype.field.sensitivity.lowered` in the audit log, an action of its own so
+it can be alerted on without reading the metadata of every change. Everything
+else is `contenttype.field.sensitivity.changed`.
+
+`VisibleToRoles` and `Mask` are replaced with the level rather than carried over
+from the level being left behind, and a Public target clears both. A Public field
+listing the roles that may see it reads as a restriction that is not there, and
+leaving the list in place would silently reinstate a stale allowlist the next
+time somebody raised the level.
+
+The rebuild is synchronous and proportional to the number of entries of the
+type. A background rebuild would answer 200 while the value was still matchable
+anonymously, with nothing to tell the caller when it stopped being.
+
+Still no admin UI for it: the endpoint is called directly.
+
 ## Tested (2026-07-16): the bug this replaced
 
 Ran as real HTTP integration tests (Testcontainers Postgres, role tokens,
