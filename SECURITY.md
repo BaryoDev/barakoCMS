@@ -77,6 +77,10 @@ When deploying BarakoCMS:
   when unset, which couples two controls to one secret. Note it is an **encryption** key, not a
   signing key: rotating it makes existing MFA secrets undecryptable and locks out enrolled users,
   so treat rotation as a migration.
+- Set a dedicated `Secrets:Key`. It encrypts credentials an operator entered in the admin, the email
+  provider API key today, and falls back to the JWT signing key when unset. The same warning applies
+  as for `Mfa:Key`: rotating it makes stored credentials undecryptable, and the recovery is somebody
+  typing them in again. They are separate keys so rotating one does not retire the other.
 - Enable MFA on admin accounts. Every sign-in path (password, email code, social) honors it.
 
 ## Known advisories we accept
