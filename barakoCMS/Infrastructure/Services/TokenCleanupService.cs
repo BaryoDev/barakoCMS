@@ -5,7 +5,8 @@ namespace barakoCMS.Infrastructure.Services;
 
 /// <summary>
 /// Background service that periodically cleans up expired tokens.
-/// Removes expired RefreshTokens, RevokedTokens, OtpCodes and old IdempotencyRecords to prevent
+/// Removes expired RefreshTokens, RevokedTokens, OtpCodes, unconfirmed PendingRegistrations and old
+/// IdempotencyRecords to prevent
 /// unbounded database growth.
 /// </summary>
 public class TokenCleanupService : BackgroundService
@@ -75,8 +76,13 @@ public class TokenCleanupService : BackgroundService
         // index is already registered, so this pass costs an indexed delete.
         session.DeleteWhere<OtpCode>(o => o.ExpiresAt < now);
 
+        // Same shape, same reason. A pending registration nobody confirmed is dead weight, and it
+        // holds a username, an address and a password hash, so keeping it after the token stopped
+        // working is data retained for no purpose.
+        session.DeleteWhere<PendingRegistration>(p => p.ExpiresAt < now);
+
         await session.SaveChangesAsync(ct);
 
-        _logger.LogInformation("Token cleanup swept expired refresh tokens, revoked tokens, OTP codes and idempotency records older than {Cutoff}", idempotencyCutoff);
+        _logger.LogInformation("Token cleanup swept expired refresh tokens, revoked tokens, OTP codes, unconfirmed registrations and idempotency records older than {Cutoff}", idempotencyCutoff);
     }
 }

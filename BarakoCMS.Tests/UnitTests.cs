@@ -48,7 +48,17 @@ public class UnitTests
     }
 
     [Fact]
-    public async Task Register_Should_Fail_When_User_Exists()
+    /// <summary>
+    /// Registering a username and address that already exist creates nothing, and says nothing.
+    /// </summary>
+    /// <remarks>
+    /// This used to assert the opposite half: that the endpoint failed validation with "Username or
+    /// Email already exists". That message was an enumeration oracle on an anonymous endpoint (#268),
+    /// so what is worth pinning is that the duplicate is not stored while the caller is told nothing.
+    /// Driven with verification off, because that is the branch that reads the repository; the
+    /// verified path queries Marten directly and is covered end to end in EmailVerificationTests.
+    /// </remarks>
+    public async Task Register_Should_Not_Disclose_That_The_User_Exists()
     {
         // Arrange
         var repo = Substitute.For<IUserRepository>();
@@ -58,7 +68,16 @@ public class UnitTests
         repo.GetByUsernameOrEmailAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new User { Username = "existinguser" });
 
-        var endpoint = Factory.Create<barakoCMS.Features.Auth.Register.Endpoint>(repo, session, passwordValidator);
+        var endpoint = Factory.Create<barakoCMS.Features.Auth.Register.Endpoint>(
+            repo,
+            session,
+            passwordValidator,
+            Substitute.For<barakoCMS.Core.Interfaces.IEmailVerificationService>(),
+            new barakoCMS.Infrastructure.Auth.EmailVerificationOptions
+            {
+                Required = false,
+                AcknowledgeUnverifiedRegistration = true,
+            });
         var req = new barakoCMS.Features.Auth.Register.Request
         {
             Username = "existinguser",
@@ -71,10 +90,11 @@ public class UnitTests
         {
             await endpoint.HandleAsync(req, CancellationToken.None);
         }
-        catch (ValidationFailureException) { }
+        catch (ValidationFailureException) { throw; }
+        catch { /* Send.ResponseAsync has no HttpContext under Factory.Create */ }
 
         // Assert
-        endpoint.ValidationFailed.Should().BeTrue();
+        endpoint.ValidationFailed.Should().BeFalse("refusing here tells an anonymous caller the account exists");
         repo.DidNotReceive().Store(Arg.Any<User>());
     }
 

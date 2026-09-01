@@ -145,6 +145,15 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             services.AddHttpClient<BarakoCMS.Analytics.Umami.IUmamiClient, BarakoCMS.Analytics.Umami.UmamiClient>()
                 .ConfigurePrimaryHttpMessageHandler(() => new UmamiStubHandler());
 
+            // Email transport, replacing the Resend provider the module above registered. Resend
+            // throws on every call here because no API key is configured, so any flow that emails
+            // something has been running against a transport that always fails. Registration needs
+            // the opposite: a test has to be able to read a token that only exists in an email.
+            services.RemoveAll<barakoCMS.Core.Interfaces.IEmailService>();
+            services.AddSingleton<RecordingEmailService>();
+            services.AddSingleton<barakoCMS.Core.Interfaces.IEmailService>(
+                sp => sp.GetRequiredService<RecordingEmailService>());
+
             // FastEndpoints 8 discovers endpoints eagerly inside AddFastEndpoints, which ran in
             // Program.cs before any module assembly above was loaded, so none of the module
             // endpoints exist in that scan. Re-register with the module assemblies explicit;
@@ -174,6 +183,12 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         typeof(BarakoCMS.Import.ImportModule).Assembly,
         typeof(BarakoCMS.Analytics.Umami.UmamiAnalyticsModule).Assembly,
     ];
+
+    /// <summary>
+    /// What the host tried to email, for the flows whose only output is a message. Valid for clients
+    /// made with <c>CreateClient()</c>; a host built by <c>WithWebHostBuilder</c> has its own.
+    /// </summary>
+    public RecordingEmailService Email => Services.GetRequiredService<RecordingEmailService>();
 
     public async ValueTask InitializeAsync()
     {

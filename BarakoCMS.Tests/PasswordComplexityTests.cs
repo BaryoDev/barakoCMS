@@ -2,6 +2,8 @@ using FastEndpoints;
 using FluentAssertions;
 using Xunit;
 using NSubstitute;
+using barakoCMS.Core.Interfaces;
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Models;
 using barakoCMS.Repository;
 using Marten;
@@ -10,6 +12,12 @@ namespace BarakoCMS.Tests;
 
 public class PasswordComplexityTests
 {
+    /// <summary>
+    /// The shipped default. The password policy runs before anything reads configuration, so which
+    /// registration mode is in force does not change what these two assert.
+    /// </summary>
+    private static readonly EmailVerificationOptions Options = new();
+
     [Fact]
     public async Task Register_Should_Fail_With_Weak_Password()
     {
@@ -21,7 +29,8 @@ public class PasswordComplexityTests
         repo.GetByUsernameOrEmailAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<User?>(null));
 
-        var endpoint = Factory.Create<barakoCMS.Features.Auth.Register.Endpoint>(repo, session, passwordValidator);
+        var endpoint = Factory.Create<barakoCMS.Features.Auth.Register.Endpoint>(
+            repo, session, passwordValidator, Substitute.For<IEmailVerificationService>(), Options);
         var req = new barakoCMS.Features.Auth.Register.Request
         {
             Username = "weakuser",
@@ -52,7 +61,8 @@ public class PasswordComplexityTests
         repo.GetByUsernameOrEmailAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<User?>(null));
 
-        var endpoint = Factory.Create<barakoCMS.Features.Auth.Register.Endpoint>(repo, session, passwordValidator);
+        var endpoint = Factory.Create<barakoCMS.Features.Auth.Register.Endpoint>(
+            repo, session, passwordValidator, Substitute.For<IEmailVerificationService>(), Options);
         var req = new barakoCMS.Features.Auth.Register.Request
         {
             Username = "stronguser",
