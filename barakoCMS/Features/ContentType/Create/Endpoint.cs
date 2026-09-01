@@ -8,6 +8,9 @@ internal class Request
 {
     public string Name { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
+
+    /// <summary>This type's own states, or null for Draft, Published and Archived.</summary>
+    public barakoCMS.Models.LifecycleDefinition? Lifecycle { get; set; }
     public string Description { get; set; } = string.Empty;
     public List<FieldDefinition> Fields { get; set; } = new();
 
@@ -53,6 +56,13 @@ internal class Endpoint : Endpoint<Request, Response>
     {
         // 1. Validate ContentType
         var (isValid, errors) = _validator.Validate(req.Name, req.DisplayName, req.Fields);
+
+        var (lifecycleValid, lifecycleErrors) = _validator.ValidateLifecycle(req.Lifecycle);
+        if (!lifecycleValid)
+        {
+            isValid = false;
+            errors.AddRange(lifecycleErrors);
+        }
         if (!isValid)
         {
             // Was the one endpoint emitting two error shapes: this list, and ProblemDetails from
@@ -86,6 +96,7 @@ internal class Endpoint : Endpoint<Request, Response>
             Id = Guid.NewGuid(),
             Name = slug,
             DisplayName = req.DisplayName,
+            Lifecycle = req.Lifecycle,
             Description = req.Description,
             Fields = req.Fields,
             IsPubliclyDeliverable = req.IsPubliclyDeliverable,

@@ -112,7 +112,7 @@ public sealed class ContentWriter : IContentWriter
     private static void AssertHasProjection(object @event)
     {
         if (@event is ContentCreated or ContentUpdated or ContentStatusChanged
-            or ContentScheduled or ContentSensitivityChanged)
+            or ContentScheduled or ContentSensitivityChanged or ContentTransitioned)
         {
             return;
         }
@@ -152,6 +152,9 @@ public sealed class ContentWriter : IContentWriter
                 break;
             case ContentScheduled scheduled:
                 content.Apply(scheduled, occurredAt);
+                break;
+            case ContentTransitioned transitioned:
+                content.Apply(transitioned, occurredAt);
                 break;
             case ContentSensitivityChanged sensitivityChanged:
                 content.Apply(sensitivityChanged, occurredAt);

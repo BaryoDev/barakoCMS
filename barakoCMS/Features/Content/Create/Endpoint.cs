@@ -107,7 +107,19 @@ internal class Endpoint : Endpoint<Request, Response>
         var contentId = Guid.NewGuid();
         var @event = new barakoCMS.Events.ContentCreated(contentId, req.ContentType, req.Data, req.Status, userId, searchText, req.Sensitivity);
 
-        _contentWriter.Create(@event);
+        var created = _contentWriter.Create(@event);
+
+        // A type with its own lifecycle starts its entries at the state it declared. Set on the
+        // document rather than carried in ContentCreated, because the event is public API under
+        // section 6 and this can be derived from the type definition at any time, including on a
+        // replay. Null stays null for every type that declares no lifecycle, which is all of them
+        // today, and that is what keeps their behaviour unchanged.
+        if (definition?.Lifecycle is { } lifecycle)
+        {
+            created.LifecycleState = lifecycle.InitialState;
+            _session.Store(created);
+        }
+
         await _session.SaveChangesAsync(ct);
 
         // Workflows are triggered out-of-band by the async WorkflowProjection reacting to the

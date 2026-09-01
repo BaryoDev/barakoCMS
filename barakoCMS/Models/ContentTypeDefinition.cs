@@ -27,6 +27,56 @@ public class ContentTypeDefinition
 
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+
+    /// <summary>This type's own states, or null to use Draft, Published and Archived.</summary>
+    /// <remarks>
+    /// Null is the common case and must stay cheap: every existing content type has none, and a type
+    /// without one has to behave exactly as it did before this existed.
+    /// </remarks>
+    public LifecycleDefinition? Lifecycle { get; set; }
+}
+
+/// <summary>
+/// The states a content type's entries move through, and the named moves between them.
+/// </summary>
+/// <remarks>
+/// <see cref="ContentStatus"/> is Draft, Published, Archived, in the core, for every type. That is
+/// right for a blog post and wrong for an invoice, which is Draft, Submitted, Approved, Sent, Paid.
+///
+/// A type that declares no lifecycle keeps the three it has always had, so nothing existing changes.
+/// Declaring one does not replace <c>ContentStatus</c>: the enum keeps meaning what it means to the
+/// delivery API, which is whether the public sees an entry, and a custom state is carried alongside
+/// in <see cref="Content.LifecycleState"/>. Conflating "approved" with "published" is the shortcut
+/// that produces a system nobody can explain, and it is also load bearing: the enum is public API
+/// and <c>mt_doc_contents_idx_status</c> indexes it as an integer.
+/// </remarks>
+public class LifecycleDefinition
+{
+    /// <summary>Every state an entry of this type may be in. Order is display order.</summary>
+    public List<string> States { get; set; } = new();
+
+    /// <summary>The state a new entry starts in. Must be one of <see cref="States"/>.</summary>
+    public string InitialState { get; set; } = string.Empty;
+
+    /// <summary>The moves that are allowed, each with a name.</summary>
+    public List<StateTransition> Transitions { get; set; } = new();
+}
+
+/// <summary>One allowed move between two states.</summary>
+/// <remarks>
+/// Named, rather than an arbitrary assignment of a new state. "Set state to Approved" and "Approve"
+/// are the same edit and different events, and only the second can be governed: the name is what a
+/// permission attaches to and what a workflow triggers on. An interface that only took a target
+/// state could express neither.
+/// </remarks>
+public class StateTransition
+{
+    /// <summary>What the move is called, for example "Approve". Unique within a type.</summary>
+    public string Name { get; set; } = string.Empty;
+
+    public string From { get; set; } = string.Empty;
+
+    public string To { get; set; } = string.Empty;
 }
 
 public class FieldDefinition
