@@ -29,7 +29,20 @@ internal class Endpoint : Endpoint<Request, Response>
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        var userId = Guid.Parse(User.FindFirst("UserId")!.Value);
+        // Configure() calls Claims("UserId"), so a request with no claim never reaches here, and the
+        // token issuer only ever writes a Guid. Parsing defensively anyway matches Create and turns
+        // a token this server did not mint into a 400 rather than an unhandled FormatException.
+        var userIdClaim = User.FindFirst("UserId");
+        if (userIdClaim == null)
+        {
+            ThrowError("User ID claim not found");
+        }
+
+        if (!Guid.TryParse(userIdClaim.Value, out var userId))
+        {
+            ThrowError("Invalid User ID format");
+        }
+
         var user = await _session.LoadAsync<User>(userId, ct);
 
         var existingContent = await _session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct);

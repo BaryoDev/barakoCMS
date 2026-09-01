@@ -15,7 +15,13 @@ services:
       - ConnectionStrings__DefaultConnection=Host=postgres;Database=barako_cms;Username=postgres;Password=${DB_PASSWORD:-postgres}
       - JWT__Key=${JWT_SECRET:-dev-only-key-minimum-32-chars-long}
       - InitialAdmin__Username=${ADMIN_USER:-admin}
-      - InitialAdmin__Password=${ADMIN_PASSWORD:-changeme-in-production}
+      # No default. Unset, the seeder generates a password and prints it once to the container log
+      # (docker compose logs app). A literal here was a published SuperAdmin password.
+      - InitialAdmin__Password=${ADMIN_PASSWORD:-}
+      # Explicit rather than inherited from ASPNETCORE_ENVIRONMENT. This file is local development,
+      # so the API explorer is wanted; saying so means a deployer who changes the environment does
+      # not silently change what the API exposes.
+      - Swagger__Enabled=${SWAGGER_ENABLED:-true}
     # Deliberately no host mounts. A kubeconfig bind gives anything in the container every context
     # and token in it; the Kubernetes monitor needs read access to one namespace, so mount a
     # service-account token scoped to that namespace instead.

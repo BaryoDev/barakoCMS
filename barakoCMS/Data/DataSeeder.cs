@@ -107,6 +107,40 @@ public static class DataSeeder
         await session.SaveChangesAsync();
     }
 
+    /// <summary>
+    /// A random initial-admin password, built to satisfy
+    /// <see cref="barakoCMS.Infrastructure.Services.PasswordPolicyValidator"/> so the account it is
+    /// set on can also change it later.
+    /// </summary>
+    /// <remarks>
+    /// One character is taken from each required class first and the rest from the union, then the
+    /// whole thing is shuffled. Sampling the union alone would satisfy the policy almost always
+    /// rather than always, and "almost" here means a first boot that seeds an account whose password
+    /// the change-password endpoint then refuses.
+    ///
+    /// <see cref="System.Security.Cryptography.RandomNumberGenerator.GetItems{T}"/> is uniform and
+    /// rejection-samples, so there is no modulo bias to reason about.
+    /// </remarks>
+    internal static string GenerateInitialPassword()
+    {
+        const string upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+        const string lower = "abcdefghijkmnopqrstuvwxyz";
+        const string digits = "23456789";
+        const string symbols = "!@#$%^&*_+=?";
+
+        var all = (upper + lower + digits + symbols).AsSpan();
+
+        Span<char> buffer = stackalloc char[24];
+        buffer[0] = System.Security.Cryptography.RandomNumberGenerator.GetItems<char>(upper.AsSpan(), 1)[0];
+        buffer[1] = System.Security.Cryptography.RandomNumberGenerator.GetItems<char>(lower.AsSpan(), 1)[0];
+        buffer[2] = System.Security.Cryptography.RandomNumberGenerator.GetItems<char>(digits.AsSpan(), 1)[0];
+        buffer[3] = System.Security.Cryptography.RandomNumberGenerator.GetItems<char>(symbols.AsSpan(), 1)[0];
+        System.Security.Cryptography.RandomNumberGenerator.GetItems<char>(all, buffer[4..]);
+        System.Security.Cryptography.RandomNumberGenerator.Shuffle(buffer);
+
+        return new string(buffer);
+    }
+
     private static async Task SeedUsersAsync(IDocumentSession session, IConfiguration configuration)
     {
         var userCount = await session.Query<User>().CountAsync();
@@ -130,8 +164,19 @@ public static class DataSeeder
         var username = adminConfig["Username"];
         var password = adminConfig["Password"];
 
-        if (!string.IsNullOrEmpty(username) && !string.IsNullOrEmpty(password))
+        if (!string.IsNullOrEmpty(username))
         {
+            // No password configured means one gets generated and printed here, once, instead of
+            // the account not being created. The compose files used to default it to a literal
+            // ("changeme-in-production"), so a stack brought up with no .env had a SuperAdmin whose
+            // password was published in this repository. Refusing to seed instead would leave a
+            // first-run stack with no way in at all. See issue #271.
+            var generated = string.IsNullOrEmpty(password);
+            if (generated)
+            {
+                password = GenerateInitialPassword();
+            }
+
             var existingAdmin = await session.Query<User>().FirstOrDefaultAsync(u => u.Username == username);
 
             var adminUser = existingAdmin ?? new User { Id = Guid.NewGuid(), CreatedAt = DateTime.UtcNow };
@@ -143,6 +188,17 @@ public static class DataSeeder
 
             session.Store(adminUser);
             Console.WriteLine($"[DataSeeder] {(existingAdmin == null ? "Created" : "Updated")} SuperAdmin user: {username}");
+
+            if (generated)
+            {
+                // The one place this codebase prints a credential, and it is deliberate: a password
+                // nobody can read is the same as no account. It goes to the console only, never to
+                // the logger, so it does not reach a log sink or an aggregator.
+                Console.WriteLine(
+                    $"[DataSeeder] No InitialAdmin:Password was set, so one was generated for '{username}': {password}");
+                Console.WriteLine(
+                    "[DataSeeder] This is printed once and is not recoverable. Sign in, change it, then set InitialAdmin:Password.");
+            }
         }
 
         // Sample login accounts with fixed passwords are demo data — only seed them outside

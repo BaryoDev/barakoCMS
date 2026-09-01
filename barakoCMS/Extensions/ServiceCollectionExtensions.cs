@@ -780,11 +780,15 @@ public static class ServiceCollectionExtensions
 
         app.Use(async (context, next) =>
         {
-            // Prevent XSS attacks
             context.Response.Headers.Append("X-Content-Type-Options", "nosniff");
             context.Response.Headers.Append("X-Frame-Options", "DENY");
-            context.Response.Headers.Append("X-XSS-Protection", "1; mode=block");
             context.Response.Headers.Append("Referrer-Policy", "strict-origin-when-cross-origin");
+
+            // X-XSS-Protection is deliberately not written. Every current browser ignores it, and
+            // the auditor it was there to satisfy is not a threat model. While it was honoured its
+            // filter introduced holes of its own: "1; mode=block" gave a cross-origin attacker a
+            // way to detect content on the page by watching which loads were blocked. The CSP
+            // below is the control that actually applies. See issue #271.
 
             // Content Security Policy. The looser style-src is reached only by the health dashboard,
             // and only while the dashboard is switched on.
