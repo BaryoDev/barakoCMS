@@ -12,14 +12,16 @@ using Xunit;
 namespace BarakoCMS.Tests;
 
 /// <summary>
-/// Every core endpoint that declares a role gate in <c>Configure()</c>, with the three cases
+/// Every core endpoint that declares a role or capability gate in <c>Configure()</c>, with the three cases
 /// <see cref="WorkflowMetadataAuthTests"/> established: anonymous refused with 401, a signed-in
 /// caller holding the wrong role refused with 403, and an admin still served.
 ///
 /// The inventory below is not a hand-kept list that can drift. <see cref="The_inventory_matches_the_gates_the_running_host_declares"/>
 /// reads the gates off the live routing table and fails when the two disagree, so adding a gated
 /// endpoint without a refusal test, or dropping a gate from one that had it, breaks the build
-/// instead of quietly reducing coverage.
+/// instead of quietly reducing coverage. A gate is either <c>Roles(...)</c>/<c>Permissions(...)</c>
+/// or the capability gate from issue #272, so migrating an endpoint from one to the other keeps it
+/// in scope rather than dropping it out.
 /// </summary>
 [Collection("Sequential")]
 public class RoleGateTests
@@ -127,7 +129,7 @@ public class RoleGateTests
 
         declared.Should().BeEquivalentTo(
             Inventory.Select(r => r.Key),
-            "a core endpoint declaring Roles(...) must appear in RoleGateTests.Inventory, which is what gives it the 401/403/served treatment");
+            "a core endpoint declaring Roles(...) or a capability gate must appear in RoleGateTests.Inventory, which is what gives it the 401/403/served treatment");
     }
 
     [Theory]
@@ -264,10 +266,13 @@ public class RoleGateTests
             {
                 endpoint.RoutePattern,
                 Definition = endpoint.Metadata.OfType<EndpointDefinition>().FirstOrDefault(),
+                Capability = endpoint.Metadata.GetMetadata<barakoCMS.Infrastructure.Auth.RequiredCapability>(),
                 Methods = endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods ?? [],
             })
             .Where(x => x.Definition is not null && x.Definition.EndpointType.Assembly == core)
-            .Where(x => x.Definition!.AllowedRoles?.Count > 0 || x.Definition.AllowedPermissions?.Count > 0)
+            .Where(x => x.Definition!.AllowedRoles?.Count > 0
+                        || x.Definition.AllowedPermissions?.Count > 0
+                        || x.Capability is not null)
             .SelectMany(x => x.Methods
                 .Where(method => x.Definition!.AnonymousVerbs?.Contains(method) != true)
                 .Select(method => $"{method} /{x.RoutePattern.RawText?.TrimStart('/')}"))

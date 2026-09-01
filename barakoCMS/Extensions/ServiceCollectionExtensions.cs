@@ -630,6 +630,10 @@ public static class ServiceCollectionExtensions
         // callers (they carry no scope claims).
         services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Auth.ApiKeyScopeProcessor>();
 
+        // Enforces the capability an endpoint declares with Definition.RequireCapability(...). A
+        // no-op for endpoints that still gate on Roles(...).
+        services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Auth.CapabilityGateProcessor>();
+
         services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Filters.IdempotencyFilter>();
         // The finalizer completes an idempotency claim on success or releases it on failure, so a
         // failed request stays retryable. See IdempotencyFilter.

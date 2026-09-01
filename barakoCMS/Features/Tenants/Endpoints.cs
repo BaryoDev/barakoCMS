@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Models;
 using FastEndpoints;
@@ -40,7 +41,7 @@ internal class ListTenantsEndpoint : Endpoint<ListRequest, PaginatedResponse<Ten
     public override void Configure()
     {
         Get("/api/tenants");
-        Roles("SuperAdmin");
+        Definition.RequireCapability(SystemCapabilities.ManageTenants, "SuperAdmin");
     }
 
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)
@@ -82,7 +83,7 @@ internal class CreateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
     public override void Configure()
     {
         Post("/api/tenants");
-        Roles("SuperAdmin");
+        Definition.RequireCapability(SystemCapabilities.ManageTenants, "SuperAdmin");
     }
 
     public override async Task HandleAsync(TenantWriteRequest req, CancellationToken ct)
@@ -146,7 +147,7 @@ internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
     public override void Configure()
     {
         Put("/api/tenants/{handle}");
-        Roles("SuperAdmin");
+        Definition.RequireCapability(SystemCapabilities.ManageTenants, "SuperAdmin");
     }
 
     public override async Task HandleAsync(TenantWriteRequest req, CancellationToken ct)
