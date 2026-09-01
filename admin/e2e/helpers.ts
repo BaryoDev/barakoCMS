@@ -51,6 +51,32 @@ export async function stubShell(page: Page) {
     );
     await page.route('**/health**', (r) => r.fulfill({ json: { status: 'Healthy', entries: {} } }));
     await page.route('**/api/me/tenants**', (r) => r.fulfill({ json: pageOf([]) }));
+
+    // The sidebar rail's counts and badges. These are shell calls now (they run on every admin
+    // route, not just the page that owns the list), so a spec that does not care about them still
+    // has to answer them, or the rail renders no count and the screenshots show an empty rail.
+    // Registered here first, so a spec's own route for the same URL still wins.
+    await page.route('**/api/meta**', (r) =>
+        r.fulfill({ json: { version: '4.0.0', swaggerEnabled: false } })
+    );
+    await page.route('**/api/contents**', (r) => r.fulfill({ json: countOf(148) }));
+    await page.route(/\/api\/content-types(\?|$)/, (r) => r.fulfill({ json: countOf(6) }));
+    await page.route('**/api/workflows**', (r) => r.fulfill({ json: countOf(3) }));
+    await page.route('**/api/client-errors**', (r) => r.fulfill({ json: countOf(0) }));
+    await page.route('**/api/email-events**', (r) => r.fulfill({ json: [] }));
+}
+
+/** The pagination envelope as a count query sees it: one row asked for, the real total reported. */
+function countOf(totalItems: number) {
+    return {
+        items: [],
+        page: 1,
+        pageSize: 1,
+        totalItems,
+        totalPages: totalItems,
+        hasNextPage: totalItems > 1,
+        hasPreviousPage: false,
+    };
 }
 
 export const EMPTY_PAGE = pageOf([]);
