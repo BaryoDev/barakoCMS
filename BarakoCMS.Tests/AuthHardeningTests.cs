@@ -121,4 +121,51 @@ public class AuthHardeningTests
         (await known.Content.ReadAsStringAsync())
             .Should().Be(await unknown.Content.ReadAsStringAsync(), "nor the body");
     }
+
+    /// <summary>
+    /// A failed sign-in tells the caller nothing about the account, including its address.
+    /// </summary>
+    /// <remarks>
+    /// This is the boundary that decided #271's "device-approval response leaks the account email".
+    /// The field stays. It is written on one response only, the one reached after the password has
+    /// already been verified, so it hands a caller nothing they had not already proved; and
+    /// /api/auth/otp/verify is keyed on the address, while the sign-in form collects a username, so
+    /// the client genuinely cannot supply it from what it typed.
+    ///
+    /// What actually matters is that the address never appears one step earlier, and that is what
+    /// this pins. If somebody later moves the email onto the failure path, the reasoning above stops
+    /// holding and this test is what says so.
+    /// </remarks>
+    [Fact]
+    public async Task A_wrong_password_does_not_return_the_account_address()
+    {
+        var email = $"addr_{Guid.NewGuid():n}@example.com";
+        var username = $"addr_{Guid.NewGuid():n}";
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            s.Store(new User
+            {
+                Id = Guid.NewGuid(),
+                Username = username,
+                Email = email,
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword("TheRealPassword123!"),
+                RoleIds = [],
+            });
+            await s.SaveChangesAsync();
+        }
+
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Remove(TestRemoteIpFilter.Header);
+        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, "203.0.113.43");
+
+        var response = await client.PostAsJsonAsync(
+            "/api/auth/login", new { Username = username, Password = "NotThePassword123!" });
+
+        response.StatusCode.Should().Be(System.Net.HttpStatusCode.Unauthorized);
+        (await response.Content.ReadAsStringAsync()).Should().NotContain(email,
+            "the address may only be returned on the device-approval response, which is reached "
+          + "after the password has been verified");
+    }
 }
