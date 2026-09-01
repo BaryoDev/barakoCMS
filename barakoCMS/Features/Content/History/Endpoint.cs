@@ -139,6 +139,7 @@ internal class Endpoint : Endpoint<Request, barakoCMS.Models.PaginatedResponse<V
         barakoCMS.Events.ContentStatusChanged => "StatusChanged",
         barakoCMS.Events.ContentScheduled => "Scheduled",
         barakoCMS.Events.ContentSensitivityChanged => "SensitivityChanged",
+        barakoCMS.Events.ContentTransitioned => "Transitioned",
         barakoCMS.Events.ContentFieldSensitivityChanged => "FieldSensitivityChanged",
         _ => UnknownChangeType,
     };
