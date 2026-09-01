@@ -238,6 +238,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and always were. An existing `mt_doc_contenttype` table is left where it is, which is safe under
   `AutoCreate.CreateOnly`.
 
+- **A compose stack no longer ships a usable admin password.** `docker-compose.yml`,
+  `docker-compose.hub.yml` and `.env.example` defaulted `ADMIN_PASSWORD` to
+  `changeme-in-production`, so a stack brought up with no `.env` had a SuperAdmin login published in
+  this repository. The default is gone. Set `InitialAdmin__Password` and nothing changes; leave it
+  unset and the seeder generates one and prints it once to the console, which is a change for anyone
+  who was relying on the shipped literal. The seeder used to skip the account entirely when no
+  password was configured, so removing the default without this would have left a first run with no
+  way in (#271).
+
 ### Added
 
 - **A test refuses to let an event type reach an API response.** The event stream is internal and
@@ -410,6 +419,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `scripts/check-dependabot-coverage.sh` compares every tracked `package-lock.json` against the npm
   entries in `.github/dependabot.yml` (#153).
 
+- **`SWAGGER_ENABLED` on the shipped compose files.** `docker-compose.yml` sets it true, which is
+  what it already did through the environment; `docker-compose.hub.yml` sets it false. Swagger
+  follows `ASPNETCORE_ENVIRONMENT` when `Swagger:Enabled` is unset, and the hub file defaults that to
+  Development, so the compose that runs the published images turned the whole API surface on without
+  anyone choosing it. Saying it explicitly means changing the environment no longer changes what is
+  published as a side effect (#271).
+
 ### Changed
 
 - **Every module version moves to the core's number.** The modules had drifted onto their own 0.x
@@ -438,7 +454,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`IBackupService` and `BackupService`.** Registered in DI and called by nothing, repo-wide, so
   the codebase read as though the application backed itself up.
 
+- **The `X-XSS-Protection` header.** Every current browser ignores it, and while it was honoured its
+  filter was an information leak of its own: with `mode=block` a cross-origin attacker could infer
+  page content from which loads it refused. The Content-Security-Policy is what carries this (#271).
+
+- **`fly.toml`.** It hardcoded `app = 'barako-cms-api-baryo'`, and a Fly app name is unique across
+  the whole platform, so anyone running `fly deploy` from a clone either collided on the name or
+  deployed into the maintainer's app. `fly launch` generates the file; `.gitignore` now keeps it
+  local, and `.agent/workflows/deploy-fly-io.md` carries the settings it held (#271).
+
 ### Fixed
+
+- **Registration accepted a username and an email of any length.** `Username` had a minimum and no
+  maximum and `Email` had a shape check and no length at all, and both carry a unique btree index on
+  the users document. Under roughly 2.7KB that meant a value stored, indexed and string-compared on
+  every sign-in; over it, postgres refuses the index entry and an anonymous endpoint answers 500.
+  Capped at 64 and 254 (#271).
+
+- **The content update endpoint answered 500 to a malformed `UserId` claim.** It used `Guid.Parse`
+  where the create endpoint used `Guid.TryParse`, so a token carrying something other than a Guid in
+  that claim threw a `FormatException` the exception handler turned into a server error. Not
+  reachable with a token this server minted, and `Configure()` already refuses a missing claim, but
+  answering "server error" to a malformed request sends an operator looking in the wrong place. Both
+  write endpoints now answer 400 (#271).
 
 - **Module ordering recursed, so a deep dependency chain killed the process.** `ModuleOrder.Sort`
   traversed recursively, which bounded dependency depth by the call stack rather than by anything the
@@ -804,6 +842,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   an external address. The payload now carries only the fields the content type marks Public, through
   the same projection the public read path uses, and a document that is itself Sensitive or Hidden
   contributes no data at all. A content type with no definition sends no data rather than all of it.
+
+### Security
+
+- **A pre-release hardening sweep closed the low-severity findings from the bug hunt.** The
+  individual changes are the entries marked (#271) under Breaking, Added, Removed and Fixed.
+
+  Two of the checklist's items were deliberately left as they are. The device-approval login
+  response still returns the account email: it is written on one response only, the one reached
+  after the password has already been verified, and `/api/auth/otp/verify` is keyed on the address
+  while the sign-in form collects a username, so removing it would break device approval without
+  withholding anything the caller had not already proved. A test now pins that the address never
+  appears on the failure path, which is the boundary that reasoning rests on. The second,
+  `BARAKO_BACKUP_DIR`, needed no work because `BackupService` was deleted earlier in this release.
 
 ## [3.21.0] - 2026-08-23
 
