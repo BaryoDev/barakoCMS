@@ -611,3 +611,44 @@ jobs:
             exit 1
           fi
           echo "The known-bad manifests were rejected. The gate is live."
+
+  # The admin against the real API, with nothing mocked.
+  #
+  # Every other admin job mocks the API with page.route, so it proves the admin behaves correctly
+  # given fixtures the same person wrote, and cannot prove those fixtures match the server. That gap
+  # shipped a bug and kept it: the History panel read `versions` from a response that had returned
+  # `items` since the envelope change, rendered an empty list rather than failing, and every mocked
+  # spec stayed green because the mock returned `versions` too.
+  #
+  # Heavier than the other jobs because it stands up Postgres, the API and the admin. That cost is
+  # the point: it is the only job in which the two halves of this product meet.
+  smoke:
+    name: Admin against the real API
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: admin/package-lock.json
+
+      - name: Install admin dependencies
+        run: npm ci
+        working-directory: admin
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+        working-directory: admin
+
+      - name: Stand up the stack and run the unmocked pack
+        run: bash scripts/smoke-check.sh

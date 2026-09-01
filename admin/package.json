@@ -13,7 +13,8 @@
         "test": "vitest",
         "test:ui": "vitest --ui",
         "test:e2e": "playwright test",
-        "test:e2e:ui": "playwright test --ui"
+        "test:e2e:ui": "playwright test --ui",
+        "test:smoke": "playwright test --config=playwright.smoke.config.ts"
     },
     "dependencies": {
         "@radix-ui/react-alert-dialog": "^1.1.23",
