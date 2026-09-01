@@ -150,3 +150,25 @@ The `X-Metrics-Key` header works too, for a scraper that would rather not use `A
 A wrong or missing key returns 401 while a key is configured, and 404 while none is, so the status
 code tells you which of the two you are looking at. The key is a shared secret rather than a user, so
 keep it out of the repository and rotate it like any other credential.
+
+**Self-registration no longer creates an account.** `POST /api/auth/register` records the request
+and emails a single-use token that is good for 24 hours; the account appears when the token comes
+back to `POST /api/auth/register/verify`. Until then no user document exists, which is the point:
+external sign-in matches a provider's verified email to a local account by address alone, so a user
+row holding an address nobody proved handed its real owner's Google sign-in to whoever registered it
+first.
+
+Two things change for a caller. The response is now the same whether or not the address is already
+registered, so a client that read the old "Username or Email already exists" error has nothing to
+read. A request that fails validation, a password below the minimum length for instance, still
+answers 400 as it did. And registration needs a working email provider: with the mock provider
+the token is logged and never delivered, so nobody can finish registering. Configure
+`BarakoCMS.Email.Resend` (or your own `IEmailService`) before you turn a public registration form
+on, and set `App:BaseUrl` so the email carries a link rather than a bare token.
+
+To keep the old behaviour, set both of these. It will not start with only the first:
+
+```bash
+Auth__RequireEmailVerification=false
+Auth__AcknowledgeUnverifiedRegistration=true
+```

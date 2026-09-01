@@ -313,3 +313,51 @@ the ordinary case rather than the exceptional one, the default is backwards: `Cr
 the default and `Delete` the opt-out. The signal to watch is what customers actually model in their
 first content type.
 
+
+---
+
+## D10. An unverified self-registration is not an account, it is a pending row
+
+**Decided:** 1 Sep 2026. **Issue:** #268. **Status:** implemented.
+
+`POST /api/auth/register` writes a `PendingRegistration`, not a `User`. The user document is created
+by `POST /api/auth/register/verify`, when the address named at registration hands back the
+single-use token that was emailed to it. Until that happens there is no account and no username
+held. The pending row itself does carry the submitted address and username, which is the point: they
+are held there, out of the users table, until somebody proves the address or the row is cleaned up,
+so there is no user document for an external provider to match onto.
+
+**What this rules out.** The obvious alternative, and the one the issue suggested: keep creating the
+user and carry an `EmailVerified` flag, then refuse login (or issue a restricted session) until it
+is set. That was rejected.
+
+**Why.** The email address is a join key, not just a contact field. `SocialSignIn.IssueAsync` matches
+a provider's verified email to a local account by address alone, which is why the providers were
+hardened to require `email_verified` from Google and LinkedIn, to read only the verified primary from
+GitHub, and to refuse Facebook unless an operator opts in. That path never looks at a password, a
+status or a flag on the way in, so a flag on `User` would not have closed anything: register as
+somebody else's address, wait for them to sign in with Google, and the provider puts them into your
+account. Only the absence of the row closes it.
+
+Two smaller reasons point the same way. A flag needs a backfill, because Marten deserialises a field
+that is not in the stored JSON as its default, so every account that existed before the upgrade would
+read as unverified and be locked out by its own security fix. And a pending row that is not a user
+cannot hold a username, so an anonymous caller cannot squat names without ever owning a mailbox.
+
+**What it costs.** A username is not reserved between registering and confirming. Two people can hold
+pending registrations for the same name; the first to confirm gets it and the second is refused at
+verification with the same message every other rejection there uses. That is the right way round: the
+reservation is the thing an attacker would want for free.
+
+**Verification is required by default**, which is the one place in the codebase where a new setting
+does not preserve existing behaviour. What it would preserve is the defect. Turning it off with
+`Auth:RequireEmailVerification=false` is a legitimate choice for a deployment with no mail transport
+or a registration form nobody outside can reach, and it needs `Auth:AcknowledgeUnverifiedRegistration`
+to start, the same shape D9 uses for `Erasure:Mode=None` and for the same reason: arriving at it by
+leaving a key unset is not a decision.
+
+**What would have to change for this to be wrong.** If the address ever stops being the join key, if
+external sign-in matched on a provider subject id recorded at first link instead, then a flag on
+`User` would be enough and the pending row would be ceremony. That is a better design for the
+external providers anyway (an address can change hands), and if it is ever built, this decision is
+the one to revisit.

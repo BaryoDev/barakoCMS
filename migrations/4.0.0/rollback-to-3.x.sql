@@ -83,3 +83,8 @@ $function$;
 -- The content-type name index. 3.x has no such constraint, so dropping it only widens what the
 -- database accepts and no data has to move.
 DROP INDEX IF EXISTS public.mt_doc_contenttypedefinition_uidx_name;
+
+-- Pending self-registrations. 3.x has no such table and nothing else references it, so dropping it
+-- moves no data. Anything still in it is a registration that was never confirmed and, on 3.x, never
+-- can be: rolling back means self-registration goes back to creating accounts outright.
+DROP TABLE IF EXISTS public.mt_doc_pending_registrations;
