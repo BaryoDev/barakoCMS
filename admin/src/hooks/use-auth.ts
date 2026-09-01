@@ -138,6 +138,26 @@ export function useVerifyDeviceCode() {
     });
 }
 
+/**
+ * Asks the server to email a 6-digit sign-in code.
+ *
+ * Keyed on the email address, not the username: `POST /api/auth/otp/request` looks the account up
+ * by email, and so does the verify half. That is why the button opens a field of its own rather
+ * than reusing whatever is in the username box.
+ *
+ * The endpoint answers 200 with the same message whether or not the address is registered, on
+ * purpose, so an unauthenticated caller cannot probe which accounts exist. Nothing here may report
+ * more than it did.
+ */
+export function useRequestSignInCode() {
+    return useMutation({
+        mutationFn: async (input: { email: string }) => {
+            const { data } = await api.post<{ message: string }>('/api/auth/otp/request', input);
+            return data;
+        },
+    });
+}
+
 /** Completes a two-step sign-in: challenge token + a TOTP or recovery code, in exchange for tokens. */
 export function useVerifyMfa() {
     return useMutation({
