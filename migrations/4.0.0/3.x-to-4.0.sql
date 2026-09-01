@@ -21,6 +21,11 @@
 --                         and nullable, so existing rows are untouched.
 --   mt_quick_append_events Marten 9 changed the signature (bdatas, expected_version) and the body.
 --                         Function only, no data.
+--   mt_doc_pending_registrations
+--                         New table. A self-registration that has not confirmed its email address
+--                         yet, which 4.0 writes instead of creating a user (#268). Nothing existing
+--                         reads or writes it, so creating it moves no data and breaks nothing on
+--                         3.x if you never start 4.0.
 --   mt_doc_contenttypedefinition
 --                         Adds the unique index on a content type's name, per tenant. Uniqueness
 --                         used to be a read before the write with nothing behind it, so two
@@ -162,3 +167,27 @@ $$ LANGUAGE plpgsql;
 -- ---------------------------------------------------------------------------
 CREATE UNIQUE INDEX IF NOT EXISTS mt_doc_contenttypedefinition_uidx_name
     ON public.mt_doc_contenttypedefinition USING btree (((data ->> 'Name'::text)), tenant_id);
+
+-- ---------------------------------------------------------------------------
+-- Pending self-registrations (#268).
+--
+-- 4.0 stops writing a user document for a registration nobody confirmed, and
+-- writes one of these instead. The column order and the index expressions match
+-- what Marten generates, so a database that has run this is indistinguishable
+-- from a freshly created one. Empty on arrival, so there is nothing to check
+-- first and nothing that can fail on real data.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.mt_doc_pending_registrations (
+    id                  uuid                        NOT NULL,
+    data                jsonb                       NOT NULL,
+    mt_last_modified    timestamp with time zone    NULL DEFAULT (transaction_timestamp()),
+    mt_version          uuid                        NOT NULL DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
+    mt_dotnet_type      varchar                     NULL,
+    CONSTRAINT pkey_mt_doc_pending_registrations_id PRIMARY KEY (id)
+);
+
+CREATE INDEX IF NOT EXISTS mt_doc_pending_registrations_idx_email
+    ON public.mt_doc_pending_registrations USING btree ((data ->> 'Email'));
+
+CREATE INDEX IF NOT EXISTS mt_doc_pending_registrations_idx_expires_at
+    ON public.mt_doc_pending_registrations USING btree ((public.mt_immutable_timestamp(data ->> 'ExpiresAt')));

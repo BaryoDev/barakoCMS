@@ -431,6 +431,20 @@ public static class ServiceCollectionExtensions
                 .Index(x => x.Email)
                 .Index(x => x.ExpiresAt);
 
+            options.Schema.For<PendingRegistration>()
+                .SingleTenanted() // a registration is for a global identity, like the user it becomes
+                .DocumentAlias("pending_registrations")
+                // Same reason OtpCode above has it. Consuming a token is a read, a check and a
+                // write with nothing between them, and two requests carrying one token must not both
+                // create an account.
+                .UseOptimisticConcurrency(true)
+                // No unique index on Username or Email, deliberately. Reserving either before
+                // anybody proved the address would let an unauthenticated caller hold names and
+                // block addresses without owning a mailbox. Uniqueness is enforced where it counts,
+                // on the users table, and re-checked at verification.
+                .Index(x => x.Email)
+                .Index(x => x.ExpiresAt);
+
             options.Schema.For<MfaSecret>()
                 .SingleTenanted() // second factor is per global identity, like the user and OTP codes
                 .DocumentAlias("mfa_secrets")
@@ -552,6 +566,16 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(erasure);
         services.AddScoped<barakoCMS.Infrastructure.Erasure.IContentEraser, barakoCMS.Infrastructure.Erasure.ContentEraser>();
         services.AddScoped<barakoCMS.Core.Interfaces.IOtpService, barakoCMS.Infrastructure.Services.OtpService>();
+
+        // Email verification for self-registration. Validated at startup for the same reason erasure
+        // is: an operator who turned verification off has to have said so, because the failure is a
+        // deployment that believes registration proves an address while it does not. See
+        // DECISIONS.md D10.
+        var emailVerification = barakoCMS.Infrastructure.Auth.EmailVerificationOptions.FromConfiguration(configuration);
+        emailVerification.Validate();
+        services.AddSingleton(emailVerification);
+        services.AddScoped<barakoCMS.Core.Interfaces.IEmailVerificationService,
+                           barakoCMS.Infrastructure.Services.EmailVerificationService>();
 
         // MFA (TOTP): secret protection (AES-GCM) + enrollment/verification.
         services.AddSingleton<barakoCMS.Infrastructure.Auth.Mfa.IMfaSecretProtector, barakoCMS.Infrastructure.Auth.Mfa.MfaSecretProtector>();

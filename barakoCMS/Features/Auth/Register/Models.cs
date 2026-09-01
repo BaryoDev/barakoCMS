@@ -29,3 +29,13 @@ internal class Response
 {
     public string Message { get; set; } = string.Empty;
 }
+
+internal class VerifyRequestValidator : FastEndpoints.Validator<VerifyRequest>
+{
+    // A token this endpoint issued is 76 characters. The cap is here because the value is parsed and
+    // BCrypt-verified, and neither should be handed a megabyte by an anonymous caller.
+    public VerifyRequestValidator()
+    {
+        RuleFor(x => x.Token).NotEmpty().MaximumLength(256);
+    }
+}
