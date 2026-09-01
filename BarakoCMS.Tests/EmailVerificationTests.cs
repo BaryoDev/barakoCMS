@@ -68,6 +68,9 @@ public class EmailVerificationTests
         login.StatusCode.Should().NotBe(HttpStatusCode.OK,
             "the address was never proved, so there is no account yet, but login answered {0}",
             login.StatusCode);
+        ((int)login.StatusCode).Should().BeLessThan(500,
+            "refused is the answer, and a 500 would satisfy the line above while meaning login "
+          + "crashed on a registration it should simply not have found");
     }
 
     /// <summary>
@@ -237,6 +240,51 @@ public class EmailVerificationTests
         (await Verify(second!)).StatusCode.Should().Be(HttpStatusCode.OK, "the current one still works");
     }
 
+    /// <summary>
+    /// Two live tokens for one address cannot produce two accounts, and the second cannot produce an
+    /// account at all once the first has.
+    /// </summary>
+    /// <remarks>
+    /// Supersession in <c>IssueAsync</c> is a read, then an update of what it found, then an insert.
+    /// Two registrations for the same address arriving together can both read no outstanding row and
+    /// both insert, so the "only the newer token is live" property is best effort and this is the
+    /// state a race leaves behind. Seeding both directly is the point: it reproduces that state
+    /// without racing anything, so the test is about the consequence rather than the timing.
+    ///
+    /// The property that actually protects the address is enforced at verify, not at issue. The
+    /// second token is refused because an account for the address now exists, and it is spent on the
+    /// way out so it cannot be retried until the collision clears.
+    ///
+    /// The two registrations name different usernames deliberately. Verify refuses on username or
+    /// email, and matching usernames would let this pass while the email half did nothing.
+    /// </remarks>
+    [Fact]
+    public async Task Two_live_tokens_for_one_address_still_produce_one_account()
+    {
+        var (first, email) = Identity();
+        var (second, _) = Identity();
+
+        var firstToken = await SeedPendingAsync(first, email, DateTime.UtcNow.AddHours(1));
+        var secondToken = await SeedPendingAsync(second, email, DateTime.UtcNow.AddHours(1));
+
+        (await Verify(firstToken)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var loser = await Verify(secondToken);
+        loser.StatusCode.Should().NotBe(HttpStatusCode.OK,
+            "the address already has an account, so this token has nothing left to create");
+
+        (await CountUsers(email)).Should().Be(1, "one address, one account, whatever the issue path left behind");
+        (await FindUser(email))!.Username.Should().Be(first, "the token that was verified first is the one that decided");
+
+        // The assertion that separates the two mechanisms. A unique index on User.Email stops the
+        // second account whatever the endpoint does, so every assertion above passes with the
+        // collision check removed: the insert fails, the save is rolled back and the caller is
+        // refused. What the check adds is spending the token inside a transaction that succeeds.
+        // Without it the row stays live until it expires, and every retry re-attempts the insert.
+        (await PendingFor(second))!.Consumed.Should().BeTrue(
+            "the refusal has to spend the token, or it can be retried until the collision clears");
+    }
+
     private static (string Username, string Email) Identity()
     {
         var id = $"ev{Guid.NewGuid():N}"[..20];
@@ -304,6 +352,15 @@ public class EmailVerificationTests
         return await session.Query<User>()
             .Where(u => u.Email == normalized)
             .ToListAsync(TestContext.Current.CancellationToken);
+    }
+
+    private async Task<PendingRegistration?> PendingFor(string username)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+        return (await session.Query<PendingRegistration>()
+            .Where(p => p.Username == username)
+            .ToListAsync(TestContext.Current.CancellationToken)).FirstOrDefault();
     }
 
     private async Task<PendingRegistration?> FindPending(string email)

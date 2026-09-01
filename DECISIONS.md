@@ -322,8 +322,10 @@ first content type.
 
 `POST /api/auth/register` writes a `PendingRegistration`, not a `User`. The user document is created
 by `POST /api/auth/register/verify`, when the address named at registration hands back the
-single-use token that was emailed to it. Until that happens there is no account, no username held,
-and no row carrying that address.
+single-use token that was emailed to it. Until that happens there is no account and no username
+held. The pending row itself does carry the submitted address and username, which is the point: they
+are held there, out of the users table, until somebody proves the address or the row is cleaned up,
+so there is no user document for an external provider to match onto.
 
 **What this rules out.** The obvious alternative, and the one the issue suggested: keep creating the
 user and carry an `EmailVerified` flag, then refuse login (or issue a restricted session) until it

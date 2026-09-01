@@ -158,9 +158,10 @@ external sign-in matches a provider's verified email to a local account by addre
 row holding an address nobody proved handed its real owner's Google sign-in to whoever registered it
 first.
 
-Two things change for a caller. The response is now the same whatever happens, including for an
-address that is already registered, so a client that read the old "Username or Email already exists"
-error has nothing to read. And registration needs a working email provider: with the mock provider
+Two things change for a caller. The response is now the same whether or not the address is already
+registered, so a client that read the old "Username or Email already exists" error has nothing to
+read. A request that fails validation, a password below the minimum length for instance, still
+answers 400 as it did. And registration needs a working email provider: with the mock provider
 the token is logged and never delivered, so nobody can finish registering. Configure
 `BarakoCMS.Email.Resend` (or your own `IEmailService`) before you turn a public registration form
 on, and set `App:BaseUrl` so the email carries a link rather than a bare token.
