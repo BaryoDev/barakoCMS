@@ -5,7 +5,7 @@
 
     <IsPackable>true</IsPackable>
     <PackageId>BarakoCMS.Email.Resend</PackageId>
-    <Version>4.0.0</Version>
+    <Version>4.0.1</Version>
     <Description>Resend email-provider module for barakoCMS: implements IEmailService via the Resend HTTP API, plus a delivery webhook that records bounces/complaints as EmailEvent documents.</Description>
   </PropertyGroup>
 
