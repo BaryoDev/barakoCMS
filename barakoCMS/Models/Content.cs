@@ -35,6 +35,16 @@ public class Content
     // Versioning is handled by Marten, but we can track who updated it
     public Guid LastModifiedBy { get; set; }
 
+    /// <summary>
+    /// The entry's state within its content type's own lifecycle, or null when the type declares none.
+    /// </summary>
+    /// <remarks>
+    /// Alongside <see cref="Status"/>, not instead of it. The enum still decides whether the public
+    /// delivery API serves this entry, and this decides where it sits in a workflow that the type
+    /// defined for itself. A type with no lifecycle leaves this null forever.
+    /// </remarks>
+    public string? LifecycleState { get; set; }
+
     /// <summary>Who created this. Set once, from the event, and never from a request body.</summary>
     /// <remarks>
     /// Distinct from <see cref="LastModifiedBy"/>, which moves on every edit. Ownership has to
@@ -98,11 +108,33 @@ public class Content
         LastModifiedBy = @event.UpdatedBy;
     }
 
+    public void Apply(barakoCMS.Events.ContentTransitioned @event, DateTime occurredAt)
+    {
+        LifecycleState = @event.ToState;
+        UpdatedAt = occurredAt;
+        LastModifiedBy = @event.UpdatedBy;
+    }
+
     public void Apply(barakoCMS.Events.ContentSensitivityChanged @event, DateTime occurredAt)
     {
         Sensitivity = @event.Sensitivity;
         UpdatedAt = occurredAt;
         LastModifiedBy = @event.UpdatedBy;
+    }
+
+    /// <summary>Rebuilds only the derived search text.</summary>
+    /// <remarks>
+    /// The one Apply that leaves <see cref="UpdatedAt"/> and <see cref="LastModifiedBy"/> alone, and
+    /// that is the point of it. The entry was not edited: a schema decision changed which part of it
+    /// is public. Stamping it would move every entry of the type to the top of any "recently
+    /// updated" list, change what the sitemap reports as lastmod for all of them at once, and name an
+    /// administrator as the last person to touch content they never opened.
+    ///
+    /// <paramref name="occurredAt"/> is taken and unused for that reason, not by oversight.
+    /// </remarks>
+    public void Apply(barakoCMS.Events.ContentFieldSensitivityChanged @event, DateTime occurredAt)
+    {
+        SearchText = @event.SearchText;
     }
 
     // The single-argument forms these replace. Kept because Content ships in the BarakoCMS package
