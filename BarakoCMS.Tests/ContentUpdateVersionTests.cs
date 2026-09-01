@@ -53,9 +53,22 @@ internal sealed class StreamAdvancingContentWriter : IContentWriter
         _advancer = advancer;
     }
 
+#pragma warning disable CS0618 // the interface still declares them until 5.0, so a decorator still has to
     public Content Create(barakoCMS.Events.ContentCreated @event) => _inner.Create(@event);
 
     public void Append(Content content, object @event) => _inner.Append(content, @event);
+#pragma warning restore CS0618
+
+    public Task<Content> CreateAsync(barakoCMS.Events.ContentCreated @event, CancellationToken ct)
+        => _inner.CreateAsync(@event, ct);
+
+    public Task AppendAsync(Content content, object @event, CancellationToken ct)
+        => _inner.AppendAsync(content, @event, ct);
+
+    // AppendAsync(content, events, expectedVersion, ct) is deliberately NOT forwarded. Its default
+    // implementation calls AppendOptimisticAsync on this decorator, which is the seam the advancer
+    // below needs; forwarding it to the inner writer would take the interception out of the path and
+    // the test would go green without ever racing anything.
 
     public async Task AppendOptimisticAsync(Content content, IReadOnlyList<object> events, CancellationToken ct)
     {
@@ -96,7 +109,9 @@ public class ContentUpdateVersionTests
             {
                 services.AddSingleton<StreamAdvancer>();
                 services.AddScoped<IContentWriter>(sp => new StreamAdvancingContentWriter(
-                    new barakoCMS.Infrastructure.Services.ContentWriter(sp.GetRequiredService<IDocumentSession>()),
+                    new barakoCMS.Infrastructure.Services.ContentWriter(
+                        sp.GetRequiredService<IDocumentSession>(),
+                        sp.GetRequiredService<barakoCMS.Core.Interfaces.IContentSourcingPolicy>()),
                     sp.GetRequiredService<IDocumentStore>(),
                     sp.GetRequiredService<StreamAdvancer>()));
             }));

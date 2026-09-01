@@ -366,6 +366,14 @@ public static class ServiceCollectionExtensions
             // read-then-write behaviour until the index is applied by hand. See
             // migrations/4.0.0/3.x-to-4.0.sql, which also finds the duplicates that would make the
             // CREATE UNIQUE INDEX fail.
+            // The sourcing decision, keyed by the content type NAME rather than by the definition's
+            // id, so deleting a type and creating it again finds the standing answer instead of
+            // arriving at the opposite one. Tenant-scoped like the definitions it describes: one
+            // customer's "article" being event sourced says nothing about another's.
+            options.Schema.For<ContentTypeSourcingPolicy>()
+                .DocumentAlias("content_type_sourcing_policies")
+                .Identity(x => x.Name);
+
             options.Schema.For<ContentTypeDefinition>()
                 .Index(x => x.Name, idx =>
                 {
@@ -557,7 +565,9 @@ public static class ServiceCollectionExtensions
         services.TryAddScoped<barakoCMS.Core.Interfaces.IEmailService, barakoCMS.Infrastructure.Services.MockEmailService>();
         services.TryAddScoped<barakoCMS.Core.Interfaces.ISmsService, barakoCMS.Infrastructure.Services.MockSmsService>();
         services.AddScoped<barakoCMS.Core.Interfaces.ISensitivityService, barakoCMS.Infrastructure.Services.SensitivityService>();
+        services.AddScoped<barakoCMS.Core.Interfaces.IContentSourcingPolicy, barakoCMS.Infrastructure.Services.ContentSourcingPolicyService>();
         services.AddScoped<barakoCMS.Core.Interfaces.IContentWriter, barakoCMS.Infrastructure.Services.ContentWriter>();
+        services.AddScoped<barakoCMS.Infrastructure.Services.IContentRebuilder, barakoCMS.Infrastructure.Services.ContentRebuilder>();
         // Runs any per-content-type domain rules a module registered (IContentLifecycleHook), so a
         // domain with real invariants can still be modelled as ordinary content.
         services.AddScoped<barakoCMS.Infrastructure.Services.IContentLifecycleRunner, barakoCMS.Infrastructure.Services.ContentLifecycleRunner>();

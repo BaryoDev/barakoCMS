@@ -59,9 +59,10 @@ internal class Endpoint : Endpoint<Request, Response>
             return;
         }
 
-        _contentWriter.Append(
+        await _contentWriter.AppendAsync(
             content,
-            new barakoCMS.Events.ContentScheduled(content.Id, req.ScheduledPublishAt, req.ScheduledUnpublishAt, userId));
+            new barakoCMS.Events.ContentScheduled(content.Id, req.ScheduledPublishAt, req.ScheduledUnpublishAt, userId),
+            ct);
         await _session.SaveChangesAsync(ct);
 
         await Send.ResponseAsync(new Response

@@ -149,7 +149,7 @@ internal class RollbackEndpoint : Endpoint<RollbackRequest, RollbackResponse>
         var rollbackEvent = new ContentUpdated(req.Id, data, userId, searchText);
 
         // 6. Append the new event and update the document together
-        _contentWriter.Append(content, rollbackEvent);
+        await _contentWriter.AppendAsync(content, rollbackEvent, ct);
 
         await _session.SaveChangesAsync(ct);
 

@@ -94,3 +94,12 @@ DROP TABLE IF EXISTS public.mt_doc_pending_registrations;
 -- cannot be read out of here first: it is encrypted and nothing decrypts it for display, by design.
 -- Have the credential to hand before rolling back.
 DROP TABLE IF EXISTS public.mt_doc_email_settings;
+
+-- Content type sourcing policies. 3.x has no such table and nothing else references it, so dropping
+-- it moves no content: the entries and their streams are untouched, and every type goes back to the
+-- document being the source of truth, which is what 3.x does for all of them anyway.
+--
+-- What is lost is the decision itself. A type created as event sourced becomes an ordinary type on
+-- 3.x, and starting 4.0 again against this database would let that name be created with either
+-- answer. Note down which types were event sourced before rolling back.
+DROP TABLE IF EXISTS public.mt_doc_content_type_sourcing_policies;

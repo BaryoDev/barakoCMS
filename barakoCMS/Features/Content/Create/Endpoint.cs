@@ -107,7 +107,7 @@ internal class Endpoint : Endpoint<Request, Response>
         var contentId = Guid.NewGuid();
         var @event = new barakoCMS.Events.ContentCreated(contentId, req.ContentType, req.Data, req.Status, userId, searchText, req.Sensitivity);
 
-        var created = _contentWriter.Create(@event);
+        var created = await _contentWriter.CreateAsync(@event, ct);
 
         // A type with its own lifecycle starts its entries at the state it declared. Set on the
         // document rather than carried in ContentCreated, because the event is public API under

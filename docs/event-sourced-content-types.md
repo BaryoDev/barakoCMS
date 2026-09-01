@@ -4,12 +4,10 @@ This page is for the person creating a content type in the admin UI and deciding
 event sourcing on. It explains what the toggle commits you to, in the order the surprises would
 otherwise arrive.
 
-## Not available yet
+## Where the toggle is
 
-**The toggle does not exist today.** How it will behave is decided (issues #230 and #331, and the
-design record in `EVENT-SOURCING-PER-CONTENT-TYPE.md`), but neither has shipped. This page is
-published ahead of the feature so the commitments are readable before anyone can make them. If you
-can see the toggle and this notice is still here, ask before using it.
+`eventSourced` on `POST /api/content-types`, and it defaults to false. The design record is
+`EVENT-SOURCING-PER-CONTENT-TYPE.md`.
 
 ## What the choice does
 
@@ -39,13 +37,19 @@ is stored against the type name, separately from the type itself, and is written
 name inherits the original decision. This is deliberate: without it, delete-and-recreate would be a
 way around a promise the system made about your data.
 
+There is one more thing the choice cannot survive: entries. A type name that already has content
+written under the default cannot be recreated as event sourced. Those entries have a stream behind
+them, but it was written while the document was the record, and entries older than 4.0 carry no
+sensitivity setting at all, so a rebuild would produce items that look right and are readable by
+people who should not see them. Event sourcing has to be chosen before the first entry.
+
 So treat the toggle like a decision, not a setting. If you are unsure, leave it off. Off is the
 default and matches how every type behaves today.
 
 ## Personal data is refused
 
 An event-sourced type will not accept fields marked anything other than Public. Creating one with a
-Sensitive or Internal field is refused, and so is adding such a field later.
+Sensitive or Hidden field is refused, and so is raising a field to either level later.
 
 The reason is a direct conflict. An event-sourced type's value is a history that is never altered.
 The right to erasure is an obligation to remove personal data on request. In this project erasure
@@ -67,6 +71,18 @@ an inconsistency awaiting cleanup. Moving a type from last-write-wins to conflic
 would break clients that never handled a conflict, while the reverse breaks nothing, so new
 semantics arrive only with new event-sourced types and existing types keep behaving as they always
 have. Anyone building against the API should handle 409 on writes to event-sourced types.
+
+## Rebuilding
+
+`POST /api/content-types/{name}/rebuild` (Admin or SuperAdmin) throws the current version of every
+item of the type away and produces it again from the history. It is refused for a type that is not
+event sourced, whose current version is the record and whose history is only a reference copy:
+replaying over it would be an overwrite dressed as a repair.
+
+Two timestamps do not come back exactly. Created and updated times are taken from the history
+entries, which the database stamps at the moment of the write, while the live path stamps them as
+the change is applied. The two are close and never identical, so a rebuild shifts both by the write
+latency.
 
 ## Costs worth knowing before choosing
 

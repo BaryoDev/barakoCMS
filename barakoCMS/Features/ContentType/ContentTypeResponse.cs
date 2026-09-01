@@ -19,10 +19,21 @@ internal sealed class ContentTypeResponse
     public string Description { get; init; } = string.Empty;
     public List<FieldDefinition> Fields { get; init; } = new();
     public bool IsPubliclyDeliverable { get; init; }
+
+    /// <summary>
+    /// Whether the stream is the source of truth for entries of this type, and permanent either way.
+    /// </summary>
+    /// <remarks>
+    /// Read from the type's sourcing policy rather than from the definition, because the decision
+    /// belongs to the name and outlives the definition. A definition with no policy behind it is not
+    /// event sourced, which is every type created before the policy existed.
+    /// </remarks>
+    public bool EventSourced { get; init; }
+
     public DateTimeOffset CreatedAt { get; init; }
     public DateTimeOffset UpdatedAt { get; init; }
 
-    public static ContentTypeResponse From(ContentTypeDefinition d) => new()
+    public static ContentTypeResponse From(ContentTypeDefinition d, bool eventSourced = false) => new()
     {
         Id = d.Id,
         Name = d.Name,
@@ -30,6 +41,7 @@ internal sealed class ContentTypeResponse
         Description = d.Description,
         Fields = d.Fields,
         IsPubliclyDeliverable = d.IsPubliclyDeliverable,
+        EventSourced = eventSourced,
         CreatedAt = d.CreatedAt,
         UpdatedAt = d.UpdatedAt,
     };
