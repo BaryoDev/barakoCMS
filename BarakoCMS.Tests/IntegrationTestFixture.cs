@@ -63,6 +63,35 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             // later login gets 429 and a test asserting success fails. See TestRemoteIpFilter.
             services.AddSingleton<Microsoft.AspNetCore.Hosting.IStartupFilter, TestRemoteIpFilter>();
 
+            // The background scheduler does not run in tests.
+            //
+            // It waits thirty seconds after startup and then sweeps every minute, publishing
+            // whatever is due. Every scheduling test drives SweepTenantAsync directly, so it adds
+            // nothing, and it is a third writer nobody asked for: it can publish a test's draft
+            // between the arrange and the act, or collide with a sweep a test is running itself.
+            //
+            // That is why #424 failed only in CI. A class in isolation finishes inside the thirty
+            // second delay, so the timer never fires and the test passes every time locally. A full
+            // suite runs for six minutes and gets six sweeps, any of which can land on a test's
+            // item. Both recorded failure modes are consistent with it: a title reverted to v1 when
+            // the sweeper published before the editor committed, and a document saying Draft against
+            // a stream replaying to Published when it published after.
+            //
+            // Removed by implementation type rather than by clearing IHostedService, which would
+            // also take the projection daemon and anything a module registers. The assertion below
+            // is the point: a rename or a re-registration must fail here rather than quietly restore
+            // the timer and make the suite intermittent again.
+            var sweeper = services.SingleOrDefault(d =>
+                d.ImplementationType == typeof(barakoCMS.Infrastructure.Services.ScheduledContentService));
+            if (sweeper is null)
+            {
+                throw new InvalidOperationException(
+                    "ScheduledContentService is no longer registered the way this fixture expects, so "
+                  + "the background sweeper may still be running in tests. See #424.");
+            }
+
+            services.Remove(sweeper);
+
             new BarakoCMS.Email.Resend.ResendEmailModule().ConfigureServices(services, ctx.Configuration);
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Email.Resend.ResendEmailModule(), opts));
 
