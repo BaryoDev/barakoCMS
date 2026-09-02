@@ -37,15 +37,16 @@ export function CommandMenu() {
 
   return (
     <>
+      {/* Lives in the sidebar rail, so it is sized to the rail: full width, 40px, a white field on
+          the page background rather than a compact header control. */}
       <Button
         variant="outline"
-        size="sm"
-        className="text-muted-foreground w-full max-w-48 justify-start gap-2 font-normal sm:w-48"
+        className="h-10 w-full justify-start gap-2 rounded-[11px] bg-card px-3 font-normal text-muted-foreground shadow-[var(--shadow-card)] hover:text-foreground"
         onClick={() => setOpen(true)}
       >
         <IconSearch className="size-3.5" />
-        <span className="flex-1 text-left">Search…</span>
-        <kbd className="bg-muted text-muted-foreground pointer-events-none rounded border px-1.5 font-mono text-[10px]">
+        <span className="flex-1 text-left text-[13px]">Search or jump to</span>
+        <kbd className="bg-secondary text-(--faint) pointer-events-none rounded-[6px] px-1.5 py-0.5 font-mono text-[10px]">
           ⌘K
         </kbd>
       </Button>

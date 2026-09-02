@@ -47,6 +47,36 @@ describe('nav visibility', () => {
         }
     });
 
+    // The rail draws the first group without a heading and at a larger size. Both of those read
+    // off "this group has no label", so the primary set losing its label would silently demote it.
+    it('keeps the primary group unlabelled and every later group labelled', () => {
+        expect(NAV_GROUPS[0].label).toBeUndefined();
+        expect(NAV_GROUPS.slice(1).map((g) => g.label)).toEqual(['Access', 'Modules', 'System']);
+    });
+
+    it('puts the four everyday destinations in the primary group, in the order the design shows', () => {
+        expect(NAV_GROUPS[0].items.map((i) => i.title)).toEqual([
+            'Overview',
+            'Entries',
+            'Content types',
+            'Workflows',
+        ]);
+    });
+
+    // A metric is an identifier the rail resolves, so a typo would render nothing and look like a
+    // count that had no source. Pinning the set is what makes that a failing test rather than a
+    // blank space nobody notices.
+    it('names a metric only on the items that have a source for one', () => {
+        const withMetric = NAV_GROUPS.flatMap((g) => g.items).filter((i) => i.metric);
+        expect(withMetric.map((i) => [i.title, i.metric, i.tone ?? null])).toEqual([
+            ['Entries', 'entries', null],
+            ['Content types', 'contentTypes', null],
+            ['Workflows', 'workflows', null],
+            ['Email events', 'recentBounces', 'warning'],
+            ['Errors', 'unresolvedErrors', 'danger'],
+        ]);
+    });
+
     it('treats a signed-out or role-less user as having no roles', () => {
         // Asserted exactly rather than as "fewer than SuperAdmin". The loose form passes on any
         // filter that removes something, including one that removes the wrong things, and it does
