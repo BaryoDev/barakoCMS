@@ -37,7 +37,13 @@ public class WorkflowToolsApiTests
 
         var actions = await response.Content.ReadFromJsonAsync<List<WorkflowActionMetadata>>();
         actions.Should().NotBeNull();
-        actions!.Count.Should().Be(6);
+
+        // Named, not counted. A count tells you a number changed and not which action appeared or
+        // disappeared, so bumping it is the natural response and that is how an action goes missing
+        // from the picker without anybody reading the diff. This list is the declaration.
+        actions!.Select(a => a.Type).Should().BeEquivalentTo(
+            ["Email", "SMS", "Webhook", "CreateTask", "UpdateField", "Conditional", "Request"],
+            "every registered action is offered to the workflow builder, and adding one is a line here");
     }
 
     [Fact]

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, ensureSession, subscribeToAuth, tokenStore } from '@/lib/api';
 
 interface LoginResponse {
@@ -45,6 +45,7 @@ const emptySubscribe = () => () => {};
 
 export function useAuth() {
     const router = useRouter();
+    const queryClient = useQueryClient();
 
     // False during SSR and hydration, true after — replaces a mount effect.
     const hydrated = useSyncExternalStore(
@@ -83,8 +84,14 @@ export function useAuth() {
             // Token may already be expired; clearing locally is what matters.
         }
         tokenStore.clear();
+        // Everything cached was fetched as the account that just left. Dropping the token stops new
+        // requests, and does nothing about answers already held: the next account signing in to this
+        // tab reads the previous one's lists, counts and names from cache until each goes stale.
+        // Switching tenant already invalidates every query for the same reason; signing out is the
+        // larger version of that and was doing nothing.
+        queryClient.clear();
         router.push('/login');
-    }, [router]);
+    }, [router, queryClient]);
 
     const requireAuth = useCallback(() => {
         if (!isLoading && !user) {

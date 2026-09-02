@@ -23,11 +23,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   }
 
   return (
-    <SidebarProvider>
+    // 248px of rail, 16px of it padding. The rail sits on the page background and the content panel
+    // is inset away from it on three sides, which is what makes the panel read as a card rather
+    // than the other half of a split screen.
+    <SidebarProvider style={{ '--sidebar-width': '248px' } as React.CSSProperties}>
       <AppSidebar />
-      <SidebarInset>
+      <SidebarInset className="md:my-4 md:mr-4 md:ml-0 md:h-[calc(100svh-2rem)] md:overflow-hidden md:rounded-xl md:border md:bg-card md:shadow-[var(--shadow-card)]">
         <AppHeader />
-        <main className="mx-auto w-full max-w-6xl flex-1 p-4 md:p-6">{children}</main>
+        <main className="mx-auto w-full max-w-6xl flex-1 p-4 md:overflow-auto md:p-6">{children}</main>
       </SidebarInset>
     </SidebarProvider>
   );

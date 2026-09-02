@@ -61,6 +61,18 @@ internal sealed class QueryRunner : IQueryRunner
             .Where(f => f.Sensitivity == SensitivityLevel.Public)
             .ToDictionary(f => f.Name, f => f.Type ?? string.Empty, StringComparer.OrdinalIgnoreCase);
 
+        // Null, not just empty. A request binding `filters` or `fields` to null reaches here, and
+        // dereferencing it would throw out of an endpoint whose job is to answer 400 with a reason.
+        if (definition.Filters is null || definition.Fields is null)
+        {
+            return "Filters and Fields must be present, even if Filters is empty.";
+        }
+
+        if (definition.Filters.Any(f => f is null || string.IsNullOrWhiteSpace(f.Field)))
+        {
+            return "Every filter needs a field.";
+        }
+
         if (definition.Filters.Count > MaxFilters)
         {
             return $"Too many filters. At most {MaxFilters} are allowed.";
@@ -141,11 +153,13 @@ internal sealed class QueryRunner : IQueryRunner
                 DeliveryQuery.ToOrderBySql(new DeliverySort(canonical[definition.SortField], definition.Descending)));
         }
 
-        // Capped here as well as validated. The ceiling is the thing standing between a
-        // misconfiguration and an email to everyone, so it does not rely on the save path having run.
-        var take = Math.Clamp(definition.Limit, 1, QueryDefinition.MaxLimit);
-
-        var rows = await query.Take(take).ToListAsync(ct);
+        // Validated above, so the limit is already known to be within the ceiling. There used to be
+        // a Math.Clamp here as a second guard, and it was unreachable: ValidateAsync refuses an
+        // over-ceiling limit before this line runs. Refusing is the better answer anyway, because
+        // silently returning a thousand rows of a query that asked for a hundred thousand is a lie
+        // the caller cannot see. A clamp that cannot run is not defence in depth, it is a comment
+        // that looks like a guard.
+        var rows = await query.Take(definition.Limit).ToListAsync(ct);
 
         var projected = new List<Dictionary<string, object>>(rows.Count);
         foreach (var row in rows)

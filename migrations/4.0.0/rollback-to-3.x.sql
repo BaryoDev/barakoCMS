@@ -98,6 +98,11 @@ DROP TABLE IF EXISTS public.mt_doc_email_settings;
 -- Connectors and their credentials. 3.x has neither, and nothing else references them, so dropping
 -- them moves no data. The secrets cannot be read out first: they are encrypted under Connectors:Key
 -- and nothing decrypts one for display, by design. Have the credentials to hand before rolling back.
+-- Request definitions. 3.x has no such table and nothing else references it, so dropping it moves
+-- no data. What is lost is the integrations somebody configured, which are configuration rather than
+-- content: note them down before rolling back, because nothing else records them.
+DROP TABLE IF EXISTS public.mt_doc_request_definitions;
+
 -- Query definitions. 3.x has no such table and nothing references it, so dropping it moves no
 -- content: these are saved recipient lists rather than data, and the entries they select are
 -- untouched. Note them down before rolling back, because nothing else records them.

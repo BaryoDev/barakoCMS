@@ -106,7 +106,11 @@ public class QueryTests
         preview.GetProperty("count").GetInt32().Should().Be(2, "one of the three is not Active");
 
         var first = preview.GetProperty("rows")[0];
-        first.TryGetProperty("Email", out _).Should().BeTrue();
+
+        // The value, not just the key. Reading row zero and checking a field exists passes with
+        // OrderBySql removed entirely, so it proved the projection and nothing about the sort.
+        first.GetProperty("Email").GetString().Should().Be("sub0@example.com",
+            "sorted ascending by Email, so the lowest comes first");
         first.TryGetProperty("Salary", out _).Should().BeFalse(
             "the projection names what leaves, and Salary is not on it");
     }
@@ -147,15 +151,22 @@ public class QueryTests
     }
 
     /// <summary>
-    /// A query stored with an over-ceiling limit is still capped when it runs.
+    /// A query stored with an over-ceiling limit is refused when it runs, not silently truncated.
     /// </summary>
     /// <remarks>
-    /// The save path refuses it, so this can only be reached by a document written another way, and
-    /// that is exactly why the cap is repeated at run time. The ceiling is what stands between a
-    /// misconfiguration and an email to everyone, so it does not rely on the save path having run.
+    /// This asserted that the run was capped, and could not fail: validation refuses an over-ceiling
+    /// limit before the query is built, so the assertion read a refusal with zero rows and found
+    /// zero less than the ceiling. There was a Math.Clamp behind it that nothing could reach.
+    ///
+    /// Refusing is the better behaviour anyway. Returning a thousand rows to a query that asked for
+    /// a hundred thousand is a lie the caller cannot see, and the caller here is a workflow about to
+    /// email all of them.
+    ///
+    /// The save path refuses this too, so reaching it means a document written another way. That is
+    /// exactly why the check is repeated at run time rather than trusted from the endpoint.
     /// </remarks>
     [Fact]
-    public async Task A_stored_limit_above_the_ceiling_is_capped_when_it_runs()
+    public async Task A_stored_limit_above_the_ceiling_is_refused_when_it_runs()
     {
         var client = AdminClient();
         var type = await SeedAsync(rows: 5);
@@ -173,7 +184,29 @@ public class QueryTests
 
         var preview = await PreviewAsync(client, slug);
 
-        preview.GetProperty("count").GetInt32().Should().BeLessThanOrEqualTo(QueryDefinition.MaxLimit);
+        preview.GetProperty("ok").GetBoolean().Should().BeFalse(
+            "a stored limit past the ceiling is refused rather than quietly truncated");
+        preview.GetProperty("refusal").GetString().Should().Contain(QueryDefinition.MaxLimit.ToString());
+        preview.GetProperty("count").GetInt32().Should().Be(0);
+    }
+
+    /// <summary>
+    /// The control: a limit inside the ceiling returns exactly that many rows.
+    /// </summary>
+    /// <remarks>
+    /// Without this, a runner that refused every query would pass the test above.
+    /// </remarks>
+    [Fact]
+    public async Task A_limit_inside_the_ceiling_bounds_the_rows()
+    {
+        var client = AdminClient();
+        var type = await SeedAsync(rows: 5);
+        var slug = await SaveOkAsync(client, type, filters: [], fields: ["Email"], limit: 2);
+
+        var preview = await PreviewAsync(client, slug);
+
+        preview.GetProperty("ok").GetBoolean().Should().BeTrue();
+        preview.GetProperty("count").GetInt32().Should().Be(2, "five rows exist and the query asked for two");
     }
 
     /// <summary>
