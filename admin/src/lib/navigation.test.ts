@@ -34,22 +34,33 @@ describe('nav visibility', () => {
     // GET /api/content-types, so the link was rendered and the API answered 403. Asserted as a
     // role the server has never heard of, because that is what Editor now is: nothing creates it.
     //
-    // Derived from NAV_GROUPS rather than written out. Naming three destinations passes just as
-    // happily if Editor is later granted Workflows or API keys, so the test would have gone on
-    // reporting the contract it names while a new gated screen leaked. Overview and Health carry no
-    // roles and are shown to everyone on purpose, so the assertion is about the gated ones.
+    // Two assertions, because they fail on different things and neither covers the other.
+    //
+    // The derived one reads the gated set out of NAV_GROUPS, so a destination gated later is covered
+    // without anybody remembering to add it here. Naming three by hand passed just as happily if
+    // Editor was granted Workflows or API keys.
+    //
+    // The fixed one names Content types, because the derived check cannot see that item losing its
+    // roles field: it would drop out of `gated`, become visible to Editor, and the filter below
+    // would still be empty because the other gated items are still gated. That is this exact
+    // regression, so it gets its own line rather than sharing one.
+    //
+    // Overview and Health carry no roles and are shown to everyone on purpose, so neither assertion
+    // is about them.
     it('routes an unknown role to no gated destination', () => {
         const gated = NAV_GROUPS.flatMap((g) =>
             g.items.filter((i) => i.roles && i.roles.length > 0).map((i) => i.title),
         );
 
         expect(gated.length).toBeGreaterThan(0);
+        expect(gated).toContain('Content types');
 
         const seen = titles(['Editor']);
 
         expect(seen.filter((title) => gated.includes(title))).toEqual([]);
+        expect(seen).not.toContain('Content types');
 
-        // An empty nav would satisfy the line above without proving anything about gating.
+        // An empty nav would satisfy both lines above without proving anything about gating.
         expect(seen.length).toBeGreaterThan(0);
     });
 
