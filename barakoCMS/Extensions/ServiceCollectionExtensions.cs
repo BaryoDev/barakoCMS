@@ -780,23 +780,107 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
-    private static string ResolveConnectionString(IConfiguration configuration)
+    private static readonly Dictionary<string, string> SslModeMap = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["disable"] = "Disable",
+        ["allow"] = "Allow",
+        ["prefer"] = "Prefer",
+        ["require"] = "Require",
+        ["verify-ca"] = "VerifyCA",
+        ["verifyca"] = "VerifyCA",
+        ["verify-full"] = "VerifyFull",
+        ["verifyfull"] = "VerifyFull"
+    };
+
+    private static bool IsDevelopmentEnvironment() =>
+        IsDevelopment(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"));
+
+    /// <summary>Whether an environment name means Development.</summary>
+    /// <remarks>
+    /// Separated from the variable it usually reads so the mapping itself can be asserted. The
+    /// decision it feeds is which environments get a dummy connection string and which get
+    /// parameter values in exception messages, and neither was covered by a test that named an
+    /// environment: the callers took a bool and nothing checked what produced it.
+    /// </remarks>
+    internal static bool IsDevelopment(string? environmentName) =>
+        string.Equals(environmentName, "Development", StringComparison.OrdinalIgnoreCase);
+
+    internal static string ResolveConnectionString(IConfiguration configuration) =>
+        ResolveConnectionString(configuration, IsDevelopmentEnvironment());
+
+    /// <summary>
+    /// Resolves the connection string, taking the Development decision as an argument.
+    /// </summary>
+    /// <remarks>
+    /// The flag is a parameter so a unit test can assert both halves without reading
+    /// ASPNETCORE_ENVIRONMENT. IntegrationTestFixture sets that variable process-wide in its
+    /// constructor and xUnit runs collections in parallel, so a test that reads it is really
+    /// asserting which collection started first.
+    /// </remarks>
+    internal static string ResolveConnectionString(IConfiguration configuration, bool isDevelopment)
     {
         var connectionString = configuration.GetConnectionString("DefaultConnection");
-        var dbUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
+        var dbUrl = configuration["DATABASE_URL"];
 
         if (!string.IsNullOrWhiteSpace(dbUrl))
         {
             try
             {
                 var uri = new Uri(dbUrl);
-                var userInfo = uri.UserInfo.Split(':');
-                var username = userInfo[0];
-                var password = userInfo.Length > 1 ? userInfo[1] : "";
+                var colonIndex = uri.UserInfo.IndexOf(':');
+                var rawUsername = colonIndex >= 0 ? uri.UserInfo[..colonIndex] : uri.UserInfo;
+                var rawPassword = colonIndex >= 0 ? uri.UserInfo[(colonIndex + 1)..] : "";
+                var username = Uri.UnescapeDataString(rawUsername);
+                var password = Uri.UnescapeDataString(rawPassword);
+                var database = Uri.UnescapeDataString(uri.AbsolutePath.TrimStart('/'));
+                var port = uri.Port > 0 ? uri.Port : 5432;
 
-                connectionString = $"Host={uri.Host};Port={uri.Port};Database={uri.AbsolutePath.TrimStart('/')};Username={username};Password={password};SSL Mode=Disable;Include Error Detail=true";
+                var sslMode = "Require";
+                if (!string.IsNullOrWhiteSpace(uri.Query))
+                {
+                    var query = uri.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries);
+                    foreach (var param in query)
+                    {
+                        var parts = param.Split('=', 2);
+                        if (string.Equals(parts[0], "sslmode", StringComparison.OrdinalIgnoreCase))
+                        {
+                            var rawMode = parts.Length > 1 ? Uri.UnescapeDataString(parts[1]) : "";
+                            if (!SslModeMap.TryGetValue(rawMode, out var mappedMode))
+                            {
+                                throw new ArgumentException($"Invalid sslmode '{rawMode}' in DATABASE_URL.");
+                            }
+                            sslMode = mappedMode;
+                            break;
+                        }
+                    }
+                }
+
+                // Built rather than interpolated. Decoding the credentials above is correct and it
+                // makes a case reachable that was not before: a semicolon is legal in a Postgres
+                // password, percent-encoding it in the URL is how you are supposed to express one,
+                // and UnescapeDataString turns %3B back into a literal ';'. Interpolated, that ends
+                // the Password key and the rest of the password is read as another setting, so the
+                // deployment fails to connect with a message about an unknown keyword rather than a
+                // bad password. The builder escapes it.
+                var builder = new Npgsql.NpgsqlConnectionStringBuilder
+                {
+                    Host = uri.Host,
+                    Port = port,
+                    Database = database,
+                    Username = username,
+                    Password = password,
+                    SslMode = Enum.Parse<Npgsql.SslMode>(sslMode, ignoreCase: true),
+                    // Npgsql puts parameter values into exception messages with this on, and those
+                    // messages reach Serilog and whatever ships logs onward. DATABASE_URL is the
+                    // convention managed providers use, so this path is the production one: on
+                    // there, a failed insert copies the row's personal data into a store with a
+                    // different retention policy and a different access list. See #449.
+                    IncludeErrorDetail = isDevelopment,
+                };
+
+                connectionString = builder.ConnectionString;
             }
-            catch
+            catch (UriFormatException)
             {
                 connectionString = dbUrl;
             }
@@ -808,8 +892,7 @@ public static class ServiceCollectionExtensions
             // localhost, which surfaces long after startup as an unrelated failure. Name the missing
             // setting instead. It stays a dummy in Development, where design-time tooling and the
             // codegen pass need Marten to build a store without a database behind it.
-            var environment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
-            if (!string.Equals(environment, "Development", StringComparison.OrdinalIgnoreCase))
+            if (!isDevelopment)
             {
                 throw new InvalidOperationException(
                     "No database connection string. Set ConnectionStrings:DefaultConnection or the DATABASE_URL environment variable.");

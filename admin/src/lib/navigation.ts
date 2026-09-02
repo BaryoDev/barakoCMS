@@ -21,10 +21,26 @@ import {
   IconShield,
 } from '@/components/icons';
 
+/**
+ * Names a live number the rail may show beside an item. It is an identifier, not a value: the
+ * component resolves it through `useNavMetrics`, and an unresolved one renders nothing rather than
+ * a placeholder. A count nobody can source is left off the item entirely.
+ */
+export type NavMetric =
+  | 'entries'
+  | 'contentTypes'
+  | 'workflows'
+  | 'unresolvedErrors'
+  | 'recentBounces';
+
 export interface NavItem {
   title: string;
   href: string;
   icon: ComponentType<SVGProps<SVGSVGElement>>;
+  /** A count rendered right-aligned in mono, or a tinted pill when `tone` says so. */
+  metric?: NavMetric;
+  /** Pill tint for a metric that reports a problem rather than a size. */
+  tone?: 'warning' | 'danger';
   /**
    * Roles the API actually accepts for this destination, copied from the `Roles(...)` call on the
    * endpoint behind it. Omitted means every signed-in user may see it.
@@ -57,16 +73,18 @@ export function visibleGroups(groups: NavGroup[], userRoles: readonly string[] |
     .filter((g) => g.items.length > 0);
 }
 
+/**
+ * The first group carries no label on purpose: it is the primary set, the four destinations someone
+ * works in all day, and a heading over them would only name the app. Every group after it is
+ * labelled, and the rail renders those at a smaller size.
+ */
 export const NAV_GROUPS: NavGroup[] = [
   {
-    items: [{ title: 'Overview', href: '/', icon: IconDashboard }],
-  },
-  {
-    label: 'Content',
     items: [
-      { title: 'Content types', href: '/schemas', icon: IconContentTypes , roles: ['SuperAdmin', 'Admin', 'Editor'] },
-      { title: 'Entries', href: '/content', icon: IconContent , roles: ['SuperAdmin', 'Admin'] },
-      { title: 'Workflows', href: '/workflows', icon: IconWorkflows , roles: ['SuperAdmin', 'Admin'] },
+      { title: 'Overview', href: '/', icon: IconDashboard },
+      { title: 'Entries', href: '/content', icon: IconContent, metric: 'entries', roles: ['SuperAdmin', 'Admin'] },
+      { title: 'Content types', href: '/schemas', icon: IconContentTypes, metric: 'contentTypes', roles: ['SuperAdmin', 'Admin', 'Editor'] },
+      { title: 'Workflows', href: '/workflows', icon: IconWorkflows, metric: 'workflows', roles: ['SuperAdmin', 'Admin'] },
     ],
   },
   {
@@ -84,7 +102,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { title: 'Accounting', href: '/accounting', icon: IconCoins , roles: ['SuperAdmin', 'Admin', 'Accountant'] },
       { title: 'Analytics', href: '/analytics', icon: IconAnalytics , roles: ['SuperAdmin', 'Admin'] },
-      { title: 'Email events', href: '/email-events', icon: IconEnvelope , roles: ['SuperAdmin', 'Admin'] },
+      { title: 'Email events', href: '/email-events', icon: IconEnvelope, metric: 'recentBounces', tone: 'warning', roles: ['SuperAdmin', 'Admin'] },
       { title: 'Feature flags', href: '/feature-flags', icon: IconFlag , roles: ['SuperAdmin', 'Admin'] },
       { title: 'PWA installs', href: '/pwa', icon: IconMobile , roles: ['SuperAdmin', 'Admin'] },
     ],
@@ -93,7 +111,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'System',
     items: [
       { title: 'Audit log', href: '/audit', icon: IconHistory , roles: ['SuperAdmin', 'Admin'] },
-      { title: 'Errors', href: '/errors', icon: IconBug , roles: ['SuperAdmin', 'Admin'] },
+      { title: 'Errors', href: '/errors', icon: IconBug, metric: 'unresolvedErrors', tone: 'danger', roles: ['SuperAdmin', 'Admin'] },
       { title: 'Health', href: '/ops/health', icon: IconHealth },
       { title: 'Email', href: '/settings/email', icon: IconEnvelope , roles: ['SuperAdmin'] },
       { title: 'Security', href: '/settings/security', icon: IconShield , roles: ['SuperAdmin', 'Admin'] },

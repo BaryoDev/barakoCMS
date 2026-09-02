@@ -268,6 +268,70 @@ public class RoleGateTests
         return client;
     }
 
+    /// <summary>
+    /// A role gate that names Admin also names SuperAdmin.
+    /// </summary>
+    /// <remarks>
+    /// <c>POST /api/content-types</c> was <c>Roles("Admin")</c> alone, the only gate in the tree
+    /// that left SuperAdmin out, from the endpoint's first commit until #448. Nothing caught it:
+    /// the seeded admin holds both roles and <see cref="AdminClient"/> authenticates as both, so no
+    /// test in the suite has ever presented a SuperAdmin-only principal to a gate.
+    ///
+    /// Asserted structurally rather than by adding such a principal to the three theories above.
+    /// Those probe with unparseable ids and read status codes, so they would have to know each
+    /// route's expected answer; this reads the declared names and needs no request at all.
+    ///
+    /// If a gate ever should exclude SuperAdmin deliberately, this test is the place to say so,
+    /// with the route named and the reason written down. Do not delete it to make one route pass.
+    /// </remarks>
+    [Fact]
+    public void A_role_gate_that_names_Admin_also_names_SuperAdmin()
+    {
+        var core = typeof(Program).Assembly;
+
+        var offenders = _factory.Services.GetServices<EndpointDataSource>()
+            .SelectMany(source => source.Endpoints)
+            .OfType<RouteEndpoint>()
+            .Select(endpoint => new
+            {
+                endpoint.RoutePattern,
+                Definition = endpoint.Metadata.OfType<EndpointDefinition>().FirstOrDefault(),
+                Methods = endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods ?? [],
+            })
+            .Where(x => x.Definition is not null && x.Definition.EndpointType.Assembly == core)
+            .Where(x => x.Definition!.AllowedRoles?.Contains("Admin") == true
+                        && x.Definition.AllowedRoles?.Contains("SuperAdmin") != true)
+            .SelectMany(x => x.Methods.Select(m => $"{m} /{x.RoutePattern.RawText?.TrimStart('/')}"))
+            .Distinct()
+            .OrderBy(x => x, StringComparer.Ordinal)
+            .ToList();
+
+        offenders.Should().BeEmpty(
+            "a gate naming Admin but not SuperAdmin locks the higher role out of a surface the "
+          + "lower one reaches, and PermissionResolver treats SuperAdmin as a blanket bypass "
+          + "everywhere else");
+    }
+
+    /// <summary>
+    /// The control for the test above: it is reading real gates, not an empty sequence.
+    /// </summary>
+    [Fact]
+    public void Some_core_gate_actually_names_Admin()
+    {
+        var core = typeof(Program).Assembly;
+
+        var naming = _factory.Services.GetServices<EndpointDataSource>()
+            .SelectMany(source => source.Endpoints)
+            .OfType<RouteEndpoint>()
+            .Select(endpoint => endpoint.Metadata.OfType<EndpointDefinition>().FirstOrDefault())
+            .Where(d => d is not null && d.EndpointType.Assembly == core)
+            .Count(d => d!.AllowedRoles?.Contains("Admin") == true);
+
+        naming.Should().BeGreaterThan(0,
+            "otherwise the assertion above passes by finding nothing to check, which is how a "
+          + "structural test stops testing without failing");
+    }
+
     private IReadOnlyList<string> GatedRoutesFromTheRunningHost()
     {
         var core = typeof(Program).Assembly;
