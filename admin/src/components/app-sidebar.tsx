@@ -3,11 +3,10 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useTheme } from 'next-themes';
 import { useAuth } from '@/hooks/use-auth';
 import { BrandMark, BrandWordmark } from '@/components/brand';
 import { NAV_GROUPS, isNavItemActive, visibleGroups } from '@/lib/navigation';
-import { IconMoon, IconMore, IconSignOut, IconSun, IconUser } from '@/components/icons';
+import { IconMore, IconSignOut, IconUser } from '@/components/icons';
 import { AboutDialog } from '@/components/about-dialog';
 import { useApiMeta } from '@/hooks/use-meta';
 import {
@@ -39,7 +38,6 @@ export function AppSidebar() {
   // all nineteen destinations and sixteen of them answered 403 on arrival. The backend was never
   // the problem; the sidebar was advertising doors it knew were locked.
   const groups = visibleGroups(NAV_GROUPS, user?.roles);
-  const { resolvedTheme, setTheme } = useTheme();
   const { data: meta } = useApiMeta();
   const [aboutOpen, setAboutOpen] = useState(false);
 
@@ -110,12 +108,6 @@ export function AppSidebar() {
                   </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
-                >
-                  {resolvedTheme === 'dark' ? <IconSun /> : <IconMoon />}
-                  Switch to {resolvedTheme === 'dark' ? 'light' : 'dark'} theme
-                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={logout} variant="destructive">
                   <IconSignOut />
