@@ -306,6 +306,37 @@ CREATE TABLE IF NOT EXISTS public.mt_doc_email_settings (
 );
 
 -- ---------------------------------------------------------------------------
+-- Content type sourcing policies (#230).
+--
+-- Whether entries of one content type are event sourced, keyed by the type
+-- NAME so that deleting a type and creating it again inherits the answer
+-- instead of re-deciding it. Written once per name and never updated or
+-- deleted by any code path.
+--
+-- Empty on arrival, and a name with no row here is not event sourced, which is
+-- what every type in a 3.x database is: the document stays the source of truth
+-- and events keep being appended for history and audit exactly as before. So
+-- creating this table moves no data and changes no behaviour until somebody
+-- creates a type asking for event sourcing.
+--
+-- Multi-tenanted, so tenant_id leads the primary key. The column order and the
+-- constraint name match what Marten generates, so a database that has run this
+-- is indistinguishable from a freshly created one.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.mt_doc_content_type_sourcing_policies (
+    tenant_id           varchar                     NOT NULL DEFAULT '*DEFAULT*',
+    id                  varchar                     NOT NULL,
+    data                jsonb                       NOT NULL,
+    mt_last_modified    timestamp with time zone    NULL DEFAULT (transaction_timestamp()),
+    mt_version          uuid                        NOT NULL DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
+    mt_dotnet_type      varchar                     NULL,
+    CONSTRAINT pkey_mt_doc_content_type_sourcing_policies_tenant_id_id PRIMARY KEY (tenant_id, id)
+);
+
+DROP POLICY IF EXISTS marten_tenant_isolation ON public.mt_doc_content_type_sourcing_policies;
+ALTER TABLE public.mt_doc_content_type_sourcing_policies NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.mt_doc_content_type_sourcing_policies DISABLE ROW LEVEL SECURITY;
+
 -- Scheduled becomes a real content status (#440, DECISIONS.md D12).
 --
 -- ContentStatus gained a fourth member, Scheduled = 3, appended rather than

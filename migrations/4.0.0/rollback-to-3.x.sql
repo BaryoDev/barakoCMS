@@ -111,6 +111,23 @@ DROP TABLE IF EXISTS public.mt_doc_query_definitions;
 DROP TABLE IF EXISTS public.mt_doc_connector_secrets;
 DROP TABLE IF EXISTS public.mt_doc_connectors;
 
+-- Content type sourcing policies. Deliberately NOT dropped, and this is the one table in this file
+-- that stays.
+--
+-- 3.x has no such table and never reads it, so leaving it costs an unused table and nothing else.
+-- Dropping it costs the decision. The whole point of the policy is that it belongs to the name and
+-- cannot be changed once taken: a type created as event sourced cannot be turned back into an
+-- ordinary one, because turning it off discards the record its callers rely on. Drop the table and
+-- that guarantee lasts exactly as long as nobody rolls back, since re-upgrading to 4.0 would find no
+-- decision for the name and accept either answer, including the opposite one, against streams
+-- written under the first.
+--
+-- An operator who genuinely wants the name freed can drop the table by hand. Doing it as a step in a
+-- rollback runbook means doing it without being asked.
+--
+-- The rest of the rollback is unaffected: entries and their streams are untouched, and 3.x treats
+-- every type as document sourced regardless of what this table says.
+
 -- Scheduled entries go back to being drafts (#440). 3.x has no Scheduled status,
 -- and its sweeper selects drafts with a publish time, so this is what makes those
 -- entries publish again rather than sitting at a status nothing understands.

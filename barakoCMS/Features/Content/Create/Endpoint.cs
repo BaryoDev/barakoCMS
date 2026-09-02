@@ -105,9 +105,14 @@ internal class Endpoint : Endpoint<Request, Response>
                 .Where(v => !string.IsNullOrWhiteSpace(v)));
 
         var contentId = Guid.NewGuid();
+        // Stored as the caller spelled it, deliberately, and the rebuild is what compares
+        // case-insensitively. Normalising here looks like the tidier fix and is not: the type name
+        // lands on the Content document via the projection, and modules match it exactly.
+        // BarakoCMS.Accounting queries ContentType == "journalEntry", so lowercasing the write turned
+        // every ledger and trial balance into zero rows, silently, with the postings still in place.
         var @event = new barakoCMS.Events.ContentCreated(contentId, req.ContentType, req.Data, req.Status, userId, searchText, req.Sensitivity);
 
-        var created = _contentWriter.Create(@event);
+        var created = await _contentWriter.CreateAsync(@event, ct);
 
         // A type with its own lifecycle starts its entries at the state it declared. Set on the
         // document rather than carried in ContentCreated, because the event is public API under

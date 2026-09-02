@@ -5,7 +5,7 @@ using Marten;
 namespace barakoCMS.Features.Content.Schedule;
 
 /// <summary>
-/// PUT /api/contents/{Id}/schedule — arm (or clear) the times at which the scheduler will publish a
+/// PUT /api/contents/{Id}/schedule. Arms (or clears) the times at which the scheduler will publish a
 /// Draft or unpublish (Archive) a Published item. The times are stored on the content read model as
 /// intent; <see cref="Infrastructure.Services.ScheduledContentService"/> consumes them on its sweep and
 /// emits a real ContentStatusChanged event for each transition. Requires the same "update" permission as
@@ -75,8 +75,22 @@ internal class Endpoint : Endpoint<Request, Response>
             events.Add(new barakoCMS.Events.ContentStatusChanged(content.Id, status, userId));
         }
 
-        await _contentWriter.AppendOptimisticAsync(content, events, ct);
-        await _session.SaveChangesAsync(ct);
+        try
+        {
+            // The version-aware overload, not the single-event one. That one appends without ever
+            // asking where the stream was, so an event-sourced type documented as answering 409 to a
+            // stale write answered 200 here and armed a schedule against a copy that had moved on.
+            //
+            // Both events go in one call rather than two, so the schedule and the status it implies
+            // land in the same commit under the same expected version. Appending them separately
+            // would leave a stream that can hold a schedule with no status behind it.
+            await _contentWriter.AppendAsync(content, events, req.Version == 0 ? null : req.Version, ct);
+            await _session.SaveChangesAsync(ct);
+        }
+        catch (StaleContentException ex)
+        {
+            ThrowError(e => e.Version, ex.Message, 409);
+        }
 
         await Send.ResponseAsync(new Response
         {
