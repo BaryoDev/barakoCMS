@@ -70,6 +70,12 @@ before this existed declares nothing, and refusing them to enforce a field they 
 about would break the ecosystem to make a point. What core will not do is load a module that states
 a version core cannot honour: that is refused at startup, by name, before anything is registered.
 
+**Checking what an instance loaded.** `GET /api/modules` lists the modules a running instance
+registered, each with the contract version it declared, so an author can confirm a deployment picked
+up their module and which version it thinks it is talking to. It is SuperAdmin or Admin, and it
+reports the name and the contract version and nothing else. See
+[docs/module-inventory.md](docs/module-inventory.md).
+
 ## Writing a module
 
 Implement `IBarakoModule` (all members but `Name` have default no-op implementations, so implement
