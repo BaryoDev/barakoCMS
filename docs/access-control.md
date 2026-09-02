@@ -17,7 +17,7 @@ This is exactly the treasurer/secretary/admin ask, and it is built:
 - `PermissionResolver` enforces it: **additive union** across a user's roles
   (granted if ANY role allows), **SuperAdmin bypasses**, conditions evaluated
   per row.
-- Content endpoints (Create/List/Get/Update/Delete/ChangeStatus) call
+- Content endpoints (Create/List/Get/Update/Delete/ChangeStatus/History/Rollback) call
   `CanPerformActionAsync(user, contentTypeSlug, action, content)`.
 
 So your example is pure configuration, no code:
