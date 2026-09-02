@@ -414,6 +414,17 @@ public static class ServiceCollectionExtensions
             // Conjoined multi-tenant, deliberately, unlike the settings documents above. A credential
             // belongs to the tenant that added it, and one tenant's admin reaching another's is the
             // exact failure #287 found in the daemon.
+            // Conjoined, and the unique index is PerTenant for the same reason the connector slug is:
+            // one tenant taking "/about" must not stop every other tenant having one.
+            options.Schema.For<UrlRedirect>()
+                .MultiTenanted()
+                .DocumentAlias("url_redirects")
+                .Index(x => x.FromPath, idx =>
+                {
+                    idx.IsUnique = true;
+                    idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
+                });
+
             options.Schema.For<Connector>()
                 .MultiTenanted()
                 .DocumentAlias("connectors")
