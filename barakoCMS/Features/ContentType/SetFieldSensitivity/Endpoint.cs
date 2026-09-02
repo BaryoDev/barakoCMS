@@ -57,17 +57,20 @@ internal class Endpoint : Endpoint<Request, Response>
     private readonly IContentWriter _writer;
     private readonly barakoCMS.Infrastructure.OpenApi.DeliveryDocumentCache _openApiCache;
     private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
+    private readonly IContentSourcingPolicy _sourcing;
 
     public Endpoint(
         IDocumentSession session,
         IContentWriter writer,
         barakoCMS.Infrastructure.OpenApi.DeliveryDocumentCache openApiCache,
-        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
+        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
+        IContentSourcingPolicy sourcing)
     {
         _session = session;
         _writer = writer;
         _openApiCache = openApiCache;
         _tenant = tenant;
+        _sourcing = sourcing;
     }
 
     public override void Configure()
@@ -112,6 +115,21 @@ internal class Endpoint : Endpoint<Request, Response>
             // Refused rather than dropped. A caller who sends both believes they have restricted the
             // field to a role list, and a silent drop leaves them believing it.
             AddError("A Public field cannot carry visibleToRoles or a mask: everyone reads it.");
+            await Send.ErrorsAsync(400, ct);
+            return;
+        }
+
+        // Decision 2 of #230, enforced here as well as at creation. An event-sourced type may not
+        // hold non-Public fields, and a type that could not be created with one must not be able to
+        // acquire one afterwards: raising a field on it would put personal data into an append-only
+        // stream that nothing can erase it from. Lowering back to Public is still allowed, so a field
+        // is never stranded.
+        if (to != SensitivityLevel.Public && await _sourcing.IsEventSourcedAsync(def.Name, ct))
+        {
+            AddError(
+                $"'{def.Name}' is event sourced, so its fields have to stay Public. Raising "
+                + $"'{field.Name}' to {to} would put values into an append-only stream that no "
+                + "erasure request can take them out of.");
             await Send.ErrorsAsync(400, ct);
             return;
         }
@@ -255,8 +273,8 @@ internal class Endpoint : Endpoint<Request, Response>
                 if (string.Equals(rebuilt, content.SearchText, StringComparison.Ordinal))
                     continue;
 
-                _writer.Append(content, new ContentFieldSensitivityChanged(
-                    content.Id, fieldName, from, to, rebuilt, actorId));
+                await _writer.AppendAsync(content, new ContentFieldSensitivityChanged(
+                    content.Id, fieldName, from, to, rebuilt, actorId), ct);
 
                 staged = true;
                 updated++;

@@ -39,7 +39,7 @@ public class ContentStreamRebuildTests
             var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
             var writer = scope.ServiceProvider.GetRequiredService<IContentWriter>();
 
-            var content = writer.Create(new ContentCreated(
+            var content = await writer.CreateAsync(new ContentCreated(
                 id,
                 "article",
                 new Dictionary<string, object> { ["Title"] = "first" },
@@ -49,13 +49,13 @@ public class ContentStreamRebuildTests
                 ContentStatus.Archived,
                 author,
                 "first",
-                SensitivityLevel.Hidden));
+                SensitivityLevel.Hidden), default);
 
-            writer.Append(content, new ContentUpdated(
-                id, new Dictionary<string, object> { ["Title"] = "second" }, editor, "second"));
-            writer.Append(content, new ContentStatusChanged(id, ContentStatus.Published, editor));
-            writer.Append(content, new ContentScheduled(id, publishAt, unpublishAt, editor));
-            writer.Append(content, new ContentSensitivityChanged(id, SensitivityLevel.Sensitive, editor));
+            await writer.AppendAsync(content, new ContentUpdated(
+                id, new Dictionary<string, object> { ["Title"] = "second" }, editor, "second"), default);
+            await writer.AppendAsync(content, new ContentStatusChanged(id, ContentStatus.Published, editor), default);
+            await writer.AppendAsync(content, new ContentScheduled(id, publishAt, unpublishAt, editor), default);
+            await writer.AppendAsync(content, new ContentSensitivityChanged(id, SensitivityLevel.Sensitive, editor), default);
 
             await session.SaveChangesAsync();
         }
