@@ -246,7 +246,7 @@ public class ScheduledContentService : BackgroundService
 
             // Constructed rather than injected: this sweep opens its own session per tenant, so there
             // is no scoped writer to resolve.
-            var writer = new ContentWriter(session);
+            var writer = new ContentWriter(session, new ContentSourcingPolicyService(session));
             var appliedInBatch = 0;
 
             foreach (var content in due)
@@ -279,7 +279,7 @@ public class ScheduledContentService : BackgroundService
                         // would leave the item throwing on every tick forever.
                         foreach (var @event in events)
                         {
-                            writer.Append(content, @event);
+                            await writer.AppendAsync(content, @event, ct);
                         }
                     }
                     else

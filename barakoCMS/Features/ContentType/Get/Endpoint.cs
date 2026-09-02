@@ -31,9 +31,23 @@ internal class Endpoint : Endpoint<ListRequest, PaginatedResponse<barakoCMS.Feat
             .OrderBy(x => x.Name)
             .ToPagedResponseAsync(req, ct);
 
+        // One load for the page rather than one per type. The policies are keyed by the same name
+        // the definitions carry, and a name with no policy is not event sourced.
+        var policies = page.Items.Count == 0
+            ? new List<ContentTypeSourcingPolicy>()
+            : (await _session.LoadManyAsync<ContentTypeSourcingPolicy>(
+                page.Items.Select(x => x.Name).ToArray())).ToList();
+
+        var eventSourced = policies
+            .Where(p => p.EventSourced)
+            .Select(p => p.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
         await Send.OkAsync(new PaginatedResponse<barakoCMS.Features.ContentType.ContentTypeResponse>
         {
-            Items = page.Items.Select(barakoCMS.Features.ContentType.ContentTypeResponse.From).ToList(),
+            Items = page.Items
+                .Select(d => barakoCMS.Features.ContentType.ContentTypeResponse.From(d, eventSourced.Contains(d.Name)))
+                .ToList(),
             Page = page.Page,
             PageSize = page.PageSize,
             TotalItems = page.TotalItems,
