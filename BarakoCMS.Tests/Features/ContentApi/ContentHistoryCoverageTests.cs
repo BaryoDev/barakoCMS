@@ -76,7 +76,7 @@ public class ContentHistoryCoverageTests
             var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
             var writer = scope.ServiceProvider.GetRequiredService<IContentWriter>();
             var content = (await session.LoadAsync<barakoCMS.Models.Content>(id))!;
-            writer.Append(content, new ContentSensitivityChanged(id, SensitivityLevel.Sensitive, Guid.NewGuid()));
+            await writer.AppendAsync(content, new ContentSensitivityChanged(id, SensitivityLevel.Sensitive, Guid.NewGuid()), default);
             await session.SaveChangesAsync();
         }
 

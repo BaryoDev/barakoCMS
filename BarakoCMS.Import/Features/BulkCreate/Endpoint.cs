@@ -124,7 +124,7 @@ public class Endpoint : Endpoint<Request, Response>
 
             var @event = new ContentCreated(id, req.ContentType, data, req.Status, userId, searchText, SensitivityLevel.Public);
 
-            _contentWriter.Create(@event);
+            await _contentWriter.CreateAsync(@event, ct);
         }
         // All content items (and their event streams) commit atomically.
         await _session.SaveChangesAsync(ct);

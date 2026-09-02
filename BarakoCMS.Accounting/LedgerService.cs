@@ -58,7 +58,8 @@ public class LedgerService
     /// </remarks>
     [Obsolete("Use the constructor taking IContentWriter. Removal planned for barakoCMS 5.0.")]
     public LedgerService(IDocumentSession session)
-        : this(session, new barakoCMS.Infrastructure.Services.ContentWriter(session))
+        : this(session, new barakoCMS.Infrastructure.Services.ContentWriter(
+            session, new barakoCMS.Infrastructure.Services.ContentSourcingPolicyService(session)))
     {
     }
 
@@ -130,7 +131,7 @@ public class LedgerService
             barakoCMS.Models.ContentStatus.Published, userId, searchText,
             barakoCMS.Models.SensitivityLevel.Public);
 
-        _contentWriter.Create(created);
+        await _contentWriter.CreateAsync(created, ct);
 
         // The entry and the sequence increment the hook made commit in one transaction.
         await _session.SaveChangesAsync(ct);

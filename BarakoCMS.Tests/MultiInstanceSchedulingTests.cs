@@ -140,12 +140,12 @@ public class MultiInstanceSchedulingTests
             var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
             var writer = scope.ServiceProvider.GetRequiredService<barakoCMS.Core.Interfaces.IContentWriter>();
 
-            var content = writer.Create(new ContentCreated(
+            var content = await writer.CreateAsync(new ContentCreated(
                 id, "scheduled-article", new Dictionary<string, object> { ["Title"] = "due" },
-                ContentStatus.Draft, author, "due", SensitivityLevel.Public));
+                ContentStatus.Draft, author, "due", SensitivityLevel.Public), default);
 
-            writer.Append(content, new ContentScheduled(
-                id, DateTime.UtcNow.AddMinutes(-5), null, author));
+            await writer.AppendAsync(content, new ContentScheduled(
+                id, DateTime.UtcNow.AddMinutes(-5), null, author), default);
 
             await session.SaveChangesAsync();
         }
