@@ -116,27 +116,6 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
 
             services.Remove(retention);
 
-            // The runner, and this one caused a real failure rather than a theoretical one.
-            //
-            // It polls every five seconds and claims any Pending or Running WorkflowRun it finds,
-            // which includes one a test seeded and is about to assert on. A test class run on its own
-            // finishes before the first poll, so this is invisible locally and shows up only in a
-            // full suite: Two_nodes_cannot_claim_the_same_attempt failed in CI with LeasedBy holding
-            // the runner's node name instead of the one the test wrote.
-            //
-            // Same shape as #424 and the same remedy. Nothing drives the runner through DI: the
-            // tests that exercise it construct what they need directly.
-            var runner = services.SingleOrDefault(d =>
-                d.ImplementationType == typeof(barakoCMS.Features.Workflows.WorkflowRunner));
-            if (runner is null)
-            {
-                throw new InvalidOperationException(
-                    "WorkflowRunner is no longer registered the way this fixture expects, so it may "
-                  + "still be claiming attempts out from under tests that seeded them.");
-            }
-
-            services.Remove(runner);
-
             new BarakoCMS.Email.Resend.ResendEmailModule().ConfigureServices(services, ctx.Configuration);
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Email.Resend.ResendEmailModule(), opts));
 

@@ -4,7 +4,9 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using FluentAssertions;
 using Marten;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Xunit;
 using barakoCMS.Models;
 
@@ -281,6 +283,56 @@ public class WorkflowRunTests
         return client;
     }
 
+    /// <summary>
+    /// The parking below is load-bearing, so it gets a gate rather than a comment.
+    /// </summary>
+    /// <remarks>
+    /// Every seeded run in this class is parked out of the hosted runner's reach, because the runner
+    /// polls every five seconds and claims any Pending or Running run it finds. Without that, the
+    /// tests here pass alone and fail in a full suite, which is the shape that took two rounds of CI
+    /// to find. This drives one poll directly and asserts the runner leaves a seeded run alone, so
+    /// if the parking stops working it fails here and deterministically rather than somewhere else
+    /// and sometimes.
+    /// </remarks>
+    [Fact]
+    public async Task A_seeded_run_is_parked_where_the_hosted_runner_will_not_claim_it()
+    {
+        var pending = await SeedRunAsync(actions: 1);
+        var running = await SeedRunAsync(actions: 1, status: AttemptStatus.Running);
+
+        var runner = new barakoCMS.Features.Workflows.WorkflowRunner(
+            _factory.Services,
+            _factory.Services.GetRequiredService<ILogger<barakoCMS.Features.Workflows.WorkflowRunner>>(),
+            _factory.Services.GetRequiredService<IConfiguration>());
+
+        // Drained rather than polled once. RunOnceAsync returns as soon as it claims anything, and
+        // the database holds runs from other classes, so a single poll could return before it ever
+        // reached these two and the assertions below would be vacuous. Draining to "nothing left to
+        // claim" means every candidate was examined, including both of these.
+        var polls = 0;
+        while (await runner.RunOnceAsync(TestContext.Current.CancellationToken))
+        {
+            (++polls).Should().BeLessThan(200, "the runner should drain rather than find work forever");
+        }
+
+        var store = _factory.Services.GetRequiredService<IDocumentStore>();
+        await using var check = store.QuerySession();
+
+        var afterPending = await check.LoadAsync<WorkflowRun>(pending, TestContext.Current.CancellationToken);
+        afterPending!.Actions[0].LeasedBy.Should().BeNull("a pending attempt parked in the future is not due");
+        afterPending.Actions[0].Status.Should().Be(AttemptStatus.Pending);
+
+        var afterRunning = await check.LoadAsync<WorkflowRun>(running, TestContext.Current.CancellationToken);
+        afterRunning!.Actions[0].LeasedBy.Should().Be("a-node-that-is-not-this-one",
+            "a running attempt with a live lease belongs to somebody else");
+    }
+
+    /// <summary>
+    /// Far enough out that the hosted runner never treats a seeded attempt as due, and far enough
+    /// out that a slow suite does not walk into it.
+    /// </summary>
+    private static DateTimeOffset ParkedUntil => DateTimeOffset.UtcNow.AddHours(1);
+
     private async Task<Guid> SeedRunAsync(
         int actions, AttemptStatus status = AttemptStatus.Pending, int attempts = 0)
     {
@@ -308,6 +360,19 @@ public class WorkflowRunTests
                 Attempts = attempts,
                 IdempotencyKey = $"{run.Id:N}-{i}",
                 Error = status == AttemptStatus.Failed ? "the provider answered 500" : null,
+
+                // Parked out of the hosted runner's reach. It polls every five seconds and claims
+                // any Pending or Running run it finds, which includes one seeded here and about to
+                // be asserted on: Two_nodes_cannot_claim_the_same_attempt failed in CI with
+                // LeasedBy holding the runner's node name instead of the one the test wrote.
+                //
+                // A future NextAttemptAt makes NextDue skip a Pending attempt and a live lease makes
+                // it skip a Running one, and with nothing due the runner returns without writing.
+                // The alternative, taking the runner out of the fixture, is what broke every
+                // WorkflowFiringTests case: those poll for the hosted runner to do the work.
+                NextAttemptAt = status == AttemptStatus.Pending ? ParkedUntil : null,
+                LeaseExpiresAt = status == AttemptStatus.Running ? ParkedUntil : null,
+                LeasedBy = status == AttemptStatus.Running ? "a-node-that-is-not-this-one" : null,
             });
         }
 
