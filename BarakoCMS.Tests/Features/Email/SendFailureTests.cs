@@ -41,7 +41,30 @@ public class SendFailureTests
 {
     private readonly IntegrationTestFixture _factory;
 
+    private static int _ipCounter;
+
+    /// <summary>
+    /// One rate-limit bucket per test, stamped on every client this class builds.
+    /// </summary>
+    /// <remarks>
+    /// Registration and the sign-in code route both allow five requests per window per IP, and every
+    /// test in the suite otherwise shares one address. These tests spend several each, so without
+    /// this they drain the bucket and the next class to call an auth route fails on a 429 that has
+    /// nothing to do with it. That is exactly what happened: locally the class passed, and in CI two
+    /// unrelated auth tests came back 429.
+    ///
+    /// xunit constructs the class once per test method, so this counter hands each test its own.
+    /// The IPv6 documentation range again, on a different subnet from the other classes using it.
+    /// </remarks>
+    private readonly string _ip = $"2001:db8:123::{Interlocked.Increment(ref _ipCounter):x}";
+
     public SendFailureTests(IntegrationTestFixture factory) => _factory = factory;
+
+    private HttpClient Client(HttpClient client)
+    {
+        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, _ip);
+        return client;
+    }
 
     /// <summary>A host whose only difference is that email always fails.</summary>
     private (HttpClient Client, FailingEmailService Email) BrokenEmailHost()
@@ -55,7 +78,7 @@ public class SendFailureTests
                 services.AddSingleton<IEmailService>(failing);
             }));
 
-        return (derived.CreateClient(), failing);
+        return (Client(derived.CreateClient()), failing);
     }
 
     private static object Registration(string email) => new
@@ -69,7 +92,7 @@ public class SendFailureTests
     public async Task Registration_answers_the_same_thing_when_the_provider_is_down()
     {
         var (broken, failing) = BrokenEmailHost();
-        var working = _factory.CreateClient();
+        var working = Client(_factory.CreateClient());
 
         var down = await broken.PostAsJsonAsync("/api/auth/register",
             Registration($"down-{Guid.NewGuid():N}@example.com"), TestContext.Current.CancellationToken);
@@ -125,7 +148,7 @@ public class SendFailureTests
     public async Task A_sign_in_code_request_answers_the_same_thing_whether_it_was_sent_or_not()
     {
         var (broken, failing) = BrokenEmailHost();
-        var working = _factory.CreateClient();
+        var working = Client(_factory.CreateClient());
 
         var registered = await SignedUpEmailAsync();
         var unknown = $"nobody-{Guid.NewGuid():N}@example.com";
