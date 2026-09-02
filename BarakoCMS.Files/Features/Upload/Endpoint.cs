@@ -1,4 +1,5 @@
 using FastEndpoints;
+using Microsoft.AspNetCore.Http;
 using Marten;
 
 namespace BarakoCMS.Files.Features.Upload;
@@ -17,7 +18,7 @@ public class Response
 }
 
 /// <summary>
-/// POST /api/files — upload a single file (image or PDF). Bytes go through the configured
+/// POST /api/files. Uploads a single file (image or PDF). Bytes go through the configured
 /// <see cref="IFileStorage"/> (Postgres or S3); metadata is recorded in Postgres. Pass a form field
 /// <c>isPublic=true</c> to make it anonymously readable; the default is private (fail closed).
 /// </summary>
@@ -35,11 +36,19 @@ public class Endpoint : EndpointWithoutRequest<Response>
 
     private readonly IDocumentSession _session;
     private readonly IFileStorage _storage;
+    private readonly IFileScanner _scanner;
+    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
 
-    public Endpoint(IDocumentSession session, IFileStorage storage)
+    public Endpoint(
+        IDocumentSession session,
+        IFileStorage storage,
+        IFileScanner scanner,
+        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
     {
         _session = session;
         _storage = storage;
+        _scanner = scanner;
+        _tenant = tenant;
     }
 
     public override void Configure()
@@ -90,6 +99,34 @@ public class Endpoint : EndpointWithoutRequest<Response>
         var ext = Path.GetExtension(file.FileName);
         var key = $"{Guid.NewGuid():N}{ext}";
 
+        if (_scanner.Configured)
+        {
+            // Its own read of the file, finished before storage opens its own. The stream is
+            // forward-only, so scanning and storing cannot share one, and buffering ten megabytes per
+            // request to avoid a second open is the worse trade.
+            ScanResult scan;
+            await using (var forScanning = file.OpenReadStream())
+            {
+                scan = await _scanner.ScanAsync(forScanning, ct);
+            }
+
+            if (scan.Verdict != ScanVerdict.Clean)
+            {
+                await RecordRefusalAsync(file, contentType, userId, scan, ct);
+
+                // Refused either way, and the two are told apart in the message rather than in the
+                // outcome. An unreachable scanner is the operator's problem and a person waiting on
+                // it should be able to say which happened, but neither is a reason to store the file:
+                // "the scanner was down" is not evidence that a file is safe.
+                AddError(scan.Verdict == ScanVerdict.Infected
+                    ? $"This file was refused by the virus scanner ({scan.Signature})."
+                    : "This file could not be scanned, so it was not stored. Try again shortly.");
+
+                await Send.ErrorsAsync(scan.Verdict == ScanVerdict.Infected ? 422 : 503, ct);
+                return;
+            }
+        }
+
         await using var stream = file.OpenReadStream();
         var stored = await _storage.PutAsync(stream, key, contentType, isPublic, ct);
 
@@ -116,5 +153,44 @@ public class Endpoint : EndpointWithoutRequest<Response>
             IsPublic = record.IsPublic,
             PublicUrl = record.PublicUrl,
         }, 201, ct);
+    }
+
+    /// <summary>
+    /// Records what was refused and why, in the audit log rather than in a quarantine of its own.
+    /// </summary>
+    /// <remarks>
+    /// "Quarantine" usually means keeping the file somewhere an operator can look at it. That is not
+    /// what happens here and the difference is deliberate: the file is never stored, so there is
+    /// nothing on this deployment to serve by accident or to forget to clean up. What an operator
+    /// needs is the record, which is the name, the size, who sent it and what the scanner called it,
+    /// and the audit log already is that record. It is hash chained and it already has a screen, so
+    /// a refusal cannot be quietly removed from it either.
+    ///
+    /// Committed on its own, before the error response. It has to survive a request that ends in a
+    /// 4xx, and nothing else in this handler has staged a write by this point.
+    /// </remarks>
+    private async Task RecordRefusalAsync(
+        IFormFile file, string contentType, Guid userId, ScanResult scan, CancellationToken ct)
+    {
+        await barakoCMS.Infrastructure.Audit.AuditLog.RecordAsync(
+            _session,
+            _tenant.Slug,
+            scan.Verdict == ScanVerdict.Infected ? "file.refused.infected" : "file.refused.unscanned",
+            userId,
+            User.FindFirst("Username")?.Value ?? string.Empty,
+            targetType: "file",
+            targetId: Path.GetFileName(file.FileName),
+            metadata: new Dictionary<string, object>
+            {
+                ["fileName"] = Path.GetFileName(file.FileName) ?? string.Empty,
+                ["contentType"] = contentType,
+                ["size"] = file.Length,
+                // One or the other, never both, and never the file's bytes.
+                ["reason"] = scan.Signature ?? scan.Error ?? "unknown",
+            },
+            ipAddress: HttpContext.Connection.RemoteIpAddress?.ToString(),
+            ct: ct);
+
+        await _session.SaveChangesAsync(ct);
     }
 }
