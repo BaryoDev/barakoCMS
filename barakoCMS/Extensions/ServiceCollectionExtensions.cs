@@ -416,6 +416,15 @@ public static class ServiceCollectionExtensions
                     idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
                 });
 
+            options.Schema.For<QueryDefinition>()
+                .MultiTenanted()
+                .DocumentAlias("query_definitions")
+                .Index(x => x.Slug, idx =>
+                {
+                    idx.IsUnique = true;
+                    idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
+                });
+
             options.Schema.For<ConnectorSecret>()
                 .MultiTenanted()
                 .DocumentAlias("connector_secrets")
@@ -622,6 +631,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<barakoCMS.Infrastructure.Connectors.IConnectorSecretProtector, barakoCMS.Infrastructure.Connectors.ConnectorSecretProtector>();
         services.AddScoped<barakoCMS.Infrastructure.Connectors.IConnectorSender, barakoCMS.Infrastructure.Connectors.ConnectorSender>();
         services.AddScoped<barakoCMS.Infrastructure.Connectors.IRequestComposer, barakoCMS.Infrastructure.Connectors.RequestComposer>();
+        services.AddScoped<barakoCMS.Infrastructure.Connectors.IQueryRunner, barakoCMS.Infrastructure.Connectors.QueryRunner>();
         services.AddScoped<barakoCMS.Infrastructure.Auth.Mfa.IMfaService, barakoCMS.Infrastructure.Auth.Mfa.MfaService>();
         // Device trust is opt-in: the default gate does nothing. The DeviceTrust module overrides it.
         services.TryAddScoped<barakoCMS.Core.Interfaces.IDeviceGate, barakoCMS.Core.Interfaces.NoopDeviceGate>();
