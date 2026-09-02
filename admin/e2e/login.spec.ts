@@ -12,7 +12,11 @@ test.describe('Login & Authentication', () => {
     test('should show login page when unauthenticated', async ({ page }) => {
         await page.goto('/');
         await expect(page).toHaveURL(/\/login/);
-        await expect(page.getByText('Sign in to manage your content')).toBeVisible({ timeout: 10000 });
+        // Asserting the heading, not the sub-line: what this test is about is landing on the
+        // sign-in page, and the sub-line under the heading is now the API host rather than copy.
+        await expect(page.getByRole('heading', { name: 'Sign in to barakoBrew' })).toBeVisible({
+            timeout: 10000,
+        });
     });
 
     test('should show error with invalid credentials', async ({ page }) => {
