@@ -211,5 +211,12 @@ rules. The two do not overlap at all and the docs must say so.
 
 **The backend-as-a-service surface**: realtime subscriptions, schema-derived endpoints, row-level
 security. The audit found .NET-native BaaS to be the only genuinely unclaimed category, but each of
-these is larger than one Saturday, and the authorisation-boundary decision (Postgres RLS versus the
-current C#-side model) is a one-way door that has to be settled before the first of them.
+these is larger than one Saturday.
+
+The one-way door here — Postgres RLS versus the current C#-side model — is now settled, as
+`DECISIONS.md` D11: authorisation stays in the application, the database enforces tenancy only
+(#446), and the conditions gain SQL predicates without moving enforcement (#445). That is what makes
+the rest of this list buildable rather than blocked. It also sets the condition under which the
+decision is wrong, and realtime subscriptions are exactly it: the moment an untrusted client talks
+to Postgres directly, the database becomes the only boundary on that path, and D11 has to be
+reopened before that feature ships rather than after.

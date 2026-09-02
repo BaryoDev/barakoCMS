@@ -117,7 +117,10 @@ The admin UI has a tenant switcher built on these.
 
 **Postgres row-level security is not implemented.** It was the intended defence-in-depth backstop
 and there is nothing in the schema or the code that does it, so a slipped application-layer filter
-has nothing underneath it. The authorisation-boundary decision is still open (see `ROADMAP.md`).
+has nothing underneath it. What the boundary is has since been settled — `DECISIONS.md` D11:
+authorisation stays in the application, and the database enforces tenancy and nothing else. The
+policies on `tenant_id`, behind a flag and with a startup assertion so a new module's table cannot
+be silently unprotected, are issue #446.
 
 The honest trade-off of a shared database is that a serious bug's blast radius is every tenant.
 Database-per-tenant is the same Marten API and remains the escape hatch for anyone who needs hard

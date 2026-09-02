@@ -361,3 +361,66 @@ external sign-in matched on a provider subject id recorded at first link instead
 `User` would be enough and the pending row would be ceremony. That is a better design for the
 external providers anyway (an address can change hands), and if it is ever built, this decision is
 the one to revisit.
+
+---
+
+## D11. Authorisation is enforced in the application; the database enforces tenancy only
+
+**Decided:** 2 Sep 2026. **Issues:** #445, #446. **Status:** decided; both pieces of work outstanding.
+
+`IPermissionResolver` is the authorisation boundary. Content CRUD, row-level conditions, field
+sensitivity and the SuperAdmin bypass are decided in C#, against a database connection that is
+already trusted, and that is where they stay. Postgres gets exactly one enforcement job — the
+`tenant_id` discriminator (#446) — and it gets it as a backstop behind a flag, not as the place the
+rules live.
+
+The condition language is frozen as a contract at `_eq`, `_ne`, `_in`, `_nin` and `$CURRENT_USER`.
+Every role document in every deployment is written against it, and #445 makes it a second
+implementation, so adding an operator means adding it in two places at once or not at all.
+
+**Rules out:** the Supabase shape. No PostgREST-style layer that maps HTTP straight onto SQL, no
+per-end-user Postgres role, no row-level security carrying business rules, and no browser holding a
+database connection.
+
+**Why not put the rules in the database.** The attraction is real: one enforcement point, no way to
+forget a check in a new endpoint. It does not survive contact with what is actually stored here.
+
+Field sensitivity is the fact that settles it. `FieldDefinition.Sensitivity`, `VisibleToRoles` and
+`Mask` do not decide whether a row is returned, they decide what a returned row *contains* — `SSN`
+removed for one caller, `BirthDay` masked to `***` for another, both present for a third, all from
+one JSONB document. Row-level security filters rows. It has nothing to say about the inside of one,
+so the most sensitive control in `docs/access-control.md` would have to stay in C# no matter what,
+and a boundary that holds two of three layers is not a boundary — it is a second copy of the rules
+with a gap in it.
+
+The other half is that there is nothing on the other side of the boundary to protect against. Supabase
+puts RLS between an untrusted browser and the database because the browser genuinely holds a
+connection. Here every statement is issued by our own process, after FastEndpoints has run the
+permission check, over a connection string the operator controls. Policies against that connection do
+not defend against an attacker; they defend against our own bug — worth having for one flat,
+mechanical predicate like `tenant_id`, not worth having as a duplicate of the whole permission model.
+
+And the costs are not hypothetical. Per-request `SET ROLE` needs `SessionOptions.ForConnection`,
+which puts Marten into sticky mode: the connection footprint stops tracking active statements and
+starts tracking concurrent requests. Session-level `SET` breaks silently behind a transaction-pooling
+PgBouncer. A table's owner bypasses RLS unless the table is `FORCE ROW LEVEL SECURITY`, so the
+obvious single-user deployment enables policies that never fire. Each of those is payable for tenancy.
+None is payable for a rule that C# already enforces correctly.
+
+**What is worth taking from the other design, and is taken.** Two things, both additive:
+
+- **Predicates, not enforcement (#445).** Compiling conditions to a jsonb `WHERE` fragment is the
+  valuable half of "policies as data" and needs none of the boundary move. Today `Features/Content/List`
+  loads the whole collection and filters per item; a predicate makes the rules usable as a query
+  filter, so the cost tracks the page rather than the table.
+- **Tenancy at the database (#446).** `tenant_id` is a column Marten already manages. A policy on it
+  bounds every request-path session opened without a tenant. It would **not** have caught #287 — the
+  workflow daemon runs as table owner and legitimately crosses tenants, and that fix was its own — and
+  the issue says so, because a backstop sold as catching the bug that motivated it is how a control
+  gets trusted for something it does not do.
+
+**What would have to change for this to be wrong.** If BarakoCMS ever grows a path where an untrusted
+client talks to Postgres directly — a realtime subscription, a published read replica, an embedded
+SQL surface for customers — then the database is the only boundary that exists on that path and the
+answer flips. The signal to watch is a feature request for direct data access that does not go through
+the API.
