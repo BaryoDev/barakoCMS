@@ -1,0 +1,74 @@
+# Reporting which modules an instance runs
+
+`GET /api/modules` answers one question: which modules did this instance register at startup.
+
+Nothing else reported it. A deployment is core plus whatever modules the host opted into in
+`AddBarakoCMS`, and an operator, an agent or a client library all needed the same answer for the same
+reason: a call into a module the instance does not run should fail with a sentence rather than a bare
+404.
+
+## The response
+
+```
+GET /api/modules
+Authorization: Bearer <token>
+```
+
+```json
+{
+  "items": [
+    { "name": "Accounting", "contractVersion": 1 },
+    { "name": "Files", "contractVersion": 0 }
+  ],
+  "page": 1,
+  "pageSize": 100,
+  "totalItems": 2,
+  "totalPages": 1,
+  "hasNextPage": false,
+  "hasPreviousPage": false
+}
+```
+
+The usual collection envelope, not a bare array. Every collection endpoint in 4.x returns this shape
+and the root type is frozen, so a bare array is not available even for a list this short.
+`ListEnvelopeTests` holds that.
+
+`name` is `IBarakoModule.Name`, verbatim, and it is the name the host registered under.
+
+`contractVersion` is `IBarakoModule.ContractVersion`. Zero means the module stated no version, which
+the contract accepts, so zero is an answer rather than a missing value. See `ModuleContract` for what
+the number covers.
+
+Items are ordered by name. Registration order decides which module configures services first, which
+is meaningful to the host and meaningless to a caller, so two calls and two deployments of the same
+set agree on the order here.
+
+A host running no modules gets `items: []` and a 200. "None" is an answer, and a 404 would be
+indistinguishable from a route that never shipped, which is exactly what a client library asking this
+question is trying to tell apart.
+
+## What it does not report
+
+Name and contract version, and nothing else. A module knows its configuration section, its
+assemblies and therefore its file paths on the host, and none of that is a fact about the module: it
+is a description of the deployment. `ModulesEndpointTests` asserts the property names on each item
+are exactly `name` and `contractVersion`, so a field added later has to be added there too, in a line
+somebody reviews.
+
+## Authorisation
+
+`Roles("SuperAdmin", "Admin")`, matching `Features/Monitoring`, which is the nearest neighbour by
+purpose and still gates the same way.
+
+Not anonymous, and not reachable with an API key. A module list tells a caller which surfaces an
+instance exposes, which is reconnaissance. `ApiKeyScopeProcessor` confines API keys to the content
+surface and denies everything else, so this needs a human JWT: a CLI that wants it has to log in
+rather than present a key.
+
+It is deliberately not gated on a `SystemCapabilities` name. Every capability in that vocabulary
+covers a management surface this endpoint neither reads nor writes, and inventing one now would have
+to be added to `SystemCapabilities.DefaultsFor("Admin")` to reach an Admin, where
+`DataSeeder.ApplyCapabilityDefaults` leaves an already-backfilled role alone. An existing Admin would
+never receive it, and with `Auth:LegacyRoleFallback=false` that Admin is locked out of the endpoint
+with nothing in the diff that looks like a lockout. The instance-inspection surface gets a capability
+when it is migrated as a group and one name can be chosen for the whole of it.
