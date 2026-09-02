@@ -340,6 +340,17 @@ public static class ServiceCollectionExtensions
             options.Policies.AllDocumentsAreMultiTenanted();
             options.Events.TenancyStyle = JasperFx.MultiTenancy.TenancyStyle.Conjoined;
 
+            // Postgres enforces the tenant filter too, when a deployment has been set up for it.
+            // Off by default, because turning it on is not a setting change: it needs the app to
+            // connect as a role that is not the table owner's superuser, and that is a connection
+            // string and an ops step. See docs/tenancy-at-the-database.md and
+            // DatabaseTenancy.AssertUsableAsync, which refuses to start rather than let this be on
+            // and inert.
+            if (configuration.GetValue(barakoCMS.Infrastructure.Multitenancy.DatabaseTenancy.EnabledKey, false))
+            {
+                options.UseRowLevelSecurity();
+            }
+
             // Configure document versioning and indexes
             options.Schema.For<Content>()
                 .DocumentAlias("contents")
@@ -1265,6 +1276,15 @@ public static class ServiceCollectionExtensions
     public static async Task ApplyMartenSchemaAsync(this IHost host)
     {
         var store = host.Services.GetRequiredService<Marten.IDocumentStore>();
+
+        // Before the schema, not after. If database tenancy is on and the connection cannot be
+        // subject to it, the right outcome is refusing to start, and doing that before any DDL keeps
+        // a misconfigured deployment from leaving policies on tables it will then not boot against.
+        await barakoCMS.Infrastructure.Multitenancy.DatabaseTenancy.AssertUsableAsync(
+            host.Services.GetRequiredService<IConfiguration>(),
+            store,
+            host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Tenancy"));
+
         await store.Storage.ApplyAllConfiguredChangesToDatabaseAsync();
     }
 
