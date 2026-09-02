@@ -151,6 +151,21 @@ A wrong or missing key returns 401 while a key is configured, and 404 while none
 code tells you which of the two you are looking at. The key is a shared secret rather than a user, so
 keep it out of the repository and rotate it like any other credential.
 
+**Administrative endpoints gate on capabilities, not role names.** Roles, tenants and tenant
+members now ask for a capability the caller's roles carry (`manage_roles`, `manage_tenants`,
+`manage_tenant_members`) instead of matching `SuperAdmin` or `Admin` by name. Nothing to do on
+upgrade: the seeder backfills those capabilities onto the four system roles on the next start, and
+the gate still honours the old role names either way, so a host that never calls the seeder keeps
+working. Once your roles carry capabilities you can turn the names off:
+
+```bash
+Auth__LegacyRoleFallback=false
+```
+
+A role created through `POST /api/roles` can now be granted administrative access without a code
+change, and a role named `Editor` gains nothing from its name. Modules gating on `Roles(...)` are
+unaffected. See `docs/access-control.md`.
+
 **Self-registration no longer creates an account.** `POST /api/auth/register` records the request
 and emails a single-use token that is good for 24 hours; the account appears when the token comes
 back to `POST /api/auth/register/verify`. Until then no user document exists, which is the point:
