@@ -1,6 +1,7 @@
 using FastEndpoints;
 using Marten;
 using Marten.Linq.MatchesSql;
+using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 
 namespace barakoCMS.Features.Content.List;
@@ -135,20 +136,45 @@ internal class Endpoint : Endpoint<Request, PaginatedResponse<ContentResponse>>
             ? query.OrderBy(c => c.CreatedAt)
             : query.OrderByDescending(c => c.CreatedAt);
 
-        // 4. Load every row matching the content-type filter, in order. Permission can be
-        // conditional on the specific item (PermissionResolver.CanPerformActionAsync's `content`
-        // param), so there is no cheaper query-level filter that is safe to apply before this check —
-        // a per-content-type check with no item would grant access based on rules that are only
-        // supposed to hold for SOME items of that type. Pagination has to run over the permitted set,
-        // not the raw one, or a restricted user's page boundaries and total count are both wrong.
-        var allMatching = await query.ToListAsync(ct);
+        // 4. Ask whether the read rules can be a WHERE clause. When they can, the database pages and
+        // counts; when they cannot, everything below is exactly what it was.
+        var predicate = await _permissionResolver.ReadPredicateAsync(user, req.ContentType ?? string.Empty, ct);
 
-        // 5. Filter by Permission over the WHOLE matching set (not just one page of it), so a run of
-        // denied items can never produce a short or empty page while permitted items exist further
-        // down the raw ordering.
+        // Only with a named type. Across all types each type has its own rules, and one predicate
+        // cannot speak for rules it was not compiled from.
+        if (string.IsNullOrEmpty(req.ContentType)) predicate = ReadPredicate.None;
+
+        IReadOnlyList<barakoCMS.Models.Content> candidates;
+        int permittedTotal;
+
+        if (predicate.Compiled)
+        {
+            // The predicate selects the same rows CanPerformActionAsync would allow, which is the
+            // property PermissionPredicateAgreementTests holds. So the page can be taken in SQL and
+            // the total is a count rather than the length of a list nobody wanted.
+            var permitted = query.Where(c => c.MatchesSql(predicate.Sql!, predicate.Parameters));
+
+            permittedTotal = (int)await permitted.CountAsync(ct);
+            candidates = await permitted.Skip(req.Skip).Take(req.Take).ToListAsync(ct);
+        }
+        else
+        {
+            // Load every row matching the filters, in order. A rule this endpoint could not compile
+            // is conditional in a way only the item can answer, so there is no query-level filter
+            // that is safe here: a per-content-type check with no item would grant access based on
+            // rules that are only supposed to hold for SOME items of that type. Pagination then has
+            // to run over the permitted set, not the raw one, or a restricted user's page boundaries
+            // and total count are both wrong.
+            candidates = await query.ToListAsync(ct);
+            permittedTotal = -1;
+        }
+
+        // 5. Filter by permission. With a predicate this confirms the page and cannot shrink it;
+        // without one it runs over the WHOLE matching set, so a run of denied items can never
+        // produce a short or empty page while permitted items exist further down the raw ordering.
         var sensitivity = Resolve<barakoCMS.Core.Interfaces.ISensitivityService>();
         var permittedItems = new List<ContentResponse>();
-        foreach (var item in allMatching)
+        foreach (var item in candidates)
         {
             if (await _permissionResolver.CanPerformActionAsync(user, item.ContentType, "read", item, ct))
             {
@@ -169,18 +195,31 @@ internal class Endpoint : Endpoint<Request, PaginatedResponse<ContentResponse>>
             }
         }
 
-        _logger.LogInformation(
-            "Permission filtering: Retrieved={Retrieved}, Permitted={Permitted}",
-            allMatching.Count, permittedItems.Count);
+        // The per-item check is kept on the predicate path on purpose rather than trusted away. It
+        // costs one pass over at most a page, it is the thing that would notice the two evaluators
+        // disagreeing in production, and if they ever do, this is the direction that denies.
+        if (predicate.Compiled && permittedItems.Count != candidates.Count)
+        {
+            _logger.LogError(
+                "The read predicate returned {Returned} rows the per-item check reduced to {Permitted}. "
+              + "The compiled predicate and ConditionEvaluator disagree, which is a defect in "
+              + "PermissionPredicateCompiler. Serving the smaller set.",
+                candidates.Count, permittedItems.Count);
+        }
 
-        // 6. Paginate the PERMITTED set (order is already applied and preserved from step 3).
-        var pagedItems = permittedItems.Skip(req.Skip).Take(req.Take).ToList();
+        // 6. Paginate. Already done in SQL when there was a predicate.
+        var pagedItems = predicate.Compiled
+            ? permittedItems
+            : permittedItems.Skip(req.Skip).Take(req.Take).ToList();
 
         await FillVersionsAsync(pagedItems, ct);
 
+        if (permittedTotal < 0) permittedTotal = permittedItems.Count;
+
         _logger.LogInformation(
-            "Content list query: Page={Page}, PageSize={PageSize}, VisibleTotal={VisibleTotal}, Returned={Returned}",
-            req.Page, req.PageSize, permittedItems.Count, pagedItems.Count);
+            "Content list query: Page={Page}, PageSize={PageSize}, VisibleTotal={VisibleTotal}, "
+          + "Returned={Returned}, Compiled={Compiled}",
+            req.Page, req.PageSize, permittedTotal, pagedItems.Count, predicate.Compiled);
 
         // 7. Return Paginated Response
         await Send.ResponseAsync(new PaginatedResponse<ContentResponse>
@@ -188,7 +227,7 @@ internal class Endpoint : Endpoint<Request, PaginatedResponse<ContentResponse>>
             Items = pagedItems,
             Page = req.Page,
             PageSize = req.PageSize,
-            TotalItems = permittedItems.Count // Honest: counts only what this user can see.
+            TotalItems = permittedTotal // Honest: counts only what this user can see.
         }, cancellation: ct);
     }
 
