@@ -48,7 +48,9 @@ describe('nav visibility', () => {
         const seen = titles(['Editor']);
 
         expect(seen.filter((title) => gated.includes(title))).toEqual([]);
-        expect(seen.length).toBeGreaterThan(0, 'an empty nav would satisfy the line above');
+
+        // An empty nav would satisfy the line above without proving anything about gating.
+        expect(seen.length).toBeGreaterThan(0);
     });
 
     it('gives Accountant the accounting screen and nothing extra', () => {
