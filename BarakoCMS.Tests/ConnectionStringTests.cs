@@ -180,21 +180,35 @@ public class ConnectionStringTests
     /// a database" into a connection refused against localhost, surfacing long after startup as
     /// something unrelated.
     ///
-    /// Only the production half is asserted here. The Development half returns the dummy so
-    /// design-time tooling can build a store with no database behind it, and every integration test
-    /// in the suite exercises it, because the fixture forces Development. Setting
-    /// ASPNETCORE_ENVIRONMENT from a test to reach it would be process-global and would land on
-    /// whichever host happened to start next.
+    /// Both halves are asserted, through the overload that takes the Development flag as an
+    /// argument. Reading ASPNETCORE_ENVIRONMENT here instead would not merely fail to reach the
+    /// Development half: it would make this test depend on whether IntegrationTestFixture, which
+    /// sets that variable process-wide in its constructor, had started first.
     /// </remarks>
     [Fact]
     public void No_connection_string_anywhere_is_refused_by_name()
     {
         var config = CreateConfig();
 
-        var act = () => barakoCMS.Extensions.ServiceCollectionExtensions.ResolveConnectionString(config);
+        var act = () => barakoCMS.Extensions.ServiceCollectionExtensions.ResolveConnectionString(
+            config, isDevelopment: false);
 
         act.Should().Throw<InvalidOperationException>()
             .WithMessage("*ConnectionStrings:DefaultConnection*")
             .WithMessage("*DATABASE_URL*");
+    }
+
+    // The other half of the same decision, unreachable before this took the flag as an argument:
+    // Development still gets the dummy, because design-time tooling and the codegen pass need
+    // Marten to build a store with no database behind it.
+    [Fact]
+    public void No_connection_string_in_development_still_gets_the_dummy()
+    {
+        var config = CreateConfig();
+
+        var result = barakoCMS.Extensions.ServiceCollectionExtensions.ResolveConnectionString(
+            config, isDevelopment: true);
+
+        result.Should().Contain("Database=dummy");
     }
 }
