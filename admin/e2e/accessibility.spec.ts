@@ -27,6 +27,17 @@ const SCHEMA = {
     fields: [{ name: 'Title', displayName: 'Title', type: 'Text', isRequired: true }],
 };
 
+function device(id: string, description: string, status: string, current: boolean) {
+    return {
+        id,
+        description,
+        status,
+        current,
+        lastSeenIp: '203.0.113.24',
+        lastUsedAt: new Date(Date.now() - 3600_000).toISOString(),
+    };
+}
+
 function row(id: string, contentType: string, status: string, title: string, version = 3) {
     return {
         id,
@@ -138,6 +149,63 @@ test.describe('accessibility', () => {
 
         await page.goto('/content');
         await expect(page.getByRole('heading', { name: 'Entries', exact: true })).toBeVisible({ timeout: 15000 });
+        await scan(page);
+    });
+
+    test('the devices list, with a row of every status', async ({ page }) => {
+        await authed(page);
+        await stubShell(page);
+        await page.route('**/api/devices**', (r) =>
+            r.fulfill({
+                json: pageOf([
+                    device('d1', 'Chrome on macOS', 'Trusted', true),
+                    device('d2', 'Safari on iPhone', 'Trusted', false),
+                    device('d3', 'Firefox on Windows', 'Pending', false),
+                    device('d4', 'Edge on Windows', 'Revoked', false),
+                ]),
+            })
+        );
+
+        await page.goto('/settings/devices');
+        await expect(page.getByRole('heading', { name: 'Devices', exact: true })).toBeVisible({ timeout: 15000 });
+
+        // Every badge tone this screen can draw, so the scan sees the colours rather than an empty
+        // table. The accent pill on the current device is the one no other row uses.
+        const rows = page.getByRole('table');
+        await expect(rows.getByText('This device', { exact: true })).toBeVisible();
+        await expect(rows.getByText('Pending', { exact: true })).toBeVisible();
+        await expect(rows.getByText('Revoked', { exact: true }).first()).toBeVisible();
+        await scan(page);
+    });
+
+    test('export and import, with a bundle chosen and a report shown', async ({ page }) => {
+        await authed(page);
+        await stubShell(page);
+        await page.route('**/api/portability/import**', (r) =>
+            r.fulfill({
+                json: {
+                    dryRun: true,
+                    contentTypesCreated: 2,
+                    contentTypesUpdated: 1,
+                    contentsCreated: 34,
+                    contentsWithoutContentType: 3,
+                },
+            })
+        );
+
+        await page.goto('/settings/portability');
+        await expect(page.getByRole('heading', { name: 'Export and import' })).toBeVisible({ timeout: 15000 });
+
+        await page.getByLabel('Choose a bundle file').setInputFiles({
+            name: 'bundle.json',
+            mimeType: 'application/json',
+            buffer: Buffer.from(JSON.stringify({ contentTypes: [{ name: 'article' }], contents: [] })),
+        });
+        await page.getByRole('button', { name: 'Preview' }).click();
+
+        // The warning is the only thing on this page in the warning tone, and it is the reason the
+        // report exists, so scanning without it would miss the contrast pair that matters.
+        await expect(page.getByText('nothing knows which of their fields are public', { exact: false })).toBeVisible();
         await scan(page);
     });
 
