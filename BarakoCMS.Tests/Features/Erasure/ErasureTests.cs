@@ -178,12 +178,12 @@ public class ErasureTests
         var writer = scope.ServiceProvider.GetRequiredService<barakoCMS.Core.Interfaces.IContentWriter>();
         var id = Guid.NewGuid();
 
-        var content = writer.Create(new barakoCMS.Events.ContentCreated(
+        var content = await writer.CreateAsync(new barakoCMS.Events.ContentCreated(
             id, "erasure-probe", new Dictionary<string, object> { ["FullName"] = needle },
             barakoCMS.Models.ContentStatus.Draft, Guid.NewGuid(), needle,
-            barakoCMS.Models.SensitivityLevel.Public));
-        writer.Append(content, new barakoCMS.Events.ContentUpdated(
-            id, new Dictionary<string, object> { ["FullName"] = needle }, Guid.NewGuid(), needle));
+            barakoCMS.Models.SensitivityLevel.Public), default);
+        await writer.AppendAsync(content, new barakoCMS.Events.ContentUpdated(
+            id, new Dictionary<string, object> { ["FullName"] = needle }, Guid.NewGuid(), needle), default);
 
         await session.SaveChangesAsync();
         return id;
