@@ -10,7 +10,9 @@ import type {
     ScheduleContentRequest,
 } from '@/types/content';
 
-export function useContents(params: PageParams & { contentType?: string } = {}) {
+export function useContents(
+    params: PageParams & { contentType?: string; search?: string; status?: ContentStatus } = {}
+) {
     return useQuery({
         queryKey: ['contents', 'list', params],
         queryFn: async () => {

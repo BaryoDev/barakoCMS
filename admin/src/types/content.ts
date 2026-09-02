@@ -10,6 +10,10 @@ export interface ContentListItem {
     // Draft without a second request per row.
     status: ContentStatus;
     sensitivity: SensitivityLevel;
+    // The table shows this, and the list did not carry it until 4.0. Absent against an older API,
+    // which is why it is optional and why the cell renders nothing rather than a zero: a row showing
+    // v0 is a claim about the entry, and "the server did not say" is not the same claim.
+    version?: number;
 }
 
 export interface ContentDetail extends ContentListItem {
@@ -34,6 +38,10 @@ export enum ContentStatus {
     Draft = 'Draft',
     Published = 'Published',
     Archived = 'Archived',
+    // A draft with a publish time on it, waiting for the server to promote it. A real status from
+    // 4.0 rather than something this screen worked out from a date, so the filter below can ask the
+    // server for it instead of guessing over one page of rows. See DECISIONS.md D12.
+    Scheduled = 'Scheduled',
 }
 
 export enum SensitivityLevel {
@@ -73,10 +81,19 @@ export interface ContentVersion {
     sensitivity?: SensitivityLevel;
 }
 
-export const STATUS_META: Record<ContentStatus, { label: string; tone: 'muted' | 'success' | 'warning' }> = {
+/**
+ * The badge tones a status may use, a subset of StatusBadge's own union.
+ *
+ * Written out rather than imported from the component so this file stays free of UI imports. Every
+ * member here has to exist there, and `accent` is the measured 7.89:1 pair, not a new colour.
+ */
+export type StatusTone = 'muted' | 'success' | 'warning' | 'accent';
+
+export const STATUS_META: Record<ContentStatus, { label: string; tone: StatusTone }> = {
     [ContentStatus.Draft]: { label: 'Draft', tone: 'warning' },
     [ContentStatus.Published]: { label: 'Published', tone: 'success' },
     [ContentStatus.Archived]: { label: 'Archived', tone: 'muted' },
+    [ContentStatus.Scheduled]: { label: 'Scheduled', tone: 'accent' },
 };
 
 /**
@@ -92,7 +109,7 @@ export const STATUS_META: Record<ContentStatus, { label: string; tone: 'muted' |
  * Draft. Showing the raw value is worse-looking and better: it says the two are out of step, which is
  * exactly the drift these changes exist to stop hiding.
  */
-export function statusMeta(status: string | undefined): { label: string; tone: 'muted' | 'success' | 'warning' } {
+export function statusMeta(status: string | undefined): { label: string; tone: StatusTone } {
     return STATUS_META[status as ContentStatus] ?? { label: status ?? 'Unknown', tone: 'muted' };
 }
 

@@ -177,7 +177,7 @@ test('a content status crosses the wire as a name, not a number', async ({ reque
     expect(body.items.length, 'the seeded entry must be in the list').toBeGreaterThan(0);
 
     expect(typeof body.items[0].status).toBe('string');
-    expect(['Draft', 'Published', 'Archived']).toContain(body.items[0].status);
+    expect(['Draft', 'Published', 'Archived', 'Scheduled']).toContain(body.items[0].status);
 });
 
 /**

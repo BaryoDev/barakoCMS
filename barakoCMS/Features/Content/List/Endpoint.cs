@@ -1,5 +1,6 @@
 using FastEndpoints;
 using Marten;
+using Marten.Linq.MatchesSql;
 using barakoCMS.Models;
 
 namespace barakoCMS.Features.Content.List;
@@ -7,6 +8,26 @@ namespace barakoCMS.Features.Content.List;
 internal class Request : PaginatedRequest
 {
     public string? ContentType { get; set; }
+
+    /// <summary>Matches any string value in an entry's data, case-insensitively.</summary>
+    /// <remarks>
+    /// Every value, not the derived <c>SearchText</c> the anonymous delivery search uses. That one
+    /// holds only the values of fields the type declares Public, which is correct for a caller who
+    /// may see nothing else and wrong for an administrator who may. Searching it here would mean an
+    /// admin typing a customer's reference number, which happens to sit in a Sensitive field, and
+    /// getting nothing back with no way to tell a missing entry from a hidden one.
+    ///
+    /// Matching more than the caller may read is safe because the per-item permission check and the
+    /// sensitivity scrub both run afterwards on whatever this returns. The visibility rules stay in
+    /// one place rather than being restated as a query filter that could drift from them.
+    ///
+    /// Field names are not matched, only values. Searching "title" should not return every entry of
+    /// every type that has a Title.
+    /// </remarks>
+    public string? Search { get; set; }
+
+    /// <summary>One status, or null for every status.</summary>
+    public barakoCMS.Models.ContentStatus? Status { get; set; }
 }
 
 internal class ContentResponse
@@ -22,6 +43,18 @@ internal class ContentResponse
     // the alternative was every list row costing a second request to find out.
     public barakoCMS.Models.ContentStatus Status { get; set; }
     public barakoCMS.Models.SensitivityLevel Sensitivity { get; set; }
+
+    /// <summary>The stream version, the same number the single-item GET returns.</summary>
+    /// <remarks>
+    /// Read in one batched query for the page rather than one call per row. The version is not on
+    /// the Content document (the document is the fold, the version belongs to the stream), so it
+    /// costs a round trip either way; making it one for the page rather than one for each of up to a
+    /// hundred rows is the difference between a column and a reason not to have the column.
+    ///
+    /// Zero for an entry with no stream behind it, which is seeded demo data and anything written
+    /// before every write went through the writer.
+    /// </remarks>
+    public long Version { get; set; }
 }
 
 internal class Endpoint : Endpoint<Request, PaginatedResponse<ContentResponse>>
@@ -74,6 +107,29 @@ internal class Endpoint : Endpoint<Request, PaginatedResponse<ContentResponse>>
             query = query.Where(c => c.ContentType == req.ContentType);
         }
 
+        // Status and search are pushed into the query, and that is safe in a way a permission filter
+        // would not be. Both can only remove rows. A caller asking for Drafts is asking for a subset
+        // of what they may read, so narrowing first and checking permission after gives the same
+        // answer as checking everything and discarding; a filter that GRANTED would not, which is
+        // why the permission check below stays where it is.
+        if (req.Status is { } status)
+        {
+            query = query.Where(c => c.Status == status);
+        }
+
+        var term = req.Search?.Trim();
+        if (!string.IsNullOrEmpty(term))
+        {
+            // ILIKE over every value in the entry's data. jsonb_each_text flattens one level, so a
+            // nested object is compared as its own JSON text: a substring still matches, which is
+            // more useful than skipping it and is the honest description of what this does.
+            //
+            // The term is a bound parameter. The escaping below is not about injection, it is about
+            // meaning: an unescaped % or _ is a wildcard, so searching for "50%" would match every
+            // entry containing "50" and searching for "a_b" would match "axb".
+            query = query.Where(c => c.MatchesSql(SearchSql, EscapeLike(term)));
+        }
+
         // 3. Apply Sorting
         query = req.SortOrder.ToLower() == "asc"
             ? query.OrderBy(c => c.CreatedAt)
@@ -120,6 +176,8 @@ internal class Endpoint : Endpoint<Request, PaginatedResponse<ContentResponse>>
         // 6. Paginate the PERMITTED set (order is already applied and preserved from step 3).
         var pagedItems = permittedItems.Skip(req.Skip).Take(req.Take).ToList();
 
+        await FillVersionsAsync(pagedItems, ct);
+
         _logger.LogInformation(
             "Content list query: Page={Page}, PageSize={PageSize}, VisibleTotal={VisibleTotal}, Returned={Returned}",
             req.Page, req.PageSize, permittedItems.Count, pagedItems.Count);
@@ -132,5 +190,47 @@ internal class Endpoint : Endpoint<Request, PaginatedResponse<ContentResponse>>
             PageSize = req.PageSize,
             TotalItems = permittedItems.Count // Honest: counts only what this user can see.
         }, cancellation: ct);
+    }
+
+    /// <summary>
+    /// True when any value in the entry's data contains the term, ignoring case.
+    /// </summary>
+    /// <remarks>
+    /// <c>d</c> is the document alias Marten gives the table inside <c>MatchesSql</c>, and <c>?</c>
+    /// is its parameter placeholder. Both match how the public delivery filters are built next door
+    /// in <c>DeliveryQuery</c>, deliberately, so there is one shape of hand-written jsonb predicate
+    /// in this codebase rather than two.
+    /// </remarks>
+    private const string SearchSql =
+        "EXISTS (SELECT 1 FROM jsonb_each_text(d.data -> 'Data') kv WHERE kv.value ILIKE '%' || ? || '%')";
+
+    /// <summary>Neutralises the two LIKE wildcards so a search means what was typed.</summary>
+    private static string EscapeLike(string term) => term
+        .Replace("\\", "\\\\")
+        .Replace("%", "\\%")
+        .Replace("_", "\\_");
+
+    /// <summary>
+    /// Reads the stream version for one page of rows, in a single round trip.
+    /// </summary>
+    /// <remarks>
+    /// After paging rather than before, so this costs one query for at most a page of rows rather
+    /// than one for every entry the caller can read. Marten's batched query issues them together.
+    /// </remarks>
+    private async Task FillVersionsAsync(IReadOnlyList<ContentResponse> items, CancellationToken ct)
+    {
+        if (items.Count == 0) return;
+
+        var batch = _session.CreateBatchQuery();
+        var states = items.Select(i => batch.Events.FetchStreamState(i.Id)).ToList();
+
+        await batch.Execute(ct);
+
+        for (var i = 0; i < items.Count; i++)
+        {
+            // Null for an entry with no stream, which stays 0 rather than throwing. Seeded rows are
+            // like this, and a list that fell over on one of them would be worse than a zero.
+            items[i].Version = (await states[i])?.Version ?? 0;
+        }
     }
 }
