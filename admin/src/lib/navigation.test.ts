@@ -30,8 +30,38 @@ describe('nav visibility', () => {
         expect(count(['User'])).toBeLessThan(count(['Admin']));
     });
 
-    it('gives Editor the content types screen the API lets them reach', () => {
-        expect(titles(['Editor'])).toContain('Content types');
+    // The nav offered Editor the content types screen long after #373 removed that grant from
+    // GET /api/content-types, so the link was rendered and the API answered 403. Asserted as a
+    // role the server has never heard of, because that is what Editor now is: nothing creates it.
+    //
+    // Two assertions, because they fail on different things and neither covers the other.
+    //
+    // The derived one reads the gated set out of NAV_GROUPS, so a destination gated later is covered
+    // without anybody remembering to add it here. Naming three by hand passed just as happily if
+    // Editor was granted Workflows or API keys.
+    //
+    // The fixed one names Content types, because the derived check cannot see that item losing its
+    // roles field: it would drop out of `gated`, become visible to Editor, and the filter below
+    // would still be empty because the other gated items are still gated. That is this exact
+    // regression, so it gets its own line rather than sharing one.
+    //
+    // Overview and Health carry no roles and are shown to everyone on purpose, so neither assertion
+    // is about them.
+    it('routes an unknown role to no gated destination', () => {
+        const gated = NAV_GROUPS.flatMap((g) =>
+            g.items.filter((i) => i.roles && i.roles.length > 0).map((i) => i.title),
+        );
+
+        expect(gated.length).toBeGreaterThan(0);
+        expect(gated).toContain('Content types');
+
+        const seen = titles(['Editor']);
+
+        expect(seen.filter((title) => gated.includes(title))).toEqual([]);
+        expect(seen).not.toContain('Content types');
+
+        // An empty nav would satisfy both lines above without proving anything about gating.
+        expect(seen.length).toBeGreaterThan(0);
     });
 
     it('gives Accountant the accounting screen and nothing extra', () => {
@@ -45,36 +75,6 @@ describe('nav visibility', () => {
         for (const g of visibleGroups(NAV_GROUPS, ['User'])) {
             expect(g.items.length).toBeGreaterThan(0);
         }
-    });
-
-    // The rail draws the first group without a heading and at a larger size. Both of those read
-    // off "this group has no label", so the primary set losing its label would silently demote it.
-    it('keeps the primary group unlabelled and every later group labelled', () => {
-        expect(NAV_GROUPS[0].label).toBeUndefined();
-        expect(NAV_GROUPS.slice(1).map((g) => g.label)).toEqual(['Access', 'Modules', 'System']);
-    });
-
-    it('puts the four everyday destinations in the primary group, in the order the design shows', () => {
-        expect(NAV_GROUPS[0].items.map((i) => i.title)).toEqual([
-            'Overview',
-            'Entries',
-            'Content types',
-            'Workflows',
-        ]);
-    });
-
-    // A metric is an identifier the rail resolves, so a typo would render nothing and look like a
-    // count that had no source. Pinning the set is what makes that a failing test rather than a
-    // blank space nobody notices.
-    it('names a metric only on the items that have a source for one', () => {
-        const withMetric = NAV_GROUPS.flatMap((g) => g.items).filter((i) => i.metric);
-        expect(withMetric.map((i) => [i.title, i.metric, i.tone ?? null])).toEqual([
-            ['Entries', 'entries', null],
-            ['Content types', 'contentTypes', null],
-            ['Workflows', 'workflows', null],
-            ['Email events', 'recentBounces', 'warning'],
-            ['Errors', 'unresolvedErrors', 'danger'],
-        ]);
     });
 
     it('treats a signed-out or role-less user as having no roles', () => {

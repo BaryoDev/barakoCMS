@@ -83,7 +83,9 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { title: 'Overview', href: '/', icon: IconDashboard },
       { title: 'Entries', href: '/content', icon: IconContent, metric: 'entries', roles: ['SuperAdmin', 'Admin'] },
-      { title: 'Content types', href: '/schemas', icon: IconContentTypes, metric: 'contentTypes', roles: ['SuperAdmin', 'Admin', 'Editor'] },
+      // Editor was removed when #373 took that grant off GET /api/content-types. Leaving it here
+      // rendered a link the API answered 403 to, and nothing creates an Editor role anyway.
+      { title: 'Content types', href: '/schemas', icon: IconContentTypes, metric: 'contentTypes', roles: ['SuperAdmin', 'Admin'] },
       { title: 'Workflows', href: '/workflows', icon: IconWorkflows, metric: 'workflows', roles: ['SuperAdmin', 'Admin'] },
     ],
   },
