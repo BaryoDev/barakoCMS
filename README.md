@@ -354,10 +354,16 @@ the same file and eight chances to break something unrelated.
 Marten would be a thin pass-through that hides the query capabilities we actually use, and the usual
 argument for one, swapping the database, is not a swap we plan or could make cheaply.
 
-**Conjoined tenancy, not database-per-tenant.** One database, tenant-scoped rows. A database per
-tenant means migrations to run N times and N connection pools, for isolation that row-level scoping
-plus a token check already gives. It is also not reversible: conjoined to separate is a data
-migration, and separate to conjoined is worse.
+**Conjoined tenancy, not database-per-tenant.** One database, tenant-scoped rows, filtered on a
+`tenant_id` column by Marten and checked again against the tenant the caller's token names. A
+database per tenant means migrations to run N times and N connection pools, and it is not
+reversible: conjoined to separate is a data migration, and separate to conjoined is worse.
+
+That filter is enforced by the application, not by Postgres. Row-level security is not implemented
+(#446), so a bug that opens a session without a tenant has nothing underneath it, and the blast
+radius of one is every tenant rather than one of them. `docs/multi-tenancy.md` sets out what is
+actually enforced and what is not. If you need isolation a bug cannot cross, database-per-tenant is
+the same Marten API and is the escape hatch.
 
 **Public delivery opt-in, not opt-out.** It used to be opt-out, and modelling members or a ledger as
 content produced an anonymous endpoint for them that nobody asked for. On a live deployment it did
