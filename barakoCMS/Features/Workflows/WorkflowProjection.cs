@@ -42,6 +42,21 @@ internal partial class WorkflowProjection : EventProjection
         }
     }
 
+    /// <remarks>
+    /// A transition is not folded into Updated. Routing on Updated fires on every save, so an
+    /// invoice would be sent to the supplier on every edit before approval and again after, which is
+    /// the feature not existing rather than a rough edge.
+    ///
+    /// Keyed on the transition name and not on the state it lands in. "Status is now Approved" also
+    /// describes an administrator correcting a mistake, and a supplier notification is the thing
+    /// that most needs to not fire on that.
+    /// </remarks>
+    public async Task Project(IEvent<barakoCMS.Events.ContentTransitioned> e, IDocumentOperations ops, CancellationToken ct)
+    {
+        await ProcessEventAsync(
+            barakoCMS.Models.WorkflowEvents.ForTransition(e.Data.Transition), e.Data.Id, e.TenantId, ops);
+    }
+
     private async Task ProcessEventAsync(string eventType, Guid contentId, string tenantId, IDocumentOperations ops)
     {
         // This runs inside Marten's async projection daemon. Any unhandled exception here stops the
