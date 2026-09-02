@@ -21,7 +21,8 @@ public class CustomActionTests
         var mockSession = new Mock<IDocumentSession>();
         mockSession.SetupGet(x => x.Events).Returns(new Mock<Marten.Events.IEventStoreOperations>().Object);
         var mockLogger = new Mock<ILogger<CreateTaskAction>>();
-        var action = new CreateTaskAction(mockSession.Object, mockLogger.Object, new barakoCMS.Infrastructure.Services.ContentWriter(mockSession.Object));
+        var action = new CreateTaskAction(mockSession.Object, mockLogger.Object, new barakoCMS.Infrastructure.Services.ContentWriter(
+            mockSession.Object, new barakoCMS.Infrastructure.Services.ContentSourcingPolicyService(mockSession.Object)));
 
         // Act
         var type = action.Type;
@@ -70,7 +71,8 @@ public class CustomActionTests
         var mockSession = new Mock<IDocumentSession>();
         mockSession.SetupGet(x => x.Events).Returns(new Mock<Marten.Events.IEventStoreOperations>().Object);
         var mockLogger = new Mock<ILogger<CreateTaskAction>>();
-        var action = new CreateTaskAction(mockSession.Object, mockLogger.Object, new barakoCMS.Infrastructure.Services.ContentWriter(mockSession.Object));
+        var action = new CreateTaskAction(mockSession.Object, mockLogger.Object, new barakoCMS.Infrastructure.Services.ContentWriter(
+            mockSession.Object, new barakoCMS.Infrastructure.Services.ContentSourcingPolicyService(mockSession.Object)));
 
         var parameters = new Dictionary<string, string>
         {
