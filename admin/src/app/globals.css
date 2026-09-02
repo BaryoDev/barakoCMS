@@ -6,9 +6,9 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-  --font-display: var(--font-geist-sans);
+  --font-sans: var(--font-manrope);
+  --font-mono: var(--font-jetbrains-mono);
+  --font-display: var(--font-sora);
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
   --color-warning: var(--warning);
@@ -42,69 +42,126 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
-  --radius-2xl: calc(var(--radius) + 8px);
-  --radius-3xl: calc(var(--radius) + 12px);
-  --radius-4xl: calc(var(--radius) + 16px);
+  /* Stated rather than derived from --radius. shadcn's default scale spans 6px from md to xl
+     (radius-2 to radius+4); Signal spans 3, from an 11px control to a 14px card, so the arithmetic
+     cannot land on both. Card is rounded-xl, controls are rounded-md, chips rounded-sm. */
+  --radius-sm: 0.5625rem;  /* 9px  chips */
+  --radius-md: 0.6875rem;  /* 11px buttons, inputs, selects */
+  --radius-lg: 0.75rem;    /* 12px */
+  --radius-xl: 0.875rem;   /* 14px cards, panels */
+  --radius-2xl: 1rem;      /* 16px sign-in card, feature cards */
+  --radius-3xl: 1.25rem;   /* 20px agency block */
+  --radius-4xl: 1.375rem;  /* 22px product-shot plinth */
 }
 
 /*
- * BarakoCMS palette — Bootswatch "Yeti": flat, bright, and white.
- * Primary is Yeti blue (#008cba); square corners (radius 0), thin gray
- * borders, muted #888 text, Open Sans with light (300) headings.
- * Dark mode is a Yeti-flavored charcoal (never a cold slate).
+ * BarakoCMS palette: "Signal", the 2026 redesign (#407).
+ *
+ * Replaces Bootswatch Yeti wholesale. Yeti was square (radius 0), Open Sans with 300-weight
+ * headings, and #008cba blue on white. Signal is indigo #5A46D6 on a #FAFAFC page with white
+ * panels, rounded (14px cards, 11px controls), Sora for display and Manrope for body.
+ *
+ * The rule that does most of the work: every machine-produced value is monospace with
+ * tabular-nums. Counts, versions, slugs, timestamps, durations, ids, event names, API paths.
+ * Human prose is Manrope. That single distinction is what makes the admin read as a developer
+ * tool rather than a dashboard template.
+ *
+ * Light only. Dark mode was deferred deliberately, so next-themes is pinned to light and the
+ * toggles are gone rather than left to set a theme nobody drew. The .dark block below is kept as
+ * the starting point for when it is drawn, and nothing reaches it today.
+ *
+ * Every pair below was measured, not eyeballed. This file has failed WCAG twice before, both
+ * recorded underneath, and the axe pass added for #304 gates the build.
  */
 :root {
-  --radius: 0rem;
-  --background: #ffffff;
-  --foreground: #222222;
+  --radius: 0.6875rem; /* 11px, the control radius; the scale above is stated, not derived */
+
+  --background: #fafafc;
+  --foreground: #101223;
   --card: #ffffff;
-  --card-foreground: #222222;
+  --card-foreground: #101223;
   --popover: #ffffff;
-  --popover-foreground: #222222;
-  /* #008cba gave white text 3.85:1, under the 4.5:1 WCAG AA asks for normal text, so every primary
-     button in the light theme failed. Same hue and saturation, four points darker, 4.68:1. Caught by
-     the axe pass added for #304 on its first run. */
-  --primary: #007da6;
+  --popover-foreground: #101223;
+
+  /* Indigo. White on it is 6.40:1, so a primary button clears AA for normal text with room, which
+     Yeti's #008cba did not (3.85:1) before it was darkened. */
+  --primary: #5a46d6;
   --primary-foreground: #ffffff;
-  --secondary: #eeeeee;
-  --secondary-foreground: #333333;
-  --muted: #f8f9fa;
-  /* Yeti's #888 fails WCAG AA on white (~3.5:1). #6c757d is the same gray, ~4.7:1. */
-  /* #6c757d was 4.45:1 on the #f8f9fa sidebar, just under AA's 4.5:1, so muted text in the sidebar
-     failed while the same token passed on white. Two points darker clears both: 4.63 on the sidebar,
-     4.88 on white. */
-  --muted-foreground: #6a727a;
-  --accent: #e9ecef;
-  --accent-foreground: #222222;
-  --destructive: #f04124;
-  --success: #43ac6a;
+
+  /* The sunken tint: segmented-control tracks, chips, table heads. */
+  --secondary: #f2f3f9;
+  --secondary-foreground: #4a4e66;
+  --muted: #f2f3f9;
+  /* 5.52:1 on white, 5.29 on the page, 4.98 on the sunken tint. Do not lighten it: the draft this
+     came from used #8B8FA6 (3.19:1), which is lighter than the #888 the Yeti notes below already
+     rejected for the same reason. */
+  --muted-foreground: #63687d;
+
+  /* The accent-soft tint and the ink that sits on it: tinted panels, active nav, badges. */
+  --accent: #eeebfd;
+  --accent-foreground: #4034a8;
+
+  --destructive: #a22c2c;
+  --success: #0b7a6b;
   --success-foreground: #ffffff;
-  /* Darkened from Yeti's #e99002 (~2.3:1 as text) to ~4.7:1 — it is used as
-     `text-warning` on tinted backgrounds, not just as a fill. */
-  --warning: #a06800;
+  --warning: #8a5a10;
   --warning-foreground: #ffffff;
-  --border: #dee2e6;
-  --input: #dee2e6;
-  --ring: #008cba;
-  --chart-1: #008cba;
-  --chart-2: #43ac6a;
-  --chart-3: #5bc0de;
-  --chart-4: #e99002;
-  --chart-5: #f04124;
-  --sidebar: #f8f9fa;
-  --sidebar-foreground: #222222;
-  --sidebar-primary: #008cba;
+
+  --border: #e7e8f1;
+  --input: #e7e8f1;
+  --ring: #5a46d6;
+
+  /* Chart 1 is the accent, so a series reads as the product's own colour. The rest are the status
+     hues plus two supporting tints, all AA as text on white in case a legend renders them. */
+  --chart-1: #5a46d6;
+  --chart-2: #0b7a6b;
+  --chart-3: #8a5a10;
+  --chart-4: #a22c2c;
+  --chart-5: #4a4e66;
+
+  /* The sidebar sits ON the page background rather than in a panel of its own: the content panel is
+     inset with a margin, so the nav reads as a rail. That is why sidebar and background match. */
+  --sidebar: #fafafc;
+  --sidebar-foreground: #101223;
+  --sidebar-primary: #5a46d6;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #e9ecef;
-  --sidebar-accent-foreground: #222222;
-  --sidebar-border: #dee2e6;
-  --sidebar-ring: #008cba;
+  --sidebar-accent: #eeebfd;
+  --sidebar-accent-foreground: #4034a8;
+  --sidebar-border: #e7e8f1;
+  --sidebar-ring: #5a46d6;
+
+  /* Signal tokens with no shadcn equivalent. Used through arbitrary values, e.g. text-[var(--faint)]. */
+
+  /* Timestamps and table column heads. Four points darker in lightness than the handoff's #6E7387,
+     same hue and saturation: that value is 4.25:1 on the #F2F3F9 sunken tint, and a table head is
+     exactly where it lands. 4.57 on sunken, 4.86 on the page, 5.06 on white. The third WCAG
+     remediation in this file, and the third of the same shape. */
+  --faint: #696e81;
+
+  /* Decorative only: disabled controls and ornamental icons, both exempt from contrast minimums.
+     At 1.70:1 on white it must never carry meaning on its own. */
+  --disabled: #c3c6d6;
+
+  --accent-hover: #4a38c0;
+  --accent-ink: #4034a8;   /* accent text on white or a light tint */
+  --accent-deep: #241c6b;  /* accent text on an accent-soft panel */
+  --accent-border: #ded8fb;
+  --success-soft: #e6f7f4;
+  --warning-soft: #fdf2e3;
+  --danger-soft: #fdecec;
+
+  /* Elevation. Flat and layered rather than shadcn's single shadow-sm. */
+  --shadow-card: 0 1px 2px rgba(16, 18, 35, 0.04);
+  --shadow-raised: 0 1px 3px rgba(16, 18, 35, 0.06);
+  --shadow-popover: 0 24px 56px -20px rgba(16, 18, 35, 0.32);
+  --shadow-accent: 0 5px 14px -7px rgba(90, 70, 214, 0.8);
+  --shadow-lift: 0 8px 24px -12px rgba(90, 70, 214, 0.22);
 }
 
+/* Not reachable. next-themes is pinned to light in layout.tsx and the two toggles were removed,
+   because dark mode was deferred and a half-drawn one is worse than none. Left as the Yeti values it
+   has always had rather than half-converted: a Signal dark palette is a design job, not an inversion,
+   and #407 records it as the open question. */
 .dark {
   --background: #222222;
   --foreground: #eeeeee;
@@ -150,9 +207,16 @@
   body {
     @apply bg-background text-foreground;
   }
-  /* Yeti: light, airy headings. */
+  /* Signal: Sora at 600, tightened. Yeti's 300-weight headings were the single biggest reason the
+     admin read as a template rather than a tool. */
   h1, h2, h3, h4, h5, h6 {
-    font-weight: 300;
+    font-family: var(--font-display);
+    font-weight: 600;
+    letter-spacing: -0.025em;
+  }
+  /* Every machine-produced number lines up in a column. Counts, versions, metrics, latencies. */
+  code, kbd, samp, pre {
+    font-variant-numeric: tabular-nums;
   }
 }
 
