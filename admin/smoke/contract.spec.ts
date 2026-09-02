@@ -61,7 +61,12 @@ test.afterAll(async () => {
  */
 async function goToEntries() {
     if (!page.url().endsWith('/content')) {
-        await page.getByRole('link', { name: 'Entries', exact: true }).first().click();
+        // Anchored rather than exact. The sidebar rail puts a live count inside the link, so
+        // against a real API the accessible name is "Entries 148" and an exact match finds nothing.
+        // The count belongs in the name: a screen reader should hear it the way it hears an unread
+        // count, which is why it is not aria-hidden. The mocked suites have no totals, so they
+        // render no count and would never have caught this.
+        await page.getByRole('link', { name: /^Entries\b/ }).first().click();
         await expect(page).toHaveURL(/\/content$/, { timeout: 20_000 });
     }
 }
