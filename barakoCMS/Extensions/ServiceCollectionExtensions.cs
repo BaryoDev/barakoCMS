@@ -778,7 +778,25 @@ public static class ServiceCollectionExtensions
         ["verifyfull"] = "VerifyFull"
     };
 
-    internal static string ResolveConnectionString(IConfiguration configuration)
+    private static bool IsDevelopmentEnvironment() =>
+        string.Equals(
+            Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"),
+            "Development",
+            StringComparison.OrdinalIgnoreCase);
+
+    internal static string ResolveConnectionString(IConfiguration configuration) =>
+        ResolveConnectionString(configuration, IsDevelopmentEnvironment());
+
+    /// <summary>
+    /// Resolves the connection string, taking the Development decision as an argument.
+    /// </summary>
+    /// <remarks>
+    /// The flag is a parameter so a unit test can assert both halves without reading
+    /// ASPNETCORE_ENVIRONMENT. IntegrationTestFixture sets that variable process-wide in its
+    /// constructor and xUnit runs collections in parallel, so a test that reads it is really
+    /// asserting which collection started first.
+    /// </remarks>
+    internal static string ResolveConnectionString(IConfiguration configuration, bool isDevelopment)
     {
         var connectionString = configuration.GetConnectionString("DefaultConnection");
         var dbUrl = configuration["DATABASE_URL"];
@@ -848,8 +866,7 @@ public static class ServiceCollectionExtensions
             // localhost, which surfaces long after startup as an unrelated failure. Name the missing
             // setting instead. It stays a dummy in Development, where design-time tooling and the
             // codegen pass need Marten to build a store without a database behind it.
-            var environment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
-            if (!string.Equals(environment, "Development", StringComparison.OrdinalIgnoreCase))
+            if (!isDevelopment)
             {
                 throw new InvalidOperationException(
                     "No database connection string. Set ConnectionStrings:DefaultConnection or the DATABASE_URL environment variable.");
