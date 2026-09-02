@@ -20,6 +20,25 @@ public class ModuleContractTests
         public int ContractVersion => Declared;
     }
 
+    /// <summary>
+    /// The registration that <c>GET /api/modules</c> and the seed runner both read.
+    /// </summary>
+    /// <remarks>
+    /// One line in AddBarakoCMS, and until this test nothing in the tree observed it. Deleting it
+    /// leaves the whole suite green while every deployment reports running no modules at all and no
+    /// module ever seeds, because the endpoint tests supply their own singletons and the empty-list
+    /// test asserts the empty answer it would then always give.
+    /// </remarks>
+    [Fact]
+    public void A_registered_module_is_resolvable_as_IBarakoModule()
+    {
+        var module = new Mod { Name = "Resolvable", Declared = 0 };
+
+        Build(module).Should().ContainSingle(d =>
+            d.ServiceType == typeof(IBarakoModule) && ReferenceEquals(d.ImplementationInstance, module),
+            "GET /api/modules and the module seed runner both read this registration");
+    }
+
     private static IServiceCollection Build(params IBarakoModule[] modules)
     {
         var services = new ServiceCollection();
