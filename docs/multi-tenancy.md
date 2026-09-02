@@ -115,12 +115,20 @@ The admin UI has a tenant switcher built on these.
    `Features/Workflows/WorkflowTenantIsolationTests`. They assert that one tenant's token and
    queries return nothing from another's.
 
-**Postgres row-level security is not implemented.** It was the intended defence-in-depth backstop
-and there is nothing in the schema or the code that does it, so a slipped application-layer filter
-has nothing underneath it. What the boundary is has since been settled in `DECISIONS.md` D11:
-authorisation stays in the application, and the database enforces tenancy and nothing else. The
-policies on `tenant_id`, behind a flag and with a startup assertion so a new module's table cannot
-be silently unprotected, are issue #446.
+**Postgres row-level security is available and off by default**, as `Tenancy:DatabaseEnforcement`
+(#446). Off, which is the default, a slipped application-layer filter has nothing underneath it. On,
+one tenant's session cannot read or write another's even when the filter is missed, enforced by the
+database. The boundary is `DECISIONS.md` D11: authorisation stays in the application, and the
+database enforces tenancy and nothing else.
+
+Two limits worth knowing before relying on it. It does not catch a session opened with no tenant at
+all, because Marten represents that as the default tenant and Postgres cannot tell it from meaning
+the default partition. And it does not cover `mt_events` or `mt_streams`, which stay
+application-filtered.
+
+Turning it on is not a settings change: it needs a connection role that is not a superuser, since a
+superuser bypasses row level security entirely. `docs/tenancy-at-the-database.md` has the steps and
+the two deployment constraints.
 
 The honest trade-off of a shared database is that a serious bug's blast radius is every tenant.
 Database-per-tenant is the same Marten API and remains the escape hatch for anyone who needs hard
