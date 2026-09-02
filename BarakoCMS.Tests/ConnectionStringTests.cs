@@ -211,4 +211,50 @@ public class ConnectionStringTests
 
         result.Should().Contain("Database=dummy");
     }
+
+    /// <summary>
+    /// Npgsql puts parameter values into exception messages when error detail is on, so outside
+    /// Development it is off.
+    /// </summary>
+    /// <remarks>
+    /// It was on unconditionally, and this is the production path: DATABASE_URL is the convention
+    /// managed providers use, while a local stack sets ConnectionStrings__DefaultConnection and
+    /// never reaches this branch. A failed insert therefore copied the row's values into the log
+    /// store, which has its own retention and its own access list. See #449.
+    ///
+    /// Asserted by parsing the result back rather than matching text, because a string assertion
+    /// would only restate however Npgsql happens to render the keyword today.
+    /// </remarks>
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    public void Error_detail_follows_the_environment(bool isDevelopment, bool expected)
+    {
+        var conn = barakoCMS.Extensions.ServiceCollectionExtensions.ResolveConnectionString(
+            CreateConfig(databaseUrl: "postgres://user:pw@remotehost:5432/mydb"), isDevelopment);
+
+        new Npgsql.NpgsqlConnectionStringBuilder(conn).IncludeErrorDetail.Should().Be(expected);
+    }
+
+    /// <summary>
+    /// The mapping from an environment name to that decision.
+    /// </summary>
+    /// <remarks>
+    /// The two callers take a bool, which makes them hermetic but left nothing asserting what
+    /// produces it. Both branches of the bool were covered and the string that selects them was
+    /// not, so "Staging" quietly getting the Development treatment would have gone unnoticed.
+    /// Naming the environments is the half worth keeping from the parallel fix on #300.
+    /// </remarks>
+    [Theory]
+    [InlineData("Development", true)]
+    [InlineData("development", true)]
+    [InlineData("DEVELOPMENT", true)]
+    [InlineData("Production", false)]
+    [InlineData("Staging", false)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void An_environment_name_maps_to_the_development_decision(string? name, bool expected)
+    {
+        barakoCMS.Extensions.ServiceCollectionExtensions.IsDevelopment(name).Should().Be(expected);
+    }
 }
