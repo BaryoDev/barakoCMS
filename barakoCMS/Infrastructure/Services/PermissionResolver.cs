@@ -95,6 +95,37 @@ public class PermissionResolver : IPermissionResolver
         return false;
     }
 
+    /// <summary>
+    /// Resolves the union of the caller's roles' <see cref="Models.Role.SystemCapabilities"/>.
+    /// SuperAdmin bypasses, the same way it does for content permissions.
+    /// </summary>
+    public async Task<bool> HasCapabilityAsync(
+        Guid userId,
+        string capability,
+        CancellationToken cancellationToken = default)
+    {
+        var user = await _session.LoadAsync<Models.User>(userId, cancellationToken);
+        if (user is null)
+            return false;
+
+        var roleIds = await barakoCMS.Infrastructure.Multitenancy.MembershipRoles
+            .EffectiveRoleIdsAsync(_session, user, _tenant.Slug, cancellationToken);
+        if (roleIds.Count == 0)
+            return false;
+
+        var roles = await _session.Query<Models.Role>()
+            .Where(r => r.Id.In(roleIds))
+            .ToListAsync(cancellationToken);
+
+        if (roles.Count == 0)
+            return false;
+
+        if (roles.Any(r => r.Name == "SuperAdmin"))
+            return true;
+
+        return roles.Any(r => Models.SystemCapabilities.Satisfies(r.SystemCapabilities, capability));
+    }
+
     // No caching in the inner resolver, so invalidation is a no-op here. The CachedPermissionResolver
     // decorator implements the actual eviction.
     public void InvalidateUserPermissions(Guid userId) { }

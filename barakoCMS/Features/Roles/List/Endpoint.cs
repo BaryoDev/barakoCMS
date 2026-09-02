@@ -1,4 +1,5 @@
 using FastEndpoints;
+using barakoCMS.Infrastructure.Auth;
 using Marten;
 using barakoCMS.Models;
 
@@ -21,7 +22,7 @@ internal class Endpoint : Endpoint<Request, PaginatedResponse<barakoCMS.Features
     public override void Configure()
     {
         Get("/api/roles");
-        Roles("SuperAdmin");
+        Definition.RequireCapability(SystemCapabilities.ManageRoles, "SuperAdmin");
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)

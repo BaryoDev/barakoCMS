@@ -156,6 +156,38 @@ public class CachedPermissionResolver : IPermissionResolver
         return result;
     }
 
+    private const string CapabilityKeyPrefix = "cap:";
+
+    /// <summary>
+    /// Cached the same way and under the same expiration tokens as a content decision, so the
+    /// invalidation the role and membership endpoints already call evicts capabilities too. That is
+    /// what makes revoking a capability take effect without waiting for the caller's token to expire.
+    /// </summary>
+    public async Task<bool> HasCapabilityAsync(
+        Guid userId,
+        string capability,
+        CancellationToken cancellationToken = default)
+    {
+        var cacheKey = $"{CapabilityKeyPrefix}{_tenant.Slug}:{userId}:{capability}";
+
+        if (_cache.TryGetValue(cacheKey, out bool cachedResult))
+            return cachedResult;
+
+        var result = await _inner.HasCapabilityAsync(userId, capability, cancellationToken);
+
+        var cacheOptions = new MemoryCacheEntryOptions
+        {
+            AbsoluteExpirationRelativeToNow = CacheDuration,
+            Size = 1
+        };
+        cacheOptions.AddExpirationToken(new CancellationChangeToken(TokenFor(userId)));
+        cacheOptions.AddExpirationToken(new CancellationChangeToken(Volatile.Read(ref _globalToken).Token));
+
+        _cache.Set(cacheKey, result, cacheOptions);
+
+        return result;
+    }
+
     /// <summary>The user's current cancellation token, creating a source if there is not one.</summary>
     private static CancellationToken TokenFor(Guid userId) =>
         UserTokens.GetOrAdd(userId, _ => new CancellationTokenSource()).Token;

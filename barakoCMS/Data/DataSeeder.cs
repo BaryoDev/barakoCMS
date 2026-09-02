@@ -98,13 +98,46 @@ public static class DataSeeder
             var existing = await session.Query<Role>().FirstOrDefaultAsync(r => r.Name == role.Name);
             if (existing == null)
             {
+                ApplyCapabilityDefaults(role);
                 session.Store(role);
                 Console.WriteLine($"[DataSeeder] Created role: {role.Name}");
+            }
+            else if (ApplyCapabilityDefaults(existing))
+            {
+                session.Store(existing);
+                Console.WriteLine($"[DataSeeder] Backfilled system capabilities on role: {existing.Name}");
             }
         }
 
         // Save roles to database before querying for them in next step
         await session.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Gives a seeded system role the capabilities matching what it could already reach, and reports
+    /// whether that changed anything.
+    /// </summary>
+    /// <remarks>
+    /// This is the upgrade path. An existing deployment's SuperAdmin and Admin documents predate
+    /// capabilities and carry none, so without a backfill they would be visible in the admin UI as
+    /// roles with no capabilities at all. Only an empty list is filled: an operator who has curated
+    /// a system role's capabilities owns them, and a restart must not overwrite that.
+    ///
+    /// Access does not depend on this having run. The capability gate also honours the role names it
+    /// replaced (see <c>Auth:LegacyRoleFallback</c>), so a host that never calls the seeder keeps
+    /// working. This is what makes the capabilities visible and editable, not what keeps the lights on.
+    /// </remarks>
+    internal static bool ApplyCapabilityDefaults(Role role)
+    {
+        if (role.SystemCapabilities.Count > 0)
+            return false;
+
+        var defaults = barakoCMS.Models.SystemCapabilities.DefaultsFor(role.Name);
+        if (defaults.Count == 0)
+            return false;
+
+        role.SystemCapabilities = defaults.ToList();
+        return true;
     }
 
     /// <summary>
