@@ -59,6 +59,16 @@ public sealed class ImageSharpResizer : IImageResizer
         return options;
     }
 
+    /// <summary>
+    /// How many decodes may be in flight across the process.
+    /// </summary>
+    /// <remarks>
+    /// Static, because the limit is on the machine's memory rather than on any one request, and this
+    /// type is resolved per scope. Sized to the processor count: a decode is CPU bound, so more
+    /// concurrent decodes than cores buys nothing and costs a bitmap each.
+    /// </remarks>
+    private static readonly SemaphoreSlim Decodes = new(Environment.ProcessorCount, Environment.ProcessorCount);
+
     public bool CanResize(string contentType) =>
         !string.IsNullOrWhiteSpace(contentType)
         && Resizable.Any(t => contentType.StartsWith(t, StringComparison.OrdinalIgnoreCase));
@@ -86,25 +96,40 @@ public sealed class ImageSharpResizer : IImageResizer
                 return null;
             }
 
-            using var image = await Image.LoadAsync(new MemoryStream(source), ct);
-
-            var format = image.Metadata.DecodedImageFormat;
-            if (format is null)
+            // Everything past here holds a decoded bitmap, which at the default pixel limit is a
+            // couple of hundred megabytes. The rate limiter caps one address, not a set of them, and
+            // the pixel limit bounds one decode rather than the number running at once, so on the
+            // anonymous route N simultaneous misses on the same uncached width were N simultaneous
+            // decodes. Bounded by cores instead of by connections: work queues rather than the
+            // process running out of memory. Waiting here is preferable to failing, and the request
+            // is already cancellable.
+            await Decodes.WaitAsync(ct);
+            try
             {
-                return null;
+                using var image = await Image.LoadAsync(new MemoryStream(source), ct);
+
+                var format = image.Metadata.DecodedImageFormat;
+                if (format is null)
+                {
+                    return null;
+                }
+
+                // Height zero means "whatever keeps the aspect ratio".
+                image.Mutate(x => x.Resize(new ResizeOptions
+                {
+                    Size = new Size(width, 0),
+                    Mode = ResizeMode.Max,
+                }));
+
+                using var output = new MemoryStream();
+                await image.SaveAsync(output, image.Configuration.ImageFormatsManager.GetEncoder(format), ct);
+
+                return output.ToArray();
             }
-
-            // Height zero means "whatever keeps the aspect ratio".
-            image.Mutate(x => x.Resize(new ResizeOptions
+            finally
             {
-                Size = new Size(width, 0),
-                Mode = ResizeMode.Max,
-            }));
-
-            using var output = new MemoryStream();
-            await image.SaveAsync(output, image.Configuration.ImageFormatsManager.GetEncoder(format), ct);
-
-            return output.ToArray();
+                Decodes.Release();
+            }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {

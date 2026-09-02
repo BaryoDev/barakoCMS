@@ -56,15 +56,18 @@ public sealed class ImageVariants
             return new VariantResult(original, null);
         }
 
+        // Asked before the width is checked, so a PDF is served unchanged whatever the width says.
+        // The other order refused ?w=5000 on a PDF with a 400, which contradicted the promise that a
+        // frontend can append ?w= to every asset URL: it broke on any width over the cap.
+        if (!_resizer.CanResize(original.ContentType))
+        {
+            return new VariantResult(original, null);
+        }
+
         var width = _options.Snap(requested.Value);
         if (width is null)
         {
             return new VariantResult(original, $"w must be between 1 and {_options.MaxWidth}.");
-        }
-
-        if (!_resizer.CanResize(original.ContentType))
-        {
-            return new VariantResult(original, null);
         }
 
         var id = VariantId(original.Id, width.Value);

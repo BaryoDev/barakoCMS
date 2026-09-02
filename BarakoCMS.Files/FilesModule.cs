@@ -47,6 +47,11 @@ public sealed class FilesModule : IBarakoModule
 
     public void ConfigureSchema(IModuleSchema schema)
     {
+        // On an existing database the ParentFileId index is NOT created: production runs
+        // AutoCreate.CreateOnly, which creates a missing object and never alters one that is there,
+        // and stored_files exists on every deployed instance. Nothing in production queries by it
+        // yet (a variant is loaded by its derived id), so this costs nothing today and has to be
+        // applied by hand before anything does. See migrations/4.2.0/stored-files-parent-index.sql.
         schema.For<StoredFile>()
             .DocumentAlias("stored_files")
             .Index(x => x.CreatedAt)

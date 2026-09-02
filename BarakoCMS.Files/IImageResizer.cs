@@ -65,6 +65,9 @@ public sealed class ImageVariantOptions
             }
         }
 
+        // Not reachable while Widths ends with MaxWidth and the range check above holds. Kept as the
+        // answer rather than a throw, because the alternative turns an editing mistake in Widths
+        // into a 500 on an anonymous route, and MaxWidth is the safe rung to fall back to.
         return MaxWidth;
     }
 }

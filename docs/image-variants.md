@@ -99,4 +99,10 @@ new axis on the cache key, and the number of stored variants is the product of t
 worth adding, it is worth adding with the same ladder treatment.
 
 Deleting an original does not delete its variants, because nothing deletes a file yet: the module
-has no delete endpoint. When one arrives it has to sweep `ParentFileId`, which is indexed for it.
+has no delete endpoint. When one arrives it has to sweep `ParentFileId`.
+
+`ParentFileId` is indexed on a database created after this shipped. It is not indexed on an upgraded
+one: the app runs Marten with `AutoCreate.CreateOnly`, which creates a table that is missing and
+never alters one that already exists, and `stored_files` exists on every deployed instance. Nothing
+in the running code queries by it, so there is nothing slow today, but the sweep above needs it.
+Apply `migrations/4.2.0/stored-files-parent-index.sql` before writing that endpoint.
