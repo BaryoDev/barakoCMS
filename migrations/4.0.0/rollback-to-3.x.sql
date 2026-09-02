@@ -113,6 +113,11 @@ DROP TABLE IF EXISTS public.mt_doc_query_definitions;
 -- Pending or Running when you roll back simply never happens: drain the queue first if that matters.
 DROP TABLE IF EXISTS public.mt_doc_workflow_runs;
 
+-- URL redirects. 3.x has no such table and nothing references it, so dropping it moves no content:
+-- the entries are untouched. What is lost is the map of which URLs moved, which is editorial work
+-- somebody did by hand. Export it before rolling back, because nothing else records it.
+DROP TABLE IF EXISTS public.mt_doc_url_redirects;
+
 DROP TABLE IF EXISTS public.mt_doc_connector_secrets;
 DROP TABLE IF EXISTS public.mt_doc_connectors;
 
