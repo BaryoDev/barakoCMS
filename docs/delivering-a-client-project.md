@@ -7,9 +7,14 @@ It is written for the case barakoCMS is shaped for: one deployment, one database
 accounts on it. A tenant is not a technical partition, it is a client account, so most of this
 document is about getting one tenant into the right state and doing it again for the next client.
 
-If you are running a single client on a dedicated deployment, skip steps 3 and 5. Everything runs on
-the implicit `default` tenant with no tenant rows and no membership rows, exactly as it did before
-multi-tenancy existed.
+If you are running a single client on a dedicated deployment, skip step 3. Everything runs on the
+implicit `default` tenant with no tenant row, exactly as it did before multi-tenancy existed.
+
+Step 5 still applies. `POST /api/tenants/members` is the only administrative way to create a user:
+`Features/Users/` can list, assign roles and groups and reset a password, and cannot create. The only
+other route that makes one is the anonymous `POST /api/auth/register`. On a single-client deployment
+the member endpoint operates on `default` and works exactly the same way, because the tenant context
+falls back to the default slug and token issuing does not require a membership row for it.
 
 Read [multi-tenancy.md](multi-tenancy.md) before this if you have not. It sets out what is per tenant
 and what is shared, and two of the answers are the opposite of the obvious guess.
@@ -55,6 +60,13 @@ client needs. Section 9 covers what picking a smaller set costs you later.
 
 Two settings are worth deciding now rather than at deploy time.
 
+A note on how to set any of them. The names below are configuration keys, and the `__` form is how
+the .NET configuration provider reads them from the environment. That does not mean putting them in
+`.env` works: a compose file passes through the variables it names and nothing else. `.env` reaches
+the app only for a variable the compose file interpolates into the `app` service's `environment:`
+list. Everything else is an edit to that list. `quickstart/docker-compose.yml` and
+`docker-compose.prod.yml` name different sets, so check the one you are running.
+
 **`Seed:DemoContent`** (env `Seed__DemoContent`) decides whether the instance seeds a demo
 `AttendanceRecord` content type, three sample records and a workflow that sends mail. Unset, it
 follows the environment: on in Development, off everywhere else. The quickstart and the production
@@ -65,6 +77,13 @@ for them.
 Default is on in Development and off elsewhere. You want it on somewhere, because that document
 carries the tenant's own delivery paths and is what a generated frontend client is built from. See
 step 6.
+
+Somewhere, not necessarily here. The document is anonymous: the flag is the only thing in front of
+it, and a GET on `/swagger/{doc}/swagger.json` is rewritten for whatever `X-Tenant` it carries with
+no check on who is asking. Turning it on publishes the full route surface, every admin route
+included, plus that tenant's content model, to anyone who can reach the API. Generate the client from
+a staging instance, or put `/swagger` behind the reverse proxy, rather than leaving it on in front of
+a client's production deployment.
 
 ## 2. Decide who the platform admin is
 
@@ -84,10 +103,12 @@ to have a type by that name.
 
 Two more naming rules that are not cosmetic:
 
-- Do not create a role literally named `Admin`, `SuperAdmin`, `HR` or `User`. The capability gate
-  honours the role names it replaced while `Auth:LegacyRoleFallback` is true, which is the default,
-  so a caller holding a role called `Admin` opens every gate that lists `Admin` as a fallback,
-  whatever capabilities you did or did not give it.
+- Do not hand a client's staff the seeded `Admin` role. The capability gate honours the role names it
+  replaced while `Auth:LegacyRoleFallback` is true, which is the default, so a caller holding a role
+  called `Admin` opens every gate that lists `Admin` as a fallback, whatever capabilities you did or
+  did not give it. You cannot create a second role with one of those names anyway: role names are
+  unique and the seeder has already taken `Admin`, `SuperAdmin`, `HR` and `User`. The risk is
+  assigning the existing one, not minting a new one.
 - Once your roles carry capabilities, set `Auth:LegacyRoleFallback=false` (env
   `Auth__LegacyRoleFallback`) and the names stop meaning anything on their own.
   [access-control.md](access-control.md) has the migration table.
@@ -236,7 +257,10 @@ the Portability module rather than maintaining the JSON by hand:
 - `POST /api/portability/import` applies a bundle **into the calling tenant**. A bundle carries no
   tenant identity of its own, which is what makes it safe to move.
 
-Content types are upserted by name, so re-importing an evolved bundle updates rather than duplicates.
+Content types are upserted by name, so re-importing an evolved bundle updates rather than duplicates
+them. Entries in the same bundle do not: every record in the import gets a fresh id, so re-importing
+into a tenant that already has them adds a second copy of each. Import a bundle's entries once, into
+a new tenant, and evolve the type from then on.
 Content is recreated through events, so imported entries have real history.
 
 Treat a bundle as sensitive. It contains whatever the content contains, and it leaves the system's
@@ -244,7 +268,7 @@ access control behind the moment it is downloaded.
 
 ## 5. Add the client's people, and pick their roles
 
-This is the step that was not writable until recently. It is now four endpoints, all scoped to the
+This is the step that was not writable until recently. It is now five endpoints, all scoped to the
 caller's *current* tenant rather than one named in the path, and all gated on
 `manage_tenant_members`, which SuperAdmin and Admin hold by default.
 
@@ -333,7 +357,7 @@ POST /api/roles
 
 Permissions are additive across a user's roles, granted if any role allows. Row-level scope is
 Directus-style conditions on the rule, so "a member reads only their own rows" is
-`{"read": {"enabled": true, "conditions": {"memberId": {"_eq": "$CURRENT_USER"}}}}`. Field-level
+`{"read": {"enabled": true, "conditions": {"$createdBy": {"_eq": "$CURRENT_USER"}}}}`. Field-level
 masking is separate again and lives on the content type's schema.
 [access-control.md](access-control.md) is the full picture of all three layers.
 
@@ -449,11 +473,15 @@ Delivery-specific things to get right at this point:
 
 - **`FRONTEND_ORIGINS` is the client's site origin**, not yours. Add every origin that will call the
   delivery API from a browser, including a staging one.
-- **Set `APP_BASE_URL` and `ALLOWED_HOSTS`.** They are the pair that stops a caller choosing the
-  origin of the links the API hands out, because the `Host` header is written by whoever sent the
-  request. With neither set, the RSS feed answers 503 and the OAuth start endpoints fail, naming the
-  setting. A Kubernetes `httpGet` probe sends the pod IP as `Host`, so a real hostname list makes
-  probes 400 unless you add a `Host` header to the probe.
+- **Set `APP_BASE_URL` and `ALLOWED_HOSTS`** in `.env` (the keys are `App:BaseUrl` and
+  `AllowedHosts`; both compose files pass them through). They are the pair that stops a caller
+  choosing the origin of the links the API hands out, because the `Host` header is written by whoever
+  sent the request. With neither set, the RSS feed answers 503 and the OAuth start endpoints fail,
+  naming the setting. A Kubernetes `httpGet` probe sends the pod IP as `Host`, so a real hostname
+  list makes probes 400 unless you add a `Host` header to the probe.
+- **Set `FEEDS_SITE_URL` to the client's site**, not to the API. The feed prefers `Feeds:SiteUrl`
+  over `App:BaseUrl` for the links in each item, and a reader following one should land on the
+  client's page rather than on a JSON endpoint.
 - **Pick a tag your machine can run.** The versioned image tags are `linux/amd64` only right now;
   `latest` carries both. On an arm64 host, pinning a version tag fails the pull. Check with
   `docker buildx imagetools inspect ghcr.io/baryodev/barako-cms:$BARAKO_TAG | grep Platform`. Tracked
@@ -559,6 +587,18 @@ The expensive decisions are the ones that are not modules at all:
 
 A delivery document that overstates is worse than none. These are the gaps as the code stands, not as
 the roadmap describes it.
+
+### Anyone who can reach the API can create an account on it
+
+`POST /api/auth/register` is anonymous, rate limited to five an hour per address, and there is no
+setting that turns it off. `Auth:RequireEmailVerification` gates whether the new account has to
+confirm its address; it does not gate whether the account gets made. The account lands with the
+`User` role, so it reads nothing an anonymous caller could not already read, but it is a row in the
+client's user list that the client did not put there.
+
+If the delivery API is public, say so before handover rather than after the client finds accounts
+they did not create. Putting `/api/auth/register` behind the reverse proxy is the answer available
+today.
 
 ### Two administrative surfaces reach past the tenant
 
