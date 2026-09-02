@@ -64,9 +64,10 @@ public class SystemCapabilitiesTests
 
     /// <summary>
     /// The upgrade contract: Admin gets exactly the surfaces the old <c>Roles(...)</c> gates already
-    /// let it reach, and none of the ones they did not. Roles and tenants were
-    /// <c>Roles("SuperAdmin")</c>, so an Admin picking them up here would be this change handing out
-    /// access rather than preserving it.
+    /// let it reach, and none of the ones they did not. Roles, tenants, the user list and the
+    /// password reset were <c>Roles("SuperAdmin")</c>, so an Admin picking them up here would be
+    /// this change handing out access rather than preserving it. The list is asserted exactly, so
+    /// each area migrated under #443 has to say here what Admin gains, if anything.
     /// </summary>
     [Fact]
     public void Admin_starts_with_what_Admin_could_already_reach_and_no_more()
@@ -74,9 +75,16 @@ public class SystemCapabilitiesTests
         var admin = SystemCapabilities.DefaultsFor("Admin");
 
         admin.Should().NotBeEmpty();
-        admin.Should().Contain(SystemCapabilities.ManageTenantMembers);
+        admin.Should().BeEquivalentTo(new[]
+        {
+            SystemCapabilities.ManageTenantMembers,
+            SystemCapabilities.ManageUserMembership,
+            SystemCapabilities.ManageUserGroups,
+        });
         admin.Should().NotContain(SystemCapabilities.ManageRoles);
         admin.Should().NotContain(SystemCapabilities.ManageTenants);
+        admin.Should().NotContain(SystemCapabilities.ManageUsers,
+            "GET /api/users was SuperAdmin only, and handing it to Admin is exactly what #443 warns against");
         admin.Should().NotContain(SystemCapabilities.All);
     }
 
