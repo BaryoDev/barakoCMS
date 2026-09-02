@@ -95,6 +95,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { title: 'Audit log', href: '/audit', icon: IconHistory , roles: ['SuperAdmin', 'Admin'] },
       { title: 'Errors', href: '/errors', icon: IconBug , roles: ['SuperAdmin', 'Admin'] },
       { title: 'Health', href: '/ops/health', icon: IconHealth },
+      { title: 'Email', href: '/settings/email', icon: IconEnvelope , roles: ['SuperAdmin'] },
       { title: 'Security', href: '/settings/security', icon: IconShield , roles: ['SuperAdmin', 'Admin'] },
       { title: 'Settings', href: '/settings', icon: IconSettings , roles: ['SuperAdmin', 'Admin'] },
     ],
@@ -102,6 +103,7 @@ export const NAV_GROUPS: NavGroup[] = [
 ];
 
 const SEGMENT_TITLES: Record<string, string> = {
+  email: 'Email',
   schemas: 'Content types',
   content: 'Entries',
   workflows: 'Workflows',

@@ -12,14 +12,16 @@ using Xunit;
 namespace BarakoCMS.Tests;
 
 /// <summary>
-/// Every core endpoint that declares a role gate in <c>Configure()</c>, with the three cases
+/// Every core endpoint that declares a role or capability gate in <c>Configure()</c>, with the three cases
 /// <see cref="WorkflowMetadataAuthTests"/> established: anonymous refused with 401, a signed-in
 /// caller holding the wrong role refused with 403, and an admin still served.
 ///
 /// The inventory below is not a hand-kept list that can drift. <see cref="The_inventory_matches_the_gates_the_running_host_declares"/>
 /// reads the gates off the live routing table and fails when the two disagree, so adding a gated
 /// endpoint without a refusal test, or dropping a gate from one that had it, breaks the build
-/// instead of quietly reducing coverage.
+/// instead of quietly reducing coverage. A gate is either <c>Roles(...)</c>/<c>Permissions(...)</c>
+/// or the capability gate from issue #272, so migrating an endpoint from one to the other keeps it
+/// in scope rather than dropping it out.
 /// </summary>
 [Collection("Sequential")]
 public class RoleGateTests
@@ -45,6 +47,9 @@ public class RoleGateTests
 
     private const string NotAGuid = "not-a-guid";
 
+    /// <summary>Uppercase, so the connector slug check refuses it before any lookup happens.</summary>
+    private const string NotASlug = "NOT_A_SLUG";
+
     public static readonly GatedRoute[] Inventory =
     [
         new("POST", "/api/api-keys", "/api/api-keys"),
@@ -68,6 +73,18 @@ public class RoleGateTests
         new("DELETE", "/api/roles/{id}", $"/api/roles/{NotAGuid}"),
         new("GET", "/api/settings", "/api/settings"),
         new("POST", "/api/settings", "/api/settings"),
+        new("GET", "/api/connectors", "/api/connectors"),
+        new("POST", "/api/connectors", "/api/connectors"),
+        // NotASlug for the same reason ids here are unparseable: the endpoint answers 400 from its
+        // own check, which proves routing reached it. A well formed slug would 404, and a 404 is
+        // what a route that has been removed looks like too.
+        new("GET", "/api/connectors/{slug}", $"/api/connectors/{NotASlug}"),
+        new("PUT", "/api/connectors/{slug}", $"/api/connectors/{NotASlug}"),
+        new("DELETE", "/api/connectors/{slug}", $"/api/connectors/{NotASlug}"),
+        new("POST", "/api/connectors/{slug}/test", $"/api/connectors/{NotASlug}/test"),
+        new("GET", "/api/settings/email", "/api/settings/email"),
+        new("PUT", "/api/settings/email", "/api/settings/email"),
+        new("POST", "/api/settings/email/test", "/api/settings/email/test"),
         new("GET", "/api/tenants", "/api/tenants"),
         new("POST", "/api/tenants", "/api/tenants"),
         new("PUT", "/api/tenants/{handle}", "/api/tenants/no-such-tenant"),
@@ -124,7 +141,7 @@ public class RoleGateTests
 
         declared.Should().BeEquivalentTo(
             Inventory.Select(r => r.Key),
-            "a core endpoint declaring Roles(...) must appear in RoleGateTests.Inventory, which is what gives it the 401/403/served treatment");
+            "a core endpoint declaring Roles(...) or a capability gate must appear in RoleGateTests.Inventory, which is what gives it the 401/403/served treatment");
     }
 
     [Theory]
@@ -261,10 +278,13 @@ public class RoleGateTests
             {
                 endpoint.RoutePattern,
                 Definition = endpoint.Metadata.OfType<EndpointDefinition>().FirstOrDefault(),
+                Capability = endpoint.Metadata.GetMetadata<barakoCMS.Infrastructure.Auth.RequiredCapability>(),
                 Methods = endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods ?? [],
             })
             .Where(x => x.Definition is not null && x.Definition.EndpointType.Assembly == core)
-            .Where(x => x.Definition!.AllowedRoles?.Count > 0 || x.Definition.AllowedPermissions?.Count > 0)
+            .Where(x => x.Definition!.AllowedRoles?.Count > 0
+                        || x.Definition.AllowedPermissions?.Count > 0
+                        || x.Capability is not null)
             .SelectMany(x => x.Methods
                 .Where(method => x.Definition!.AnonymousVerbs?.Contains(method) != true)
                 .Select(method => $"{method} /{x.RoutePattern.RawText?.TrimStart('/')}"))

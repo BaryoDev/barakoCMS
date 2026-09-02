@@ -392,6 +392,30 @@ public static class ServiceCollectionExtensions
                 .SingleTenanted()
                 .DocumentAlias("system_settings");
 
+            // Conjoined multi-tenant, deliberately, unlike the settings documents above. A credential
+            // belongs to the tenant that added it, and one tenant's admin reaching another's is the
+            // exact failure #287 found in the daemon.
+            options.Schema.For<Connector>()
+                .MultiTenanted()
+                .DocumentAlias("connectors")
+                .Index(x => x.Slug, idx =>
+                {
+                    idx.IsUnique = true;
+                    // PerTenant, or the index is global and the first tenant to take "company-jira"
+                    // stops every other tenant using that name. Marten does not infer this from the
+                    // document being multi-tenanted, which is why ContentTypeDefinition says it too.
+                    idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
+                });
+
+            options.Schema.For<ConnectorSecret>()
+                .MultiTenanted()
+                .DocumentAlias("connector_secrets")
+                .Index(x => x.ConnectorId);
+
+            options.Schema.For<EmailSettings>()
+                .SingleTenanted() // one mail provider for the deployment, not one per tenant
+                .DocumentAlias("email_settings");
+
             options.Schema.For<Models.Role>()
                 .SingleTenanted() // roles are global; per-tenant assignment lives on Membership
                 .DocumentAlias("roles")
@@ -563,6 +587,11 @@ public static class ServiceCollectionExtensions
         // that belief is cheap to correct. See DECISIONS.md D9.
         var erasure = barakoCMS.Infrastructure.Erasure.ErasureOptions.FromConfiguration(configuration);
         erasure.Validate();
+
+        // Connectors hold live third-party credentials, so a key that is present and wrong is
+        // refused before the host is built rather than at the first send. An absent key is not an
+        // error: it means the feature is off, and the endpoints say so with the setting named.
+        barakoCMS.Infrastructure.Connectors.ConnectorOptions.FromConfiguration(configuration).Validate(configuration);
         services.AddSingleton(erasure);
         services.AddScoped<barakoCMS.Infrastructure.Erasure.IContentEraser, barakoCMS.Infrastructure.Erasure.ContentEraser>();
         services.AddScoped<barakoCMS.Core.Interfaces.IOtpService, barakoCMS.Infrastructure.Services.OtpService>();
@@ -579,6 +608,10 @@ public static class ServiceCollectionExtensions
 
         // MFA (TOTP): secret protection (AES-GCM) + enrollment/verification.
         services.AddSingleton<barakoCMS.Infrastructure.Auth.Mfa.IMfaSecretProtector, barakoCMS.Infrastructure.Auth.Mfa.MfaSecretProtector>();
+        services.AddSingleton<barakoCMS.Infrastructure.Security.ISecretProtector, barakoCMS.Infrastructure.Security.SecretProtector>();
+        services.AddScoped<barakoCMS.Core.Interfaces.IEmailSettingsProvider, barakoCMS.Infrastructure.Services.EmailSettingsProvider>();
+        services.AddSingleton<barakoCMS.Infrastructure.Connectors.IConnectorSecretProtector, barakoCMS.Infrastructure.Connectors.ConnectorSecretProtector>();
+        services.AddScoped<barakoCMS.Infrastructure.Connectors.IConnectorSender, barakoCMS.Infrastructure.Connectors.ConnectorSender>();
         services.AddScoped<barakoCMS.Infrastructure.Auth.Mfa.IMfaService, barakoCMS.Infrastructure.Auth.Mfa.MfaService>();
         // Device trust is opt-in: the default gate does nothing. The DeviceTrust module overrides it.
         services.TryAddScoped<barakoCMS.Core.Interfaces.IDeviceGate, barakoCMS.Core.Interfaces.NoopDeviceGate>();
@@ -623,6 +656,10 @@ public static class ServiceCollectionExtensions
         // Confines API-key callers to the content surface and enforces their scopes. A no-op for JWT
         // callers (they carry no scope claims).
         services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Auth.ApiKeyScopeProcessor>();
+
+        // Enforces the capability an endpoint declares with Definition.RequireCapability(...). A
+        // no-op for endpoints that still gate on Roles(...).
+        services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Auth.CapabilityGateProcessor>();
 
         services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Filters.IdempotencyFilter>();
         // The finalizer completes an idempotency claim on success or releases it on failure, so a
@@ -733,23 +770,95 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
-    private static string ResolveConnectionString(IConfiguration configuration)
+    private static readonly Dictionary<string, string> SslModeMap = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["disable"] = "Disable",
+        ["allow"] = "Allow",
+        ["prefer"] = "Prefer",
+        ["require"] = "Require",
+        ["verify-ca"] = "VerifyCA",
+        ["verifyca"] = "VerifyCA",
+        ["verify-full"] = "VerifyFull",
+        ["verifyfull"] = "VerifyFull"
+    };
+
+    private static bool IsDevelopmentEnvironment() =>
+        string.Equals(
+            Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"),
+            "Development",
+            StringComparison.OrdinalIgnoreCase);
+
+    internal static string ResolveConnectionString(IConfiguration configuration) =>
+        ResolveConnectionString(configuration, IsDevelopmentEnvironment());
+
+    /// <summary>
+    /// Resolves the connection string, taking the Development decision as an argument.
+    /// </summary>
+    /// <remarks>
+    /// The flag is a parameter so a unit test can assert both halves without reading
+    /// ASPNETCORE_ENVIRONMENT. IntegrationTestFixture sets that variable process-wide in its
+    /// constructor and xUnit runs collections in parallel, so a test that reads it is really
+    /// asserting which collection started first.
+    /// </remarks>
+    internal static string ResolveConnectionString(IConfiguration configuration, bool isDevelopment)
     {
         var connectionString = configuration.GetConnectionString("DefaultConnection");
-        var dbUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
+        var dbUrl = configuration["DATABASE_URL"];
 
         if (!string.IsNullOrWhiteSpace(dbUrl))
         {
             try
             {
                 var uri = new Uri(dbUrl);
-                var userInfo = uri.UserInfo.Split(':');
-                var username = userInfo[0];
-                var password = userInfo.Length > 1 ? userInfo[1] : "";
+                var colonIndex = uri.UserInfo.IndexOf(':');
+                var rawUsername = colonIndex >= 0 ? uri.UserInfo[..colonIndex] : uri.UserInfo;
+                var rawPassword = colonIndex >= 0 ? uri.UserInfo[(colonIndex + 1)..] : "";
+                var username = Uri.UnescapeDataString(rawUsername);
+                var password = Uri.UnescapeDataString(rawPassword);
+                var database = Uri.UnescapeDataString(uri.AbsolutePath.TrimStart('/'));
+                var port = uri.Port > 0 ? uri.Port : 5432;
 
-                connectionString = $"Host={uri.Host};Port={uri.Port};Database={uri.AbsolutePath.TrimStart('/')};Username={username};Password={password};SSL Mode=Disable;Include Error Detail=true";
+                var sslMode = "Require";
+                if (!string.IsNullOrWhiteSpace(uri.Query))
+                {
+                    var query = uri.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries);
+                    foreach (var param in query)
+                    {
+                        var parts = param.Split('=', 2);
+                        if (string.Equals(parts[0], "sslmode", StringComparison.OrdinalIgnoreCase))
+                        {
+                            var rawMode = parts.Length > 1 ? Uri.UnescapeDataString(parts[1]) : "";
+                            if (!SslModeMap.TryGetValue(rawMode, out var mappedMode))
+                            {
+                                throw new ArgumentException($"Invalid sslmode '{rawMode}' in DATABASE_URL.");
+                            }
+                            sslMode = mappedMode;
+                            break;
+                        }
+                    }
+                }
+
+                // Built rather than interpolated. Decoding the credentials above is correct and it
+                // makes a case reachable that was not before: a semicolon is legal in a Postgres
+                // password, percent-encoding it in the URL is how you are supposed to express one,
+                // and UnescapeDataString turns %3B back into a literal ';'. Interpolated, that ends
+                // the Password key and the rest of the password is read as another setting, so the
+                // deployment fails to connect with a message about an unknown keyword rather than a
+                // bad password. The builder escapes it.
+                var builder = new Npgsql.NpgsqlConnectionStringBuilder
+                {
+                    Host = uri.Host,
+                    Port = port,
+                    Database = database,
+                    Username = username,
+                    Password = password,
+                    SslMode = Enum.Parse<Npgsql.SslMode>(sslMode, ignoreCase: true),
+                    IncludeErrorDetail = true,
+                };
+
+                connectionString = builder.ConnectionString;
             }
-            catch
+            catch (UriFormatException)
             {
                 connectionString = dbUrl;
             }
@@ -761,8 +870,7 @@ public static class ServiceCollectionExtensions
             // localhost, which surfaces long after startup as an unrelated failure. Name the missing
             // setting instead. It stays a dummy in Development, where design-time tooling and the
             // codegen pass need Marten to build a store without a database behind it.
-            var environment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
-            if (!string.Equals(environment, "Development", StringComparison.OrdinalIgnoreCase))
+            if (!isDevelopment)
             {
                 throw new InvalidOperationException(
                     "No database connection string. Set ConnectionStrings:DefaultConnection or the DATABASE_URL environment variable.");
