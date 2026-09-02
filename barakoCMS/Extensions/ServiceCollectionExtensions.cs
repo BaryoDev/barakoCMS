@@ -783,10 +783,17 @@ public static class ServiceCollectionExtensions
     };
 
     private static bool IsDevelopmentEnvironment() =>
-        string.Equals(
-            Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"),
-            "Development",
-            StringComparison.OrdinalIgnoreCase);
+        IsDevelopment(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"));
+
+    /// <summary>Whether an environment name means Development.</summary>
+    /// <remarks>
+    /// Separated from the variable it usually reads so the mapping itself can be asserted. The
+    /// decision it feeds is which environments get a dummy connection string and which get
+    /// parameter values in exception messages, and neither was covered by a test that named an
+    /// environment: the callers took a bool and nothing checked what produced it.
+    /// </remarks>
+    internal static bool IsDevelopment(string? environmentName) =>
+        string.Equals(environmentName, "Development", StringComparison.OrdinalIgnoreCase);
 
     internal static string ResolveConnectionString(IConfiguration configuration) =>
         ResolveConnectionString(configuration, IsDevelopmentEnvironment());
@@ -853,7 +860,12 @@ public static class ServiceCollectionExtensions
                     Username = username,
                     Password = password,
                     SslMode = Enum.Parse<Npgsql.SslMode>(sslMode, ignoreCase: true),
-                    IncludeErrorDetail = true,
+                    // Npgsql puts parameter values into exception messages with this on, and those
+                    // messages reach Serilog and whatever ships logs onward. DATABASE_URL is the
+                    // convention managed providers use, so this path is the production one: on
+                    // there, a failed insert copies the row's personal data into a store with a
+                    // different retention policy and a different access list. See #449.
+                    IncludeErrorDetail = isDevelopment,
                 };
 
                 connectionString = builder.ConnectionString;
