@@ -49,7 +49,12 @@ internal class Endpoint : Endpoint<Request, Response>
     public override void Configure()
     {
         Post("/api/content-types");
-        Roles("Admin"); // Only admins can change schema
+        // SuperAdmin belongs here for the same reason it is on the other three content-type
+        // routes: PermissionResolver treats the name as a blanket bypass, so a gate that excludes
+        // it says the highest role may set a field's sensitivity and toggle public delivery but
+        // may not create the type those settings live on. It read "Only admins can change schema"
+        // from the original commit and was never revisited. See #448.
+        Roles("SuperAdmin", "Admin");
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
