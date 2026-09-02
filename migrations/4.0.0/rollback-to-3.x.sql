@@ -95,6 +95,12 @@ DROP TABLE IF EXISTS public.mt_doc_pending_registrations;
 -- Have the credential to hand before rolling back.
 DROP TABLE IF EXISTS public.mt_doc_email_settings;
 
+-- Connectors and their credentials. 3.x has neither, and nothing else references them, so dropping
+-- them moves no data. The secrets cannot be read out first: they are encrypted under Connectors:Key
+-- and nothing decrypts one for display, by design. Have the credentials to hand before rolling back.
+DROP TABLE IF EXISTS public.mt_doc_connector_secrets;
+DROP TABLE IF EXISTS public.mt_doc_connectors;
+
 -- Content type sourcing policies. 3.x has no such table and nothing else references it, so dropping
 -- it moves no content: the entries and their streams are untouched, and every type goes back to the
 -- document being the source of truth, which is what 3.x does for all of them anyway.

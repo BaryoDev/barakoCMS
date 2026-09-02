@@ -26,6 +26,11 @@
 --                         yet, which 4.0 writes instead of creating a user (#268). Nothing existing
 --                         reads or writes it, so creating it moves no data and breaks nothing on
 --                         3.x if you never start 4.0.
+--   mt_doc_connectors, mt_doc_connector_secrets
+--                         New tables. A third party this instance can call, held as configuration
+--                         rather than code, and its credentials encrypted under Connectors:Key
+--                         (#326). Conjoined multi-tenant, so both carry tenant_id. Empty on
+--                         arrival, so creating them moves no data.
 --   mt_doc_email_settings
 --                         New table. The email provider credentials an operator entered in the
 --                         admin, with the API key encrypted (#343). One row at most. Nothing
@@ -204,6 +209,47 @@ CREATE INDEX IF NOT EXISTS mt_doc_pending_registrations_idx_expires_at
 -- its place. Empty on arrival: a database that has not had a key entered
 -- resolves email from configuration exactly as 3.x did.
 -- ---------------------------------------------------------------------------
+-- ---------------------------------------------------------------------------
+-- Connectors and their credentials (#326).
+--
+-- Conjoined multi-tenant, so tenant_id is part of the primary key and of the
+-- unique index on the slug: one tenant's "company-jira" is not another's. The
+-- secrets are a separate table on purpose, so the object the API returns has
+-- nowhere to carry one. Both empty on arrival.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.mt_doc_connectors (
+    id                  uuid                        NOT NULL,
+    data                jsonb                       NOT NULL,
+    mt_last_modified    timestamp with time zone    NULL DEFAULT (transaction_timestamp()),
+    mt_version          uuid                        NOT NULL DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
+    mt_dotnet_type      varchar                     NULL,
+    tenant_id           varchar                     NOT NULL DEFAULT '*DEFAULT*',
+    -- Named for the columns it covers, which is what Marten generates for a conjoined document.
+    -- pkey_mt_doc_connectors_id would be a schema difference and db-assert refuses the deployment.
+    CONSTRAINT pkey_mt_doc_connectors_tenant_id_id PRIMARY KEY (tenant_id, id)
+);
+
+-- Per tenant, so one tenant taking "company-jira" does not stop another using it. tenant_id is the
+-- second column of the index, which is what TenancyScope.PerTenant generates and what
+-- mt_doc_contenttypedefinition_uidx_name above already does.
+CREATE UNIQUE INDEX IF NOT EXISTS mt_doc_connectors_uidx_slug
+    ON public.mt_doc_connectors USING btree ((data ->> 'Slug'), tenant_id);
+
+CREATE TABLE IF NOT EXISTS public.mt_doc_connector_secrets (
+    id                  uuid                        NOT NULL,
+    data                jsonb                       NOT NULL,
+    mt_last_modified    timestamp with time zone    NULL DEFAULT (transaction_timestamp()),
+    mt_version          uuid                        NOT NULL DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
+    mt_dotnet_type      varchar                     NULL,
+    tenant_id           varchar                     NOT NULL DEFAULT '*DEFAULT*',
+    CONSTRAINT pkey_mt_doc_connector_secrets_tenant_id_id PRIMARY KEY (tenant_id, id)
+);
+
+-- Cast to uuid, not left as text. Marten indexes the typed value and a text index is a difference
+-- db-assert reports.
+CREATE INDEX IF NOT EXISTS mt_doc_connector_secrets_idx_connector_id
+    ON public.mt_doc_connector_secrets USING btree ((CAST(data ->> 'ConnectorId' as uuid)));
+
 CREATE TABLE IF NOT EXISTS public.mt_doc_email_settings (
     id                  uuid                        NOT NULL,
     data                jsonb                       NOT NULL,

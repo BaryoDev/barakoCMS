@@ -400,6 +400,26 @@ public static class ServiceCollectionExtensions
                 .SingleTenanted()
                 .DocumentAlias("system_settings");
 
+            // Conjoined multi-tenant, deliberately, unlike the settings documents above. A credential
+            // belongs to the tenant that added it, and one tenant's admin reaching another's is the
+            // exact failure #287 found in the daemon.
+            options.Schema.For<Connector>()
+                .MultiTenanted()
+                .DocumentAlias("connectors")
+                .Index(x => x.Slug, idx =>
+                {
+                    idx.IsUnique = true;
+                    // PerTenant, or the index is global and the first tenant to take "company-jira"
+                    // stops every other tenant using that name. Marten does not infer this from the
+                    // document being multi-tenanted, which is why ContentTypeDefinition says it too.
+                    idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
+                });
+
+            options.Schema.For<ConnectorSecret>()
+                .MultiTenanted()
+                .DocumentAlias("connector_secrets")
+                .Index(x => x.ConnectorId);
+
             options.Schema.For<EmailSettings>()
                 .SingleTenanted() // one mail provider for the deployment, not one per tenant
                 .DocumentAlias("email_settings");
@@ -577,6 +597,11 @@ public static class ServiceCollectionExtensions
         // that belief is cheap to correct. See DECISIONS.md D9.
         var erasure = barakoCMS.Infrastructure.Erasure.ErasureOptions.FromConfiguration(configuration);
         erasure.Validate();
+
+        // Connectors hold live third-party credentials, so a key that is present and wrong is
+        // refused before the host is built rather than at the first send. An absent key is not an
+        // error: it means the feature is off, and the endpoints say so with the setting named.
+        barakoCMS.Infrastructure.Connectors.ConnectorOptions.FromConfiguration(configuration).Validate(configuration);
         services.AddSingleton(erasure);
         services.AddScoped<barakoCMS.Infrastructure.Erasure.IContentEraser, barakoCMS.Infrastructure.Erasure.ContentEraser>();
         services.AddScoped<barakoCMS.Core.Interfaces.IOtpService, barakoCMS.Infrastructure.Services.OtpService>();
@@ -595,6 +620,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<barakoCMS.Infrastructure.Auth.Mfa.IMfaSecretProtector, barakoCMS.Infrastructure.Auth.Mfa.MfaSecretProtector>();
         services.AddSingleton<barakoCMS.Infrastructure.Security.ISecretProtector, barakoCMS.Infrastructure.Security.SecretProtector>();
         services.AddScoped<barakoCMS.Core.Interfaces.IEmailSettingsProvider, barakoCMS.Infrastructure.Services.EmailSettingsProvider>();
+        services.AddSingleton<barakoCMS.Infrastructure.Connectors.IConnectorSecretProtector, barakoCMS.Infrastructure.Connectors.ConnectorSecretProtector>();
+        services.AddScoped<barakoCMS.Infrastructure.Connectors.IConnectorSender, barakoCMS.Infrastructure.Connectors.ConnectorSender>();
         services.AddScoped<barakoCMS.Infrastructure.Auth.Mfa.IMfaService, barakoCMS.Infrastructure.Auth.Mfa.MfaService>();
         // Device trust is opt-in: the default gate does nothing. The DeviceTrust module overrides it.
         services.TryAddScoped<barakoCMS.Core.Interfaces.IDeviceGate, barakoCMS.Core.Interfaces.NoopDeviceGate>();
