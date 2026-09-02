@@ -14,10 +14,10 @@ internal class ResetPasswordRequest
 }
 
 /// <summary>
-/// POST /api/users/{userId}/password — a SuperAdmin sets another user's password (recovery or
-/// rotation). Enforces the password policy and revokes the user's refresh tokens; no current-password
-/// check, since this is an administrative reset. Outstanding short-lived access tokens expire on their
-/// own rather than being individually revoked.
+/// POST /api/users/{userId}/password: an administrator holding manage_users sets another user's
+/// password (recovery or rotation). Enforces the password policy and revokes the user's refresh
+/// tokens; no current-password check, since this is an administrative reset. Outstanding
+/// short-lived access tokens expire on their own rather than being individually revoked.
 /// </summary>
 internal class ResetPasswordEndpoint : Endpoint<ResetPasswordRequest>
 {
@@ -33,7 +33,7 @@ internal class ResetPasswordEndpoint : Endpoint<ResetPasswordRequest>
     public override void Configure()
     {
         Post("/api/users/{userId}/password");
-        Roles("SuperAdmin");
+        Definition.RequireCapability(SystemCapabilities.ManageUsers, "SuperAdmin");
     }
 
     public override async Task HandleAsync(ResetPasswordRequest req, CancellationToken ct)

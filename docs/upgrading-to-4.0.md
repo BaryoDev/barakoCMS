@@ -151,9 +151,10 @@ A wrong or missing key returns 401 while a key is configured, and 404 while none
 code tells you which of the two you are looking at. The key is a shared secret rather than a user, so
 keep it out of the repository and rotate it like any other credential.
 
-**Administrative endpoints gate on capabilities, not role names.** Roles, tenants and tenant
-members now ask for a capability the caller's roles carry (`manage_roles`, `manage_tenants`,
-`manage_tenant_members`) instead of matching `SuperAdmin` or `Admin` by name. Nothing to do on
+**Administrative endpoints gate on capabilities, not role names.** Roles, tenants, tenant
+members, users and user groups now ask for a capability the caller's roles carry (`manage_roles`,
+`manage_tenants`, `manage_tenant_members`, `manage_users`, `manage_user_membership`,
+`manage_user_groups`) instead of matching `SuperAdmin` or `Admin` by name. Nothing to do on
 upgrade: the seeder backfills those capabilities onto the four system roles on the next start, and
 the gate still honours the old role names either way, so a host that never calls the seeder keeps
 working. Once your roles carry capabilities you can turn the names off:

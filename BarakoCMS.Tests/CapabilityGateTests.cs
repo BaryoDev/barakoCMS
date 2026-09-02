@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text;
 using FastEndpoints;
 using FluentAssertions;
 using Marten;
@@ -134,6 +135,167 @@ public class CapabilityGateTests
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
+    private const string NotAGuid = "not-a-guid";
+
+    /// <summary>
+    /// The users routes that were <c>Roles("SuperAdmin")</c> before issue #443 migrated them, and so
+    /// are <c>manage_users</c> now. Admin never reached these.
+    /// </summary>
+    /// <remarks>
+    /// Probes use an unparseable id for the same reason <see cref="RoleGateTests"/> does: an allowed
+    /// caller is answered 400 by request binding rather than by the handler, which proves the gate
+    /// let it through without creating, deleting or resetting anything.
+    /// </remarks>
+    public static TheoryData<string, string> SuperAdminOnlyUsersRoutes() => new()
+    {
+        { "GET", "/api/users" },
+        { "POST", $"/api/users/{NotAGuid}/password" },
+    };
+
+    /// <summary>
+    /// The users and user-groups routes that were <c>Roles("SuperAdmin", "Admin")</c>, now
+    /// <c>manage_user_membership</c> (the four under <c>/api/users</c>) and
+    /// <c>manage_user_groups</c> (the seven under <c>/api/user-groups</c>).
+    /// </summary>
+    public static TheoryData<string, string> AdminReachableUsersRoutes() => new()
+    {
+        { "POST", $"/api/users/{NotAGuid}/roles" },
+        { "DELETE", $"/api/users/{NotAGuid}/roles/{NotAGuid}" },
+        { "POST", $"/api/users/{NotAGuid}/groups" },
+        { "DELETE", $"/api/users/{NotAGuid}/groups/{NotAGuid}" },
+        { "GET", "/api/user-groups" },
+        { "POST", "/api/user-groups" },
+        { "GET", $"/api/user-groups/{NotAGuid}" },
+        { "PUT", $"/api/user-groups/{NotAGuid}" },
+        { "DELETE", $"/api/user-groups/{NotAGuid}" },
+        { "POST", $"/api/user-groups/{NotAGuid}/users" },
+        { "DELETE", $"/api/user-groups/{NotAGuid}/users/{NotAGuid}" },
+    };
+
+    [Fact]
+    public async Task A_role_created_at_runtime_with_manage_users_lists_the_accounts()
+    {
+        var (client, _) = await CallerHolding("Account Auditor", barakoCMS.Models.SystemCapabilities.ManageUsers);
+
+        var response = await client.GetAsync("/api/users", TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    /// <summary>
+    /// The split issue #443 warned about. Assigning roles and groups was Admin-reachable while the
+    /// user list and the password reset were SuperAdmin only, so they are two capabilities, and
+    /// holding the wide one must not open the narrow one.
+    /// </summary>
+    [Fact]
+    public async Task Manage_user_membership_does_not_open_the_user_list_or_the_password_reset()
+    {
+        var (client, _) = await CallerHolding("Membership Clerk", barakoCMS.Models.SystemCapabilities.ManageUserMembership);
+
+        var assign = await client.SendAsync(Probe("POST", $"/api/users/{NotAGuid}/roles"), TestContext.Current.CancellationToken);
+        var list = await client.GetAsync("/api/users", TestContext.Current.CancellationToken);
+        var reset = await client.SendAsync(Probe("POST", $"/api/users/{NotAGuid}/password"), TestContext.Current.CancellationToken);
+
+        assign.StatusCode.Should().NotBe(HttpStatusCode.Forbidden, "manage_user_membership is what this route asks for");
+        assign.StatusCode.Should().NotBe(HttpStatusCode.NotFound);
+        list.StatusCode.Should().Be(HttpStatusCode.Forbidden, "listing accounts was SuperAdmin only and is manage_users, a separate capability");
+        reset.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task Manage_user_groups_opens_the_groups_surface_and_nothing_else()
+    {
+        var (client, _) = await CallerHolding("Group Steward", barakoCMS.Models.SystemCapabilities.ManageUserGroups);
+
+        var groups = await client.GetAsync("/api/user-groups", TestContext.Current.CancellationToken);
+        var users = await client.GetAsync("/api/users", TestContext.Current.CancellationToken);
+        var assign = await client.SendAsync(Probe("POST", $"/api/users/{NotAGuid}/roles"), TestContext.Current.CancellationToken);
+
+        groups.StatusCode.Should().Be(HttpStatusCode.OK);
+        users.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        assign.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    /// <summary>
+    /// The invariant of issue #443, asserted through the gate rather than through the constants. A
+    /// role holding exactly what the seeder gives Admin, under a name the legacy fallback does not
+    /// recognise, reaches every users route Admin reached before.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(AdminReachableUsersRoutes))]
+    public async Task Admins_backfilled_defaults_reach_what_Admin_already_reached(string verb, string path)
+    {
+        var client = await AdminDefaultsClient();
+
+        var response = await client.SendAsync(Probe(verb, path), TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().NotBe(HttpStatusCode.Forbidden,
+            "Admin reached this route under Roles(\"SuperAdmin\", \"Admin\") and its defaults must keep that");
+        response.StatusCode.Should().NotBe(HttpStatusCode.Unauthorized);
+        response.StatusCode.Should().NotBe(HttpStatusCode.NotFound);
+    }
+
+    /// <summary>
+    /// The other half of the same invariant, and the failure #443 names: handing Admin
+    /// <c>manage_users</c> would give every Admin the user list, which it never had.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(SuperAdminOnlyUsersRoutes))]
+    public async Task Admins_backfilled_defaults_do_not_reach_the_SuperAdmin_only_users_routes(string verb, string path)
+    {
+        var client = await AdminDefaultsClient();
+
+        var response = await client.SendAsync(Probe(verb, path), TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "Admin was never in the Roles(\"SuperAdmin\") gate on this route and must not acquire it from its defaults");
+    }
+
+    /// <summary>
+    /// Back compatibility for the migrated users routes, on a caller whose stored user holds no
+    /// roles so only the name in the token can open a gate. SuperAdmin was in every one of these
+    /// gates; Admin only in the wide ones.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(SuperAdminOnlyUsersRoutes))]
+    [MemberData(nameof(AdminReachableUsersRoutes))]
+    public async Task The_SuperAdmin_name_still_opens_every_migrated_users_gate(string verb, string path)
+    {
+        var client = await LegacyClient("SuperAdmin");
+
+        var response = await client.SendAsync(Probe(verb, path), TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().NotBe(HttpStatusCode.Forbidden,
+            "upgrading must not lock out a deployment whose stored roles predate capabilities");
+        response.StatusCode.Should().NotBe(HttpStatusCode.Unauthorized);
+        response.StatusCode.Should().NotBe(HttpStatusCode.NotFound);
+    }
+
+    [Theory]
+    [MemberData(nameof(AdminReachableUsersRoutes))]
+    public async Task The_Admin_name_still_opens_the_users_gates_it_used_to_open(string verb, string path)
+    {
+        var client = await LegacyClient("Admin");
+
+        var response = await client.SendAsync(Probe(verb, path), TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().NotBe(HttpStatusCode.Forbidden,
+            "upgrading must not lock out a deployment whose stored roles predate capabilities");
+        response.StatusCode.Should().NotBe(HttpStatusCode.Unauthorized);
+        response.StatusCode.Should().NotBe(HttpStatusCode.NotFound);
+    }
+
+    [Theory]
+    [MemberData(nameof(SuperAdminOnlyUsersRoutes))]
+    public async Task The_Admin_name_alone_still_does_not_reach_the_SuperAdmin_only_users_routes(string verb, string path)
+    {
+        var client = await LegacyClient("Admin");
+
+        var response = await client.SendAsync(Probe(verb, path), TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
     /// <summary>
     /// Structural, in the spirit of <see cref="RoleGateTests"/>: a capability a core endpoint asks
     /// for must be one the vocabulary declares, so a typo cannot ship as an endpoint nobody can reach.
@@ -157,6 +319,57 @@ public class CapabilityGateTests
         required.Should().NotBeEmpty(
             "core endpoints declare capability gates, so reading none means this test stopped looking");
         required.Should().OnlyContain(capability => barakoCMS.Models.SystemCapabilities.IsKnown(capability));
+    }
+
+    private static HttpRequestMessage Probe(string verb, string path)
+    {
+        var request = new HttpRequestMessage(new HttpMethod(verb), path);
+
+        if (verb is "POST" or "PUT")
+        {
+            // Deliberately not valid JSON, as in RoleGateTests: the gate refuses before a binding
+            // failure is answered, and an allowed caller then gets a 400 that mutates nothing.
+            request.Content = new StringContent("{", Encoding.UTF8, "application/json");
+        }
+
+        return request;
+    }
+
+    // One caller of each kind for the whole class rather than one per theory row. The database is
+    // shared with every other test in the collection, and a few dozen throwaway users would sit at
+    // the top of GET /api/users, where other tests read the first row.
+    private static readonly Lock SharedCallers = new();
+    private static Task<HttpClient>? _adminDefaults;
+    private static Task<HttpClient>? _legacySuperAdmin;
+    private static Task<HttpClient>? _legacyAdmin;
+
+    /// <summary>
+    /// A caller whose one role holds exactly <c>SystemCapabilities.DefaultsFor("Admin")</c> under a
+    /// name the legacy fallback does not honour, so what it reaches is decided by the defaults alone.
+    /// </summary>
+    private Task<HttpClient> AdminDefaultsClient()
+    {
+        lock (SharedCallers)
+        {
+            return _adminDefaults ??= AdminDefaultsCallerAsync();
+        }
+    }
+
+    private async Task<HttpClient> AdminDefaultsCallerAsync()
+    {
+        var (client, _) = await CallerHolding(
+            "Admin Defaults", barakoCMS.Models.SystemCapabilities.DefaultsFor("Admin").ToArray());
+        return client;
+    }
+
+    private Task<HttpClient> LegacyClient(string tokenRoleName)
+    {
+        lock (SharedCallers)
+        {
+            return tokenRoleName == "SuperAdmin"
+                ? _legacySuperAdmin ??= CallerWithNoStoredRoles(tokenRoleName)
+                : _legacyAdmin ??= CallerWithNoStoredRoles(tokenRoleName);
+        }
     }
 
     /// <summary>

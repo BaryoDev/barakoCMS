@@ -31,7 +31,11 @@ public class CapabilityDefaultsBackfillTests
 
         role.SystemCapabilities.Should().NotBeEmpty();
         role.SystemCapabilities.Should().Contain(SystemCapabilities.ManageTenantMembers);
+        role.SystemCapabilities.Should().Contain(SystemCapabilities.ManageUserMembership);
+        role.SystemCapabilities.Should().Contain(SystemCapabilities.ManageUserGroups);
         role.SystemCapabilities.Should().NotContain(SystemCapabilities.ManageRoles);
+        role.SystemCapabilities.Should().NotContain(SystemCapabilities.ManageUsers,
+            "the user list and the password reset were SuperAdmin only, and a backfill must not widen that");
     }
 
     /// <summary>
