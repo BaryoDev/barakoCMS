@@ -1,10 +1,32 @@
 namespace barakoCMS.Models;
 
+/// <summary>Where an entry is in the publishing lifecycle.</summary>
+/// <remarks>
+/// Numbered explicitly, and the numbers are load bearing. Marten's serializer has no
+/// JsonStringEnumConverter (the one in ServiceCollectionExtensions is the HTTP serializer), so these
+/// are stored as integers in the data column and in two indexes. Inserting a member rather than
+/// appending one would silently redefine every existing row: every Archived entry in every deployed
+/// database would read back as whatever took its number.
+/// </remarks>
 public enum ContentStatus
 {
-    Draft,
-    Published,
-    Archived
+    Draft = 0,
+    Published = 1,
+    Archived = 2,
+
+    /// <summary>
+    /// A draft with a publish time set, waiting for the sweeper to promote it.
+    /// </summary>
+    /// <remarks>
+    /// A real status rather than a condition derived from <see cref="Content.ScheduledPublishAt"/>,
+    /// per DECISIONS.md D12. Derived would have kept the write path untouched, at the cost of the
+    /// lifecycle lying: an entry that is going to publish on Friday is not a draft, and a filter for
+    /// it had to be written out again everywhere anybody wanted one.
+    ///
+    /// Only the publish side. A Published entry carrying a future unpublish time stays Published,
+    /// because it is published; the pending change does not un-publish it in the meantime.
+    /// </remarks>
+    Scheduled = 3,
 }
 
 public enum SensitivityLevel
