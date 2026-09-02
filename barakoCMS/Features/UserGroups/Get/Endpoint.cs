@@ -1,4 +1,5 @@
 using FastEndpoints;
+using barakoCMS.Infrastructure.Auth;
 using Marten;
 using barakoCMS.Models;
 
@@ -16,7 +17,7 @@ internal class Endpoint : Endpoint<Request, barakoCMS.Features.UserGroups.UserGr
     public override void Configure()
     {
         Get("/api/user-groups/{id}");
-        Roles("SuperAdmin", "Admin");
+        Definition.RequireCapability(SystemCapabilities.ManageUserGroups, "SuperAdmin", "Admin");
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)

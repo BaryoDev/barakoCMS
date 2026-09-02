@@ -301,10 +301,11 @@ PUT /api/roles/{id}
 same way it does for content permissions.
 
 `SystemCapabilities.Known` is the vocabulary. It is deliberately short and grows one
-area at a time, because the role gates it replaces are not uniform: `GET /api/users` is
-`Roles("SuperAdmin")` while `POST /api/users/{id}/roles` is `Roles("SuperAdmin",
-"Admin")`, so a single `manage_users` invented ahead of the migration would have to pick
-one of those and would hand out access it was meant to preserve.
+area at a time, because the role gates it replaces are not uniform: `GET /api/settings`
+is `Roles("SuperAdmin", "Admin")` while `PUT /api/settings/email` is `Roles("SuperAdmin")`,
+so a single `manage_settings` invented ahead of the migration would have to pick one of
+those and would hand out access it was meant to preserve. Users split the same way, which
+is why that area has three names and not one (see below).
 
 ### It is a lookup, not a claim
 
@@ -331,7 +332,20 @@ carry capabilities, and the names stop meaning anything on their own. The defaul
 
 ### What is migrated so far
 
-`Features/Roles/*` (`manage_roles`), `Features/Tenants/*` (`manage_tenants`) and
-`Features/Tenants/Members/*` (`manage_tenant_members`). Everything else still gates on
-`Roles(...)`, which keeps working. Third-party modules calling `Roles(...)` are
-unaffected and compile unchanged.
+| Area | Capability | Routes | Seeded roles holding it |
+| --- | --- | --- | --- |
+| `Features/Roles/*` | `manage_roles` | `/api/roles` | SuperAdmin |
+| `Features/Tenants/*` | `manage_tenants` | `/api/tenants` | SuperAdmin |
+| `Features/Tenants/Members/*` | `manage_tenant_members` | `/api/tenants/members` | SuperAdmin, Admin |
+| `Features/Users/*` | `manage_users` | `GET /api/users`, `POST /api/users/{id}/password` | SuperAdmin |
+| `Features/Users/*` | `manage_user_membership` | `/api/users/{id}/roles`, `/api/users/{id}/groups` | SuperAdmin, Admin |
+| `Features/UserGroups/*` | `manage_user_groups` | `/api/user-groups` and everything under it | SuperAdmin, Admin |
+
+Users is two capabilities because its old gates were two: listing accounts and resetting
+someone's password were `Roles("SuperAdmin")`, while changing a user's roles and groups
+was `Roles("SuperAdmin", "Admin")`. `manage_users` is the narrow one. Giving it to Admin
+would have handed every Admin the user list, so Admin's defaults carry
+`manage_user_membership` and `manage_user_groups` and not `manage_users`. See issue #443.
+
+Everything else still gates on `Roles(...)`, which keeps working. Third-party modules
+calling `Roles(...)` are unaffected and compile unchanged.
