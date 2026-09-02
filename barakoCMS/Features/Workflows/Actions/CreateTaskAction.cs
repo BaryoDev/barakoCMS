@@ -56,7 +56,7 @@ internal class CreateTaskAction : IWorkflowAction
 
         var created = new barakoCMS.Events.ContentCreated(
             contentId,
-            barakoCMS.Core.ContentTypeName.Normalize(contentType),
+            contentType,
             data,
             Enum.TryParse<barakoCMS.Models.ContentStatus>(status, out var parsedStatus)
                 ? parsedStatus
