@@ -15,7 +15,10 @@ export interface WorkflowDefinition {
     actions: WorkflowAction[];
 }
 
-export type TriggerEvent = 'Created' | 'Updated';
+// "transition:Approve" names a transition on the triggering type's own lifecycle. Prefixed so a
+// transition can never be confused with a built-in trigger: a type declaring one called "Published"
+// would otherwise fire on the status change too.
+export type TriggerEvent = 'Created' | 'Updated' | 'Published' | `transition:${string}`;
 
 export interface WorkflowActionMetadata {
     type: string;
@@ -39,6 +42,8 @@ export interface TemplateVariableCollection {
 export interface WorkflowValidationResult {
     isValid: boolean;
     errors: { field: string; message: string }[];
+    /** The trigger spelled as the content type declares it, when it names a transition. */
+    normalisedTriggerEvent?: string | null;
 }
 
 export interface ActionExecutionLog {

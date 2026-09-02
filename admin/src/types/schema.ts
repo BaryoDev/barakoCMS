@@ -62,8 +62,23 @@ export interface ContentTypeDefinition {
     fields: FieldDefinition[];
     /** Served anonymously at /api/public/{name}. Off unless someone turns it on. */
     isPubliclyDeliverable?: boolean;
+    /** This type's own lifecycle, or absent for Draft, Published and Archived. */
+    lifecycle?: LifecycleDefinition | null;
     createdAt?: string;
     updatedAt?: string;
+}
+
+/** A type's own states and the named moves between them. Mirrors Models/ContentTypeDefinition.cs. */
+export interface StateTransition {
+    name: string;
+    from: string;
+    to: string;
+}
+
+export interface LifecycleDefinition {
+    states: string[];
+    initialState: string;
+    transitions: StateTransition[];
 }
 
 export interface CreateSchemaRequest {

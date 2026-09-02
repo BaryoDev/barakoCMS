@@ -50,7 +50,7 @@ internal class Endpoint : Endpoint<Request, WorkflowValidationResult>
                 Actions = req.Actions
             };
 
-            var result = _validator.Validate(workflow);
+            var result = await _validator.ValidateAsync(workflow, ct);
             await Send.ResponseAsync(result, cancellation: ct);
         }
         catch (OperationCanceledException)

@@ -43,6 +43,11 @@ export default function NewWorkflowPage() {
 
   const { data: variables } = useWorkflowVariables(triggerContentType || undefined);
 
+  // A type with its own lifecycle can be triggered on a named transition. Routing an approval on
+  // Updated fires on every save, so the supplier is notified on every edit before approval and again
+  // after, which is why these are separate options rather than a condition on Updated.
+  const transitions = schemas?.find((s) => s.name === triggerContentType)?.lifecycle?.transitions ?? [];
+
   const definition = (): WorkflowDefinition => ({
     name,
     triggerContentType,
@@ -111,7 +116,15 @@ export default function NewWorkflowPage() {
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="space-y-2">
             <Label>When an entry of type…</Label>
-            <Select value={triggerContentType} onValueChange={setTriggerContentType}>
+            <Select
+              value={triggerContentType}
+              onValueChange={(v) => {
+                setTriggerContentType(v);
+                // A transition belongs to the type that declares it, so carrying one across is a
+                // trigger the backend refuses at save time with an error about the wrong type.
+                if (triggerEvent.startsWith('transition:')) setTriggerEvent('Created');
+              }}
+            >
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Choose a content type" />
               </SelectTrigger>
@@ -133,6 +146,11 @@ export default function NewWorkflowPage() {
               <SelectContent>
                 <SelectItem value="Created">Created</SelectItem>
                 <SelectItem value="Updated">Updated</SelectItem>
+                {transitions.map((t) => (
+                  <SelectItem key={t.name} value={`transition:${t.name}`}>
+                    {t.name} ({t.from} to {t.to})
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>

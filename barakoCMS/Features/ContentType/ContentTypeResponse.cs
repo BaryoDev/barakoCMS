@@ -18,6 +18,16 @@ internal sealed class ContentTypeResponse
     public string DisplayName { get; init; } = string.Empty;
     public string Description { get; init; } = string.Empty;
     public List<FieldDefinition> Fields { get; init; } = new();
+
+    /// <summary>This type's own states and named transitions, or null for Draft, Published, Archived.</summary>
+    /// <remarks>
+    /// Passed through for the same reason as <see cref="FieldDefinition"/>: it is what the admin
+    /// designs and what the API enforces, so it is contract on purpose. Without it nothing outside
+    /// the database can discover a type's transitions, and a transition is what a permission and a
+    /// workflow trigger both name.
+    /// </remarks>
+    public LifecycleDefinition? Lifecycle { get; init; }
+
     public bool IsPubliclyDeliverable { get; init; }
     public DateTimeOffset CreatedAt { get; init; }
     public DateTimeOffset UpdatedAt { get; init; }
@@ -29,6 +39,7 @@ internal sealed class ContentTypeResponse
         DisplayName = d.DisplayName,
         Description = d.Description,
         Fields = d.Fields,
+        Lifecycle = d.Lifecycle,
         IsPubliclyDeliverable = d.IsPubliclyDeliverable,
         CreatedAt = d.CreatedAt,
         UpdatedAt = d.UpdatedAt,

@@ -15,7 +15,10 @@ public class WorkflowSchemaValidatorTests
     {
         _mockRegistry = new Mock<IWorkflowPluginRegistry>();
         SetupMockRegistry();
-        _validator = new WorkflowSchemaValidator(_mockRegistry.Object);
+        // These cover the synchronous checks, which never read the session. The transition trigger
+        // needs the content type it names, so its tests go through the real store in
+        // WorkflowTransitionTriggerTests rather than being mocked here.
+        _validator = new WorkflowSchemaValidator(_mockRegistry.Object, Mock.Of<Marten.IQuerySession>());
     }
 
     [Fact]

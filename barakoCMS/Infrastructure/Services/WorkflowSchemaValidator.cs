@@ -1,4 +1,5 @@
 using barakoCMS.Models;
+using Marten;
 
 namespace barakoCMS.Infrastructure.Services;
 
@@ -14,6 +15,19 @@ public interface IWorkflowSchemaValidator
     /// <param name="ct">Cancellation token for the operation.</param>
     /// <returns>Validation result with any errors found.</returns>
     WorkflowValidationResult Validate(WorkflowDefinition workflow, CancellationToken ct = default);
+
+    /// <summary>
+    /// Validate a workflow definition, including the checks that need to read the triggering
+    /// content type.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <see cref="Validate"/> because a trigger naming a lifecycle transition can only
+    /// be checked against the type that declares it, and that is a database read. The default
+    /// implementation exists so an existing implementor still compiles; it skips the lifecycle check,
+    /// so anything that saves a workflow calls this and not <see cref="Validate"/>.
+    /// </remarks>
+    Task<WorkflowValidationResult> ValidateAsync(WorkflowDefinition workflow, CancellationToken ct = default)
+        => Task.FromResult(Validate(workflow, ct));
 }
 
 /// <summary>
@@ -22,10 +36,12 @@ public interface IWorkflowSchemaValidator
 public class WorkflowSchemaValidator : IWorkflowSchemaValidator
 {
     private readonly IWorkflowPluginRegistry _pluginRegistry;
+    private readonly IQuerySession _session;
 
-    public WorkflowSchemaValidator(IWorkflowPluginRegistry pluginRegistry)
+    public WorkflowSchemaValidator(IWorkflowPluginRegistry pluginRegistry, IQuerySession session)
     {
         _pluginRegistry = pluginRegistry;
+        _session = session;
     }
 
     public WorkflowValidationResult Validate(WorkflowDefinition workflow, CancellationToken ct = default)
@@ -93,6 +109,70 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
             }
         }
 
+        return result;
+    }
+
+    /// <summary>
+    /// Everything <see cref="Validate"/> checks, plus that a trigger naming a transition names one
+    /// the triggering content type actually declares.
+    /// </summary>
+    /// <remarks>
+    /// A workflow that names an undeclared transition saves happily and then never fires, and a
+    /// workflow that never fires looks identical to one that fires and fails. Refusing it here is
+    /// the only moment that is cheap to correct.
+    ///
+    /// This also settles the casing. The engine matches TriggerEvent with an equality query, while
+    /// the lifecycle matches a transition name case insensitively, so "transition:approve" against a
+    /// transition declared "Approve" would validate and then never match an event. The declared
+    /// spelling is handed back in <see cref="WorkflowValidationResult.NormalisedTriggerEvent"/> for
+    /// the caller to store.
+    /// </remarks>
+    public async Task<WorkflowValidationResult> ValidateAsync(WorkflowDefinition workflow, CancellationToken ct = default)
+    {
+        var result = Validate(workflow, ct);
+
+        var transition = WorkflowEvents.TransitionName(workflow.TriggerEvent);
+        if (transition is null or { Length: 0 })
+        {
+            return result;
+        }
+
+        var definition = await _session.Query<ContentTypeDefinition>()
+            .FirstOrDefaultAsync(d => d.Name == workflow.TriggerContentType, ct);
+
+        // A missing type is refused rather than passed over. Skipping the check when the thing to
+        // check against is absent is how a validation quietly stops validating, and here it would
+        // let through exactly the workflow that never fires.
+        if (definition is null)
+        {
+            result.Errors.Add(new ValidationError
+            {
+                Field = "triggerEvent",
+                Message = $"Content type '{workflow.TriggerContentType}' does not exist, so its transitions cannot be checked",
+            });
+            result.IsValid = false;
+            return result;
+        }
+
+        var declared = definition.Lifecycle?.Transitions ?? new List<StateTransition>();
+        var match = declared.FirstOrDefault(t => string.Equals(t.Name, transition, StringComparison.OrdinalIgnoreCase));
+
+        if (match is null)
+        {
+            var available = declared.Count == 0
+                ? "(none)"
+                : string.Join(", ", declared.Select(t => t.Name).OrderBy(n => n, StringComparer.Ordinal));
+
+            result.Errors.Add(new ValidationError
+            {
+                Field = "triggerEvent",
+                Message = $"'{transition}' is not a transition on '{workflow.TriggerContentType}'. Declared transitions: {available}",
+            });
+            result.IsValid = false;
+            return result;
+        }
+
+        result.NormalisedTriggerEvent = WorkflowEvents.ForTransition(match.Name);
         return result;
     }
 

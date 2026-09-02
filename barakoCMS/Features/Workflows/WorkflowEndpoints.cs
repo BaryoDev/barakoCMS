@@ -25,7 +25,7 @@ internal class CreateWorkflowEndpoint : Endpoint<WorkflowDefinition, barakoCMS.F
     {
         // Validate before persisting so invalid trigger events / unknown action types / missing
         // required parameters are rejected up front rather than silently never firing (or firing twice).
-        var validation = _validator.Validate(req, ct);
+        var validation = await _validator.ValidateAsync(req, ct);
         if (!validation.IsValid)
         {
             foreach (var error in validation.Errors)
@@ -34,6 +34,14 @@ internal class CreateWorkflowEndpoint : Endpoint<WorkflowDefinition, barakoCMS.F
             }
             await Send.ErrorsAsync(cancellation: ct);
             return;
+        }
+
+        // Stored as the content type declares it. The engine matches this with an equality query, so
+        // a workflow saved as "transition:approve" against a transition named "Approve" would be
+        // accepted here and then never fire.
+        if (validation.NormalisedTriggerEvent is { Length: > 0 } declared)
+        {
+            req.TriggerEvent = declared;
         }
 
         req.Id = Guid.NewGuid();
