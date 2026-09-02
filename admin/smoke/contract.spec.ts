@@ -66,7 +66,10 @@ async function goToEntries() {
         // The count belongs in the name: a screen reader should hear it the way it hears an unread
         // count, which is why it is not aria-hidden. The mocked suites have no totals, so they
         // render no count and would never have caught this.
-        await page.getByRole('link', { name: /^Entries\b/ }).first().click();
+        // Scoped to the rail. The header breadcrumb exposes links with the same names, so a
+        // page-wide match plus .first() depends on DOM order and can pass without the rail ever
+        // being exercised, which is the one thing this navigation is here to prove.
+        await page.locator('[data-slot="sidebar"]').getByRole('link', { name: /^Entries\b/ }).click();
         await expect(page).toHaveURL(/\/content$/, { timeout: 20_000 });
     }
 }

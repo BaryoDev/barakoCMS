@@ -59,11 +59,15 @@ export async function stubShell(page: Page) {
     await page.route('**/api/meta**', (r) =>
         r.fulfill({ json: { version: '4.0.0', swaggerEnabled: false } })
     );
-    await page.route('**/api/contents**', (r) => r.fulfill({ json: countOf(148) }));
+    // Collection URLs only, the way the content-types matcher already was. A glob ending in ** also
+    // matches /api/contents/{id} and /api/workflows/{id}/runs, so a spec that did not register its
+    // own override for a detail route would be answered with a count envelope and read it as the
+    // detail response. That is a fixture quietly standing in for an endpoint nobody stubbed.
+    await page.route(/\/api\/contents(\?|$)/, (r) => r.fulfill({ json: countOf(148) }));
     await page.route(/\/api\/content-types(\?|$)/, (r) => r.fulfill({ json: countOf(6) }));
-    await page.route('**/api/workflows**', (r) => r.fulfill({ json: countOf(3) }));
-    await page.route('**/api/client-errors**', (r) => r.fulfill({ json: countOf(0) }));
-    await page.route('**/api/email-events**', (r) => r.fulfill({ json: [] }));
+    await page.route(/\/api\/workflows(\?|$)/, (r) => r.fulfill({ json: countOf(3) }));
+    await page.route(/\/api\/client-errors(\?|$)/, (r) => r.fulfill({ json: countOf(0) }));
+    await page.route(/\/api\/email-events(\?|$)/, (r) => r.fulfill({ json: [] }));
 }
 
 /** The pagination envelope as a count query sees it: one row asked for, the real total reported. */
