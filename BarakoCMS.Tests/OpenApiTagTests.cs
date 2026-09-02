@@ -106,8 +106,8 @@ public class OpenApiTagTests
             "AI", "Accounting", "Analytics.Umami", "ApiKeys", "Audit", "Auth", "Connectors",
             "Content", "ContentType", "DeviceTrust", "Diagnostics", "Email.Resend", "ExternalAuth",
             "FeatureFlags", "Files", "Import", "Me", "Monitoring", "Portability", "Preview",
-            "Public", "Pwa", "Queries", "Requests", "Roles", "Seo", "Settings", "Tenants",
-            "UserGroups", "Users", "Workflows",
+            "Public", "Pwa", "Queries", "Redirects", "Requests", "Roles", "Seo", "Settings",
+            "Tenants", "UserGroups", "Users", "Workflows",
         };
 
         tags.Should().BeEquivalentTo(expected);
