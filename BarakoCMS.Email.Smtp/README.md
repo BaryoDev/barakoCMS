@@ -46,8 +46,14 @@ Settings live in the module's own section, `Modules:Email.Smtp`:
 ```
 
 As environment variables that is `Modules__Email.Smtp__Host` and so on: `__` stands in for the
-separator, and the dot in the module name is part of the key rather than one. Keep the password in
-user-secrets, an environment variable or a mounted secret, never in source.
+separator, and the dot in the module name is part of the key rather than one.
+
+The dot means the name is not a valid shell identifier, so `export Modules__Email.Smtp__Host=...`
+fails in bash and zsh. It works anywhere the name is passed as data rather than declared: a compose
+`environment:` list, a Kubernetes `env:` entry, or `env 'Modules__Email.Smtp__Host=smtp.example.com'
+dotnet run`. For a local shell, user-secrets is the easier route.
+
+Keep the password in user-secrets, an environment variable or a mounted secret, never in source.
 
 | Setting | Description |
 |---|---|

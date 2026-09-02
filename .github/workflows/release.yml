@@ -35,6 +35,15 @@ concurrency:
   group: release
   cancel-in-progress: false
 
+# Every project that ships as a NuGet package, written once. The pack loop iterates it and the two
+# count gates in verify-packages count it, so adding a module is one edit here and nothing else.
+# Adding BarakoCMS.Email.Smtp to the pack loop while two downstream gates still asserted a
+# hard-coded 14 is how a release that could not publish nearly shipped: pack succeeded, the symbol
+# gate failed on "expected 14", and publish-packages needs it.
+env:
+  PACKAGE_PROJECTS: >-
+    barakoCMS BarakoCMS.Accounting BarakoCMS.Import BarakoCMS.Files BarakoCMS.Files.S3 BarakoCMS.Email.Resend BarakoCMS.Email.Smtp BarakoCMS.DeviceTrust BarakoCMS.ExternalAuth BarakoCMS.FeatureFlags BarakoCMS.Portability BarakoCMS.Diagnostics BarakoCMS.Analytics.Umami BarakoCMS.Pwa BarakoCMS.AI
+
 jobs:
   # Read the version and decide whether there's anything to release. Everything
   # downstream is guarded on should_release, so an unchanged version costs one
@@ -149,7 +158,7 @@ jobs:
 
       # `dotnet test` exits 0 when it discovers nothing. A filter that matches no tests, a project
       # that fails to discover, a target-framework change that leaves the runner with no assembly:
-      # every one of those is a green step. Without this, the gate in front of fourteen published
+      # every one of those is a green step. Without this, the gate in front of published
       # packages is "a command exited 0", and one of the ways it exits 0 is by doing nothing.
       - name: Confirm the suite actually ran
         run: |
@@ -187,12 +196,12 @@ jobs:
       - name: Pack
         run: |
           set -euo pipefail
-          for p in barakoCMS BarakoCMS.Accounting BarakoCMS.Import BarakoCMS.Files BarakoCMS.Files.S3 BarakoCMS.Email.Resend BarakoCMS.Email.Smtp BarakoCMS.DeviceTrust BarakoCMS.ExternalAuth BarakoCMS.FeatureFlags BarakoCMS.Portability BarakoCMS.Diagnostics BarakoCMS.Analytics.Umami BarakoCMS.Pwa BarakoCMS.AI; do
+          for p in $PACKAGE_PROJECTS; do
             dotnet pack "$p/$p.csproj" --no-build --configuration Release -o out
           done
 
       # A software bill of materials is a hard requirement under the EU Cyber Resilience Act and US
-      # federal procurement, and this release produced none for any of the fourteen packages or the
+      # federal procurement, and this release produced none for any of the packages or the
       # image. CycloneDX because it is the common answer in .NET tooling; the format matters less
       # than one existing, but being consistent about which one does matter.
       #
@@ -290,7 +299,7 @@ jobs:
       # as it read `out/*.nupkg`, and no step noticed, so assert the pairing rather than trust the
       # pattern.
       #
-      # The loops below still read `*.nupkg` and still see exactly the fourteen packages: a glob
+      # The loops below still read `*.nupkg` and still see exactly the packages that were packed: a glob
       # ending in the literal `.nupkg` does not match a file ending in `.snupkg`. That is why the
       # upload above needed `*.*nupkg` in the first place.
       - name: Confirm a symbol package sits beside every package
@@ -302,7 +311,8 @@ jobs:
             [ -s "$sym" ] || { echo "::error::$(basename "$f") has no .snupkg beside it, so it ships no symbols."; exit 1; }
             COUNT=$((COUNT + 1))
           done
-          [ "$COUNT" -eq 14 ] || { echo "::error::Checked $COUNT packages for symbols, expected 14."; exit 1; }
+          EXPECTED=$(echo $PACKAGE_PROJECTS | wc -w)
+          [ "$COUNT" -eq "$EXPECTED" ] || { echo "::error::Checked $COUNT packages for symbols, expected $EXPECTED."; exit 1; }
           echo "all $COUNT packages have a symbol package"
 
       - name: Restore, build and load every package from a scratch project
@@ -334,9 +344,10 @@ jobs:
 
           # A loop over an empty directory succeeds and reports nothing, which is the same
           # fail-open shape the test-count gate above exists to close.
-          [ "$COUNT" -eq 14 ] || { echo "::error::Installed $COUNT packages, expected 14."; exit 1; }
+          EXPECTED=$(echo $PACKAGE_PROJECTS | wc -w)
+          [ "$COUNT" -eq "$EXPECTED" ] || { echo "::error::Installed $COUNT packages, expected $EXPECTED."; exit 1; }
 
-          # Building with all fourteen referenced at once also proves they co-resolve: two modules
+          # Building with all of them referenced at once also proves they co-resolve: two modules
           # pinning incompatible versions of a shared dependency fails here and nowhere earlier.
           dotnet build --configuration Release
 
@@ -647,7 +658,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=pg-admin
 
   # Runs before anything is published, which is the whole of #157. It used to need publish-packages
-  # and publish-images, so the order was: tests pass, fourteen packages become permanent, and only
+  # and publish-images, so the order was: tests pass, the packages become permanent, and only
   # then does anything get deployed and looked at.
   #
   # A test host is not where this project's releases have broken. 3.14.0 crash-looped on any

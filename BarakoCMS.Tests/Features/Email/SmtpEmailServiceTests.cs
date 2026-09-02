@@ -51,6 +51,35 @@ public class SmtpEmailServiceTests
     };
 
     /// <summary>
+    /// The blank-host guard, which the module's own registration check would otherwise hide.
+    /// </summary>
+    /// <remarks>
+    /// <c>SmtpEmailModule</c> returns without registering when Host is blank, so in normal operation
+    /// the service cannot exist without one and the guard here looks like a second check on one
+    /// decision. The path that reaches it is a configuration reload that blanks Host on a service
+    /// already resolved, since options come from <c>IOptionsSnapshot</c> and are read per send. This
+    /// is that path: a snapshot whose value has no host, on a service that was built with one.
+    ///
+    /// Without this the guard is unreachable in the suite, and deleting it would leave every test
+    /// green while a reload turned a refusal into a MailKit connect attempt against an empty name.
+    /// </remarks>
+    [Fact]
+    public async Task A_reload_that_blanks_the_host_refuses_rather_than_dialling_nothing()
+    {
+        var reloaded = Options(port: 25);
+        reloaded.Host = "   ";
+
+        var send = async () => await Service(reloaded)
+            .SendEmailAsync("someone@example.com", "s", "<p>b</p>", TestContext.Current.CancellationToken);
+
+        var failure = (await send.Should().ThrowAsync<InvalidOperationException>()).Which;
+        failure.Message.Should().Contain($"{SmtpOptions.SectionName}:Host",
+            "the message has to name the key an operator has to set");
+        failure.Message.Should().NotContain("535",
+            "this is the guard refusing, not a relay: reaching a relay at all would mean the guard did nothing");
+    }
+
+    /// <summary>
     /// The case that must work. Everything below is about a refusal, and a refusal test passes
     /// against a provider that can never send anything at all.
     /// </summary>
@@ -95,6 +124,13 @@ public class SmtpEmailServiceTests
         failure.Message.Should().NotContain(Password, "the relay echoed it and we are the last stop");
         failure.Message.Should().Contain("535", "the reason has to survive, or the message is useless");
         failure.Message.Should().Contain("127.0.0.1", "and so does which relay refused it");
+
+        // The message is not the sink that matters. Every call site logs the exception object, and
+        // Serilog's default template ends in {Exception}, which is ToString(), which concatenates
+        // InnerException. Asserting only on Message left the relay's raw words one property away
+        // from stdout.
+        failure.ToString().Should().NotContain(Password,
+            "call sites log the exception object, not its message");
     }
 
     /// <summary>

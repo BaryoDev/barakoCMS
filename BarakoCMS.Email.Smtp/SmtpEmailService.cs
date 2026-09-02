@@ -64,9 +64,16 @@ public sealed class SmtpEmailService : IEmailService
             // it likes, and a server that echoes the credentials it just rejected would otherwise
             // put the password into an admin screen, a log and a support ticket. Redacted once,
             // here, over the finished sentence, rather than trusted not to appear.
+            //
+            // The relay's exception is deliberately not attached. Redacting only the outer message
+            // left the raw one reachable through InnerException, and every call site logs the
+            // exception object rather than its message: Serilog's default template ends in
+            // {Exception}, which is ToString(), which concatenates the inner. The password went to
+            // stdout on every failed send, and to disk wherever file logging is on. Keeping the
+            // stack would mean keeping the leak, so the type name carries the diagnostic instead.
             throw new InvalidOperationException(
-                Redact($"SMTP send via {options.Host}:{options.Port} failed: {ex.Message}", options.Password),
-                ex);
+                Redact($"SMTP send via {options.Host}:{options.Port} failed ({ex.GetType().Name}): {ex.Message}",
+                    options.Password));
         }
     }
 
