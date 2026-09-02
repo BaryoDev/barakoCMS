@@ -766,23 +766,77 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
-    private static string ResolveConnectionString(IConfiguration configuration)
+    private static readonly Dictionary<string, string> SslModeMap = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["disable"] = "Disable",
+        ["allow"] = "Allow",
+        ["prefer"] = "Prefer",
+        ["require"] = "Require",
+        ["verify-ca"] = "VerifyCA",
+        ["verifyca"] = "VerifyCA",
+        ["verify-full"] = "VerifyFull",
+        ["verifyfull"] = "VerifyFull"
+    };
+
+    internal static string ResolveConnectionString(IConfiguration configuration)
     {
         var connectionString = configuration.GetConnectionString("DefaultConnection");
-        var dbUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
+        var dbUrl = configuration["DATABASE_URL"];
 
         if (!string.IsNullOrWhiteSpace(dbUrl))
         {
             try
             {
                 var uri = new Uri(dbUrl);
-                var userInfo = uri.UserInfo.Split(':');
-                var username = userInfo[0];
-                var password = userInfo.Length > 1 ? userInfo[1] : "";
+                var colonIndex = uri.UserInfo.IndexOf(':');
+                var rawUsername = colonIndex >= 0 ? uri.UserInfo[..colonIndex] : uri.UserInfo;
+                var rawPassword = colonIndex >= 0 ? uri.UserInfo[(colonIndex + 1)..] : "";
+                var username = Uri.UnescapeDataString(rawUsername);
+                var password = Uri.UnescapeDataString(rawPassword);
+                var database = Uri.UnescapeDataString(uri.AbsolutePath.TrimStart('/'));
+                var port = uri.Port > 0 ? uri.Port : 5432;
 
-                connectionString = $"Host={uri.Host};Port={uri.Port};Database={uri.AbsolutePath.TrimStart('/')};Username={username};Password={password};SSL Mode=Disable;Include Error Detail=true";
+                var sslMode = "Require";
+                if (!string.IsNullOrWhiteSpace(uri.Query))
+                {
+                    var query = uri.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries);
+                    foreach (var param in query)
+                    {
+                        var parts = param.Split('=', 2);
+                        if (string.Equals(parts[0], "sslmode", StringComparison.OrdinalIgnoreCase))
+                        {
+                            var rawMode = parts.Length > 1 ? Uri.UnescapeDataString(parts[1]) : "";
+                            if (!SslModeMap.TryGetValue(rawMode, out var mappedMode))
+                            {
+                                throw new ArgumentException($"Invalid sslmode '{rawMode}' in DATABASE_URL.");
+                            }
+                            sslMode = mappedMode;
+                            break;
+                        }
+                    }
+                }
+
+                // Built rather than interpolated. Decoding the credentials above is correct and it
+                // makes a case reachable that was not before: a semicolon is legal in a Postgres
+                // password, percent-encoding it in the URL is how you are supposed to express one,
+                // and UnescapeDataString turns %3B back into a literal ';'. Interpolated, that ends
+                // the Password key and the rest of the password is read as another setting, so the
+                // deployment fails to connect with a message about an unknown keyword rather than a
+                // bad password. The builder escapes it.
+                var builder = new Npgsql.NpgsqlConnectionStringBuilder
+                {
+                    Host = uri.Host,
+                    Port = port,
+                    Database = database,
+                    Username = username,
+                    Password = password,
+                    SslMode = Enum.Parse<Npgsql.SslMode>(sslMode, ignoreCase: true),
+                    IncludeErrorDetail = true,
+                };
+
+                connectionString = builder.ConnectionString;
             }
-            catch
+            catch (UriFormatException)
             {
                 connectionString = dbUrl;
             }
