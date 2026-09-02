@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, ensureSession, subscribeToAuth, tokenStore } from '@/lib/api';
 
 interface LoginResponse {
@@ -45,6 +45,7 @@ const emptySubscribe = () => () => {};
 
 export function useAuth() {
     const router = useRouter();
+    const queryClient = useQueryClient();
 
     // False during SSR and hydration, true after — replaces a mount effect.
     const hydrated = useSyncExternalStore(
@@ -83,8 +84,14 @@ export function useAuth() {
             // Token may already be expired; clearing locally is what matters.
         }
         tokenStore.clear();
+        // Everything cached was fetched as the account that just left. Dropping the token stops new
+        // requests, and does nothing about answers already held: the next account signing in to this
+        // tab reads the previous one's lists, counts and names from cache until each goes stale.
+        // Switching tenant already invalidates every query for the same reason; signing out is the
+        // larger version of that and was doing nothing.
+        queryClient.clear();
         router.push('/login');
-    }, [router]);
+    }, [router, queryClient]);
 
     const requireAuth = useCallback(() => {
         if (!isLoading && !user) {
@@ -133,6 +140,26 @@ export function useVerifyDeviceCode() {
             const { data } = await api.post<LoginResponse>('/api/auth/otp/verify', input);
             // No tokens when a second factor is still owed; the caller moves to the MFA step.
             if (data.token) tokenStore.set(data.token);
+            return data;
+        },
+    });
+}
+
+/**
+ * Asks the server to email a 6-digit sign-in code.
+ *
+ * Keyed on the email address, not the username: `POST /api/auth/otp/request` looks the account up
+ * by email, and so does the verify half. That is why the button opens a field of its own rather
+ * than reusing whatever is in the username box.
+ *
+ * The endpoint answers 200 with the same message whether or not the address is registered, on
+ * purpose, so an unauthenticated caller cannot probe which accounts exist. Nothing here may report
+ * more than it did.
+ */
+export function useRequestSignInCode() {
+    return useMutation({
+        mutationFn: async (input: { email: string }) => {
+            const { data } = await api.post<{ message: string }>('/api/auth/otp/request', input);
             return data;
         },
     });

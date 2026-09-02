@@ -16,11 +16,16 @@ internal class RollbackEndpoint : Endpoint<RollbackRequest, RollbackResponse>
 {
     private readonly IDocumentSession _session;
     private readonly IContentWriter _contentWriter;
+    private readonly barakoCMS.Infrastructure.Services.IPermissionResolver _permissionResolver;
 
-    public RollbackEndpoint(IDocumentSession session, IContentWriter contentWriter)
+    public RollbackEndpoint(
+        IDocumentSession session,
+        IContentWriter contentWriter,
+        barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver)
     {
         _contentWriter = contentWriter;
         _session = session;
+        _permissionResolver = permissionResolver;
     }
 
     public override void Configure()
@@ -47,10 +52,40 @@ internal class RollbackEndpoint : Endpoint<RollbackRequest, RollbackResponse>
             return;
         }
 
-        // 1. Fetch the event stream
+        // 1. Load the current content
+        //
+        // Before the stream, so authorisation can run before anything is read or reported. Loading
+        // the stream first let an unauthorised caller tell a real version from an invented one by
+        // the status code, and did the work of reading every event for them on the way. A missing
+        // content answers 404, which is what an unknown id already produced from the event check
+        // below, so nothing observable changes for a caller who is allowed to be here.
+        var content = await _session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct);
+        if (content == null)
+        {
+            await Send.NotFoundAsync(ct);
+            return;
+        }
+
+        // 2. PERMISSION: the role gate on the route says who may reach it at all. This says whether
+        // this caller may update this content type, which is the permission a rollback actually
+        // exercises, since the write it performs is indistinguishable from PUT /api/contents/{id}.
+        // Without it an Admin with no update grant on a type could rewrite an entry of that type by
+        // restoring it, while being refused the history that lists what to restore.
+        //
+        // It runs before the stream is read, so a caller who may not write learns nothing about
+        // what versions exist. See #447.
+        var actor = await _session.LoadAsync<barakoCMS.Models.User>(userId, ct);
+        if (actor == null || !await _permissionResolver.CanPerformActionAsync(
+                actor, content.ContentType, "update", content, ct))
+        {
+            await Send.ForbiddenAsync(ct);
+            return;
+        }
+
+        // 3. Fetch the event stream
         var events = await _session.Events.FetchStreamAsync(req.Id, token: ct);
 
-        // 2. Find the target event
+        // 4. Find the target event
         var targetEvent = events.FirstOrDefault(e => e.Id == req.VersionId);
 
         if (targetEvent == null)
@@ -59,7 +94,7 @@ internal class RollbackEndpoint : Endpoint<RollbackRequest, RollbackResponse>
             return;
         }
 
-        // 3. Extract data from the event
+        // 5. Extract data from the event
         Dictionary<string, object> data = new();
 
         if (targetEvent.Data is ContentCreated created)
@@ -77,19 +112,13 @@ internal class RollbackEndpoint : Endpoint<RollbackRequest, RollbackResponse>
             return;
         }
 
-        // 4. Load the current content
-        var content = await _session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct);
-        if (content == null)
-        {
-            AddError("Content not found");
-            await Send.ErrorsAsync(cancellation: ct);
-            return;
-        }
-
-        // A rollback is an update, so it runs the same three gates an update runs. It used to run
+        // A rollback is an update, so it runs the same four gates an update runs. It used to run
         // none of them, which meant restoring an old version could put back data the current schema
         // rejects, change a field the caller is not allowed to change, or break an invariant that
         // was introduced after the version being restored.
+        //
+        // The count was three until #447: permission was the one an update runs that this did not,
+        // so a role gate that named Admin was the whole of the authorisation on a write path.
         //
         // The awkward part is that the "new" data here is old data rather than something a caller
         // typed, so an operator can be refused a rollback for a reason that predates them. That is
