@@ -1,4 +1,5 @@
 using barakoCMS.Infrastructure.Audit;
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Models;
 using FastEndpoints;
@@ -25,7 +26,7 @@ internal sealed record AssignableRoleResponse(Guid Id, string Name, string Descr
 /// Every route here operates on the caller's <em>current</em> tenant rather than one named in the
 /// path. <c>TenantAccessMiddleware</c> already refuses a request whose token was minted for a
 /// different tenant than the one resolved from the host, and <c>TokenIssuer</c> puts the caller's
-/// effective roles for that tenant into the token, so <c>Roles("SuperAdmin", "Admin")</c> reaching
+/// effective roles for that tenant into the token, so a caller with <c>manage_tenant_members</c> reaching
 /// a handler already means an administrator of this tenant. A handle in the route would mean
 /// re-deriving that in every endpoint, and an administrator of one tenant reaching another is then
 /// one forgotten check away.
@@ -66,7 +67,7 @@ internal sealed class ListMembersEndpoint : Endpoint<ListRequest, PaginatedRespo
     public override void Configure()
     {
         Get("/api/tenants/members");
-        Roles("SuperAdmin", "Admin");
+        Definition.RequireCapability(SystemCapabilities.ManageTenantMembers, "SuperAdmin", "Admin");
     }
 
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)
@@ -125,7 +126,7 @@ internal sealed class AddMemberEndpoint : Endpoint<AddMemberRequest, MemberRespo
     public override void Configure()
     {
         Post("/api/tenants/members");
-        Roles("SuperAdmin", "Admin");
+        Definition.RequireCapability(SystemCapabilities.ManageTenantMembers, "SuperAdmin", "Admin");
     }
 
     public override async Task HandleAsync(AddMemberRequest req, CancellationToken ct)
@@ -251,7 +252,7 @@ internal sealed class UpdateMemberEndpoint : Endpoint<UpdateMemberRequest, Membe
     public override void Configure()
     {
         Put("/api/tenants/members/{userId}");
-        Roles("SuperAdmin", "Admin");
+        Definition.RequireCapability(SystemCapabilities.ManageTenantMembers, "SuperAdmin", "Admin");
     }
 
     public override async Task HandleAsync(UpdateMemberRequest req, CancellationToken ct)
@@ -338,7 +339,7 @@ internal sealed class RemoveMemberEndpoint : Endpoint<RemoveMemberRequest, Remov
     public override void Configure()
     {
         Delete("/api/tenants/members/{userId}");
-        Roles("SuperAdmin", "Admin");
+        Definition.RequireCapability(SystemCapabilities.ManageTenantMembers, "SuperAdmin", "Admin");
     }
 
     public override async Task HandleAsync(RemoveMemberRequest req, CancellationToken ct)
@@ -384,7 +385,7 @@ internal sealed class AssignableRolesEndpoint : Endpoint<ListRequest, PaginatedR
     public override void Configure()
     {
         Get("/api/tenants/members/roles");
-        Roles("SuperAdmin", "Admin");
+        Definition.RequireCapability(SystemCapabilities.ManageTenantMembers, "SuperAdmin", "Admin");
     }
 
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)
