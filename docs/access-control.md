@@ -7,6 +7,13 @@
 There are three layers. Two already work. One (sensitivity) is a hardcoded POC
 that needs generalizing.
 
+All three are enforced in C#, by `IPermissionResolver`, and that is a decision rather than an
+accident: `DECISIONS.md` D11. Layer 3 is the reason: row-level security filters rows and has
+nothing to say about which fields inside one a caller may see, so moving the boundary into Postgres
+would leave the most sensitive layer behind. Issue #445 compiles the Layer 2 conditions to SQL
+predicates so the list endpoint stops loading a whole collection to return a page; that is a change
+of where the rules are *evaluated*, not of where they are enforced.
+
 ## Layer 1: CRUD per content type per role (already works)
 
 This is exactly the treasurer/secretary/admin ask, and it is built:
@@ -17,7 +24,7 @@ This is exactly the treasurer/secretary/admin ask, and it is built:
 - `PermissionResolver` enforces it: **additive union** across a user's roles
   (granted if ANY role allows), **SuperAdmin bypasses**, conditions evaluated
   per row.
-- Content endpoints (Create/List/Get/Update/Delete/ChangeStatus/History/Rollback) call
+- Content endpoints (Create/List/Get/Update/Delete/ChangeStatus) call
   `CanPerformActionAsync(user, contentTypeSlug, action, content)`.
 
 So your example is pure configuration, no code:
@@ -254,98 +261,3 @@ per type instead of hardcoded.
 3. **Write-path protection done**, in `ISensitivityService.ApplyWriteAsync`: a
    caller who cannot see a field cannot set it, and omitting it is not a way to
    delete it. Admin UI per-field toggles are still outstanding.
-
-## Administrative endpoints: system capabilities
-
-Everything above is about content. Administrative endpoints (roles, tenants, users,
-settings) are a separate surface, and they used to gate on hardcoded role names:
-
-```csharp
-Roles("SuperAdmin", "Admin");
-```
-
-Roles are runtime data, so that could not work in either direction. A role created
-through `POST /api/roles` could never be granted anything without a code change and a
-release, and a role someone named `Editor` silently picked up whatever `Editor` was
-written into. See issue #272.
-
-`Role.SystemCapabilities` is what those endpoints ask for now.
-
-### Declaring a gate
-
-In `Configure()`, instead of `Roles(...)`:
-
-```csharp
-Definition.RequireCapability(SystemCapabilities.ManageRoles, "SuperAdmin");
-```
-
-The first argument is the capability a caller needs. The rest are the role names the
-endpoint gated on before, kept as a fallback so an existing deployment keeps working
-across the upgrade (see below).
-
-This replaces the role gate rather than adding to it. FastEndpoints combines role gates
-with AND, so keeping `Roles("SuperAdmin")` alongside a capability would mean a caller
-needed both, and a role created at runtime still could not reach anything.
-Authentication is unchanged: an anonymous caller is refused 401 before any of this runs.
-
-### Granting a capability
-
-A capability is a string on the role, so this is configuration:
-
-```json
-PUT /api/roles/{id}
-{ "name": "Auditor", "systemCapabilities": ["manage_roles"] }
-```
-
-`*` satisfies everything, including capabilities added later. SuperAdmin bypasses, the
-same way it does for content permissions.
-
-`SystemCapabilities.Known` is the vocabulary. It is deliberately short and grows one
-area at a time, because the role gates it replaces are not uniform: `GET /api/settings`
-is `Roles("SuperAdmin", "Admin")` while `PUT /api/settings/email` is `Roles("SuperAdmin")`,
-so a single `manage_settings` invented ahead of the migration would have to pick one of
-those and would hand out access it was meant to preserve. Users split the same way, which
-is why that area has three names and not one (see below).
-
-### It is a lookup, not a claim
-
-Capabilities are resolved per request from the caller's roles, not baked into the token.
-A claim would be stale for as long as the token lives, so revoking a capability during
-an incident would not take for up to 15 minutes and nothing would say so.
-`CachedPermissionResolver` absorbs the cost, keyed per user and per tenant, and evicts on
-the role and membership changes that can alter the answer.
-
-### Upgrading
-
-Two things keep an existing deployment working:
-
-- The seeder backfills the capabilities its four system roles already had the access
-  for, on the next start, so they are visible and editable rather than showing as roles
-  with nothing. Only an empty list is filled: capabilities an operator has curated are
-  left alone.
-- The gate also honours the role names it replaced. That is what makes access survive
-  even on a host that never calls the seeder.
-
-Set `Auth:LegacyRoleFallback=false` (env `Auth__LegacyRoleFallback`) once your roles
-carry capabilities, and the names stop meaning anything on their own. The default is
-`true`, which is the pre-upgrade behaviour.
-
-### What is migrated so far
-
-| Area | Capability | Routes | Seeded roles holding it |
-| --- | --- | --- | --- |
-| `Features/Roles/*` | `manage_roles` | `/api/roles` | SuperAdmin |
-| `Features/Tenants/*` | `manage_tenants` | `/api/tenants` | SuperAdmin |
-| `Features/Tenants/Members/*` | `manage_tenant_members` | `/api/tenants/members` | SuperAdmin, Admin |
-| `Features/Users/*` | `manage_users` | `GET /api/users`, `POST /api/users/{id}/password` | SuperAdmin |
-| `Features/Users/*` | `manage_user_membership` | `/api/users/{id}/roles`, `/api/users/{id}/groups` | SuperAdmin, Admin |
-| `Features/UserGroups/*` | `manage_user_groups` | `/api/user-groups` and everything under it | SuperAdmin, Admin |
-
-Users is two capabilities because its old gates were two: listing accounts and resetting
-someone's password were `Roles("SuperAdmin")`, while changing a user's roles and groups
-was `Roles("SuperAdmin", "Admin")`. `manage_users` is the narrow one. Giving it to Admin
-would have handed every Admin the user list, so Admin's defaults carry
-`manage_user_membership` and `manage_user_groups` and not `manage_users`. See issue #443.
-
-Everything else still gates on `Roles(...)`, which keeps working. Third-party modules
-calling `Roles(...)` are unaffected and compile unchanged.
