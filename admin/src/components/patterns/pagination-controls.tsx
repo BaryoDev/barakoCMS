@@ -17,8 +17,13 @@ export function PaginationControls({ page, onPageChange }: PaginationControlsPro
 
   return (
     <div className="flex items-center justify-between gap-4 pt-4">
-      <p className="text-muted-foreground text-sm">
-        {start}–{end} of {page.totalItems}
+      {/* Counts are machine-produced, so they are mono and tabular: the range stops shifting width
+          as the page changes. The words around them are not. */}
+      <p className="text-muted-foreground text-[13px]">
+        <span className="text-secondary-foreground font-mono font-bold tabular-nums">
+          {start} to {end}
+        </span>{' '}
+        of <span className="font-mono tabular-nums">{page.totalItems}</span>
       </p>
       <div className="flex items-center gap-2">
         <Button
@@ -27,7 +32,7 @@ export function PaginationControls({ page, onPageChange }: PaginationControlsPro
           disabled={!page.hasPreviousPage}
           onClick={() => onPageChange(page.page - 1)}
         >
-          <IconChevronLeft className="size-3.5" />
+          <IconChevronLeft className="size-3" />
           Previous
         </Button>
         <Button
@@ -37,7 +42,7 @@ export function PaginationControls({ page, onPageChange }: PaginationControlsPro
           onClick={() => onPageChange(page.page + 1)}
         >
           Next
-          <IconChevronRight className="size-3.5" />
+          <IconChevronRight className="size-3" />
         </Button>
       </div>
     </div>
