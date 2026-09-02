@@ -53,6 +53,9 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
                 // tests have a configured value for a stored one to beat, and a value to fall back
                 // to when the stored one is cleared.
                 { "Resend:ApiKey", ConfiguredResendKey },
+                // Deliberately not the JWT key. ConnectorOptions.Validate refuses a Connectors:Key
+                // that matches another control's, so the test host proves that rule holds every run.
+                { "Connectors:Key", "test-connectors-key-that-is-its-own-and-long-enough" },
                 { "Feeds:SiteUrl", "https://test.example.com" },
                 { "Feeds:Paths:sitemap_paths", "/articles/{slug}" },
             });

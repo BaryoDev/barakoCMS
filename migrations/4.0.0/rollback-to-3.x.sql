@@ -94,3 +94,9 @@ DROP TABLE IF EXISTS public.mt_doc_pending_registrations;
 -- cannot be read out of here first: it is encrypted and nothing decrypts it for display, by design.
 -- Have the credential to hand before rolling back.
 DROP TABLE IF EXISTS public.mt_doc_email_settings;
+
+-- Connectors and their credentials. 3.x has neither, and nothing else references them, so dropping
+-- them moves no data. The secrets cannot be read out first: they are encrypted under Connectors:Key
+-- and nothing decrypts one for display, by design. Have the credentials to hand before rolling back.
+DROP TABLE IF EXISTS public.mt_doc_connector_secrets;
+DROP TABLE IF EXISTS public.mt_doc_connectors;
