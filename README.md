@@ -359,11 +359,16 @@ argument for one, swapping the database, is not a swap we plan or could make che
 database per tenant means migrations to run N times and N connection pools, and it is not
 reversible: conjoined to separate is a data migration, and separate to conjoined is worse.
 
-That filter is enforced by the application, not by Postgres. Row-level security is not implemented
-(#446), so a bug that opens a session without a tenant has nothing underneath it, and the blast
-radius of one is every tenant rather than one of them. `docs/multi-tenancy.md` sets out what is
-actually enforced and what is not. If you need isolation a bug cannot cross, database-per-tenant is
-the same Marten API and is the escape hatch.
+That filter is enforced by the application. Postgres can enforce it too, as a second boundary
+(`Tenancy:DatabaseEnforcement`), and it is off by default because turning it on needs a connection
+role that is not a superuser rather than just a setting. Off, a bug that opens a session for the
+wrong tenant has nothing underneath it, and the blast radius of one is every tenant rather than one
+of them.
+
+Neither mode catches a session opened with no tenant at all, because that is the default partition
+and it is where a single-deployment site keeps its content. `docs/multi-tenancy.md` and
+`docs/tenancy-at-the-database.md` set out what is enforced and what is not. If you need isolation a
+bug cannot cross, database-per-tenant is the same Marten API and is the escape hatch.
 
 **Public delivery opt-in, not opt-out.** It used to be opt-out, and modelling members or a ledger as
 content produced an anonymous endpoint for them that nobody asked for. On a live deployment it did
