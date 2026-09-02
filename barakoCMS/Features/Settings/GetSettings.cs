@@ -1,5 +1,6 @@
 using FastEndpoints;
 using Marten;
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Models;
 
 namespace barakoCMS.Features.Settings;
@@ -27,7 +28,7 @@ internal class GetSettingsEndpoint : Endpoint<ListRequest, PaginatedResponse<Sys
     public override void Configure()
     {
         Get("/api/settings");
-        Roles("SuperAdmin", "Admin"); // Restrict to admins only
+        Definition.RequireCapability(SystemCapabilities.ManageSettings, "SuperAdmin", "Admin");
     }
 
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)

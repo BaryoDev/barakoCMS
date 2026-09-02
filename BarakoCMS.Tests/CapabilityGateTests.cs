@@ -256,6 +256,73 @@ public class CapabilityGateTests
     }
 
     /// <summary>
+    /// Settings splits into two capabilities, and this is the half an Admin already had.
+    /// </summary>
+    /// <remarks>
+    /// It stops at the email write. That gate was <c>Roles("SuperAdmin")</c> where the rest of
+    /// settings was <c>Roles("SuperAdmin", "Admin")</c>, so a single <c>manage_settings</c> would
+    /// have handed every Admin the ability to change where the deployment's mail comes from, which
+    /// redirects every password reset and every verification token in it.
+    /// </remarks>
+    [Fact]
+    public async Task Manage_settings_opens_the_settings_list_and_stops_at_the_email_write()
+    {
+        var (client, _) = await CallerHolding("Settings Clerk", barakoCMS.Models.SystemCapabilities.ManageSettings);
+
+        var settings = await client.GetAsync("/api/settings", TestContext.Current.CancellationToken);
+        var emailSummary = await client.GetAsync("/api/settings/email", TestContext.Current.CancellationToken);
+        var emailWrite = await client.SendAsync(Probe("PUT", "/api/settings/email"), TestContext.Current.CancellationToken);
+        var emailTest = await client.SendAsync(Probe("POST", "/api/settings/email/test"), TestContext.Current.CancellationToken);
+
+        settings.StatusCode.Should().Be(HttpStatusCode.OK);
+        emailSummary.StatusCode.Should().Be(HttpStatusCode.OK,
+            "the summary reports whether a key is set, not what it is, and Admin already read it");
+        emailWrite.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "changing the sending identity is manage_email_settings, which this role does not hold");
+        emailTest.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "and so is sending real mail through the configured provider");
+    }
+
+    /// <summary>
+    /// The other half, which no seeded role but SuperAdmin holds.
+    /// </summary>
+    [Fact]
+    public async Task Manage_email_settings_opens_the_email_write_and_not_the_rest_of_settings()
+    {
+        var (client, _) = await CallerHolding(
+            "Mail Operator", barakoCMS.Models.SystemCapabilities.ManageEmailSettings);
+
+        var emailWrite = await client.SendAsync(Probe("PUT", "/api/settings/email"), TestContext.Current.CancellationToken);
+        var settings = await client.GetAsync("/api/settings", TestContext.Current.CancellationToken);
+
+        emailWrite.StatusCode.Should().NotBe(HttpStatusCode.Forbidden,
+            "the capability is what this endpoint asks for, so the gate is passed and the body is the "
+          + "only thing left to argue about");
+        settings.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "the two are separate grants in both directions, or splitting them bought nothing");
+    }
+
+    /// <summary>
+    /// Admin's defaults include manage_settings and deliberately not manage_email_settings.
+    /// </summary>
+    /// <remarks>
+    /// Asserted through the gate rather than through the constant, because the constant agreeing
+    /// with itself is not evidence. This is the grant a compromised Admin account does not get.
+    /// </remarks>
+    [Fact]
+    public async Task Admin_defaults_reach_settings_but_not_the_email_write()
+    {
+        var client = await AdminDefaultsClient();
+
+        var settings = await client.GetAsync("/api/settings", TestContext.Current.CancellationToken);
+        var emailWrite = await client.SendAsync(Probe("PUT", "/api/settings/email"), TestContext.Current.CancellationToken);
+
+        settings.StatusCode.Should().Be(HttpStatusCode.OK, "Admin could already read the settings list");
+        emailWrite.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "Admin was never in that gate, and the migration does not widen it");
+    }
+
+    /// <summary>
     /// The invariant of issue #443, asserted through the gate rather than through the constants. A
     /// role holding exactly what the seeder gives Admin, under a name the legacy fallback does not
     /// recognise, reaches every users route Admin reached before.

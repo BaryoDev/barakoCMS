@@ -53,10 +53,29 @@ public static class SystemCapabilities
     /// </summary>
     public const string ViewAuditLog = "view_audit_log";
 
+    /// <summary>
+    /// List and write system settings, and read the email settings summary. Everything Admin could
+    /// already reach under <c>/api/settings</c>.
+    /// </summary>
+    public const string ManageSettings = "manage_settings";
+
+    /// <summary>
+    /// Change where the system's email comes from, and send a test through it.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <see cref="ManageSettings"/> rather than folded into it, because the two gates
+    /// it replaces were deliberately different: reading the summary was Admin and SuperAdmin, and
+    /// writing was SuperAdmin alone. Changing the sending identity redirects every password reset
+    /// and every verification token in the deployment, which is a takeover rather than an
+    /// administrative tweak, and it is exactly the change a compromised admin account makes. One
+    /// <c>manage_settings</c> covering both would hand that to every Admin.
+    /// </remarks>
+    public const string ManageEmailSettings = "manage_email_settings";
+
     public static readonly IReadOnlySet<string> Known = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         All, ManageRoles, ManageTenants, ManageTenantMembers, ManageUsers, ManageUserMembership, ManageUserGroups,
-        ManageApiKeys, ViewAuditLog,
+        ManageApiKeys, ViewAuditLog, ManageSettings, ManageEmailSettings,
     };
 
     public static bool IsKnown(string capability) =>
@@ -69,7 +88,7 @@ public static class SystemCapabilities
     private static readonly string[] None = [];
     private static readonly string[] Everything = [All];
     private static readonly string[] AdminDefaults =
-        [ManageTenantMembers, ManageUserMembership, ManageUserGroups, ManageApiKeys, ViewAuditLog];
+        [ManageTenantMembers, ManageUserMembership, ManageUserGroups, ManageApiKeys, ViewAuditLog, ManageSettings];
 
     /// <summary>
     /// The capabilities a seeded system role starts with, chosen to match what that role could

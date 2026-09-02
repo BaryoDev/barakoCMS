@@ -1,5 +1,6 @@
 using FastEndpoints;
 using Marten;
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Models;
 
 namespace barakoCMS.Features.Settings;
@@ -28,7 +29,7 @@ internal class UpdateSettingEndpoint : Endpoint<UpdateSettingRequest, UpdateSett
     public override void Configure()
     {
         Post("/api/settings");
-        Roles("SuperAdmin", "Admin"); // Restrict to admins only
+        Definition.RequireCapability(SystemCapabilities.ManageSettings, "SuperAdmin", "Admin");
     }
 
     /// <summary>
