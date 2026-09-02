@@ -31,15 +31,12 @@
 --                         rather than code, and its credentials encrypted under Connectors:Key
 --                         (#326). Conjoined multi-tenant, so both carry tenant_id. Empty on
 --                         arrival, so creating them moves no data.
-<<<<<<< HEAD
---   mt_doc_query_definitions
---                         New table. A saved way of fetching the rows a payload needs beyond the
---                         entry that triggered it (#328). Conjoined multi-tenant. Empty on arrival.
-=======
 --   mt_doc_request_definitions
 --                         New table. What to send through a connector, held as configuration
 --                         rather than code (#327). Conjoined multi-tenant. Empty on arrival.
->>>>>>> origin/master
+--   mt_doc_query_definitions
+--                         New table. A saved way of fetching the rows a payload needs beyond the
+--                         entry that triggered it (#328). Conjoined multi-tenant. Empty on arrival.
 --   mt_doc_email_settings
 --                         New table. The email provider credentials an operator entered in the
 --                         admin, with the API key encrypted (#343). One row at most. Nothing
@@ -260,15 +257,6 @@ CREATE INDEX IF NOT EXISTS mt_doc_connector_secrets_idx_connector_id
     ON public.mt_doc_connector_secrets USING btree ((CAST(data ->> 'ConnectorId' as uuid)));
 
 -- ---------------------------------------------------------------------------
-<<<<<<< HEAD
--- Query definitions (#328).
---
--- A content type, typed filters, a sort, a limit and an explicit field
--- projection. Not a query language: nothing here holds an expression. Conjoined
--- multi-tenant, slug unique per tenant. Empty on arrival.
--- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS public.mt_doc_query_definitions (
-=======
 -- Request definitions (#327).
 --
 -- What to send through a connector. Holds no credential: those are on the
@@ -276,26 +264,37 @@ CREATE TABLE IF NOT EXISTS public.mt_doc_query_definitions (
 -- composed it. Conjoined multi-tenant, slug unique per tenant. Empty on arrival.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.mt_doc_request_definitions (
->>>>>>> origin/master
     id                  uuid                        NOT NULL,
     data                jsonb                       NOT NULL,
     mt_last_modified    timestamp with time zone    NULL DEFAULT (transaction_timestamp()),
     mt_version          uuid                        NOT NULL DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
     mt_dotnet_type      varchar                     NULL,
     tenant_id           varchar                     NOT NULL DEFAULT '*DEFAULT*',
-<<<<<<< HEAD
-    CONSTRAINT pkey_mt_doc_query_definitions_tenant_id_id PRIMARY KEY (tenant_id, id)
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS mt_doc_query_definitions_uidx_slug
-    ON public.mt_doc_query_definitions USING btree ((data ->> 'Slug'), tenant_id);
-=======
     CONSTRAINT pkey_mt_doc_request_definitions_tenant_id_id PRIMARY KEY (tenant_id, id)
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS mt_doc_request_definitions_uidx_slug
     ON public.mt_doc_request_definitions USING btree ((data ->> 'Slug'), tenant_id);
->>>>>>> origin/master
+
+-- ---------------------------------------------------------------------------
+-- Query definitions (#328).
+--
+-- A content type, typed filters, a sort, a limit and an explicit field
+-- projection. Not a query language: nothing here holds an expression. Conjoined
+-- multi-tenant, slug unique per tenant. Empty on arrival.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.mt_doc_query_definitions (
+    id                  uuid                        NOT NULL,
+    data                jsonb                       NOT NULL,
+    mt_last_modified    timestamp with time zone    NULL DEFAULT (transaction_timestamp()),
+    mt_version          uuid                        NOT NULL DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
+    mt_dotnet_type      varchar                     NULL,
+    tenant_id           varchar                     NOT NULL DEFAULT '*DEFAULT*',
+    CONSTRAINT pkey_mt_doc_query_definitions_tenant_id_id PRIMARY KEY (tenant_id, id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS mt_doc_query_definitions_uidx_slug
+    ON public.mt_doc_query_definitions USING btree ((data ->> 'Slug'), tenant_id);
 
 CREATE TABLE IF NOT EXISTS public.mt_doc_email_settings (
     id                  uuid                        NOT NULL,
