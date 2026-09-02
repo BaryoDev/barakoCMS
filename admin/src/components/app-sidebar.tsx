@@ -148,7 +148,7 @@ export function AppSidebar() {
       <SidebarHeader className="gap-3 p-4 pb-2">
         <div className="flex items-center gap-2.5">
           <Link href="/" className="flex min-w-0 items-center gap-2.5 rounded-[10px] outline-hidden focus-visible:ring-2 focus-visible:ring-ring/50">
-            <BrandMark className="size-[30px] rounded-[9px]" />
+            <BrandMark className="size-[30px]" />
             <BrandWordmark />
           </Link>
           {/* Hidden until the API has answered: a version line reading "unknown" is worse than none. */}

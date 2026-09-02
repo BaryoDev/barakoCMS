@@ -2,20 +2,18 @@
 
 import { useId } from 'react';
 
-import { IconMug } from '@/components/icons';
 import { cn } from '@/lib/utils';
 
+/**
+ * The mark, wherever the product signs its name: the sidebar and the admin shell.
+ *
+ * It was a mug glyph reversed out of a filled purple tile. The bean is the Signal mark and the
+ * sign-in page has been drawing it since that design landed, so the two front doors of the same
+ * product did not look like the same product. This is the same component the sign-in page uses,
+ * at the same footprint the tile had, so no call site changes.
+ */
 export function BrandMark({ className }: { className?: string }) {
-  return (
-    <div
-      className={cn(
-        'flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground',
-        className
-      )}
-    >
-      <IconMug className="size-4.5" />
-    </div>
-  );
+  return <BrandBean className={cn('size-8 shrink-0', className)} />;
 }
 
 export function BrandWordmark({ className }: { className?: string }) {

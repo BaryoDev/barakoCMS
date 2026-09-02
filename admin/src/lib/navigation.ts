@@ -1,24 +1,25 @@
 import type { ComponentType, SVGProps } from 'react';
 import {
-  IconDashboard,
-  IconContentTypes,
-  IconContent,
-  IconWorkflows,
-  IconUsers,
-  IconRoles,
-  IconGroups,
-  IconServer,
-  IconKey,
-  IconHealth,
   IconAnalytics,
-  IconCoins,
-  IconFlag,
-  IconMobile,
+  IconArchive,
   IconBug,
-  IconHistory,
+  IconCoins,
+  IconContent,
+  IconContentTypes,
+  IconDashboard,
   IconEnvelope,
+  IconFlag,
+  IconGroups,
+  IconHealth,
+  IconHistory,
+  IconKey,
+  IconMobile,
+  IconRoles,
+  IconServer,
   IconSettings,
   IconShield,
+  IconUsers,
+  IconWorkflows,
 } from '@/components/icons';
 
 /**
@@ -117,6 +118,12 @@ export const NAV_GROUPS: NavGroup[] = [
       { title: 'Health', href: '/ops/health', icon: IconHealth },
       { title: 'Email', href: '/settings/email', icon: IconEnvelope , roles: ['SuperAdmin'] },
       { title: 'Security', href: '/settings/security', icon: IconShield , roles: ['SuperAdmin', 'Admin'] },
+      // Every seeded role, because GET /api/devices is scoped to the caller and lists their own
+      // devices: an ordinary User has as much right to it as an Admin. Named rather than left
+      // ungated, since an item with no roles is offered to a signed-out caller too, and Overview
+      // and Health are the only two that should be.
+      { title: 'Devices', href: '/settings/devices', icon: IconMobile , roles: ['SuperAdmin', 'Admin', 'User'] },
+      { title: 'Export and import', href: '/settings/portability', icon: IconArchive , roles: ['SuperAdmin', 'Admin'] },
       { title: 'Settings', href: '/settings', icon: IconSettings , roles: ['SuperAdmin', 'Admin'] },
     ],
   },
@@ -139,6 +146,8 @@ const SEGMENT_TITLES: Record<string, string> = {
   'email-events': 'Email events',
   'feature-flags': 'Feature flags',
   pwa: 'PWA installs',
+  devices: 'Devices',
+  portability: 'Export and import',
   settings: 'Settings',
   new: 'New',
 };

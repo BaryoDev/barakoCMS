@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Local screenshot captures from e2e runs, for reviewing a screen without a browser.
+shots/
