@@ -37,18 +37,18 @@ public class ReadModelConcurrencyTests
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
         var writer = scope.ServiceProvider.GetRequiredService<IContentWriter>();
 
-        var content = writer.Create(new ContentCreated(
+        var content = await writer.CreateAsync(new ContentCreated(
             id,
             "article",
             new Dictionary<string, object> { ["Title"] = title },
             ContentStatus.Draft,
             Guid.NewGuid(),
             title,
-            SensitivityLevel.Public));
+            SensitivityLevel.Public), default);
 
         if (publishAt is not null)
         {
-            writer.Append(content, new ContentScheduled(id, publishAt, null, Guid.NewGuid()));
+            await writer.AppendAsync(content, new ContentScheduled(id, publishAt, null, Guid.NewGuid()), default);
         }
 
         await session.SaveChangesAsync();
