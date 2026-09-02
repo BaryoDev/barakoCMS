@@ -23,6 +23,15 @@ public interface IConnectorSender
 {
     /// <summary>Performs one harmless authenticated request and reports how it went.</summary>
     Task<ConnectorCallResult> ProbeAsync(Connector connector, CancellationToken ct);
+
+    /// <summary>Sends a composed request through a connector and reports the outcome.</summary>
+    /// <remarks>
+    /// The request arrives already composed. Credentials are attached here, to the finished message,
+    /// which is what keeps a template from being able to resolve one: nothing that builds a body
+    /// ever holds a secret.
+    /// </remarks>
+    Task<ConnectorCallResult> SendAsync(
+        Connector connector, ComposedRequest request, SuccessRule rule, string? successJsonPath, CancellationToken ct);
 }
 
 internal sealed class ConnectorSender : IConnectorSender
@@ -97,6 +106,79 @@ internal sealed class ConnectorSender : IConnectorSender
             // carry a credential in the userinfo part, and ToString() on an HttpRequestException
             // chain has printed the request URI before.
             _logger.LogWarning("Connector {Slug} probe failed: {Reason}", connector.Slug, ex.GetType().Name);
+            return new ConnectorCallResult(false, null, timer.ElapsedMilliseconds, Describe(ex));
+        }
+    }
+
+    public async Task<ConnectorCallResult> SendAsync(
+        Connector connector, ComposedRequest composed, SuccessRule rule, string? successJsonPath, CancellationToken ct)
+    {
+        if (!composed.Ok)
+        {
+            return new ConnectorCallResult(false, null, 0, composed.Refusal);
+        }
+
+        if (!Uri.TryCreate(composed.Url, UriKind.Absolute, out var target)
+            || (target.Scheme != Uri.UriSchemeHttp && target.Scheme != Uri.UriSchemeHttps))
+        {
+            return new ConnectorCallResult(false, null, 0, "The composed URL is not an absolute http or https URL.");
+        }
+
+        // The address check is not here. It is in the connect callback of the ExternalApi client,
+        // which resolves once and opens the socket to an address that answer survived, with
+        // redirects off. A name that resolves publicly when the request is composed and privately
+        // when it is sent is the case a check here could not see.
+        var client = _httpClientFactory.CreateClient("ExternalApi");
+
+        using var request = new HttpRequestMessage(new HttpMethod(composed.Method), target);
+
+        foreach (var (name, value) in composed.Headers)
+        {
+            request.Headers.TryAddWithoutValidation(name, value);
+        }
+
+        if (composed.Body is not null)
+        {
+            request.Content = new StringContent(
+                composed.Body, Encoding.UTF8, composed.BodyContentType ?? "application/json");
+        }
+
+        var attached = await TryAttachAuthAsync(request, connector, ct);
+        if (attached is not null)
+        {
+            return new ConnectorCallResult(false, null, 0, attached);
+        }
+
+        var timer = Stopwatch.StartNew();
+
+        try
+        {
+            using var response = await client.SendAsync(request, ct);
+            timer.Stop();
+
+            // The body is read only when a rule needs it, and it is never returned or logged. A 401
+            // from an OAuth provider frequently contains the credential that was sent.
+            string? body = null;
+            if (rule == SuccessRule.TwoHundredAndJsonPathAbsent && !string.IsNullOrWhiteSpace(successJsonPath))
+            {
+                body = await response.Content.ReadAsStringAsync(ct);
+            }
+
+            var status = (int)response.StatusCode;
+            var ok = SuccessEvaluator.Succeeded(rule, status, body, successJsonPath);
+
+            return new ConnectorCallResult(
+                ok, status, timer.ElapsedMilliseconds,
+                ok ? null : $"The provider answered {status} and the success rule was not met.");
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            timer.Stop();
+            _logger.LogWarning("Connector {Slug} send failed: {Reason}", connector.Slug, ex.GetType().Name);
             return new ConnectorCallResult(false, null, timer.ElapsedMilliseconds, Describe(ex));
         }
     }
