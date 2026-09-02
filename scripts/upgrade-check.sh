@@ -144,15 +144,22 @@ echo "stream $CONTENT_ID has $EVENTS_BEFORE events"
 # The daemon writes its progression asynchronously, so wait for it rather than assuming. Everything
 # below compares against this number, and a zero here would make those comparisons meaningless.
 for _ in $(seq 1 30); do
-    PROGRESSION_BEFORE=$(psql_q "select coalesce(max(last_seq_id), 0) from mt_event_progression where name like '%WorkflowProjection%';")
-    [ "${PROGRESSION_BEFORE:-0}" -gt 0 ] && break
+    SEEN=$(psql_q "select coalesce(max(last_seq_id), 0) from mt_event_progression where name like '%WorkflowProjection%';")
+    [ "${SEEN:-0}" -gt 0 ] && break
     sleep 2
 done
-[ "${PROGRESSION_BEFORE:-0}" -gt 0 ] \
+[ "${SEEN:-0}" -gt 0 ] \
     || fail "the ${FROM_VERSION} workflow projection never recorded a progression, so there is no 'before' to compare against"
-echo "workflow projection progression is $PROGRESSION_BEFORE"
 
 docker stop "$OLD" >/dev/null
+
+# Read AFTER the old container is stopped, not before. The loop above breaks on the first non-zero
+# value, and the daemon can flush another one while docker stop is still landing, so a number taken
+# there is mid-flight: the comparison below then reported the daemon's own progress as if the
+# migration had reset it, and failed a PR whose migration never touches this table. Once the writer
+# is gone the number cannot move, which is what makes this a baseline rather than a sample.
+PROGRESSION_BEFORE=$(psql_q "select coalesce(max(last_seq_id), 0) from mt_event_progression where name like '%WorkflowProjection%';")
+echo "workflow projection progression is $PROGRESSION_BEFORE"
 
 step "db-assert must refuse the un-migrated database"
 if run_host db-assert >"$WORK/assert-before.log" 2>&1; then
