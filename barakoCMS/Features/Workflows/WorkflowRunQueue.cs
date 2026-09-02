@@ -15,13 +15,18 @@ internal static class WorkflowConditions
     {
         foreach (var condition in workflow.Conditions)
         {
-            if (content.Data.TryGetValue(condition.Key, out var value))
-            {
-                if (value?.ToString() != condition.Value) return false;
-            }
-            else if (condition.Key == "Status")
+            // Status is answered from the document before the data bag is consulted, and the order
+            // is the whole of it. An entry with its own "Status" field, which is an ordinary thing to
+            // model, used to shadow the lifecycle status: a workflow conditioned on Status Published
+            // then fired on whatever that field happened to say. Nothing named the system property,
+            // so the two were indistinguishable from inside the rule.
+            if (condition.Key == "Status")
             {
                 if (content.Status.ToString() != condition.Value) return false;
+            }
+            else if (content.Data.TryGetValue(condition.Key, out var value))
+            {
+                if (value?.ToString() != condition.Value) return false;
             }
             else
             {

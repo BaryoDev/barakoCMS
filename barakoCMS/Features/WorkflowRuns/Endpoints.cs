@@ -252,7 +252,24 @@ internal sealed class RetryAttemptEndpoint : EndpointWithoutRequest<RunResponse>
                 ["wasUnknown"] = wasUnknown,
             }, ct: ct);
 
-        await _session.SaveChangesAsync(ct);
+        try
+        {
+            await _session.SaveChangesAsync(ct);
+        }
+        catch (Exception ex) when (ex is JasperFx.ConcurrencyException
+            || ex.GetType().Name.Contains("Concurrency"))
+        {
+            // The run moved between the read above and this save, which in practice means the runner
+            // claimed the attempt while the operator was deciding. Optimistic concurrency on
+            // WorkflowRun already refuses the write, so nothing is lost; without this the refusal
+            // reached the global handler as a 500 and read as a broken button rather than as the
+            // guard working.
+            //
+            // 409 and the same wording as the running-lease check above, because from the operator's
+            // side it is the same situation: somebody else got to it first.
+            ThrowError("That action is running now. Wait for it to finish or for its lease to expire.", 409);
+            return;
+        }
 
         await Send.ResponseAsync(RunResponse.From(run), cancellation: ct);
     }

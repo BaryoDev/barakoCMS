@@ -69,7 +69,8 @@ internal class WebhookAction : IWorkflowAction
             // Permanent. A URL that is not http or https, or that resolves somewhere the guard
             // refuses, is the same on the fifth attempt as the first: it is a typo in the workflow,
             // not a provider having a bad afternoon.
-            return WorkflowActionResult.PermanentFailure($"Webhook URL {url} is not allowed: it must be http or https to a non-internal host.");
+            return WorkflowActionResult.PermanentFailure(
+                $"Webhook URL {Redact(url)} is not allowed: it must be http or https to a non-internal host.");
         }
 
         try
@@ -90,12 +91,12 @@ internal class WebhookAction : IWorkflowAction
 
             if (response.IsSuccessStatusCode)
             {
-                _logger.LogInformation("Webhook successfully sent to {Url} for content {ContentId}", url, content.Id);
+                _logger.LogInformation("Webhook successfully sent to {Url} for content {ContentId}", Redact(url), content.Id);
                 return WorkflowActionResult.Success();
             }
 
-            _logger.LogWarning("Webhook to {Url} returned status {StatusCode}", url, response.StatusCode);
-            return WorkflowActionResult.Failure($"Webhook to {url} returned status {(int)response.StatusCode}.");
+            _logger.LogWarning("Webhook to {Url} returned status {StatusCode}", Redact(url), response.StatusCode);
+            return WorkflowActionResult.Failure($"Webhook to {Redact(url)} returned status {(int)response.StatusCode}.");
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -106,13 +107,18 @@ internal class WebhookAction : IWorkflowAction
         }
         catch (HttpRequestException ex)
         {
-            _logger.LogError(ex, "Failed to send webhook to {Url}", url);
-            return WorkflowActionResult.Failure($"Webhook to {url} could not be delivered: {ex.Message}");
+            _logger.LogError(ex, "Failed to send webhook to {Url}", Redact(url));
+
+            // The exception type, not its message. A transport failure names the host it could not
+            // reach, and for a URL carrying a token in its query that message is the token.
+            return WorkflowActionResult.Failure(
+                $"Webhook to {Redact(url)} could not be delivered ({ex.GetType().Name}).");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Unexpected error while sending webhook to {Url}", url);
-            return WorkflowActionResult.Failure($"Webhook to {url} failed unexpectedly: {ex.Message}");
+            _logger.LogError(ex, "Unexpected error while sending webhook to {Url}", Redact(url));
+            return WorkflowActionResult.Failure(
+                $"Webhook to {Redact(url)} failed unexpectedly ({ex.GetType().Name}).");
         }
     }
 
@@ -152,5 +158,38 @@ internal class WebhookAction : IWorkflowAction
             return false;
 
         return await _addressGuard.IsHostAllowedAsync(uri.Host, ct);
+    }
+    /// <summary>
+    /// The part of a webhook URL that is safe to write down.
+    /// </summary>
+    /// <remarks>
+    /// Scheme, host, port and path. The userinfo and the query string are dropped, because both are
+    /// places a webhook URL routinely carries a secret: <c>https://user:token@host/hook</c> and
+    /// <c>https://host/hook?key=...</c> are how most providers authenticate one.
+    ///
+    /// This matters more than a log line usually would. The error text is persisted on the run and
+    /// returned by the workflow-run API, so an unredacted URL puts a live credential in the database,
+    /// in the API response, and in whatever aggregates the logs, readable by everybody who can view
+    /// runs rather than only by the person who configured it.
+    ///
+    /// The host and path are kept deliberately. "A webhook failed" with nothing else is not
+    /// diagnosable, and the host is what an operator needs to tell one integration from another.
+    /// </remarks>
+    internal static string Redact(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var parsed))
+        {
+            // Unparseable, so nothing can be said about which part is the secret. The configured
+            // value is refused earlier for exactly this, so reaching here means something else.
+            return "(the configured URL could not be parsed)";
+        }
+
+        // UserName and Password have to be cleared here. The query does not: GetLeftPart(Path) stops
+        // before it, which is why this returns scheme, host, port and path and nothing after. Setting
+        // Query as well was in the first version of this and was dead, and a mutation that put the
+        // query back changed no test, which is how it was found.
+        var builder = new UriBuilder(parsed) { UserName = string.Empty, Password = string.Empty };
+
+        return builder.Uri.GetLeftPart(UriPartial.Path);
     }
 }

@@ -213,6 +213,25 @@ internal sealed class WorkflowRunner : BackgroundService
             var attempt = latest.Actions.FirstOrDefault(a => a.Ordinal == claimed.Ordinal);
             if (attempt is null) return true;
 
+            // The lease has to still be ours. A handler that outlives its lease lets another node
+            // reclaim the attempt and start it again, and this block would then write the first
+            // node's outcome over the second node's work and clear a lease it does not hold. The
+            // second node keeps running, finishes, and finds the attempt already terminal, so the
+            // visible result is one action performed twice and one outcome recorded.
+            //
+            // Dropping the outcome is the right answer rather than a loss: the node that holds the
+            // lease is the one whose result is current, and the idempotency key is stable across
+            // attempts precisely so the duplicate call is absorbed downstream.
+            if (attempt.Status != AttemptStatus.Running || attempt.LeasedBy != _node)
+            {
+                _logger.LogWarning(
+                    "Discarding the outcome of run {RunId} action {Ordinal}: the lease is now held by "
+                  + "{Holder} and the attempt is {Status}. This node ran past its lease.",
+                    runId, claimed.Ordinal, attempt.LeasedBy ?? "(nobody)", attempt.Status);
+
+                return true;
+            }
+
             Apply(attempt, outcome);
             latest.Recompute();
             session.Update(latest);
