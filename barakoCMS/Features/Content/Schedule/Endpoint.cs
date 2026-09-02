@@ -59,9 +59,23 @@ internal class Endpoint : Endpoint<Request, Response>
             return;
         }
 
-        _contentWriter.Append(
-            content,
-            new barakoCMS.Events.ContentScheduled(content.Id, req.ScheduledPublishAt, req.ScheduledUnpublishAt, userId));
+        var events = new List<object>
+        {
+            new barakoCMS.Events.ContentScheduled(content.Id, req.ScheduledPublishAt, req.ScheduledUnpublishAt, userId),
+        };
+
+        // Scheduled is a status now, so arming or clearing a publish time is a status change and is
+        // recorded as one. Deriving it inside Apply(ContentScheduled) would have been shorter and
+        // would have broken the rule this project keeps: a status that moved without a
+        // ContentStatusChanged behind it is invisible in the history endpoint and to every workflow
+        // watching for a transition, and a replay would produce it from nothing.
+        var next = NextStatus(content.Status, req.ScheduledPublishAt);
+        if (next is { } status)
+        {
+            events.Add(new barakoCMS.Events.ContentStatusChanged(content.Id, status, userId));
+        }
+
+        await _contentWriter.AppendOptimisticAsync(content, events, ct);
         await _session.SaveChangesAsync(ct);
 
         await Send.ResponseAsync(new Response
@@ -69,6 +83,29 @@ internal class Endpoint : Endpoint<Request, Response>
             Message = "Schedule updated",
             ScheduledPublishAt = content.ScheduledPublishAt,
             ScheduledUnpublishAt = content.ScheduledUnpublishAt,
+            Status = content.Status,
         });
+    }
+
+    /// <summary>The status this schedule moves the entry to, or null when it does not move.</summary>
+    /// <remarks>
+    /// Only the two directions between Draft and Scheduled. A Published entry stays Published
+    /// whatever is armed on it, because arming a future unpublish does not un-publish anything, and
+    /// an Archived entry is not brought back to life by a date.
+    /// </remarks>
+    private static barakoCMS.Models.ContentStatus? NextStatus(
+        barakoCMS.Models.ContentStatus current, DateTime? scheduledPublishAt)
+    {
+        if (current == barakoCMS.Models.ContentStatus.Draft && scheduledPublishAt is not null)
+        {
+            return barakoCMS.Models.ContentStatus.Scheduled;
+        }
+
+        if (current == barakoCMS.Models.ContentStatus.Scheduled && scheduledPublishAt is null)
+        {
+            return barakoCMS.Models.ContentStatus.Draft;
+        }
+
+        return null;
     }
 }

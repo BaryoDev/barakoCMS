@@ -361,3 +361,39 @@ external sign-in matched on a provider subject id recorded at first link instead
 `User` would be enough and the pending row would be ceremony. That is a better design for the
 external providers anyway (an address can change hands), and if it is ever built, this decision is
 the one to revisit.
+
+## D12. Scheduled is a real content status, not a condition derived from a date
+
+**Decided:** 2 Sep 2026. **Issue:** #440. **Status:** implemented.
+
+`ContentStatus` gains a fourth member, `Scheduled = 3`. Arming a publish time on a draft moves the
+entry to it, clearing that time moves it back, and the sweeper promotes it to `Published` when the
+time arrives. A published entry carrying a future unpublish time stays `Published`, because it is
+published: the pending change does not un-publish anything in the meantime.
+
+**What this rules out.** Leaving it derived, which is what the admin does today: a draft with a
+non-null `ScheduledPublishAt` is shown as scheduled by whoever is looking at it. That keeps the write
+path and the sweeper untouched and needs no migration, and it was the cheaper answer.
+
+It was not taken because the definition does not stay in one place. Every screen, endpoint and report
+that wants the distinction has to write the condition out again, and there is nothing to stop two of
+them writing it differently. `ScheduledPublishAt` has no index either, so a derived filter scans,
+whereas `Status` is indexed twice already, on its own and with `ContentType`. And the lifecycle
+itself was untrue: an entry that will publish on Friday is not a draft, and calling it one made the
+status column say the wrong thing to everybody reading it.
+
+**What it costs, stated plainly.** The enum is stored as an integer, because Marten's serializer has
+no string enum converter (the one in `ServiceCollectionExtensions` is the HTTP serializer). So the
+member is appended, never inserted, and `migrations/4.0.0/3.x-to-4.0.sql` backfills existing drafts
+that carry a publish time. The rollback puts them back to `Draft`.
+
+Arming a schedule now appends a `ContentStatusChanged` next to the `ContentScheduled`. That is the
+rule this project keeps rather than an extra event for its own sake: a status that moved without one
+behind it is invisible to `GET /api/contents/{id}/history` and to every workflow watching for a
+transition, and a replay would have to invent it. Deriving the status inside
+`Content.Apply(ContentScheduled)` would have been three lines and would have broken exactly that.
+
+The one gap is pre-4.0 data. Rows the migration moves have no `ContentStatusChanged` behind them, so
+replaying one of those streams gives `Draft` with the date still on it. The sweeper accepts both, so
+those entries still publish on time; they would just show under Draft until something writes to them
+again.

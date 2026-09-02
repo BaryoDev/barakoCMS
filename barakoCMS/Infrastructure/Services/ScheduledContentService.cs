@@ -234,7 +234,12 @@ public class ScheduledContentService : BackgroundService
         for (var batch = 0; batch < maxBatches; batch++)
         {
             var due = await session.Query<Content>()
-                .Where(c => (c.Status == ContentStatus.Draft
+                // Scheduled, not Draft. Arming a publish time moves the entry to Scheduled now that
+                // it is a real status, so a Draft with a date on it is either pre-4.0 data the
+                // migration missed or something wrote the document without going through the
+                // schedule endpoint. Both are still swept, because leaving them would mean a
+                // publish time that silently never fires.
+                .Where(c => ((c.Status == ContentStatus.Scheduled || c.Status == ContentStatus.Draft)
                              && c.ScheduledPublishAt != null && c.ScheduledPublishAt <= nowUtc)
                          || (c.Status == ContentStatus.Published
                              && c.ScheduledUnpublishAt != null && c.ScheduledUnpublishAt <= nowUtc))
@@ -251,9 +256,9 @@ public class ScheduledContentService : BackgroundService
 
             foreach (var content in due)
             {
-                var newStatus = content.Status == ContentStatus.Draft
-                    ? ContentStatus.Published
-                    : ContentStatus.Archived;
+                var newStatus = content.Status == ContentStatus.Published
+                    ? ContentStatus.Archived
+                    : ContentStatus.Published;
 
                 var events = new object[]
                 {

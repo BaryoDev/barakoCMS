@@ -110,3 +110,11 @@ DROP TABLE IF EXISTS public.mt_doc_query_definitions;
 
 DROP TABLE IF EXISTS public.mt_doc_connector_secrets;
 DROP TABLE IF EXISTS public.mt_doc_connectors;
+
+-- Scheduled entries go back to being drafts (#440). 3.x has no Scheduled status,
+-- and its sweeper selects drafts with a publish time, so this is what makes those
+-- entries publish again rather than sitting at a status nothing understands.
+-- The publish time itself is untouched, so nothing is lost but the label.
+UPDATE public.mt_doc_contents
+SET data = jsonb_set(data, '{Status}', '0'::jsonb)
+WHERE (data ->> 'Status')::int = 3;
