@@ -5,7 +5,7 @@
 
     <IsPackable>true</IsPackable>
     <PackageId>BarakoCMS.Portability</PackageId>
-    <Version>4.0.3</Version>
+    <Version>4.0.4</Version>
     <Description>Content portability for barakoCMS: export content-type definitions and their content data as a JSON bundle, and import a bundle into another instance (upsert types by name, recreate content via events). For backup, migration, seeding, and sharing content-type templates.</Description>
   </PropertyGroup>
 
