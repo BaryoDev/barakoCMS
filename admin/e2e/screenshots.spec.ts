@@ -74,3 +74,77 @@ test('entry form with the new field types', async ({ page }, testInfo) => {
         fullPage: true,
     });
 });
+
+test('sign in', async ({ page }, testInfo) => {
+    // The GitHub button only renders when the deployment reports the provider, so a shot of the
+    // default deployment would not show one. This stubs the answer an ExternalAuth install gives.
+    await page.route('**/api/auth/providers', (r) =>
+        r.fulfill({ json: { facebook: false, google: false, linkedin: false, github: true } })
+    );
+
+    await page.goto('/login');
+    await expect(page.getByRole('heading', { name: 'Sign in to barakoBrew' })).toBeVisible({
+        timeout: 15000,
+    });
+    await expect(page.getByRole('button', { name: 'Continue with GitHub' })).toBeVisible();
+    await page.getByLabel('Username').fill('demo_admin');
+    await page.getByLabel('Password', { exact: true }).fill('passwordpassword');
+
+    await page.screenshot({ path: `${testInfo.project.outputDir}/screenshots/sign-in.png` });
+});
+
+test('entries list', async ({ page }, testInfo) => {
+    await authed(page);
+    await stubShell(page);
+    await stubContentTypes(page, [
+        { id: 'ct-a', name: 'article', displayName: 'Article', fields: [], isPubliclyDeliverable: true },
+        { id: 'ct-p', name: 'page', displayName: 'Page', fields: [], isPubliclyDeliverable: true },
+        { id: 'ct-n', name: 'newsletter', displayName: 'Newsletter', fields: [], isPubliclyDeliverable: true },
+        // Not publicly deliverable, so its rows carry the lock and the Private pill.
+        { id: 'ct-m', name: 'member', displayName: 'Member', fields: [], isPubliclyDeliverable: false },
+    ]);
+
+    const hoursAgo = (h: number) => new Date(Date.now() - h * 3600_000).toISOString();
+    const rows = [
+        { id: 'e1', contentType: 'article', data: { Title: 'Spring roast notes' }, status: 'Draft', hours: 2 },
+        { id: 'e2', contentType: 'newsletter', data: { Title: 'Barako Weekly, issue 12' }, status: 'Draft', hours: 24 },
+        { id: 'e3', contentType: 'page', data: { Title: 'Founding members page' }, status: 'Published', hours: 48 },
+        { id: 'e4', contentType: 'member', data: { Name: 'Member, A. Reyes' }, status: 'Published', hours: 96 },
+        { id: 'e5', contentType: 'article', data: { Title: 'Roast curve reference' }, status: 'Published', hours: 120 },
+        { id: 'e6', contentType: 'page', data: { Title: 'Guild bylaws 2026' }, status: 'Archived', hours: 168 },
+    ].map((r) => ({
+        id: r.id,
+        contentType: r.contentType,
+        data: r.data,
+        status: r.status,
+        sensitivity: 'Public',
+        createdAt: hoursAgo(r.hours),
+        updatedAt: hoursAgo(r.hours),
+    }));
+
+    await page.route('**/api/contents**', (r) =>
+        r.fulfill({
+            json: {
+                items: rows,
+                page: 1,
+                pageSize: 20,
+                totalItems: 148,
+                totalPages: 8,
+                hasNextPage: true,
+                hasPreviousPage: false,
+            },
+        })
+    );
+
+    await page.goto('/content');
+    await expect(page.getByRole('heading', { name: 'Entries', exact: true })).toBeVisible({
+        timeout: 15000,
+    });
+    await expect(page.getByText('Spring roast notes')).toBeVisible();
+    await expect(page.getByText('Private').first()).toBeVisible();
+
+    await page.screenshot({
+        path: `${testInfo.project.outputDir}/screenshots/entries.png`,
+        fullPage: true,
+    });
+});
