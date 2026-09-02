@@ -27,13 +27,25 @@ const SCHEMA = {
     fields: [{ name: 'Title', displayName: 'Title', type: 'Text', isRequired: true }],
 };
 
-function row(id: string, contentType: string, status: string, title: string) {
+function device(id: string, description: string, status: string, current: boolean) {
+    return {
+        id,
+        description,
+        status,
+        current,
+        lastSeenIp: '203.0.113.24',
+        lastUsedAt: new Date(Date.now() - 3600_000).toISOString(),
+    };
+}
+
+function row(id: string, contentType: string, status: string, title: string, version = 3) {
     return {
         id,
         contentType,
         data: { Title: title },
         status,
         sensitivity: 'Public',
+        version,
         createdAt: new Date(Date.now() - 3600_000).toISOString(),
         updatedAt: new Date(Date.now() - 3600_000).toISOString(),
     };
@@ -100,6 +112,9 @@ test.describe('accessibility', () => {
                     // A status this admin does not know. statusMeta renders the raw value in the
                     // muted tone rather than inventing one, and that path needs contrast too.
                     row('c5', 'article', 'Posted', 'Journal entry JE-2044'),
+                    // Scheduled uses the accent tint, which is a pair no other badge on this page
+                    // uses, so leaving it out would mean the one new colour is the one never scanned.
+                    row('c6', 'article', 'Scheduled', 'Autumn blend announcement'),
                 ]),
             })
         );
@@ -108,9 +123,21 @@ test.describe('accessibility', () => {
         await expect(page.getByRole('heading', { name: 'Entries', exact: true })).toBeVisible({ timeout: 15000 });
         // The badges are the point of this case, so fail loudly if the table did not render them
         // rather than scanning an empty page and calling it a pass.
-        await expect(page.getByText('Private', { exact: true })).toBeVisible();
-        await expect(page.getByText('Draft', { exact: true })).toBeVisible();
-        await expect(page.getByText('Posted', { exact: true })).toBeVisible();
+        //
+        // Scoped to the table. The filter bar above it has buttons reading Draft, Published,
+        // Scheduled and Archived, so an unscoped exact-text match now finds two elements and a
+        // strict-mode violation reads as a broken selector rather than as what it is.
+        const rows = page.getByRole('table');
+        await expect(rows.getByText('Private', { exact: true })).toBeVisible();
+        await expect(rows.getByText('Draft', { exact: true })).toBeVisible();
+        await expect(rows.getByText('Scheduled', { exact: true })).toBeVisible();
+        await expect(rows.getByText('Posted', { exact: true })).toBeVisible();
+
+        // And the controls themselves, which this case now covers: an empty filter bar would let
+        // the scan pass without ever looking at the search box or the segmented control.
+        await expect(page.getByLabel('Search entries')).toBeVisible();
+        await expect(page.getByRole('group', { name: 'Filter by status' })).toBeVisible();
+
         await scan(page);
     });
 
@@ -122,6 +149,63 @@ test.describe('accessibility', () => {
 
         await page.goto('/content');
         await expect(page.getByRole('heading', { name: 'Entries', exact: true })).toBeVisible({ timeout: 15000 });
+        await scan(page);
+    });
+
+    test('the devices list, with a row of every status', async ({ page }) => {
+        await authed(page);
+        await stubShell(page);
+        await page.route('**/api/devices**', (r) =>
+            r.fulfill({
+                json: pageOf([
+                    device('d1', 'Chrome on macOS', 'Trusted', true),
+                    device('d2', 'Safari on iPhone', 'Trusted', false),
+                    device('d3', 'Firefox on Windows', 'Pending', false),
+                    device('d4', 'Edge on Windows', 'Revoked', false),
+                ]),
+            })
+        );
+
+        await page.goto('/settings/devices');
+        await expect(page.getByRole('heading', { name: 'Devices', exact: true })).toBeVisible({ timeout: 15000 });
+
+        // Every badge tone this screen can draw, so the scan sees the colours rather than an empty
+        // table. The accent pill on the current device is the one no other row uses.
+        const rows = page.getByRole('table');
+        await expect(rows.getByText('This device', { exact: true })).toBeVisible();
+        await expect(rows.getByText('Pending', { exact: true })).toBeVisible();
+        await expect(rows.getByText('Revoked', { exact: true }).first()).toBeVisible();
+        await scan(page);
+    });
+
+    test('export and import, with a bundle chosen and a report shown', async ({ page }) => {
+        await authed(page);
+        await stubShell(page);
+        await page.route('**/api/portability/import**', (r) =>
+            r.fulfill({
+                json: {
+                    dryRun: true,
+                    contentTypesCreated: 2,
+                    contentTypesUpdated: 1,
+                    contentsCreated: 34,
+                    contentsWithoutContentType: 3,
+                },
+            })
+        );
+
+        await page.goto('/settings/portability');
+        await expect(page.getByRole('heading', { name: 'Export and import' })).toBeVisible({ timeout: 15000 });
+
+        await page.getByLabel('Choose a bundle file').setInputFiles({
+            name: 'bundle.json',
+            mimeType: 'application/json',
+            buffer: Buffer.from(JSON.stringify({ contentTypes: [{ name: 'article' }], contents: [] })),
+        });
+        await page.getByRole('button', { name: 'Preview' }).click();
+
+        // The warning is the only thing on this page in the warning tone, and it is the reason the
+        // report exists, so scanning without it would miss the contrast pair that matters.
+        await expect(page.getByText('nothing knows which of their fields are public', { exact: false })).toBeVisible();
         await scan(page);
     });
 

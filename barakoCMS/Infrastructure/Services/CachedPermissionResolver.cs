@@ -63,6 +63,19 @@ public class CachedPermissionResolver : IPermissionResolver
     }
 
     /// <summary>
+    /// Forwarded, never cached.
+    /// </summary>
+    /// <remarks>
+    /// The inner call is two queries for the roles, and those are already memoised per request on the
+    /// resolver itself. What is left is string building, which is cheaper than a cache lookup and has
+    /// none of the staleness: this returns a predicate built from the rules as they are right now,
+    /// and caching it would reintroduce exactly the window the expiration tokens below exist to close.
+    /// </remarks>
+    public Task<ReadPredicate> ReadPredicateAsync(
+        User user, string contentTypeSlug, CancellationToken cancellationToken = default) =>
+        _inner.ReadPredicateAsync(user, contentTypeSlug, cancellationToken);
+
+    /// <summary>
     /// Invalidates all cached permissions for a specific user.
     /// Call this when a user's roles or group memberships change.
     /// </summary>

@@ -361,3 +361,102 @@ external sign-in matched on a provider subject id recorded at first link instead
 `User` would be enough and the pending row would be ceremony. That is a better design for the
 external providers anyway (an address can change hands), and if it is ever built, this decision is
 the one to revisit.
+
+---
+
+## D11. Authorisation is enforced in the application; the database enforces tenancy only
+
+**Decided:** 2 Sep 2026. **Issues:** #445, #446. **Status:** decided; both pieces of work outstanding.
+
+`IPermissionResolver` is the authorisation boundary. Content CRUD, row-level conditions, field
+sensitivity and the SuperAdmin bypass are decided in C#, against a database connection that is
+already trusted, and that is where they stay. Postgres gets exactly one enforcement job, the
+`tenant_id` discriminator (#446), and it gets that as a backstop behind a flag, not as the place the
+rules live.
+
+The condition language is frozen as a contract at `_eq`, `_ne`, `_in`, `_nin` and `$CURRENT_USER`.
+Every role document in every deployment is written against it, and #445 makes it a second
+implementation, so adding an operator means adding it in two places at once or not at all.
+
+**Rules out:** the Supabase shape. No PostgREST-style layer that maps HTTP straight onto SQL, no
+per-end-user Postgres role, no row-level security carrying business rules, and no browser holding a
+database connection.
+
+**Why not put the rules in the database.** The attraction is real: one enforcement point, no way to
+forget a check in a new endpoint. It does not survive contact with what is actually stored here.
+
+Field sensitivity is the fact that settles it. `FieldDefinition.Sensitivity`, `VisibleToRoles` and
+`Mask` do not decide whether a row is returned, they decide what a returned row *contains*: `SSN`
+removed for one caller, `BirthDay` masked to `***` for another, both present for a third, all from
+one JSONB document. Row-level security filters rows. It has nothing to say about the inside of one,
+so the most sensitive control in `docs/access-control.md` would have to stay in C# no matter what,
+and a boundary that holds two of three layers is not a boundary, it is a second copy of the rules
+with a gap in it.
+
+The other half is that there is nothing on the other side of the boundary to protect against. Supabase
+puts RLS between an untrusted browser and the database because the browser genuinely holds a
+connection. Here every statement is issued by our own process, after FastEndpoints has run the
+permission check, over a connection string the operator controls. Policies against that connection do
+not defend against an attacker; they defend against our own bug, which is worth having for one flat,
+mechanical predicate like `tenant_id`, not worth having as a duplicate of the whole permission model.
+
+And the costs are not hypothetical. Per-request `SET ROLE` needs `SessionOptions.ForConnection`,
+which puts Marten into sticky mode: the connection footprint stops tracking active statements and
+starts tracking concurrent requests. Session-level `SET` breaks silently behind a transaction-pooling
+PgBouncer. A table's owner bypasses RLS unless the table is `FORCE ROW LEVEL SECURITY`, so the
+obvious single-user deployment enables policies that never fire. Each of those is payable for tenancy.
+None is payable for a rule that C# already enforces correctly.
+
+**What is worth taking from the other design, and is taken.** Two things, both additive:
+
+- **Predicates, not enforcement (#445).** Compiling conditions to a jsonb `WHERE` fragment is the
+  valuable half of "policies as data" and needs none of the boundary move. Today `Features/Content/List`
+  loads the whole collection and filters per item; a predicate makes the rules usable as a query
+  filter, so the cost tracks the page rather than the table.
+- **Tenancy at the database (#446).** `tenant_id` is a column Marten already manages. A policy on it
+  bounds every request-path session opened without a tenant. It would **not** have caught #287. The
+  workflow daemon runs as table owner and legitimately crosses tenants, and that fix was its own. And
+  the issue says so, because a backstop sold as catching the bug that motivated it is how a control
+  gets trusted for something it does not do.
+
+**What would have to change for this to be wrong.** If BarakoCMS ever grows a path where an untrusted
+client talks to Postgres directly (a realtime subscription, a published read replica, an embedded
+SQL surface for customers) then the database is the only boundary that exists on that path and the
+answer flips. The signal to watch is a feature request for direct data access that does not go through
+the API.
+
+## D12. Scheduled is a real content status, not a condition derived from a date
+
+**Decided:** 2 Sep 2026. **Issue:** #440. **Status:** implemented.
+
+`ContentStatus` gains a fourth member, `Scheduled = 3`. Arming a publish time on a draft moves the
+entry to it, clearing that time moves it back, and the sweeper promotes it to `Published` when the
+time arrives. A published entry carrying a future unpublish time stays `Published`, because it is
+published: the pending change does not un-publish anything in the meantime.
+
+**What this rules out.** Leaving it derived, which is what the admin does today: a draft with a
+non-null `ScheduledPublishAt` is shown as scheduled by whoever is looking at it. That keeps the write
+path and the sweeper untouched and needs no migration, and it was the cheaper answer.
+
+It was not taken because the definition does not stay in one place. Every screen, endpoint and report
+that wants the distinction has to write the condition out again, and there is nothing to stop two of
+them writing it differently. `ScheduledPublishAt` has no index either, so a derived filter scans,
+whereas `Status` is indexed twice already, on its own and with `ContentType`. And the lifecycle
+itself was untrue: an entry that will publish on Friday is not a draft, and calling it one made the
+status column say the wrong thing to everybody reading it.
+
+**What it costs, stated plainly.** The enum is stored as an integer, because Marten's serializer has
+no string enum converter (the one in `ServiceCollectionExtensions` is the HTTP serializer). So the
+member is appended, never inserted, and `migrations/4.0.0/3.x-to-4.0.sql` backfills existing drafts
+that carry a publish time. The rollback puts them back to `Draft`.
+
+Arming a schedule now appends a `ContentStatusChanged` next to the `ContentScheduled`. That is the
+rule this project keeps rather than an extra event for its own sake: a status that moved without one
+behind it is invisible to `GET /api/contents/{id}/history` and to every workflow watching for a
+transition, and a replay would have to invent it. Deriving the status inside
+`Content.Apply(ContentScheduled)` would have been three lines and would have broken exactly that.
+
+The one gap is pre-4.0 data. Rows the migration moves have no `ContentStatusChanged` behind them, so
+replaying one of those streams gives `Draft` with the date still on it. The sweeper accepts both, so
+those entries still publish on time; they would just show under Draft until something writes to them
+again.
