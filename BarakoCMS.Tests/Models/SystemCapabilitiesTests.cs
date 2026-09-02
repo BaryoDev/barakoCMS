@@ -80,6 +80,8 @@ public class SystemCapabilitiesTests
             SystemCapabilities.ManageTenantMembers,
             SystemCapabilities.ManageUserMembership,
             SystemCapabilities.ManageUserGroups,
+            SystemCapabilities.ManageApiKeys,
+            SystemCapabilities.ViewAuditLog,
         });
         admin.Should().NotContain(SystemCapabilities.ManageRoles);
         admin.Should().NotContain(SystemCapabilities.ManageTenants);

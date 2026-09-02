@@ -216,6 +216,45 @@ public class CapabilityGateTests
         assign.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
+    [Fact]
+    public async Task Manage_api_keys_opens_the_api_key_surface_and_nothing_else()
+    {
+        var (client, _) = await CallerHolding("Key Steward", barakoCMS.Models.SystemCapabilities.ManageApiKeys);
+
+        var keys = await client.GetAsync("/api/api-keys", TestContext.Current.CancellationToken);
+        var audit = await client.GetAsync("/api/audit", TestContext.Current.CancellationToken);
+        var users = await client.GetAsync("/api/users", TestContext.Current.CancellationToken);
+
+        keys.StatusCode.Should().Be(HttpStatusCode.OK);
+        audit.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "the audit log is view_audit_log, a separate capability, even though both were the same role pair");
+        users.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    /// <summary>
+    /// The audit log is its own capability, and it is read-only.
+    /// </summary>
+    /// <remarks>
+    /// Both areas gated on the same <c>Roles("SuperAdmin", "Admin")</c> pair, so one name would have
+    /// covered them and the seeded roles would not have noticed. They are split because a runtime
+    /// role that should read the audit trail without being able to mint credentials is the ordinary
+    /// case for an auditor, and one name makes that unexpressible.
+    /// </remarks>
+    [Fact]
+    public async Task View_audit_log_opens_the_audit_log_and_not_the_keys()
+    {
+        var (client, _) = await CallerHolding("Compliance Reader", barakoCMS.Models.SystemCapabilities.ViewAuditLog);
+
+        var audit = await client.GetAsync("/api/audit", TestContext.Current.CancellationToken);
+        var keys = await client.GetAsync("/api/api-keys", TestContext.Current.CancellationToken);
+        var mint = await client.SendAsync(Probe("POST", "/api/api-keys"), TestContext.Current.CancellationToken);
+
+        audit.StatusCode.Should().Be(HttpStatusCode.OK);
+        keys.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "an auditor reads the trail; issuing credentials is a different grant");
+        mint.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
     /// <summary>
     /// The invariant of issue #443, asserted through the gate rather than through the constants. A
     /// role holding exactly what the seeder gives Admin, under a name the legacy fallback does not
