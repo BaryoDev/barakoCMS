@@ -20,6 +20,59 @@ public class SitemapTests
         _client = factory.CreateClient();
     }
 
+    /// <summary>
+    /// An entry that asks not to be indexed is left out of the sitemap.
+    /// </summary>
+    /// <remarks>
+    /// The tag on the page is the instruction a crawler obeys; the sitemap is the invitation.
+    /// Listing a page and then telling the crawler to go away when it arrives wastes its budget on
+    /// the site and is a contradiction Search Console reports as an error, which reads as a broken
+    /// sitemap rather than as a deliberate choice.
+    ///
+    /// Paired with an indexable entry of the same type, published the same way, so a sitemap that
+    /// simply stopped listing anything could not pass.
+    /// </remarks>
+    [Fact]
+    public async Task Sitemap_LeavesOutEntriesMarkedNoIndex()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+
+        const string type = "sitemap_noindex";
+
+        var definition = new ContentTypeBuilder()
+            .Named(type)
+            .PubliclyDeliverable()
+            .WithTitleAndSlug()
+            .Build();
+
+        definition.Fields.AddRange(barakoCMS.Features.Seo.SeoFields.Definitions());
+        session.Store(definition);
+
+        var indexed = new ContentBuilder()
+            .OfType(type)
+            .WithTitleAndSlug("Indexed Post", "indexed-post")
+            .Published()
+            .Build();
+
+        var hidden = new ContentBuilder()
+            .OfType(type)
+            .WithTitleAndSlug("Hidden Post", "hidden-post")
+            .Published()
+            .Build();
+
+        hidden.Data["NoIndex"] = true;
+
+        session.Store(indexed);
+        session.Store(hidden);
+        await session.SaveChangesAsync();
+
+        var xml = await (await _client.GetAsync("/api/public/sitemap.xml")).Content.ReadAsStringAsync();
+
+        xml.Should().Contain("indexed-post", "an ordinary entry of the same type still belongs here");
+        xml.Should().NotContain("hidden-post");
+    }
+
     [Fact]
     public async Task Sitemap_ContainsOnlyPublishedPublicEntriesOfDeliverableTypes()
     {
