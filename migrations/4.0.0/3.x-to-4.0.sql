@@ -34,6 +34,10 @@
 --   mt_doc_request_definitions
 --                         New table. What to send through a connector, held as configuration
 --                         rather than code (#327). Conjoined multi-tenant. Empty on arrival.
+--   mt_doc_url_redirects
+--                         New table. Old paths that should send a visitor to a new one after a site
+--                         rebuild (#112). Conjoined multi-tenant, from-path unique per tenant.
+--                         Empty on arrival.
 --   mt_doc_query_definitions
 --                         New table. A saved way of fetching the rows a payload needs beyond the
 --                         entry that triggered it (#328). Conjoined multi-tenant. Empty on arrival.
@@ -275,6 +279,26 @@ CREATE TABLE IF NOT EXISTS public.mt_doc_request_definitions (
 
 CREATE UNIQUE INDEX IF NOT EXISTS mt_doc_request_definitions_uidx_slug
     ON public.mt_doc_request_definitions USING btree ((data ->> 'Slug'), tenant_id);
+
+-- ---------------------------------------------------------------------------
+-- URL redirects (#112).
+--
+-- One old path and where it should go, so a rebuild does not break every link
+-- anyone shared. Conjoined multi-tenant, from-path unique per tenant so one
+-- tenant taking "/about" does not stop another having one. Empty on arrival.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.mt_doc_url_redirects (
+    id                  uuid                        NOT NULL,
+    data                jsonb                       NOT NULL,
+    mt_last_modified    timestamp with time zone    NULL DEFAULT (transaction_timestamp()),
+    mt_version          uuid                        NOT NULL DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
+    mt_dotnet_type      varchar                     NULL,
+    tenant_id           varchar                     NOT NULL DEFAULT '*DEFAULT*',
+    CONSTRAINT pkey_mt_doc_url_redirects_tenant_id_id PRIMARY KEY (tenant_id, id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS mt_doc_url_redirects_uidx_from_path
+    ON public.mt_doc_url_redirects USING btree ((data ->> 'FromPath'), tenant_id);
 
 -- ---------------------------------------------------------------------------
 -- Query definitions (#328).
