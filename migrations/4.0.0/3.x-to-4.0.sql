@@ -367,3 +367,31 @@ CREATE TABLE IF NOT EXISTS public.mt_doc_content_type_sourcing_policies (
 DROP POLICY IF EXISTS marten_tenant_isolation ON public.mt_doc_content_type_sourcing_policies;
 ALTER TABLE public.mt_doc_content_type_sourcing_policies NO FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.mt_doc_content_type_sourcing_policies DISABLE ROW LEVEL SECURITY;
+
+-- Scheduled becomes a real content status (#440, DECISIONS.md D12).
+--
+-- ContentStatus gained a fourth member, Scheduled = 3, appended rather than
+-- inserted so no existing row changes meaning. Marten's serializer has no
+-- string enum converter, so these are integers: 0 Draft, 1 Published,
+-- 2 Archived, 3 Scheduled.
+--
+-- A draft carrying a publish time was a draft before this and is Scheduled
+-- after it. The condition is exactly what the sweeper used to select on, so
+-- this moves the same rows the old code already treated as pending.
+--
+-- Not destructive and not required. The sweeper accepts both Draft and
+-- Scheduled with a publish time, so a database that skips this statement still
+-- publishes everything on time; what it loses is the Scheduled filter in the
+-- admin, which would show those entries under Draft.
+--
+-- One thing this cannot do is put the transition in the history. From 4.0 the
+-- schedule endpoint appends a ContentStatusChanged next to the ContentScheduled,
+-- so a replay reproduces the status. These rows have no such event behind them,
+-- so replaying one gives Draft with the date still on it, which the sweeper
+-- handles. Entries scheduled after the upgrade do not have that gap.
+-- ---------------------------------------------------------------------------
+UPDATE public.mt_doc_contents
+SET data = jsonb_set(data, '{Status}', '3'::jsonb)
+WHERE (data ->> 'Status')::int = 0
+  AND data ->> 'ScheduledPublishAt' IS NOT NULL
+  AND data -> 'ScheduledPublishAt' <> 'null'::jsonb;
