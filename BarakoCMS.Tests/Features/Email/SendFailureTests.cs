@@ -117,10 +117,15 @@ public class SendFailureTests
     [Fact]
     public async Task A_failed_send_does_not_put_the_reason_in_the_response()
     {
-        var (broken, _) = BrokenEmailHost();
+        var (broken, failing) = BrokenEmailHost();
 
         var response = await broken.PostAsJsonAsync("/api/auth/register",
             Registration($"quiet-{Guid.NewGuid():N}@example.com"), TestContext.Current.CancellationToken);
+
+        // Asserted first, because everything below is about what a failure does and a registration
+        // that never tried to send has no failure to be quiet about. That is reachable rather than
+        // theoretical: turn email verification off in the host and this passes on an empty body.
+        failing.Attempts.Should().BeGreaterThan(0);
 
         var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
 
