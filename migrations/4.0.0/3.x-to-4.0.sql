@@ -26,6 +26,10 @@
 --                         yet, which 4.0 writes instead of creating a user (#268). Nothing existing
 --                         reads or writes it, so creating it moves no data and breaks nothing on
 --                         3.x if you never start 4.0.
+--   mt_doc_email_settings
+--                         New table. The email provider credentials an operator entered in the
+--                         admin, with the API key encrypted (#343). One row at most. Nothing
+--                         existing reads or writes it, so creating it moves no data.
 --   mt_doc_contenttypedefinition
 --                         Adds the unique index on a content type's name, per tenant. Uniqueness
 --                         used to be a read before the write with nothing behind it, so two
@@ -191,3 +195,20 @@ CREATE INDEX IF NOT EXISTS mt_doc_pending_registrations_idx_email
 
 CREATE INDEX IF NOT EXISTS mt_doc_pending_registrations_idx_expires_at
     ON public.mt_doc_pending_registrations USING btree ((public.mt_immutable_timestamp(data ->> 'ExpiresAt')));
+
+-- ---------------------------------------------------------------------------
+-- Email provider settings (#343).
+--
+-- 4.0 lets an operator set the email API key in the admin instead of the
+-- deployment, and stores it here encrypted. At most one row, so no index earns
+-- its place. Empty on arrival: a database that has not had a key entered
+-- resolves email from configuration exactly as 3.x did.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.mt_doc_email_settings (
+    id                  uuid                        NOT NULL,
+    data                jsonb                       NOT NULL,
+    mt_last_modified    timestamp with time zone    NULL DEFAULT (transaction_timestamp()),
+    mt_version          uuid                        NOT NULL DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
+    mt_dotnet_type      varchar                     NULL,
+    CONSTRAINT pkey_mt_doc_email_settings_id PRIMARY KEY (id)
+);

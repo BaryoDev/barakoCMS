@@ -31,8 +31,33 @@ internal class UpdateSettingEndpoint : Endpoint<UpdateSettingRequest, UpdateSett
         Roles("SuperAdmin", "Admin"); // Restrict to admins only
     }
 
+    /// <summary>
+    /// Key fragments that mean the value is a credential, which this endpoint must not take.
+    /// </summary>
+    /// <remarks>
+    /// Everything stored here is written in plaintext and handed back in full by
+    /// <c>GET /api/settings</c>. That is fine for a feature flag and wrong for a credential, and the
+    /// screen invites it: a box labelled Value next to a key called Resend:ApiKey is going to get an
+    /// API key typed into it. Refusing names the endpoint that encrypts, rather than leaving the
+    /// operator to discover the difference from a database dump.
+    /// </remarks>
+    private static readonly string[] SecretKeyFragments =
+        ["apikey", "api_key", "password", "secret", "token", "credential", "privatekey"];
+
     public override async Task HandleAsync(UpdateSettingRequest req, CancellationToken ct)
     {
+        var looksSecret = SecretKeyFragments.FirstOrDefault(
+            f => req.Key.Contains(f, StringComparison.OrdinalIgnoreCase));
+
+        if (looksSecret is not null)
+        {
+            ThrowError(
+                $"'{req.Key}' looks like a credential, and settings stored here are kept in plaintext and "
+              + "returned by GET /api/settings. Email credentials go to PUT /api/settings/email, which "
+              + "encrypts them and never hands them back.", 400);
+            return;
+        }
+
         // Find existing setting or create new
         var setting = await _session.Query<SystemSetting>()
             .FirstOrDefaultAsync(s => s.Key == req.Key, ct);
