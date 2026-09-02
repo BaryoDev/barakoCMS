@@ -79,6 +79,7 @@ public class RoleGateTests
         new("GET", "/api/requests/{slug}", $"/api/requests/{NotASlug}"),
         new("DELETE", "/api/requests/{slug}", $"/api/requests/{NotASlug}"),
         new("POST", "/api/requests/{slug}/dry-run/{contentId}", $"/api/requests/{NotASlug}/dry-run/{NotAGuid}"),
+        new("POST", "/api/content-types/{name}/seo-fields", $"/api/content-types/{NotASlug}/seo-fields"),
         new("GET", "/api/queries", "/api/queries"),
         new("POST", "/api/queries", "/api/queries"),
         new("GET", "/api/queries/{slug}", $"/api/queries/{NotASlug}"),

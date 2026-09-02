@@ -10,7 +10,7 @@ namespace barakoCMS.Features.Seo;
 /// <param name="CanonicalUrl">The one URL this content should be indexed under, or null.</param>
 /// <param name="ImageUrl">The social sharing image, or null.</param>
 /// <param name="NoIndex">Whether search engines should be asked to skip this entry.</param>
-public sealed record SeoMetadata(
+internal sealed record SeoMetadata(
     string? Title,
     string? Description,
     string? CanonicalUrl,
@@ -30,7 +30,7 @@ public sealed record SeoMetadata(
 /// and every frontend re-implements the tags against a different one, which is the actual complaint
 /// in the issue. These names are the contract.
 /// </remarks>
-public static class SeoFields
+internal static class SeoFields
 {
     public const string MetaTitle = "MetaTitle";
     public const string MetaDescription = "MetaDescription";
