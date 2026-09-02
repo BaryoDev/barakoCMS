@@ -187,7 +187,7 @@ jobs:
       - name: Pack
         run: |
           set -euo pipefail
-          for p in barakoCMS BarakoCMS.Accounting BarakoCMS.Import BarakoCMS.Files BarakoCMS.Files.S3 BarakoCMS.Email.Resend BarakoCMS.DeviceTrust BarakoCMS.ExternalAuth BarakoCMS.FeatureFlags BarakoCMS.Portability BarakoCMS.Diagnostics BarakoCMS.Analytics.Umami BarakoCMS.Pwa BarakoCMS.AI; do
+          for p in barakoCMS BarakoCMS.Accounting BarakoCMS.Import BarakoCMS.Files BarakoCMS.Files.S3 BarakoCMS.Email.Resend BarakoCMS.Email.Smtp BarakoCMS.DeviceTrust BarakoCMS.ExternalAuth BarakoCMS.FeatureFlags BarakoCMS.Portability BarakoCMS.Diagnostics BarakoCMS.Analytics.Umami BarakoCMS.Pwa BarakoCMS.AI; do
             dotnet pack "$p/$p.csproj" --no-build --configuration Release -o out
           done
 

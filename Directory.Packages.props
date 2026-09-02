@@ -49,6 +49,12 @@
     <PackageVersion Include="Serilog.Sinks.File" Version="7.0.0" />
   </ItemGroup>
 
+  <ItemGroup Label="Email">
+    <!-- MailKit rather than System.Net.Mail.SmtpClient, which Microsoft's own docs tell you not to
+         use for new code. Brings MimeKit with it. -->
+    <PackageVersion Include="MailKit" Version="4.17.0" />
+  </ItemGroup>
+
   <ItemGroup Label="Infrastructure">
     <PackageVersion Include="KubernetesClient" Version="18.0.13" />
   </ItemGroup>
