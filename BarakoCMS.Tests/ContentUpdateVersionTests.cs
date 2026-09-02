@@ -53,20 +53,47 @@ internal sealed class StreamAdvancingContentWriter : IContentWriter
         _advancer = advancer;
     }
 
+#pragma warning disable CS0618 // the interface still declares them until 5.0, so a decorator still has to
     public Content Create(barakoCMS.Events.ContentCreated @event) => _inner.Create(@event);
 
     public void Append(Content content, object @event) => _inner.Append(content, @event);
+#pragma warning restore CS0618
+
+    public Task<Content> CreateAsync(barakoCMS.Events.ContentCreated @event, CancellationToken ct)
+        => _inner.CreateAsync(@event, ct);
+
+    public Task AppendAsync(Content content, object @event, CancellationToken ct)
+        => _inner.AppendAsync(content, @event, ct);
+
+    /// <summary>
+    /// Implemented here rather than forwarded straight through, because this is the seam.
+    /// </summary>
+    /// <remarks>
+    /// The interface used to give this member a default that called <see cref="AppendOptimisticAsync"/>
+    /// on the decorator, and the advance below rode in on that. The default is gone (it discarded
+    /// <c>expectedVersion</c>), so the advance happens here instead. Same window: the endpoint has
+    /// already read the stream state, and this commits to the stream before the inner writer appends.
+    /// </remarks>
+    public async Task AppendAsync(
+        Content content, IReadOnlyList<object> events, long? expectedVersion, CancellationToken ct)
+    {
+        await AdvanceIfArmedAsync(content, ct);
+        await _inner.AppendAsync(content, events, expectedVersion, ct);
+    }
+
+    private async Task AdvanceIfArmedAsync(Content content, CancellationToken ct)
+    {
+        if (!_advancer.Claim(content.Id)) return;
+
+        await using var other = _store.LightweightSession();
+        other.Events.Append(content.Id, new barakoCMS.Events.ContentUpdated(
+            content.Id, content.Data, Guid.Empty, string.Empty));
+        await other.SaveChangesAsync(ct);
+    }
 
     public async Task AppendOptimisticAsync(Content content, IReadOnlyList<object> events, CancellationToken ct)
     {
-        if (_advancer.Claim(content.Id))
-        {
-            await using var other = _store.LightweightSession();
-            other.Events.Append(content.Id, new barakoCMS.Events.ContentUpdated(
-                content.Id, content.Data, Guid.Empty, string.Empty));
-            await other.SaveChangesAsync(ct);
-        }
-
+        await AdvanceIfArmedAsync(content, ct);
         await _inner.AppendOptimisticAsync(content, events, ct);
     }
 }
@@ -96,7 +123,9 @@ public class ContentUpdateVersionTests
             {
                 services.AddSingleton<StreamAdvancer>();
                 services.AddScoped<IContentWriter>(sp => new StreamAdvancingContentWriter(
-                    new barakoCMS.Infrastructure.Services.ContentWriter(sp.GetRequiredService<IDocumentSession>()),
+                    new barakoCMS.Infrastructure.Services.ContentWriter(
+                        sp.GetRequiredService<IDocumentSession>(),
+                        sp.GetRequiredService<barakoCMS.Core.Interfaces.IContentSourcingPolicy>()),
                     sp.GetRequiredService<IDocumentStore>(),
                     sp.GetRequiredService<StreamAdvancer>()));
             }));

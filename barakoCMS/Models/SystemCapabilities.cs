@@ -44,9 +44,19 @@ public static class SystemCapabilities
     /// <summary>Create, read, update and delete user groups, and change who is in them.</summary>
     public const string ManageUserGroups = "manage_user_groups";
 
+    /// <summary>Issue, list and revoke API keys.</summary>
+    public const string ManageApiKeys = "manage_api_keys";
+
+    /// <summary>
+    /// Read the audit log. Named for reading rather than managing because the surface is one GET:
+    /// entries are append-only and the chain is tamper-evident, so there is nothing to manage.
+    /// </summary>
+    public const string ViewAuditLog = "view_audit_log";
+
     public static readonly IReadOnlySet<string> Known = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         All, ManageRoles, ManageTenants, ManageTenantMembers, ManageUsers, ManageUserMembership, ManageUserGroups,
+        ManageApiKeys, ViewAuditLog,
     };
 
     public static bool IsKnown(string capability) =>
@@ -58,7 +68,8 @@ public static class SystemCapabilities
 
     private static readonly string[] None = [];
     private static readonly string[] Everything = [All];
-    private static readonly string[] AdminDefaults = [ManageTenantMembers, ManageUserMembership, ManageUserGroups];
+    private static readonly string[] AdminDefaults =
+        [ManageTenantMembers, ManageUserMembership, ManageUserGroups, ManageApiKeys, ViewAuditLog];
 
     /// <summary>
     /// The capabilities a seeded system role starts with, chosen to match what that role could
