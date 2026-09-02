@@ -73,6 +73,9 @@ public class RoleGateTests
         new("DELETE", "/api/roles/{id}", $"/api/roles/{NotAGuid}"),
         new("GET", "/api/settings", "/api/settings"),
         new("POST", "/api/settings", "/api/settings"),
+        new("GET", "/api/workflow-runs", "/api/workflow-runs"),
+        new("GET", "/api/workflow-runs/{id}", $"/api/workflow-runs/{NotAGuid}"),
+        new("POST", "/api/workflow-runs/{id}/actions/{ordinal}/retry", $"/api/workflow-runs/{NotAGuid}/actions/0/retry"),
         new("GET", "/api/connectors", "/api/connectors"),
         new("POST", "/api/connectors", "/api/connectors"),
         // NotASlug for the same reason ids here are unparseable: the endpoint answers 400 from its

@@ -57,7 +57,7 @@ internal class WebhookAction : IWorkflowAction
         if (string.IsNullOrEmpty(url))
         {
             _logger.LogWarning("Webhook URL not provided. Skipping webhook action.");
-            return WorkflowActionResult.Failure("No Url parameter was configured for this webhook action.");
+            return WorkflowActionResult.PermanentFailure("No Url parameter was configured for this webhook action.");
         }
 
         // Early, logged refusal for a URL that is obviously out of bounds. It is not the guard: the
@@ -66,7 +66,10 @@ internal class WebhookAction : IWorkflowAction
         if (!await IsUrlSafeAsync(url, ct))
         {
             _logger.LogWarning("Webhook URL {Url} is not allowed (must be http/https to a non-internal host). Skipping webhook action.", url);
-            return WorkflowActionResult.Failure($"Webhook URL {url} is not allowed: it must be http or https to a non-internal host.");
+            // Permanent. A URL that is not http or https, or that resolves somewhere the guard
+            // refuses, is the same on the fifth attempt as the first: it is a typo in the workflow,
+            // not a provider having a bad afternoon.
+            return WorkflowActionResult.PermanentFailure($"Webhook URL {url} is not allowed: it must be http or https to a non-internal host.");
         }
 
         try

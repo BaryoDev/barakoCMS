@@ -31,6 +31,11 @@
 --                         rather than code, and its credentials encrypted under Connectors:Key
 --                         (#326). Conjoined multi-tenant, so both carry tenant_id. Empty on
 --                         arrival, so creating them moves no data.
+--   mt_doc_workflow_runs
+--                         New table. What a workflow decided to do and how each action went
+--                         (#329). Execution moves out of the projection into a background runner,
+--                         and this is the queue plus the record. Empty on arrival, so nothing
+--                         queued exists until 4.0 starts writing them.
 --   mt_doc_email_settings
 --                         New table. The email provider credentials an operator entered in the
 --                         admin, with the API key encrypted (#343). One row at most. Nothing
@@ -249,6 +254,32 @@ CREATE TABLE IF NOT EXISTS public.mt_doc_connector_secrets (
 -- db-assert reports.
 CREATE INDEX IF NOT EXISTS mt_doc_connector_secrets_idx_connector_id
     ON public.mt_doc_connector_secrets USING btree ((CAST(data ->> 'ConnectorId' as uuid)));
+
+-- ---------------------------------------------------------------------------
+-- Workflow runs (#329).
+--
+-- One row per firing, with an attempt per action inside it. Conjoined
+-- multi-tenant. Empty on arrival: a 3.x database has no queued work, and the
+-- runs it would have had were executed inline and never recorded.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.mt_doc_workflow_runs (
+    id                  uuid                        NOT NULL,
+    data                jsonb                       NOT NULL,
+    mt_last_modified    timestamp with time zone    NULL DEFAULT (transaction_timestamp()),
+    mt_version          uuid                        NOT NULL DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
+    mt_dotnet_type      varchar                     NULL,
+    tenant_id           varchar                     NOT NULL DEFAULT '*DEFAULT*',
+    CONSTRAINT pkey_mt_doc_workflow_runs_tenant_id_id PRIMARY KEY (tenant_id, id)
+);
+
+-- Cast to integer, not left as text. Marten's own serializer stores an enum as a number: the
+-- JsonStringEnumConverter in ServiceCollectionExtensions is the HTTP serializer only, and the note
+-- there says exactly this. mt_doc_contents_idx_status does the same.
+CREATE INDEX IF NOT EXISTS mt_doc_workflow_runs_idx_status
+    ON public.mt_doc_workflow_runs USING btree ((CAST(data ->> 'Status' as integer)));
+
+CREATE INDEX IF NOT EXISTS mt_doc_workflow_runs_idx_created_at
+    ON public.mt_doc_workflow_runs USING btree ((public.mt_immutable_timestamptz(data ->> 'CreatedAt')));
 
 CREATE TABLE IF NOT EXISTS public.mt_doc_email_settings (
     id                  uuid                        NOT NULL,

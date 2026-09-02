@@ -1,0 +1,320 @@
+using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Text.Json;
+using FluentAssertions;
+using Marten;
+using Microsoft.Extensions.DependencyInjection;
+using Xunit;
+using barakoCMS.Models;
+
+namespace BarakoCMS.Tests.Features.Workflows;
+
+/// <summary>
+/// Workflow execution as a queue: what the projection records, what the runner claims, and what an
+/// operator can do about a failure.
+/// </summary>
+/// <remarks>
+/// The projection used to execute actions inline, inside Marten's async daemon, which processes a
+/// shard sequentially. Three third-party calls held that shard for their whole duration, so one slow
+/// provider stalled workflow processing for every tenant.
+///
+/// The two that carry the most weight here are the lease, which is what stops two nodes sending the
+/// same email, and the treatment of a timeout as Unknown rather than Failed. Both are written to
+/// take the claim explicitly rather than racing two workers and hoping they overlap, which is the
+/// lesson MultiInstanceSchedulingTests already records.
+/// </remarks>
+[Collection("Sequential")]
+public class WorkflowRunTests
+{
+    private readonly IntegrationTestFixture _factory;
+
+    public WorkflowRunTests(IntegrationTestFixture factory) => _factory = factory;
+
+    /// <summary>
+    /// Two claims of the same attempt: one wins, one is refused.
+    /// </summary>
+    /// <remarks>
+    /// Taken explicitly rather than by racing two runners. A race that happens not to overlap passes
+    /// while proving nothing, and this is the property that decides whether a customer gets one
+    /// email or two.
+    /// </remarks>
+    [Fact]
+    public async Task Two_nodes_cannot_claim_the_same_attempt()
+    {
+        var runId = await SeedRunAsync(actions: 1);
+        var store = _factory.Services.GetRequiredService<IDocumentStore>();
+
+        await using var first = store.LightweightSession();
+        await using var second = store.LightweightSession();
+
+        var a = await first.LoadAsync<WorkflowRun>(runId, TestContext.Current.CancellationToken);
+        var b = await second.LoadAsync<WorkflowRun>(runId, TestContext.Current.CancellationToken);
+
+        a!.Actions[0].Status = AttemptStatus.Running;
+        a.Actions[0].LeasedBy = "node-a";
+        a.Recompute();
+        first.Update(a);
+        await first.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        b!.Actions[0].Status = AttemptStatus.Running;
+        b.Actions[0].LeasedBy = "node-b";
+        b.Recompute();
+        second.Update(b);
+
+        var claimTwice = async () => await second.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        (await claimTwice.Should().ThrowAsync<Exception>())
+            .Which.GetType().Name.Should().Contain("Concurrency",
+                "the second claim has to be refused, or both nodes send the same message");
+
+        await using var check = store.QuerySession();
+        var latest = await check.LoadAsync<WorkflowRun>(runId, TestContext.Current.CancellationToken);
+        latest!.Actions[0].LeasedBy.Should().Be("node-a", "the first claim stands");
+    }
+
+    /// <summary>
+    /// The control: one node claiming an unclaimed attempt succeeds.
+    /// </summary>
+    /// <remarks>
+    /// Without it, a document that refused every write would satisfy the test above and no action
+    /// would ever run.
+    /// </remarks>
+    [Fact]
+    public async Task One_node_claiming_an_unclaimed_attempt_succeeds()
+    {
+        var runId = await SeedRunAsync(actions: 1);
+        var store = _factory.Services.GetRequiredService<IDocumentStore>();
+
+        await using var session = store.LightweightSession();
+        var run = await session.LoadAsync<WorkflowRun>(runId, TestContext.Current.CancellationToken);
+
+        run!.Actions[0].Status = AttemptStatus.Running;
+        run.Actions[0].LeasedBy = "node-a";
+        run.Recompute();
+        session.Update(run);
+
+        await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        run.Status.Should().Be(RunStatus.Running);
+    }
+
+    /// <summary>
+    /// A run reports PartiallyFailed when some actions worked and some did not.
+    /// </summary>
+    /// <remarks>
+    /// Not rounded to Failed. "Post to Facebook, then email, then tweet" is three independent things,
+    /// and reporting the whole run as failed because the mail server was down hides that two of them
+    /// went out, which is exactly what somebody deciding whether to retry needs to know.
+    /// </remarks>
+    [Theory]
+    [InlineData(AttemptStatus.Succeeded, AttemptStatus.Succeeded, RunStatus.Succeeded)]
+    [InlineData(AttemptStatus.Failed, AttemptStatus.Failed, RunStatus.Failed)]
+    [InlineData(AttemptStatus.Succeeded, AttemptStatus.Failed, RunStatus.PartiallyFailed)]
+    [InlineData(AttemptStatus.Succeeded, AttemptStatus.Unknown, RunStatus.PartiallyFailed)]
+    [InlineData(AttemptStatus.Skipped, AttemptStatus.Succeeded, RunStatus.Succeeded)]
+    [InlineData(AttemptStatus.Succeeded, AttemptStatus.Pending, RunStatus.Running)]
+    public void A_run_reports_what_actually_happened(AttemptStatus first, AttemptStatus second, RunStatus expected)
+    {
+        var run = new WorkflowRun
+        {
+            Actions =
+            [
+                new WorkflowActionAttempt { Ordinal = 0, Status = first },
+                new WorkflowActionAttempt { Ordinal = 1, Status = second },
+            ],
+        };
+
+        run.Recompute();
+
+        run.Status.Should().Be(expected);
+    }
+
+    /// <summary>
+    /// Retrying an action that already succeeded is refused.
+    /// </summary>
+    /// <remarks>
+    /// The whole reason a run records each action separately is so retrying a failed third does not
+    /// re-send the first two. A retry button that ignores this is how a customer gets two invoices.
+    /// </remarks>
+    [Fact]
+    public async Task Retrying_an_action_that_succeeded_is_refused()
+    {
+        var runId = await SeedRunAsync(actions: 1, status: AttemptStatus.Succeeded);
+        var client = AdminClient();
+
+        var res = await client.PostAsync($"/api/workflow-runs/{runId}/actions/0/retry", null,
+            TestContext.Current.CancellationToken);
+
+        res.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await res.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))
+            .Should().Contain("second time");
+    }
+
+    /// <summary>The control: a failed action can be retried, and comes back Pending.</summary>
+    [Fact]
+    public async Task Retrying_a_failed_action_queues_it_again()
+    {
+        var runId = await SeedRunAsync(actions: 1, status: AttemptStatus.Failed);
+        var client = AdminClient();
+
+        var res = await client.PostAsync($"/api/workflow-runs/{runId}/actions/0/retry", null,
+            TestContext.Current.CancellationToken);
+        var body = await res.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+
+        res.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", res.StatusCode, body);
+
+        using var doc = JsonDocument.Parse(body);
+        doc.RootElement.GetProperty("actions")[0].GetProperty("status").GetString()
+            .Should().Be(nameof(AttemptStatus.Pending), "queued, not executed inside the request");
+    }
+
+    /// <summary>
+    /// A retry does not reset the attempt count.
+    /// </summary>
+    /// <remarks>
+    /// An action that keeps failing should still stop. Resetting the count on every manual retry
+    /// turns the cap into a suggestion, and the cap is what stops this instance hammering a third
+    /// party until they ban the account.
+    /// </remarks>
+    [Fact]
+    public async Task A_retry_does_not_reset_the_attempt_count()
+    {
+        var runId = await SeedRunAsync(actions: 1, status: AttemptStatus.Failed, attempts: 3);
+        var client = AdminClient();
+
+        await client.PostAsync($"/api/workflow-runs/{runId}/actions/0/retry", null,
+            TestContext.Current.CancellationToken);
+
+        var store = _factory.Services.GetRequiredService<IDocumentStore>();
+        await using var session = store.QuerySession();
+        var run = await session.LoadAsync<WorkflowRun>(runId, TestContext.Current.CancellationToken);
+
+        run!.Actions[0].Attempts.Should().Be(3, "the count carries across a manual retry");
+    }
+
+    /// <summary>
+    /// The backoff grows and is bounded.
+    /// </summary>
+    /// <remarks>
+    /// A run that retries forever is a self-inflicted denial of service against a third party, who
+    /// answers by rate-limiting or banning the account, which takes down every other integration
+    /// pointed at them.
+    /// </remarks>
+    [Fact]
+    public void The_backoff_grows_and_is_capped()
+    {
+        var random = new Random(1);
+
+        var first = barakoCMS.Features.Workflows.WorkflowRetryPolicy.Backoff(1, random);
+        var later = barakoCMS.Features.Workflows.WorkflowRetryPolicy.Backoff(4, random);
+        var absurd = barakoCMS.Features.Workflows.WorkflowRetryPolicy.Backoff(50, random);
+
+        later.Should().BeGreaterThan(first, "an immediate retry of a provider that just failed is not a retry");
+        absurd.Should().BeLessThan(TimeSpan.FromMinutes(15), "and it stops growing");
+    }
+
+    /// <summary>
+    /// A list filter that is not a status is refused rather than ignored.
+    /// </summary>
+    /// <remarks>
+    /// A silently dropped filter returns more rows than the caller asked for, and they cannot tell
+    /// that from no matches.
+    /// </remarks>
+    [Fact]
+    public async Task An_unknown_status_filter_is_refused()
+    {
+        var client = AdminClient();
+
+        var res = await client.GetAsync("/api/workflow-runs?status=Broken", TestContext.Current.CancellationToken);
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    /// <summary>The control: a real status filters.</summary>
+    [Fact]
+    public async Task A_real_status_filters_the_list()
+    {
+        await SeedRunAsync(actions: 1, status: AttemptStatus.Failed);
+        var client = AdminClient();
+
+        var res = await client.GetAsync("/api/workflow-runs?status=Failed", TestContext.Current.CancellationToken);
+        var body = await res.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+
+        res.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", res.StatusCode, body);
+
+        using var doc = JsonDocument.Parse(body);
+        doc.RootElement.GetProperty("items").GetArrayLength().Should().BeGreaterThan(0,
+            "the run seeded above has a failed action, so the filter has something to find");
+    }
+
+    /// <summary>
+    /// An attempt's stored state carries no response body and no parameters.
+    /// </summary>
+    /// <remarks>
+    /// A 401 from an OAuth provider frequently contains the credential that was sent, and this is
+    /// stored, served over the API and shown in the admin. The response shape has nowhere to put
+    /// one, which is stronger than remembering to redact.
+    /// </remarks>
+    [Fact]
+    public async Task The_api_returns_no_response_body_and_no_parameters()
+    {
+        var runId = await SeedRunAsync(actions: 1, status: AttemptStatus.Failed);
+        var client = AdminClient();
+
+        var body = await (await client.GetAsync($"/api/workflow-runs/{runId}", TestContext.Current.CancellationToken))
+            .Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+
+        using var doc = JsonDocument.Parse(body);
+        var action = doc.RootElement.GetProperty("actions")[0];
+
+        action.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(
+            ["ordinal", "actionType", "status", "attempts", "nextAttemptAt", "responseStatus", "error", "completedAt", "durationMs"],
+            "anything else here is a place a credential could arrive in");
+    }
+
+    private HttpClient AdminClient()
+    {
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer", _factory.CreateToken(["SuperAdmin", "Admin"], Guid.NewGuid().ToString()));
+        return client;
+    }
+
+    private async Task<Guid> SeedRunAsync(
+        int actions, AttemptStatus status = AttemptStatus.Pending, int attempts = 0)
+    {
+        var store = _factory.Services.GetRequiredService<IDocumentStore>();
+        await using var session = store.LightweightSession();
+
+        var run = new WorkflowRun
+        {
+            Id = Guid.NewGuid(),
+            WorkflowDefinitionId = Guid.NewGuid(),
+            WorkflowName = "Notify the team",
+            ContentId = Guid.NewGuid(),
+            ContentType = "article",
+            TriggerEvent = "Published",
+            TriggeringEventSequence = 1,
+        };
+
+        for (var i = 0; i < actions; i++)
+        {
+            run.Actions.Add(new WorkflowActionAttempt
+            {
+                Ordinal = i,
+                ActionType = "Webhook",
+                Status = status,
+                Attempts = attempts,
+                IdempotencyKey = $"{run.Id:N}-{i}",
+                Error = status == AttemptStatus.Failed ? "the provider answered 500" : null,
+            });
+        }
+
+        run.Recompute();
+        session.Store(run);
+        await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        return run.Id;
+    }
+}

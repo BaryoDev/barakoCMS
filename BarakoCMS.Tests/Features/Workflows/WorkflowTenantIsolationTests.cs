@@ -4,6 +4,7 @@ using FluentAssertions;
 using JasperFx.Events;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using NSubstitute;
 using Xunit;
 
@@ -62,11 +63,35 @@ public class WorkflowTenantIsolationTests
         }
 
         await ProjectPublishedAsync(store, tenant, contentId);
+        await DrainAsync();
 
         await using var verify = store.QuerySession(tenant);
         var updated = await verify.LoadAsync<Content>(contentId);
         updated!.Data.Should().ContainKey("Stamp");
         updated.Data["Stamp"]!.ToString().Should().Be("fired");
+    }
+
+    /// <summary>
+    /// Runs the queued work to completion, in this thread.
+    /// </summary>
+    /// <remarks>
+    /// The projection queues and a background runner executes (#329), so asserting straight after
+    /// projecting races the runner. Driven explicitly rather than slept on: a sleep long enough to
+    /// be reliable is long enough to hide a runner that never claimed anything, and the same lesson
+    /// is already recorded on MultiInstanceSchedulingTests about taking the lock rather than racing.
+    /// </remarks>
+    private async Task DrainAsync()
+    {
+        var runner = _fixture.Services.GetServices<IHostedService>()
+            .OfType<barakoCMS.Features.Workflows.WorkflowRunner>()
+            .Single();
+
+        // Bounded. Each pass claims one attempt, so a run with several actions needs several, and a
+        // loop with no bound would hang rather than fail if nothing were ever claimed.
+        for (var i = 0; i < 20; i++)
+        {
+            if (!await runner.RunOnceAsync(TestContext.Current.CancellationToken)) return;
+        }
     }
 
     /// <summary>

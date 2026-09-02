@@ -98,5 +98,10 @@ DROP TABLE IF EXISTS public.mt_doc_email_settings;
 -- Connectors and their credentials. 3.x has neither, and nothing else references them, so dropping
 -- them moves no data. The secrets cannot be read out first: they are encrypted under Connectors:Key
 -- and nothing decrypts one for display, by design. Have the credentials to hand before rolling back.
+-- Workflow runs. 3.x executes workflow actions inline inside the projection and has nowhere to put
+-- these, so dropping the table loses the record of what ran and any work still queued. Anything
+-- Pending or Running when you roll back simply never happens: drain the queue first if that matters.
+DROP TABLE IF EXISTS public.mt_doc_workflow_runs;
+
 DROP TABLE IF EXISTS public.mt_doc_connector_secrets;
 DROP TABLE IF EXISTS public.mt_doc_connectors;
