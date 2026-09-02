@@ -297,7 +297,7 @@ CREATE TABLE IF NOT EXISTS public.mt_doc_url_redirects (
     CONSTRAINT pkey_mt_doc_url_redirects_tenant_id_id PRIMARY KEY (tenant_id, id)
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS mt_doc_url_redirects_uidx_frompath
+CREATE UNIQUE INDEX IF NOT EXISTS mt_doc_url_redirects_uidx_from_path
     ON public.mt_doc_url_redirects USING btree ((data ->> 'FromPath'), tenant_id);
 
 -- ---------------------------------------------------------------------------
