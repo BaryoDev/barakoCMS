@@ -87,7 +87,26 @@ internal class WebhookAction : IWorkflowAction
                 updatedAt = content.UpdatedAt
             };
 
-            using var response = await client.PostAsJsonAsync(url, payload, ct);
+            using var request = new HttpRequestMessage(HttpMethod.Post, url)
+            {
+                Content = JsonContent.Create(payload),
+            };
+
+            // The key the runner computed for this attempt, sent so the receiver can recognise a
+            // duplicate. It is stable across retries of the same action, which is what makes a
+            // retry safe to make: without the header the receiver has no way to tell a retry from a
+            // second publish, and the retry policy's whole premise is that it can.
+            //
+            // The runner has always put this in the parameters and nothing read it. That made the
+            // key dead: the retries happened, the header did not, and every comment claiming a
+            // duplicate would be absorbed downstream was describing something that was not sent.
+            if (parameters.TryGetValue("IdempotencyKey", out var idempotencyKey)
+                && !string.IsNullOrWhiteSpace(idempotencyKey))
+            {
+                request.Headers.TryAddWithoutValidation("Idempotency-Key", idempotencyKey);
+            }
+
+            using var response = await client.SendAsync(request, ct);
 
             if (response.IsSuccessStatusCode)
             {

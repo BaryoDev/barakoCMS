@@ -158,12 +158,63 @@ public class WebhookPayloadTests
         },
     };
 
+    /// <summary>
+    /// The idempotency key the runner computed is actually sent.
+    /// </summary>
+    /// <remarks>
+    /// It was not. <c>WorkflowRunner</c> put <c>IdempotencyKey</c> into the resolved parameters and
+    /// no action read it, so the key was dead: the retries happened, the header did not, and every
+    /// comment saying a duplicate delivery would be absorbed downstream was describing something
+    /// that was never on the wire. A receiver had no way to tell a retry from a second publish.
+    ///
+    /// Asserted on the request rather than on the parameters, because the parameters were always
+    /// right. Only the listener can say whether anything left the process.
+    /// </remarks>
+    [Fact]
+    public async Task A_webhook_carries_the_idempotency_key_the_runner_computed()
+    {
+        const string tenant = "webhook-idempotency";
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var contentType = await SeedTypeAsync(store, tenant);
+        var content = Record(contentType, SensitivityLevel.Public);
+
+        using var listener = new RecordingListener();
+
+        await SendAsync(store, tenant, content, listener.Url, PermitsLoopback, new Dictionary<string, string>
+        {
+            ["Url"] = listener.Url,
+            ["IdempotencyKey"] = "run-1234-ordinal-2",
+        });
+
+        listener.WasCalled.Should().BeTrue();
+        listener.LastHeaders.Should().ContainKey("Idempotency-Key");
+        listener.LastHeaders["Idempotency-Key"].Should().Be("run-1234-ordinal-2");
+    }
+
+    [Fact]
+    public async Task A_webhook_configured_without_a_key_sends_no_header_rather_than_an_empty_one()
+    {
+        // The pairing. An empty Idempotency-Key is worse than none: a receiver deduplicating on it
+        // would treat every delivery that carried one as the same delivery.
+        const string tenant = "webhook-no-idempotency";
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var contentType = await SeedTypeAsync(store, tenant);
+        var content = Record(contentType, SensitivityLevel.Public);
+
+        using var listener = new RecordingListener();
+        await SendAsync(store, tenant, content, listener.Url, PermitsLoopback);
+
+        listener.WasCalled.Should().BeTrue();
+        listener.LastHeaders.Should().NotContainKey("Idempotency-Key");
+    }
+
     private static async Task SendAsync(
         IDocumentStore store,
         string tenant,
         barakoCMS.Models.Content content,
         string url,
-        OutboundAddressGuard guard)
+        OutboundAddressGuard guard,
+        Dictionary<string, string>? parameters = null)
     {
         await using var session = store.QuerySession(tenant);
         using var handler = OutboundHttpHandler.Create(guard);
@@ -175,7 +226,7 @@ public class WebhookPayloadTests
             guard,
             NullLogger<WebhookAction>.Instance);
 
-        await action.ExecuteAsync(new Dictionary<string, string> { { "Url", url } }, content, CancellationToken.None);
+        await action.ExecuteAsync(parameters ?? new Dictionary<string, string> { { "Url", url } }, content, CancellationToken.None);
     }
 
     private sealed class SingleClientFactory : IHttpClientFactory
