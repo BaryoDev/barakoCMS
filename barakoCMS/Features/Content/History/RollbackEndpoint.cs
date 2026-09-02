@@ -16,11 +16,16 @@ internal class RollbackEndpoint : Endpoint<RollbackRequest, RollbackResponse>
 {
     private readonly IDocumentSession _session;
     private readonly IContentWriter _contentWriter;
+    private readonly barakoCMS.Infrastructure.Services.IPermissionResolver _permissionResolver;
 
-    public RollbackEndpoint(IDocumentSession session, IContentWriter contentWriter)
+    public RollbackEndpoint(
+        IDocumentSession session,
+        IContentWriter contentWriter,
+        barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver)
     {
         _contentWriter = contentWriter;
         _session = session;
+        _permissionResolver = permissionResolver;
     }
 
     public override void Configure()
@@ -86,15 +91,31 @@ internal class RollbackEndpoint : Endpoint<RollbackRequest, RollbackResponse>
             return;
         }
 
-        // A rollback is an update, so it runs the same three gates an update runs. It used to run
+        // A rollback is an update, so it runs the same four gates an update runs. It used to run
         // none of them, which meant restoring an old version could put back data the current schema
         // rejects, change a field the caller is not allowed to change, or break an invariant that
         // was introduced after the version being restored.
+        //
+        // The count was three until #447: permission was the one an update runs that this did not,
+        // so a role gate that named Admin was the whole of the authorisation on a write path.
         //
         // The awkward part is that the "new" data here is old data rather than something a caller
         // typed, so an operator can be refused a rollback for a reason that predates them. That is
         // the correct answer: the alternative is a write path that launders rejected data back in,
         // and it is reachable by anyone who can press Restore.
+
+        // PERMISSION: the role gate above says who may reach this route at all. This says whether
+        // this caller may update this content type, which is the permission a rollback actually
+        // exercises, since the write it performs is indistinguishable from PUT /api/contents/{id}.
+        // Without it an Admin with no update grant on a type could rewrite an entry of that type by
+        // restoring it, while being refused the history that lists what to restore.
+        var actor = await _session.LoadAsync<barakoCMS.Models.User>(userId, ct);
+        if (actor == null || !await _permissionResolver.CanPerformActionAsync(
+                actor, content.ContentType, "update", content, ct))
+        {
+            await Send.ForbiddenAsync(ct);
+            return;
+        }
 
         // WRITE-PATH SENSITIVITY: a caller who may not see a field may not change it, and restoring
         // an old value is a change. Reverts any such field to what is stored.
