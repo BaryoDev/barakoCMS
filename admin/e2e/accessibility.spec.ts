@@ -38,13 +38,14 @@ function device(id: string, description: string, status: string, current: boolea
     };
 }
 
-function row(id: string, contentType: string, status: string, title: string) {
+function row(id: string, contentType: string, status: string, title: string, version = 3) {
     return {
         id,
         contentType,
         data: { Title: title },
         status,
         sensitivity: 'Public',
+        version,
         createdAt: new Date(Date.now() - 3600_000).toISOString(),
         updatedAt: new Date(Date.now() - 3600_000).toISOString(),
     };
@@ -111,6 +112,9 @@ test.describe('accessibility', () => {
                     // A status this admin does not know. statusMeta renders the raw value in the
                     // muted tone rather than inventing one, and that path needs contrast too.
                     row('c5', 'article', 'Posted', 'Journal entry JE-2044'),
+                    // Scheduled uses the accent tint, which is a pair no other badge on this page
+                    // uses, so leaving it out would mean the one new colour is the one never scanned.
+                    row('c6', 'article', 'Scheduled', 'Autumn blend announcement'),
                 ]),
             })
         );
@@ -119,9 +123,21 @@ test.describe('accessibility', () => {
         await expect(page.getByRole('heading', { name: 'Entries', exact: true })).toBeVisible({ timeout: 15000 });
         // The badges are the point of this case, so fail loudly if the table did not render them
         // rather than scanning an empty page and calling it a pass.
-        await expect(page.getByText('Private', { exact: true })).toBeVisible();
-        await expect(page.getByText('Draft', { exact: true })).toBeVisible();
-        await expect(page.getByText('Posted', { exact: true })).toBeVisible();
+        //
+        // Scoped to the table. The filter bar above it has buttons reading Draft, Published,
+        // Scheduled and Archived, so an unscoped exact-text match now finds two elements and a
+        // strict-mode violation reads as a broken selector rather than as what it is.
+        const rows = page.getByRole('table');
+        await expect(rows.getByText('Private', { exact: true })).toBeVisible();
+        await expect(rows.getByText('Draft', { exact: true })).toBeVisible();
+        await expect(rows.getByText('Scheduled', { exact: true })).toBeVisible();
+        await expect(rows.getByText('Posted', { exact: true })).toBeVisible();
+
+        // And the controls themselves, which this case now covers: an empty filter bar would let
+        // the scan pass without ever looking at the search box or the segmented control.
+        await expect(page.getByLabel('Search entries')).toBeVisible();
+        await expect(page.getByRole('group', { name: 'Filter by status' })).toBeVisible();
+
         await scan(page);
     });
 

@@ -40,4 +40,7 @@ internal class Response
     public string Message { get; set; } = string.Empty;
     public DateTime? ScheduledPublishAt { get; set; }
     public DateTime? ScheduledUnpublishAt { get; set; }
+
+    /// <summary>Where the entry ended up, since arming a publish time now moves it.</summary>
+    public barakoCMS.Models.ContentStatus Status { get; set; }
 }
