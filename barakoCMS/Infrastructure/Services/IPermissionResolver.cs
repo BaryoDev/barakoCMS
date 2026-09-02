@@ -35,6 +35,27 @@ public interface IPermissionResolver
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// A SQL predicate that selects the rows this user may read of a content type, when the rules
+    /// can be expressed as one.
+    /// </summary>
+    /// <remarks>
+    /// A default returning <see cref="ReadPredicate.None"/>, so a module with its own resolver keeps
+    /// compiling and keeps behaving exactly as it did: None means "no predicate", and every caller
+    /// answers that by evaluating per item the way it always has. This is an optimisation with a
+    /// correct fallback, not a second authorisation path, and a resolver that never implements it is
+    /// not less safe for that.
+    ///
+    /// Nothing is granted by the predicate that
+    /// <see cref="CanPerformActionAsync(Models.User, string, string, Models.Content?, CancellationToken)"/>
+    /// would not grant. That is the property <c>PermissionPredicateAgreementTests</c> exists to hold.
+    /// </remarks>
+    Task<ReadPredicate> ReadPredicateAsync(
+        Models.User user,
+        string contentTypeSlug,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(ReadPredicate.None);
+
+    /// <summary>
     /// Evict any cached permission decisions for a single user. Call after that user's role
     /// assignments change so revoked access takes effect immediately instead of after the TTL.
     /// </summary>
