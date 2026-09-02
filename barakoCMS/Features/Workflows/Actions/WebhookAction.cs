@@ -65,7 +65,7 @@ internal class WebhookAction : IWorkflowAction
         // connect callback, which is the only check a changing DNS answer cannot get around.
         if (!await IsUrlSafeAsync(url, ct))
         {
-            _logger.LogWarning("Webhook URL {Url} is not allowed (must be http/https to a non-internal host). Skipping webhook action.", url);
+            _logger.LogWarning("Webhook URL {Url} is not allowed (must be http/https to a non-internal host). Skipping webhook action.", Redact(url));
             // Permanent. A URL that is not http or https, or that resolves somewhere the guard
             // refuses, is the same on the fifth attempt as the first: it is a typo in the workflow,
             // not a provider having a bad afternoon.
@@ -126,7 +126,13 @@ internal class WebhookAction : IWorkflowAction
         }
         catch (HttpRequestException ex)
         {
-            _logger.LogError(ex, "Failed to send webhook to {Url}", Redact(url));
+            // The exception is not attached, and the stack is passed separately. Logging the
+            // exception object writes its Message, and a transport failure raised against a URL that
+            // carries a token in its query can carry that URL, and with it the token, into whatever
+            // aggregates the logs. The stack trace is the half worth keeping and contains no URL.
+            _logger.LogError(
+                "Failed to send webhook to {Url} ({Exception}). {Stack}",
+                Redact(url), ex.GetType().Name, ex.StackTrace);
 
             // The exception type, not its message. A transport failure names the host it could not
             // reach, and for a URL carrying a token in its query that message is the token.
@@ -135,7 +141,11 @@ internal class WebhookAction : IWorkflowAction
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Unexpected error while sending webhook to {Url}", Redact(url));
+            // Same reason as above. This catch is broader, so the exception is likelier to be one
+            // whose message names the request it was made against.
+            _logger.LogError(
+                "Unexpected error while sending webhook to {Url} ({Exception}). {Stack}",
+                Redact(url), ex.GetType().Name, ex.StackTrace);
             return WorkflowActionResult.Failure(
                 $"Webhook to {Redact(url)} failed unexpectedly ({ex.GetType().Name}).");
         }

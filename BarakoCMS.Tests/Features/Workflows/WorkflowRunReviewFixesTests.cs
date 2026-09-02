@@ -84,6 +84,56 @@ public class WorkflowRunReviewFixesTests
         redacted.Should().NotContain("s3cret", "the whole point is that the secret does not survive");
     }
 
+    /// <summary>
+    /// No log call in this action is handed a raw URL or an exception object.
+    /// </summary>
+    /// <remarks>
+    /// Read off the source rather than driven, because the leak is a call shape rather than a
+    /// behaviour: `LogError(ex, ...)` writes the exception's Message, and a transport failure raised
+    /// against a URL carrying a token in its query can carry that URL into the log aggregator. The
+    /// redaction on the returned error text does nothing about it.
+    ///
+    /// A structural check catches the next one too. The first pass at this redacted four call sites
+    /// and missed the fifth, which logged the raw URL on the guard-refusal path, and no behavioural
+    /// test would have noticed because that path returns a redacted message either way.
+    /// </remarks>
+    [Fact]
+    public void No_log_call_in_the_webhook_action_is_handed_a_raw_url_or_an_exception()
+    {
+        var source = File.ReadAllText(SourcePath("barakoCMS/Features/Workflows/Actions/WebhookAction.cs"));
+
+        var logCalls = source.Split("_logger.Log").Skip(1).ToList();
+
+        logCalls.Should().NotBeEmpty("this asserts over the call sites, so finding none would pass silently");
+
+        foreach (var call in logCalls)
+        {
+            var head = call[..Math.Min(call.Length, 400)];
+
+            head.Should().NotContain(", url)", "a raw URL must be redacted before it is logged");
+            head.Should().NotContain(", url,", "a raw URL must be redacted before it is logged");
+
+            // The split consumed "_logger.Log", so each chunk begins at the level: "Error(ex, ...".
+            // Matching on "Log*(ex," here found nothing and passed, which the mutation caught.
+            head.Should().NotContain("(ex,", "the exception object carries a Message that can hold the URL");
+        }
+    }
+
+    /// <summary>Walks up from the test binary to the repository root.</summary>
+    private static string SourcePath(string relative)
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "CLAUDE.md")))
+        {
+            dir = dir.Parent;
+        }
+
+        dir.Should().NotBeNull("the repository root has to be findable or this test is checking nothing");
+
+        return Path.Combine(dir!.FullName, relative);
+    }
+
     [Fact]
     public void A_url_that_cannot_be_parsed_says_so_rather_than_being_echoed()
     {
