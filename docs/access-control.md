@@ -12,11 +12,22 @@ Layers 1 and 2 are `IPermissionResolver`; layer 3 is `SensitivityService`, which
 the decision. Row-level security filters rows and has nothing to say about which fields inside one a
 caller may see, so moving the boundary into Postgres would leave the most sensitive layer behind.
 
-Issue #445 will compile the layer 2 conditions to SQL predicates, so the list endpoint stops loading
-a whole collection to return a page. It is not built. Today `GET /api/contents` narrows on content
-type, status and search in the query and then loads every remaining row to check permission on each
-one, so the cost still tracks the collection rather than the page. When #445 lands it will change
-where the rules are *evaluated*, not where they are enforced.
+The layer 2 conditions compile to a SQL predicate where they can (#445), so `GET /api/contents` for
+a named content type pages and counts in the database instead of loading the collection. That
+changed where the rules are *evaluated*, not where they are enforced: the predicate is built from
+the same rules `IPermissionResolver` reads, and the per-item check still runs over the page it
+returns.
+
+Where a rule cannot be compiled faithfully the compiler declines and the endpoint loads everything
+and checks per item, exactly as it did before. `PermissionPredicateCompiler` lists what it refuses
+and why. Declining costs a slow query; guessing would cost somebody a row they may not read, so the
+refusals are deliberate and the list is meant to grow slowly.
+
+`PermissionPredicateAgreementTests` runs generated rules and generated content through both
+evaluators and asserts they select the same rows. Two evaluators for one condition language drift,
+and the drift appears as rows silently appearing or vanishing rather than as an error, so that test
+is the only thing that can tell you it has happened. Deleting it turns the compiler into a
+liability.
 
 ## Layer 1: CRUD per content type per role (already works)
 

@@ -122,6 +122,35 @@ public class PermissionResolver : IPermissionResolver
         return false;
     }
 
+    /// <inheritdoc />
+    public async Task<ReadPredicate> ReadPredicateAsync(
+        Models.User user,
+        string contentTypeSlug,
+        CancellationToken cancellationToken = default)
+    {
+        var roles = await RolesForAsync(user, cancellationToken);
+
+        // No roles at all is not "no predicate", it is no rows, and saying so lets the caller skip
+        // the query rather than load a collection to deny every item in it.
+        if (roles.Count == 0) return ReadPredicate.Nothing;
+
+        if (roles.Any(r => r.Name == "SuperAdmin")) return ReadPredicate.All;
+
+        // Gathered exactly the way CanPerformActionAsync gathers them, because the two have to be
+        // looking at the same set for the agreement property to mean anything.
+        var rules = new List<Models.PermissionRule>();
+        foreach (var role in roles)
+        {
+            var permission = role.Permissions.FirstOrDefault(p => p.ContentTypeSlug == contentTypeSlug);
+            if (permission is null) continue;
+
+            var rule = GetRuleForAction(permission, "read");
+            if (rule is not null) rules.Add(rule);
+        }
+
+        return PermissionPredicateCompiler.Compile(rules, user.Id);
+    }
+
     /// <summary>
     /// Resolves the union of the caller's roles' <see cref="Models.Role.SystemCapabilities"/>.
     /// SuperAdmin bypasses, the same way it does for content permissions.
