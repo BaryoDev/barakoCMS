@@ -22,6 +22,19 @@ public interface IPermissionResolver
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Whether a user holds a system-wide capability, resolved from the roles they hold in the
+    /// current tenant. Takes an id rather than the document so a cached answer costs no query at all.
+    /// </summary>
+    /// <param name="userId">The caller, as named by the request's <c>UserId</c> claim.</param>
+    /// <param name="capability">A value from <see cref="Models.SystemCapabilities"/>.</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>True if any of the user's roles grants the capability, false otherwise.</returns>
+    Task<bool> HasCapabilityAsync(
+        Guid userId,
+        string capability,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Evict any cached permission decisions for a single user. Call after that user's role
     /// assignments change so revoked access takes effect immediately instead of after the TTL.
     /// </summary>
