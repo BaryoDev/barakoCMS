@@ -1,5 +1,7 @@
 using FastEndpoints;
 using Marten;
+using Marten.Linq.MatchesSql;
+using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 
 namespace barakoCMS.Features.Content.List;
@@ -7,6 +9,26 @@ namespace barakoCMS.Features.Content.List;
 internal class Request : PaginatedRequest
 {
     public string? ContentType { get; set; }
+
+    /// <summary>Matches any string value in an entry's data, case-insensitively.</summary>
+    /// <remarks>
+    /// Every value, not the derived <c>SearchText</c> the anonymous delivery search uses. That one
+    /// holds only the values of fields the type declares Public, which is correct for a caller who
+    /// may see nothing else and wrong for an administrator who may. Searching it here would mean an
+    /// admin typing a customer's reference number, which happens to sit in a Sensitive field, and
+    /// getting nothing back with no way to tell a missing entry from a hidden one.
+    ///
+    /// Matching more than the caller may read is safe because the per-item permission check and the
+    /// sensitivity scrub both run afterwards on whatever this returns. The visibility rules stay in
+    /// one place rather than being restated as a query filter that could drift from them.
+    ///
+    /// Field names are not matched, only values. Searching "title" should not return every entry of
+    /// every type that has a Title.
+    /// </remarks>
+    public string? Search { get; set; }
+
+    /// <summary>One status, or null for every status.</summary>
+    public barakoCMS.Models.ContentStatus? Status { get; set; }
 }
 
 internal class ContentResponse
@@ -22,6 +44,18 @@ internal class ContentResponse
     // the alternative was every list row costing a second request to find out.
     public barakoCMS.Models.ContentStatus Status { get; set; }
     public barakoCMS.Models.SensitivityLevel Sensitivity { get; set; }
+
+    /// <summary>The stream version, the same number the single-item GET returns.</summary>
+    /// <remarks>
+    /// Read in one batched query for the page rather than one call per row. The version is not on
+    /// the Content document (the document is the fold, the version belongs to the stream), so it
+    /// costs a round trip either way; making it one for the page rather than one for each of up to a
+    /// hundred rows is the difference between a column and a reason not to have the column.
+    ///
+    /// Zero for an entry with no stream behind it, which is seeded demo data and anything written
+    /// before every write went through the writer.
+    /// </remarks>
+    public long Version { get; set; }
 }
 
 internal class Endpoint : Endpoint<Request, PaginatedResponse<ContentResponse>>
@@ -74,25 +108,73 @@ internal class Endpoint : Endpoint<Request, PaginatedResponse<ContentResponse>>
             query = query.Where(c => c.ContentType == req.ContentType);
         }
 
+        // Status and search are pushed into the query, and that is safe in a way a permission filter
+        // would not be. Both can only remove rows. A caller asking for Drafts is asking for a subset
+        // of what they may read, so narrowing first and checking permission after gives the same
+        // answer as checking everything and discarding; a filter that GRANTED would not, which is
+        // why the permission check below stays where it is.
+        if (req.Status is { } status)
+        {
+            query = query.Where(c => c.Status == status);
+        }
+
+        var term = req.Search?.Trim();
+        if (!string.IsNullOrEmpty(term))
+        {
+            // ILIKE over every value in the entry's data. jsonb_each_text flattens one level, so a
+            // nested object is compared as its own JSON text: a substring still matches, which is
+            // more useful than skipping it and is the honest description of what this does.
+            //
+            // The term is a bound parameter. The escaping below is not about injection, it is about
+            // meaning: an unescaped % or _ is a wildcard, so searching for "50%" would match every
+            // entry containing "50" and searching for "a_b" would match "axb".
+            query = query.Where(c => c.MatchesSql(SearchSql, EscapeLike(term)));
+        }
+
         // 3. Apply Sorting
         query = req.SortOrder.ToLower() == "asc"
             ? query.OrderBy(c => c.CreatedAt)
             : query.OrderByDescending(c => c.CreatedAt);
 
-        // 4. Load every row matching the content-type filter, in order. Permission can be
-        // conditional on the specific item (PermissionResolver.CanPerformActionAsync's `content`
-        // param), so there is no cheaper query-level filter that is safe to apply before this check —
-        // a per-content-type check with no item would grant access based on rules that are only
-        // supposed to hold for SOME items of that type. Pagination has to run over the permitted set,
-        // not the raw one, or a restricted user's page boundaries and total count are both wrong.
-        var allMatching = await query.ToListAsync(ct);
+        // 4. Ask whether the read rules can be a WHERE clause. When they can, the database pages and
+        // counts; when they cannot, everything below is exactly what it was.
+        var predicate = await _permissionResolver.ReadPredicateAsync(user, req.ContentType ?? string.Empty, ct);
 
-        // 5. Filter by Permission over the WHOLE matching set (not just one page of it), so a run of
-        // denied items can never produce a short or empty page while permitted items exist further
-        // down the raw ordering.
+        // Only with a named type. Across all types each type has its own rules, and one predicate
+        // cannot speak for rules it was not compiled from.
+        if (string.IsNullOrEmpty(req.ContentType)) predicate = ReadPredicate.None;
+
+        IReadOnlyList<barakoCMS.Models.Content> candidates;
+        int permittedTotal;
+
+        if (predicate.Compiled)
+        {
+            // The predicate selects the same rows CanPerformActionAsync would allow, which is the
+            // property PermissionPredicateAgreementTests holds. So the page can be taken in SQL and
+            // the total is a count rather than the length of a list nobody wanted.
+            var permitted = query.Where(c => c.MatchesSql(predicate.Sql!, predicate.Parameters));
+
+            permittedTotal = (int)await permitted.CountAsync(ct);
+            candidates = await permitted.Skip(req.Skip).Take(req.Take).ToListAsync(ct);
+        }
+        else
+        {
+            // Load every row matching the filters, in order. A rule this endpoint could not compile
+            // is conditional in a way only the item can answer, so there is no query-level filter
+            // that is safe here: a per-content-type check with no item would grant access based on
+            // rules that are only supposed to hold for SOME items of that type. Pagination then has
+            // to run over the permitted set, not the raw one, or a restricted user's page boundaries
+            // and total count are both wrong.
+            candidates = await query.ToListAsync(ct);
+            permittedTotal = -1;
+        }
+
+        // 5. Filter by permission. With a predicate this confirms the page and cannot shrink it;
+        // without one it runs over the WHOLE matching set, so a run of denied items can never
+        // produce a short or empty page while permitted items exist further down the raw ordering.
         var sensitivity = Resolve<barakoCMS.Core.Interfaces.ISensitivityService>();
         var permittedItems = new List<ContentResponse>();
-        foreach (var item in allMatching)
+        foreach (var item in candidates)
         {
             if (await _permissionResolver.CanPerformActionAsync(user, item.ContentType, "read", item, ct))
             {
@@ -113,16 +195,31 @@ internal class Endpoint : Endpoint<Request, PaginatedResponse<ContentResponse>>
             }
         }
 
-        _logger.LogInformation(
-            "Permission filtering: Retrieved={Retrieved}, Permitted={Permitted}",
-            allMatching.Count, permittedItems.Count);
+        // The per-item check is kept on the predicate path on purpose rather than trusted away. It
+        // costs one pass over at most a page, it is the thing that would notice the two evaluators
+        // disagreeing in production, and if they ever do, this is the direction that denies.
+        if (predicate.Compiled && permittedItems.Count != candidates.Count)
+        {
+            _logger.LogError(
+                "The read predicate returned {Returned} rows the per-item check reduced to {Permitted}. "
+              + "The compiled predicate and ConditionEvaluator disagree, which is a defect in "
+              + "PermissionPredicateCompiler. Serving the smaller set.",
+                candidates.Count, permittedItems.Count);
+        }
 
-        // 6. Paginate the PERMITTED set (order is already applied and preserved from step 3).
-        var pagedItems = permittedItems.Skip(req.Skip).Take(req.Take).ToList();
+        // 6. Paginate. Already done in SQL when there was a predicate.
+        var pagedItems = predicate.Compiled
+            ? permittedItems
+            : permittedItems.Skip(req.Skip).Take(req.Take).ToList();
+
+        await FillVersionsAsync(pagedItems, ct);
+
+        if (permittedTotal < 0) permittedTotal = permittedItems.Count;
 
         _logger.LogInformation(
-            "Content list query: Page={Page}, PageSize={PageSize}, VisibleTotal={VisibleTotal}, Returned={Returned}",
-            req.Page, req.PageSize, permittedItems.Count, pagedItems.Count);
+            "Content list query: Page={Page}, PageSize={PageSize}, VisibleTotal={VisibleTotal}, "
+          + "Returned={Returned}, Compiled={Compiled}",
+            req.Page, req.PageSize, permittedTotal, pagedItems.Count, predicate.Compiled);
 
         // 7. Return Paginated Response
         await Send.ResponseAsync(new PaginatedResponse<ContentResponse>
@@ -130,7 +227,49 @@ internal class Endpoint : Endpoint<Request, PaginatedResponse<ContentResponse>>
             Items = pagedItems,
             Page = req.Page,
             PageSize = req.PageSize,
-            TotalItems = permittedItems.Count // Honest: counts only what this user can see.
+            TotalItems = permittedTotal // Honest: counts only what this user can see.
         }, cancellation: ct);
+    }
+
+    /// <summary>
+    /// True when any value in the entry's data contains the term, ignoring case.
+    /// </summary>
+    /// <remarks>
+    /// <c>d</c> is the document alias Marten gives the table inside <c>MatchesSql</c>, and <c>?</c>
+    /// is its parameter placeholder. Both match how the public delivery filters are built next door
+    /// in <c>DeliveryQuery</c>, deliberately, so there is one shape of hand-written jsonb predicate
+    /// in this codebase rather than two.
+    /// </remarks>
+    private const string SearchSql =
+        "EXISTS (SELECT 1 FROM jsonb_each_text(d.data -> 'Data') kv WHERE kv.value ILIKE '%' || ? || '%')";
+
+    /// <summary>Neutralises the two LIKE wildcards so a search means what was typed.</summary>
+    private static string EscapeLike(string term) => term
+        .Replace("\\", "\\\\")
+        .Replace("%", "\\%")
+        .Replace("_", "\\_");
+
+    /// <summary>
+    /// Reads the stream version for one page of rows, in a single round trip.
+    /// </summary>
+    /// <remarks>
+    /// After paging rather than before, so this costs one query for at most a page of rows rather
+    /// than one for every entry the caller can read. Marten's batched query issues them together.
+    /// </remarks>
+    private async Task FillVersionsAsync(IReadOnlyList<ContentResponse> items, CancellationToken ct)
+    {
+        if (items.Count == 0) return;
+
+        var batch = _session.CreateBatchQuery();
+        var states = items.Select(i => batch.Events.FetchStreamState(i.Id)).ToList();
+
+        await batch.Execute(ct);
+
+        for (var i = 0; i < items.Count; i++)
+        {
+            // Null for an entry with no stream, which stays 0 rather than throwing. Seeded rows are
+            // like this, and a list that fell over on one of them would be worse than a zero.
+            items[i].Version = (await states[i])?.Version ?? 0;
+        }
     }
 }

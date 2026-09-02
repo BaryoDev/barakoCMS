@@ -7,6 +7,28 @@
 There are three layers. Two already work. One (sensitivity) is a hardcoded POC
 that needs generalizing.
 
+All three are enforced in C#, and that is a decision rather than an accident: `DECISIONS.md` D11.
+Layers 1 and 2 are `IPermissionResolver`; layer 3 is `SensitivityService`, which is the reason for
+the decision. Row-level security filters rows and has nothing to say about which fields inside one a
+caller may see, so moving the boundary into Postgres would leave the most sensitive layer behind.
+
+The layer 2 conditions compile to a SQL predicate where they can (#445), so `GET /api/contents` for
+a named content type pages and counts in the database instead of loading the collection. That
+changed where the rules are *evaluated*, not where they are enforced: the predicate is built from
+the same rules `IPermissionResolver` reads, and the per-item check still runs over the page it
+returns.
+
+Where a rule cannot be compiled faithfully the compiler declines and the endpoint loads everything
+and checks per item, exactly as it did before. `PermissionPredicateCompiler` lists what it refuses
+and why. Declining costs a slow query; guessing would cost somebody a row they may not read, so the
+refusals are deliberate and the list is meant to grow slowly.
+
+`PermissionPredicateAgreementTests` runs generated rules and generated content through both
+evaluators and asserts they select the same rows. Two evaluators for one condition language drift,
+and the drift appears as rows silently appearing or vanishing rather than as an error, so that test
+is the only thing that can tell you it has happened. Deleting it turns the compiler into a
+liability.
+
 ## Layer 1: CRUD per content type per role (already works)
 
 This is exactly the treasurer/secretary/admin ask, and it is built:
@@ -17,7 +39,7 @@ This is exactly the treasurer/secretary/admin ask, and it is built:
 - `PermissionResolver` enforces it: **additive union** across a user's roles
   (granted if ANY role allows), **SuperAdmin bypasses**, conditions evaluated
   per row.
-- Content endpoints (Create/List/Get/Update/Delete/ChangeStatus/History/Rollback) call
+- Content endpoints (Create/List/Get/Update/Delete/ChangeStatus) call
   `CanPerformActionAsync(user, contentTypeSlug, action, content)`.
 
 So your example is pure configuration, no code:

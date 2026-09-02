@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useSchemas } from '@/hooks/use-schemas';
 import { useContents } from '@/hooks/use-contents';
-import { statusMeta } from '@/types/content';
+import { ContentStatus, statusMeta } from '@/types/content';
 import { PageHeader } from '@/components/patterns/page-header';
 import { EmptyState } from '@/components/patterns/empty-state';
 import { StatusBadge } from '@/components/patterns/status-badge';
@@ -28,11 +28,27 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { Input } from '@/components/ui/input';
 import { IconContent, IconLock, IconPlus } from '@/components/icons';
+import { useDebounced } from '@/hooks/use-debounced';
 import { formatDistanceToNowStrict } from 'date-fns';
 import { contentTitle } from '@/lib/content-title';
 
 const ALL_TYPES = 'all';
+
+/**
+ * The segmented control, in the design's order.
+ *
+ * Undefined rather than an 'all' sentinel, so "no filter" is the absence of the parameter and the
+ * server is never sent a status it would have to know to ignore.
+ */
+const STATUS_FILTERS: { label: string; value: ContentStatus | undefined }[] = [
+  { label: 'All', value: undefined },
+  { label: 'Published', value: ContentStatus.Published },
+  { label: 'Draft', value: ContentStatus.Draft },
+  { label: 'Scheduled', value: ContentStatus.Scheduled },
+  { label: 'Archived', value: ContentStatus.Archived },
+];
 
 /** 10.5px, 800, uppercase, on the sunken tint. The Signal column head. */
 const HEAD =
@@ -46,6 +62,29 @@ function ContentListInner() {
   const searchParams = useSearchParams();
   const contentType = searchParams.get('type') ?? undefined;
   const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const [status, setStatus] = useState<ContentStatus | undefined>(undefined);
+
+  // Typing is not a request. Without this every keystroke is a round trip that materialises the
+  // permitted set server side, and the answers can arrive out of order, so the table settles on
+  // whichever query happened to finish last rather than on what is in the box.
+  const query = useDebounced(search, 300);
+
+  // Every filter goes back to page one, set where the filter is set rather than in an effect
+  // watching it. Staying on page four of a wider result and then narrowing it shows an empty table
+  // beside a count saying there are matches, which reads as a broken search.
+  const changeSearch = (value: string) => {
+    setPage(1);
+    setSearch(value);
+  };
+
+  const changeStatus = (value: ContentStatus | undefined) => {
+    setPage(1);
+    setStatus(value);
+  };
+
+  /** Whether the empty table is empty because of a filter, which changes what to tell the reader. */
+  const filtered = query.length > 0 || status !== undefined;
 
   const { data: schemas } = useSchemas();
   const {
@@ -53,7 +92,15 @@ function ContentListInner() {
     isLoading,
     isError,
     refetch,
-  } = useContents({ page, pageSize: 20, contentType });
+  } = useContents({
+    page,
+    pageSize: 20,
+    contentType,
+    search: query || undefined,
+    status,
+  });
+
+
 
   /**
    * Which content types are not served anonymously, so a row can be marked Private.
@@ -99,13 +146,45 @@ function ContentListInner() {
       />
 
       {/*
-        The design's filter bar also carries a 280px search box and an All/Published/Draft/
-        Scheduled/Archived segmented control. Neither is here, because GET /api/contents takes
-        page, pageSize, sortOrder and contentType and nothing else. Filtering the twenty rows this
-        page happens to hold and labelling the result with the server's total would be a control
-        that lies about what it searched. See #410 for what the endpoint would need.
+        All three controls filter server side. Filtering the twenty rows this page happens to hold
+        while showing the server's total would be a control that lies about what it searched, which
+        is why these waited for #440 rather than shipping against the old endpoint.
       */}
-      <div className="mb-4 flex items-center gap-2.5">
+      <div className="mb-4 flex flex-wrap items-center gap-2.5">
+        <Input
+          type="search"
+          value={search}
+          onChange={(e) => changeSearch(e.target.value)}
+          placeholder="Search entries"
+          aria-label="Search entries"
+          className="h-[38px] w-full sm:w-[280px]"
+        />
+
+        <div
+          role="group"
+          aria-label="Filter by status"
+          className="bg-secondary inline-flex h-[38px] items-center gap-0.5 rounded-lg p-1"
+        >
+          {STATUS_FILTERS.map((option) => {
+            const active = status === option.value;
+            return (
+              <button
+                key={option.label}
+                type="button"
+                aria-pressed={active}
+                onClick={() => changeStatus(option.value)}
+                className={`focus-visible:ring-ring rounded-md px-2.5 py-1 text-[12px] font-bold outline-none focus-visible:ring-[3px] ${
+                  active
+                    ? 'bg-card text-foreground shadow-[var(--shadow-card)]'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
+
         <Select value={contentType ?? ALL_TYPES} onValueChange={setType}>
           {/* No visible label by design, so the name has to come from aria-label. The placeholder
               is not one: it disappears the moment a value is selected, and renders as nothing while
@@ -131,8 +210,18 @@ function ContentListInner() {
       ) : !contents?.items.length ? (
         <EmptyState
           icon={IconContent}
-          title={contentType ? `No ${contentType} entries yet` : 'No entries yet'}
-          description="Entries hold your actual content, each one following the fields of its content type."
+          title={
+            filtered
+              ? 'No entries match'
+              : contentType
+                ? `No ${contentType} entries yet`
+                : 'No entries yet'
+          }
+          description={
+            filtered
+              ? 'Nothing here matches the search or status filter. Clearing them brings the rest back.'
+              : 'Entries hold your actual content, each one following the fields of its content type.'
+          }
           action={
             <Button asChild size="sm">
               <Link href={contentType ? `/content/new?type=${contentType}` : '/content/new'}>
@@ -151,6 +240,7 @@ function ContentListInner() {
                   <TableHead className={`${HEAD} pl-6`}>Entry</TableHead>
                   <TableHead className={HEAD}>Type</TableHead>
                   <TableHead className={HEAD}>Status</TableHead>
+                  <TableHead className={`${HEAD} hidden text-right md:table-cell`}>V</TableHead>
                   <TableHead className={`${HEAD} hidden pr-6 text-right sm:table-cell`}>
                     Updated
                   </TableHead>
@@ -193,6 +283,12 @@ function ContentListInner() {
                             </StatusBadge>
                           )}
                         </div>
+                      </TableCell>
+                      <TableCell className={`${META} hidden py-3.5 text-right md:table-cell`}>
+                        {/* Nothing, not a zero, when the server did not send one. A cell reading 0
+                            is a claim about the entry; an empty one says the field was absent, which
+                            is what happens against a pre-4.0 API. */}
+                        {item.version === undefined ? '' : item.version}
                       </TableCell>
                       <TableCell className={`${META} hidden py-3.5 pr-6 text-right sm:table-cell`}>
                         {formatDistanceToNowStrict(new Date(item.updatedAt), { addSuffix: true })}

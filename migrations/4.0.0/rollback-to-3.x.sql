@@ -127,3 +127,11 @@ DROP TABLE IF EXISTS public.mt_doc_connectors;
 --
 -- The rest of the rollback is unaffected: entries and their streams are untouched, and 3.x treats
 -- every type as document sourced regardless of what this table says.
+
+-- Scheduled entries go back to being drafts (#440). 3.x has no Scheduled status,
+-- and its sweeper selects drafts with a publish time, so this is what makes those
+-- entries publish again rather than sitting at a status nothing understands.
+-- The publish time itself is untouched, so nothing is lost but the label.
+UPDATE public.mt_doc_contents
+SET data = jsonb_set(data, '{Status}', '0'::jsonb)
+WHERE (data ->> 'Status')::int = 3;

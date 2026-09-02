@@ -22,6 +22,44 @@ public class PermissionResolver : IPermissionResolver
         _tenant = tenant;
     }
 
+    /// <summary>The user's roles in this tenant, read once per request.</summary>
+    /// <remarks>
+    /// Two queries per call, and every one of them asked the same question. The entries list checks
+    /// permission on every entry it loaded, so a tenant with fifty thousand of them issued a hundred
+    /// thousand queries to return a page of twenty. The decision cache above this does not help: its
+    /// key includes the item id, so a first pass over a list is a miss on every row.
+    ///
+    /// Cached on the instance, which is scoped to the request. Roles that change mid-request are
+    /// deliberately not seen, and that is the correct answer rather than a compromise: a list where
+    /// row nine thousand was judged under different roles than row one is not a list of anything.
+    /// </remarks>
+    private IReadOnlyList<Models.Role>? _roles;
+    private Guid _rolesFor;
+
+    private async Task<IReadOnlyList<Models.Role>> RolesForAsync(Models.User user, CancellationToken cancellationToken)
+    {
+        if (_roles is not null && _rolesFor == user.Id)
+        {
+            return _roles;
+        }
+
+        // Roles come from the user's membership in the current tenant (falling back to the user's
+        // legacy roles when there's no membership).
+        var roleIds = await barakoCMS.Infrastructure.Multitenancy.MembershipRoles
+            .EffectiveRoleIdsAsync(_session, user, _tenant.Slug, cancellationToken);
+
+        IReadOnlyList<Models.Role> roles = roleIds.Count == 0
+            ? Array.Empty<Models.Role>()
+            : await _session.Query<Models.Role>()
+                .Where(r => r.Id.In(roleIds))
+                .ToListAsync(cancellationToken);
+
+        _rolesFor = user.Id;
+        _roles = roles;
+
+        return roles;
+    }
+
     /// <summary>
     /// Check if a user can perform an action using additive (union) logic: access is granted if
     /// ANY of the user's roles has an enabled rule for the action whose conditions match.
@@ -33,18 +71,7 @@ public class PermissionResolver : IPermissionResolver
         Models.Content? content = null,
         CancellationToken cancellationToken = default)
     {
-        // Roles come from the user's membership in the current tenant (falling back to the user's
-        // legacy roles when there's no membership).
-        var roleIds = await barakoCMS.Infrastructure.Multitenancy.MembershipRoles
-            .EffectiveRoleIdsAsync(_session, user, _tenant.Slug, cancellationToken);
-        if (roleIds.Count == 0)
-            return false;
-
-        // Batch load all the user's roles in a SINGLE query (eliminates N+1)
-        var roles = await _session.Query<Models.Role>()
-            .Where(r => r.Id.In(roleIds))
-            .ToListAsync(cancellationToken);
-
+        var roles = await RolesForAsync(user, cancellationToken);
         if (roles.Count == 0)
             return false;
 
@@ -93,6 +120,35 @@ public class PermissionResolver : IPermissionResolver
 
         // None of the rules granted access
         return false;
+    }
+
+    /// <inheritdoc />
+    public async Task<ReadPredicate> ReadPredicateAsync(
+        Models.User user,
+        string contentTypeSlug,
+        CancellationToken cancellationToken = default)
+    {
+        var roles = await RolesForAsync(user, cancellationToken);
+
+        // No roles at all is not "no predicate", it is no rows, and saying so lets the caller skip
+        // the query rather than load a collection to deny every item in it.
+        if (roles.Count == 0) return ReadPredicate.Nothing;
+
+        if (roles.Any(r => r.Name == "SuperAdmin")) return ReadPredicate.All;
+
+        // Gathered exactly the way CanPerformActionAsync gathers them, because the two have to be
+        // looking at the same set for the agreement property to mean anything.
+        var rules = new List<Models.PermissionRule>();
+        foreach (var role in roles)
+        {
+            var permission = role.Permissions.FirstOrDefault(p => p.ContentTypeSlug == contentTypeSlug);
+            if (permission is null) continue;
+
+            var rule = GetRuleForAction(permission, "read");
+            if (rule is not null) rules.Add(rule);
+        }
+
+        return PermissionPredicateCompiler.Compile(rules, user.Id);
     }
 
     /// <summary>
