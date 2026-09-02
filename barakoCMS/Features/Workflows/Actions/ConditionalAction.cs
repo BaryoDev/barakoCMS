@@ -13,7 +13,7 @@ namespace barakoCMS.Features.Workflows.Actions;
     RequiredParameters = new[] { "Condition", "ThenActions" },
     ExampleJson = @"{""Type"":""Conditional"",""Parameters"":{""Condition"":""{{status}} == Published"",""ThenActions"":""[{\""Type\"":\""Email\"",\""Parameters\"":{\""To\"":\""admin@example.com\""}}]""}}"
 )]
-public class ConditionalAction : IWorkflowAction
+internal class ConditionalAction : IWorkflowAction
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<ConditionalAction> _logger;
@@ -80,7 +80,12 @@ public class ConditionalAction : IWorkflowAction
                     continue;
                 }
 
-                await plugin.ExecuteAsync(childAction.Parameters, content, ct);
+                var childResult = await plugin.RunAsync(childAction.Parameters, content, ct);
+                if (!childResult.Succeeded)
+                {
+                    _logger.LogWarning(
+                        "Child action {Type} failed: {Error}", childAction.Type, childResult.Error);
+                }
             }
 
             _logger.LogInformation(

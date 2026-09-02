@@ -2,8 +2,9 @@ name: Deploy dev-playground
 
 # The BREAKABLE staging tier. Every push to `dev` builds the :dev images and
 # ships them to dev-playground.baryo.dev. Break things here freely — master is
-# what promotes a verified build to playground.baryo.dev (see deploy-playground
-# + nuget-publish). No packages are published from this workflow.
+# what promotes a verified build to playground.baryo.dev (see deploy-playground).
+# No packages are published from this workflow; release.yml is the only thing that
+# publishes, and it runs from a tag.
 on:
   push:
     branches: ["dev"]

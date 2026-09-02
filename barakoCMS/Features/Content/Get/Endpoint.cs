@@ -4,7 +4,7 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.Content.Get;
 
-public class Endpoint : Endpoint<Request, Response>
+internal class Endpoint : Endpoint<Request, Response>
 {
     private readonly IQuerySession _session;
     private readonly barakoCMS.Infrastructure.Services.IPermissionResolver _permissionResolver;
@@ -18,16 +18,18 @@ public class Endpoint : Endpoint<Request, Response>
     public override void Configure()
     {
         Get("/api/contents/{id}");
-        // Removed AllowAnonymous to force authentication, assuming JWT is sent.
-        // If public access involves "Public" role logic, that should be handled by an "Anonymous User" concept.
-        // For now, removing AllowAnonymous makes it secure by default for authenticated users.
+        // Authenticated only. Anonymous reads go through the delivery API (/api/public/{type}/{slug}),
+        // which serves published entries and public fields; this is the authoring read.
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
         // 1. Authenticate User
         // Note: Generic "User" principal is available via HttpContext if authenticated.
-        var userIdClaim = User.FindFirst("System.Security.Claims.ClaimTypes.NameIdentifier") ?? User.FindFirst("UserId");
+        // "UserId" is the only identity claim the token carries. This used to look first for the
+        // literal string System.Security.Claims.ClaimTypes.NameIdentifier, which is the name of a
+        // constant and not its value, so it never matched and the fallback was always what ran.
+        var userIdClaim = User.FindFirst("UserId");
 
         Models.User? user = null;
         if (userIdClaim != null && Guid.TryParse(userIdClaim.Value, out var userId))
@@ -73,6 +75,14 @@ public class Endpoint : Endpoint<Request, Response>
             Status = content.Status,
             LastModifiedBy = content.LastModifiedBy,
             Sensitivity = content.Sensitivity,
+            // Stored as DateTime with Kind Utc. Stated explicitly rather than relying on the
+            // implicit conversion, which would read an Unspecified Kind as local time.
+            ScheduledPublishAt = content.ScheduledPublishAt is { } p
+                ? new DateTimeOffset(DateTime.SpecifyKind(p, DateTimeKind.Utc))
+                : null,
+            ScheduledUnpublishAt = content.ScheduledUnpublishAt is { } u
+                ? new DateTimeOffset(DateTime.SpecifyKind(u, DateTimeKind.Utc))
+                : null,
             Version = streamState?.Version ?? 0
         };
 

@@ -4,21 +4,27 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.Content.List;
 
-public class Request : PaginatedRequest
+internal class Request : PaginatedRequest
 {
     public string? ContentType { get; set; }
 }
 
-public class ContentResponse
+internal class ContentResponse
 {
     public Guid Id { get; set; }
     public string ContentType { get; set; } = string.Empty;
     public Dictionary<string, object> Data { get; set; } = new();
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
+
+    // The single-item GET returns these and the list did not, so an entries table had no way to
+    // show whether a row was a Draft. Adding a field to a response is not a breaking change, and
+    // the alternative was every list row costing a second request to find out.
+    public barakoCMS.Models.ContentStatus Status { get; set; }
+    public barakoCMS.Models.SensitivityLevel Sensitivity { get; set; }
 }
 
-public class Endpoint : Endpoint<Request, PaginatedResponse<ContentResponse>>
+internal class Endpoint : Endpoint<Request, PaginatedResponse<ContentResponse>>
 {
     private readonly IQuerySession _session;
     private readonly barakoCMS.Infrastructure.Services.IPermissionResolver _permissionResolver;
@@ -43,7 +49,10 @@ public class Endpoint : Endpoint<Request, PaginatedResponse<ContentResponse>>
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
         // 1. Authenticate
-        var userIdClaim = User.FindFirst("System.Security.Claims.ClaimTypes.NameIdentifier") ?? User.FindFirst("UserId");
+        // "UserId" is the only identity claim the token carries. This used to look first for the
+        // literal string System.Security.Claims.ClaimTypes.NameIdentifier, which is the name of a
+        // constant and not its value, so it never matched and the fallback was always what ran.
+        var userIdClaim = User.FindFirst("UserId");
         if (userIdClaim == null || !Guid.TryParse(userIdClaim.Value, out var userId))
         {
             await Send.UnauthorizedAsync(ct);
@@ -93,7 +102,9 @@ public class Endpoint : Endpoint<Request, PaginatedResponse<ContentResponse>>
                     ContentType = item.ContentType,
                     Data = new Dictionary<string, object>(item.Data),
                     CreatedAt = item.CreatedAt,
-                    UpdatedAt = item.UpdatedAt
+                    UpdatedAt = item.UpdatedAt,
+                    Status = item.Status,
+                    Sensitivity = item.Sensitivity
                 };
                 // Same document- and field-level scrubbing as Get, so lists never leak sensitive data.
                 if (await sensitivity.ApplyAsync(item.ContentType, item.Sensitivity, response.Data, HttpContext, ct))

@@ -1,17 +1,26 @@
 import type { Metadata } from "next";
-import { Open_Sans, Geist_Mono } from "next/font/google";
+import { Sora, Manrope, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
-// Yeti theme: Open Sans everywhere, with light (300) headings.
-const openSans = Open_Sans({
-  variable: "--font-geist-sans",
+// Signal theme (#407). Sora for display, Manrope for body, JetBrains Mono for anything a machine
+// produced. Self-hosted by next/font, so no request leaves the box at runtime, which is the same
+// reason the Yeti fonts were loaded this way.
+const sora = Sora({
+  variable: "--font-sora",
   subsets: ["latin"],
-  weight: ["300", "400", "600", "700"],
+  weight: ["600"],
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const manrope = Manrope({
+  variable: "--font-manrope",
   subsets: ["latin"],
+  weight: ["400", "500", "600", "700", "800"],
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  variable: "--font-jetbrains-mono",
+  subsets: ["latin"],
+  weight: ["400", "500", "700"],
 });
 
 declare global {
@@ -50,9 +59,13 @@ export default function RootLayout({
         <script src={`${basePath}/env-config.js`} />
       </head>
       <body
-        className={`${openSans.variable} ${geistMono.variable} antialiased`}
+        className={`${sora.variable} ${manrope.variable} ${jetbrainsMono.variable} antialiased`}
       >
-        <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+        {/* Pinned to light. Dark mode was deferred with the Signal redesign (#407), so forcing it here
+            is what stops a stored "dark" preference, or an OS setting, from rendering the old Yeti
+            palette against Signal components. Drop forcedTheme and restore enableSystem when a dark
+            palette is actually drawn. */}
+        <ThemeProvider attribute="class" defaultTheme="light" forcedTheme="light" disableTransitionOnChange>
           <QueryProvider>
             <ErrorReporter />
             {children}

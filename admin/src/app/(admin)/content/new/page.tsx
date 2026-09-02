@@ -55,7 +55,7 @@ function NewContentInner() {
       <div className="max-w-2xl space-y-6">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="space-y-2">
-            <Label>Content type</Label>
+            <Label htmlFor="content-type">Content type</Label>
             <Select
               value={contentType}
               onValueChange={(v) => {
@@ -63,7 +63,9 @@ function NewContentInner() {
                 setValues({});
               }}
             >
-              <SelectTrigger className="w-full">
+              {/* id and htmlFor, not aria-label: the visible text is the right accessible name, and
+                  a label that is only visually adjacent is not associated with anything. */}
+              <SelectTrigger id="content-type" className="w-full">
                 <SelectValue placeholder="Choose a type" />
               </SelectTrigger>
               <SelectContent>
@@ -76,12 +78,12 @@ function NewContentInner() {
             </Select>
           </div>
           <div className="space-y-2">
-            <Label>Visibility</Label>
+            <Label htmlFor="content-sensitivity">Visibility</Label>
             <Select
               value={String(sensitivity)}
-              onValueChange={(v) => setSensitivity(Number(v) as SensitivityLevel)}
+              onValueChange={(v) => setSensitivity(v as SensitivityLevel)}
             >
-              <SelectTrigger className="w-full">
+              <SelectTrigger id="content-sensitivity" className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

@@ -11,6 +11,7 @@ public class FlagDto
     public List<string> TenantSlugs { get; set; } = new();
     public List<string> UserEmails { get; set; } = new();
     public int RolloutPercent { get; set; } = 100;
+    public bool IsPublic { get; set; }
     public DateTime UpdatedAt { get; set; }
 
     internal static FlagDto From(FeatureFlag f) => new()
@@ -21,6 +22,7 @@ public class FlagDto
         TenantSlugs = f.TenantSlugs,
         UserEmails = f.UserEmails,
         RolloutPercent = f.RolloutPercent,
+        IsPublic = f.IsPublic,
         UpdatedAt = f.UpdatedAt,
     };
 }
@@ -52,6 +54,13 @@ public class UpsertFlagRequest
     public List<string>? TenantSlugs { get; set; }
     public List<string>? UserEmails { get; set; }
     public int? RolloutPercent { get; set; }
+
+    /// <summary>
+    /// Not nullable on purpose. This is an upsert of the whole flag, so a body that omits the field
+    /// means "not public", and a client written before the field existed makes a flag private rather
+    /// than leaving it published.
+    /// </summary>
+    public bool IsPublic { get; set; }
 }
 
 /// <summary>POST /api/feature-flags/admin — create or update a flag (upsert by key).</summary>
@@ -78,6 +87,7 @@ public class SaveFlagEndpoint : Endpoint<UpsertFlagRequest, FlagDto>
         flag.TenantSlugs = Clean(req.TenantSlugs);
         flag.UserEmails = Clean(req.UserEmails);
         flag.RolloutPercent = Math.Clamp(req.RolloutPercent ?? 100, 0, 100);
+        flag.IsPublic = req.IsPublic;
         flag.UpdatedAt = DateTime.UtcNow;
 
         _session.Store(flag);

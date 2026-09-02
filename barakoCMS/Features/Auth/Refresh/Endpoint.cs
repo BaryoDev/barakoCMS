@@ -8,7 +8,7 @@ using System.IdentityModel.Tokens.Jwt;
 
 namespace barakoCMS.Features.Auth.Refresh;
 
-public class Endpoint : Endpoint<Request, Response>
+internal class Endpoint : Endpoint<Request, Response>
 {
     private readonly IQuerySession _querySession;
     private readonly IDocumentSession _documentSession;
@@ -46,15 +46,32 @@ public class Endpoint : Endpoint<Request, Response>
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
+        // Body first, then the cookie. The body keeps working for every non-browser caller, and the
+        // admin sends neither: its cookie rides along automatically and page script never holds the
+        // value at all.
+        var presented = !string.IsNullOrWhiteSpace(req.RefreshToken)
+            ? req.RefreshToken
+            : barakoCMS.Infrastructure.Auth.RefreshTokenCookie.Read(HttpContext);
+
+        if (string.IsNullOrWhiteSpace(presented))
+        {
+            // Same answer as an unknown token. "You sent nothing" and "that is not a token" are the
+            // same thing to a caller, and saying which is which tells an attacker their probe was
+            // well formed.
+            _logger.LogWarning("Refresh attempt with no token");
+            ThrowError("Invalid refresh token", 401);
+            return;
+        }
+
         // Load via the document session so Marten tracks the version for the optimistic-concurrency
         // guard on rotation below.
         var refreshToken = await _documentSession.Query<RefreshToken>()
-            .FirstOrDefaultAsync(rt => rt.Token == req.RefreshToken, ct);
+            .FirstOrDefaultAsync(rt => rt.Token == presented, ct);
 
         if (refreshToken == null)
         {
             _logger.LogWarning("Refresh attempt with invalid token");
-            ThrowError("Invalid refresh token");
+            ThrowError("Invalid refresh token", 401);
             return;
         }
 
@@ -79,7 +96,7 @@ public class Endpoint : Endpoint<Request, Response>
                     "Refresh attempt with revoked token. UserId: {UserId}, Reason: {Reason}",
                     refreshToken.UserId, refreshToken.RevokedReason);
             }
-            ThrowError("Refresh token has been revoked. Please log in again.");
+            ThrowError("Refresh token has been revoked. Please log in again.", 401);
             return;
         }
 
@@ -89,7 +106,7 @@ public class Endpoint : Endpoint<Request, Response>
             _logger.LogWarning(
                 "Refresh attempt with expired token. UserId: {UserId}, Expired: {ExpiresAt}",
                 refreshToken.UserId, refreshToken.ExpiresAt);
-            ThrowError("Refresh token has expired. Please log in again.");
+            ThrowError("Refresh token has expired. Please log in again.", 401);
             return;
         }
 
@@ -98,7 +115,7 @@ public class Endpoint : Endpoint<Request, Response>
         if (user == null)
         {
             _logger.LogError("User not found for valid refresh token. UserId: {UserId}", refreshToken.UserId);
-            ThrowError("User not found");
+            ThrowError("User not found", 401);
             return;
         }
 
@@ -118,7 +135,7 @@ public class Endpoint : Endpoint<Request, Response>
             _logger.LogWarning(
                 "Refresh refused for {UserId} on tenant {Tenant}: {Reason}",
                 user.Id, _tenant.Slug, issued.DenialReason);
-            ThrowError("Refresh token is not valid for this tenant. Please log in again.");
+            ThrowError("Refresh token is not valid for this tenant. Please log in again.", 401);
             return;
         }
 
@@ -137,7 +154,11 @@ public class Endpoint : Endpoint<Request, Response>
             UserId = user.Id,
             ExpiresAt = newRefreshTokenExpiry,
             CreatedAt = DateTime.UtcNow,
-            IsRevoked = false
+            IsRevoked = false,
+            // Carried across rotation. Without this the binding survived exactly one refresh: the
+            // token being exchanged still had it, the one replacing it did not, so device trust
+            // stopped enforcing anything from the second refresh onward and nothing said so.
+            DeviceId = refreshToken.DeviceId
         };
 
         // Revoke old refresh token (rotation)
@@ -161,13 +182,17 @@ public class Endpoint : Endpoint<Request, Response>
             _logger.LogWarning(
                 "Concurrent refresh-token use detected for UserId: {UserId}. Rejecting duplicate rotation.",
                 refreshToken.UserId);
-            ThrowError("Refresh token was already used. Please log in again.");
+            ThrowError("Refresh token was already used. Please log in again.", 401);
             return;
         }
 
         _logger.LogInformation(
             "Token refreshed for user: {Username}, UserId: {UserId}",
             user.Username, user.Id);
+
+        // Also in a cookie page script cannot read. The body still carries it for
+        // non-browser callers; see RefreshTokenCookie for why this is an addition.
+        barakoCMS.Infrastructure.Auth.RefreshTokenCookie.Set(HttpContext, newRefreshTokenString, newRefreshTokenExpiry);
 
         await Send.ResponseAsync(new Response
         {

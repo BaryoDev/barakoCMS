@@ -30,13 +30,20 @@ public class IntegrationTests
     private readonly HttpClient _client;
     private readonly IntegrationTestFixture _factory;
 
+    private static int _ipCounter;
+
     public IntegrationTests(IntegrationTestFixture factory)
     {
         _factory = factory;
         _client = factory.CreateClient();
         // Own rate-limit bucket: the auth endpoints allow 5 attempts / 15 min per IP, and every
         // WebApplicationFactory request otherwise shares one loopback bucket. See TestRemoteIpFilter.
-        _client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, "203.0.113.10");
+        //
+        // Per test instance rather than one address for the class. Registration allows five per hour
+        // per IP, and once confirming an address became a second call to a registration-limited route
+        // (#268) the two tests below spent all five between them, leaving nothing for the next.
+        _client.DefaultRequestHeaders.Add(
+            TestRemoteIpFilter.Header, $"2001:db8:1717::{Interlocked.Increment(ref _ipCounter):x}");
     }
 
     private string CreateAdminToken()
@@ -66,6 +73,15 @@ public class IntegrationTests
 
         registerRes.IsSuccessStatusCode.Should().BeTrue();
 
+        // 1b. Confirm the address. Registration only asks for an account; the account appears when
+        // the emailed token comes back (#268). The token exists nowhere but the message, which is
+        // why the test host records what it was asked to send.
+        var verificationToken = _factory.Email.LastVerificationTokenFor(email);
+        verificationToken.Should().NotBeNull("registration has to email a token in a shape the verify endpoint parses");
+
+        var verifyRes = await _client.PostAsJsonAsync("/api/auth/register/verify", new { Token = verificationToken });
+        verifyRes.IsSuccessStatusCode.Should().BeTrue();
+
         // 2. Login as Standard User
         var loginRes = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest
         {
@@ -74,7 +90,7 @@ public class IntegrationTests
         });
 
         loginRes.IsSuccessStatusCode.Should().BeTrue();
-        var loginContent = await loginRes.Content.ReadFromJsonAsync<LoginResponse>();
+        var loginContent = await loginRes.Content.ReadFromJsonAsync<LoginResponse>(ApiJson.Options);
         var userToken = loginContent!.Token;
 
         // 3. Try Create Content (Should Fail - Forbidden)
@@ -124,7 +140,10 @@ public class IntegrationTests
         shortPassRes.IsSuccessStatusCode.Should().BeFalse();
         shortPassRes.StatusCode.Should().Be(HttpStatusCode.BadRequest);
 
-        // 2. Register Duplicate User
+        // 2. Register Duplicate User. It is accepted and answers exactly as a first-time
+        // registration does: refusing here told an anonymous caller which usernames and addresses
+        // exist, which is the enumeration #268 closed. Nothing is created, and the mailbox owner is
+        // the one who hears about it. EmailVerificationTests holds the byte-for-byte comparison.
         var username = $"dup_{Guid.NewGuid()}";
         var email = $"{username}@test.com";
         var password = "Password123!";
@@ -138,8 +157,7 @@ public class IntegrationTests
             Password = password
         });
 
-        dupRes.IsSuccessStatusCode.Should().BeFalse();
-        dupRes.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        dupRes.StatusCode.Should().Be(HttpStatusCode.OK);
 
         // 3. Login Invalid Credentials
         var invalidLoginRes = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest
@@ -149,7 +167,9 @@ public class IntegrationTests
         });
 
         invalidLoginRes.IsSuccessStatusCode.Should().BeFalse();
-        invalidLoginRes.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        // 401 from 4.0. A failed sign-in is an authentication failure, not a malformed request, and
+        // standard client middleware classifies a 400 as a caller bug.
+        invalidLoginRes.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
     [Fact]
@@ -193,12 +213,12 @@ public class IntegrationTests
             Data = contentData
         });
         createRes.IsSuccessStatusCode.Should().BeTrue();
-        var contentId = (await createRes.Content.ReadFromJsonAsync<CreateContentResponse>())!.Id;
+        var contentId = (await createRes.Content.ReadFromJsonAsync<CreateContentResponse>(ApiJson.Options))!.Id;
 
         // 3. Verify Status is Draft
         var getRes = await _client.GetAsync($"/api/contents/{contentId}");
         getRes.IsSuccessStatusCode.Should().BeTrue();
-        var content = await getRes.Content.ReadFromJsonAsync<barakoCMS.Models.Content>();
+        var content = await getRes.Content.ReadFromJsonAsync<barakoCMS.Models.Content>(ApiJson.Options);
         content!.Status.Should().Be(barakoCMS.Models.ContentStatus.Draft);
 
         // 4. Change Status to Published
@@ -211,7 +231,7 @@ public class IntegrationTests
 
         // 5. Verify Status is Published
         getRes = await _client.GetAsync($"/api/contents/{contentId}");
-        var updatedContent = await getRes.Content.ReadFromJsonAsync<barakoCMS.Models.Content>();
+        var updatedContent = await getRes.Content.ReadFromJsonAsync<barakoCMS.Models.Content>(ApiJson.Options);
         updatedContent!.Status.Should().Be(barakoCMS.Models.ContentStatus.Published);
 
         // 6. Create Content with Specific Status (Archived)
@@ -222,11 +242,11 @@ public class IntegrationTests
             Status = barakoCMS.Models.ContentStatus.Archived
         });
         archivedRes.IsSuccessStatusCode.Should().BeTrue();
-        var archivedId = (await archivedRes.Content.ReadFromJsonAsync<CreateContentResponse>())!.Id;
+        var archivedId = (await archivedRes.Content.ReadFromJsonAsync<CreateContentResponse>(ApiJson.Options))!.Id;
 
         // 7. Verify Status is Archived
         getRes = await _client.GetAsync($"/api/contents/{archivedId}");
-        var archivedContent = await getRes.Content.ReadFromJsonAsync<barakoCMS.Models.Content>();
+        var archivedContent = await getRes.Content.ReadFromJsonAsync<barakoCMS.Models.Content>(ApiJson.Options);
         archivedContent!.Status.Should().Be(barakoCMS.Models.ContentStatus.Archived);
     }
 }

@@ -11,16 +11,16 @@ using System.Security.Claims;
 namespace BarakoCMS.ExternalAuth;
 
 /// <summary>
-/// Shared sign-in for external identity providers (Facebook, LinkedIn, …). A provider proves the
-/// person's email; we match it to a global user (creating one if new) and mint the same tenant-scoped,
+/// Shared sign-in for external identity providers (Facebook, LinkedIn, and the rest). A provider
+/// proves the person's email; we match it to a global user (creating one if new) and mint the same tenant-scoped,
 /// device-bound access + refresh token the email/password flows issue. One place so every provider
 /// stays consistent with core's auth rules — the seam that will move into a barakoCMS module.
 /// </summary>
 public static class SocialSignIn
 {
     /// <summary>
-    /// Tokens for a successful sign-in, or <see cref="Denied"/> when the person proved their email
-    /// but has no claim to the club they asked for.
+    /// Tokens for a successful sign-in, or <see cref="Denied"/> when the provider did not verify the
+    /// email, or the person proved their email but has no claim to the club they asked for.
     /// </summary>
     public sealed record Tokens(string Token, string Refresh, bool RequiresMfa = false, string? MfaChallenge = null)
     {
@@ -44,10 +44,24 @@ public static class SocialSignIn
         barakoCMS.Infrastructure.Auth.Mfa.IMfaService mfa,
         HttpContext http,
         string email,
+        bool emailVerified,
         string club,
         CancellationToken ct,
         ProfileData? profile = null)
     {
+        // Required, and deliberately not optional with a default. Three of the four providers used
+        // to hand over an address nobody had asked the provider to vouch for, and the README claimed
+        // the opposite. A parameter with a default would have let the next provider omit it just as
+        // quietly.
+        //
+        // The email is the only join key here, so an unverified one is a login for whichever local
+        // account holds that address. A seeded SuperAdmin's address is {username}@company.com and
+        // therefore guessable, and PasswordHash is never consulted on this path.
+        if (!emailVerified)
+        {
+            return Tokens.Denied();
+        }
+
         var normalized = email.Trim().ToLowerInvariant();
         var user = await session.Query<User>().FirstOrDefaultAsync(u => u.Email.ToLower() == normalized, ct);
         if (user is null)

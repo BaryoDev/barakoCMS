@@ -29,6 +29,9 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         Environment.SetEnvironmentVariable("JWT__Key", "test-super-secret-key-that-is-at-least-32-chars-long");
     }
 
+    /// <summary>The API key this host is configured with, standing in for a deployment's own.</summary>
+    public const string ConfiguredResendKey = "re_from_the_deployment_not_the_admin";
+
     public string ConnectionString => _postgresContainer.GetConnectionString().Replace("localhost", "127.0.0.1").Replace("Host=", "Server=") + ";Pooling=false";
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -41,6 +44,15 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
                 { "JWT:Key", "test-super-secret-key-that-is-at-least-32-chars-long" },
                 { "JWT:Issuer", "BarakoTest" },
                 { "JWT:Audience", "BarakoClient" },
+                // The OpenAPI document is a shipped artifact (tags group a generated client, and the
+                // delivery paths are generated per tenant), so tests assert against it. Explicit
+                // rather than relying on ASPNETCORE_ENVIRONMENT, which is process-global and set by
+                // whichever factory happened to construct last.
+                { "Swagger:Enabled", "true" },
+                // Seeded the way a deployment with no database row yet seeds it, so the precedence
+                // tests have a configured value for a stored one to beat, and a value to fall back
+                // to when the stored one is cleared.
+                { "Resend:ApiKey", ConfiguredResendKey },
                 { "Feeds:SiteUrl", "https://test.example.com" },
                 { "Feeds:Paths:sitemap_paths", "/articles/{slug}" },
             });
@@ -57,6 +69,35 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             // Without this, xunit v3 ordering packs enough auth calls into one window that a
             // later login gets 429 and a test asserting success fails. See TestRemoteIpFilter.
             services.AddSingleton<Microsoft.AspNetCore.Hosting.IStartupFilter, TestRemoteIpFilter>();
+
+            // The background scheduler does not run in tests.
+            //
+            // It waits thirty seconds after startup and then sweeps every minute, publishing
+            // whatever is due. Every scheduling test drives SweepTenantAsync directly, so it adds
+            // nothing, and it is a third writer nobody asked for: it can publish a test's draft
+            // between the arrange and the act, or collide with a sweep a test is running itself.
+            //
+            // That is why #424 failed only in CI. A class in isolation finishes inside the thirty
+            // second delay, so the timer never fires and the test passes every time locally. A full
+            // suite runs for six minutes and gets six sweeps, any of which can land on a test's
+            // item. Both recorded failure modes are consistent with it: a title reverted to v1 when
+            // the sweeper published before the editor committed, and a document saying Draft against
+            // a stream replaying to Published when it published after.
+            //
+            // Removed by implementation type rather than by clearing IHostedService, which would
+            // also take the projection daemon and anything a module registers. The assertion below
+            // is the point: a rename or a re-registration must fail here rather than quietly restore
+            // the timer and make the suite intermittent again.
+            var sweeper = services.SingleOrDefault(d =>
+                d.ImplementationType == typeof(barakoCMS.Infrastructure.Services.ScheduledContentService));
+            if (sweeper is null)
+            {
+                throw new InvalidOperationException(
+                    "ScheduledContentService is no longer registered the way this fixture expects, so "
+                  + "the background sweeper may still be running in tests. See #424.");
+            }
+
+            services.Remove(sweeper);
 
             new BarakoCMS.Email.Resend.ResendEmailModule().ConfigureServices(services, ctx.Configuration);
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Email.Resend.ResendEmailModule(), opts));
@@ -85,21 +126,76 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             // schema so those endpoints can run.
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Pwa.PwaModule(), opts));
 
+            // FeatureFlags: /api/feature-flags is anonymous, so which keys it hands out is a test
+            // this project has to be able to run.
+            new BarakoCMS.FeatureFlags.FeatureFlagsModule().ConfigureServices(services, ctx.Configuration);
+            services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.FeatureFlags.FeatureFlagsModule(), opts));
+
+            // ExternalAuth: the OAuth start/callback endpoints are anonymous, so what they refuse
+            // is only checkable over real HTTP. ConfigureServices gives them IHttpClientFactory.
+            new BarakoCMS.ExternalAuth.ExternalAuthModule().ConfigureServices(services, ctx.Configuration);
+            services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.ExternalAuth.ExternalAuthModule(), opts));
+
+            // DeviceTrust: replaces core's no-op gate and contributes a global pre-processor.
+            // DeviceTrust:Enforce is unset here, so the processor returns before doing anything and
+            // the gate behaves like the no-op it replaces. The enforcement tests turn it on with
+            // WithSettings, which builds a separate host.
+            new BarakoCMS.DeviceTrust.DeviceTrustModule().ConfigureServices(services, ctx.Configuration);
+            services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.DeviceTrust.DeviceTrustModule(), opts));
+
+            // Analytics.Umami: registered with its own section, exactly as the host scopes it, and
+            // with the outbound handler stubbed. A test that let this reach the network would be
+            // asserting about the internet.
+            new BarakoCMS.Analytics.Umami.UmamiAnalyticsModule()
+                .ConfigureServices(services, ctx.Configuration.GetSection(
+                    BarakoCMS.Analytics.Umami.UmamiOptions.SectionName));
+            services.AddHttpClient<BarakoCMS.Analytics.Umami.IUmamiClient, BarakoCMS.Analytics.Umami.UmamiClient>()
+                .ConfigurePrimaryHttpMessageHandler(() => new UmamiStubHandler());
+
+            // Email transport, replacing the Resend provider the module above registered. Resend
+            // throws on every call here because no API key is configured, so any flow that emails
+            // something has been running against a transport that always fails. Registration needs
+            // the opposite: a test has to be able to read a token that only exists in an email.
+            services.RemoveAll<barakoCMS.Core.Interfaces.IEmailService>();
+            services.AddSingleton<RecordingEmailService>();
+            services.AddSingleton<barakoCMS.Core.Interfaces.IEmailService>(
+                sp => sp.GetRequiredService<RecordingEmailService>());
+
             // FastEndpoints 8 discovers endpoints eagerly inside AddFastEndpoints, which ran in
             // Program.cs before any module assembly above was loaded, so none of the module
             // endpoints exist in that scan. Re-register with the module assemblies explicit;
             // FE registers EndpointData with a plain AddSingleton, so this last one wins.
-            services.AddFastEndpoints(o => o.Assemblies =
-            [
-                typeof(BarakoCMS.Email.Resend.ResendEmailModule).Assembly,
-                typeof(BarakoCMS.Files.FilesModule).Assembly,
-                typeof(BarakoCMS.AI.AiModule).Assembly,
-                typeof(BarakoCMS.Accounting.AccountingModule).Assembly,
-                typeof(BarakoCMS.Diagnostics.DiagnosticsModule).Assembly,
-                typeof(BarakoCMS.Pwa.PwaModule).Assembly,
-            ]);
+            services.AddFastEndpoints(o => o.Assemblies = ModuleEndpointAssemblies);
         });
     }
+
+    /// <summary>
+    /// Every module assembly whose endpoints this host serves. Named rather than inlined so a test
+    /// that has to rebuild the host cannot quietly serve a smaller API than the fixture does.
+    /// </summary>
+    public static readonly System.Reflection.Assembly[] ModuleEndpointAssemblies =
+    [
+        typeof(BarakoCMS.Email.Resend.ResendEmailModule).Assembly,
+        typeof(BarakoCMS.Files.FilesModule).Assembly,
+        typeof(BarakoCMS.AI.AiModule).Assembly,
+        typeof(BarakoCMS.Accounting.AccountingModule).Assembly,
+        typeof(BarakoCMS.Diagnostics.DiagnosticsModule).Assembly,
+        typeof(BarakoCMS.Pwa.PwaModule).Assembly,
+        typeof(BarakoCMS.FeatureFlags.FeatureFlagsModule).Assembly,
+        // Portability owns no documents of its own and registers no services, so its
+        // endpoints only need discovering.
+        typeof(BarakoCMS.Portability.PortabilityModule).Assembly,
+        typeof(BarakoCMS.ExternalAuth.ExternalAuthModule).Assembly,
+        typeof(BarakoCMS.DeviceTrust.DeviceTrustModule).Assembly,
+        typeof(BarakoCMS.Import.ImportModule).Assembly,
+        typeof(BarakoCMS.Analytics.Umami.UmamiAnalyticsModule).Assembly,
+    ];
+
+    /// <summary>
+    /// What the host tried to email, for the flows whose only output is a message. Valid for clients
+    /// made with <c>CreateClient()</c>; a host built by <c>WithWebHostBuilder</c> has its own.
+    /// </summary>
+    public RecordingEmailService Email => Services.GetRequiredService<RecordingEmailService>();
 
     public async ValueTask InitializeAsync()
     {
@@ -148,8 +244,18 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
     /// tears down the host for every test that runs afterwards. The fixture owns the lifetime.
     /// </summary>
     public WebApplicationFactory<Program> WithSetting(string key, string? value) =>
+        WithSettings(new Dictionary<string, string?> { { key, value } });
+
+    /// <summary>
+    /// The same, for behaviour that only appears once several settings agree. Turning a module on
+    /// usually takes more than one key, and setting them one host at a time gets you a host that
+    /// has the flag but not the URL.
+    ///
+    /// Do NOT dispose the result, for the reason given above.
+    /// </summary>
+    public WebApplicationFactory<Program> WithSettings(IDictionary<string, string?> settings) =>
         WithWebHostBuilder(b => b.ConfigureAppConfiguration((_, config) =>
-            config.AddInMemoryCollection(new Dictionary<string, string?> { { key, value } })));
+            config.AddInMemoryCollection(settings)));
 
     public string CreateToken(string[] roles, string? userId = null, Dictionary<string, string>? additionalClaims = null)
     {
@@ -170,6 +276,13 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         }
 
         claims.Add(new System.Security.Claims.Claim("UserId", userId ?? Guid.NewGuid().ToString()));
+
+        // Matches what TokenIssuer mints. Without it the session epoch check has nothing to compare
+        // against and serves every request, so a test suite using this helper would report the
+        // control as working while it did nothing.
+        claims.Add(new System.Security.Claims.Claim(
+            System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Iat,
+            DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture)));
 
         if (additionalClaims != null)
         {

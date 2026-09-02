@@ -5,9 +5,10 @@
     <PackageId>BarakoCMS</PackageId>
     <Version>3.21.0</Version>
 
-    <Description>The AI-Native, High-Performance Headless CMS for .NET 8. Plugin-based workflow system with 6 built-in actions, advanced RBAC, event sourcing, and production-grade security.</Description>
+    <Description>The AI-Native, High-Performance Headless CMS for .NET 10. Plugin-based workflow system with 6 built-in actions, advanced RBAC, event sourcing, and production-grade security.</Description>
     <IsPackable>true</IsPackable>
     <StaticWebAssetsEnabled>false</StaticWebAssetsEnabled>
+
     <GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
     <!-- SPDX expression rather than a bundled file: it matches the modules and lets NuGet
          render the licence inline. Versions up to 3.1.1 shipped under Apache-2.0 and stay
@@ -26,6 +27,18 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- This is a Microsoft.NET.Sdk.Web project, where appsettings*.json are Content items, and
+         pack ships Content by default. The published 3.21.0 package really did carry
+         content/appsettings.json and contentFiles/any/net10.0/appsettings.json, so referencing
+         BarakoCMS dropped the host's own configuration into the consumer's project, to collide with
+         theirs at build and publish. The package is a library; its consumer owns its configuration.
+
+         Scoped to these files rather than IncludeContentInPack=false, which also drops the icon and
+         the README and fails the pack with NU5046. -->
+    <Content Update="appsettings*.json" Pack="false" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="AspNetCore.HealthChecks.Npgsql" />
     <PackageReference Include="AspNetCore.HealthChecks.System" />
     <PackageReference Include="AspNetCore.HealthChecks.UI" />
@@ -35,6 +48,7 @@
     <PackageReference Include="FastEndpoints" />
     <PackageReference Include="FastEndpoints.Swagger" />
     <PackageReference Include="FastEndpoints.Security" />
+    <PackageReference Include="JasperFx" />
     <PackageReference Include="KubernetesClient" />
     <PackageReference Include="Marten" />
     <PackageReference Include="Microsoft.Extensions.Http.Resilience" />
@@ -58,5 +72,9 @@
          internal: it is how the host scopes a module's settings, not public API, and CLAUDE.md
          section 6 means anything public here is a compatibility commitment. -->
     <InternalsVisibleTo Include="BarakoCMS.Tests" />
+    <!-- Castle DynamicProxy, which NSubstitute builds on, needs to see internal types to mock an
+         ILogger<T> whose T is internal. The feature slices became internal in 4.0, so several
+         existing workflow-action tests could not construct their own subject without this. -->
+    <InternalsVisibleTo Include="DynamicProxyGenAssembly2" />
   </ItemGroup>
 </Project>

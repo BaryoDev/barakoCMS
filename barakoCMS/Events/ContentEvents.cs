@@ -10,80 +10,15 @@ public record ContentCreated(
     Models.ContentStatus Status,
     Guid CreatedBy,
     string? SearchText,
-    Models.SensitivityLevel Sensitivity)
-{
-    [Obsolete("Use the seven-value constructor. Removal planned for the next major version.")]
-    public ContentCreated(
-        Guid id,
-        string contentType,
-        Dictionary<string, object> data,
-        Models.ContentStatus status,
-        Guid createdBy,
-        string? searchText)
-        : this(id, contentType, data, status, createdBy, searchText, Models.SensitivityLevel.Public)
-    {
-    }
-
-    [Obsolete("Use the six-value constructor. Removal planned for the next major version.")]
-    public ContentCreated(
-        Guid id,
-        string contentType,
-        Dictionary<string, object> data,
-        Models.ContentStatus status,
-        Guid createdBy)
-        : this(id, contentType, data, status, createdBy, null, Models.SensitivityLevel.Public)
-    {
-    }
-
-    // A positional record's Deconstruct follows its primary constructor, so widening the record
-    // breaks deconstruction at the old arity as surely as it breaks construction. Both halves are
-    // kept in step: an obsolete constructor without a matching Deconstruct only fixes half the break.
-    [Obsolete("Use the seven-value Deconstruct overload. Removal planned for barakoCMS 5.0.")]
-    public void Deconstruct(
-        out Guid id,
-        out string contentType,
-        out Dictionary<string, object> data,
-        out Models.ContentStatus status,
-        out Guid createdBy,
-        out string? searchText) =>
-        (id, contentType, data, status, createdBy, searchText) =
-            (Id, ContentType, Data, Status, CreatedBy, SearchText);
-
-    [Obsolete("Use the seven-value Deconstruct overload. Removal planned for barakoCMS 5.0.")]
-    public void Deconstruct(
-        out Guid id,
-        out string contentType,
-        out Dictionary<string, object> data,
-        out Models.ContentStatus status,
-        out Guid createdBy) =>
-        (id, contentType, data, status, createdBy) =
-            (Id, ContentType, Data, Status, CreatedBy);
-}
+    Models.SensitivityLevel Sensitivity);
 
 [method: JsonConstructor]
 public record ContentUpdated(
     Guid Id,
     Dictionary<string, object> Data,
     Guid UpdatedBy,
-    string? SearchText)
-{
-    [Obsolete("Use the four-value constructor. Removal planned for the next major version.")]
-    public ContentUpdated(
-        Guid id,
-        Dictionary<string, object> data,
-        Guid updatedBy)
-        : this(id, data, updatedBy, null)
-    {
-    }
+    string? SearchText);
 
-    [Obsolete("Use the four-value Deconstruct overload. Removal planned for the next major version.")]
-    public void Deconstruct(
-        out Guid id,
-        out Dictionary<string, object> data,
-        out Guid updatedBy) =>
-        (id, data, updatedBy) =
-            (Id, Data, UpdatedBy);
-}
 public record ContentStatusChanged(Guid Id, Models.ContentStatus NewStatus, Guid UpdatedBy);
 
 /// <summary>
@@ -114,3 +49,46 @@ public record ContentSensitivityChanged(
     Guid Id,
     Models.SensitivityLevel Sensitivity,
     Guid UpdatedBy);
+
+/// <summary>
+/// An entry moved through a named transition in its content type's own lifecycle.
+/// </summary>
+/// <remarks>
+/// Separate from <see cref="ContentStatusChanged"/> rather than an extension of it. That one carries
+/// a <see cref="Models.ContentStatus"/>, which is the core's three states and decides whether public
+/// delivery serves an entry. This carries the type's own states, which decide nothing about
+/// delivery. Folding them together would make the delivery question unanswerable without knowing
+/// which kind of change it was.
+///
+/// The transition name is recorded as well as the states, because it is what a permission and a
+/// workflow key on. From and To are recorded so a replay does not have to consult the content type
+/// definition, which can change after the fact.
+/// </remarks>
+[method: JsonConstructor]
+public record ContentTransitioned(
+    Guid Id,
+    string Transition,
+    string FromState,
+    string ToState,
+    Guid UpdatedBy);
+
+/// A field's sensitivity changed on the content type, so this entry's derived
+/// <see cref="Models.Content.SearchText"/> was rebuilt.
+/// </summary>
+/// <remarks>
+/// Appended once per affected entry rather than once against the type, because SearchText lives on
+/// the entry and is carried by its events. Scrubbing it with a plain store would hold only until the
+/// next projection rebuild, which replays the last ContentCreated or ContentUpdated and writes the
+/// old text back: a field taken out of anonymous search would quietly return to it, and nothing
+/// about the rebuild would look wrong.
+///
+/// Both levels travel with it so the stream says why the text changed rather than only that it did.
+/// </remarks>
+[method: JsonConstructor]
+public record ContentFieldSensitivityChanged(
+    Guid Id,
+    string Field,
+    Models.SensitivityLevel From,
+    Models.SensitivityLevel To,
+    string? SearchText,
+    Guid ChangedBy);

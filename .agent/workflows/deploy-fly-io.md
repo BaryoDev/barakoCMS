@@ -16,13 +16,27 @@ This workflow will guide you through deploying your PostgreSQL database, .NET Ba
    *(Adjust `--region` close to you, e.g., `sin` for Singapore, `sjc` for San Jose).*
    **Note:** Save the `connection string` and `username/password` from the output!
 
-### Phase 2: Deploy the Backend (.NET 8)
+### Phase 2: Deploy the Backend (.NET 10)
 
 1. Initialize the backend app (Run from Project Root).
    ```bash
    fly launch --name barako-api --dockerfile Dockerfile --internal-port 8080 --region sin --no-deploy
    ```
    *(Select `Yes` to copy configuration if asked. Say `No` to adding a Postgres DB since we made one separately, or `Yes` to attach the existing one if it offers).*
+
+   This writes `fly.toml`. It stays out of the repository (`.gitignore` covers it), because `app` is
+   a name unique across all of Fly, so a committed one either collides for the next person or points
+   their `fly deploy` at somebody else's app. Pick your own `--name`.
+
+   Add these to the generated file. They turn off the three things that expect a cluster or a
+   writable disk, neither of which a Fly machine gives you here:
+
+   ```toml
+   [env]
+     Kubernetes__Enabled = "false"
+     HealthChecksUI__Enabled = "false"
+     Serilog__WriteToFile = "false"
+   ```
 
 2. Attach the Database to the Backend.
    ```bash
@@ -60,4 +74,9 @@ This workflow will guide you through deploying your PostgreSQL database, .NET Ba
 
 ### Verification
 - Visit your frontend URL (e.g., `https://barako-admin.fly.dev`).
-- Login with the initial admin credentials found in your `appsettings.json` (admin / Barako123!).
+- Sign in as the initial admin. Set the password yourself before the first boot:
+  ```bash
+  fly secrets set --app barako-api InitialAdmin__Username=admin InitialAdmin__Password='<a 12+ char password>'
+  ```
+  Leave `InitialAdmin__Password` unset and the seeder generates one and prints it once, so you would
+  have to read it back out of `fly logs --app barako-api`.

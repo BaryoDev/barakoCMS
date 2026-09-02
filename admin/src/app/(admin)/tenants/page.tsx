@@ -30,6 +30,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { IconPlus, IconServer } from '@/components/icons';
+import { TenantMembers } from '@/components/tenant-members';
 
 // Handle rules mirror the server (TenantHandles): 3-40 chars, lowercase alphanumerics + hyphens,
 // no leading/trailing hyphen. Validated inline so the user sees the rule before submitting.
@@ -110,6 +111,7 @@ function CreateTenantDialog({ open, onOpenChange }: { open: boolean; onOpenChang
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Acme Corporation"
+                // eslint-disable-next-line jsx-a11y/no-autofocus -- focus belongs in a dialog the moment it opens, which is what WAI-ARIA authoring practices ask for. The rule is aimed at autofocus on page load.
                 autoFocus
               />
             </div>
@@ -222,6 +224,8 @@ export default function TenantsPage() {
           </Table>
         </div>
       )}
+
+      <TenantMembers />
 
       <CreateTenantDialog open={dialogOpen} onOpenChange={setDialogOpen} />
     </>

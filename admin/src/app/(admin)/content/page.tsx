@@ -5,8 +5,10 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useSchemas } from '@/hooks/use-schemas';
 import { useContents } from '@/hooks/use-contents';
+import { statusMeta } from '@/types/content';
 import { PageHeader } from '@/components/patterns/page-header';
 import { EmptyState } from '@/components/patterns/empty-state';
+import { StatusBadge } from '@/components/patterns/status-badge';
 import { ErrorState } from '@/components/patterns/error-state';
 import { TableSkeleton } from '@/components/patterns/table-skeleton';
 import { PaginationControls } from '@/components/patterns/pagination-controls';
@@ -68,7 +70,10 @@ function ContentListInner() {
 
       <div className="mb-4">
         <Select value={contentType ?? ALL_TYPES} onValueChange={setType}>
-          <SelectTrigger className="w-56">
+          {/* No visible label by design, so the name has to come from aria-label. The placeholder
+              is not one: it disappears the moment a value is selected, and renders as nothing while
+              the schema list is still loading, which is when axe caught this. */}
+          <SelectTrigger className="w-56" aria-label="Filter by content type">
             <SelectValue placeholder="All content types" />
           </SelectTrigger>
           <SelectContent>
@@ -108,6 +113,7 @@ function ContentListInner() {
                 <TableRow>
                   <TableHead>Entry</TableHead>
                   <TableHead>Type</TableHead>
+                  <TableHead>Status</TableHead>
                   <TableHead className="hidden sm:table-cell">Updated</TableHead>
                 </TableRow>
               </TableHeader>
@@ -122,6 +128,12 @@ function ContentListInner() {
                       <span className="block truncate font-medium">{contentTitle(item.data, item.id)}</span>
                     </TableCell>
                     <TableCell className="text-muted-foreground font-mono text-xs">{item.contentType}</TableCell>
+                    <TableCell>
+                      {(() => {
+                        const meta = statusMeta(item.status);
+                        return <StatusBadge tone={meta.tone}>{meta.label}</StatusBadge>;
+                      })()}
+                    </TableCell>
                     <TableCell className="text-muted-foreground hidden text-sm sm:table-cell">
                       {formatDistanceToNow(new Date(item.updatedAt), { addSuffix: true })}
                     </TableCell>

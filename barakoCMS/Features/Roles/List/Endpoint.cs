@@ -4,12 +4,12 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.Roles.List;
 
-public class Request : PaginatedRequest
+internal class Request : PaginatedRequest
 {
     // No additional filters for roles list
 }
 
-public class Endpoint : Endpoint<Request, PaginatedResponse<Role>>
+internal class Endpoint : Endpoint<Request, PaginatedResponse<barakoCMS.Features.Roles.RoleResponse>>
 {
     private readonly IDocumentSession _session;
 
@@ -43,9 +43,9 @@ public class Endpoint : Endpoint<Request, PaginatedResponse<Role>>
             .ToListAsync(ct);
 
         // Return paginated response
-        await Send.ResponseAsync(new PaginatedResponse<Role>
+        await Send.ResponseAsync(new PaginatedResponse<barakoCMS.Features.Roles.RoleResponse>
         {
-            Items = roles,
+            Items = roles.Select(barakoCMS.Features.Roles.RoleResponse.From).ToList(),
             Page = req.Page,
             PageSize = req.PageSize,
             TotalItems = totalCount

@@ -15,10 +15,24 @@ public class ConditionEvaluator : IConditionEvaluator
         Dictionary<string, object> conditions,
         Dictionary<string, object> contentData,
         Models.User user)
+        => Evaluate(conditions, contentData, null, user);
+
+    /// <inheritdoc />
+    public bool Evaluate(
+        Dictionary<string, object> conditions,
+        Models.Content content,
+        Models.User user)
+        => Evaluate(conditions, content.Data, content, user);
+
+    private bool Evaluate(
+        Dictionary<string, object> conditions,
+        Dictionary<string, object> contentData,
+        Models.Content? content,
+        Models.User user)
     {
         foreach (var (field, conditionValue) in conditions)
         {
-            if (!contentData.TryGetValue(field, out var actualValue))
+            if (!TryResolve(field, contentData, content, out var actualValue))
                 return false; // Field doesn't exist in content
 
             // A Role loaded fresh from Marten deserializes any object-typed property as
@@ -38,6 +52,49 @@ public class ConditionEvaluator : IConditionEvaluator
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Finds the value a condition names, from the document for a <c>$</c> prefixed key and from the
+    /// data bag otherwise.
+    /// </summary>
+    /// <remarks>
+    /// A document property is refused rather than treated as absent when no document was supplied.
+    /// Both answers deny, so the difference is invisible to a caller, and it is worth keeping anyway:
+    /// the overload without a document cannot answer an ownership question, and silently returning
+    /// "no match" would make a permission rule that is never satisfiable look like one that simply
+    /// did not apply.
+    /// </remarks>
+    private static bool TryResolve(
+        string field,
+        Dictionary<string, object> contentData,
+        Models.Content? content,
+        out object? value)
+    {
+        value = null;
+
+        if (!field.StartsWith('$'))
+            return contentData.TryGetValue(field, out value);
+
+        if (content is null)
+            return false;
+
+        switch (field[1..].ToLowerInvariant())
+        {
+            case "createdby":
+                value = content.CreatedBy.ToString();
+                return true;
+            case "lastmodifiedby":
+                value = content.LastModifiedBy.ToString();
+                return true;
+            case "status":
+                value = content.Status.ToString();
+                return true;
+            default:
+                // An unknown document property denies rather than throwing. A rule naming one is a
+                // configuration mistake, and refusing is the direction that cannot leak.
+                return false;
+        }
     }
 
     // Recursively converts a System.Text.Json.JsonElement (of any kind) into the equivalent plain

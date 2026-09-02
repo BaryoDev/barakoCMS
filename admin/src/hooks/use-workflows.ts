@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { api, type Paginated } from '@/lib/api';
 import type {
     WorkflowDefinition,
     WorkflowActionMetadata,
@@ -13,8 +13,8 @@ export function useWorkflows() {
     return useQuery({
         queryKey: ['workflows'],
         queryFn: async () => {
-            const response = await api.get<WorkflowDefinition[]>('/api/workflows');
-            return response.data;
+            const response = await api.get<Paginated<WorkflowDefinition>>('/api/workflows');
+            return response.data.items;
         },
     });
 }

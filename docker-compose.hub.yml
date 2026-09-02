@@ -2,8 +2,11 @@
 #
 #   docker compose -f docker-compose.hub.yml up -d
 #
-# Then open http://localhost:3000 (admin UI) — the API is on http://localhost:5005.
-# Override the defaults below with a .env file for anything beyond a local try-out.
+# Then open http://localhost:3000 (admin UI). The API is on http://localhost:5005.
+#
+# This is a local try-out: no TLS, dev defaults, and a JWT key printed in this file. For a real
+# deployment use docker-compose.prod.yml, which runs these same published images behind Caddy with
+# required secrets. See docs/deploy-in-production.md.
 
 services:
   postgres:
@@ -36,7 +39,13 @@ services:
       # JWT key must be at least 32 characters or the API refuses to start.
       - JWT__Key=${JWT_SECRET:-dev-only-key-minimum-32-chars-long}
       - InitialAdmin__Username=${ADMIN_USER:-admin}
-      - InitialAdmin__Password=${ADMIN_PASSWORD:-changeme-in-production}
+      # No default. Unset, the seeder generates a password and prints it once to the container log
+      # (docker compose -f docker-compose.hub.yml logs app).
+      - InitialAdmin__Password=${ADMIN_PASSWORD:-}
+      # Off by default here. This file runs the published images, so it is the one people copy
+      # toward a host, and the environment above defaults to Development, which would otherwise
+      # turn the API explorer on for them without anyone choosing it. Set SWAGGER_ENABLED=true.
+      - Swagger__Enabled=${SWAGGER_ENABLED:-false}
     depends_on:
       postgres:
         condition: service_healthy

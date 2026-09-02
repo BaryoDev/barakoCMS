@@ -27,7 +27,7 @@ export default async function Home() {
           </h1>
           <p className="mt-7 max-w-[54ch] text-[17px] leading-relaxed text-ink-2">
             Content, users, roles, permissions, workflow, audit history and multi-tenancy. Every
-            project needs them. BarakoCMS is an open-source .NET 8 base that brings them along on day
+            project needs them. BarakoCMS is an open-source .NET 10 base that brings them along on day
             one, so your time goes to what the customer asked for.
           </p>
 

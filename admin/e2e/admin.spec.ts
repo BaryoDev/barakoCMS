@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { MOCK_TOKEN } from './helpers';
+import { pageOf, stubContentTypes, authed } from './helpers';
 
 const SCHEMAS = [
     {
@@ -12,14 +12,10 @@ const SCHEMAS = [
 
 test.describe('Admin flows (mocked API)', () => {
     test.beforeEach(async ({ page }) => {
-        await page.addInitScript((token) => {
-            window.localStorage.setItem('barako_token', token);
-        }, MOCK_TOKEN);
+        await authed(page);
 
-        await page.route('**/api/schemas', (route) =>
-            route.fulfill({ json: SCHEMAS })
-        );
-        await page.route('**/api/workflows', (route) => route.fulfill({ json: [] }));
+        await stubContentTypes(page, SCHEMAS);
+        await page.route('**/api/workflows', (route) => route.fulfill({ json: pageOf([]) }));
         await page.route('**/api/monitoring/**', (route) => route.fulfill({ json: {} }));
         await page.route('**/health', (route) =>
             route.fulfill({ json: { status: 'Healthy', totalDuration: '0', entries: {} } })
@@ -46,16 +42,23 @@ test.describe('Admin flows (mocked API)', () => {
         await page.goto('/');
         await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible();
 
-        // exact: the dashboard also has a "Content types N" stat-card link; we want the sidebar one.
-        await page.getByRole('link', { name: 'Content types', exact: true }).click();
+        // Located by the attribute only sidebar items carry, not by name. The dashboard also links
+        // to /schemas from a "Content types N" stat card, and `exact` only separated the two while
+        // that card had rendered its number: until the schemas query resolves the card shows a
+        // skeleton, its accessible name is exactly "Content types", and the locator matched both.
+        // That made this fail under the full parallel pack and pass every time on its own.
+        await page.locator('a[data-sidebar="menu-button"][href="/schemas"]').click();
         await expect(page).toHaveURL('/schemas');
         await expect(page.getByText('Blog post')).toBeVisible();
     });
 
     test('creating a content type posts to /api/content-types with PascalCase fields', async ({ page }) => {
-        await page.route('**/api/content-types', (route) =>
-            route.fulfill({ json: { id: 'ct1', name: 'secret-doc' } })
-        );
+        // POST only. GET on this route is the content-type list, stubbed in beforeEach, and this
+        // route is registered later so it would otherwise answer both.
+        await page.route('**/api/content-types', async (route) => {
+            if (route.request().method() !== 'POST') return route.fallback();
+            return route.fulfill({ json: { id: 'ct1', name: 'secret-doc' } });
+        });
 
         await page.goto('/schemas/new');
         await page.getByLabel('Display name').fill('Secret doc');

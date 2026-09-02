@@ -11,6 +11,7 @@ is one source of truth rather than three that drift.
 | Claude Code | `CLAUDE.md` (automatically), plus `.claude/settings.json` and `.claude/hooks/` |
 | Codex, Jules, Amp and others following the AGENTS.md convention | this file |
 | Cursor | `.cursorrules` |
+| A person looking for the coding standard by name | `CODING_STANDARDS.md`, which points here |
 
 ## The short version
 

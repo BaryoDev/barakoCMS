@@ -1,4 +1,5 @@
 using FastEndpoints;
+using barakoCMS.Models;
 
 namespace BarakoCMS.DeviceTrust.Features.ListDevices;
 
@@ -11,7 +12,7 @@ public sealed record DeviceDto(
     bool Current);
 
 /// <summary>GET /api/devices — the signed-in user's own devices, current one flagged.</summary>
-public sealed class Endpoint : EndpointWithoutRequest<List<DeviceDto>>
+public sealed class Endpoint : Endpoint<barakoCMS.Models.ListRequest, barakoCMS.Models.PaginatedResponse<DeviceDto>>
 {
     private readonly IDeviceTrustService _devices;
 
@@ -22,7 +23,7 @@ public sealed class Endpoint : EndpointWithoutRequest<List<DeviceDto>>
         Get("/api/devices"); // authenticated by default
     }
 
-    public override async Task HandleAsync(CancellationToken ct)
+    public override async Task HandleAsync(barakoCMS.Models.ListRequest req, CancellationToken ct)
     {
         Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId);
         var currentDeviceId = User.FindFirst(DeviceGate.DeviceClaim)?.Value;
@@ -32,6 +33,6 @@ public sealed class Endpoint : EndpointWithoutRequest<List<DeviceDto>>
             d.Id, d.Description, d.LastSeenIp, d.LastUsedAt, d.Status.ToString(),
             Current: !string.IsNullOrEmpty(currentDeviceId) && d.DeviceId == currentDeviceId)).ToList();
 
-        await Send.OkAsync(dto, ct);
+        await Send.OkAsync(dto.ToPagedResponse(req), ct);
     }
 }

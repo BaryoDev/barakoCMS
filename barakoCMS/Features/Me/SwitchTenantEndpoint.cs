@@ -10,13 +10,13 @@ using System.Security.Cryptography;
 
 namespace barakoCMS.Features.Me;
 
-public class SwitchTenantRequest
+internal class SwitchTenantRequest
 {
     /// <summary>The handle of the club to switch into.</summary>
     public string Club { get; set; } = string.Empty;
 }
 
-public class SwitchTenantResponse
+internal class SwitchTenantResponse
 {
     public string Token { get; set; } = string.Empty;
     public DateTime Expiry { get; set; }
@@ -30,7 +30,7 @@ public class SwitchTenantResponse
 /// ever mint a token for a club the caller is already entitled to) and bakes that club's roles into
 /// the new token. Device binding (the <c>did</c> claim) is carried over so device-trust still holds.
 /// </summary>
-public class SwitchTenantEndpoint : Endpoint<SwitchTenantRequest, SwitchTenantResponse>
+internal class SwitchTenantEndpoint : Endpoint<SwitchTenantRequest, SwitchTenantResponse>
 {
     private readonly IDocumentSession _session;
     private readonly IConfiguration _config;

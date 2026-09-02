@@ -6,7 +6,7 @@ using System.Security.Claims;
 
 namespace barakoCMS.Features.Content.Update;
 
-public class Endpoint : Endpoint<Request, Response>
+internal class Endpoint : Endpoint<Request, Response>
 {
     private readonly IDocumentSession _session;
     private readonly IContentWriter _contentWriter;
@@ -29,7 +29,20 @@ public class Endpoint : Endpoint<Request, Response>
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        var userId = Guid.Parse(User.FindFirst("UserId")!.Value);
+        // Configure() calls Claims("UserId"), so a request with no claim never reaches here, and the
+        // token issuer only ever writes a Guid. Parsing defensively anyway matches Create and turns
+        // a token this server did not mint into a 400 rather than an unhandled FormatException.
+        var userIdClaim = User.FindFirst("UserId");
+        if (userIdClaim == null)
+        {
+            ThrowError("User ID claim not found");
+        }
+
+        if (!Guid.TryParse(userIdClaim.Value, out var userId))
+        {
+            ThrowError("Invalid User ID format");
+        }
+
         var user = await _session.LoadAsync<User>(userId, ct);
 
         var existingContent = await _session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct);
@@ -54,8 +67,12 @@ public class Endpoint : Endpoint<Request, Response>
         var validationResult = await _validator.ValidateAsync(existingContent.ContentType, req.Data);
         if (!validationResult.IsValid)
         {
-            await Send.ResponseAsync(new Response { Message = "Validation Failed: " + string.Join(", ", validationResult.Errors) }, 400, ct);
-            return;
+            foreach (var error in validationResult.Errors)
+            {
+                AddError(error);
+            }
+
+            ThrowIfAnyErrors();
         }
 
         // DOMAIN RULES — must run on update too, or an invariant enforced at create (a balanced
@@ -64,8 +81,12 @@ public class Endpoint : Endpoint<Request, Response>
             .RunBeforeSaveAsync(existingContent.ContentType, req.Data, existingContent.Data, userId, ct);
         if (hookErrors.Count > 0)
         {
-            await Send.ResponseAsync(new Response { Message = "Validation Failed: " + string.Join(", ", hookErrors) }, 400, ct);
-            return;
+            foreach (var error in hookErrors)
+            {
+                AddError(error);
+            }
+
+            ThrowIfAnyErrors();
         }
         var definition = await _session.Query<ContentTypeDefinition>()
             .FirstOrDefaultAsync(d => d.Name == existingContent.ContentType, ct);
@@ -89,12 +110,14 @@ public class Endpoint : Endpoint<Request, Response>
         var updateEvent = new barakoCMS.Events.ContentUpdated(req.Id, req.Data, userId, searchText);
         events.Add(updateEvent);
 
-        bool statusChanged = existingContent.Status != req.Status;
+        // An omitted Status means "leave it alone". Comparing against a defaulted enum instead made
+        // a data-only edit look like a move to Draft and un-published the item.
+        bool statusChanged = req.Status.HasValue && existingContent.Status != req.Status.Value;
 
         // 2. Status Change Event (if changed)
         if (statusChanged)
         {
-            var statusEvent = new barakoCMS.Events.ContentStatusChanged(req.Id, req.Status, userId);
+            var statusEvent = new barakoCMS.Events.ContentStatusChanged(req.Id, req.Status!.Value, userId);
             events.Add(statusEvent);
         }
 
@@ -113,7 +136,13 @@ public class Endpoint : Endpoint<Request, Response>
             await _contentWriter.AppendOptimisticAsync(existingContent, events, ct);
             await _session.SaveChangesAsync(ct);
 
-            newVersion = (state?.Version ?? 0) + events.Count;
+            // Read the version back rather than deriving it from the state fetched above. That state
+            // was read before the append, and when req.Version is 0 the staleness check above is
+            // bypassed, so another writer could have advanced the stream in between. Deriving from
+            // the stale read then under-reported the version, and the client echoing it back got a
+            // spurious 412 on its next update.
+            var committed = await _session.Events.FetchStreamStateAsync(req.Id, ct);
+            newVersion = committed?.Version ?? (state?.Version ?? 0) + events.Count;
         }
         catch (Exception ex) when (ex is JasperFx.ConcurrencyException
             || ex.GetType().Name.Contains("Concurrency")
@@ -129,7 +158,6 @@ public class Endpoint : Endpoint<Request, Response>
         {
             Id = req.Id,
             Version = newVersion,
-            Message = "Content updated successfully"
         });
     }
 }

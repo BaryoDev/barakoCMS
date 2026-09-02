@@ -103,7 +103,7 @@ is documented as the direction of travel rather than presented as an inconsisten
 
 ## D4. The event stream is internal, and nothing may leak it through the API
 
-**Decided:** 22 Aug 2026. **Issue:** #229. **Status:** accepted, guard test not yet written.
+**Decided:** 22 Aug 2026. **Issue:** #229. **Status:** accepted, enforced by `EventSurfaceTests`.
 
 History is exposed only as a projected, versioned view. No API response carries an event type name
 or an event payload.
@@ -123,6 +123,18 @@ edit, someone adds `EventType`, and the cost is invisible for a year.
 
 So the decision is not "do not expose it". It is "do not expose it, and make that mechanical", via a
 test that fails when a response model references `barakoCMS.Events.*`.
+
+`EventSurfaceTests` is that test. It reads the response types off the endpoints themselves, by
+walking each endpoint's base chain to the `Endpoint<TRequest, TResponse>` it collapses to, so a
+response added next year is covered without anyone remembering to list it. From each response it
+follows property types, constructor parameters, public fields, array elements and generic arguments,
+because a `List<ContentCreated>` or a `Dictionary<string, ContentUpdated>` is the same leak one level
+down and a positional record carries its payload in a constructor parameter before it is ever a
+property.
+
+It carries its own controls: that the query found the real response surface rather than an empty set,
+and that the walk does report a leak when one is planted. A reflection guard with a typo finds
+nothing and passes, which is a failure this project has shipped before.
 
 ---
 
@@ -228,3 +240,124 @@ site quietly serves incomplete results.
 **The general rule:** a process that can partially complete must make partial completion visible.
 Otherwise a failed run and a successful one look identical afterwards, and nobody checks the one
 place they differ.
+
+---
+
+## D9. Erasure is a configured mode, and a mode that cannot deliver is refused at startup
+
+**Decided:** 30 Aug 2026. **Issue:** #301. **Status:** implemented for `Delete` and `None`.
+
+A deployment chooses how erasure works, through `Erasure:Mode`:
+
+- **`Delete`** (the default). `DELETE /api/contents/{id}/erase` removes the item's events, its
+  stream and its read-model document in one transaction, together with the audit entry recording
+  that it happened. The item's history goes with it, which is what erasure means.
+- **`CryptoShred`**. Content event payloads encrypted per subject; erasure destroys the key.
+  **Refused at startup in every deployment**, because it is not implemented and the subject question
+  below is open.
+- **`None`**. Pure append-only, with no erasure path, for a deployment that has decided its content
+  never holds personal data. Requires an explicit acknowledgement, not just leaving a setting unset.
+
+**A note on the name.** This mode was called `Compact` when the decision was written, because
+Marten's `CompactStreamAsync` looked like the supported mechanism. It is not, and a spike written
+before the implementation is what caught it: compaction requires a registered aggregation
+projection, which this project has none for `Content` since the read model is written by
+`IContentWriter` in the same transaction, and even with one it replaces the events with a snapshot of
+current state, which is precisely the data an erasure removes. `ArchiveStream` is softer still: it
+sets a flag and leaves every byte. So erasure is a delete below Marten's API, and the mode is named
+for what it does rather than for the API that turned out not to do it.
+
+**Rules out:** picking one mechanism for everyone, and letting an operator change mode freely.
+
+**Why a mode rather than a mechanism.** The three options in `EVENT-SOURCING-PER-CONTENT-TYPE.md`
+are not really alternatives, they are different prices for different guarantees, and which one a
+deployment needs depends on whether it holds personal data at all. A newsroom publishing articles
+and an agency holding client contact details want different answers, and neither should pay for the
+other's.
+
+**Why `Delete` is the default.** It is the only mode that works on data already written. Every
+existing deployment gains a real erasure path on upgrade with no migration and no key management,
+and it needs no answer to the subject-mapping question below.
+
+**Why the guard is the entire point.** Two failures share one shape, and both are a setting that
+reads as a policy while no policy is in force.
+
+`CryptoShred` is unimplemented, so accepting the setting would give an operator who has decided they
+need real erasure the belief without the property. It is therefore refused in every deployment, not
+only on one that already holds plaintext events, until the subject question is answered.
+
+And when it is implemented, the retroactivity guard still applies: crypto-shredding cannot be applied
+to an event already written in plaintext, so switching in year two protects nothing written in year
+one. Either way the answer is to fail at startup rather than let the belief form.
+
+The transitions are deliberately asymmetric. Starting on `CryptoShred` keeps every option, because
+shredded data can also be compacted. Starting on `Delete` forecloses shredding for everything
+written before the switch. Given the choice, this is the door that stays open.
+
+**What is still unanswered:** who the subject is. Crypto-shredding needs a key per something, and a
+CMS has no natural data subject, because a blog post that mentions a person is not owned by them.
+Two implementable variants, and `CryptoShred` cannot ship without choosing one:
+
+- a **per-tenant** key, which gives irrecoverable customer offboarding but is not Article 17 for an
+  individual;
+- a **per-subject** key, which needs a content type to declare which field identifies the subject,
+  making it a schema feature rather than a configuration value.
+
+**Also unresolved, and named here so it is not discovered later:** the audit trail is a second
+erasure surface. `AuditEvent` carries `ActorUsername` and metadata, and `AuditChain` hashes each
+entry over its predecessor, so deleting one breaks the tamper-evidence the chain exists to provide.
+Erasure and tamper-evidence are in direct conflict there too, and this decision does not settle it.
+
+**What would have to change for this to be wrong.** If content turns out to hold personal data in
+the ordinary case rather than the exceptional one, the default is backwards: `CryptoShred` should be
+the default and `Delete` the opt-out. The signal to watch is what customers actually model in their
+first content type.
+
+
+---
+
+## D10. An unverified self-registration is not an account, it is a pending row
+
+**Decided:** 1 Sep 2026. **Issue:** #268. **Status:** implemented.
+
+`POST /api/auth/register` writes a `PendingRegistration`, not a `User`. The user document is created
+by `POST /api/auth/register/verify`, when the address named at registration hands back the
+single-use token that was emailed to it. Until that happens there is no account and no username
+held. The pending row itself does carry the submitted address and username, which is the point: they
+are held there, out of the users table, until somebody proves the address or the row is cleaned up,
+so there is no user document for an external provider to match onto.
+
+**What this rules out.** The obvious alternative, and the one the issue suggested: keep creating the
+user and carry an `EmailVerified` flag, then refuse login (or issue a restricted session) until it
+is set. That was rejected.
+
+**Why.** The email address is a join key, not just a contact field. `SocialSignIn.IssueAsync` matches
+a provider's verified email to a local account by address alone, which is why the providers were
+hardened to require `email_verified` from Google and LinkedIn, to read only the verified primary from
+GitHub, and to refuse Facebook unless an operator opts in. That path never looks at a password, a
+status or a flag on the way in, so a flag on `User` would not have closed anything: register as
+somebody else's address, wait for them to sign in with Google, and the provider puts them into your
+account. Only the absence of the row closes it.
+
+Two smaller reasons point the same way. A flag needs a backfill, because Marten deserialises a field
+that is not in the stored JSON as its default, so every account that existed before the upgrade would
+read as unverified and be locked out by its own security fix. And a pending row that is not a user
+cannot hold a username, so an anonymous caller cannot squat names without ever owning a mailbox.
+
+**What it costs.** A username is not reserved between registering and confirming. Two people can hold
+pending registrations for the same name; the first to confirm gets it and the second is refused at
+verification with the same message every other rejection there uses. That is the right way round: the
+reservation is the thing an attacker would want for free.
+
+**Verification is required by default**, which is the one place in the codebase where a new setting
+does not preserve existing behaviour. What it would preserve is the defect. Turning it off with
+`Auth:RequireEmailVerification=false` is a legitimate choice for a deployment with no mail transport
+or a registration form nobody outside can reach, and it needs `Auth:AcknowledgeUnverifiedRegistration`
+to start, the same shape D9 uses for `Erasure:Mode=None` and for the same reason: arriving at it by
+leaving a key unset is not a decision.
+
+**What would have to change for this to be wrong.** If the address ever stops being the join key, if
+external sign-in matched on a provider subject id recorded at first link instead, then a flag on
+`User` would be enough and the pending row would be ceremony. That is a better design for the
+external providers anyway (an address can change hands), and if it is ever built, this decision is
+the one to revisit.

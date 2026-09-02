@@ -44,6 +44,25 @@ services:
       InitialAdmin__Username: ${ADMIN_USERNAME:-admin}
       InitialAdmin__Password: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}
       CORS__AllowedOrigins: ${ALLOWED_ORIGINS:-http://localhost:3000}
+      # Sample AttendanceRecord content type, records and email workflow. Off by default:
+      # that workflow is stored active and mails whatever address a record's Email field
+      # holds, which is not something a real instance should start with.
+      Seed__DemoContent: ${SEED_DEMO_CONTENT:-false}
+
+      # The public URL of this deployment. Every absolute link the API hands to something else (an
+      # RSS item, an OAuth redirect_uri) is built from this. Left unset those links have no origin,
+      # because the alternative is the caller's own Host header. See README, "Behind a domain".
+      App__BaseUrl: ${APP_BASE_URL:-}
+
+      # Which Host headers this API answers to. "*" accepts any, which is fine on localhost and is
+      # the reason App__BaseUrl has to be set once there is a real domain in front of it.
+      AllowedHosts: ${ALLOWED_HOSTS:-*}
+
+      # Behind a reverse proxy, name it here or every client shares one rate-limit bucket and the
+      # audit log records the proxy. Left unset the app ignores X-Forwarded-For, which is the safe
+      # default because the header is client-supplied. See README, "Behind a domain".
+      ForwardedHeaders__Enabled: ${FORWARDED_HEADERS_ENABLED:-false}
+      ForwardedHeaders__KnownNetworks__0: ${TRUSTED_PROXY_NETWORK:-}
 
       # ── Email (Resend module) — optional. Blank = built-in mock (logs instead of sending). ──
       Resend__ApiKey: ${RESEND_API_KEY:-}
@@ -82,5 +101,33 @@ services:
       # Where the browser reaches the API. Injected at container start — no rebuild to repoint it.
       NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:5005}
 
+  # Nightly backup, using the same hardened script the production stack runs.
+  #
+  # ../scripts is the repository's own, because this file is run from the quickstart folder of a
+  # checkout. Duplicating the script here would mean two copies of the logic that exists to stop a
+  # failed dump reporting success, and only one of them would get fixed next time.
+  db-backup:
+    image: postgres:16-alpine
+    container_name: barako-quickstart-backup
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - backups:/backups
+      - ../scripts:/scripts:ro
+    environment:
+      POSTGRES_HOST: postgres
+      # barakocms, not barako_cms: this stack's own default, matching the postgres service and the
+      # api's connection string above. A backup pointed at a database that does not exist fails
+      # every night, loudly, which is better than the alternative but still not a backup.
+      POSTGRES_DB: ${DB_NAME:-barakocms}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      BACKUP_CRON_SCHEDULE: "${BACKUP_CRON_SCHEDULE:-0 2 * * *}"
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-7}
+    entrypoint: ["/bin/sh", "/scripts/backup-cron.sh"]
+
 volumes:
   pgdata:
+  backups:

@@ -1,6 +1,6 @@
 namespace barakoCMS.Features.Monitoring.Meta;
 
-public class MetaResponse
+internal class MetaResponse
 {
     public string Version { get; set; } = "";
 

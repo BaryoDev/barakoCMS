@@ -145,52 +145,179 @@ public class ScheduledContentService : BackgroundService
         foreach (var slug in partitions.Distinct())
         {
             await using var session = slug is null ? _store.LightweightSession() : _store.LightweightSession(slug);
-            var changed = await SweepTenantAsync(session, nowUtc, ct);
+            var changed = await SweepTenantAsync(session, nowUtc, _logger, ct);
             if (changed > 0)
                 _logger.LogInformation("Scheduled sweep applied {Count} transition(s) for tenant {Tenant}",
                     changed, slug ?? "(default)");
         }
     }
 
+    /// <summary>How many due items one query loads, and one transaction commits.</summary>
+    public const int DefaultBatchSize = 200;
+
+    /// <summary>
+    /// How many batches one sweep will take before leaving the rest to the next tick, a minute later.
+    /// </summary>
+    public const int DefaultMaxBatchesPerSweep = 25;
+
     /// <summary>
     /// Applies all due transitions in one tenant session and saves. Returns the number of items flipped.
     /// Pure over the session so tests can drive it directly without the timer.
     /// </summary>
-    public static async Task<int> SweepTenantAsync(IDocumentSession session, DateTime nowUtc, CancellationToken ct)
+    /// <remarks>
+    /// The signature this shipped with, kept for callers compiled against it. Skipped items are
+    /// invisible through this overload; pass a logger to see them.
+    /// </remarks>
+    public static Task<int> SweepTenantAsync(IDocumentSession session, DateTime nowUtc, CancellationToken ct) =>
+        SweepTenantAsync(session, nowUtc, null, DefaultBatchSize, DefaultMaxBatchesPerSweep, ct);
+
+    public static Task<int> SweepTenantAsync(
+        IDocumentSession session, DateTime nowUtc, ILogger? logger, CancellationToken ct) =>
+        SweepTenantAsync(session, nowUtc, logger, DefaultBatchSize, DefaultMaxBatchesPerSweep, ct);
+
+    /// <summary>
+    /// Applies due transitions in batches, saving each item on its own, until nothing is due or
+    /// <paramref name="maxBatches"/> is reached. Returns the number flipped, which is not
+    /// necessarily the number that were due: an item another writer changed underneath the sweep is
+    /// left for the next tick.
+    /// </summary>
+    /// <remarks>
+    /// Two guards that arrived separately and both belong here.
+    ///
+    /// The query used to have no limit, so the sweep's memory was however much had accumulated:
+    /// normally nothing, but after downtime or a bulk import with schedules it is the whole backlog
+    /// in one list and one transaction. Batching makes the worst case a property of the code rather
+    /// than of how long the service was off (#127).
+    ///
+    /// The save used to be one commit for the whole batch with no version check, so the sweep loaded
+    /// a document, an editor committed against the same content, and storing the loaded copy
+    /// reverted the editor's data with no event recording it. The stream then disagreed with the
+    /// read model permanently. It is one save per item under an expected-version check now, and an
+    /// item that conflicts is skipped rather than retried, because its schedule is still armed and
+    /// the next tick a minute later picks it up against fresh state (#299).
+    ///
+    /// The cap is what guarantees the loop ends, and it matters more now than it did. A drained
+    /// sweep is still the normal outcome, but items that keep losing to a concurrent writer stay in
+    /// the predicate, so the same batch can come back. The cap bounds that, and a sweep holds the
+    /// cross-instance advisory lock and must not be able to hold it forever.
+    /// </remarks>
+    public static Task<int> SweepTenantAsync(
+        IDocumentSession session, DateTime nowUtc, ILogger? logger, int batchSize, int maxBatches,
+        CancellationToken ct) =>
+        SweepTenantAsync(session, nowUtc, logger, batchSize, maxBatches, beforeSave: null, ct);
+
+    /// <summary>
+    /// The implementation, with a hook that runs after an item is loaded and before its save.
+    /// </summary>
+    /// <remarks>
+    /// The hook exists for one test and has no production caller: every public overload passes null.
+    /// It fires between the append and the commit, because that is the window AppendOptimistic
+    /// guards. An edit that commits before the append is not a conflict at all: the writer rebuilds
+    /// the document from what is committed at that point, so the sweep simply picks up fresh state.
+    ///
+    /// It is here because the guard above cannot otherwise be proved. The test that covered it
+    /// started a sweep and an edit with Task.WhenAll and asserted the document agreed with the
+    /// stream, which holds trivially whenever the two do not actually overlap. Deleting the
+    /// expected-version append left that test green, which is the same as having no test. The sweep
+    /// constructs its own writer, so a decorator cannot reach in, and this is the smallest seam that
+    /// makes the collision certain rather than likely. See #393.
+    /// </remarks>
+    internal static async Task<int> SweepTenantAsync(
+        IDocumentSession session, DateTime nowUtc, ILogger? logger, int batchSize, int maxBatches,
+        Func<Content, CancellationToken, Task>? beforeSave, CancellationToken ct)
     {
-        var due = await session.Query<Content>()
-            .Where(c => (c.Status == ContentStatus.Draft
-                         && c.ScheduledPublishAt != null && c.ScheduledPublishAt <= nowUtc)
-                     || (c.Status == ContentStatus.Published
-                         && c.ScheduledUnpublishAt != null && c.ScheduledUnpublishAt <= nowUtc))
-            .ToListAsync(ct);
+        ArgumentOutOfRangeException.ThrowIfLessThan(batchSize, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxBatches, 1);
 
-        if (due.Count == 0) return 0;
+        var applied = 0;
 
-        // Constructed rather than injected: this sweep opens its own session per tenant, so there
-        // is no scoped writer to resolve.
-        var writer = new ContentWriter(session);
-
-        foreach (var content in due)
+        for (var batch = 0; batch < maxBatches; batch++)
         {
-            var newStatus = content.Status == ContentStatus.Draft
-                ? ContentStatus.Published
-                : ContentStatus.Archived;
+            var due = await session.Query<Content>()
+                .Where(c => (c.Status == ContentStatus.Draft
+                             && c.ScheduledPublishAt != null && c.ScheduledPublishAt <= nowUtc)
+                         || (c.Status == ContentStatus.Published
+                             && c.ScheduledUnpublishAt != null && c.ScheduledUnpublishAt <= nowUtc))
+                .OrderBy(c => c.Id)
+                .Take(batchSize)
+                .ToListAsync(ct);
 
-            writer.Append(content, new ContentStatusChanged(content.Id, newStatus, SystemActor));
+            if (due.Count == 0) break;
 
-            // Clear only the field just consumed; the opposite one stays armed, since a Published
-            // item can still carry a future unpublish time. Recorded as an event rather than
-            // written straight to the document: consuming a schedule is a state change, and one
-            // that happened without a user, so the trail is the only place it is visible.
-            writer.Append(
-                content,
-                newStatus == ContentStatus.Published
-                    ? new ContentScheduled(content.Id, null, content.ScheduledUnpublishAt, SystemActor)
-                    : new ContentScheduled(content.Id, content.ScheduledPublishAt, null, SystemActor));
+            // Constructed rather than injected: this sweep opens its own session per tenant, so there
+            // is no scoped writer to resolve.
+            var writer = new ContentWriter(session);
+            var appliedInBatch = 0;
+
+            foreach (var content in due)
+            {
+                var newStatus = content.Status == ContentStatus.Draft
+                    ? ContentStatus.Published
+                    : ContentStatus.Archived;
+
+                var events = new object[]
+                {
+                    new ContentStatusChanged(content.Id, newStatus, SystemActor),
+
+                    // Clear only the field just consumed; the opposite one stays armed, since a
+                    // Published item can still carry a future unpublish time. Recorded as an event
+                    // rather than written straight to the document: consuming a schedule is a state
+                    // change, and one that happened without a user, so the trail is the only place
+                    // it is visible.
+                    newStatus == ContentStatus.Published
+                        ? new ContentScheduled(content.Id, null, content.ScheduledUnpublishAt, SystemActor)
+                        : new ContentScheduled(content.Id, content.ScheduledPublishAt, null, SystemActor),
+                };
+
+                try
+                {
+                    if (await session.Events.FetchStreamStateAsync(content.Id, ct) is null)
+                    {
+                        // A document with no stream behind it: seeded demo rows, and anything written
+                        // before every write went through the writer. There is no version to check, so
+                        // there is nothing for an expected-version append to guard, and demanding one
+                        // would leave the item throwing on every tick forever.
+                        foreach (var @event in events)
+                        {
+                            writer.Append(content, @event);
+                        }
+                    }
+                    else
+                    {
+                        await writer.AppendOptimisticAsync(content, events, ct);
+                    }
+
+                    // Between the append and the commit, which is the window AppendOptimistic
+                    // guards and therefore the only interleaving that can make this save lose.
+                    if (beforeSave is not null)
+                    {
+                        await beforeSave(content, ct);
+                    }
+
+                    await session.SaveChangesAsync(ct);
+                    applied++;
+                    appliedInBatch++;
+                }
+                catch (Exception ex) when (ex is JasperFx.ConcurrencyException
+                    || ex.GetType().Name.Contains("Concurrency")
+                    || ex.GetType().Name.Contains("UnexpectedMaxEventId"))
+                {
+                    // Nothing of this item's is left staged, or the next item's save would carry it
+                    // and fail for the same reason.
+                    session.EjectAllPendingChanges();
+
+                    logger?.LogInformation(
+                        "Scheduled transition for {ContentId} was overtaken by another writer; leaving it for the next sweep",
+                        content.Id);
+                }
+            }
+
+            // A short batch means the backlog is drained. A full batch that applied nothing means
+            // every item in it lost its race, and re-querying would return the same ones, so stop
+            // rather than spend the remaining batches on them.
+            if (due.Count < batchSize || appliedInBatch == 0) break;
         }
 
-        await session.SaveChangesAsync(ct);
-        return due.Count;
+        return applied;
     }
 }

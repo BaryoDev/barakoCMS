@@ -8,13 +8,13 @@ using Marten;
 
 namespace barakoCMS.Features.Preview;
 
-public class CreatePreviewTokenRequest
+internal class CreatePreviewTokenRequest
 {
     public string Type { get; set; } = string.Empty;
     public string Slug { get; set; } = string.Empty;
 }
 
-public class CreatePreviewTokenResponse
+internal class CreatePreviewTokenResponse
 {
     public string Token { get; set; } = string.Empty;
     public DateTime ExpiresAt { get; set; }
@@ -28,7 +28,7 @@ public class CreatePreviewTokenResponse
 /// endpoint), so you can only mint a token for a draft you're allowed to see. The token is bound to the
 /// current tenant + this type + slug; the public delivery endpoint validates it before revealing a draft.
 /// </summary>
-public class CreatePreviewTokenEndpoint : Endpoint<CreatePreviewTokenRequest, CreatePreviewTokenResponse>
+internal class CreatePreviewTokenEndpoint : Endpoint<CreatePreviewTokenRequest, CreatePreviewTokenResponse>
 {
     private readonly IQuerySession _session;
     private readonly IConfiguration _config;

@@ -33,4 +33,14 @@ public class ImportReport
     public int ContentTypesCreated { get; set; }
     public int ContentTypesUpdated { get; set; }
     public int ContentsCreated { get; set; }
+
+    /// <summary>
+    /// Records whose content type is in neither the store nor this bundle. They are still created,
+    /// but with no schema behind them nothing is treated as a public field, so their search text is
+    /// empty and they never appear in public search.
+    /// </summary>
+    public int ContentsWithoutContentType { get; set; }
+
+    /// <summary>The distinct type names behind <see cref="ContentsWithoutContentType"/>.</summary>
+    public List<string> UnknownContentTypes { get; set; } = new();
 }

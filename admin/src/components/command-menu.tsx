@@ -2,9 +2,8 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { useTheme } from 'next-themes';
 import { NAV_GROUPS } from '@/lib/navigation';
-import { IconMoon, IconPlus, IconSearch, IconSun } from '@/components/icons';
+import { IconPlus, IconSearch } from '@/components/icons';
 import { Button } from '@/components/ui/button';
 import {
   CommandDialog,
@@ -19,7 +18,6 @@ import {
 export function CommandMenu() {
   const [open, setOpen] = useState(false);
   const router = useRouter();
-  const { resolvedTheme, setTheme } = useTheme();
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -76,13 +74,6 @@ export function CommandMenu() {
             <CommandItem onSelect={() => run(() => router.push('/workflows/new'))}>
               <IconPlus />
               New workflow
-            </CommandItem>
-          </CommandGroup>
-          <CommandSeparator />
-          <CommandGroup heading="Theme">
-            <CommandItem onSelect={() => run(() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark'))}>
-              {resolvedTheme === 'dark' ? <IconSun /> : <IconMoon />}
-              Switch to {resolvedTheme === 'dark' ? 'light' : 'dark'} theme
             </CommandItem>
           </CommandGroup>
         </CommandList>

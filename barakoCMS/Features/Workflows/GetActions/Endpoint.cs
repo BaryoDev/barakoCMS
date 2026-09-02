@@ -7,7 +7,7 @@ namespace barakoCMS.Features.Workflows.GetActions;
 /// <summary>
 /// Endpoint to list all available workflow action plugins with metadata.
 /// </summary>
-public class Endpoint : EndpointWithoutRequest
+internal class Endpoint : EndpointWithoutRequest
 {
     private readonly IWorkflowPluginRegistry _registry;
     private readonly ILogger<Endpoint> _logger;

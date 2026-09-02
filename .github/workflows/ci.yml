@@ -27,6 +27,37 @@ jobs:
       - name: Check module versions
         run: bash scripts/check-module-versions.sh
 
+      # Markdown and YAML are where a botched merge hides: nothing compiles them, so a CHANGELOG
+      # full of conflict markers passed every other gate and reached master.
+      - name: Check for conflict markers
+        run: bash scripts/check-conflict-markers.sh
+
+      # Fragments are validated where a mistake is cheap to fix. Assembly happens at release time.
+      - name: Check changelog fragments
+        run: bash scripts/changelog-assemble.sh --check
+
+      # A directory Dependabot does not watch produces no error and no pull request, which is why
+      # site/ drifted unwatched (#153). This fails the build instead of saying nothing.
+      - name: Check Dependabot covers every lockfile
+        run: bash scripts/check-dependabot-coverage.sh
+
+      # The check above is only worth its minute if it can fail. Hide the site entry in a copy of
+      # the config and confirm it does, the same shape as the secret-scan proof in the security job.
+      - name: Prove the Dependabot check can fail
+        run: |
+          set -euo pipefail
+          TMP=$(mktemp -d)
+          ruby -ryaml -e '
+            cfg = YAML.load_file(".github/dependabot.yml")
+            cfg["updates"] = cfg["updates"].reject { |u| u["directory"] == "/site" }
+            File.write(ARGV[0], YAML.dump(cfg))
+          ' "$TMP/dependabot.yml"
+          if bash scripts/check-dependabot-coverage.sh "$TMP/dependabot.yml"; then
+            echo "::error::The Dependabot coverage check passed a config with no /site entry. The gate is not working."
+            exit 1
+          fi
+          echo "Unwatched lockfile was caught. The check is live."
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
@@ -71,6 +102,129 @@ jobs:
         run: |
           echo "## Backend" >> $GITHUB_STEP_SUMMARY
           echo "✅ BarakoCMS.Tests completed" >> $GITHUB_STEP_SUMMARY
+
+  upgrade:
+    name: Upgrade from 3.x
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      # Nothing in the test suite covers this. IntegrationTestFixture forces Development, so the
+      # suite always runs CreateOrUpdate against a fresh database, while production runs CreateOnly
+      # against one that already has data. The upgrade lives entirely in that gap, which is how a
+      # Marten major bump shipped with nobody having run it (#277).
+      #
+      # The script stands up a real 3.21.0 database through the released image, asserts 4.0 refuses
+      # it, applies the reviewed migration, and then proves an event appends to a stream that
+      # already existed and the projection daemon resumed rather than restarting.
+      - name: Prove the 3.x database can be upgraded
+        run: bash scripts/upgrade-check.sh
+
+  restore:
+    name: Restore a backup
+    runs-on: ubuntu-latest
+    # This job runs a shell script out of the pull request's own branch, so it must not hold a token
+    # that can write anything. Read-only, and the checkout leaves no credential behind for that
+    # script to find.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      # The deliverable is not "a backup file appears", it is "we restored one and it came back".
+      # Until this job existed the only exercised backup path was the development compose stack and
+      # no restore had been run anywhere, which matters most immediately before an upgrade, because
+      # a failed upgrade's remedy is a restore (#282).
+      #
+      # The database is dropped rather than truncated between backup and restore: restoring over a
+      # schema that is still present can succeed because what the dump failed to carry is already
+      # there.
+      - name: Back up, destroy, restore, and serve
+        run: bash scripts/restore-check.sh
+
+  compose:
+    name: Compose files resolve
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # `docker compose config` is the only cheap thing that proves a compose file is more than
+      # plausible YAML: it parses it, resolves every variable and fails on the first one that has
+      # no value. A production compose file nobody has run is what #307 was about, so the one this
+      # repository ships gets checked on every change to it.
+      - name: The development and try-out files parse
+        run: |
+          set -euo pipefail
+          for f in docker-compose.yml docker-compose.hub.yml; do
+            docker compose -f "$f" config >/dev/null
+            echo "$f resolves"
+          done
+
+      # The quickstart has the same required-secret guards as production, so it gets the same
+      # treatment. Its README tells you to copy a .env.example that the quickstart folder does not
+      # contain, which is why the values are supplied here rather than from a file.
+      - name: The quickstart file parses
+        env:
+          DB_PASSWORD: ci-not-a-real-password
+          JWT_KEY: ci-not-a-real-key-at-least-32-characters
+          ADMIN_PASSWORD: ci-not-a-real-password
+        run: |
+          set -euo pipefail
+          docker compose -f quickstart/docker-compose.yml config >/dev/null
+          echo "quickstart/docker-compose.yml resolves"
+
+      # The production file deliberately has no defaults for the secrets, so it is checked twice:
+      # once with a filled env, and once without, where it has to fail rather than boot on a blank.
+      - name: The production file resolves with a filled env
+        run: |
+          set -euo pipefail
+          cp .env.prod.example /tmp/ci.env
+          cat >> /tmp/ci.env <<'ENV'
+          DB_PASSWORD=ci-not-a-real-password
+          JWT_KEY=ci-not-a-real-key-at-least-32-characters
+          ADMIN_PASSWORD=ci-not-a-real-password
+          ENV
+          docker compose --env-file /tmp/ci.env -f docker-compose.prod.yml config > /tmp/prod.resolved
+
+          # Nothing may build. The whole point of the file is that a host with only Docker can run it.
+          if grep -qE '^[[:space:]]+build:' /tmp/prod.resolved; then
+            echo "::error::docker-compose.prod.yml resolves to a build step; it must run published images"
+            exit 1
+          fi
+          grep -q 'ghcr.io/baryodev/barako-cms:' /tmp/prod.resolved
+          grep -q 'ghcr.io/baryodev/barako-admin:' /tmp/prod.resolved
+          # The admin's API URL is a runtime variable, not a build arg (#309).
+          grep -q 'NEXT_PUBLIC_API_URL: https://api.example.com' /tmp/prod.resolved
+
+      - name: The production file refuses to resolve without a JWT key
+        run: |
+          set -euo pipefail
+          cp .env.prod.example /tmp/ci-nojwt.env
+          cat >> /tmp/ci-nojwt.env <<'ENV'
+          DB_PASSWORD=ci-not-a-real-password
+          ADMIN_PASSWORD=ci-not-a-real-password
+          ENV
+          if docker compose --env-file /tmp/ci-nojwt.env -f docker-compose.prod.yml config >/dev/null 2>&1; then
+            echo "::error::docker-compose.prod.yml resolved with no JWT_KEY set"
+            exit 1
+          fi
+          echo "refused, as it should"
 
   admin:
     name: Admin UI (Next.js)
@@ -150,7 +304,7 @@ jobs:
         if: always()
         run: |
           echo "## Admin UI" >> $GITHUB_STEP_SUMMARY
-          echo "✅ lint, typecheck, vitest, production build, and the full E2E pack completed" >> $GITHUB_STEP_SUMMARY
+          echo "✅ lint (including jsx-a11y), typecheck, vitest, production build, and the full E2E pack (including the axe accessibility scan) completed" >> $GITHUB_STEP_SUMMARY
 
   site:
     name: Site (barakocms.baryo.dev)
@@ -370,3 +524,131 @@ jobs:
             echo "::error::$FOUND Critical or High severity vulnerable dependencies found — see the summary above."
             exit 1
           fi
+
+  # The SBOM is generated in the release workflow, which means it had never run: it was added after
+  # the last release, so the first time anything executed it would have been the 4.0 release itself.
+  # That is the shape this project keeps getting caught by, a gate that can only be tested by
+  # publishing, and the remedy is the same each time: run it where it is cheap to be wrong.
+  #
+  # This job proves the tooling still produces a bill of materials with contents. The release job
+  # remains the one that publishes it; nothing is uploaded here.
+  sbom:
+    name: SBOM generates
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: admin/package-lock.json
+
+      # Deliberately the same commands and the same tool versions as the release job. A smoke test
+      # that drifts from the thing it is smoke testing stops being evidence about it.
+      - name: Generate the SBOM
+        run: |
+          set -euo pipefail
+          dotnet tool install --global CycloneDX --version 5.4.0
+          export PATH="$PATH:$HOME/.dotnet/tools"
+          mkdir -p sbom
+          dotnet CycloneDX barakoCMS.sln --output sbom --filename barakoCMS.cdx.json --json
+
+          npm --prefix admin ci --ignore-scripts
+          npx --yes @cyclonedx/cyclonedx-npm --output-file sbom/barako-admin.cdx.json admin/package.json
+
+          # A tool that writes nothing still exits 0, so check the files rather than the command.
+          for f in sbom/barakoCMS.cdx.json sbom/barako-admin.cdx.json; do
+            [ -s "$f" ] || { echo "::error::$f is missing or empty."; exit 1; }
+            COMPONENTS=$(python3 -c "import json,sys; print(len(json.load(open('$f')).get('components', [])))")
+            [ "$COMPONENTS" -gt 0 ] || { echo "::error::$f lists no components, so it describes nothing."; exit 1; }
+            echo "$f: $COMPONENTS components" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+  # Nothing in CI ever read k8s/ (#383). That is how an unparseable memory quantity, 128Mw, sat in
+  # the repo through several releases: the manifests are only ever read by a human running kubectl.
+  #
+  # This job sends them to a real API server. The two cheaper options were both tried against the
+  # manifests as they stood before #280 was fixed, and both passed them:
+  #
+  #   kubectl apply --dry-run=client --validate=strict  ->  exit 0, "deployment.apps/barako-cms created (dry run)"
+  #   kubeconform -strict -summary                      ->  exit 0, "Valid: 1, Invalid: 0"
+  #
+  # A resource quantity is just a string in the OpenAPI schema, so schema validation has nothing to
+  # check it against. Only the API server runs the quantity parser, which is why this job pays for a
+  # cluster. kind boots in about half a minute and nothing is deployed into it.
+  k8s:
+    name: Kubernetes manifests apply
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Start a throwaway cluster
+        uses: helm/kind-action@v1.14.0
+        with:
+          cluster_name: barako-manifest-check
+
+      - name: The manifests apply
+        run: bash scripts/check-k8s-manifests.sh k8s
+
+      # The manifests are correct today, so a green run here proves nothing on its own: the same
+      # green is what a broken validator produces. scripts/testdata/k8s-known-bad/ holds the
+      # pre-#280 deployment verbatim, 128Mw and all, and this step fails the build if the API
+      # server accepts it.
+      - name: Prove the check can fail
+        run: |
+          set -euo pipefail
+          if bash scripts/check-k8s-manifests.sh scripts/testdata/k8s-known-bad; then
+            echo "::error::The API server accepted the pre-#280 manifests, which contain memory: \"128Mw\". This gate is not working."
+            exit 1
+          fi
+          echo "The known-bad manifests were rejected. The gate is live."
+
+  # The admin against the real API, with nothing mocked.
+  #
+  # Every other admin job mocks the API with page.route, so it proves the admin behaves correctly
+  # given fixtures the same person wrote, and cannot prove those fixtures match the server. That gap
+  # shipped a bug and kept it: the History panel read `versions` from a response that had returned
+  # `items` since the envelope change, rendered an empty list rather than failing, and every mocked
+  # spec stayed green because the mock returned `versions` too.
+  #
+  # Heavier than the other jobs because it stands up Postgres, the API and the admin. That cost is
+  # the point: it is the only job in which the two halves of this product meet.
+  smoke:
+    name: Admin against the real API
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: admin/package-lock.json
+
+      - name: Install admin dependencies
+        run: npm ci
+        working-directory: admin
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+        working-directory: admin
+
+      - name: Stand up the stack and run the unmocked pack
+        run: bash scripts/smoke-check.sh

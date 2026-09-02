@@ -5,7 +5,7 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.Roles.Delete;
 
-public class Endpoint : Endpoint<Request, Response>
+internal class Endpoint : Endpoint<Request, Response>
 {
     private readonly IDocumentSession _session;
     private readonly barakoCMS.Infrastructure.Services.IPermissionResolver _permissionResolver;
@@ -37,16 +37,9 @@ public class Endpoint : Endpoint<Request, Response>
             return;
         }
 
-        // Prevent deletion of system roles
-        var systemRoleIds = new[]
-        {
-            barakoCMS.Data.DataSeeder.SuperAdminRoleId,
-            barakoCMS.Data.DataSeeder.AdminRoleId,
-            barakoCMS.Data.DataSeeder.HRRoleId,
-            barakoCMS.Data.DataSeeder.UserRoleId
-        };
-
-        if (systemRoleIds.Contains(req.Id))
+        // The same list the API reports IsSystem from, so a client cannot disagree with the server
+        // about which roles are deletable.
+        if (barakoCMS.Models.SystemRoles.Contains(req.Id))
         {
             await Send.ResponseAsync(new Response
             {
@@ -64,6 +57,31 @@ public class Endpoint : Endpoint<Request, Response>
             await Send.ResponseAsync(new Response
             {
                 Message = "Cannot delete role: it is still assigned to users. Remove the role from all users first."
+            }, 409, ct);
+            return;
+        }
+
+        // A role is also held through a tenant membership, which is the list MembershipRoles
+        // .EffectiveRoleIdsAsync unions into the global one. Checking User.RoleIds alone let a role
+        // held by every member of a tenant be deleted, leaving each membership with a dangling id
+        // that PermissionResolver resolves to nothing and therefore denies.
+        var tenantsHoldingRole = (await _session.Query<Membership>()
+                .Where(m => m.RoleIds.Contains(req.Id))
+                .ToListAsync(ct))
+            .Select(m => m.TenantSlug)
+            .Where(slug => !string.IsNullOrWhiteSpace(slug))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(slug => slug, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (tenantsHoldingRole.Count > 0)
+        {
+            // Named rather than merely refused: "still assigned" with no location is a dead end for
+            // whoever has to go and unassign it.
+            await Send.ResponseAsync(new Response
+            {
+                Message = "Cannot delete role: it is still assigned through memberships in "
+                    + $"{string.Join(", ", tenantsHoldingRole)}. Remove the role from those members first."
             }, 409, ct);
             return;
         }

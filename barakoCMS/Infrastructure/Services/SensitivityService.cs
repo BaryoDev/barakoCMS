@@ -52,11 +52,12 @@ public class SensitivityService : ISensitivityService
         {
             foreach (var field in definition.Fields)
             {
-                if (field.Sensitivity == SensitivityLevel.Public || !data.ContainsKey(field.Name))
+                if (field.Sensitivity == SensitivityLevel.Public)
                     continue;
                 if (CallerMaySee(field, user))
                     continue;
-                ApplyMask(data, field);
+                foreach (var key in MatchingKeys(data, field.Name))
+                    ApplyMask(data, key, field);
             }
         }
 
@@ -85,10 +86,17 @@ public class SensitivityService : ISensitivityService
 
             // The caller cannot see this field, so they cannot set it. Revert to the stored value
             // on update, or drop it entirely on create.
-            if (existing != null && existing.TryGetValue(field.Name, out var current))
-                incoming[field.Name] = current;
-            else
-                incoming.Remove(field.Name);
+            // Drop every casing the caller sent, then put the stored value back under the casing it
+            // was stored as. Removing first matters: the caller may have sent "salary" where the
+            // store holds "Salary", and leaving theirs behind would keep their value in the document.
+            foreach (var key in MatchingKeys(incoming, field.Name))
+                incoming.Remove(key);
+
+            // Restore unconditionally, not only when the caller sent the field. Omitting a field they
+            // cannot see must not be a way to delete it.
+            var stored = existing is null ? [] : MatchingKeys(existing, field.Name);
+            if (stored.Count > 0)
+                incoming[stored[0]] = existing![stored[0]];
         }
     }
 
@@ -123,23 +131,41 @@ public class SensitivityService : ISensitivityService
         _ => Array.Empty<string>(),
     };
 
-    private static void ApplyMask(IDictionary<string, object> data, FieldDefinition field)
+    /// <summary>
+    /// Every stored key that matches <paramref name="name"/> ignoring case.
+    /// </summary>
+    /// <remarks>
+    /// Content data is a plain case-sensitive dictionary and nothing at the write boundary rejects a
+    /// key that only differs from a schema field by case, so "Salary" and "salary" can both be
+    /// stored. Masking one and leaving the other would hand the value to a caller who may not see the
+    /// field. <c>ToPublic</c> already treats the two as the same field (its allowlist is
+    /// OrdinalIgnoreCase); this is the same rule on the authenticated path.
+    /// Materialised, because callers mutate the dictionary while walking the result.
+    /// </remarks>
+    private static List<string> MatchingKeys(IEnumerable<KeyValuePair<string, object>> data, string name) =>
+        data.Where(kv => string.Equals(kv.Key, name, StringComparison.OrdinalIgnoreCase))
+            .Select(kv => kv.Key)
+            .ToList();
+
+    private static void ApplyMask(IDictionary<string, object> data, string key, FieldDefinition field)
     {
         var mask = field.Mask;
         if (mask == FieldMask.Default)
             mask = field.Sensitivity == SensitivityLevel.Hidden ? FieldMask.Remove : FieldMask.Redact;
 
+        // Keyed by the record's own spelling, passed in by the caller, or a Redact would add a
+        // second key beside the one holding the value and leave the original in place.
         switch (mask)
         {
             case FieldMask.Remove:
-                data.Remove(field.Name);
+                data.Remove(key);
                 break;
             case FieldMask.Last4:
-                var s = data[field.Name]?.ToString() ?? string.Empty;
-                data[field.Name] = s.Length <= 4 ? "****" : new string('*', s.Length - 4) + s[^4..];
+                var s = data[key]?.ToString() ?? string.Empty;
+                data[key] = s.Length <= 4 ? "****" : new string('*', s.Length - 4) + s[^4..];
                 break;
             default: // Redact
-                data[field.Name] = "***";
+                data[key] = "***";
                 break;
         }
     }

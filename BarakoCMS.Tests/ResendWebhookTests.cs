@@ -95,7 +95,7 @@ public class ResendWebhookTests
         var sig = Convert.ToBase64String(hmac.ComputeHash(Encoding.UTF8.GetBytes($"{id}.{ts}.{body}")));
 
         BarakoCMS.Email.Resend.ResendWebhookEndpoint
-            .VerifySvix(Secret, body, id, ts, "v1," + sig)
+            .VerifySvix(Secret, body, id, ts, "v1," + sig, At(ts))
             .Should().BeTrue("a correctly signed payload must verify, or the guard refuses everything");
     }
 
@@ -105,7 +105,7 @@ public class ResendWebhookTests
     public void A_bad_signature_does_not_verify(string sigHeader, string why)
     {
         BarakoCMS.Email.Resend.ResendWebhookEndpoint
-            .VerifySvix(Secret, Body(), "msg_1", "1700000000", sigHeader)
+            .VerifySvix(Secret, Body(), "msg_1", "1700000000", sigHeader, At("1700000000"))
             .Should().BeFalse(why + " must not verify");
     }
 
@@ -122,7 +122,67 @@ public class ResendWebhookTests
         var tampered = Body().Replace("victim@example.com", "someone-else@example.com");
 
         BarakoCMS.Email.Resend.ResendWebhookEndpoint
-            .VerifySvix(Secret, tampered, id, ts, "v1," + sig)
+            .VerifySvix(Secret, tampered, id, ts, "v1," + sig, At(ts))
             .Should().BeFalse("the signature covers the body, so swapping the recipient must invalidate it");
     }
+
+    /// <summary>
+    /// A correctly signed request goes stale.
+    /// </summary>
+    /// <remarks>
+    /// The timestamp was mixed into the signed string, so it could not be tampered with, and was
+    /// never compared against the clock. A captured <c>email.bounced</c> stayed replayable forever,
+    /// and each replay writes another suppression record for that recipient. If suppression ever
+    /// gates outbound mail, that is a targeted denial of delivery against a chosen address,
+    /// including password reset and OTP mail.
+    ///
+    /// The signature is genuine in every case below. Only the clock moves, which is what isolates
+    /// the freshness check from the signature check.
+    /// </remarks>
+    [Theory]
+    [InlineData(0, true, "the moment it was sent")]
+    [InlineData(4, true, "inside the tolerance")]
+    [InlineData(60, false, "an hour old")]
+    [InlineData(-60, false, "an hour in the future, which is a skewed or forged clock")]
+    public void A_signed_request_is_only_valid_inside_the_window(int minutesLate, bool expected, string why)
+    {
+        const string id = "msg_replay";
+        const string ts = "1700000000";
+        var body = Body();
+
+        var key = Convert.FromBase64String(Secret["whsec_".Length..]);
+        using var hmac = new HMACSHA256(key);
+        var sig = Convert.ToBase64String(hmac.ComputeHash(Encoding.UTF8.GetBytes($"{id}.{ts}.{body}")));
+
+        BarakoCMS.Email.Resend.ResendWebhookEndpoint
+            .VerifySvix(Secret, body, id, ts, "v1," + sig, At(ts).AddMinutes(minutesLate))
+            .Should().Be(expected, why);
+    }
+
+    /// <summary>
+    /// A timestamp that will not parse is refused rather than read as zero.
+    /// </summary>
+    /// <remarks>
+    /// Treating an unparseable value as zero would put it far outside the window in one direction,
+    /// which happens to be safe, and would be a coincidence rather than a decision.
+    /// </remarks>
+    [Theory]
+    [InlineData("not-a-number")]
+    [InlineData("1700000000.5")]
+    [InlineData(" ")]
+    public void An_unparseable_timestamp_does_not_verify(string ts)
+    {
+        var body = Body();
+        var key = Convert.FromBase64String(Secret["whsec_".Length..]);
+        using var hmac = new HMACSHA256(key);
+        var sig = Convert.ToBase64String(hmac.ComputeHash(Encoding.UTF8.GetBytes($"msg_1.{ts}.{body}")));
+
+        BarakoCMS.Email.Resend.ResendWebhookEndpoint
+            .VerifySvix(Secret, body, "msg_1", ts, "v1," + sig, DateTimeOffset.UtcNow)
+            .Should().BeFalse("a timestamp that cannot be read cannot be checked for freshness");
+    }
+
+    /// <summary>The instant a Svix timestamp refers to, so a test can place the clock relative to it.</summary>
+    private static DateTimeOffset At(string unixSeconds) =>
+        DateTimeOffset.FromUnixTimeSeconds(long.Parse(unixSeconds));
 }

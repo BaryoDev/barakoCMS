@@ -8,7 +8,7 @@ namespace barakoCMS.Features.Workflows.GetTemplateVariables;
 /// <summary>
 /// Request to get available template variables.
 /// </summary>
-public class Request
+internal class Request
 {
     public string? ContentType { get; set; }
 }
@@ -16,7 +16,7 @@ public class Request
 /// <summary>
 /// Endpoint to get available template variables for a content type.
 /// </summary>
-public class Endpoint : Endpoint<Request, TemplateVariableCollection>
+internal class Endpoint : Endpoint<Request, TemplateVariableCollection>
 {
     private readonly ITemplateVariableExtractor _extractor;
     private readonly ILogger<Endpoint> _logger;

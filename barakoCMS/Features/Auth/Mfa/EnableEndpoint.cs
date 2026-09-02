@@ -9,7 +9,7 @@ namespace barakoCMS.Features.Auth.Mfa;
 /// POST /api/auth/mfa/enable — confirm a pending enrollment with a code from the authenticator app.
 /// On success MFA becomes required at login and one-time recovery codes are returned once.
 /// </summary>
-public class EnableEndpoint : Endpoint<CodeRequest, EnableResponse>
+internal class EnableEndpoint : Endpoint<CodeRequest, EnableResponse>
 {
     private readonly IMfaService _mfa;
     private readonly IDocumentSession _session;
@@ -58,7 +58,7 @@ public class EnableEndpoint : Endpoint<CodeRequest, EnableResponse>
         // Sessions opened before MFA existed must not outlive it. Otherwise an attacker who hijacked a
         // session on an unprotected account can enrol their own authenticator and keep the account:
         // the enrolment is silent, and their existing session survives it.
-        await barakoCMS.Infrastructure.Auth.RevokeRefreshTokens.ForUserAsync(_session, userId, "mfa_enabled", ct);
+        await barakoCMS.Infrastructure.Auth.RevokeRefreshTokens.ForUserAsync(_session, userId, "mfa_enabled", ct, Resolve<barakoCMS.Infrastructure.Services.ISessionEpochService>());
 
         await AuditLog.RecordAsync(_session, _tenant.Slug, "auth.mfa.enabled", userId,
             User.FindFirst("Username")?.Value, ct: ct);

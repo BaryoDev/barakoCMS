@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { authed, stubShell } from './helpers';
+import { authed, stubShell, pageOf } from './helpers';
 
 /**
  * API keys admin page (Phase 2). Route-mocked, driving the real page: the list renders, creating a
@@ -23,7 +23,7 @@ test.describe('API keys', () => {
   test('lists keys and never shows a full secret', async ({ page }) => {
     await authed(page);
     await stubShell(page);
-    await page.route('**/api/api-keys**', (r) => r.fulfill({ json: [KEY] }));
+    await page.route('**/api/api-keys**', (r) => r.fulfill({ json: pageOf([KEY]) }));
 
     await page.goto('/api-keys');
     await expect(page.getByRole('heading', { name: 'API keys' })).toBeVisible({ timeout: 15000 });
@@ -42,7 +42,7 @@ test.describe('API keys', () => {
           json: { ...KEY, id: 'new', name: 'My key', key: 'bcms_THEFULLSECRETVALUE123456' },
         });
       }
-      return route.fulfill({ json: [] }); // start empty
+      return route.fulfill({ json: pageOf([]) }); // start empty
     });
 
     await page.goto('/api-keys');
@@ -66,7 +66,7 @@ test.describe('API keys', () => {
     let deleted = false;
     // Register the collection route first, then the specific /k1 route — Playwright checks the most
     // recently registered route first, so /k1 must come last to win for the DELETE.
-    await page.route('**/api/api-keys**', (r) => r.fulfill({ json: [KEY] }));
+    await page.route('**/api/api-keys**', (r) => r.fulfill({ json: pageOf([KEY]) }));
     await page.route('**/api/api-keys/k1', (route) => {
       if (route.request().method() === 'DELETE') {
         deleted = true;

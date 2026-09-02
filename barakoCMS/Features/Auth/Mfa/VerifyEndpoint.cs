@@ -14,7 +14,7 @@ namespace barakoCMS.Features.Auth.Mfa;
 /// refresh token password login issues. Wrong codes count toward the same lockout as password failures,
 /// so the 6-digit space can't be brute-forced.
 /// </summary>
-public class VerifyEndpoint : Endpoint<VerifyRequest, VerifyResponse>
+internal class VerifyEndpoint : Endpoint<VerifyRequest, VerifyResponse>
 {
     private readonly IMfaService _mfa;
     private readonly IDocumentSession _session;
@@ -131,6 +131,10 @@ public class VerifyEndpoint : Endpoint<VerifyRequest, VerifyResponse>
         await AuditLog.RecordAsync(_session, _tenant.Slug, "auth.mfa.succeeded", user.Id, user.Username,
             ipAddress: device.IpAddress, ct: ct);
         await _session.SaveChangesAsync(ct);
+
+        // Also in a cookie page script cannot read. The body still carries it for
+        // non-browser callers; see RefreshTokenCookie for why this is an addition.
+        barakoCMS.Infrastructure.Auth.RefreshTokenCookie.Set(HttpContext, refreshTokenString, refreshTokenExpiry);
 
         await Send.ResponseAsync(new VerifyResponse
         {

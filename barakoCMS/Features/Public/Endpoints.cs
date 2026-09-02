@@ -20,7 +20,7 @@ namespace barakoCMS.Features.Public;
  * be turned off). A public endpoint must be safe regardless of that setting.
  */
 
-public sealed record PublicContentResponse(
+internal sealed record PublicContentResponse(
     Guid Id,
     string ContentType,
     string? Slug,
@@ -40,6 +40,136 @@ internal static class PublicDelivery
         if (byType is not null) return byType.Name;
         return def.Fields.FirstOrDefault(f => string.Equals(f.Name, "slug", StringComparison.OrdinalIgnoreCase))?.Name;
     }
+
+
+    /// <summary>
+    /// Replaces reference ids with the referenced entries, for the fields a caller named in
+    /// <c>?include=</c>.
+    /// </summary>
+    /// <remarks>
+    /// One batched load for all of them, which is the entire point: without this every consumer
+    /// fetches each reference separately and a list of twenty entries is twenty-one requests.
+    ///
+    /// Every resolved entry goes through <see cref="ToPublic"/>, the same projection the list itself
+    /// uses. That is deliberate and it is what makes this safe: published state, document
+    /// sensitivity, type opt-in and the field allowlist are all enforced by that one function, so
+    /// resolving cannot become a second way into a Draft. Reimplementing those four checks here
+    /// would be the obvious way to get this wrong.
+    ///
+    /// A target that does not survive the projection has its field removed rather than left as an
+    /// id. Leaving the id would say "there is something here you may not see", and removing it
+    /// makes an unreadable target indistinguishable from no reference at all.
+    /// </remarks>
+    public static async Task<List<PublicContentResponse>> ResolveIncludesAsync(
+        IReadOnlyList<PublicContentResponse> items,
+        IReadOnlyList<string> includeFields,
+        ContentTypeDefinition def,
+        IQuerySession session,
+        CancellationToken ct)
+    {
+        if (includeFields.Count == 0 || items.Count == 0)
+            return items.ToList();
+
+        var ids = new HashSet<Guid>();
+        foreach (var item in items)
+        foreach (var field in includeFields)
+        {
+            if (item.Data.TryGetValue(field, out var raw)
+                && Guid.TryParse(raw?.ToString(), out var id))
+            {
+                ids.Add(id);
+            }
+        }
+
+        if (ids.Count == 0)
+            return items.ToList();
+
+        var idList = ids.ToArray();
+        var targets = await session.Query<ContentDoc>()
+            .Where(c => c.Id.In(idList))
+            .ToListAsync(ct);
+
+        // Each target's own type decides how it is projected, not the referring type's. A reference
+        // field names one target type, so this is usually one lookup, but resolving against the
+        // wrong schema would apply the wrong field allowlist and that is a leak rather than a bug.
+        var typeNames = targets.Select(t => t.ContentType).Distinct().ToList();
+        var defs = (await session.Query<ContentTypeDefinition>()
+                .Where(d => d.Name.In(typeNames.ToArray()))
+                .ToListAsync(ct))
+            .ToDictionary(d => d.Name, StringComparer.OrdinalIgnoreCase);
+
+        var resolved = new Dictionary<Guid, PublicContentResponse>();
+        foreach (var target in targets)
+        {
+            defs.TryGetValue(target.ContentType, out var targetDef);
+            var projected = ToPublic(target, targetDef, targetDef is null ? null : SlugField(targetDef));
+            if (projected is not null)
+                resolved[target.Id] = projected;
+        }
+
+        return items.Select(item =>
+        {
+            var data = new Dictionary<string, object>(item.Data);
+            foreach (var field in includeFields)
+            {
+                if (!data.TryGetValue(field, out var raw)) continue;
+                if (!Guid.TryParse(raw?.ToString(), out var id)) continue;
+
+                if (resolved.TryGetValue(id, out var target))
+                    data[field] = target;
+                else
+                    data.Remove(field);
+            }
+
+            return item with { Data = data };
+        }).ToList();
+    }
+
+    /// <summary>
+    /// The reference fields a caller asked to resolve, or the reason the request is refused.
+    /// </summary>
+    /// <remarks>
+    /// Refused rather than ignored, for the same reason an unknown filter is. A silently dropped
+    /// include returns ids where the caller expected objects, and nothing in the response says why.
+    ///
+    /// Naming a field that exists but is not a reference is also refused. It is a mistake either
+    /// way, and answering differently for "not a reference" and "does not exist" would say which
+    /// non-public fields a type has.
+    /// </remarks>
+    public static (List<string> Fields, string? Error) ParseIncludes(string? include, ContentTypeDefinition def)
+    {
+        if (string.IsNullOrWhiteSpace(include))
+            return ([], null);
+
+        var referenceFields = def.Fields
+            .Where(f => string.Equals(f.Type, "reference", StringComparison.OrdinalIgnoreCase)
+                        && f.Sensitivity == SensitivityLevel.Public)
+            .ToDictionary(f => f.Name, f => f.Name, StringComparer.OrdinalIgnoreCase);
+
+        var asked = include.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        if (asked.Length > MaxIncludes)
+            return ([], $"Too many includes. At most {MaxIncludes} are allowed per request.");
+
+        var fields = new List<string>();
+        foreach (var name in asked)
+        {
+            if (!referenceFields.TryGetValue(name, out var canonical))
+            {
+                var names = referenceFields.Count == 0
+                    ? "(none)"
+                    : string.Join(", ", referenceFields.Values.OrderBy(x => x, StringComparer.Ordinal));
+                return ([], $"Field '{name}' is not a resolvable reference. Resolvable fields: {names}.");
+            }
+
+            fields.Add(canonical);
+        }
+
+        return (fields, null);
+    }
+
+    /// <summary>One batched load per request regardless, but a cap keeps the response bounded.</summary>
+    public const int MaxIncludes = 5;
 
     public static string? SlugValue(ContentDoc c, string? slugField) =>
         slugField is not null && c.Data.TryGetValue(slugField, out var v) ? v?.ToString() : null;
@@ -112,10 +242,10 @@ internal static class PublicDelivery
         http.Response.Headers.CacheControl = "public, max-age=60";
 }
 
-public sealed class PublicListRequest : PaginatedRequest { }
+internal sealed class PublicListRequest : PaginatedRequest { }
 
 /// <summary>GET /api/public/{type} — paged Published entries of a content type, masked and cacheable.</summary>
-public class ListPublishedEndpoint : Endpoint<PublicListRequest, PaginatedResponse<PublicContentResponse>>
+internal class ListPublishedEndpoint : Endpoint<PublicListRequest, PaginatedResponse<PublicContentResponse>>
 {
     private readonly IQuerySession _session;
     public ListPublishedEndpoint(IQuerySession session) => _session = session;
@@ -153,16 +283,11 @@ public class ListPublishedEndpoint : Endpoint<PublicListRequest, PaginatedRespon
             return;
         }
 
-        /*
-         * Sorting by a field value is not implemented. Marten cannot translate a dictionary indexer
-         * with a runtime key into ORDER BY, so it needs a raw ordering fragment that this does not
-         * have yet. Refusing is deliberate: accepting the parameter and returning the default order
-         * would be a silent wrong answer, and a caller cannot tell "sorted" from "ignored" by
-         * looking at the response.
-         */
-        if (query.Sort is not null)
+        var (includes, includeError) = PublicDelivery.ParseIncludes(
+            HttpContext.Request.Query["include"].FirstOrDefault(), def);
+        if (includeError is not null)
         {
-            AddError("Sorting by a field value is not supported yet. Entries are returned newest first.");
+            AddError(includeError);
             await Send.ErrorsAsync(400, ct);
             return;
         }
@@ -186,8 +311,18 @@ public class ListPublishedEndpoint : Endpoint<PublicListRequest, PaginatedRespon
 
         var total = await baseQuery.CountAsync(ct);
 
-        var page = await baseQuery
-            .OrderByDescending(c => c.CreatedAt)
+        /*
+         * A requested sort replaces the default rather than adding to it. CreatedAt stays as the
+         * tiebreaker inside the fragment, so a page boundary cannot move between two entries that
+         * compare equal. Without that, paging a list sorted on a field with duplicates can show the
+         * same entry twice and skip another, which reads as data loss rather than as an ordering
+         * question.
+         */
+        var ordered = query.Sort is { } sort
+            ? baseQuery.OrderBySql(DeliveryQuery.ToOrderBySql(sort))
+            : baseQuery.OrderByDescending(c => c.CreatedAt);
+
+        var page = await ordered
             .Skip(req.Skip)
             .Take(req.Take)
             .ToListAsync(ct);
@@ -197,6 +332,11 @@ public class ListPublishedEndpoint : Endpoint<PublicListRequest, PaginatedRespon
             .Where(r => r is not null)
             .Select(r => r!)
             .ToList();
+
+        // Resolved after projection, never before. Projecting first means the reference id being
+        // resolved has already survived the field allowlist, so a Sensitive reference field is not
+        // resolvable by asking for it.
+        items = await PublicDelivery.ResolveIncludesAsync(items, includes, def, _session, ct);
 
         PublicDelivery.SetCache(HttpContext);
         await Send.ResponseAsync(new PaginatedResponse<PublicContentResponse>
@@ -209,7 +349,18 @@ public class ListPublishedEndpoint : Endpoint<PublicListRequest, PaginatedRespon
     }
 }
 
-public sealed record PublicSearchResponse(IReadOnlyList<PublicContentResponse> Results, int Count, string Query);
+/// <summary>
+/// Search results, deliberately not the paginated envelope every other collection uses.
+/// </summary>
+/// <remarks>
+/// Decision recorded for #291, which asks that the exceptions be chosen rather than left as an
+/// accident. This shape echoes the query back and reports how many of a bounded, ranked scan
+/// matched. It is not a page of a larger set: there is no stable ordering to page through, no total
+/// beyond the scan cap, and a caller asking for page 3 of a relevance ranking would get something
+/// that changes under it. When this endpoint moves to Postgres full-text search, with a real total
+/// and a stable order, it should take the envelope like everything else.
+/// </remarks>
+internal sealed record PublicSearchResponse(IReadOnlyList<PublicContentResponse> Results, int Count, string Query);
 
 /// <summary>
 /// GET /api/public/{type}/search?q=…&amp;limit=… — top public matches for a query. The literal "search"
@@ -218,7 +369,7 @@ public sealed record PublicSearchResponse(IReadOnlyList<PublicContentResponse> R
 /// can never surface a result. A title/name hit outranks a body hit. Scans a bounded, recent window;
 /// swap in Postgres full-text search for larger corpora.
 /// </summary>
-public class PublicSearchEndpoint : EndpointWithoutRequest<PublicSearchResponse>
+internal class PublicSearchEndpoint : EndpointWithoutRequest<PublicSearchResponse>
 {
     private readonly IQuerySession _session;
     public PublicSearchEndpoint(IQuerySession session) => _session = session;
@@ -295,7 +446,7 @@ public class PublicSearchEndpoint : EndpointWithoutRequest<PublicSearchResponse>
 /// an unpublished entry is returned too — the token authorizes only that one entry, and the response is
 /// still projected to Public fields and marked no-store. An invalid token falls back to published-only.
 /// </summary>
-public class GetBySlugEndpoint : EndpointWithoutRequest<PublicContentResponse>
+internal class GetBySlugEndpoint : EndpointWithoutRequest<PublicContentResponse>
 {
     private readonly IQuerySession _session;
     private readonly IConfiguration _config;
@@ -344,13 +495,16 @@ public class GetBySlugEndpoint : EndpointWithoutRequest<PublicContentResponse>
         }
         else
         {
-            var candidates = await _session.Query<ContentDoc>()
+            /* The slug match runs in Postgres. This used to pull every published entry of the type
+             * back and match in memory, so a blog with 20k posts deserialized 20k documents to
+             * answer one request, and a 404 probe cost exactly the same. */
+            var (sql, parameters) = DeliveryQuery.FieldEqualsIgnoreCaseSql(slugField, slug);
+            match = await _session.Query<ContentDoc>()
                 .Where(c => c.ContentType == type
                             && c.Status == ContentStatus.Published
-                            && c.Sensitivity == SensitivityLevel.Public)
-                .ToListAsync(ct);
-            match = candidates.FirstOrDefault(c =>
-                string.Equals(PublicDelivery.SlugValue(c, slugField), slug, StringComparison.OrdinalIgnoreCase));
+                            && c.Sensitivity == SensitivityLevel.Public
+                            && c.MatchesSql(sql, parameters))
+                .FirstOrDefaultAsync(ct);
         }
 
         var projected = match is null ? null : PublicDelivery.ToPublic(match, def, slugField, allowUnpublished: previewId is not null);

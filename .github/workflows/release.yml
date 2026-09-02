@@ -10,6 +10,18 @@ name: Release (master)
 #
 # The breakable dev-playground tier (deploy-dev-playground.yml) is where you
 # iterate; this is the deliberate, versioned promotion to production.
+#
+# The order runs from cheap and reversible to expensive and permanent:
+#
+#   gate -> test -> verify-packages -> build images
+#        -> deploy-playground (and prove it is running THIS commit)
+#        -> approval on the `nuget` environment
+#        -> publish-packages, publish-images
+#        -> tag v<version> and write the GitHub Release
+#
+# Publishing used to come before the deploy, which put the one step that cannot be
+# undone ahead of the one that finds the failures (#157). NuGet has no delete, only
+# unlist, and a version anyone has already resolved stays resolved.
 on:
   push:
     branches: ["master"]
@@ -58,6 +70,39 @@ jobs:
             echo "::notice::Releasing BarakoCMS $VERSION."
           fi
 
+      # The publish job names the `nuget` environment so a person has to approve the one step that
+      # cannot be undone (#203). An environment with no protection rules approves everything
+      # silently, and naming one that does not exist creates it that way, so the approval would be
+      # a line of YAML and nothing else. The `playground` environment on this same workflow has
+      # protection_rules: [] today, which is what that looks like from the outside: an environment
+      # in the job, no gate in the run.
+      #
+      # Checked here rather than in the publish job, because by then the packages are built and the
+      # playground is deployed, and the answer would arrive after the expensive part.
+      #
+      # Fails closed. If this step cannot read the environment it stops the release, which is the
+      # only safe direction for a check whose whole purpose is to confirm a gate exists.
+      - name: A human is required on the nuget environment
+        if: steps.check.outputs.should_release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if ! gh api "repos/${{ github.repository }}/environments/nuget" > /tmp/env.json 2>/tmp/env.err; then
+            echo "::error::Could not read the 'nuget' environment. Create it in Settings > Environments and add yourself as a required reviewer."
+            cat /tmp/env.err
+            exit 1
+          fi
+
+          REVIEWERS=$(jq '[.protection_rules[]? | select(.type == "required_reviewers")] | length' /tmp/env.json)
+          case "$REVIEWERS" in ''|*[!0-9]*) echo "::error::Could not read the environment's protection rules, so failing closed."; exit 1 ;; esac
+
+          if [ "$REVIEWERS" -eq 0 ]; then
+            echo "::error::The 'nuget' environment has no required reviewers, so the approval on publish-packages approves itself. Add a reviewer in Settings > Environments > nuget."
+            exit 1
+          fi
+          echo "::notice::The nuget environment has a required reviewer. Publishing will wait for approval."
+
   test:
     name: Build, test, pack
     needs: gate
@@ -77,6 +122,23 @@ jobs:
         run: |
           dotnet restore barakoCMS.sln
           dotnet build barakoCMS.sln --no-restore --configuration Release
+
+      # The step below names one project. That is fine while there is one, and it is a silent hole
+      # the moment somebody adds a second: a new suite would sit in the repo, never run, and the
+      # release would go out anyway. Discovering the projects here means the omission is a failed
+      # build rather than something nobody notices until the package it covered ships broken.
+      - name: Every test project is covered by the step below
+        run: |
+          set -euo pipefail
+          FOUND=$(find . -name '*.Tests.csproj' -not -path './**/bin/*' -not -path './**/obj/*' | sort)
+          EXPECTED="./BarakoCMS.Tests/BarakoCMS.Tests.csproj"
+          [ "$FOUND" = "$EXPECTED" ] || {
+            echo "::error::Test projects on disk do not match what this workflow runs."
+            echo "found:"; echo "$FOUND"
+            echo "run:";   echo "$EXPECTED"
+            echo "Add the new project to the Backend tests step, then update this list."
+            exit 1
+          }
 
       - name: Backend tests
         run: >
@@ -106,9 +168,9 @@ jobs:
           echo "ran $TOTAL, failed $FAILED"
 
           # A floor, not an exact count. An exact count becomes a chore on every PR and then gets
-          # deleted; a floor only moves when someone removes a lot of tests. 577 pass today.
-          [ "${TOTAL:-0}" -ge 500 ] || {
-            echo "::error::Only $TOTAL tests ran, expected at least 500. The suite did not run."
+          # deleted; a floor only moves when someone removes a lot of tests. 1057 pass today.
+          [ "${TOTAL:-0}" -ge 900 ] || {
+            echo "::error::Only $TOTAL tests ran, expected at least 900. The suite did not run."
             exit 1
           }
 
@@ -117,9 +179,11 @@ jobs:
           [ "${FAILED:-0}" -eq 0 ] || { echo "::error::$FAILED test(s) failed."; exit 1; }
 
       # --no-build throughout: these packages come out of the build the tests just ran against.
-      # Each module carries its own <Version> in its csproj (Accounting is 0.3.1 while the core
-      # is 3.20.x), so a nupkg filename is <id>.<that module's version>.nupkg, not the release
-      # version. Anything reading these filenames has to parse both halves.
+      #
+      # Every module still carries its own <Version> in its csproj; from 4.0.0 they are set to the
+      # same number as the core rather than each drifting on its own 0.x track. Nothing here reads
+      # the release version to build a filename, so a module that ever diverges again still packs
+      # correctly, and anything parsing these filenames must keep taking the version from the name.
       - name: Pack
         run: |
           set -euo pipefail
@@ -127,11 +191,53 @@ jobs:
             dotnet pack "$p/$p.csproj" --no-build --configuration Release -o out
           done
 
+      # A software bill of materials is a hard requirement under the EU Cyber Resilience Act and US
+      # federal procurement, and this release produced none for any of the fourteen packages or the
+      # image. CycloneDX because it is the common answer in .NET tooling; the format matters less
+      # than one existing, but being consistent about which one does matter.
+      #
+      # Generated from the solution rather than per project: one dependency graph covering
+      # everything shipped, which is what a reviewer wants, and it does not go stale project by
+      # project when a reference moves.
+      - name: Generate the SBOM
+        run: |
+          set -euo pipefail
+          dotnet tool install --global CycloneDX --version 5.4.0
+          export PATH="$PATH:$HOME/.dotnet/tools"
+          mkdir -p sbom
+          dotnet CycloneDX barakoCMS.sln --output sbom --filename barakoCMS.cdx.json --json
+
+          # npm ci here rather than reusing the admin job: that job runs in parallel on a different
+          # runner, so its node_modules do not exist on this one.
+          npm --prefix admin ci --ignore-scripts
+          npx --yes @cyclonedx/cyclonedx-npm --output-file sbom/barako-admin.cdx.json admin/package.json
+
+          # A tool that writes nothing still exits 0, so check the files rather than the command.
+          for f in sbom/barakoCMS.cdx.json sbom/barako-admin.cdx.json; do
+            [ -s "$f" ] || { echo "::error::$f is missing or empty."; exit 1; }
+            COMPONENTS=$(python3 -c "import json,sys; print(len(json.load(open('$f')).get('components', [])))")
+            [ "$COMPONENTS" -gt 0 ] || { echo "::error::$f lists no components, so it describes nothing."; exit 1; }
+            echo "$f: $COMPONENTS components"
+          done
+
+      - name: Upload the SBOM
+        uses: actions/upload-artifact@v7
+        with:
+          name: sbom
+          path: sbom/*.json
+          if-no-files-found: error
+          retention-days: 90
+
+      # `*.*nupkg`, not `*.nupkg`, so the symbol packages come along. Directory.Build.props has set
+      # IncludeSymbols and SymbolPackageFormat=snupkg since Source Link went in, and pack has been
+      # writing out/*.snupkg all along, but this pattern never matched them. The publish job pushes
+      # from this artifact and nothing else, so every Source Link build shipped no symbols at all
+      # and no step went red about it. The assertion in verify-packages keeps it that way.
       - name: Upload the packages
         uses: actions/upload-artifact@v7
         with:
           name: nupkg
-          path: out/*.nupkg
+          path: out/*.*nupkg
           if-no-files-found: error
           retention-days: 7
 
@@ -160,6 +266,44 @@ jobs:
         with:
           name: nupkg
           path: packages
+
+      # The release claims to produce an SBOM, so this job proves the file exists and describes
+      # something. The pattern is the same as the assembly assertion below: a step that produced no
+      # output still exits 0, and the release should not be able to say "SBOM" while shipping none.
+      - uses: actions/download-artifact@v8
+        with:
+          name: sbom
+          path: sbom
+
+      - name: Confirm the SBOM was produced
+        run: |
+          set -euo pipefail
+          for f in sbom/barakoCMS.cdx.json sbom/barako-admin.cdx.json; do
+            [ -s "$f" ] || { echo "::error::$f is missing or empty."; exit 1; }
+            COMPONENTS=$(python3 -c "import json; print(len(json.load(open('$f')).get('components', [])))")
+            [ "$COMPONENTS" -gt 0 ] || { echo "::error::$f lists no components."; exit 1; }
+            echo "$f: $COMPONENTS components"
+          done
+
+      # The release claims Source Link, and Source Link without a published .snupkg gives a consumer
+      # nothing to step into. The upload pattern silently dropped every symbol package for as long
+      # as it read `out/*.nupkg`, and no step noticed, so assert the pairing rather than trust the
+      # pattern.
+      #
+      # The loops below still read `*.nupkg` and still see exactly the fourteen packages: a glob
+      # ending in the literal `.nupkg` does not match a file ending in `.snupkg`. That is why the
+      # upload above needed `*.*nupkg` in the first place.
+      - name: Confirm a symbol package sits beside every package
+        run: |
+          set -euo pipefail
+          COUNT=0
+          for f in packages/*.nupkg; do
+            sym="${f%.nupkg}.snupkg"
+            [ -s "$sym" ] || { echo "::error::$(basename "$f") has no .snupkg beside it, so it ships no symbols."; exit 1; }
+            COUNT=$((COUNT + 1))
+          done
+          [ "$COUNT" -eq 14 ] || { echo "::error::Checked $COUNT packages for symbols, expected 14."; exit 1; }
+          echo "all $COUNT packages have a symbol package"
 
       - name: Restore, build and load every package from a scratch project
         run: |
@@ -208,14 +352,43 @@ jobs:
           done
           echo "all $COUNT packages installed, built and loaded"
 
+          # A library must not inject files into its consumer's project. The core is a
+          # Microsoft.NET.Sdk.Web project, where appsettings*.json are Content items and pack ships
+          # Content by default, so 3.21.0 shipped content/appsettings.json and
+          # contentFiles/any/net10.0/appsettings.json and dropped the host's own configuration into
+          # every consumer, to collide with theirs at build and publish.
+          #
+          # Checked on the .nupkg rather than on the restored project, because a content file that
+          # lands somewhere unexpected still ships.
+          cd ..
+          for f in "$FEED"/*.nupkg; do
+            entries=$(unzip -Z1 "$f" | grep -E '^(content|contentFiles)/' || true)
+            if [ -n "$entries" ]; then
+              echo "::error::$(basename "$f") ships content files into consumer projects:"
+              echo "$entries"
+              exit 1
+            fi
+          done
+          echo "no package injects content files"
+
   # Pushes the exact files that were tested and install-verified. Deliberately has no
   # actions/checkout: without the source this job *cannot* rebuild, even by accident. If you find
   # yourself adding a checkout here, what you actually want is a step in the test job.
   publish-packages:
-    name: Publish packages
-    needs: [gate, test, verify-packages]
+    # The version is in the job name because that is what the approval prompt shows. Approving
+    # "Publish packages" is a habit; approving "Publish packages 3.21.0 to NuGet" is a decision
+    # about a number (#203).
+    name: Publish packages ${{ needs.gate.outputs.version }} to NuGet
+    # Waits on the playground, which is the ordering change in #157: the irreversible step runs
+    # last. NuGet has no delete, only unlist, and anyone who already resolved a version keeps it.
+    needs: [gate, test, verify-packages, deploy-playground]
     if: needs.gate.outputs.should_release == 'true'
     runs-on: ubuntu-latest
+    # The approval (#203). The gate job has already checked this environment has a required
+    # reviewer, because an environment without one waves everything through in silence.
+    environment:
+      name: nuget
+      url: https://www.nuget.org/packages/BarakoCMS/${{ needs.gate.outputs.version }}
     permissions:
       contents: read
       packages: write
@@ -229,16 +402,114 @@ jobs:
           name: nupkg
           path: out
 
+      # The pattern stays `*.nupkg`. `dotnet nuget push` is symbol-aware: it pushes each .nupkg and
+      # then the .snupkg sitting next to it, which is why the artifact above has to carry both.
       - name: Publish to NuGet.org
         run: dotnet nuget push "out/*.nupkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
 
+      # --no-symbols here because GitHub Packages has no symbol server. nuget.org is where the
+      # .snupkg belongs, and it is pushed by the step above.
       - name: Publish to GitHub Packages
-        run: dotnet nuget push "out/*.nupkg" --api-key ${{ secrets.GITHUB_TOKEN }} --source https://nuget.pkg.github.com/BaryoDev/index.json --skip-duplicate
+        run: dotnet nuget push "out/*.nupkg" --api-key ${{ secrets.GITHUB_TOKEN }} --source https://nuget.pkg.github.com/BaryoDev/index.json --skip-duplicate --no-symbols
 
   # Keeps its checkout: a Docker build genuinely needs the source tree.
+  # Each architecture is built on a runner of that architecture and pushed by digest, then joined
+  # into one manifest list by publish-images below.
+  #
+  # Not `platforms: linux/amd64,linux/arm64` on one runner, which is the one-line version: that
+  # cross-builds the .NET suite under QEMU and is slow enough to be its own problem. The playground
+  # job already proves the native-arm-runner approach works here.
+  #
+  # push-by-digest means these pushes carry no tag. Nothing is publicly resolvable until the merge
+  # step below succeeds, so a half-finished matrix cannot leave :latest pointing at one architecture.
+  build-images:
+    name: Build ${{ matrix.image.name }} (${{ matrix.arch }})
+    needs: [gate, test, verify-packages]
+    if: needs.gate.outputs.should_release == 'true'
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    env:
+      VERSION: ${{ needs.gate.outputs.version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - name: barako-cms
+            file: Dockerfile.suite
+            context: .
+          - name: barako-cms-decaf
+            file: Dockerfile
+            context: .
+          - name: barako-admin
+            file: admin/Dockerfile
+            context: ./admin
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+            platform: linux/amd64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            platform: linux/arm64
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.image.context }}
+          file: ${{ matrix.image.file }}
+          platforms: ${{ matrix.platform }}
+          # Stamped from the release version rather than read from package.json, which has said
+          # 0.1.0 since the beginning. Harmless on the two API images, which ignore it.
+          #
+          # BARAKO_BUILD_SHA is what /health/build answers with. .git is in .dockerignore, so the
+          # commit cannot be read inside the build; it has to be handed in here.
+          build-args: |
+            BARAKO_VERSION=${{ env.VERSION }}
+            BARAKO_BUILD_SHA=${{ github.sha }}
+          labels: org.opencontainers.image.source=https://github.com/BaryoDev/barakoCMS
+          outputs: type=image,name=ghcr.io/baryodev/${{ matrix.image.name }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.image.name }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}-${{ matrix.arch }}
+
+      # An empty digest here would make the merge step below build a manifest out of nothing, so it
+      # fails now rather than producing an image that resolves to no architectures.
+      - name: Record the digest
+        run: |
+          set -euo pipefail
+          DIGEST="${{ steps.build.outputs.digest }}"
+          case "$DIGEST" in
+            sha256:*) ;;
+            *) echo "::error::build produced no usable digest, got '$DIGEST'"; exit 1 ;;
+          esac
+          mkdir -p /tmp/digests
+          echo "$DIGEST" > "/tmp/digests/${{ matrix.image.name }}.${{ matrix.arch }}"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: digest-${{ matrix.image.name }}-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # Joins the per-architecture digests into one manifest list per image and applies the public tags.
+  # Keeps the name publish-images because deploy-playground and notify-failure both depend on it.
   publish-images:
     name: Publish public images
-    needs: [gate, test, verify-packages]
+    # Also behind the playground now. An image tag is mutable, so this is not the irreversible step,
+    # but publishing :latest for a build nobody has run is still how a bad version reaches whoever
+    # pulls next.
+    needs: [gate, build-images, deploy-playground]
     if: needs.gate.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -247,7 +518,6 @@ jobs:
     env:
       VERSION: ${{ needs.gate.outputs.version }}
     steps:
-      - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
         with:
@@ -262,46 +532,55 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Build and push Barako (full suite → barako-cms)
-        uses: docker/build-push-action@v7
+      - uses: actions/download-artifact@v8
         with:
-          context: .
-          file: Dockerfile.suite
-          push: true
-          tags: |
-            ghcr.io/baryodev/barako-cms:latest
-            ghcr.io/baryodev/barako-cms:${{ env.VERSION }}
-          labels: org.opencontainers.image.source=https://github.com/BaryoDev/barakoCMS
+          pattern: digest-*
+          path: /tmp/digests
+          merge-multiple: true
 
-      - name: Build and push Decaf (core → barako-cms-decaf)
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: Dockerfile
-          push: true
-          tags: |
-            ghcr.io/baryodev/barako-cms-decaf:latest
-            ghcr.io/baryodev/barako-cms-decaf:${{ env.VERSION }}
-          labels: org.opencontainers.image.source=https://github.com/BaryoDev/barakoCMS
+      - name: Create the manifest lists
+        run: |
+          set -euo pipefail
+          V="${{ env.VERSION }}"
+          for img in barako-cms barako-cms-decaf barako-admin; do
+            REFS=""
+            for arch in amd64 arm64; do
+              F="/tmp/digests/$img.$arch"
+              [ -s "$F" ] || { echo "::error::no digest for $img/$arch, refusing to publish a single-architecture image"; exit 1; }
+              REFS="$REFS ghcr.io/baryodev/$img@$(cat "$F")"
+            done
+            docker buildx imagetools create \
+              --tag "ghcr.io/baryodev/$img:latest" \
+              --tag "ghcr.io/baryodev/$img:$V" \
+              $REFS
+          done
 
-      - name: Build and push Admin UI
-        uses: docker/build-push-action@v7
-        with:
-          context: ./admin
-          file: admin/Dockerfile
-          push: true
-          # Stamped from the release version rather than read from package.json, which has said
-          # 0.1.0 since the beginning. One source of truth, and nobody has to remember to bump it.
-          build-args: |
-            BARAKO_VERSION=${{ env.VERSION }}
-          tags: |
-            ghcr.io/baryodev/barako-admin:latest
-            ghcr.io/baryodev/barako-admin:${{ env.VERSION }}
-          labels: org.opencontainers.image.source=https://github.com/BaryoDev/barakoCMS
+      # The gate. Publishing a single-architecture image is invisible to everyone except whoever
+      # pulls it on the wrong hardware, and they find out with an exec format error rather than a
+      # message about architectures. It is checked on the pushed manifest rather than on the build
+      # config, because the config being right is not evidence that the push was.
+      - name: Every published image serves both architectures
+        run: |
+          set -euo pipefail
+          V="${{ env.VERSION }}"
+          for img in barako-cms barako-cms-decaf barako-admin; do
+            PLATFORMS=$(docker buildx imagetools inspect --raw "ghcr.io/baryodev/$img:$V" \
+              | jq -r '[.manifests[]? | select(.platform.os != "unknown") | "\(.platform.os)/\(.platform.architecture)"] | sort | join(",")')
+            case "$PLATFORMS" in
+              ''|*[!a-z0-9/,]*) echo "::error::could not read platforms for $img, got '$PLATFORMS'"; exit 1 ;;
+            esac
+            echo "$img: $PLATFORMS" >> "$GITHUB_STEP_SUMMARY"
+            [ "$PLATFORMS" = "linux/amd64,linux/arm64" ] || {
+              echo "::error::$img publishes '$PLATFORMS', expected linux/amd64,linux/arm64"; exit 1; }
+          done
 
+      # imagetools create on a manifest list copies the list, so the mirror is multi-architecture
+      # too. It would silently mirror one architecture if the source were single-architecture, which
+      # is the other reason the check above runs before this.
       - name: Mirror images to Docker Hub
         if: steps.dockerhub.outcome == 'success'
         run: |
+          set -euo pipefail
           V="${{ env.VERSION }}"
           for img in barako-cms barako-cms-decaf barako-admin; do
             docker buildx imagetools create \
@@ -338,6 +617,10 @@ jobs:
           file: Dockerfile.suite
           platforms: linux/arm64
           push: true
+          # The image the deploy check reads back from /health/build. Without this the playground
+          # reports "unknown" and the release stops, which is the correct direction to fail.
+          build-args: |
+            BARAKO_BUILD_SHA=${{ github.sha }}
           tags: |
             ghcr.io/baryodev/barako-cms:playground
             ghcr.io/baryodev/barako-cms:playground-${{ env.VERSION }}
@@ -363,9 +646,20 @@ jobs:
           cache-from: type=gha,scope=pg-admin
           cache-to: type=gha,mode=max,scope=pg-admin
 
+  # Runs before anything is published, which is the whole of #157. It used to need publish-packages
+  # and publish-images, so the order was: tests pass, fourteen packages become permanent, and only
+  # then does anything get deployed and looked at.
+  #
+  # A test host is not where this project's releases have broken. 3.14.0 crash-looped on any
+  # existing database because a new Marten index is a delta CreateOnly refuses, and CI was green on
+  # a fresh one. That class of failure needs a deployment to find, and a deployment is reversible in
+  # a way a NuGet version is not.
+  #
+  # It no longer needs the public images either: the playground runs the arm64 :playground tags from
+  # build-playground-images, not the multi-arch public ones.
   deploy-playground:
     name: Deploy to playground
-    needs: [gate, publish-packages, publish-images, build-playground-images]
+    needs: [gate, build-playground-images]
     if: needs.gate.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     environment:
@@ -410,6 +704,60 @@ jobs:
       - name: Smoke test (read-only)
         run: bash scripts/smoke-test.sh https://playground.baryo.dev/barakocms-api
 
+      # Everything above this line is satisfied by the build that was already running. A 401, a 200
+      # and a healthy database are what the previous release returns too, so a deploy that pulled
+      # nothing would pass all of them and the publish behind it would ship a build nothing had run.
+      #
+      # This compares the commit the deployed image was built from against the commit being
+      # released. Identity, not a version string: two builds of 3.20.2 are the same characters
+      # (#157).
+      - name: The playground is running this build
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: bash scripts/check-deployed-build.sh https://playground.baryo.dev/barakocms-api "$EXPECTED_SHA"
+
+  # Sixty-seven versions went to nuget.org and the newest git tag was v3.2.0, so the repository's
+  # front page advertised a release from many versions ago and `git log v3.21.0..master` did not
+  # resolve (#155). Nothing was broken; nothing said so either.
+  #
+  # After publishing, deliberately. A tag is a claim that this commit is that version, and until
+  # the packages are up it is not one. The changelog section is read first, so a missing release
+  # note fails before anything is tagged rather than producing an empty GitHub Release.
+  #
+  # Nothing here backfills the historical tags. Mapping sixty-odd versions to commits is a bigger
+  # job than it is worth, and tagging from here forward fixes both the front page and the diff.
+  tag-release:
+    name: Tag v${{ needs.gate.outputs.version }} and write the release
+    needs: [gate, publish-packages, publish-images]
+    if: needs.gate.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.gate.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Read the release notes out of the changelog
+        run: bash scripts/release-notes.sh "$VERSION" > /tmp/notes.md
+
+      # Re-runnable. A release that already exists is left alone rather than failing the job, so
+      # re-running a partially failed release run does not need someone to delete a tag first.
+      - name: Tag the release commit and publish the release
+        run: |
+          set -euo pipefail
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo "::notice::Release v$VERSION already exists; leaving it alone."
+            exit 0
+          fi
+
+          gh release create "v$VERSION" \
+            --target "${{ github.sha }}" \
+            --title "v$VERSION" \
+            --notes-file /tmp/notes.md
+          echo "::notice::Tagged v$VERSION and published the release."
+
   # Org discussions (best-effort). Discord is handled by announce-discord below, NOT here: passing the
   # multiline changelog through a job-output into a reusable-workflow input silently emptied it, so
   # every Discord post fell back to a generic line. No DISCORD_WEBHOOK is passed here on purpose.
@@ -421,7 +769,12 @@ jobs:
     with:
       package: "barakoCMS suite"
       version: ${{ needs.gate.outputs.version }}
-      install: "dotnet add package BarakoCMS.Accounting --version ${{ needs.gate.outputs.version }}"
+      # The core package, not a module. This line interpolates the gate's version, which is core's
+      # <Version>, so naming a module here only resolved if that module happened to share core's
+      # number. None ever did: the highest BarakoCMS.Accounting on nuget.org is 0.3.1 against a core
+      # at 3.21.0, so the announced command has never worked. Core is the one id that is guaranteed
+      # to exist at this version, because publish-packages just pushed it.
+      install: "dotnet add package BarakoCMS --version ${{ needs.gate.outputs.version }}"
     secrets:
       ANNOUNCE_TOKEN: ${{ secrets.ANNOUNCE_TOKEN }}
 
@@ -438,7 +791,7 @@ jobs:
 
   # A failed release (bad publish, deploy, or smoke) should ping. Best-effort; never fails the run.
   notify-failure:
-    needs: [gate, test, verify-packages, publish-packages, publish-images, build-playground-images, deploy-playground]
+    needs: [gate, test, verify-packages, publish-packages, publish-images, build-playground-images, deploy-playground, tag-release]
     if: failure()
     runs-on: ubuntu-latest
     steps:

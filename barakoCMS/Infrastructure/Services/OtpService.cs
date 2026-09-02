@@ -21,7 +21,7 @@ public class OtpService : IOtpService
         _logger = logger;
     }
 
-    public async Task SendCodeAsync(string email, barakoCMS.Infrastructure.DeviceContext device, CancellationToken ct)
+    public async Task<bool> SendCodeAsync(string email, barakoCMS.Infrastructure.DeviceContext device, CancellationToken ct)
     {
         email = (email ?? string.Empty).Trim().ToLowerInvariant();
 
@@ -38,7 +38,18 @@ public class OtpService : IOtpService
             CodeHash = BCrypt.Net.BCrypt.HashPassword(code),
             ExpiresAt = DateTime.UtcNow.AddMinutes(10),
         });
-        await _session.SaveChangesAsync(ct);
+        try
+        {
+            await _session.SaveChangesAsync(ct);
+        }
+        catch (JasperFx.ConcurrencyException)
+        {
+            // Invalidating the outstanding codes is an update of optimistic documents, so two
+            // concurrent requests for the same address race. Nothing was stored, so no code exists
+            // to send, and the caller has to hear that rather than be told to check an inbox.
+            _logger.LogWarning("Concurrent OTP request for the same address; no code was issued");
+            return false;
+        }
 
         var appName = _config["Branding:AppName"] ?? "BarakoCMS";
         var body =
@@ -51,11 +62,15 @@ public class OtpService : IOtpService
         try
         {
             await _email.SendEmailAsync(email, $"Your {appName} sign-in code", body, ct);
+            return true;
         }
         catch (Exception ex)
         {
-            // The code is stored; the caller still returns a neutral response so retrying can resend.
+            // The code is stored, so a retry can resend, but the caller has to know this attempt
+            // did not reach anybody. It used to be swallowed here and reported as success, which
+            // told the user to check an inbox nothing had been sent to.
             _logger.LogError(ex, "Failed to send OTP email");
+            return false;
         }
     }
 }

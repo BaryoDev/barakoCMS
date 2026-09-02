@@ -2,7 +2,7 @@ using FluentValidation;
 
 namespace barakoCMS.Features.Content.Create;
 
-public class Request
+internal class Request
 {
     public string ContentType { get; set; } = string.Empty;
     public Dictionary<string, object> Data { get; set; } = new();
@@ -15,21 +15,26 @@ public class Request
 /// Schema validation against ContentType is handled by the endpoint via IContentValidatorService,
 /// which uses a properly scoped IQuerySession.
 /// </summary>
-public class RequestValidator : FastEndpoints.Validator<Request>
+internal class RequestValidator : FastEndpoints.Validator<Request>
 {
     public RequestValidator()
     {
         RuleFor(x => x.ContentType).NotEmpty().WithMessage("ContentType is required");
         RuleFor(x => x.Data).NotEmpty().WithMessage("Data is required");
+
+        // A number outside the enum binds cleanly and stores content with an undefined status,
+        // which is then invisible to the scheduler, to status-filtered lists and to delivery, with
+        // no error anywhere. ChangeStatus has checked this since it was written; Create did not.
+        RuleFor(x => x.Status).IsInEnum().WithMessage("Status is not a valid value");
+        RuleFor(x => x.Sensitivity).IsInEnum().WithMessage("Sensitivity is not a valid value");
     }
 }
 
-public class Response
+internal class Response
 {
     public Guid Id { get; set; }
     /// <summary>
     /// Initial event-stream version (1). Echo it back in an update's Version field for concurrency checks.
     /// </summary>
     public long Version { get; set; }
-    public string Message { get; set; } = string.Empty;
 }

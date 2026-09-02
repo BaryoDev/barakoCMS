@@ -5,7 +5,7 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.Users.AssignRole;
 
-public class Endpoint : Endpoint<Request, Response>
+internal class Endpoint : Endpoint<Request, Response>
 {
     private readonly IDocumentSession _session;
     private readonly barakoCMS.Infrastructure.Services.IPermissionResolver _permissionResolver;
@@ -29,18 +29,23 @@ public class Endpoint : Endpoint<Request, Response>
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        // Load or create user (for testing, we'll create if not exists)
+        // Both ids are checked before anything is written. This used to fabricate a User on a miss
+        // (a synthesized user_{guid}@example.com with no password hash) and answer "Role assigned
+        // successfully", so a mistyped id left a ghost identity holding the role while the real
+        // account still lacked it. The role id was never checked at all, so a mistyped role also
+        // reported success and granted nothing.
         var user = await _session.LoadAsync<User>(req.UserId, ct);
         if (user == null)
         {
-            user = new User
-            {
-                Id = req.UserId,
-                RoleIds = new(),
-                Username = $"user_{req.UserId:N}",
-                Email = $"user_{req.UserId:N}@example.com",
-                CreatedAt = DateTime.UtcNow
-            };
+            await Send.NotFoundAsync(ct);
+            return;
+        }
+
+        var role = await _session.LoadAsync<Role>(req.RoleId, ct);
+        if (role == null)
+        {
+            await Send.NotFoundAsync(ct);
+            return;
         }
 
         if (!user.RoleIds.Contains(req.RoleId))
@@ -60,13 +65,13 @@ public class Endpoint : Endpoint<Request, Response>
     }
 }
 
-public class Request
+internal class Request
 {
     public Guid UserId { get; set; }
     public Guid RoleId { get; set; }
 }
 
-public class Response
+internal class Response
 {
     public string Message { get; set; } = string.Empty;
 }

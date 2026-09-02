@@ -6,7 +6,7 @@ using System.IdentityModel.Tokens.Jwt;
 
 namespace barakoCMS.Features.Auth.Logout;
 
-public class Endpoint : EndpointWithoutRequest<Response>
+internal class Endpoint : EndpointWithoutRequest<Response>
 {
     private readonly ITokenRevocationService _revocationService;
     private readonly ILogger<Endpoint> _logger;
@@ -67,6 +67,10 @@ public class Endpoint : EndpointWithoutRequest<Response>
         await _documentSession.SaveChangesAsync(ct);
 
         _logger.LogInformation("User logged out: UserId={UserId}", userId);
+
+        // Signing out clears the cookie too, or the browser keeps presenting a refresh token the
+        // server has already revoked and the next refresh is a 401 nobody can explain.
+        barakoCMS.Infrastructure.Auth.RefreshTokenCookie.Clear(HttpContext);
 
         await Send.ResponseAsync(new Response
         {

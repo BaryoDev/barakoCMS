@@ -42,10 +42,10 @@ export const metadata: Metadata = {
     template: '%s · BarakoCMS',
   },
   description:
-    'An open-source .NET 8 base for any project: content, users, roles, per-field permissions, workflow, audit history and multi-tenancy, with optional modules for everything else. Bring your own frontend.',
+    'An open-source .NET 10 base for any project: content, users, roles, per-field permissions, workflow, audit history and multi-tenancy, with optional modules for everything else. Bring your own frontend.',
   openGraph: {
     title: 'BarakoCMS',
-    description: 'An open-source .NET 8 base for any project. Bring your own frontend.',
+    description: 'An open-source .NET 10 base for any project. Bring your own frontend.',
     url: SITE,
     siteName: 'BarakoCMS',
     type: 'website',

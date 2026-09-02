@@ -4,7 +4,7 @@
 
 <h1 align="center">BarakoCMS</h1>
 
-<p align="center"><strong>A headless CMS suite for .NET 8: an event-sourced engine, opt-in modules, an admin UI, and a PWA kit.</strong></p>
+<p align="center"><strong>A headless CMS suite for .NET 10: an event-sourced engine, opt-in modules, an admin UI, and a PWA kit.</strong></p>
 
 <p align="center">
   <a href="https://www.nuget.org/packages/BarakoCMS"><img src="https://img.shields.io/nuget/v/BarakoCMS.svg" alt="NuGet" /></a>
@@ -35,10 +35,15 @@ it runs. That is the part deliberately not for sale.
 repository included rather than sold separately. The [contributor terms](CLA.md) bound the licence
 grant to OSI-approved licences, so this cannot be closed later even if someone wanted to.
 
-**Not an enterprise vendor.** There is no SLA, no support contract, no compliance pack for
-procurement, no continuity guarantee. If your evaluation involves legal and a security questionnaire,
-that is a real gap and you should weigh it. What you get instead is the whole system, the reasoning
-behind it in [DECISIONS.md](DECISIONS.md), and the ability to fix anything yourself.
+**Not an enterprise vendor.** No SLA, no support contract, no SOC 2, no ISO 27001, no third-party
+penetration test, no continuity guarantee. If your evaluation involves legal and a security
+questionnaire, that is a real gap and you should weigh it.
+
+What there is: [docs/compliance-posture.md](docs/compliance-posture.md) states what exists, what
+does not, and which questions self-hosting moves to you rather than to us, which is most of them.
+[SECURITY.md](SECURITY.md) carries the support and end-of-life policy. Beyond that you get the whole
+system, the reasoning behind it in [DECISIONS.md](DECISIONS.md), and the ability to fix anything
+yourself.
 
 **Versioning.** Semantic within a major. Public members are not removed or resignatured inside a
 major version; the old form is kept and marked obsolete with a removal version at least one major
@@ -373,6 +378,12 @@ content modeling, extending BarakoCMS, and deployment.
 
 Full docs at **<https://baryo.dev/docs>**: getting started, guides, module references, API
 reference, and architecture. Changelog: [CHANGELOG.md](CHANGELOG.md).
+
+In this repo: [the public delivery API](docs/delivery-api.md) (pagination, the `filter[field][op]`
+syntax, sorting, resolving references), [upgrading to 4.0](docs/upgrading-to-4.0.md),
+[event-sourced content types](docs/event-sourced-content-types.md),
+[backup and restore](docs/backup-and-restore.md), and
+[compliance posture](docs/compliance-posture.md).
 
 How this project is built and shipped: [AI Development Lifecycle](AI_DEVELOPMENT_LIFECYCLE.md),
 the breakable-staging discipline, version-gated releases, and how tests gate every promotion.

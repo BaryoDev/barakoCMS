@@ -6,7 +6,6 @@ import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { useRoles, useDeleteRole } from '@/hooks/use-rbac';
 import { apiErrorMessage } from '@/lib/api';
-import { SYSTEM_ROLE_NAMES } from '@/types/rbac';
 import { PageHeader } from '@/components/patterns/page-header';
 import { EmptyState } from '@/components/patterns/empty-state';
 import { ErrorState } from '@/components/patterns/error-state';
@@ -70,7 +69,7 @@ export default function RolesPage() {
               </TableHeader>
               <TableBody>
                 {roles.items.map((role) => {
-                  const isSystem = SYSTEM_ROLE_NAMES.includes(role.name);
+                  const isSystem = role.isSystem === true;
                   return (
                     <TableRow
                       key={role.id}

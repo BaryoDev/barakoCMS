@@ -35,17 +35,52 @@ public class PackagingTests
         return data;
     }
 
+
+    /// <summary>
+    /// Whether any directory from <paramref name="start"/> up to but excluding <paramref name="root"/>
+    /// holds its own <c>.git</c>, which makes it a separate checkout.
+    /// </summary>
+    private static bool HasOwnGitEntryBelow(string root, string start)
+    {
+        var rootFull = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar);
+        var dir = new DirectoryInfo(Path.GetFullPath(start));
+
+        while (dir is not null
+            && dir.FullName.TrimEnd(Path.DirectorySeparatorChar) != rootFull)
+        {
+            var git = Path.Combine(dir.FullName, ".git");
+            if (File.Exists(git) || Directory.Exists(git)) return true;
+            dir = dir.Parent;
+        }
+
+        return false;
+    }
+
     private static List<(string Path, XDocument Doc)> Packable()
     {
         var found = new List<(string, XDocument)>();
-        foreach (var proj in Directory.EnumerateFiles(RepoRoot(), "*.csproj", SearchOption.AllDirectories))
+        var root = RepoRoot();
+        foreach (var proj in Directory.EnumerateFiles(root, "*.csproj", SearchOption.AllDirectories))
         {
             if (proj.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")) continue;
+
+            // Nested working copies are not this checkout.
+            //
+            // Detected by looking for a .git entry between the project and the root, rather than by
+            // matching path text. A git worktree writes .git as a FILE in its own root, not a
+            // directory, and it can live anywhere, so a check for a ".claude" or ".git" path
+            // segment misses a worktree created as ./wt or ../elsewhere-inside-the-repo. Anything
+            // with its own .git below the root is a separate checkout by definition.
+            if (HasOwnGitEntryBelow(root, Path.GetDirectoryName(proj)!)) continue;
             var doc = XDocument.Load(proj);
             var packable = doc.Descendants("IsPackable").FirstOrDefault()?.Value;
             if (string.Equals(packable, "true", StringComparison.OrdinalIgnoreCase))
                 found.Add((proj, doc));
         }
+        // A scan that finds nothing would make every assertion over this list hold vacuously, which
+        // is exactly what an over-broad exclusion produces and is invisible in a green run.
+        found.Should().NotBeEmpty("the repository has packable projects, so finding none means the "
+                                + "scan excluded them rather than that they are absent");
         return found;
     }
 

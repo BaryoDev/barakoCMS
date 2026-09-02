@@ -328,4 +328,120 @@ public class SensitivityIntegrationTests
         Data(root).GetProperty("BirthDay").GetString().Should().Contain("2001-02-03", "HR may write the Sensitive BirthDay");
         Data(root).TryGetProperty("SSN", out _).Should().BeFalse("HR still cannot write the Hidden SSN");
     }
+
+    /*
+     * Content data is a plain case-sensitive dictionary and nothing at the write boundary rejects a
+     * key that differs from a schema field only by case: ContentDataValidator walks the schema's
+     * fields, not the data's keys, so an extra "ssn" alongside "SSN" is stored as-is.
+     *
+     * ToPublic already treats the two as one field (its allowlist is OrdinalIgnoreCase, and its
+     * comment says why). These three cover the same rule on the authenticated path.
+     */
+
+    private async Task<Guid> SeedRecordWithLowercaseAlias(string contentType)
+    {
+        var id = Guid.NewGuid();
+        using var scope = _factory.Services.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
+        using var session = store.LightweightSession();
+        session.Store(new Content
+        {
+            Id = id,
+            ContentType = contentType,
+            Sensitivity = SensitivityLevel.Public,
+            Data = new Dictionary<string, object>
+            {
+                { "Name", "Juan Dela Cruz" },
+                { "SSN", "123-45-6789" },
+                { "ssn", "123-45-6789" }, // same field, other casing
+            },
+            CreatedAt = DateTime.UtcNow,
+        });
+        await session.SaveChangesAsync();
+        return id;
+    }
+
+    [Fact]
+    public async Task A_differently_cased_key_is_masked_like_the_field_it_names()
+    {
+        var ct = await SeedSchema();
+        var viewer = await SetupReader($"Viewer_{Guid.NewGuid():N}", ct);
+        var id = await SeedRecordWithLowercaseAlias(ct);
+
+        var (status, root) = await Get(viewer, id);
+        status.Should().Be(HttpStatusCode.OK);
+
+        // The control: masking is engaged at all for this reader.
+        Data(root).TryGetProperty("SSN", out _).Should().BeFalse("SSN is Hidden, so the schema-cased key is removed");
+        Data(root).TryGetProperty("ssn", out _).Should().BeFalse(
+            "\"ssn\" names the same Hidden field, so masking the schema casing alone would hand the value over");
+    }
+
+    [Fact]
+    public async Task A_differently_cased_key_cannot_smuggle_a_value_past_the_write_guard()
+    {
+        var ct = await SeedSchema();
+        var viewer = await SetupWriter($"Viewer_{Guid.NewGuid():N}", ct);
+        var admin = await SetupWriter("SuperAdmin", ct);
+
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", admin);
+        var create = await _client.PostAsJsonAsync("/api/contents", new barakoCMS.Features.Content.Create.Request
+        {
+            ContentType = ct,
+            Data = new Dictionary<string, object> { { "Name", "Original" }, { "SSN", "123-45-6789" } },
+        });
+        create.StatusCode.Should().Be(HttpStatusCode.OK);
+        var id = JsonDocument.Parse(await create.Content.ReadAsStringAsync()).RootElement.GetProperty("id").GetGuid();
+
+        // The writer cannot set "SSN" (PlainUser_cannot_overwrite_hidden_field_on_update covers that),
+        // so they try the same field under a casing the guard was not comparing against.
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", viewer);
+        var upd = await _client.PutAsJsonAsync($"/api/contents/{id}", new barakoCMS.Features.Content.Update.Request
+        {
+            Id = id,
+            Status = ContentStatus.Draft,
+            Version = 0,
+            Data = new Dictionary<string, object> { { "Name", "Changed" }, { "ssn", "999-99-9999" } },
+        });
+        upd.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var (_, root) = await Get(admin, id);
+        var data = Data(root);
+        foreach (var key in new[] { "SSN", "ssn" })
+            if (data.TryGetProperty(key, out var v))
+                v.GetString().Should().NotBe("999-99-9999", $"a writer who cannot see the field must not set it as \"{key}\"");
+        data.GetProperty("Name").GetString().Should().Be("Changed", "and the fields they may write still update");
+    }
+
+    [Fact]
+    public async Task Omitting_a_field_the_writer_cannot_see_does_not_delete_it()
+    {
+        var ct = await SeedSchema();
+        var viewer = await SetupWriter($"Viewer_{Guid.NewGuid():N}", ct);
+        var admin = await SetupWriter("SuperAdmin", ct);
+
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", admin);
+        var create = await _client.PostAsJsonAsync("/api/contents", new barakoCMS.Features.Content.Create.Request
+        {
+            ContentType = ct,
+            Data = new Dictionary<string, object> { { "Name", "Original" }, { "SSN", "123-45-6789" } },
+        });
+        create.StatusCode.Should().Be(HttpStatusCode.OK);
+        var id = JsonDocument.Parse(await create.Content.ReadAsStringAsync()).RootElement.GetProperty("id").GetGuid();
+
+        // Send no SSN key at all. Reverting only the keys the caller sent would make omission a delete.
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", viewer);
+        var upd = await _client.PutAsJsonAsync($"/api/contents/{id}", new barakoCMS.Features.Content.Update.Request
+        {
+            Id = id,
+            Status = ContentStatus.Draft,
+            Version = 0,
+            Data = new Dictionary<string, object> { { "Name", "Changed" } },
+        });
+        upd.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var (_, root) = await Get(admin, id);
+        Data(root).GetProperty("SSN").GetString().Should().Be("123-45-6789",
+            "dropping a field you cannot see must not be a way to delete it");
+    }
 }

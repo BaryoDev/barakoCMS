@@ -5,7 +5,7 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.Users.AssignGroup;
 
-public class Endpoint : Endpoint<Request, Response>
+internal class Endpoint : Endpoint<Request, Response>
 {
     private readonly IDocumentSession _session;
     private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
@@ -24,18 +24,20 @@ public class Endpoint : Endpoint<Request, Response>
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        // Load or create user
+        // Same fabricated-user path as AssignRole next door, and the same fix: an unknown user or an
+        // unknown group is a 404, not a success that writes a ghost identity.
         var user = await _session.LoadAsync<User>(req.UserId, ct);
         if (user == null)
         {
-            user = new User 
-            { 
-                Id = req.UserId, 
-                GroupIds = new(),
-                Username = $"user_{req.UserId:N}",
-                Email = $"user_{req.UserId:N}@example.com",
-                CreatedAt = DateTime.UtcNow
-            };
+            await Send.NotFoundAsync(ct);
+            return;
+        }
+
+        var group = await _session.LoadAsync<UserGroup>(req.GroupId, ct);
+        if (group == null)
+        {
+            await Send.NotFoundAsync(ct);
+            return;
         }
 
         if (!user.GroupIds.Contains(req.GroupId))
@@ -52,13 +54,13 @@ public class Endpoint : Endpoint<Request, Response>
     }
 }
 
-public class Request
+internal class Request
 {
     public Guid UserId { get; set; }
     public Guid GroupId { get; set; }
 }
 
-public class Response
+internal class Response
 {
     public string Message { get; set; } = string.Empty;
 }

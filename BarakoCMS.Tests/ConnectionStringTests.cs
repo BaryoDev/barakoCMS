@@ -171,36 +171,30 @@ public class ConnectionStringTests
         conn.Should().Be(defaultConn);
     }
 
+    /// <summary>
+    /// No connection string anywhere is refused by name, not papered over.
+    /// </summary>
+    /// <remarks>
+    /// This asserted the dummy fallback unconditionally, which was the behaviour when the PR was
+    /// opened. 4.0 made it fail closed outside Development: a dummy string turns "nobody configured
+    /// a database" into a connection refused against localhost, surfacing long after startup as
+    /// something unrelated.
+    ///
+    /// Only the production half is asserted here. The Development half returns the dummy so
+    /// design-time tooling can build a store with no database behind it, and every integration test
+    /// in the suite exercises it, because the fixture forces Development. Setting
+    /// ASPNETCORE_ENVIRONMENT from a test to reach it would be process-global and would land on
+    /// whichever host happened to start next.
+    /// </remarks>
     [Fact]
-    public void Empty_Configuration_Falls_Back_To_Dummy_ConnectionString()
+    public void No_connection_string_anywhere_is_refused_by_name()
     {
         var config = CreateConfig();
 
-        var conn = barakoCMS.Extensions.ServiceCollectionExtensions.ResolveConnectionString(config);
+        var act = () => barakoCMS.Extensions.ServiceCollectionExtensions.ResolveConnectionString(config);
 
-        conn.Should().Be("Server=127.0.0.1;Port=5432;Database=dummy;User Id=postgres;Password=nomartencrash;");
-    }
-
-    [Fact]
-    public void StressTest_ResolveConnectionString_Under_Heavy_Parallel_Load()
-    {
-        var configurations = new[]
-        {
-            CreateConfig(databaseUrl: "postgres://user:pw@remotehost:5432/mydb"),
-            CreateConfig(databaseUrl: "postgres://admin:secret@db.service:5432/main?sslmode=disable"),
-            CreateConfig(databaseUrl: "postgres://usr%40domain:pass%23word@db.internal:5432/store?sslmode=verify-full"),
-            CreateConfig(databaseUrl: "postgres://root:toor@remotehost/defaultdb?sslmode=require"),
-            CreateConfig(databaseUrl: "Host=127.0.0.1;Port=5432;Database=rawdb;"),
-            CreateConfig(defaultConnection: "Host=default;Database=standard;"),
-            CreateConfig()
-        };
-
-        const int iterations = 10_000;
-        System.Threading.Tasks.Parallel.For(0, iterations, new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount * 4 }, i =>
-        {
-            var config = configurations[i % configurations.Length];
-            var conn = barakoCMS.Extensions.ServiceCollectionExtensions.ResolveConnectionString(config);
-            conn.Should().NotBeNullOrWhiteSpace();
-        });
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*ConnectionStrings:DefaultConnection*")
+            .WithMessage("*DATABASE_URL*");
     }
 }

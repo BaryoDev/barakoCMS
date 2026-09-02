@@ -1,10 +1,11 @@
 # BarakoCMS
 
-Headless CMS for .NET 8. A core web application plus optional modules shipped as NuGet packages,
+Headless CMS for .NET 10. A core web application plus optional modules shipped as NuGet packages,
 with a Next.js admin UI.
 
-Human-facing contribution rules live in `CONTRIBUTING.md`. This file is the working agreement for
-anyone (person or agent) changing code here.
+Human-facing contribution rules live in `CONTRIBUTING.md`. This file is the coding standard, and it
+is the working agreement for anyone (person or agent) changing code here. It is named for the tool
+that reads it automatically; `CODING_STANDARDS.md` is the signpost that makes it findable by name.
 
 ---
 
@@ -45,6 +46,13 @@ await session.SaveChangesAsync(ct);       // commit
 **Validation** uses FluentValidation through the FastEndpoints `Validator<T>` base class, not
 hand-rolled checks inside `HandleAsync`.
 
+**A list endpoint is bounded.** Take `PaginatedRequest` (or cap the result), always. An unbounded
+query on an anonymous endpoint is an availability problem anyone can trigger.
+
+**Prefer an existing pattern over a new one.** If a neighbouring endpoint solves the same problem,
+match it or say in the pull request why not. Check the pattern first: a pattern being existing is
+not evidence it is correct, and if it looks wrong, say so rather than spreading it.
+
 ### Adding an endpoint
 
 1. Create `Features/<FeatureName>/<ActionName>/`.
@@ -56,7 +64,7 @@ hand-rolled checks inside `HandleAsync`.
 
 ## 2. Stack
 
-- **.NET 8**, one target framework for every project (set in `Directory.Build.props`)
+- **.NET 10**, one target framework for every project (set in `Directory.Build.props`)
 - **FastEndpoints** for HTTP endpoints
 - **Marten** over PostgreSQL for persistence and event sourcing
 - **Serilog** for logging, **prometheus-net** for metrics
@@ -78,6 +86,16 @@ Adding a new package means adding a `<PackageVersion>` entry there first. This i
 modules resolving different versions of the same dependency.
 
 **No floating versions.** `3.7.*` makes two builds of the same commit non-reproducible. Pin it.
+
+**Developer-machine files stay out of the repository.** `launchSettings.json` pins ports, a launch
+URL and a browser on whoever committed it, and on a test project it does nothing at all.
+`.gitignore` covers it; the core app's profile is the one deliberate exception, because it is how
+`dotnet run` picks up the Development environment.
+
+**A config default must preserve existing behaviour.** Adding a flag must not turn off something
+that used to work. Default it to what happens today and let people opt in. A default that silently
+removes a feature from every existing deployment is a breaking change with no signature change to
+show for it.
 
 **Formatting is `.editorconfig`'s job**, enforced at build time via `EnforceCodeStyleInBuild`. Do
 not reformat code you are not otherwise changing; it buries the real diff.
@@ -103,6 +121,20 @@ Beware coincidental passes. Default ordering, seed data, or an empty collection 
 path produce the right answer for the input you happened to pick. Construct inputs where broken
 and fixed behaviour differ visibly.
 
+**An assertion over a collection must first assert the collection is not empty.**
+
+```csharp
+items.Should().OnlyHaveUniqueItems();   // passes on an empty list, proving nothing
+```
+
+```csharp
+items.Should().HaveCount(3);           // now the uniqueness assertion has something to run on
+items.Should().OnlyHaveUniqueItems();
+```
+
+This is the specific form of coincidental pass that keeps recurring, and it was got wrong here in a
+test whose whole purpose was to catch a bug.
+
 ### Naming
 
 Test classes are `{Subject}Tests`. Test methods read as sentences describing the behaviour:
@@ -118,8 +150,29 @@ Test classes are `{Subject}Tests`. Test methods read as sentences describing the
 
 ## 6. Public API stability
 
-BarakoCMS ships as NuGet packages, so external code compiles against these types. Within a major
-version, do not remove or change the signature of a public member. Instead:
+### What section 6 covers
+
+The rule below applies to the package's public surface, and the surface is the boundary rather than
+the accident of what happens to be marked `public`. In scope:
+
+- `Modules/*` and `Core/Interfaces/*`, the module contract
+- `Models/*` and `Events/*`, the documents and events a consumer stores and reads
+- `Features/Workflows/IWorkflowAction`, `IWorkflowEngine` and `WorkflowActionResult`, since custom
+  actions are a documented extension point and the result is what one returns
+- `AddBarakoCMS` and `UseBarakoCMS`, the entry points
+- `DataSeeder`, which a host assembling its own startup calls
+
+Out of scope, and `internal` so that stays true: everything under `Features/*`. The endpoints, their
+`Request` and `Response` records, and their validators are how this host implements the API, not
+something another assembly compiles against. FastEndpoints discovers internal endpoint classes, and
+`InternalsVisibleTo` covers the tests.
+
+If a type outside that list needs to be public, that is a deliberate addition to the contract. Say
+so in the pull request.
+
+### The rule
+
+Within a major version, do not remove or change the signature of a public member. Instead:
 
 - add a new overload, mark the old one `[Obsolete]`, and have the old one call the new one;
 - add interface members with a default implementation so existing implementors still compile;

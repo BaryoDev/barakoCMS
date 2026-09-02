@@ -60,7 +60,7 @@ body:
     attributes:
       label: Environment
       description: .NET version, PostgreSQL version, OS, container or not.
-      placeholder: ".NET 8.0.x, PostgreSQL 16, Docker on Linux arm64"
+      placeholder: ".NET 10.0.x, PostgreSQL 16, Docker on Linux arm64"
 
   - type: textarea
     id: logs

@@ -2,7 +2,7 @@ using FluentValidation;
 
 namespace barakoCMS.Features.Content.Schedule;
 
-public class Request
+internal class Request
 {
     public Guid Id { get; set; }
 
@@ -13,7 +13,7 @@ public class Request
     public DateTime? ScheduledUnpublishAt { get; set; }
 }
 
-public class RequestValidator : FastEndpoints.Validator<Request>
+internal class RequestValidator : FastEndpoints.Validator<Request>
 {
     public RequestValidator()
     {
@@ -26,7 +26,7 @@ public class RequestValidator : FastEndpoints.Validator<Request>
     }
 }
 
-public class Response
+internal class Response
 {
     public string Message { get; set; } = string.Empty;
     public DateTime? ScheduledPublishAt { get; set; }

@@ -11,7 +11,7 @@ namespace barakoCMS.Features.Content.Schedule;
 /// emits a real ContentStatusChanged event for each transition. Requires the same "update" permission as
 /// a status change.
 /// </summary>
-public class Endpoint : Endpoint<Request, Response>
+internal class Endpoint : Endpoint<Request, Response>
 {
     private readonly IDocumentSession _session;
     private readonly IContentWriter _contentWriter;
@@ -28,17 +28,21 @@ public class Endpoint : Endpoint<Request, Response>
 
     public override void Configure()
     {
-        Put("/api/contents/{Id}/schedule");
+        Put("/api/contents/{id}/schedule");
         Claims("UserId");
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
         var userIdClaim = User.FindFirst("UserId");
-        if (userIdClaim == null || !Guid.TryParse(userIdClaim.Value, out var userId))
+        if (userIdClaim == null)
         {
-            await Send.ResponseAsync(new Response { Message = "Invalid or missing User ID claim" }, 400, ct);
-            return;
+            ThrowError("Invalid or missing User ID claim");
+        }
+
+        if (!Guid.TryParse(userIdClaim.Value, out var userId))
+        {
+            ThrowError("Invalid or missing User ID claim");
         }
 
         var user = await _session.LoadAsync<barakoCMS.Models.User>(userId, ct);

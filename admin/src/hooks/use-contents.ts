@@ -7,6 +7,7 @@ import type {
     CreateContentRequest,
     UpdateContentRequest,
     ContentStatus,
+    ScheduleContentRequest,
 } from '@/types/content';
 
 export function useContents(params: PageParams & { contentType?: string } = {}) {
@@ -34,8 +35,11 @@ export function useContentHistory(id: string, enabled = true) {
     return useQuery({
         queryKey: ['contents', 'history', id],
         queryFn: async () => {
-            const response = await api.get<{ versions: ContentVersion[] }>(`/api/contents/${id}/history`);
-            return response.data.versions;
+            // History is a collection like any other and uses the paginated envelope. It read
+            // `versions` here, which the endpoint stopped returning when the envelope landed, so the
+            // panel has been rendering an empty list rather than failing visibly.
+            const response = await api.get<Paginated<ContentVersion>>(`/api/contents/${id}/history`);
+            return response.data.items;
         },
         enabled: !!id && enabled,
     });
@@ -63,6 +67,24 @@ export function useUpdateContent() {
             const response = await api.put<{ id: string; version: number }>(`/api/contents/${id}`, {
                 id,
                 ...data,
+            });
+            return response.data;
+        },
+        onSuccess: (_data, { id }) => {
+            queryClient.invalidateQueries({ queryKey: ['contents'] });
+            queryClient.invalidateQueries({ queryKey: ['contents', 'detail', id] });
+        },
+    });
+}
+
+export function useScheduleContent() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async ({ id, schedule }: { id: string; schedule: ScheduleContentRequest }) => {
+            const response = await api.put<{ id: string }>(`/api/contents/${id}/schedule`, {
+                id,
+                ...schedule,
             });
             return response.data;
         },

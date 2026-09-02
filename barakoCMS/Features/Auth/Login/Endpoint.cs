@@ -9,7 +9,7 @@ using System.IdentityModel.Tokens.Jwt;
 
 namespace barakoCMS.Features.Auth.Login;
 
-public class Endpoint : Endpoint<Request, Response>
+internal class Endpoint : Endpoint<Request, Response>
 {
     private readonly barakoCMS.Repository.IUserRepository _repo;
     private readonly IQuerySession _session;
@@ -59,6 +59,21 @@ public class Endpoint : Endpoint<Request, Response>
     // Dummy password hash for timing attack prevention (pre-computed BCrypt hash)
     private static readonly string DummyPasswordHash = BCrypt.Net.BCrypt.HashPassword("dummy_password_for_timing_attack_prevention");
 
+    /// <summary>
+    /// True when the password matches. An account with no password set never matches, and costs the
+    /// same time as one that does.
+    /// </summary>
+    private static bool PasswordMatches(string password, string? hash)
+    {
+        if (string.IsNullOrEmpty(hash))
+        {
+            BCrypt.Net.BCrypt.Verify(password, DummyPasswordHash);
+            return false;
+        }
+
+        return BCrypt.Net.BCrypt.Verify(password, hash);
+    }
+
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
         var device = barakoCMS.Infrastructure.DeviceContext.From(HttpContext);
@@ -74,7 +89,7 @@ public class Endpoint : Endpoint<Request, Response>
             await AuditLog.RecordAsync(_documentSession, _tenant.Slug, "auth.login.failed", null, req.Username,
                 metadata: new() { ["reason"] = "unknown_user" }, ipAddress: device.IpAddress, ct: ct);
             await _documentSession.SaveChangesAsync(ct);
-            ThrowError("Invalid credentials");
+            ThrowError("Invalid credentials", 401);
             return;
         }
 
@@ -89,12 +104,19 @@ public class Endpoint : Endpoint<Request, Response>
             await AuditLog.RecordAsync(_documentSession, _tenant.Slug, "auth.login.blocked", user.Id, user.Username,
                 metadata: new() { ["reason"] = "locked_out", ["lockoutUntil"] = user.LockoutUntil.Value }, ipAddress: device.IpAddress, ct: ct);
             await _documentSession.SaveChangesAsync(ct);
-            ThrowError($"Account is locked due to multiple failed login attempts. Please try again in {remainingMinutes} minute(s).");
+            ThrowError($"Account is locked due to multiple failed login attempts. Please try again in {remainingMinutes} minute(s).", 423);
             return;
         }
 
-        // Verify password
-        if (!BCrypt.Net.BCrypt.Verify(req.Password, user.PasswordHash))
+        // Verify password.
+        //
+        // An account created by social sign-in has PasswordHash = "", and BCrypt.Verify throws
+        // SaltParseException on an empty hash rather than returning false. That turned a password
+        // attempt against a social-created account into a 500 while every other bad-credential path
+        // returns the same 401, which is a username oracle sitting on the one endpoint that took
+        // care to avoid one (see the dummy-hash timing defence above). Burn the same dummy verify so
+        // the timing matches too, then fail closed with the identical message.
+        if (!PasswordMatches(req.Password, user.PasswordHash))
         {
             // Atomic SQL-level increment so concurrent failed attempts can't be lost to a
             // read-modify-write race (which would let an attacker bypass the lockout threshold).
@@ -124,7 +146,7 @@ public class Endpoint : Endpoint<Request, Response>
                 metadata: new() { ["reason"] = "bad_password", ["attempts"] = attempts }, ipAddress: device.IpAddress, ct: ct);
             await _documentSession.SaveChangesAsync(ct);
 
-            ThrowError("Invalid credentials");
+            ThrowError("Invalid credentials", 401);
             return;
         }
 
@@ -161,7 +183,23 @@ public class Endpoint : Endpoint<Request, Response>
         var gate = await _deviceGate.EvaluatePasswordAsync(user, device, ct);
         if (gate.Decision == barakoCMS.Core.Interfaces.DeviceDecision.ApprovalRequired)
         {
-            await _otp.SendCodeAsync(user.Email, device, ct);
+            var sent = await _otp.SendCodeAsync(user.Email, device, ct);
+            if (!sent)
+            {
+                // Safe to say so here: the password was already correct, so there is nothing left
+                // to enumerate. Telling this caller to check their email would leave them waiting
+                // for a message that was never sent, on the one path where that reads as being
+                // locked out of their own instance.
+                _logger.LogError("Could not send the device approval code to {Username}", user.Username);
+                await Send.ResponseAsync(new Response
+                {
+                    RequiresDeviceApproval = true,
+                    Message = "This device needs approval, but the code could not be emailed. Contact your administrator.",
+                    Email = user.Email,
+                }, 503);
+                return;
+            }
+
             _logger.LogInformation("Password login from an unapproved device for {Username}; sent approval OTP", user.Username);
             await Send.ResponseAsync(new Response
             {
@@ -185,7 +223,7 @@ public class Endpoint : Endpoint<Request, Response>
             await AuditLog.RecordAsync(_documentSession, _tenant.Slug, "auth.login.failed", user.Id, user.Username,
                 metadata: new() { ["reason"] = "tenant_denied", ["denialReason"] = issued.DenialReason ?? "" }, ipAddress: device.IpAddress, ct: ct);
             await _documentSession.SaveChangesAsync(ct);
-            ThrowError("Invalid credentials");
+            ThrowError("Invalid credentials", 401);
             return;
         }
 
@@ -216,6 +254,10 @@ public class Endpoint : Endpoint<Request, Response>
         _logger.LogInformation(
             "Successful login for user: {Username}, UserId: {UserId}",
             user.Username, user.Id);
+
+        // Also in a cookie page script cannot read. The body still carries it for
+        // non-browser callers; see RefreshTokenCookie for why this is an addition.
+        barakoCMS.Infrastructure.Auth.RefreshTokenCookie.Set(HttpContext, refreshTokenString, refreshTokenExpiry);
 
         await Send.ResponseAsync(new Response
         {

@@ -44,13 +44,20 @@ public class TokenRevocationService : ITokenRevocationService
         var ttl = expiry - DateTime.UtcNow;
         if (ttl > TimeSpan.Zero)
         {
-            _cache.Set(cacheKey, true, ttl);
+            _cache.Set(cacheKey, true, new MemoryCacheEntryOptions
+            {
+                AbsoluteExpirationRelativeToNow = ttl,
+                Size = 1,
+            });
         }
 
         _logger.LogInformation(
             "Token revoked: JTI={Jti}, UserId={UserId}, Reason={Reason}",
             jti, userId, reason);
     }
+
+    /// <summary>PostgreSQL's undefined_table. The schema has not been applied yet.</summary>
+    private const string UndefinedTable = "42P01";
 
     public async Task<bool> IsTokenRevokedAsync(string jti, CancellationToken ct = default)
     {
@@ -72,35 +79,45 @@ public class TokenRevocationService : ITokenRevocationService
             if (isRevoked)
             {
                 // Cache the result
-                _cache.Set(cacheKey, true, CacheDuration);
+                _cache.Set(cacheKey, true, new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = CacheDuration,
+                    Size = 1,
+                });
                 _logger.LogDebug("Token revocation database hit: {Jti}", jti);
             }
 
             return isRevoked;
         }
+        catch (Npgsql.PostgresException ex) when (ex.SqlState == UndefinedTable)
+        {
+            // The one case where "not revoked" is the true answer rather than a guess: with no
+            // table, nothing has ever been revoked. This is first run, before the schema apply,
+            // which is what the original catch was written for.
+            _logger.LogDebug(ex, "Revocation table does not exist yet; nothing can be revoked");
+            return false;
+        }
         catch (Exception ex)
         {
-            // Handle case where RevokedToken table doesn't exist yet (e.g., during tests or first run)
-            _logger.LogDebug(ex, "Error checking token revocation for {Jti}, assuming not revoked", jti);
-            return false;
+            // Everything else fails closed. The old catch returned "not revoked" for any exception,
+            // so a revoked token was accepted for as long as the store was unreachable, and it said
+            // so at Debug, which production does not emit. A logged-out session came back during a
+            // database blip and nothing recorded that it had.
+            //
+            // Throwing rather than returning true, on purpose. Both refuse the request, but a 401
+            // tells the caller their session expired, which is a lie that sends them to sign in and
+            // fail again. This surfaces as a server error, which is what it is.
+            _logger.LogError(ex, "Could not check token revocation for {Jti}; refusing the request", jti);
+            throw new InvalidOperationException(
+                "Token revocation could not be checked, so the request cannot be authorised.", ex);
         }
     }
 
     public async Task RevokeAllUserTokensAsync(Guid userId, string reason, CancellationToken ct = default)
     {
-        // Note: This is a simplified implementation.
-        // In production, you might want to track active tokens per user
-        // or implement a user-level revocation timestamp.
-        
-        _logger.LogWarning(
-            "RevokeAllUserTokensAsync called for UserId={UserId}, Reason={Reason}. " +
-            "This requires tracking active tokens or implementing user-level revocation.",
-            userId, reason);
-
-        // For now, we'll just log this. A full implementation would:
-        // 1. Query all active refresh tokens for the user and revoke them
-        // 2. Implement a user-level "tokens_revoked_after" timestamp
-        
+        // Revokes every unexpired refresh token the user holds, so no new access token can be
+        // minted. Access tokens already issued stay valid until they expire; a user-level
+        // "tokens_revoked_after" timestamp that would cut those short is issue #82.
         var refreshTokens = await _session.Query<RefreshToken>()
             .Where(rt => rt.UserId == userId && !rt.IsRevoked && rt.ExpiresAt > DateTime.UtcNow)
             .ToListAsync(ct);

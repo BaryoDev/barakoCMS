@@ -1,5 +1,6 @@
 using BarakoCMS.Accounting.Domain;
 using FastEndpoints;
+using barakoCMS.Models;
 using Marten;
 
 namespace BarakoCMS.Accounting.Features.Accounts;
@@ -75,7 +76,7 @@ public class CreateAccountEndpoint : Endpoint<CreateAccountEndpoint.Request, Cre
 }
 
 /// <summary>GET /api/accounting/accounts — list the chart of accounts.</summary>
-public class ListAccountsEndpoint : EndpointWithoutRequest<IReadOnlyList<Account>>
+public class ListAccountsEndpoint : Endpoint<barakoCMS.Models.ListRequest, barakoCMS.Models.PaginatedResponse<Account>>
 {
     private readonly IQuerySession _session;
     public ListAccountsEndpoint(IQuerySession session) => _session = session;
@@ -86,9 +87,12 @@ public class ListAccountsEndpoint : EndpointWithoutRequest<IReadOnlyList<Account
         Roles("Accountant", "Admin", "SuperAdmin");
     }
 
-    public override async Task HandleAsync(CancellationToken ct)
+    public override async Task HandleAsync(barakoCMS.Models.ListRequest req, CancellationToken ct)
     {
+        // Paged in memory: accounts are read back out of content documents rather than queried as
+        // their own table, so there is no IQueryable to page against.
         var accounts = await AccountingContentReader.AccountsAsync(_session, ct);
-        await Send.ResponseAsync(accounts.OrderBy(a => a.Code).ToList(), cancellation: ct);
+        await Send.ResponseAsync(
+            accounts.OrderBy(a => a.Code).ToList().ToPagedResponse(req), cancellation: ct);
     }
 }

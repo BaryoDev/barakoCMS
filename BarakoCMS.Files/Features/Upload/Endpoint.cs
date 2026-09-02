@@ -45,6 +45,11 @@ public class Endpoint : EndpointWithoutRequest<Response>
     public override void Configure()
     {
         Post("/api/files");
+        // Was authenticated and nothing else, so every self-registered User-role account could
+        // store 10 MB per call into the tenant and mark it public, producing an anonymously
+        // readable URL on the deployment's own domain. Gated to match the rest of the write
+        // surface. A per-user quota is the separate question (#138 covers scanning).
+        Roles("SuperAdmin", "Admin");
         AllowFileUploads();
     }
 

@@ -22,14 +22,13 @@ public sealed record DeviceContext(string UserAgent, string IpAddress, string? D
             Description: Describe(ua));
     }
 
-    private static string ClientIp(HttpContext ctx)
-    {
-        // Behind nginx/Caddy the real client is the first X-Forwarded-For hop.
-        var forwarded = ctx.Request.Headers["X-Forwarded-For"].ToString();
-        if (!string.IsNullOrWhiteSpace(forwarded))
-            return forwarded.Split(',')[0].Trim();
-        return ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-    }
+    // X-Forwarded-For is not read here. It is client-supplied, so reading it directly let any
+    // caller write its own address into the audit log and the OTP email. Behind a proxy the header
+    // is applied by the ForwardedHeaders middleware, which only honours it from a hop the operator
+    // named in ForwardedHeaders:KnownProxies; by the time this runs, RemoteIpAddress is already the
+    // client. With the feature off this is the proxy's address, which is wrong but not forgeable.
+    private static string ClientIp(HttpContext ctx) =>
+        ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
     /// <summary>Best-effort "Browser on OS" summary from a user-agent, falling back to the raw string.</summary>
     public static string Describe(string ua)

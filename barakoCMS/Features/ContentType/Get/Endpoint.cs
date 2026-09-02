@@ -4,9 +4,7 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.ContentType.Get;
 
-public class Response : List<ContentTypeDefinition> { }
-
-public class Endpoint : EndpointWithoutRequest<Response>
+internal class Endpoint : Endpoint<ListRequest, PaginatedResponse<barakoCMS.Features.ContentType.ContentTypeResponse>>
 {
     private readonly IQuerySession _session;
 
@@ -17,20 +15,28 @@ public class Endpoint : EndpointWithoutRequest<Response>
 
     public override void Configure()
     {
-        Get("/api/schemas");
+        // The content-type resource lived at two route names: read at /api/schemas, create at
+        // POST /api/content-types, and the delivery toggle at /api/content-types/{name}. It is
+        // consolidated on /api/content-types. /api/schemas stays as a deprecated alias so an
+        // existing client keeps working; it goes in 5.0.
+        Get("/api/content-types", "/api/schemas");
         // NOTE: AllowAnonymous() must NOT be combined with Roles() — in ASP.NET Core
         // AllowAnonymous short-circuits authorization and silently disables the role check.
-        Roles("SuperAdmin", "Admin", "Editor");
+        Roles("SuperAdmin", "Admin");
     }
 
-    public override async Task HandleAsync(CancellationToken ct)
+    public override async Task HandleAsync(ListRequest req, CancellationToken ct)
     {
-        var methods = await _session.Query<ContentTypeDefinition>()
+        var page = await _session.Query<ContentTypeDefinition>()
             .OrderBy(x => x.Name)
-            .ToListAsync(ct);
+            .ToPagedResponseAsync(req, ct);
 
-        var response = new Response();
-        response.AddRange(methods);
-        await Send.OkAsync(response, ct);
+        await Send.OkAsync(new PaginatedResponse<barakoCMS.Features.ContentType.ContentTypeResponse>
+        {
+            Items = page.Items.Select(barakoCMS.Features.ContentType.ContentTypeResponse.From).ToList(),
+            Page = page.Page,
+            PageSize = page.PageSize,
+            TotalItems = page.TotalItems,
+        }, ct);
     }
 }

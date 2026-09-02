@@ -104,8 +104,23 @@ public static class ServiceCollectionExtensions
             Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development";
         if (configuration.GetValue("Swagger:Enabled", swaggerOnByDefault))
         {
-            services.SwaggerDocument();
+            services.SwaggerDocument(o =>
+            {
+                // FastEndpoints tags by path segment, and every route here starts /api/, so all but
+                // the three endpoints that tag themselves landed on one tag: "Api". A generator
+                // groups methods by tag, so that document generates one class with every method on
+                // it. Off, and NamespaceTagProcessor tags by namespace instead.
+                o.AutoTagPathSegmentIndex = 0;
+                o.DocumentSettings = s =>
+                    s.OperationProcessors.Add(new barakoCMS.Infrastructure.OpenApi.NamespaceTagProcessor());
+            });
         }
+
+        // Holds the rendered OpenAPI document per tenant. Registered whether or not Swagger is on,
+        // because the content-type endpoints invalidate it and a constructor dependency that exists
+        // only under a config flag is a startup failure waiting for the first deployment that turns
+        // the flag off. Nothing populates it when Swagger is off, so it costs an empty dictionary.
+        services.AddSingleton<barakoCMS.Infrastructure.OpenApi.DeliveryDocumentCache>();
 
         var connectionString = ResolveConnectionString(configuration);
 
@@ -115,14 +130,50 @@ public static class ServiceCollectionExtensions
         var maxMemoryMb = configuration.GetValue<long?>("HealthChecks:MaxPrivateMemoryMegabytes") ?? 4096;
         var minFreeDiskMb = configuration.GetValue<long?>("HealthChecks:MinimumFreeDiskMegabytes") ?? 512;
 
+        // Liveness answers "is this process wedged, restart it". Readiness answers "can this process
+        // serve traffic right now". Only a check a restart can actually fix belongs on liveness, so
+        // the tags split like this:
+        //
+        //   live  : Memory                         a process past its private-memory ceiling is
+        //                                          exactly what a restart clears.
+        //   ready : Database, Disk Space, Memory,  none of these is fixed by killing the process,
+        //           Startup Seeding                and the database one is shared, so tagging it
+        //                                          live would restart every replica at once on a
+        //                                          single Postgres blip.
+        //
+        // See issue #281.
+        services.AddSingleton<barakoCMS.Infrastructure.Health.StartupSeedGate>();
+
+        // A stopped projection shard halts every workflow and is invisible to the checks above:
+        // the database is up, the disk is fine, memory is fine, and nothing fires. Degraded rather
+        // than Unhealthy on purpose; see ProjectionLag.
+        var maxProjectionLag = configuration.GetValue<long?>("HealthChecks:MaxProjectionLagEvents")
+            ?? barakoCMS.Infrastructure.Health.ProjectionLag.DefaultTolerance;
+
         services.AddHealthChecks()
             .AddNpgSql(connectionString, name: "Database", tags: new[] { "db", "ready" })
             .AddDiskStorageHealthCheck(setup =>
             {
                 setup.AddDrive(@"/", minimumFreeMegabytes: minFreeDiskMb);
                 setup.CheckAllDrives = false;
-            }, name: "Disk Space")
-            .AddPrivateMemoryHealthCheck(maxMemoryMb * 1024 * 1024, name: "Memory");
+            }, name: "Disk Space", tags: new[] { "disk", "ready" })
+            .AddPrivateMemoryHealthCheck(
+                maxMemoryMb * 1024 * 1024,
+                name: "Memory",
+                tags: new[] { "memory", "live", "ready" })
+            .AddCheck<barakoCMS.Infrastructure.Health.StartupSeedHealthCheck>(
+                "Startup Seeding",
+                tags: new[] { "seed", "ready" })
+            // Neither live nor ready on purpose. A halted shard is not fixed by killing this
+            // process, and it reports Degraded rather than Unhealthy, so putting it on readiness
+            // would risk pulling every replica out of service over workflow lag. It is here to be
+            // seen on the health page, not to gate traffic. See ProjectionLag.
+            .AddCheck<barakoCMS.Infrastructure.Health.WorkflowProjectionHealthCheck>(
+                barakoCMS.Infrastructure.Health.WorkflowProjectionHealthCheck.Name,
+                tags: new[] { "workflow", "projection" });
+
+        services.AddSingleton(sp => new barakoCMS.Infrastructure.Health.WorkflowProjectionHealthCheck(
+            sp.GetRequiredService<IDocumentStore>(), maxProjectionLag));
 
         // Validate JWT key exists and has minimum length for security. Fail fast rather than
         // booting with broken or insecure auth. Check both config and the JWT__Key env var.
@@ -180,6 +231,11 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<barakoCMS.Infrastructure.Auth.ApiKeyService>();
 
         services.AddAuthorization();
+
+        // Strict-Transport-Security. Registered here, applied by UseHsts outside Development.
+        services.AddHsts(options =>
+            barakoCMS.Infrastructure.Security.HstsPolicy.Configure(options, configuration));
+
         services.AddCors(options =>
         {
             options.AddPolicy("SecurePolicy", builder =>
@@ -222,6 +278,7 @@ public static class ServiceCollectionExtensions
         // this tenant?" check, so no endpoint can skip it by omission. See ITokenIssuer.
         services.AddScoped<barakoCMS.Infrastructure.Auth.ITokenIssuer, barakoCMS.Infrastructure.Auth.TokenIssuer>();
         services.AddScoped<ITokenRevocationService, TokenRevocationService>();
+        services.AddScoped<ISessionEpochService, SessionEpochService>();
         services.AddScoped<IPasswordPolicyValidator, PasswordPolicyValidator>();
         
         // Memory Cache for token revocation and permissions
@@ -298,6 +355,24 @@ public static class ServiceCollectionExtensions
                 // delta on the existing mt_doc_contents table, which the prod/playground AutoCreate.
                 // CreateOnly policy refuses at startup (there is no online-migration step yet — H.40).
 
+            // The name is the lookup key for a content type: ContentValidatorService, SensitivityService
+            // and the search-text backfill all resolve a definition by it, and each resolved a
+            // duplicate differently. Uniqueness was enforced only by a read before the write, so two
+            // concurrent creates both missed the read and both inserted. PerTenant, not global: under
+            // conjoined tenancy one customer's "article" must not block another's.
+            //
+            // On an existing database this index is NOT created: production runs AutoCreate.CreateOnly,
+            // which never alters an object that already exists. Such a store keeps today's
+            // read-then-write behaviour until the index is applied by hand. See
+            // migrations/4.0.0/3.x-to-4.0.sql, which also finds the duplicates that would make the
+            // CREATE UNIQUE INDEX fail.
+            options.Schema.For<ContentTypeDefinition>()
+                .Index(x => x.Name, idx =>
+                {
+                    idx.IsUnique = true;
+                    idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
+                });
+
             // Navigation menus are a "menu" content type served through public delivery, not a bespoke
             // doc. Keeping them as content keeps them pluggable and drops a whole CRUD surface. The old
             // Menu document + /api/menus endpoints were removed; existing "menus" tables are just left
@@ -316,6 +391,10 @@ public static class ServiceCollectionExtensions
             options.Schema.For<SystemSetting>()
                 .SingleTenanted()
                 .DocumentAlias("system_settings");
+
+            options.Schema.For<EmailSettings>()
+                .SingleTenanted() // one mail provider for the deployment, not one per tenant
+                .DocumentAlias("email_settings");
 
             options.Schema.For<Models.Role>()
                 .SingleTenanted() // roles are global; per-tenant assignment lives on Membership
@@ -346,6 +425,27 @@ public static class ServiceCollectionExtensions
             options.Schema.For<OtpCode>()
                 .SingleTenanted() // sign-in codes are keyed by global email, not by club
                 .DocumentAlias("otp_codes")
+                // Same reason RefreshToken and MfaSecret above have it, and this one was the odd
+                // one out. Consuming a code is a read, a check and a write with nothing between
+                // them, so two requests carrying the same code could both see Consumed still false
+                // and both mint tokens. Device approval and passwordless sign-in both rest on this
+                // path, and the login endpoint next door already uses an atomic Patch().Increment
+                // for exactly this class of race.
+                .UseOptimisticConcurrency(true)
+                .Index(x => x.Email)
+                .Index(x => x.ExpiresAt);
+
+            options.Schema.For<PendingRegistration>()
+                .SingleTenanted() // a registration is for a global identity, like the user it becomes
+                .DocumentAlias("pending_registrations")
+                // Same reason OtpCode above has it. Consuming a token is a read, a check and a
+                // write with nothing between them, and two requests carrying one token must not both
+                // create an account.
+                .UseOptimisticConcurrency(true)
+                // No unique index on Username or Email, deliberately. Reserving either before
+                // anybody proved the address would let an unauthenticated caller hold names and
+                // block addresses without owning a mailbox. Uniqueness is enforced where it counts,
+                // on the users table, and re-checked at verification.
                 .Index(x => x.Email)
                 .Index(x => x.ExpiresAt);
 
@@ -419,12 +519,37 @@ public static class ServiceCollectionExtensions
         // Schema is applied explicitly at startup via host.ApplyMartenSchemaAsync() (below), called
         // BEFORE the data seeders run. ApplyAllDatabaseChangesOnStartup() can't be used here: it
         // registers a hosted service that runs during app.Run(), but the seeders run before that, so
-        // with AutoCreate.None they'd hit tables that don't exist yet on a fresh database.
+        // with CreateOnly's no-on-demand-DDL they'd hit tables that don't exist yet on a fresh
+        // database.
 
         // services.AddHealthChecks()
         //    .AddNpgSql(configuration.GetConnectionString("DefaultConnection")!, tags: new[] { "db", "ready" });
 
+        // AllowAutoRedirect defaults to true, and WebhookAction validates only the URL it was given.
+        // A webhook target that answers 302 Location: http://169.254.169.254/... was therefore
+        // followed to the metadata service with the block list never consulted for that address:
+        // the SSRF guard covered the first hop only. That needs no DNS control and no race, unlike
+        // the rebinding in #258, and works on the first attempt.
+        //
+        // A webhook receiver has no legitimate reason to redirect a delivery. If one is ever wanted,
+        // the target has to go back through the guard before it is followed, never by the handler on
+        // its own.
+        //
+        // The connect callback is the rest of it. Checking a host and then letting the handler
+        // resolve the name again left the check describing one address and the connection going to
+        // another (#258). The guard resolves once and opens the socket to an address that answer
+        // survived, so the pre-flight check in WebhookAction is now an early refusal rather than the
+        // thing standing between a workflow and the metadata service.
+        services.AddSingleton(barakoCMS.Infrastructure.Http.OutboundAddressGuard.Default);
+        // A proxy would resolve and connect to the target itself, so the guard would be inspecting
+        // the hop to the proxy rather than the destination. Off unless an operator says otherwise,
+        // because a system proxy can arrive from an environment variable nobody chose.
+        var allowWebhookProxy = configuration.GetValue("Webhooks:AllowProxy", false);
+
         services.AddHttpClient("ExternalApi")
+                .ConfigurePrimaryHttpMessageHandler(sp => barakoCMS.Infrastructure.Http.OutboundHttpHandler.Create(
+                    sp.GetRequiredService<barakoCMS.Infrastructure.Http.OutboundAddressGuard>(),
+                    allowWebhookProxy))
                 .AddStandardResilienceHandler();
 
         // Defaults registered with TryAdd so an opted-in module or the host can substitute a real
@@ -436,10 +561,30 @@ public static class ServiceCollectionExtensions
         // Runs any per-content-type domain rules a module registered (IContentLifecycleHook), so a
         // domain with real invariants can still be modelled as ordinary content.
         services.AddScoped<barakoCMS.Infrastructure.Services.IContentLifecycleRunner, barakoCMS.Infrastructure.Services.ContentLifecycleRunner>();
+
+        // Erasure policy. Validated here rather than at first use: the failure being guarded against
+        // is an operator believing a mode is in force when it is not, and startup is the only moment
+        // that belief is cheap to correct. See DECISIONS.md D9.
+        var erasure = barakoCMS.Infrastructure.Erasure.ErasureOptions.FromConfiguration(configuration);
+        erasure.Validate();
+        services.AddSingleton(erasure);
+        services.AddScoped<barakoCMS.Infrastructure.Erasure.IContentEraser, barakoCMS.Infrastructure.Erasure.ContentEraser>();
         services.AddScoped<barakoCMS.Core.Interfaces.IOtpService, barakoCMS.Infrastructure.Services.OtpService>();
+
+        // Email verification for self-registration. Validated at startup for the same reason erasure
+        // is: an operator who turned verification off has to have said so, because the failure is a
+        // deployment that believes registration proves an address while it does not. See
+        // DECISIONS.md D10.
+        var emailVerification = barakoCMS.Infrastructure.Auth.EmailVerificationOptions.FromConfiguration(configuration);
+        emailVerification.Validate();
+        services.AddSingleton(emailVerification);
+        services.AddScoped<barakoCMS.Core.Interfaces.IEmailVerificationService,
+                           barakoCMS.Infrastructure.Services.EmailVerificationService>();
 
         // MFA (TOTP): secret protection (AES-GCM) + enrollment/verification.
         services.AddSingleton<barakoCMS.Infrastructure.Auth.Mfa.IMfaSecretProtector, barakoCMS.Infrastructure.Auth.Mfa.MfaSecretProtector>();
+        services.AddSingleton<barakoCMS.Infrastructure.Security.ISecretProtector, barakoCMS.Infrastructure.Security.SecretProtector>();
+        services.AddScoped<barakoCMS.Core.Interfaces.IEmailSettingsProvider, barakoCMS.Infrastructure.Services.EmailSettingsProvider>();
         services.AddScoped<barakoCMS.Infrastructure.Auth.Mfa.IMfaService, barakoCMS.Infrastructure.Auth.Mfa.MfaService>();
         // Device trust is opt-in: the default gate does nothing. The DeviceTrust module overrides it.
         services.TryAddScoped<barakoCMS.Core.Interfaces.IDeviceGate, barakoCMS.Core.Interfaces.NoopDeviceGate>();
@@ -475,7 +620,11 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IContentTypeValidatorService, ContentTypeValidatorService>();
         services.AddSingleton<IKubernetesMonitorService, KubernetesMonitorService>();
         services.AddSingleton<IMetricsService, MetricsService>();
-        services.AddScoped<IBackupService, BackupService>();
+        // IBackupService and BackupService were removed in 4.0. Both were registered here and
+        // called by nothing, repo-wide, so reading the codebase suggested the application backed
+        // itself up. It did not: backup is scripts/backup-cron.sh, run by the deployment, and
+        // restore is scripts/restore-check.sh's procedure. A registered service that claims a
+        // capability nothing invokes is worse than no service, because it stops people looking.
 
         // Confines API-key callers to the content surface and enforces their scopes. A no-op for JWT
         // callers (they carry no scope claims).
@@ -494,6 +643,19 @@ public static class ServiceCollectionExtensions
 
         // Background service that applies scheduled publish/unpublish across all tenants
         services.AddHostedService<barakoCMS.Infrastructure.Services.ScheduledContentService>();
+
+        // Forwarded headers. Off unless configured, because reading X-Forwarded-For from an
+        // untrusted peer would let a caller choose the IP the rate limiter partitions on.
+        if (barakoCMS.Infrastructure.Security.ForwardedHeadersSetup.IsEnabled(configuration))
+        {
+            // Run the same parse once here so a bad proxy list stops the host at startup rather
+            // than on the first request that happens to resolve the options.
+            barakoCMS.Infrastructure.Security.ForwardedHeadersSetup.Configure(
+                new Microsoft.AspNetCore.Builder.ForwardedHeadersOptions(), configuration);
+
+            services.Configure<Microsoft.AspNetCore.Builder.ForwardedHeadersOptions>(
+                options => barakoCMS.Infrastructure.Security.ForwardedHeadersSetup.Configure(options, configuration));
+        }
 
         // Rate Limiting
         services.AddRateLimiter(options =>
@@ -655,6 +817,17 @@ public static class ServiceCollectionExtensions
 
         if (string.IsNullOrWhiteSpace(connectionString))
         {
+            // A dummy string turns "nobody configured a database" into a connection refused against
+            // localhost, which surfaces long after startup as an unrelated failure. Name the missing
+            // setting instead. It stays a dummy in Development, where design-time tooling and the
+            // codegen pass need Marten to build a store without a database behind it.
+            var environment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
+            if (!string.Equals(environment, "Development", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    "No database connection string. Set ConnectionStrings:DefaultConnection or the DATABASE_URL environment variable.");
+            }
+
             return "Server=127.0.0.1;Port=5432;Database=dummy;User Id=postgres;Password=nomartencrash;";
         }
 
@@ -670,6 +843,13 @@ public static class ServiceCollectionExtensions
         // Returns a structured 500 (no stack trace leak) and logs the exception via FastEndpoints.
         app.UseDefaultExceptionHandler();
 
+        // Forwarded headers, before anything that reads the client IP or the scheme. Only added
+        // when ForwardedHeaders:Enabled names a trusted proxy; see ForwardedHeadersSetup.
+        if (barakoCMS.Infrastructure.Security.ForwardedHeadersSetup.IsEnabled(configuration))
+        {
+            app.UseForwardedHeaders();
+        }
+
         // HTTPS Redirection and HSTS (Production only)
         if (env != "Development")
         {
@@ -679,26 +859,73 @@ public static class ServiceCollectionExtensions
 
         // Security Headers
         var csp = barakoCMS.Infrastructure.Security.SecurityHeaders.ContentSecurityPolicy(env);
+        var healthDashboardCsp =
+            barakoCMS.Infrastructure.Security.SecurityHeaders.HealthDashboardContentSecurityPolicy(env);
+        var healthDashboardEnabled = configuration.GetValue<bool>("HealthChecksUI:Enabled");
 
         app.Use(async (context, next) =>
         {
-            // Prevent XSS attacks
             context.Response.Headers.Append("X-Content-Type-Options", "nosniff");
             context.Response.Headers.Append("X-Frame-Options", "DENY");
-            context.Response.Headers.Append("X-XSS-Protection", "1; mode=block");
             context.Response.Headers.Append("Referrer-Policy", "strict-origin-when-cross-origin");
 
-            // Content Security Policy
-            context.Response.Headers.Append("Content-Security-Policy", csp);
+            // X-XSS-Protection is deliberately not written. Every current browser ignores it, and
+            // the auditor it was there to satisfy is not a threat model. While it was honoured its
+            // filter introduced holes of its own: "1; mode=block" gave a cross-origin attacker a
+            // way to detect content on the page by watching which loads were blocked. The CSP
+            // below is the control that actually applies. See issue #271.
 
-            // HSTS (HTTP Strict Transport Security)
-            if (context.Request.IsHttps)
-            {
-                context.Response.Headers.Append("Strict-Transport-Security",
-                    "max-age=31536000; includeSubDomains");
-            }
+            // Content Security Policy. The looser style-src is reached only by the health dashboard,
+            // and only while the dashboard is switched on.
+            var policy = healthDashboardEnabled &&
+                         barakoCMS.Infrastructure.Security.SecurityHeaders.IsHealthDashboardPath(context.Request.Path)
+                ? healthDashboardCsp
+                : csp;
+            context.Response.Headers.Append("Content-Security-Policy", policy);
+
+            // Strict-Transport-Security is NOT written here. UseHsts above owns it, configured by
+            // HstsPolicy. This block used to append a second copy of the header on every HTTPS
+            // request, in every environment: browsers take the first value and ignore the rest, so
+            // the effective policy was the framework default rather than the one written here, and a
+            // developer on https://localhost was being pinned too.
 
             await next();
+        });
+
+        // The Prometheus endpoint is mapped by the host (barakoCMS/Program.cs) and publishes route
+        // names, per-endpoint traffic and process internals. It is guarded here, before endpoint
+        // routing can execute it, rather than at the mapping. A scraper cannot sign in, so the
+        // credential is the shared Metrics:ScrapeKey; with none set the endpoint serves nobody.
+        var metricsScrapeKey = configuration[barakoCMS.Infrastructure.Security.MetricsScrapeAccess.ConfigurationKey];
+
+        app.Use(async (context, next) =>
+        {
+            if (!barakoCMS.Infrastructure.Security.MetricsScrapeAccess.IsMetricsPath(context.Request.Path))
+            {
+                await next();
+                return;
+            }
+
+            var presented = barakoCMS.Infrastructure.Security.MetricsScrapeAccess.PresentedKey(
+                context.Request.Headers[barakoCMS.Infrastructure.Security.MetricsScrapeAccess.HeaderName],
+                context.Request.Headers.Authorization);
+
+            switch (barakoCMS.Infrastructure.Security.MetricsScrapeAccess.Authorize(metricsScrapeKey, presented))
+            {
+                case barakoCMS.Infrastructure.Security.MetricsScrapeDecision.Allowed:
+                    await next();
+                    return;
+
+                case barakoCMS.Infrastructure.Security.MetricsScrapeDecision.Rejected:
+                    context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                    context.Response.Headers.WWWAuthenticate = "Bearer";
+                    return;
+
+                default:
+                    // Nothing is configured, so as far as a caller is concerned there is no endpoint.
+                    context.Response.StatusCode = StatusCodes.Status404NotFound;
+                    return;
+            }
         });
 
         // Rate Limiting
@@ -732,7 +959,10 @@ public static class ServiceCollectionExtensions
         var globalPostProcessors = app.ApplicationServices.GetServices<FastEndpoints.IGlobalPostProcessor>().ToArray();
         app.UseFastEndpoints(c =>
         {
-            c.Errors.UseProblemDetails();
+            // AllowDuplicateErrors keeps every failure that shares a field name. Without it a
+            // content type with three bad fields reports one of them, so the caller fixes it, posts
+            // again and is told about the next one.
+            c.Errors.UseProblemDetails(x => x.AllowDuplicateErrors = true);
 
             // Deserialize incoming Dictionary<string, object> bodies (a content entry's Data, a
             // permission rule's Conditions) exactly the way they are stored — see ObjectJsonConverter.
@@ -743,6 +973,17 @@ public static class ServiceCollectionExtensions
             c.Serializer.Options.Converters.Add(
                 new barakoCMS.Infrastructure.Serialization.ObjectJsonConverter());
 
+            // Enums cross the wire as names, not numbers. An int enum renumbers every client the
+            // moment a member is inserted, and the admin had the numbering transcribed into its own
+            // source to cope.
+            //
+            // This is the HTTP serializer only. The Marten one above must NOT get this converter:
+            // documents are stored with Status as a number and mt_doc_contents_idx_status indexes
+            // ((data ->> 'Status')::integer), so writing names there breaks the index cast and every
+            // LINQ query that filters on it. Changing storage is a data migration, not a contract
+            // change. Reading still accepts a number, so an existing caller keeps working.
+            c.Serializer.Options.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+
             c.Endpoints.Configurator = ep =>
             {
                 if (globalPreProcessors.Length > 0)
@@ -752,18 +993,66 @@ public static class ServiceCollectionExtensions
             };
         });
 
-        // Health Checks Endpoint — unauthenticated for k8s liveness/readiness probes.
-        // All checks still run (status code reflects DB/disk/memory), but the response body is
-        // minimal so anonymous callers can't enumerate internal check names/descriptions/timings.
-        app.UseHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
-        {
-            Predicate = _ => true,
-            ResponseWriter = async (context, report) =>
+        // Health check endpoints, unauthenticated because kubelet cannot present a token. The
+        // response body stays minimal on all three so anonymous callers cannot enumerate internal
+        // check names, descriptions or timings.
+        //
+        // Three endpoints, not one. UseHealthChecks maps a path prefix, so the more specific paths
+        // have to be registered first or "/health" swallows them.
+        //
+        //   /health/live   the liveness probe. Process-only. A failure here means restart me.
+        //   /health/ready  the readiness probe. Database, disk, and the startup seed. A failure
+        //                  here means take me out of rotation and leave me running.
+        //   /health/build  which build is answering. Not a check; see below.
+        //   /health        the full report, for humans and dashboards.
+        //
+        // Pointing liveness at the full report is what turned a Postgres restart into a
+        // simultaneous restart of every replica. See issue #281.
+        static Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions Probe(
+            Func<Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckRegistration, bool> predicate) =>
+            new()
             {
-                context.Response.ContentType = "application/json";
-                await context.Response.WriteAsync($"{{\"status\":\"{report.Status}\"}}");
-            }
-        });
+                Predicate = predicate,
+                ResponseWriter = async (context, report) =>
+                {
+                    context.Response.ContentType = "application/json";
+                    await context.Response.WriteAsync($"{{\"status\":\"{report.Status}\"}}");
+                }
+            };
+
+        // Which build is answering, as the commit it was built from. Anonymous, like the probes,
+        // and for the same reason: the caller is a deploy pipeline, not a signed-in user.
+        //
+        // A release used to prove a deploy by asking for a 200 and reading back a version string,
+        // and a version string cannot tell two builds apart. Today's 3.20.2 and yesterday's 3.20.2
+        // are the same characters. A deploy that pulled nothing and restarted nothing answers that
+        // check exactly like a deploy that worked. A commit sha cannot (#157).
+        //
+        // Stamped in at image build time (BARAKO_BUILD_SHA), not read from assembly metadata:
+        // .git is in .dockerignore, so SourceLink has nothing to stamp inside the image. Unset
+        // means "unknown", which fails the comparison rather than passing it.
+        //
+        // Its own path rather than a field on /health, so the probe body stays exactly what every
+        // dashboard and kubelet already parses.
+        var buildSha = Environment.GetEnvironmentVariable("BARAKO_BUILD_SHA");
+        if (string.IsNullOrWhiteSpace(buildSha))
+        {
+            buildSha = "unknown";
+        }
+
+        // Serialized rather than interpolated: the value comes from the environment, and a quote in
+        // it would otherwise produce a body that is not JSON.
+        var buildBody = System.Text.Json.JsonSerializer.Serialize(new { sha = buildSha });
+
+        app.Map("/health/build", branch => branch.Run(async context =>
+        {
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync(buildBody);
+        }));
+
+        app.UseHealthChecks("/health/live", Probe(check => check.Tags.Contains("live")));
+        app.UseHealthChecks("/health/ready", Probe(check => check.Tags.Contains("ready")));
+        app.UseHealthChecks("/health", Probe(_ => true));
 
         // Health Checks UI Dashboard (Config-Gated)
         if (configuration.GetValue<bool>("HealthChecksUI:Enabled"))
@@ -777,6 +1066,9 @@ public static class ServiceCollectionExtensions
 
         if (configuration.GetValue("Swagger:Enabled", env == "Development"))
         {
+            // Before UseSwaggerGen, because it rewrites that middleware's response: content types
+            // are created at runtime, so /api/public/students can only reach the document here.
+            app.UseMiddleware<barakoCMS.Infrastructure.OpenApi.DeliveryDocumentMiddleware>();
             app.UseSwaggerGen();
         }
 
@@ -852,10 +1144,13 @@ public static class ServiceCollectionExtensions
     /// <summary>
     /// Applies all outstanding Marten schema changes to the database, upfront. Call this at startup
     /// BEFORE any seeder runs. It's the deliberate, ordered replacement for
-    /// ApplyAllDatabaseChangesOnStartup: because production runs AutoCreate.None (no on-demand DDL),
-    /// the schema must exist before the seeders query it — and the seeders run before app.Run(), so a
-    /// boot-time hosted service is too late. Idempotent: a no-op when the DB already matches the model.
-    /// A schema mismatch throws here, failing the deploy loudly instead of 500ing live writes.
+    /// ApplyAllDatabaseChangesOnStartup: because production runs AutoCreate.CreateOnly, which creates
+    /// missing objects but never issues DDL on demand for an existing one, the schema must exist
+    /// before the seeders query it, and the seeders run before app.Run(), so a boot-time hosted
+    /// service is too late. Idempotent: a no-op when the DB already matches the model.
+    /// A change CreateOnly refuses (anything needing an ALTER) throws here, failing the deploy loudly
+    /// instead of 500ing live writes. That is the upgrade path's entry point: generate the delta with
+    /// <c>db-patch</c>, review it, apply it, then deploy. See docs/upgrading-to-4.0.md.
     /// </summary>
     public static async Task ApplyMartenSchemaAsync(this IHost host)
     {

@@ -6,27 +6,34 @@ using System.Security.Claims;
 
 namespace barakoCMS.Features.Content.ChangeStatus;
 
-public class Endpoint : Endpoint<Request, Response>
+internal class Endpoint : Endpoint<Request, Response>
 {
     private readonly IDocumentSession _session;
     private readonly IContentWriter _contentWriter;
     private readonly barakoCMS.Infrastructure.Services.IPermissionResolver _permissionResolver;
     private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
+    private readonly IConfiguration _configuration;
+    private readonly ILogger<Endpoint> _logger;
 
     public Endpoint(
         IDocumentSession session,
         barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver,
-        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant, IContentWriter contentWriter)
+        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
+        IContentWriter contentWriter,
+        IConfiguration configuration,
+        ILogger<Endpoint> logger)
     {
         _contentWriter = contentWriter;
         _session = session;
         _permissionResolver = permissionResolver;
         _tenant = tenant;
+        _configuration = configuration;
+        _logger = logger;
     }
 
     public override void Configure()
     {
-        Put("/api/contents/{Id}/status");
+        Put("/api/contents/{id}/status");
         Claims("UserId");
     }
 
@@ -35,14 +42,12 @@ public class Endpoint : Endpoint<Request, Response>
         var userIdClaim = User.FindFirst("UserId");
         if (userIdClaim == null)
         {
-            await Send.ResponseAsync(new Response { Message = "User ID claim not found" }, 400, ct);
-            return;
+            ThrowError("User ID claim not found");
         }
 
         if (!Guid.TryParse(userIdClaim.Value, out var userId))
         {
-            await Send.ResponseAsync(new Response { Message = "Invalid User ID format" }, 400, ct);
-            return;
+            ThrowError("Invalid User ID format");
         }
 
         var user = await _session.LoadAsync<barakoCMS.Models.User>(userId, ct);
@@ -55,35 +60,238 @@ public class Endpoint : Endpoint<Request, Response>
             return;
         }
 
-        // PERMISSION CHECK
-        // Treating status change as an "Update" action.
-        if (user == null || !await _permissionResolver.CanPerformActionAsync(user, content.ContentType, "update", content, ct))
+        if (user == null)
         {
             await Send.ForbiddenAsync(ct);
             return;
         }
 
-        var @event = new barakoCMS.Events.ContentStatusChanged(req.Id, req.NewStatus, userId);
+        // Which of the two request shapes is correct depends on the content type, which the
+        // validator cannot see. A type with a lifecycle takes a named transition; every type that
+        // exists today has none and takes a status.
+        var definition = await _session.Query<barakoCMS.Models.ContentTypeDefinition>()
+            .FirstOrDefaultAsync(d => d.Name == content.ContentType, ct);
+        var lifecycle = definition?.Lifecycle;
+
+        // The permission check is deliberately not shared between the two paths.
+        //
+        // A status change is an edit, so it checks Update, which is what it has always done. A
+        // transition is not: the whole point of #341 is that a manager approves an amount they may
+        // not edit, so requiring Update as well would make the interesting half of separation of
+        // duties unreachable. Checking both would have looked more careful and been strictly worse.
+        //
+        // The transition check lives further in, because which permission applies depends on which
+        // transition was named and that is only known once the request has been matched against the
+        // lifecycle.
+        if (lifecycle is not null)
+        {
+            await HandleTransitionAsync(req, content, lifecycle, user, userId, ct);
+            return;
+        }
+
+        if (req.Transition is not null)
+        {
+            ThrowError($"Content type '{content.ContentType}' declares no lifecycle, so it takes NewStatus rather than a transition.", 400);
+        }
+
+        // A status change is an edit of the entry, so it is governed by Update, unchanged.
+        if (!await _permissionResolver.CanPerformActionAsync(user, content.ContentType, "update", content, ct))
+        {
+            await Send.ForbiddenAsync(ct);
+            return;
+        }
+
+        var newStatus = req.NewStatus!.Value;
+
+        // A no-op request appends nothing. ContentStatusChanged carries only the new status, so the
+        // workflow projection cannot tell "moved to Published" from "set to Published while already
+        // Published": a second event fires every Published workflow again, and the confirmation
+        // email goes out twice for a double-clicked button or a client retry. The Update slice has
+        // always guarded this; this one did not. It also keeps transitions that changed nothing out
+        // of the stream, which is the source of truth for history and replay.
+        if (content.Status == newStatus)
+        {
+            await Send.ResponseAsync(new Response
+            {
+                Message = $"Content status is already {newStatus}"
+            });
+            return;
+        }
+
+        var @event = new barakoCMS.Events.ContentStatusChanged(req.Id, newStatus, userId);
 
         // Append the event AND update the read-model document in one transaction so they can't
         // diverge. Workflows fire out-of-band via the async WorkflowProjection, which is driven off the
         // event stream — so the append is what makes "Published" workflows actually run.
-        _contentWriter.Append(content, @event);
-
-        // There's no content-delete endpoint in barakoCMS today — archiving is the closest
-        // destructive-equivalent action, so it's what gets audited here rather than every routine
-        // draft→published transition, which would just be noise.
-        if (req.NewStatus == barakoCMS.Models.ContentStatus.Archived)
+        //
+        // Under an expected-version check rather than a plain append: this is a whole-document write
+        // built from a document loaded at the top of the request, so an unguarded append would let it
+        // overwrite a scheduler transition or an edit that landed in between.
+        try
         {
-            await AuditLog.RecordAsync(_session, _tenant.Slug, "content.archived", userId, user.Username,
-                targetType: content.ContentType, targetId: content.Id.ToString(), ct: ct);
-        }
+            await _contentWriter.AppendOptimisticAsync(content, new[] { @event }, ct);
 
-        await _session.SaveChangesAsync(ct);
+            // There's no content-delete endpoint in barakoCMS today, and archiving is the closest
+            // destructive-equivalent action, so it's what gets audited here rather than every routine
+            // draft-to-published transition, which would just be noise.
+            if (newStatus == barakoCMS.Models.ContentStatus.Archived)
+            {
+                await AuditLog.RecordAsync(_session, _tenant.Slug, "content.archived", userId, user.Username,
+                    targetType: content.ContentType, targetId: content.Id.ToString(), ct: ct);
+            }
+
+            await _session.SaveChangesAsync(ct);
+        }
+        catch (Exception ex) when (ex is JasperFx.ConcurrencyException
+            || ex.GetType().Name.Contains("Concurrency")
+            || ex.GetType().Name.Contains("UnexpectedMaxEventId"))
+        {
+            // 409 rather than the 412 the update endpoint returns: nothing here was conditional on a
+            // version the client sent, so there is no precondition to have failed.
+            ThrowError("The content was changed by another writer. Please refresh and try again.", 409);
+        }
 
         await Send.ResponseAsync(new Response
         {
-            Message = $"Content status changed to {req.NewStatus}"
+            Message = $"Content status changed to {newStatus}"
+        });
+    }
+
+    /// <summary>
+    /// Performs a named transition against the content type's own lifecycle.
+    /// </summary>
+    /// <remarks>
+    /// The refusal is server side, not a button the admin declines to draw. CLAUDE.md section 9 is
+    /// explicit that hiding a control is not access control, and a lifecycle that only the UI
+    /// enforces is a lifecycle any HTTP client can ignore.
+    ///
+    /// ContentStatus is untouched here. The enum decides whether public delivery serves an entry and
+    /// a custom lifecycle decides nothing about that, so an invoice moving from Submitted to Approved
+    /// does not become publicly visible as a side effect. Conflating the two is the shortcut that
+    /// makes a system nobody can explain.
+    ///
+    /// Lifecycle:EnforceTransitions exists because a deployment adopting lifecycles has entries that
+    /// predate the rules, and refusing every edit to them is not a migration path. Off logs the
+    /// violation and allows it, which is a deliberate escape hatch rather than an oversight, and it
+    /// defaults to on.
+    /// </remarks>
+    private async Task HandleTransitionAsync(
+        Request req,
+        barakoCMS.Models.Content content,
+        barakoCMS.Models.LifecycleDefinition lifecycle,
+        barakoCMS.Models.User user,
+        Guid userId,
+        CancellationToken ct)
+    {
+        if (req.NewStatus.HasValue)
+        {
+            ThrowError($"Content type '{content.ContentType}' declares a lifecycle, so it takes Transition rather than NewStatus.", 400);
+        }
+
+        // Nothing below this line may be reached by a caller with no rights on the type. Removing
+        // the shared Update check is what makes this necessary: the refusals further down name the
+        // type's declared transitions and the entry's current lifecycle state, which is a workflow
+        // map handed to anyone holding a valid token. Read is the floor rather than Update, because
+        // requiring Update is the coupling this whole change exists to remove.
+        if (!await _permissionResolver.CanPerformActionAsync(user, content.ContentType, "read", content, ct))
+        {
+            await Send.ForbiddenAsync(ct);
+            return;
+        }
+
+        // An entry written before the type declared a lifecycle has no state. It starts at the
+        // declared initial state rather than being unmovable, because the alternative is content
+        // that can never be transitioned and no way to fix it short of editing the database.
+        var currentState = content.LifecycleState ?? lifecycle.InitialState;
+
+        var transition = lifecycle.Transitions.FirstOrDefault(
+            t => string.Equals(t.Name, req.Transition, StringComparison.OrdinalIgnoreCase));
+
+        if (transition is null)
+        {
+            var available = lifecycle.Transitions.Count == 0
+                ? "(none)"
+                : string.Join(", ", lifecycle.Transitions.Select(t => t.Name).OrderBy(n => n, StringComparer.Ordinal));
+            ThrowError($"'{req.Transition}' is not a transition on '{content.ContentType}'. Declared transitions: {available}.", 400);
+            return;
+        }
+
+        // Checked here rather than at the top with the CRUD check, because which permission applies
+        // depends on which transition was named, and that is only known once the request has been
+        // matched against the lifecycle. It runs before the state check below, so a caller who may
+        // not perform a transition is not told which state the entry is sitting in.
+        //
+        // A transition permission is not implied by Update. Falling back to the Update rule is the
+        // obvious way to keep existing configurations working and it is the defect this exists to
+        // fix: it grants approval to everyone who can edit. Undeclared means refused.
+        var transitionAction = barakoCMS.Infrastructure.Services.PermissionResolver.TransitionActionPrefix + transition.Name;
+        if (!await _permissionResolver.CanPerformActionAsync(user, content.ContentType, transitionAction, content, ct))
+        {
+            await Send.ForbiddenAsync(ct);
+            return;
+        }
+
+        // Whether the person who raised a record may move it on is a policy, not a bug, and
+        // organisations answer it differently. Refused by default because that is the direction that
+        // can be relaxed later: granting it and tightening afterwards takes away something people
+        // were relying on, and an approval that should not have happened cannot be undone.
+        //
+        // CreatedBy is what this reads, not LastModifiedBy, which moves to whoever edited last and
+        // would make the check mean nothing after any edit.
+        if (content.CreatedBy == userId
+            && !_configuration.GetValue($"Lifecycle:AllowSelfTransition:{transition.Name}", false))
+        {
+            _logger.LogInformation(
+                "Refused a self transition of {ContentId} by its creator. Set Lifecycle:AllowSelfTransition:{Transition} to allow it.",
+                content.Id, transition.Name);
+
+            await Send.ForbiddenAsync(ct);
+            return;
+        }
+
+        if (!string.Equals(transition.From, currentState, StringComparison.OrdinalIgnoreCase))
+        {
+            var enforce = _configuration.GetValue("Lifecycle:EnforceTransitions", true);
+            var message = $"'{transition.Name}' moves {transition.From} to {transition.To}, and this entry is {currentState}.";
+
+            if (enforce)
+            {
+                ThrowError(message, 409);
+                return;
+            }
+
+            // Recorded at warning level rather than passed over. The setting exists to let existing
+            // data through, and an operator who turned it on should be able to see what it let
+            // through and how often.
+            _logger.LogWarning(
+                "Lifecycle:EnforceTransitions is off and permitted an out-of-order transition on {ContentId}: {Message}",
+                content.Id, message);
+        }
+
+        var transitioned = new barakoCMS.Events.ContentTransitioned(
+            content.Id, transition.Name, currentState, transition.To, userId);
+
+        try
+        {
+            await _contentWriter.AppendOptimisticAsync(content, new object[] { transitioned }, ct);
+
+            await AuditLog.RecordAsync(_session, _tenant.Slug, $"content.transitioned", userId, user.Username,
+                targetType: content.ContentType, targetId: content.Id.ToString(),
+                metadata: new() { ["transition"] = transition.Name, ["from"] = currentState, ["to"] = transition.To },
+                ct: ct);
+
+            await _session.SaveChangesAsync(ct);
+        }
+        catch (Exception ex) when (ex is JasperFx.ConcurrencyException
+            || ex.GetType().Name.Contains("Concurrency")
+            || ex.GetType().Name.Contains("UnexpectedMaxEventId"))
+        {
+            ThrowError("The content was changed by another writer. Please refresh and try again.", 409);
+        }
+
+        await Send.ResponseAsync(new Response
+        {
+            Message = $"{transition.Name} moved this entry to {transition.To}",
         });
     }
 }
