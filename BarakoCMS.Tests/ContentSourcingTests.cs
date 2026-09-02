@@ -552,6 +552,55 @@ public class ContentSourcingTests
     }
 
     /// <summary>
+    /// A name that already exists in another case cannot be created as event sourced.
+    /// </summary>
+    /// <remarks>
+    /// Names are normalised on the way in from 4.0 and were not before, so a 3.x import stored the
+    /// file's own spelling and "Article" can be sitting in a deployed database. Postgres compares
+    /// exactly, while every reader in the codebase matches names with OrdinalIgnoreCase. So the
+    /// duplicate check found nothing, the entry count found nothing, and "article" could be created
+    /// as event sourced beside entries written under document rules, whose sensitivity a rebuild
+    /// would then invent.
+    ///
+    /// The row is written straight to the database rather than through the endpoint, deliberately:
+    /// the endpoint normalises, so it can no longer produce the state this is about.
+    ///
+    /// Paired with a name nobody has, because a guard that refused every event-sourced creation
+    /// would pass the first half of this on its own.
+    /// </remarks>
+    [Fact]
+    public async Task A_name_that_exists_in_another_case_cannot_be_created_as_event_sourced()
+    {
+        var client = await ClientAsync();
+        var name = NewTypeName();
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(),
+                Name = name.ToUpperInvariant(),
+                DisplayName = "A pre-4.0 import",
+                Fields = new List<FieldDefinition>(),
+            });
+            await session.SaveChangesAsync();
+        }
+
+        var refused = await CreateTypeAsync(client, name, eventSourced: true);
+
+        refused.StatusCode.Should().Be(HttpStatusCode.Conflict,
+            "the same name in another case is the same type to every reader: {0}",
+            await refused.Content.ReadAsStringAsync());
+
+        var fresh = await CreateTypeAsync(client, NewTypeName(), eventSourced: true);
+        fresh.IsSuccessStatusCode.Should().BeTrue(
+            "a name nobody has must still be creatable, or the refusal above proves only that "
+          + "everything is refused: {0}",
+            await fresh.Content.ReadAsStringAsync());
+    }
+
+    /// <summary>
     /// Scheduling is a write, so an event-sourced type asks it where the stream was like any other.
     /// </summary>
     /// <remarks>
