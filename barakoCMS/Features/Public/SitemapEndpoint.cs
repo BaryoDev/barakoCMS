@@ -78,6 +78,18 @@ internal class SitemapEndpoint : EndpointWithoutRequest
                 if (string.IsNullOrWhiteSpace(pub.Slug))
                     continue;
 
+                // An entry asking not to be indexed is left out of the sitemap.
+                //
+                // The tag on the page is the instruction a crawler obeys; the sitemap is the
+                // invitation. Listing a page here and then telling the crawler to go away when it
+                // arrives wastes its budget on the site and is a contradiction it reports back as an
+                // error, which reads as a broken sitemap rather than a deliberate choice.
+                //
+                // Read off the projected data rather than the document, so a field somebody made
+                // non-Public cannot silently start hiding entries from the sitemap.
+                if (barakoCMS.Features.Seo.SeoFields.Resolve(pub.Data).NoIndex)
+                    continue;
+
                 var slug = pub.Slug;
                 var link = siteUrl + pathTemplate.Replace(
                     "{slug}",
