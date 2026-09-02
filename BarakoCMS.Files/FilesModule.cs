@@ -23,6 +23,21 @@ public sealed class FilesModule : IBarakoModule
     {
         /* Default storage. The S3 module, when present, replaces this (it runs after and overrides). */
         services.TryAddScoped<IFileStorage, PostgresFileStorage>();
+
+        // Scanning is off unless Files:Scanner:Address names a clamd. That is the default and it is
+        // what every existing deployment does, so upgrading changes nothing about what an upload
+        // does. Registered as a concrete type either way so the upload path has one object to talk
+        // to; which one it gets is the only difference.
+        var scanner = configuration[$"{FileScannerOptions.Section}:Address"];
+
+        if (string.IsNullOrWhiteSpace(scanner))
+        {
+            services.TryAddSingleton<IFileScanner, NoFileScanner>();
+        }
+        else
+        {
+            services.TryAddSingleton<IFileScanner, ClamAvScanner>();
+        }
     }
 
     public void ConfigureSchema(IModuleSchema schema)
