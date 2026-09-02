@@ -627,7 +627,25 @@ public static class ServiceCollectionExtensions
                     }
                 }
 
-                connectionString = $"Host={uri.Host};Port={port};Database={database};Username={username};Password={password};SSL Mode={sslMode};Include Error Detail=true";
+                // Built rather than interpolated. Decoding the credentials above is correct and it
+                // makes a case reachable that was not before: a semicolon is legal in a Postgres
+                // password, percent-encoding it in the URL is how you are supposed to express one,
+                // and UnescapeDataString turns %3B back into a literal ';'. Interpolated, that ends
+                // the Password key and the rest of the password is read as another setting, so the
+                // deployment fails to connect with a message about an unknown keyword rather than a
+                // bad password. The builder escapes it.
+                var builder = new Npgsql.NpgsqlConnectionStringBuilder
+                {
+                    Host = uri.Host,
+                    Port = port,
+                    Database = database,
+                    Username = username,
+                    Password = password,
+                    SslMode = Enum.Parse<Npgsql.SslMode>(sslMode, ignoreCase: true),
+                    IncludeErrorDetail = true,
+                };
+
+                connectionString = builder.ConnectionString;
             }
             catch (UriFormatException)
             {

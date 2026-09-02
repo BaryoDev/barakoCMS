@@ -41,6 +41,42 @@ public class ConnectionStringTests
         conn.Should().Contain("Password=pw");
     }
 
+    /// <summary>
+    /// A password containing a semicolon survives, because the connection string is built rather
+    /// than interpolated.
+    /// </summary>
+    /// <remarks>
+    /// A semicolon is legal in a Postgres password and percent-encoding it is how a URL expresses
+    /// one. Unescaping turns %3B back into a literal ';', which in an interpolated connection string
+    /// ends the Password key: everything after it is read as another setting, and the deployment
+    /// fails with a message about an unknown keyword rather than about a password. Parsing it back
+    /// with the builder is the assertion, because asserting on the string would only restate however
+    /// this happens to quote today.
+    /// </remarks>
+    [Fact]
+    public void A_password_containing_a_semicolon_survives()
+    {
+        var config = CreateConfig(databaseUrl: "postgres://user:pa%3Bss%3Bword@remotehost:5432/mydb");
+
+        var conn = barakoCMS.Extensions.ServiceCollectionExtensions.ResolveConnectionString(config);
+
+        var parsed = new Npgsql.NpgsqlConnectionStringBuilder(conn);
+        parsed.Password.Should().Be("pa;ss;word");
+        parsed.Username.Should().Be("user");
+        parsed.Database.Should().Be("mydb");
+    }
+
+    /// <summary>The same for the other characters a connection string treats as syntax.</summary>
+    [Fact]
+    public void A_password_containing_quotes_and_equals_survives()
+    {
+        var config = CreateConfig(databaseUrl: "postgres://user:p%3Dss%27w%22rd@remotehost:5432/mydb");
+
+        var conn = barakoCMS.Extensions.ServiceCollectionExtensions.ResolveConnectionString(config);
+
+        new Npgsql.NpgsqlConnectionStringBuilder(conn).Password.Should().Be("p=ss'w\"rd");
+    }
+
     [Fact]
     public void DatabaseUrl_Without_Explicit_Port_Defaults_To_5432()
     {
@@ -103,9 +139,14 @@ public class ConnectionStringTests
 
         var conn = barakoCMS.Extensions.ServiceCollectionExtensions.ResolveConnectionString(config);
 
-        conn.Should().Contain("Username=user@example.com");
-        conn.Should().Contain("Password=p@ss%w:rd");
-        conn.Should().Contain("Database=my db");
+        // Parsed back rather than string-matched. The connection string is built by
+        // NpgsqlConnectionStringBuilder now, which quotes a value containing a space, so asserting
+        // on the raw text would only restate however Npgsql happens to quote today. The claim is
+        // that the decoded value survives the round trip, and this states exactly that.
+        var parsed = new Npgsql.NpgsqlConnectionStringBuilder(conn);
+        parsed.Username.Should().Be("user@example.com");
+        parsed.Password.Should().Be("p@ss%w:rd");
+        parsed.Database.Should().Be("my db");
     }
 
     [Fact]
