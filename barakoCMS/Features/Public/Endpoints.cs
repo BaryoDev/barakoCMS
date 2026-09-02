@@ -26,7 +26,22 @@ internal sealed record PublicContentResponse(
     string? Slug,
     Dictionary<string, object> Data,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+
+    /// <summary>
+    /// The resolved SEO metadata, or null when the content type has not opted in.
+    /// </summary>
+    /// <remarks>
+    /// Resolved here rather than left to the caller, which is the point of it existing: the raw
+    /// fields are already in Data, and a frontend reading them itself would have to know the field
+    /// names and re-implement the fallback. Two frontends would do it two ways and one of them would
+    /// emit an empty title tag.
+    ///
+    /// Null rather than an empty object for a type that has not opted in, so it is absent from the
+    /// JSON entirely and a caller cannot mistake "this type has no SEO fields" for "this entry has
+    /// not filled them in".
+    /// </remarks>
+    barakoCMS.Features.Seo.SeoMetadata? Seo = null);
 
 internal static class PublicDelivery
 {
@@ -231,7 +246,14 @@ internal static class PublicDelivery
             .Where(kv => publicNames.Contains(kv.Key))
             .ToDictionary(kv => kv.Key, kv => kv.Value);
 
-        return new PublicContentResponse(c.Id, c.ContentType, SlugValue(c, slugField), data, c.CreatedAt, c.UpdatedAt);
+        // Resolved off the projected data, not the document, so a field the type marked non-Public
+        // cannot reach a frontend through this block after being scrubbed out of Data.
+        var seo = barakoCMS.Features.Seo.SeoFields.IsOptedIn(def)
+            ? barakoCMS.Features.Seo.SeoFields.Resolve(data)
+            : null;
+
+        return new PublicContentResponse(
+            c.Id, c.ContentType, SlugValue(c, slugField), data, c.CreatedAt, c.UpdatedAt, seo);
     }
 
     /*
