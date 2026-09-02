@@ -35,7 +35,7 @@ internal class CreateApiKeyEndpoint : Endpoint<CreateApiKeyRequest, CreateApiKey
     public override void Configure()
     {
         Post("/api/api-keys");
-        Roles("SuperAdmin", "Admin");
+        Definition.RequireCapability(SystemCapabilities.ManageApiKeys, "SuperAdmin", "Admin");
     }
 
     public override async Task HandleAsync(CreateApiKeyRequest req, CancellationToken ct)
@@ -97,7 +97,7 @@ internal class ListApiKeysEndpoint : Endpoint<ListRequest, PaginatedResponse<Api
     public override void Configure()
     {
         Get("/api/api-keys");
-        Roles("SuperAdmin", "Admin");
+        Definition.RequireCapability(SystemCapabilities.ManageApiKeys, "SuperAdmin", "Admin");
     }
 
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)
@@ -131,7 +131,7 @@ internal class RevokeApiKeyEndpoint : EndpointWithoutRequest
     public override void Configure()
     {
         Delete("/api/api-keys/{id}");
-        Roles("SuperAdmin", "Admin");
+        Definition.RequireCapability(SystemCapabilities.ManageApiKeys, "SuperAdmin", "Admin");
     }
 
     public override async Task HandleAsync(CancellationToken ct)

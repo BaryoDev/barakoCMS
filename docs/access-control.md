@@ -340,12 +340,21 @@ carry capabilities, and the names stop meaning anything on their own. The defaul
 | `Features/Users/*` | `manage_users` | `GET /api/users`, `POST /api/users/{id}/password` | SuperAdmin |
 | `Features/Users/*` | `manage_user_membership` | `/api/users/{id}/roles`, `/api/users/{id}/groups` | SuperAdmin, Admin |
 | `Features/UserGroups/*` | `manage_user_groups` | `/api/user-groups` and everything under it | SuperAdmin, Admin |
+| `Features/ApiKeys/*` | `manage_api_keys` | `/api/api-keys` | SuperAdmin, Admin |
+| `Features/Audit/*` | `view_audit_log` | `GET /api/audit` | SuperAdmin, Admin |
 
 Users is two capabilities because its old gates were two: listing accounts and resetting
 someone's password were `Roles("SuperAdmin")`, while changing a user's roles and groups
 was `Roles("SuperAdmin", "Admin")`. `manage_users` is the narrow one. Giving it to Admin
 would have handed every Admin the user list, so Admin's defaults carry
 `manage_user_membership` and `manage_user_groups` and not `manage_users`. See issue #443.
+
+API keys and the audit log are two capabilities for the opposite reason: their old gates were
+*identical*, so one name would have covered both and no seeded role would have noticed. They are
+split because a role that reads the audit trail without being able to mint credentials is the
+ordinary auditor case, and a single name makes it unexpressible. `view_audit_log` is named for
+reading because the surface is one GET: entries are append-only and the chain is tamper-evident,
+so there is nothing to manage.
 
 Everything else still gates on `Roles(...)`, which keeps working. Third-party modules
 calling `Roles(...)` are unaffected and compile unchanged.

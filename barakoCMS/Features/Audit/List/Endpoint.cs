@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
@@ -59,7 +60,7 @@ internal class Endpoint : Endpoint<ListRequest, PaginatedResponse<AuditEventDto>
     public override void Configure()
     {
         Get("/api/audit");
-        Roles("SuperAdmin", "Admin");
+        Definition.RequireCapability(SystemCapabilities.ViewAuditLog, "SuperAdmin", "Admin");
     }
 
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)
