@@ -7,6 +7,17 @@
 There are three layers. Two already work. One (sensitivity) is a hardcoded POC
 that needs generalizing.
 
+All three are enforced in C#, and that is a decision rather than an accident: `DECISIONS.md` D11.
+Layers 1 and 2 are `IPermissionResolver`; layer 3 is `SensitivityService`, which is the reason for
+the decision. Row-level security filters rows and has nothing to say about which fields inside one a
+caller may see, so moving the boundary into Postgres would leave the most sensitive layer behind.
+
+Issue #445 will compile the layer 2 conditions to SQL predicates, so the list endpoint stops loading
+a whole collection to return a page. It is not built. Today `GET /api/contents` narrows on content
+type, status and search in the query and then loads every remaining row to check permission on each
+one, so the cost still tracks the collection rather than the page. When #445 lands it will change
+where the rules are *evaluated*, not where they are enforced.
+
 ## Layer 1: CRUD per content type per role (already works)
 
 This is exactly the treasurer/secretary/admin ask, and it is built:
@@ -17,7 +28,7 @@ This is exactly the treasurer/secretary/admin ask, and it is built:
 - `PermissionResolver` enforces it: **additive union** across a user's roles
   (granted if ANY role allows), **SuperAdmin bypasses**, conditions evaluated
   per row.
-- Content endpoints (Create/List/Get/Update/Delete/ChangeStatus/History/Rollback) call
+- Content endpoints (Create/List/Get/Update/Delete/ChangeStatus) call
   `CanPerformActionAsync(user, contentTypeSlug, action, content)`.
 
 So your example is pure configuration, no code:
