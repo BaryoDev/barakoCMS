@@ -38,6 +38,11 @@ public sealed class FilesModule : IBarakoModule
         {
             services.TryAddSingleton<IFileScanner, ClamAvScanner>();
         }
+
+        // Resizing is stateless, so one instance. The variant cache is per request because it
+        // writes through the request's Marten session and the storage provider bound to it.
+        services.TryAddSingleton<IImageResizer, ImageSharpResizer>();
+        services.TryAddScoped<ImageVariants>();
     }
 
     public void ConfigureSchema(IModuleSchema schema)
@@ -45,7 +50,8 @@ public sealed class FilesModule : IBarakoModule
         schema.For<StoredFile>()
             .DocumentAlias("stored_files")
             .Index(x => x.CreatedAt)
-            .Index(x => x.UploadedBy);
+            .Index(x => x.UploadedBy)
+            .Index(x => x.ParentFileId);
 
         /* Blob bytes for the Postgres provider, keyed by the storage key (a string id). */
         schema.For<FileBlob>()

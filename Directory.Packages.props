@@ -29,6 +29,13 @@
     <PackageVersion Include="Talaan" Version="0.1.0" />
   </ItemGroup>
 
+  <ItemGroup Label="Imaging">
+    <!-- Fully managed, so it resizes on linux/arm64 in a container with no native libgdiplus or
+         libvips to install, which is what ruled out the alternatives. Pinned: an imaging decoder is
+         exactly the dependency where "whatever floats to" is how a CVE arrives unannounced. -->
+    <PackageVersion Include="SixLabors.ImageSharp" Version="3.1.12" />
+  </ItemGroup>
+
   <ItemGroup Label="Security">
     <PackageVersion Include="BCrypt.Net-Next" Version="4.2.0" />
     <PackageVersion Include="IdentityModel" Version="7.0.0" />
