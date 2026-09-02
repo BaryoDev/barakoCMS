@@ -595,7 +595,15 @@ public static class ServiceCollectionExtensions
         services.TryAddScoped<barakoCMS.Core.Interfaces.ISmsService, barakoCMS.Infrastructure.Services.MockSmsService>();
         services.AddScoped<barakoCMS.Core.Interfaces.ISensitivityService, barakoCMS.Infrastructure.Services.SensitivityService>();
         services.AddScoped<barakoCMS.Core.Interfaces.IContentSourcingPolicy, barakoCMS.Infrastructure.Services.ContentSourcingPolicyService>();
-        services.AddScoped<barakoCMS.Core.Interfaces.IContentWriter, barakoCMS.Infrastructure.Services.ContentWriter>();
+        // Constructed by hand rather than by type, so the configuration-reading constructor is the
+        // one that runs. Both constructors are satisfiable from the container and the selection would
+        // otherwise be a container detail, which is how EventSourcing:DocumentTypesAppend would end
+        // up being a setting nothing reads.
+        services.AddScoped<barakoCMS.Core.Interfaces.IContentWriter>(sp =>
+            new barakoCMS.Infrastructure.Services.ContentWriter(
+                sp.GetRequiredService<IDocumentSession>(),
+                sp.GetRequiredService<barakoCMS.Core.Interfaces.IContentSourcingPolicy>(),
+                sp.GetRequiredService<IConfiguration>()));
         services.AddScoped<barakoCMS.Infrastructure.Services.IContentRebuilder, barakoCMS.Infrastructure.Services.ContentRebuilder>();
         // Runs any per-content-type domain rules a module registered (IContentLifecycleHook), so a
         // domain with real invariants can still be modelled as ordinary content.

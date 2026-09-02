@@ -107,8 +107,14 @@ internal class Endpoint : Endpoint<Request, Response>
         // 3. Check Uniqueness. This read is the friendly path, not the guarantee: the unique index on
         // the name is what actually stops two concurrent creates, and the catch below turns its
         // constraint violation into this same answer instead of a 500.
+        //
+        // Lowered on both sides, not compared exactly. Names are normalised on the way in from 4.0
+        // and were not before, so a 3.x import could have stored "Article". Postgres compares that
+        // exactly and finds nothing, while every reader in the codebase matches names with
+        // OrdinalIgnoreCase and considers it the same type. That gap let "article" be created beside
+        // it, and created with the opposite sourcing answer.
         var existing = await _session.Query<ContentTypeDefinition>()
-            .FirstOrDefaultAsync(x => x.Name == slug, ct);
+            .FirstOrDefaultAsync(x => x.Name.ToLower() == slug, ct);
 
         if (existing != null)
         {
@@ -140,8 +146,11 @@ internal class Endpoint : Endpoint<Request, Response>
             // than the release that completed the events carry no Sensitivity at all: a rebuild
             // would produce records that look right and are readable by roles that should not see
             // them, which is a security regression no "the document came back" assertion catches.
+            // Case-insensitive for the same reason as the duplicate check above: entries created
+            // before names were normalised carry whatever the caller typed, and counting none of
+            // them is what let a name with history be claimed as event sourced.
             var entries = await _session.Query<barakoCMS.Models.Content>()
-                .CountAsync(c => c.ContentType == slug, ct);
+                .CountAsync(c => c.ContentType.ToLower() == slug, ct);
 
             if (entries > 0)
             {

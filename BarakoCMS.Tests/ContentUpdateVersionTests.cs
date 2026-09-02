@@ -65,21 +65,35 @@ internal sealed class StreamAdvancingContentWriter : IContentWriter
     public Task AppendAsync(Content content, object @event, CancellationToken ct)
         => _inner.AppendAsync(content, @event, ct);
 
-    // AppendAsync(content, events, expectedVersion, ct) is deliberately NOT forwarded. Its default
-    // implementation calls AppendOptimisticAsync on this decorator, which is the seam the advancer
-    // below needs; forwarding it to the inner writer would take the interception out of the path and
-    // the test would go green without ever racing anything.
+    /// <summary>
+    /// Implemented here rather than forwarded straight through, because this is the seam.
+    /// </summary>
+    /// <remarks>
+    /// The interface used to give this member a default that called <see cref="AppendOptimisticAsync"/>
+    /// on the decorator, and the advance below rode in on that. The default is gone (it discarded
+    /// <c>expectedVersion</c>), so the advance happens here instead. Same window: the endpoint has
+    /// already read the stream state, and this commits to the stream before the inner writer appends.
+    /// </remarks>
+    public async Task AppendAsync(
+        Content content, IReadOnlyList<object> events, long? expectedVersion, CancellationToken ct)
+    {
+        await AdvanceIfArmedAsync(content, ct);
+        await _inner.AppendAsync(content, events, expectedVersion, ct);
+    }
+
+    private async Task AdvanceIfArmedAsync(Content content, CancellationToken ct)
+    {
+        if (!_advancer.Claim(content.Id)) return;
+
+        await using var other = _store.LightweightSession();
+        other.Events.Append(content.Id, new barakoCMS.Events.ContentUpdated(
+            content.Id, content.Data, Guid.Empty, string.Empty));
+        await other.SaveChangesAsync(ct);
+    }
 
     public async Task AppendOptimisticAsync(Content content, IReadOnlyList<object> events, CancellationToken ct)
     {
-        if (_advancer.Claim(content.Id))
-        {
-            await using var other = _store.LightweightSession();
-            other.Events.Append(content.Id, new barakoCMS.Events.ContentUpdated(
-                content.Id, content.Data, Guid.Empty, string.Empty));
-            await other.SaveChangesAsync(ct);
-        }
-
+        await AdvanceIfArmedAsync(content, ct);
         await _inner.AppendOptimisticAsync(content, events, ct);
     }
 }

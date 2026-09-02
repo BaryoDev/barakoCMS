@@ -17,9 +17,10 @@ the truth is the real one.
 - **Off** (the default): the current version of each item is the record. History exists for
   reference, but the current version does not depend on it.
 - **On**: the history is the record. The current version is derived from it and can be deleted and
-  rebuilt from history at any time, exactly as it was, including its sensitivity and scheduling
-  settings. That rebuild is the whole point: it is what makes the history trustworthy for audit
-  rather than merely informative.
+  rebuilt from history at any time, including its sensitivity and scheduling settings. Two
+  timestamps shift by the write latency, which the rebuild section below explains. That rebuild is
+  the whole point: it is what makes the history trustworthy for audit rather than merely
+  informative.
 
 One difference is visible to people editing content. If two people open the same item and both
 save, an event-sourced type rejects the second save with a conflict (HTTP 409), because it was
@@ -76,7 +77,7 @@ have. Anyone building against the API should handle 409 on writes to event-sourc
 
 `POST /api/content-types/{name}/rebuild` (Admin or SuperAdmin) throws the current version of every
 item of the type away and produces it again from the history. It is refused for a type that is not
-event sourced, whose current version is the record and whose history is only a reference copy:
+event-sourced, whose current version is the record and whose history is only a reference copy:
 replaying over it would be an overwrite dressed as a repair.
 
 Two timestamps do not come back exactly. Created and updated times are taken from the history
@@ -94,3 +95,36 @@ one transaction.
 
 If none of the above made you want the flag, you do not need it. The default already keeps history
 for reference and audit. The flag is for types where the history must be the record.
+
+## Turning off history for ordinary types
+
+A content type that is not event-sourced still writes every change to its history. That is what
+makes `GET /api/contents/{id}/history` and the rollback endpoint work for every type rather than
+only for the event-sourced ones, and it is the default.
+
+`EventSourcing:DocumentTypesAppend` turns it off:
+
+```json
+{
+  "EventSourcing": {
+    "DocumentTypesAppend": false
+  }
+}
+```
+
+Omit it and it is on, which is what every deployment before 4.0 did.
+
+Read the cost before setting it. With it off, a type that is not event-sourced writes nothing to
+its history, so for those types:
+
+- `GET /api/contents/{id}/history` returns nothing, for entries created from that point on.
+- The rollback endpoint has nothing to roll back to.
+- **Workflows stop firing.** Workflows are triggered by reading committed created, updated and
+  published entries out of the history. No history entry means no trigger, and nothing reports an
+  error: the save succeeds and the workflow simply never runs.
+
+The setting does not reach an event-sourced type. For those the history is the record, and no
+setting takes that away.
+
+Turn it off if you run content types nobody audits, nobody rolls back and no workflow watches, and
+you want the storage back. Leave it alone otherwise.

@@ -420,8 +420,11 @@ public class ContentSourcingTests
         (await LoadAsync(sourcedId))!.Data["Drift"].ToString().Should().Be("planted, never appended",
             "the tamper has to be there, or the assertions below pass without anything happening");
 
-        await ScheduleAsync(client, sourcedId);
-        await ScheduleAsync(client, plainId);
+        // The event-sourced one has to say where the stream was. The plain one still does not, which
+        // is the pairing: if the version became mandatory everywhere, that would be the breaking
+        // change this whole design is arranged to avoid.
+        await ScheduleOkAsync(client, sourcedId, await StreamVersionAsync(sourcedId));
+        await ScheduleOkAsync(client, plainId);
 
         var sourcedAfter = await LoadAsync(sourcedId);
         sourcedAfter!.Data.Should().NotContainKey("Drift",
@@ -548,14 +551,72 @@ public class ContentSourcingTests
         await session.SaveChangesAsync();
     }
 
-    private static async Task ScheduleAsync(HttpClient client, Guid id)
+    /// <summary>
+    /// Scheduling is a write, so an event-sourced type asks it where the stream was like any other.
+    /// </summary>
+    /// <remarks>
+    /// It did not. The schedule endpoint called the single-event append, which never consults a
+    /// version, so a type documented as answering 409 to a stale write answered 200 here and armed a
+    /// publish time against a copy that had since been edited or archived. The scheduler then acted
+    /// on that days later.
+    ///
+    /// Paired with the document type deliberately: making the version mandatory for everyone would
+    /// break every existing client of this endpoint, and that is the change this must not be.
+    /// </remarks>
+    [Fact]
+    public async Task A_schedule_with_no_version_is_refused_on_an_event_sourced_type_and_accepted_on_a_document_type()
     {
-        var response = await client.PutAsJsonAsync($"/api/contents/{id}/schedule", new
+        var client = await ClientAsync();
+
+        var sourcedType = NewTypeName();
+        var plainType = NewTypeName();
+        (await CreateTypeAsync(client, sourcedType, eventSourced: true)).IsSuccessStatusCode.Should().BeTrue();
+        (await CreateTypeAsync(client, plainType, eventSourced: false)).IsSuccessStatusCode.Should().BeTrue();
+
+        var sourcedId = await CreateContentAsync(client, sourcedType, "sourced");
+        var plainId = await CreateContentAsync(client, plainType, "plain");
+
+        var refused = await ScheduleAsync(client, sourcedId);
+        refused.StatusCode.Should().Be(HttpStatusCode.Conflict,
+            "no version means the caller cannot say what it was scheduling against");
+
+        var accepted = await ScheduleAsync(client, plainId);
+        accepted.StatusCode.Should().Be(HttpStatusCode.OK,
+            "every client of this endpoint sends no version today, and a document type must keep working");
+
+        // And the refusal has to have refused something, not merely returned 409 with the schedule
+        // armed anyway.
+        using var scope = _factory.Services.CreateScope();
+        var stored = await scope.ServiceProvider.GetRequiredService<IQuerySession>().LoadAsync<Content>(sourcedId);
+        stored!.ScheduledPublishAt.Should().BeNull("the refused write must not have landed");
+
+        // Sending the version it actually is at goes through.
+        await ScheduleOkAsync(client, sourcedId, await StreamVersionAsync(sourcedId));
+    }
+
+    /// <param name="version">
+    /// The stream version, or 0 for the documented bypass. An event-sourced type answers 409 to 0,
+    /// which is the point of the endpoint taking a version at all.
+    /// </param>
+    private static async Task<HttpResponseMessage> ScheduleAsync(HttpClient client, Guid id, long version = 0)
+        => await client.PutAsJsonAsync($"/api/contents/{id}/schedule", new
         {
             id,
             scheduledPublishAt = DateTime.UtcNow.AddDays(1),
+            version,
         });
 
+    private static async Task ScheduleOkAsync(HttpClient client, Guid id, long version = 0)
+    {
+        var response = await ScheduleAsync(client, id, version);
         response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+    }
+
+    private async Task<long> StreamVersionAsync(Guid id)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+        var state = await session.Events.FetchStreamStateAsync(id);
+        return state?.Version ?? 0;
     }
 }

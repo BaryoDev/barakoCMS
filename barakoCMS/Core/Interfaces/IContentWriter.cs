@@ -60,6 +60,11 @@ public interface IContentWriter
     /// Records the creation of content, honouring the content type's sourcing policy.
     /// </summary>
     /// <returns>The document, so the caller can read back what was applied.</returns>
+    /// <remarks>
+    /// The default implementation delegates to the older synchronous member so an implementor
+    /// written before the policy still compiles. It does <b>not</b> consult the policy, because an
+    /// interface default has no way to read it. Override this to get event-sourced behaviour.
+    /// </remarks>
     Task<Content> CreateAsync(Events.ContentCreated @event, CancellationToken cancellationToken)
     {
 #pragma warning disable CS0618 // the default exists so an implementor written before the policy still compiles
@@ -70,6 +75,10 @@ public interface IContentWriter
     /// <summary>
     /// Records a change to existing content, honouring the content type's sourcing policy.
     /// </summary>
+    /// <remarks>
+    /// As with <see cref="CreateAsync"/>, the default delegates to the older synchronous member and
+    /// does not consult the policy. Override it to get event-sourced behaviour.
+    /// </remarks>
     Task AppendAsync(Content content, object @event, CancellationToken cancellationToken)
     {
 #pragma warning disable CS0618
@@ -89,7 +98,12 @@ public interface IContentWriter
     /// <see cref="StaleContentException"/>. Every other type keeps last-write-wins and behaves
     /// exactly as <see cref="AppendOptimisticAsync"/> does, which is what it did before this
     /// existed.
+    ///
+    /// There is no default. The other two members above can delegate to their older synchronous
+    /// forms and be merely incomplete, but this one takes a concurrency token: a default that
+    /// forwarded to <see cref="AppendOptimisticAsync"/> would discard <paramref name="expectedVersion"/>
+    /// and hand back last-write-wins while the caller believed a stale write had been refused. That
+    /// is the failure this member exists to prevent, so an implementor has to write it.
     /// </remarks>
-    Task AppendAsync(Content content, IReadOnlyList<object> events, long? expectedVersion, CancellationToken cancellationToken)
-        => AppendOptimisticAsync(content, events, cancellationToken);
+    Task AppendAsync(Content content, IReadOnlyList<object> events, long? expectedVersion, CancellationToken cancellationToken);
 }

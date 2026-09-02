@@ -8,7 +8,7 @@ using Marten;
 namespace BarakoCMS.Portability;
 
 /// <summary>
-/// POST /api/portability/import — upsert content types (by name) then recreate content via events.
+/// POST /api/portability/import. Upserts content types (by name) then recreates content via events.
 /// Pass <c>dryRun: true</c> to preview the counts without writing.
 /// </summary>
 public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
@@ -17,6 +17,12 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
     private readonly IContentWriter _contentWriter;
     private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
 
+    /// <remarks>
+    /// One constructor, and it stays that way. The sourcing policy below is resolved rather than
+    /// injected for two reasons: this constructor is public API under CLAUDE.md section 6, and
+    /// FastEndpoints refuses to build an endpoint that offers it a choice of constructors, so adding
+    /// an overload the way section 6 asks throws at startup instead of compiling.
+    /// </remarks>
     public ImportEndpoint(IDocumentSession session, barakoCMS.Infrastructure.Multitenancy.TenantContext tenant, IContentWriter contentWriter)
     {
         _contentWriter = contentWriter;
@@ -90,6 +96,13 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
                 if (!req.DryRun)
                 {
                     _session.Store(definition);
+
+                    // Recorded here as well as in the create endpoint, because this is the other way
+                    // a content type comes into existence. A type with no policy row reads as not
+                    // event sourced, which is the right answer, but nothing stops the name being
+                    // claimed as event sourced later. DecideAsync never overwrites, so a name that
+                    // already has a decision keeps it.
+                    await Resolve<IContentSourcingPolicy>().DecideAsync(definition.Name, false, ct);
                 }
             }
         }

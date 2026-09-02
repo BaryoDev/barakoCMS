@@ -2,14 +2,30 @@ using barakoCMS.Core.Interfaces;
 using barakoCMS.Events;
 using barakoCMS.Models;
 using Marten;
+using Microsoft.Extensions.Configuration;
 
 namespace barakoCMS.Infrastructure.Services;
 
 /// <inheritdoc />
 public sealed class ContentWriter : IContentWriter
 {
+    /// <summary>Whether a type that is not event sourced still writes its changes to a stream.</summary>
+    /// <remarks>
+    /// True by default and by omission, which is what every deployment does today: a document type
+    /// keeps appending, so <c>GET /api/contents/{id}/history</c>, the rollback endpoint and the audit
+    /// trail go on working for it.
+    ///
+    /// Setting it false is the behaviour issue #331 asked for, and it is not free. Workflows are
+    /// triggered by <c>WorkflowProjection</c> reading committed ContentCreated, ContentUpdated and
+    /// ContentStatusChanged events, so with no events there are no workflow runs for that type. The
+    /// history endpoint returns nothing for it and a rollback has nothing to roll back to. Anyone
+    /// turning it off is choosing that, and the documentation says so in those words.
+    /// </remarks>
+    public const string DocumentTypesAppendKey = "EventSourcing:DocumentTypesAppend";
+
     private readonly IDocumentSession _session;
     private readonly IContentSourcingPolicy _policy;
+    private readonly bool _documentTypesAppend;
 
     /// <summary>Streams this session has already staged writes for.</summary>
     /// <remarks>
@@ -18,10 +34,22 @@ public sealed class ContentWriter : IContentWriter
     /// </remarks>
     private readonly HashSet<Guid> _staged = new();
 
+    /// <summary>Writes with document types appending, which is the default and the old behaviour.</summary>
     public ContentWriter(IDocumentSession session, IContentSourcingPolicy policy)
+        : this(session, policy, documentTypesAppend: true)
+    {
+    }
+
+    public ContentWriter(IDocumentSession session, IContentSourcingPolicy policy, IConfiguration configuration)
+        : this(session, policy, configuration.GetValue(DocumentTypesAppendKey, true))
+    {
+    }
+
+    private ContentWriter(IDocumentSession session, IContentSourcingPolicy policy, bool documentTypesAppend)
     {
         _session = session;
         _policy = policy;
+        _documentTypesAppend = documentTypesAppend;
     }
 
     /// <inheritdoc />
@@ -29,23 +57,32 @@ public sealed class ContentWriter : IContentWriter
     public Content Create(ContentCreated @event) => CreateCore(@event);
 
     /// <inheritdoc />
-    public Task<Content> CreateAsync(ContentCreated @event, CancellationToken cancellationToken)
+    public async Task<Content> CreateAsync(ContentCreated @event, CancellationToken cancellationToken)
     {
-        // No branch, and that is not an omission. A brand new stream holds exactly one event, so
-        // folding it and applying it to a blank document are the same operation and produce the same
-        // bytes. The two modes diverge from the second event onwards, which is where the document
-        // either keeps its own drift or is discarded in favour of the stream.
-        return Task.FromResult(CreateCore(@event));
+        // The fold is not branched on, and that is not an omission. A brand new stream holds exactly
+        // one event, so folding it and applying it to a blank document are the same operation and
+        // produce the same bytes. The two modes diverge from the second event onwards, which is
+        // where the document either keeps its own drift or is discarded in favour of the stream.
+        //
+        // Whether a stream is started at all is branched on, because that is what the flag decides.
+        var append = _documentTypesAppend
+            || await _policy.IsEventSourcedAsync(@event.ContentType, cancellationToken);
+
+        return CreateCore(@event, append);
     }
 
-    private Content CreateCore(ContentCreated @event)
+    private Content CreateCore(ContentCreated @event, bool append = true)
     {
         var content = new Content();
         ApplyToDocument(content, @event);
 
-        // The stream and the document are staged together so a partial failure cannot leave one
-        // without the other.
-        _session.Events.StartStream<Content>(@event.Id, @event);
+        if (append)
+        {
+            // The stream and the document are staged together so a partial failure cannot leave one
+            // without the other.
+            _session.Events.StartStream<Content>(@event.Id, @event);
+        }
+
         _session.Store(content);
         _staged.Add(@event.Id);
 
@@ -75,15 +112,50 @@ public sealed class ContentWriter : IContentWriter
         // this existed.
         await RebuildFromStreamAsync(content, cancellationToken);
 
-        _session.Events.Append(content.Id, @event);
+        if (await ShouldAppendAsync(content.ContentType, cancellationToken))
+        {
+            _session.Events.Append(content.Id, @event);
+        }
+
         ApplyToDocument(content, @event);
 
         _session.Store(content);
         _staged.Add(content.Id);
     }
 
+    /// <summary>Does a change to this type get written to a stream?</summary>
+    /// <remarks>
+    /// Always, for an event-sourced type: the stream is its record and there is nothing to configure.
+    /// For every other type it is <see cref="DocumentTypesAppendKey"/>, which is true unless a
+    /// deployment turned it off.
+    /// </remarks>
+    private async Task<bool> ShouldAppendAsync(string contentType, CancellationToken cancellationToken)
+        => _documentTypesAppend || await _policy.IsEventSourcedAsync(contentType, cancellationToken);
+
     /// <inheritdoc />
     public async Task AppendOptimisticAsync(Content content, IReadOnlyList<object> events, CancellationToken cancellationToken)
+        => await AppendCoreAsync(
+            content, events, expectedVersion: null,
+            await ShouldAppendAsync(content.ContentType, cancellationToken), cancellationToken);
+
+    /// <summary>
+    /// Appends and rebuilds, optionally binding the version the caller read at to the append itself.
+    /// </summary>
+    /// <param name="expectedVersion">
+    /// The stream version the caller's copy was read at, or null to use Marten's optimistic append.
+    /// </param>
+    /// <remarks>
+    /// When a version is given it is bound to the append rather than compared beforehand, so Postgres
+    /// enforces it when the commit lands. Fetching the state and comparing it in C# narrows the
+    /// window and does not close it: another writer can append between the read and the append, and
+    /// the check passes on a stream that has already moved. A check that can be overtaken is not a
+    /// concurrency control, it is a smaller race.
+    ///
+    /// Marten's expected version is where the stream ends up, so it is the caller's version plus the
+    /// events being written.
+    /// </remarks>
+    private async Task AppendCoreAsync(
+        Content content, IReadOnlyList<object> events, long? expectedVersion, bool append, CancellationToken cancellationToken)
     {
         // Checked before anything is staged. AppendOptimistic queues the events onto the session, so
         // rejecting the third of five afterwards leaves the first two staged: a caller that catches
@@ -94,7 +166,19 @@ public sealed class ContentWriter : IContentWriter
             AssertHasProjection(@event);
         }
 
-        await _session.Events.AppendOptimistic(content.Id, cancellationToken, events.ToArray());
+        if (!append)
+        {
+            // Nothing is written to a stream, so there is nothing to guard and no stream to fold
+            // from. The document below is the whole of the record for this type.
+        }
+        else if (expectedVersion is { } version)
+        {
+            _session.Events.Append(content.Id, version + events.Count, events.ToArray());
+        }
+        else
+        {
+            await _session.Events.AppendOptimistic(content.Id, cancellationToken, events.ToArray());
+        }
 
         // The document is rebuilt on top of what is committed now, not on top of the caller's load.
         //
@@ -132,23 +216,37 @@ public sealed class ContentWriter : IContentWriter
         long? expectedVersion,
         CancellationToken cancellationToken)
     {
-        if (await _policy.IsEventSourcedAsync(content.ContentType, cancellationToken))
+        if (!await _policy.IsEventSourcedAsync(content.ContentType, cancellationToken))
         {
-            // Checked here rather than left to AppendOptimistic. That one guards the window from the
-            // append to the commit and nothing before it, so an edit made against a read taken
-            // minutes ago commits cleanly and silently overwrites everything in between. For an
-            // event-sourced type the stream is the record, so a write that does not know where the
-            // stream was is refused instead.
-            var state = await _session.Events.FetchStreamStateAsync(content.Id, cancellationToken);
-            var actual = state?.Version ?? 0;
-
-            if (expectedVersion is null || expectedVersion != actual)
-            {
-                throw new StaleContentException(content.Id, expectedVersion, actual);
-            }
+            // Document mode keeps last-write-wins, which is what every type did before this existed.
+            await AppendCoreAsync(content, events, expectedVersion: null, _documentTypesAppend, cancellationToken);
+            return;
         }
 
-        await AppendOptimisticAsync(content, events, cancellationToken);
+        // Compared here for the message, not for the guarantee. Knowing both the expected and the
+        // actual version is what lets the endpoint answer 409 with something a client can act on,
+        // and a mismatch this obvious is worth refusing before anything is staged.
+        var state = await _session.Events.FetchStreamStateAsync(content.Id, cancellationToken);
+        var actual = state?.Version ?? 0;
+
+        if (expectedVersion is null || expectedVersion != actual)
+        {
+            // Null included. For an event-sourced type the stream is the record, so "I did not check"
+            // is not a thing a writer may say.
+            throw new StaleContentException(content.Id, expectedVersion, actual);
+        }
+
+        // The guarantee is this, not the comparison above. That comparison narrows the window and
+        // cannot close it: another writer can commit between the fetch and the append, and the
+        // comparison then passes on a stream that has already moved. Binding the caller's version
+        // into the append makes Postgres refuse the commit instead, which is not something a
+        // scheduler running at the same moment can slip past.
+        //
+        // Nothing is caught here on purpose. The append only registers the expectation; the refusal
+        // arrives from SaveChangesAsync, which is the caller's call, so a catch around this line
+        // would be a handler for an exception that cannot reach it. The Update endpoint already
+        // catches the concurrency exception off its own SaveChangesAsync and answers 412.
+        await AppendCoreAsync(content, events, expectedVersion, append: true, cancellationToken);
     }
 
     /// <summary>

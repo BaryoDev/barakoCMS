@@ -105,7 +105,14 @@ internal class Endpoint : Endpoint<Request, Response>
                 .Where(v => !string.IsNullOrWhiteSpace(v)));
 
         var contentId = Guid.NewGuid();
-        var @event = new barakoCMS.Events.ContentCreated(contentId, req.ContentType, req.Data, req.Status, userId, searchText, req.Sensitivity);
+        // Normalised, because the event is what a rebuild reads back. Every lookup of a type name
+        // is case-insensitive, so "Article" reaches here and passes validation, and the raw value
+        // then went into the stream. A rebuild queried the stored form and matched none of them,
+        // which reported a rebuild of zero items and looked like nothing needed doing.
+        var @event = new barakoCMS.Events.ContentCreated(
+            contentId,
+            barakoCMS.Core.ContentTypeName.Normalize(req.ContentType),
+            req.Data, req.Status, userId, searchText, req.Sensitivity);
 
         var created = await _contentWriter.CreateAsync(@event, ct);
 

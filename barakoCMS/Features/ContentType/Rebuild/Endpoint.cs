@@ -35,6 +35,17 @@ internal sealed class Response
 
     /// <summary>How many documents were produced again from their streams.</summary>
     public int Rebuilt { get; set; }
+
+    /// <summary>
+    /// How many were left alone because somebody wrote to them while the rebuild was running.
+    /// </summary>
+    /// <remarks>
+    /// Not a failure and not a count worth retrying. A write that landed mid-rebuild stored the
+    /// current fold itself, so those items are already right; overwriting them with the fold this
+    /// rebuild started on would be the regression, not the repair. A non-zero number here just says
+    /// the type was being edited at the time.
+    /// </remarks>
+    public int Skipped { get; set; }
 }
 
 internal class Endpoint : Endpoint<Request, Response>
@@ -88,9 +99,9 @@ internal class Endpoint : Endpoint<Request, Response>
         await AuditLog.RecordAsync(_session, _tenant.Slug, "content.rebuilt", actorId,
             User.FindFirst("Username")?.Value ?? string.Empty,
             targetType: name, targetId: name,
-            metadata: new() { ["rebuilt"] = result.Rebuilt }, ct: ct);
+            metadata: new() { ["rebuilt"] = result.Rebuilt, ["skipped"] = result.Skipped }, ct: ct);
         await _session.SaveChangesAsync(ct);
 
-        await Send.OkAsync(new Response { Name = name, Rebuilt = result.Rebuilt }, ct);
+        await Send.OkAsync(new Response { Name = name, Rebuilt = result.Rebuilt, Skipped = result.Skipped }, ct);
     }
 }
