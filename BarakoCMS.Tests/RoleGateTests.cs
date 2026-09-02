@@ -79,6 +79,11 @@ public class RoleGateTests
         new("GET", "/api/requests/{slug}", $"/api/requests/{NotASlug}"),
         new("DELETE", "/api/requests/{slug}", $"/api/requests/{NotASlug}"),
         new("POST", "/api/requests/{slug}/dry-run/{contentId}", $"/api/requests/{NotASlug}/dry-run/{NotAGuid}"),
+        new("GET", "/api/queries", "/api/queries"),
+        new("POST", "/api/queries", "/api/queries"),
+        new("GET", "/api/queries/{slug}", $"/api/queries/{NotASlug}"),
+        new("DELETE", "/api/queries/{slug}", $"/api/queries/{NotASlug}"),
+        new("POST", "/api/queries/{slug}/preview", $"/api/queries/{NotASlug}/preview"),
         new("GET", "/api/connectors", "/api/connectors"),
         new("POST", "/api/connectors", "/api/connectors"),
         // NotASlug for the same reason ids here are unparseable: the endpoint answers 400 from its

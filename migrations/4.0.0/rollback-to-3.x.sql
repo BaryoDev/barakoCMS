@@ -103,6 +103,11 @@ DROP TABLE IF EXISTS public.mt_doc_email_settings;
 -- content: note them down before rolling back, because nothing else records them.
 DROP TABLE IF EXISTS public.mt_doc_request_definitions;
 
+-- Query definitions. 3.x has no such table and nothing references it, so dropping it moves no
+-- content: these are saved recipient lists rather than data, and the entries they select are
+-- untouched. Note them down before rolling back, because nothing else records them.
+DROP TABLE IF EXISTS public.mt_doc_query_definitions;
+
 DROP TABLE IF EXISTS public.mt_doc_connector_secrets;
 DROP TABLE IF EXISTS public.mt_doc_connectors;
 
