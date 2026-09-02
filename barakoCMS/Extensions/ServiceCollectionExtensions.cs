@@ -662,6 +662,7 @@ public static class ServiceCollectionExtensions
 
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowRunQueue, barakoCMS.Features.Workflows.WorkflowRunQueue>();
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowRunner>();
+        services.AddHostedService<barakoCMS.Features.Workflows.WorkflowRunRetentionService>();
         services.AddScoped<barakoCMS.Infrastructure.Auth.Mfa.IMfaService, barakoCMS.Infrastructure.Auth.Mfa.MfaService>();
         // Device trust is opt-in: the default gate does nothing. The DeviceTrust module overrides it.
         services.TryAddScoped<barakoCMS.Core.Interfaces.IDeviceGate, barakoCMS.Core.Interfaces.NoopDeviceGate>();
