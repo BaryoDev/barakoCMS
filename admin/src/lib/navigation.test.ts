@@ -33,13 +33,22 @@ describe('nav visibility', () => {
     // The nav offered Editor the content types screen long after #373 removed that grant from
     // GET /api/content-types, so the link was rendered and the API answered 403. Asserted as a
     // role the server has never heard of, because that is what Editor now is: nothing creates it.
-    // Overview carries no roles and is deliberately shown to everyone, so this names the gated
-    // destinations rather than asserting an empty list.
+    //
+    // Derived from NAV_GROUPS rather than written out. Naming three destinations passes just as
+    // happily if Editor is later granted Workflows or API keys, so the test would have gone on
+    // reporting the contract it names while a new gated screen leaked. Overview and Health carry no
+    // roles and are shown to everyone on purpose, so the assertion is about the gated ones.
     it('routes an unknown role to no gated destination', () => {
+        const gated = NAV_GROUPS.flatMap((g) =>
+            g.items.filter((i) => i.roles && i.roles.length > 0).map((i) => i.title),
+        );
+
+        expect(gated.length).toBeGreaterThan(0);
+
         const seen = titles(['Editor']);
-        expect(seen).not.toContain('Content types');
-        expect(seen).not.toContain('Entries');
-        expect(seen).not.toContain('Users');
+
+        expect(seen.filter((title) => gated.includes(title))).toEqual([]);
+        expect(seen.length).toBeGreaterThan(0, 'an empty nav would satisfy the line above');
     });
 
     it('gives Accountant the accounting screen and nothing extra', () => {

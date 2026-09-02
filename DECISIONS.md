@@ -371,7 +371,7 @@ the one to revisit.
 `IPermissionResolver` is the authorisation boundary. Content CRUD, row-level conditions, field
 sensitivity and the SuperAdmin bypass are decided in C#, against a database connection that is
 already trusted, and that is where they stay. Postgres gets exactly one enforcement job, the
-`tenant_id` discriminator (#446), and it gets that as a backstop behind a flag rather thanand it gets it as a backstop behind a flag, not as the place the
+`tenant_id` discriminator (#446), and it gets that as a backstop behind a flag, not as the place the
 rules live.
 
 The condition language is frozen as a contract at `_eq`, `_ne`, `_in`, `_nin` and `$CURRENT_USER`.
@@ -414,8 +414,8 @@ None is payable for a rule that C# already enforces correctly.
   loads the whole collection and filters per item; a predicate makes the rules usable as a query
   filter, so the cost tracks the page rather than the table.
 - **Tenancy at the database (#446).** `tenant_id` is a column Marten already manages. A policy on it
-  bounds every request-path session opened without a tenant. It would **not** have caught #287. The the
-  workflow daemon runs as table owner and legitimately crosses tenants, and that fix was its own. And and
+  bounds every request-path session opened without a tenant. It would **not** have caught #287. The
+  workflow daemon runs as table owner and legitimately crosses tenants, and that fix was its own. And
   the issue says so, because a backstop sold as catching the bug that motivated it is how a control
   gets trusted for something it does not do.
 
