@@ -47,6 +47,9 @@ public class RoleGateTests
 
     private const string NotAGuid = "not-a-guid";
 
+    /// <summary>Uppercase, so the connector slug check refuses it before any lookup happens.</summary>
+    private const string NotASlug = "NOT_A_SLUG";
+
     public static readonly GatedRoute[] Inventory =
     [
         new("POST", "/api/api-keys", "/api/api-keys"),
@@ -70,6 +73,15 @@ public class RoleGateTests
         new("DELETE", "/api/roles/{id}", $"/api/roles/{NotAGuid}"),
         new("GET", "/api/settings", "/api/settings"),
         new("POST", "/api/settings", "/api/settings"),
+        new("GET", "/api/connectors", "/api/connectors"),
+        new("POST", "/api/connectors", "/api/connectors"),
+        // NotASlug for the same reason ids here are unparseable: the endpoint answers 400 from its
+        // own check, which proves routing reached it. A well formed slug would 404, and a 404 is
+        // what a route that has been removed looks like too.
+        new("GET", "/api/connectors/{slug}", $"/api/connectors/{NotASlug}"),
+        new("PUT", "/api/connectors/{slug}", $"/api/connectors/{NotASlug}"),
+        new("DELETE", "/api/connectors/{slug}", $"/api/connectors/{NotASlug}"),
+        new("POST", "/api/connectors/{slug}/test", $"/api/connectors/{NotASlug}/test"),
         new("GET", "/api/settings/email", "/api/settings/email"),
         new("PUT", "/api/settings/email", "/api/settings/email"),
         new("POST", "/api/settings/email/test", "/api/settings/email/test"),
