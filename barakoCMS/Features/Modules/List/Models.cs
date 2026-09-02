@@ -6,6 +6,12 @@ namespace barakoCMS.Features.Modules.List;
 /// Defaults to the largest page, like every other administrative list. A deployment runs a handful
 /// of modules, so a caller asking nothing should get all of them.
 /// </summary>
+/// <remarks>
+/// Inheriting the shared list request brings a <c>sortOrder</c> the handler does not read, so the
+/// generated client advertises a parameter that changes nothing. Matching the other list endpoints
+/// beats a bespoke request type here, and the fixed order is documented rather than left to be
+/// discovered: see docs/module-inventory.md.
+/// </remarks>
 internal sealed class ListModulesRequest : ListRequest;
 
 /// <summary>

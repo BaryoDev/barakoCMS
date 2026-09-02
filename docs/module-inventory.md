@@ -17,7 +17,7 @@ Authorization: Bearer <token>
 ```json
 {
   "items": [
-    { "name": "Accounting", "contractVersion": 1 },
+    { "name": "Accounting", "contractVersion": 0 },
     { "name": "Files", "contractVersion": 0 }
   ],
   "page": 1,
@@ -39,9 +39,14 @@ and the root type is frozen, so a bare array is not available even for a list th
 the contract accepts, so zero is an answer rather than a missing value. See `ModuleContract` for what
 the number covers.
 
-Items are ordered by name. Registration order decides which module configures services first, which
-is meaningful to the host and meaningless to a caller, so two calls and two deployments of the same
-set agree on the order here.
+Today every first-party module answers zero: none of them override the property. So this endpoint
+confirms that a deployment picked a module up, and does not yet tell you which contract version it
+thinks it is talking to. That becomes useful when a module starts declaring one.
+
+Items are ordered by name, ascending, always. `sortOrder` is inherited from the shared list request
+and is not read here, so a client that sends `desc` still gets ascending. Registration order decides
+which module configures services first, which is meaningful to the host and meaningless to a caller,
+so two calls and two deployments of the same set agree on the order.
 
 A host running no modules gets `items: []` and a 200. "None" is an answer, and a 404 would be
 indistinguishable from a route that never shipped, which is exactly what a client library asking this
