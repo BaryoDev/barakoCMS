@@ -181,6 +181,10 @@ public class RollbackGatesTests
     ///
     /// The seeded Admin role carries no Permissions, so an Admin-only principal is exactly the
     /// pre-upgrade state a real deployment is in, not a contrivance built for this test.
+    ///
+    /// The unknown-version case is the second half of the same rule. Authorisation runs before the
+    /// event stream is read, so a refused caller cannot separate a real version from an invented
+    /// one by comparing 404 against 403, and the server does not read the stream to tell them.
     /// </remarks>
     [Fact]
     public async Task An_admin_without_update_permission_cannot_roll_back()
@@ -230,6 +234,13 @@ public class RollbackGatesTests
         history.StatusCode.Should().Be(HttpStatusCode.Forbidden,
             "and the same caller cannot read the history, which is what made the write it used to "
           + "be allowed a strictly larger grant than the read it was refused");
+
+        // A version id that does not exist answers the same 403, not 404. Authorising after the
+        // stream was read let a caller who may not write tell a real version from an invented one
+        // by the status code, and read every event in the stream on the way to telling them.
+        var invented = await limited.PostAsync($"/api/contents/{id}/rollback/{Guid.NewGuid()}", null);
+        invented.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "a refused caller learns nothing about which versions exist");
 
         using (var scope = _factory.Services.CreateScope())
         {
