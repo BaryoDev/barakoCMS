@@ -64,7 +64,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Content',
     items: [
-      { title: 'Content types', href: '/schemas', icon: IconContentTypes , roles: ['SuperAdmin', 'Admin', 'Editor'] },
+      { title: 'Content types', href: '/schemas', icon: IconContentTypes , roles: ['SuperAdmin', 'Admin'] },
       { title: 'Entries', href: '/content', icon: IconContent , roles: ['SuperAdmin', 'Admin'] },
       { title: 'Workflows', href: '/workflows', icon: IconWorkflows , roles: ['SuperAdmin', 'Admin'] },
     ],

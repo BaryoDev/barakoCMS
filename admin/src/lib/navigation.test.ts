@@ -30,8 +30,16 @@ describe('nav visibility', () => {
         expect(count(['User'])).toBeLessThan(count(['Admin']));
     });
 
-    it('gives Editor the content types screen the API lets them reach', () => {
-        expect(titles(['Editor'])).toContain('Content types');
+    // The nav offered Editor the content types screen long after #373 removed that grant from
+    // GET /api/content-types, so the link was rendered and the API answered 403. Asserted as a
+    // role the server has never heard of, because that is what Editor now is: nothing creates it.
+    // Overview carries no roles and is deliberately shown to everyone, so this names the gated
+    // destinations rather than asserting an empty list.
+    it('routes an unknown role to no gated destination', () => {
+        const seen = titles(['Editor']);
+        expect(seen).not.toContain('Content types');
+        expect(seen).not.toContain('Entries');
+        expect(seen).not.toContain('Users');
     });
 
     it('gives Accountant the accounting screen and nothing extra', () => {
