@@ -3,7 +3,6 @@
 import { Fragment } from 'react';
 import { usePathname } from 'next/navigation';
 import { breadcrumbsFor } from '@/lib/navigation';
-import { CommandMenu } from '@/components/command-menu';
 import { TenantSwitcher } from '@/components/tenant-switcher';
 import { WhatsNew } from '@/components/whats-new';
 import { SidebarTrigger } from '@/components/ui/sidebar';
@@ -22,7 +21,7 @@ export function AppHeader() {
   const crumbs = breadcrumbsFor(pathname);
 
   return (
-    <header className="bg-background/80 sticky top-0 z-40 flex h-14 shrink-0 items-center gap-2 border-b px-4 backdrop-blur">
+    <header className="bg-card/85 sticky top-0 z-40 flex h-14 shrink-0 items-center gap-2 rounded-t-[inherit] border-b px-4 backdrop-blur">
       <SidebarTrigger className="-ml-1" />
       <Separator orientation="vertical" className="mr-1 !h-4" />
       <Breadcrumb className="min-w-0 flex-1">
@@ -52,7 +51,6 @@ export function AppHeader() {
       </Breadcrumb>
       <TenantSwitcher />
       <WhatsNew />
-      <CommandMenu />
     </header>
   );
 }
