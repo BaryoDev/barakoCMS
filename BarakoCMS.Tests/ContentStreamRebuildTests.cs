@@ -92,24 +92,22 @@ public class ContentStreamRebuildTests
             var stream = await session.Events.FetchStreamAsync(id);
             stream.Should().NotBeEmpty("the stream is the only surviving record");
 
-            rebuilt = new Content();
+            // The rebuild the product performs, rather than a copy of it written here. The copy used
+            // e.Timestamp, which is Marten's transaction time, so it could not have caught the
+            // timestamp drift this test exists to pin: it reproduced the very thing that made the
+            // old assertion need a thirty second window. ContentProjection.Fold prefers the event's
+            // own OccurredAt and falls back to the Marten stamp only for events written before 4.0.
+            //
+            // It also keeps the unmatched-event check honest: Fold throws on an event with no Apply
+            // overload, which is the case a hand-written switch here would have to remember to
+            // reproduce every time somebody adds an event.
             foreach (var e in stream)
             {
                 replayed.Add(e.Data);
-                var at = e.Timestamp.UtcDateTime;
-                switch (e.Data)
-                {
-                    case ContentCreated x: rebuilt.Apply(x, at); break;
-                    case ContentUpdated x: rebuilt.Apply(x, at); break;
-                    case ContentStatusChanged x: rebuilt.Apply(x, at); break;
-                    case ContentScheduled x: rebuilt.Apply(x, at); break;
-                    case ContentSensitivityChanged x: rebuilt.Apply(x, at); break;
-                    default:
-                        throw new InvalidOperationException(
-                            $"{e.Data.GetType().Name} is on the stream with no Apply overload, so a rebuild "
-                            + "would drop whatever it carries.");
-                }
             }
+
+            rebuilt = barakoCMS.Infrastructure.Services.ContentProjection.Fold(stream)!;
+            rebuilt.Should().NotBeNull("the stream is not empty");
         }
 
         // The final state alone does not test Apply(ContentCreated): Sensitivity and Status are both
@@ -152,11 +150,16 @@ public class ContentStreamRebuildTests
         rebuilt.Sensitivity.Should().Be(stored.Sensitivity);
         rebuilt.SearchText.Should().Be(stored.SearchText);
 
-        // Not exact. The writer stamps DateTime.UtcNow as it applies, while the stream carries the
-        // timestamp the database assigned, so the two are close but never equal. A rebuild therefore
-        // shifts CreatedAt and UpdatedAt by the write latency. Tolerated here and called out because
-        // it is a real limitation of rebuilding, not a flaw in this test.
-        rebuilt.CreatedAt.Should().BeCloseTo(stored.CreatedAt, TimeSpan.FromSeconds(30));
-        rebuilt.UpdatedAt.Should().BeCloseTo(stored.UpdatedAt, TimeSpan.FromSeconds(30));
+        // Exact, with no window. This used to be BeCloseTo with thirty seconds of tolerance, because
+        // the writer stamped DateTime.UtcNow as it applied while the stream carried the timestamp the
+        // database assigned, so the two were close and never equal and a rebuild shifted both by the
+        // write latency. The events carry OccurredAt now (#228), the writer stamps it once, and both
+        // the live document and the rebuild read that same value.
+        //
+        // A window is the wrong assertion for this: thirty seconds would have accepted a rebuild
+        // that read the clock at rebuild time on any machine quick enough, which is precisely the
+        // failure it was meant to describe.
+        rebuilt.CreatedAt.Should().Be(stored.CreatedAt);
+        rebuilt.UpdatedAt.Should().Be(stored.UpdatedAt);
     }
 }
