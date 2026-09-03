@@ -22,9 +22,13 @@ If you discover a security vulnerability in BarakoCMS, please report it responsi
 | Version | Status | Supported until |
 | --- | --- | --- |
 | 4.x | Actively supported | 5.0 ships, plus 12 months |
-| 3.x | Security fixes only | 30 August 2027, 12 months after 4.0 |
+| 3.x | Security fixes only | 4.0 ships, plus 12 months |
 | 2.x | Not supported | ended |
 | < 2.0 | Not supported | ended |
+
+4.0 has not shipped yet. Until it does, 3.x is the current line and is actively supported: the
+published package is 3.21.0. The row above is what 3.x becomes on the day 4.0 is tagged, and the
+twelve months run from that day.
 
 ### What "supported" means
 
@@ -41,7 +45,9 @@ consequence.
 
 A major is actively supported from the day it ships until twelve months after its successor ships.
 That gives a full year to move once a new major exists, and it is a rule rather than a date, so it
-does not go stale in this table.
+does not go stale in this table. The 3.x row used to carry a fixed date, worked out from a 4.0 that
+was expected in August 2026 and has not shipped, which is exactly the staleness this rule exists to
+avoid. Dates go in the release notes for the release that starts the clock, not here.
 
 There is no long-term-support line. If one is ever offered it will be announced as its own
 commitment, not implied by this policy.
