@@ -295,9 +295,12 @@ public class CapabilityGateTests
         var emailWrite = await client.SendAsync(Probe("PUT", "/api/settings/email"), TestContext.Current.CancellationToken);
         var settings = await client.GetAsync("/api/settings", TestContext.Current.CancellationToken);
 
-        emailWrite.StatusCode.Should().NotBe(HttpStatusCode.Forbidden,
-            "the capability is what this endpoint asks for, so the gate is passed and the body is the "
-          + "only thing left to argue about");
+        // Exactly 400, not "anything but 403". Probe sends invalid JSON, so an authorized caller
+        // gets a binding failure and nothing else: asserting NotBe(Forbidden) would also pass on a
+        // 401 from a broken token and on a 500, which is the shape of a gate test that cannot fail.
+        emailWrite.StatusCode.Should().Be(HttpStatusCode.BadRequest,
+            "the capability is what this endpoint asks for, so the gate is passed and the malformed "
+          + "body is the only thing left to refuse");
         settings.StatusCode.Should().Be(HttpStatusCode.Forbidden,
             "the two are separate grants in both directions, or splitting them bought nothing");
     }
@@ -363,9 +366,13 @@ public class CapabilityGateTests
             Probe("POST", "/api/content-types"), TestContext.Current.CancellationToken);
         var list = await client.GetAsync("/api/content-types", TestContext.Current.CancellationToken);
 
-        publicDelivery.StatusCode.Should().NotBe(HttpStatusCode.Forbidden,
-            "the capability is what the endpoint asks for, so the gate is passed and only the body is "
-          + "left to argue about");
+        // Not "anything but 403", which also passes on a 401 or a 500. Probe sends invalid JSON and
+        // the type does not exist, so an authorized caller gets one of those two refusals and never
+        // a 403.
+        publicDelivery.StatusCode.Should().BeOneOf(
+            [HttpStatusCode.BadRequest, HttpStatusCode.NotFound],
+            "the capability is what the endpoint asks for, so the gate is passed and only the body "
+          + "and the missing type are left to refuse");
         create.StatusCode.Should().Be(HttpStatusCode.Forbidden, "creating a type is a different grant");
         list.StatusCode.Should().Be(HttpStatusCode.Forbidden, "so is reading the schemas");
     }
@@ -394,9 +401,12 @@ public class CapabilityGateTests
 
         list.StatusCode.Should().Be(HttpStatusCode.OK);
         schemas.StatusCode.Should().Be(HttpStatusCode.OK, "the alias is the same endpoint and the same gate");
-        publicDelivery.StatusCode.Should().NotBe(HttpStatusCode.Forbidden);
-        sensitivity.StatusCode.Should().NotBe(HttpStatusCode.Forbidden);
-        rebuild.StatusCode.Should().NotBe(HttpStatusCode.Forbidden);
+        // Named refusals rather than "not 403": a 401 or a 500 would satisfy the loose form and
+        // prove nothing about Admin still reaching these three.
+        var reached = new[] { HttpStatusCode.BadRequest, HttpStatusCode.NotFound };
+        publicDelivery.StatusCode.Should().BeOneOf(reached);
+        sensitivity.StatusCode.Should().BeOneOf(reached);
+        rebuild.StatusCode.Should().BeOneOf(reached);
     }
 
     /// <summary>
