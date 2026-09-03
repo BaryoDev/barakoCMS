@@ -118,25 +118,39 @@ public static class DataSeeder
     /// whether that changed anything.
     /// </summary>
     /// <remarks>
-    /// This is the upgrade path. An existing deployment's SuperAdmin and Admin documents predate
-    /// capabilities and carry none, so without a backfill they would be visible in the admin UI as
-    /// roles with no capabilities at all. Only an empty list is filled: an operator who has curated
-    /// a system role's capabilities owns them, and a restart must not overwrite that.
+    /// This is the upgrade path, and it runs on every seed rather than only on an empty list.
     ///
-    /// Access does not depend on this having run. The capability gate also honours the role names it
-    /// replaced (see <c>Auth:LegacyRoleFallback</c>), so a host that never calls the seeder keeps
-    /// working. This is what makes the capabilities visible and editable, not what keeps the lights on.
+    /// Filling only an empty list was the original rule, and it stopped working the moment the
+    /// vocabulary started growing. A deployment upgraded once has an Admin carrying the names that
+    /// existed then, so the count is not zero and every capability added afterwards never arrives.
+    /// Nothing breaks while <c>Auth:LegacyRoleFallback</c> is on, because the gate still honours the
+    /// role names it replaced. Turn the fallback off, which is the whole point of the migration, and
+    /// that Admin silently loses every area migrated after its own upgrade.
+    ///
+    /// So the defaults are unioned in, and the cost is stated rather than hidden: a default an
+    /// operator has deliberately removed from a seeded role comes back on the next restart. Removing
+    /// one for good means editing the role to something other than the default set, or not running
+    /// the seeder. A seeded system role is core's to define; a role of your own is untouched, because
+    /// <see cref="barakoCMS.Models.SystemCapabilities.DefaultsFor"/> returns nothing for a name the
+    /// seeder does not create.
+    ///
+    /// Access does not depend on this having run. This is what makes the capabilities visible and
+    /// editable, not what keeps the lights on.
     /// </remarks>
     internal static bool ApplyCapabilityDefaults(Role role)
     {
-        if (role.SystemCapabilities.Count > 0)
-            return false;
-
         var defaults = barakoCMS.Models.SystemCapabilities.DefaultsFor(role.Name);
         if (defaults.Count == 0)
             return false;
 
-        role.SystemCapabilities = defaults.ToList();
+        var missing = defaults
+            .Where(d => !role.SystemCapabilities.Contains(d, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+
+        if (missing.Count == 0)
+            return false;
+
+        role.SystemCapabilities = [.. role.SystemCapabilities, .. missing];
         return true;
     }
 
