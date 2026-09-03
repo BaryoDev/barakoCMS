@@ -27,6 +27,32 @@ const SCHEMA = {
     fields: [{ name: 'Title', displayName: 'Title', type: 'Text', isRequired: true }],
 };
 
+/** A type with a Sensitive field, so the builder has something it must leave out of the form. */
+const SUBSCRIBER = {
+    id: 's2',
+    name: 'Subscriber',
+    displayName: 'Subscriber',
+    fields: [
+        { name: 'Email', displayName: 'Email', type: 'email', isRequired: true },
+        { name: 'Status', displayName: 'Status', type: 'string', isRequired: false },
+        { name: 'Salary', displayName: 'Salary', type: 'money', isRequired: false, sensitivity: 'Sensitive' },
+    ],
+};
+
+const SAVED_QUERY = {
+    id: 'q1',
+    name: 'Active subscribers',
+    slug: 'active-subscribers',
+    contentType: 'Subscriber',
+    filters: [{ field: 'Status', op: 'eq', value: 'Active' }],
+    sortField: 'Email',
+    descending: false,
+    limit: 100,
+    fields: ['Email', 'Status'],
+    createdAt: new Date(Date.now() - 86400_000).toISOString(),
+    updatedAt: new Date(Date.now() - 3600_000).toISOString(),
+};
+
 function device(id: string, description: string, status: string, current: boolean) {
     return {
         id,
@@ -216,6 +242,57 @@ test.describe('accessibility', () => {
 
         await page.goto('/schemas');
         await expect(page.getByRole('link', { name: /Article/ }).first()).toBeVisible({ timeout: 15000 });
+        await scan(page);
+    });
+
+    test('the queries screen, with the builder open and a preview rendered', async ({ page }) => {
+        await authed(page);
+        await stubShell(page);
+        await stubContentTypes(page, [SUBSCRIBER]);
+        await page.route(/\/api\/queries(\?|$)/, (r) => r.fulfill({ json: pageOf([SAVED_QUERY]) }));
+        await page.route('**/api/queries/active-subscribers', (r) => r.fulfill({ json: SAVED_QUERY }));
+        await page.route('**/api/queries/active-subscribers/preview', (r) =>
+            r.fulfill({
+                json: {
+                    ok: true,
+                    count: 2,
+                    rows: [
+                        { Email: 'ana@example.com', Status: 'Active' },
+                        { Email: 'ben@example.com', Status: 'Active' },
+                    ],
+                },
+            })
+        );
+
+        await page.goto('/queries');
+        await expect(page.getByRole('heading', { name: 'Queries' })).toBeVisible({ timeout: 15000 });
+
+        // The builder is where the controls are: three kinds of select, a checkbox group, a switch
+        // and a radio inside a table cell. Scanning the list alone would miss all of them.
+        await page.getByLabel('Open Active subscribers').check();
+        await expect(page.getByLabel('Content type')).toBeVisible();
+
+        // Pinned by name rather than left to the scan. axe accepts a placeholder as an accessible
+        // name, so a filter row whose controls lost their aria-labels would still pass it, named
+        // after the placeholder text that vanishes the moment somebody types.
+        await expect(page.getByLabel('Field for filter 1')).toBeVisible();
+        await expect(page.getByLabel('Operator for filter 1')).toBeVisible();
+        await expect(page.getByLabel('Value for filter 1')).toBeVisible();
+        await expect(page.getByLabel('Remove filter 1')).toBeVisible();
+
+        await page.getByRole('button', { name: 'Preview' }).click();
+        await expect(page.getByRole('cell', { name: 'ana@example.com' })).toBeVisible();
+
+        // Settled first, and this is a real trap rather than a sprinkle of patience. The Run again
+        // button comes back from disabled when the rows land, and Button transitions opacity, so for
+        // about 150ms its near-black text is drawn at half opacity. axe reads the composited colour
+        // and measures 4.09:1 against the card, which is a serious contrast failure the settled page
+        // does not have. Without this the case fails perhaps one run in three, and a gate that fails
+        // at random gets switched off.
+        await page.waitForFunction(() =>
+            document.getAnimations().every((a) => a.playState === 'finished')
+        );
+
         await scan(page);
     });
 

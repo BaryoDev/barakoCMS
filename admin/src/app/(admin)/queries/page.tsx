@@ -308,7 +308,12 @@ export default function QueriesPage() {
                 />
             )}
 
-            {editing && detail.isError && <ErrorState entity="that query" onRetry={() => detail.refetch()} />}
+            {/* Only when there is nothing to show. react-query keeps the last good copy through a
+                failed refetch, and rendering on `isError` alone would stack an error panel above a
+                form that is working fine. */}
+            {editing && detail.isError && !detail.data && (
+                <ErrorState entity="that query" onRetry={() => detail.refetch()} />
+            )}
 
             {editing && detail.data && (
                 // Keyed by slug so choosing another query remounts the form rather than merging one
