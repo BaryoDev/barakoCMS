@@ -108,11 +108,7 @@ public class ModuleCapabilityGrantTests
         // module shipped a capability and a seeder, and dropping its grant left this green.
         var modules = AppDomain.CurrentDomain.GetAssemblies()
             .Where(a => a.GetName().Name?.StartsWith("BarakoCMS.", StringComparison.Ordinal) == true)
-            .SelectMany(a =>
-            {
-                try { return a.GetTypes(); }
-                catch (System.Reflection.ReflectionTypeLoadException e) { return e.Types.Where(t => t is not null)!; }
-            })
+            .SelectMany(LoadableTypes.In)
             .Where(t => t is { IsAbstract: false, IsInterface: false }
                      && typeof(IBarakoModule).IsAssignableFrom(t)
                      && t!.GetConstructor(Type.EmptyTypes) is not null)
@@ -146,7 +142,7 @@ public class ModuleCapabilityGrantTests
     }
 
     private static IEnumerable<string> CapabilitiesDeclaredBy(System.Reflection.Assembly assembly) =>
-        assembly.GetTypes()
+        LoadableTypes.In(assembly)
             .Where(t => t.IsAbstract && t.IsSealed && t.Name.EndsWith("Capabilities", StringComparison.Ordinal))
             .SelectMany(t => t.GetFields()
                 .Where(f => f.IsLiteral && f.FieldType == typeof(string))

@@ -129,7 +129,7 @@ public class ModuleCapabilityTests
                 .FirstOrDefault()?.EndpointType.Assembly)
             .Where(assembly => assembly is not null)
             .Distinct()
-            .SelectMany(assembly => assembly!.GetTypes())
+            .SelectMany(assembly => LoadableTypes.In(assembly!))
             .Where(t => t.IsAbstract && t.IsSealed && t.Name.EndsWith("Capabilities", StringComparison.Ordinal))
             .SelectMany(t => t.GetFields()
                 .Where(f => f.IsLiteral && f.FieldType == typeof(string))
