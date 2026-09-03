@@ -1,0 +1,9 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="BarakoCMS.Email.Smtp">
+  <title>BarakoCMS.Email.Smtp</title>
+  <rect x="2" y="2" width="124" height="124" rx="28" fill="#00796B"/>
+  <rect x="44" y="42" width="60" height="44" rx="10" fill="#FFFFFF"/>
+  <path d="M48 48 L74 68 L100 48" fill="none" stroke="#FFC53D" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <g stroke="#FFC53D" stroke-width="8" stroke-linecap="round">
+    <path d="M16 52 H34"/><path d="M22 64 H34"/><path d="M16 76 H34"/>
+  </g>
+</svg>

@@ -13,6 +13,9 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="Moq" />
     <PackageReference Include="NSubstitute" />
+    <!-- The variant tests make real PNGs and read the width back off the response, so the
+         assertion is about pixels rather than about "the bytes changed". -->
+    <PackageReference Include="SixLabors.ImageSharp" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
     <PackageReference Include="Testcontainers.PostgreSql" />
     <PackageReference Include="Testcontainers.Minio" />
@@ -38,6 +41,9 @@
     <ProjectReference Include="..\BarakoCMS.Pwa\BarakoCMS.Pwa.csproj" />
     <ProjectReference Include="..\BarakoCMS.FeatureFlags\BarakoCMS.FeatureFlags.csproj" />
     <ProjectReference Include="..\BarakoCMS.Email.Resend\BarakoCMS.Email.Resend.csproj" />
+    <!-- The SMTP module registers a provider only when a host is configured, and it is the
+         only place a mail password is held. Both are claims a test has to be able to reach. -->
+    <ProjectReference Include="..\BarakoCMS.Email.Smtp\BarakoCMS.Email.Smtp.csproj" />
     <!-- ExternalAuth had no test project reference and therefore no tests, which is why nothing
          noticed that three of its four providers never checked whether the email they were handed
          was verified. A module that cannot be reached by a test is not under-tested, it is

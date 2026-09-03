@@ -1,6 +1,7 @@
 using FastEndpoints;
 using Marten;
 using barakoCMS.Infrastructure.Audit;
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Models;
 using ContentDoc = barakoCMS.Models.Content;
 
@@ -43,7 +44,7 @@ internal class Endpoint : Endpoint<Request, Response>
     public override void Configure()
     {
         Put("/api/content-types/{name}/public-delivery");
-        Roles("Admin", "SuperAdmin");
+        Definition.RequireCapability(SystemCapabilities.ManagePublicDelivery, "SuperAdmin", "Admin");
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)

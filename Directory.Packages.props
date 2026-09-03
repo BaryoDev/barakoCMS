@@ -29,6 +29,13 @@
     <PackageVersion Include="Talaan" Version="0.1.0" />
   </ItemGroup>
 
+  <ItemGroup Label="Imaging">
+    <!-- Fully managed, so it resizes on linux/arm64 in a container with no native libgdiplus or
+         libvips to install, which is what ruled out the alternatives. Pinned: an imaging decoder is
+         exactly the dependency where "whatever floats to" is how a CVE arrives unannounced. -->
+    <PackageVersion Include="SixLabors.ImageSharp" Version="3.1.12" />
+  </ItemGroup>
+
   <ItemGroup Label="Security">
     <PackageVersion Include="BCrypt.Net-Next" Version="4.2.0" />
     <PackageVersion Include="IdentityModel" Version="7.0.0" />
@@ -47,6 +54,12 @@
     <PackageVersion Include="Serilog.AspNetCore" Version="10.0.0" />
     <PackageVersion Include="Serilog.Sinks.Console" Version="6.1.1" />
     <PackageVersion Include="Serilog.Sinks.File" Version="7.0.0" />
+  </ItemGroup>
+
+  <ItemGroup Label="Email">
+    <!-- MailKit rather than System.Net.Mail.SmtpClient, which Microsoft's own docs tell you not to
+         use for new code. Brings MimeKit with it. -->
+    <PackageVersion Include="MailKit" Version="4.17.0" />
   </ItemGroup>
 
   <ItemGroup Label="Infrastructure">
