@@ -20,13 +20,19 @@ public class Response
 }
 
 /// <summary>
-/// POST /api/import/analyze — accept an .xlsx/CSV upload and return a typed preview grid so a UI can
+/// POST /api/import/analyze, which accepts an .xlsx/CSV upload and return a typed preview grid so a UI can
 /// build a column mapping. Parses only; nothing is stored. Any authenticated user may analyze.
 /// </summary>
 public class Endpoint : EndpointWithoutRequest<Response>
 {
-    // Cap the preview so a huge upload can't balloon the response.
+    // Cap the preview so a huge upload can't balloon the response. This bounds what comes back and
+    // nothing about what it costs to produce: see SpreadsheetLimits for the half that does.
     private const int MaxPreviewRows = 500;
+
+    private readonly Microsoft.Extensions.Configuration.IConfiguration _configuration;
+
+    public Endpoint(Microsoft.Extensions.Configuration.IConfiguration configuration) =>
+        _configuration = configuration;
 
     public override void Configure()
     {
@@ -44,12 +50,33 @@ public class Endpoint : EndpointWithoutRequest<Response>
             return;
         }
 
+        // Buffered once so the archive can be measured and then parsed from the same bytes. Bounded
+        // by the request body limit, so this is the size already accepted rather than a new cost.
+        using var buffer = new MemoryStream();
+        await using (var upload = file.OpenReadStream())
+        {
+            await upload.CopyToAsync(buffer, ct);
+        }
+        buffer.Position = 0;
+
+        // Refused before anything is decompressed. The parser materialises the whole sheet, so the
+        // cost of this request is set by the expanded size rather than the uploaded size, and an
+        // xlsx is a zip: a file well inside the body limit expands to many times its size. See
+        // SpreadsheetLimits for the measurement that produced the default.
+        var limit = SpreadsheetLimits.MaxExpandedBytes(_configuration);
+        if (SpreadsheetLimits.DeclaredExpandedBytes(buffer) is { } expanded && expanded > limit)
+        {
+            AddError(
+                $"That file expands to {expanded / 1024 / 1024} MB, over the {limit / 1024 / 1024} MB "
+              + $"this instance will parse. Split it, or raise {SpreadsheetLimits.MaxExpandedBytesKey}.");
+            await Send.ErrorsAsync(400, ct);
+            return;
+        }
+
         SheetData sheet;
         try
         {
-            await using var stream = file.OpenReadStream();
-            // Talaan buffers non-seekable streams internally for xlsx.
-            sheet = Spreadsheet.Read(stream, file.FileName);
+            sheet = Spreadsheet.Read(buffer, file.FileName);
         }
         catch (NotSupportedException ex)
         {
