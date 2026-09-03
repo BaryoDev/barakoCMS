@@ -20,6 +20,7 @@ import {
   IconShield,
   IconUsers,
   IconWorkflows,
+  IconTable,
 } from '@/components/icons';
 
 /**
@@ -124,6 +125,7 @@ export const NAV_GROUPS: NavGroup[] = [
       // and Health are the only two that should be.
       { title: 'Devices', href: '/settings/devices', icon: IconMobile , roles: ['SuperAdmin', 'Admin', 'User'] },
       { title: 'Export and import', href: '/settings/portability', icon: IconArchive , roles: ['SuperAdmin', 'Admin'] },
+      { title: 'Import a spreadsheet', href: '/settings/import', icon: IconTable , roles: ['SuperAdmin', 'Admin'] },
       { title: 'Settings', href: '/settings', icon: IconSettings , roles: ['SuperAdmin', 'Admin'] },
     ],
   },
