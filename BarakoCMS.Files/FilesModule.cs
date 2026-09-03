@@ -62,4 +62,16 @@ public sealed class FilesModule : IBarakoModule
         schema.For<FileBlob>()
             .DocumentAlias("file_blobs");
     }
+
+    /// <summary>
+    /// Gives this module's capabilities to the roles that already reached its endpoints.
+    /// </summary>
+    /// <remarks>
+    /// Core cannot do this: <c>SystemCapabilities.DefaultsFor</c> does not know this module exists.
+    /// Without it the endpoints would be reachable only through the legacy role-name fallback, and
+    /// turning that off, which is the point of issue #443, would take the module away from every
+    /// Admin. Additive and idempotent, and it skips a role the host never seeded.
+    /// </remarks>
+    public Task SeedAsync(IDocumentSession session, IServiceProvider services, CancellationToken ct) =>
+        ModuleCapabilities.GrantAsync(session, FileCapabilities.SeededRoles, FileCapabilities.All, ct);
 }

@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Models;
 using FastEndpoints;
@@ -27,7 +28,8 @@ public class ExportEndpoint : Endpoint<ExportEndpoint.Req, PortabilityBundle>
     public override void Configure()
     {
         Get("/api/portability/export");
-        Roles("SuperAdmin", "Admin");
+        Definition.RequireCapability(
+            PortabilityCapabilities.ExportContent, PortabilityCapabilities.LegacyRoles);
     }
 
     public override async Task HandleAsync(Req req, CancellationToken ct)
