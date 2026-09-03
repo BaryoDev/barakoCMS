@@ -1,6 +1,7 @@
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Infrastructure.Security;
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
@@ -45,7 +46,9 @@ internal sealed class GetEmailSettingsEndpoint : EndpointWithoutRequest<EmailSet
     public override void Configure()
     {
         Get("/api/settings/email");
-        Roles("SuperAdmin", "Admin");
+        // The summary, which reports whether a key is set rather than what it is. Same tier as the
+        // rest of settings, and the write below is deliberately not.
+        Definition.RequireCapability(SystemCapabilities.ManageSettings, "SuperAdmin", "Admin");
     }
 
     public override async Task HandleAsync(CancellationToken ct)
@@ -108,10 +111,11 @@ internal sealed class UpdateEmailSettingsEndpoint : Endpoint<UpdateEmailSettings
     public override void Configure()
     {
         Put("/api/settings/email");
-        // SuperAdmin only. Changing where the system's email comes from redirects every password
-        // reset and every verification token in the deployment, which is a takeover rather than an
-        // administrative tweak, and it is exactly the change a compromised admin account makes.
-        Roles("SuperAdmin");
+        // Its own capability, and SuperAdmin as the only legacy fallback. Changing where the
+        // system's email comes from redirects every password reset and every verification token in
+        // the deployment, which is a takeover rather than an administrative tweak, and it is exactly
+        // the change a compromised admin account makes.
+        Definition.RequireCapability(SystemCapabilities.ManageEmailSettings, "SuperAdmin");
     }
 
     public override async Task HandleAsync(UpdateEmailSettingsRequest req, CancellationToken ct)
@@ -221,7 +225,9 @@ internal sealed class SendTestEmailEndpoint : EndpointWithoutRequest<SendTestEma
     public override void Configure()
     {
         Post("/api/settings/email/test");
-        Roles("SuperAdmin");
+        // Sends real mail through the configured provider, so it is the write gate rather than the
+        // read one.
+        Definition.RequireCapability(SystemCapabilities.ManageEmailSettings, "SuperAdmin");
     }
 
     public override async Task HandleAsync(CancellationToken ct)
