@@ -39,14 +39,16 @@ public class FieldSensitivityChangeTests
         _anon = factory.CreateClient();
     }
 
-    private HttpClient Client(params string[] roles)
+    private async Task<HttpClient> Client(params string[] roles)
     {
         var client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer",
-            // Minted through the fixture rather than by logging in over HTTP: /api/auth/* is rate
-            // limited to five requests per fifteen minutes per IP, shared across the whole suite.
-            _factory.CreateToken(roles, Guid.NewGuid().ToString()));
+            // A user that exists, holding the seeded roles. The capability gate answers from the
+            // stored user's roles rather than from the claim, and the role-name fallback that used
+            // to cover the difference is off by default from 4.0. Still minted through the fixture
+            // rather than by signing in: /api/auth/* is rate limited across the whole suite.
+            await _factory.StoredUserTokenAsync(roles));
         return client;
     }
 
@@ -151,7 +153,7 @@ public class FieldSensitivityChangeTests
         before.Count.Should().Be(1, "and anonymous search matches it to begin with");
         before.Results.Should().Contain(seed.Marker);
 
-        var res = await SetSensitivityAsync(Client("Admin"), seed.Type, "Secret", new { sensitivity = "Sensitive" });
+        var res = await SetSensitivityAsync(await Client("Admin"), seed.Type, "Secret", new { sensitivity = "Sensitive" });
         res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
 
         var listed = await (await _anon.GetAsync($"/api/public/{seed.Type}")).Content.ReadAsStringAsync();
@@ -178,7 +180,7 @@ public class FieldSensitivityChangeTests
         (await (await reader.GetAsync($"/api/contents/{seed.ContentId}")).Content.ReadAsStringAsync())
             .Should().Contain(seed.Marker, "a Public field is readable by anyone who can read the type");
 
-        var res = await SetSensitivityAsync(Client("Admin"), seed.Type, "Secret", new { sensitivity = "Sensitive" });
+        var res = await SetSensitivityAsync(await Client("Admin"), seed.Type, "Secret", new { sensitivity = "Sensitive" });
         res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
 
         (await (await reader.GetAsync($"/api/contents/{seed.ContentId}")).Content.ReadAsStringAsync())
@@ -225,7 +227,7 @@ public class FieldSensitivityChangeTests
         var seed = await SeedAsync(SensitivityLevel.Sensitive);
 
         var refused = await SetSensitivityAsync(
-            Client("Admin"), seed.Type, "Secret", new { sensitivity = "Public" });
+            await Client("Admin"), seed.Type, "Secret", new { sensitivity = "Public" });
 
         refused.StatusCode.Should().Be(HttpStatusCode.BadRequest);
 
@@ -249,7 +251,7 @@ public class FieldSensitivityChangeTests
             .Should().Be(0, "the control: it is not searchable while Sensitive");
 
         var res = await SetSensitivityAsync(
-            Client("Admin"), seed.Type, "Secret",
+            await Client("Admin"), seed.Type, "Secret",
             new { sensitivity = "Public", acknowledgeDisclosure = true });
 
         res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
@@ -274,7 +276,7 @@ public class FieldSensitivityChangeTests
     {
         var seed = await SeedAsync();
 
-        var res = await SetSensitivityAsync(Client("Admin"), seed.Type, "Secret", new { sensitivity = "Hidden" });
+        var res = await SetSensitivityAsync(await Client("Admin"), seed.Type, "Secret", new { sensitivity = "Hidden" });
         res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
 
         using var scope = _factory.Services.CreateScope();
@@ -314,7 +316,7 @@ public class FieldSensitivityChangeTests
             before = (await session.LoadAsync<Content>(seed.ContentId))!.UpdatedAt;
         }
 
-        var res = await SetSensitivityAsync(Client("Admin"), seed.Type, "Secret", new { sensitivity = "Sensitive" });
+        var res = await SetSensitivityAsync(await Client("Admin"), seed.Type, "Secret", new { sensitivity = "Sensitive" });
         res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
 
         using (var scope = _factory.Services.CreateScope())
@@ -335,10 +337,10 @@ public class FieldSensitivityChangeTests
     {
         var seed = await SeedAsync();
 
-        (await SetSensitivityAsync(Client("Admin"), seed.Type, "Secret", new { sensitivity = "Sensitive" }))
+        (await SetSensitivityAsync(await Client("Admin"), seed.Type, "Secret", new { sensitivity = "Sensitive" }))
             .StatusCode.Should().Be(HttpStatusCode.OK);
         (await SetSensitivityAsync(
-                Client("Admin"), seed.Type, "Secret",
+                await Client("Admin"), seed.Type, "Secret",
                 new { sensitivity = "Public", acknowledgeDisclosure = true }))
             .StatusCode.Should().Be(HttpStatusCode.OK);
 
@@ -373,12 +375,12 @@ public class FieldSensitivityChangeTests
         var seed = await SeedAsync();
 
         var raised = await SetSensitivityAsync(
-            Client("Admin"), seed.Type, "Secret",
+            await Client("Admin"), seed.Type, "Secret",
             new { sensitivity = "Sensitive", visibleToRoles = new[] { "HR" }, mask = "Last4" });
         raised.StatusCode.Should().Be(HttpStatusCode.OK, await raised.Content.ReadAsStringAsync());
 
         var lowered = await SetSensitivityAsync(
-            Client("Admin"), seed.Type, "Secret",
+            await Client("Admin"), seed.Type, "Secret",
             new { sensitivity = "Public", acknowledgeDisclosure = true });
         lowered.StatusCode.Should().Be(HttpStatusCode.OK, await lowered.Content.ReadAsStringAsync());
 
@@ -400,7 +402,7 @@ public class FieldSensitivityChangeTests
         var seed = await SeedAsync(SensitivityLevel.Sensitive);
 
         var res = await SetSensitivityAsync(
-            Client("Admin"), seed.Type, "Secret",
+            await Client("Admin"), seed.Type, "Secret",
             new { sensitivity = "Public", acknowledgeDisclosure = true, visibleToRoles = new[] { "HR" } });
 
         res.StatusCode.Should().Be(
@@ -422,11 +424,11 @@ public class FieldSensitivityChangeTests
         (await SetSensitivityAsync(_anon, seed.Type, "Secret", new { sensitivity = "Sensitive" }))
             .StatusCode.Should().Be(HttpStatusCode.Unauthorized);
 
-        (await SetSensitivityAsync(Client("Editor"), seed.Type, "Secret", new { sensitivity = "Sensitive" }))
+        (await SetSensitivityAsync(await Client("Editor"), seed.Type, "Secret", new { sensitivity = "Sensitive" }))
             .StatusCode.Should().Be(HttpStatusCode.Forbidden);
 
         (await SetSensitivityAsync(
-                Client("Editor"), seed.Type, "Secret",
+                await Client("Editor"), seed.Type, "Secret",
                 new { sensitivity = "Public", acknowledgeDisclosure = true }))
             .StatusCode.Should().Be(HttpStatusCode.Forbidden, "the lowering direction is gated the same way");
 
@@ -441,7 +443,7 @@ public class FieldSensitivityChangeTests
     public async Task An_unknown_type_or_field_is_a_404()
     {
         var seed = await SeedAsync();
-        var admin = Client("Admin");
+        var admin = await Client("Admin");
 
         (await SetSensitivityAsync(admin, $"nosuch{Guid.NewGuid():N}", "Secret", new { sensitivity = "Sensitive" }))
             .StatusCode.Should().Be(HttpStatusCode.NotFound);
@@ -457,7 +459,7 @@ public class FieldSensitivityChangeTests
     {
         var seed = await SeedAsync();
 
-        var res = await SetSensitivityAsync(Client("Admin"), seed.Type, "secret", new { sensitivity = "Sensitive" });
+        var res = await SetSensitivityAsync(await Client("Admin"), seed.Type, "secret", new { sensitivity = "Sensitive" });
         res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
 
         (await (await _anon.GetAsync($"/api/public/{seed.Type}")).Content.ReadAsStringAsync())

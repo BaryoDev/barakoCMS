@@ -351,12 +351,19 @@ Two things keep an existing deployment working:
   role comes back on the next restart, because nothing records that the removal was
   deliberate. If you need one gone for good, do not run the seeder. A role you created is
   untouched, since the defaults are keyed on the names the seeder creates.
-- The gate also honours the role names it replaced. That is what makes access survive
-  even on a host that never calls the seeder.
+- The gate can also honour the role names it replaced, which is what makes access survive
+  on a host that never calls the seeder. From 4.0 that is off unless you ask for it.
 
-Set `Auth:LegacyRoleFallback=false` (env `Auth__LegacyRoleFallback`) once your roles
-carry capabilities, and the names stop meaning anything on their own. The default is
-`true`, which is the pre-upgrade behaviour.
+`Auth:LegacyRoleFallback` (env `Auth__LegacyRoleFallback`) decides whether a role name
+still opens the gate it used to. It was `true` through 3.x so an upgrade kept working
+while roles had no capabilities yet. **From 4.0 it defaults to `false`**, because every
+core and module endpoint now gates on a capability and the seeder gives a role the
+capabilities it is missing rather than only filling an empty list. A seeded deployment
+reaches everything it used to without the fallback.
+
+Set it back to `true` if your roles are curated by hand, or while an upgrade is in
+progress. The flag has not gone anywhere; what changed is which way it points when nobody
+says.
 
 ### What is migrated so far
 

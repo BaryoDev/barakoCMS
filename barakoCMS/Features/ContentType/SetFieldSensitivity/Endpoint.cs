@@ -277,7 +277,7 @@ internal class Endpoint : Endpoint<Request, Response>
                     continue;
 
                 await _writer.AppendAsync(content, new ContentFieldSensitivityChanged(
-                    content.Id, fieldName, from, to, rebuilt, actorId), ct);
+                    content.Id, fieldName, from, to, rebuilt, actorId, DateTime.UtcNow), ct);
 
                 staged = true;
                 updated++;
