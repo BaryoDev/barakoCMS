@@ -268,13 +268,19 @@ describe('previewColumns', () => {
         ]);
     });
 
-    it('reads a row key that differs in case from the field name', () => {
-        // The runner projects under the schema's spelling, but a record can hold "price" under a
-        // field named "Price". A column keyed on the wrong case renders every cell blank.
-        const columns = previewColumns(['Price'], [{ price: 12 }]);
+    it('reads a row key that differs in case from the field name, in either direction', () => {
+        // The runner projects under the schema's spelling, so a query saved with the field typed as
+        // "price" comes back with rows keyed "Price". A column keyed on the wrong case finds
+        // nothing and renders every cell blank, which reads as "no data" rather than as a bug.
+        const rowUp: Record<string, unknown> = { Price: 12 };
+        const up = previewColumns(['price'], [rowUp]);
+        expect(up).toEqual([{ label: 'price', key: 'Price' }]);
+        expect(cellText(rowUp[up[0].key])).toBe('12');
 
-        expect(columns).toEqual([{ label: 'Price', key: 'price' }]);
-        expect(cellText((({ price: 12 }) as Record<string, unknown>)[columns[0].key])).toBe('12');
+        const rowDown: Record<string, unknown> = { price: 12 };
+        const down = previewColumns(['Price'], [rowDown]);
+        expect(down).toEqual([{ label: 'Price', key: 'price' }]);
+        expect(cellText(rowDown[down[0].key])).toBe('12');
     });
 
     it('finds a key that only a later row carries, so a sparse first row does not blank the column', () => {
