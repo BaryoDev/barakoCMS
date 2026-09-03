@@ -1234,10 +1234,26 @@ public static class ServiceCollectionExtensions
     /// Cancellation is never treated as a module failure: it propagates immediately.
     /// </remarks>
     /// <exception cref="AggregateException">One or more modules threw. Every other module still ran.</exception>
-    public static async Task RunBarakoModuleSeedersAsync(this IHost host, CancellationToken ct = default)
+    public static Task RunBarakoModuleSeedersAsync(this IHost host, CancellationToken ct = default) =>
+        RunBarakoModuleSeedersAsync(host.Services, ct);
+
+    /// <summary>
+    /// The same, for a caller that has the services but not the host.
+    /// </summary>
+    /// <remarks>
+    /// A test host is the case: <c>WebApplicationFactory</c> exposes an <see cref="IServiceProvider"/>
+    /// and no <see cref="IHost"/>. The alternative was for the test fixture to re-implement the loop,
+    /// which is how a fixture drifts from the thing it is standing in for, and the drift this
+    /// overload exists to end was exactly that: the fixture registered thirteen modules and seeded
+    /// none of them, so their endpoints were present and the capabilities those endpoints ask for
+    /// were not.
+    /// </remarks>
+    /// <exception cref="AggregateException">One or more modules threw. Every other module still ran.</exception>
+    public static async Task RunBarakoModuleSeedersAsync(
+        this IServiceProvider services, CancellationToken ct = default)
     {
         List<IBarakoModule> modules;
-        using (var probe = host.Services.CreateScope())
+        using (var probe = services.CreateScope())
         {
             modules = probe.ServiceProvider.GetServices<IBarakoModule>().ToList();
         }
@@ -1252,7 +1268,7 @@ public static class ServiceCollectionExtensions
 
             // A fresh scope per module: IDocumentSession is scoped, so this is what actually gives
             // each module its own session rather than a shared identity map.
-            using var scope = host.Services.CreateScope();
+            using var scope = services.CreateScope();
             var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
 
             try

@@ -51,7 +51,7 @@ public class AiSemanticTests
         await s.SaveChangesAsync();
     }
 
-    private string AdminToken() => _factory.CreateToken(new[] { "SuperAdmin" }, Guid.NewGuid().ToString());
+    private Task<string> AdminToken() => _factory.StoredUserTokenAsync("SuperAdmin");
 
     [Fact]
     public async Task Index_ThenSemanticSearch_ReturnsNearestPublicMatch()
@@ -59,7 +59,7 @@ public class AiSemanticTests
         var type = "ai_solar";
         await SeedAsync(type);
 
-        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", AdminToken());
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", await AdminToken());
         var index = await _client.PostAsync($"/api/ai/index/{type}", null);
         index.StatusCode.Should().Be(HttpStatusCode.OK, because: await index.Content.ReadAsStringAsync());
         (await index.Content.ReadAsStringAsync()).Should().Contain("\"indexed\":2", "only the 2 published+public entries are indexed");
@@ -81,7 +81,7 @@ public class AiSemanticTests
         var type = "ai_fresh";
         await SeedAsync(type);
 
-        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", AdminToken());
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", await AdminToken());
         await _client.PostAsync($"/api/ai/index/{type}", null);
 
         // Unpublish the solar entry AFTER indexing; its vector still exists but it must not surface.

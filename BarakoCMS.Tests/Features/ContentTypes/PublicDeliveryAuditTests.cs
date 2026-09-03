@@ -32,7 +32,7 @@ public class PublicDeliveryAuditTests
     public async Task Both_directions_are_recorded_with_the_actor_and_the_count()
     {
         var (type, _) = await SeedAsync(published: 3, drafts: 2);
-        var client = Client();
+        var client = await Client();
 
         (await SetAsync(client, type, true)).StatusCode.Should().Be(HttpStatusCode.OK);
         (await SetAsync(client, type, false)).StatusCode.Should().Be(HttpStatusCode.OK);
@@ -64,7 +64,7 @@ public class PublicDeliveryAuditTests
     {
         var (type, _) = await SeedAsync(published: 2, drafts: 5);
 
-        (await SetAsync(Client(), type, true)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await SetAsync(await Client(), type, true)).StatusCode.Should().Be(HttpStatusCode.OK);
 
         var enabled = (await AuditEntriesAsync(type))
             .Single(e => e.Action == "contenttype.publicdelivery.enabled");
@@ -85,7 +85,7 @@ public class PublicDeliveryAuditTests
     public async Task Setting_it_to_what_it_already_is_records_nothing()
     {
         var (type, _) = await SeedAsync(published: 1, drafts: 0);
-        var client = Client();
+        var client = await Client();
 
         (await SetAsync(client, type, true)).StatusCode.Should().Be(HttpStatusCode.OK);
         (await AuditEntriesAsync(type)).Should().HaveCount(1, "the first request changed something");
@@ -100,7 +100,7 @@ public class PublicDeliveryAuditTests
     {
         var (type, _) = await SeedAsync(published: 4, drafts: 1);
 
-        var res = await SetAsync(Client(), type, true);
+        var res = await SetAsync(await Client(), type, true);
         var body = await res.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
 
         body.GetProperty("publishedEntries").GetInt32().Should().Be(4,
@@ -124,7 +124,7 @@ public class PublicDeliveryAuditTests
         var host = _factory.WithSetting("PublicDelivery:RequireAcknowledgement", "true");
         var (type, _) = await SeedAsync(published: 6, drafts: 0);
 
-        var client = Client(host);
+        var client = await Client(host);
         var res = await SetAsync(client, type, true);
         var body = await res.Content.ReadAsStringAsync();
 
@@ -156,7 +156,7 @@ public class PublicDeliveryAuditTests
         var host = _factory.WithSetting("PublicDelivery:RequireAcknowledgement", "true");
         var (type, _) = await SeedAsync(published: 2, drafts: 0, deliverable: true);
 
-        var res = await SetAsync(Client(host), type, false);
+        var res = await SetAsync(await Client(host), type, false);
 
         res.StatusCode.Should().Be(HttpStatusCode.OK,
             "got {0}: {1}", res.StatusCode, await res.Content.ReadAsStringAsync());
@@ -171,19 +171,19 @@ public class PublicDeliveryAuditTests
     {
         var (type, _) = await SeedAsync(published: 2, drafts: 0);
 
-        (await SetAsync(Client(), type, true)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await SetAsync(await Client(), type, true)).StatusCode.Should().Be(HttpStatusCode.OK);
 
         (await IsDeliverableAsync(type)).Should().BeTrue();
     }
 
-    private HttpClient Client(Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program>? host = null)
+    private async Task<HttpClient> Client(Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program>? host = null)
     {
         var client = (host ?? (Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program>)_factory).CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer",
             // Minted through the fixture rather than by signing in: /api/auth/* is rate limited to
             // five requests per fifteen minutes per IP, shared across the whole suite.
-            _factory.CreateToken(["Admin"], Guid.NewGuid().ToString()));
+            await _factory.StoredUserTokenAsync("Admin"));
         return client;
     }
 

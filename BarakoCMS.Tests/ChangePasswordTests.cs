@@ -129,7 +129,9 @@ public class ChangePasswordTests
     public async Task AdminReset_AsSuperAdmin_SetsNewPassword()
     {
         var (user, oldPw) = await SeedUserAsync();
-        As(_factory.CreateToken(new[] { "SuperAdmin" }, Guid.NewGuid().ToString()));
+        // A user that exists, holding the seeded SuperAdmin role: resetting somebody else's password
+        // is manage_users, which is answered from the stored user rather than from the claim.
+        As(await _factory.StoredUserTokenAsync("SuperAdmin"));
 
         var res = await _client.PostAsJsonAsync($"/api/users/{user.Id}/password", new { NewPassword = "ResetByAdm1n!" });
         res.StatusCode.Should().Be(HttpStatusCode.OK, because: await res.Content.ReadAsStringAsync());

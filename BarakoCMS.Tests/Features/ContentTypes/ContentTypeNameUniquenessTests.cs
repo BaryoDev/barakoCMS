@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests.Features.ContentTypes;
 /// pair only ever exercises the read, which was never the broken half. See issue #198.
 /// </remarks>
 [Collection("Sequential")]
-public class ContentTypeNameUniquenessTests
+public class ContentTypeNameUniquenessTests : IAsyncLifetime
 {
     private readonly IntegrationTestFixture _fixture;
     private readonly HttpClient _client;
@@ -28,10 +28,22 @@ public class ContentTypeNameUniquenessTests
     {
         _fixture = fixture;
         _client = fixture.CreateClient();
+    }
+
+    /// <summary>
+    /// The token needs a stored user, which is a write, which a constructor cannot do.
+    /// </summary>
+    /// <remarks>
+    /// The capability gate answers from the stored user's roles rather than from the claim, so a
+    /// token minted with no user behind it reaches nothing once the role-name fallback is off.
+    /// </remarks>
+    public async ValueTask InitializeAsync() =>
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue(
-                "Bearer", fixture.CreateToken(roles: new[] { "Admin", "SuperAdmin" }));
-    }
+                "Bearer", await _fixture.StoredUserTokenAsync("Admin", "SuperAdmin"));
+
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
 
     private static ContentTypeDefinition Definition(string name) => new()
     {

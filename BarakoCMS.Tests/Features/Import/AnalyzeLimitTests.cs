@@ -181,8 +181,12 @@ public class AnalyzeLimitTests
     {
         var client = _factory.CreateClient();
         client.Timeout = TimeSpan.FromMinutes(3);
+        // A user that exists, holding the seeded Admin role, which the Import module's seeder grants
+        // analyze_spreadsheets to. The capability gate answers from the stored user's roles rather
+        // than from the claim, and the role-name fallback that used to cover the difference is off by
+        // default from 4.0.
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
-            "Bearer", _factory.CreateToken(roles: ["Admin"]));
+            "Bearer", await _factory.StoredUserTokenAsync("Admin"));
 
         using var form = new MultipartFormDataContent();
         var file = new ByteArrayContent(bytes);

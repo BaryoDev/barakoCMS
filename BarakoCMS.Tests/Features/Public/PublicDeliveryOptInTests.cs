@@ -190,7 +190,7 @@ public class PublicDeliveryOptInTests
         var admin = _factory.CreateClient();
         admin.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue(
-                "Bearer", _factory.CreateToken(new[] { "Admin" }, Guid.NewGuid().ToString()));
+                "Bearer", await _factory.StoredUserTokenAsync("Admin"));
 
         // Without this the opt-in would be a one-way door: content types have no update endpoint, so
         // on upgrade every existing type stops being delivered with no supported way back.
@@ -218,7 +218,7 @@ public class PublicDeliveryOptInTests
         var editor = _factory.CreateClient();
         editor.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue(
-                "Bearer", _factory.CreateToken(new[] { "Editor" }, Guid.NewGuid().ToString()));
+                "Bearer", await _factory.StoredUserTokenAsync("Editor"));
         (await editor.PutAsJsonAsync($"/api/content-types/{type}/public-delivery", new { enabled = true }))
             .StatusCode.Should().Be(HttpStatusCode.Forbidden);
 

@@ -32,7 +32,10 @@ public class AuditListTests
 
     private async Task<barakoCMS.Models.PaginatedResponse<barakoCMS.Features.Audit.List.AuditEventDto>> ListAsync(string query)
     {
-        var token = _factory.CreateToken(new[] { "SuperAdmin" }, Guid.NewGuid().ToString());
+        // A user that exists, holding the seeded SuperAdmin role. The capability gate answers from
+        // the stored user's roles rather than from the claim, and the role-name fallback that used
+        // to cover the difference is off by default from 4.0.
+        var token = await _factory.StoredUserTokenAsync("SuperAdmin");
         _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         var res = await _client.GetAsync($"/api/audit{query}");
         res.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -42,7 +45,9 @@ public class AuditListTests
     [Fact]
     public async Task Non_admin_roles_are_forbidden()
     {
-        var token = _factory.CreateToken(new[] { "Viewer" }, Guid.NewGuid().ToString());
+        // Viewer is not a seeded role, so it holds nothing and reaches nothing. That is the point
+        // of the test, and it is now true for the reason the endpoint gives rather than by accident.
+        var token = await _factory.StoredUserTokenAsync("Viewer");
         _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         var res = await _client.GetAsync("/api/audit");
         res.StatusCode.Should().Be(HttpStatusCode.Forbidden);

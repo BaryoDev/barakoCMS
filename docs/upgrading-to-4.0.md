@@ -154,14 +154,24 @@ keep it out of the repository and rotate it like any other credential.
 **Administrative endpoints gate on capabilities, not role names.** Roles, tenants, tenant
 members, users and user groups now ask for a capability the caller's roles carry (`manage_roles`,
 `manage_tenants`, `manage_tenant_members`, `manage_users`, `manage_user_membership`,
-`manage_user_groups`) instead of matching `SuperAdmin` or `Admin` by name. Nothing to do on
-upgrade: the seeder backfills those capabilities onto the four system roles on the next start, and
-the gate still honours the old role names either way, so a host that never calls the seeder keeps
-working. Once your roles carry capabilities you can turn the names off:
+`manage_user_groups`) instead of matching `SuperAdmin` or `Admin` by name, and so does every
+first-party module.
+
+**This is the one behaviour change on upgrade.** `Auth:LegacyRoleFallback` was `true` through 3.x,
+so a role name still opened the gate it used to. From 4.0 it defaults to `false`. The seeder
+backfills the capabilities onto the four system roles on the next start, and it now adds what a role
+is missing rather than only filling an empty list, so a deployment that runs the seeder reaches
+everything it used to and there is nothing to do.
+
+A deployment that does not run the seeder, or that curates its system roles by hand, sets the old
+behaviour back:
 
 ```bash
-Auth__LegacyRoleFallback=false
+Auth__LegacyRoleFallback=true
 ```
+
+Do that before upgrading if you are unsure, then grant the capabilities and remove it. The flag is
+still there and still supported; only the default moved.
 
 A role created through `POST /api/roles` can now be granted administrative access without a code
 change, and a role named `Editor` gains nothing from its name. Modules gating on `Roles(...)` are
