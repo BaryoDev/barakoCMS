@@ -1,5 +1,6 @@
 using FastEndpoints;
 using Marten;
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Models;
 
 namespace barakoCMS.Features.ContentType.Get;
@@ -22,7 +23,7 @@ internal class Endpoint : Endpoint<ListRequest, PaginatedResponse<barakoCMS.Feat
         Get("/api/content-types", "/api/schemas");
         // NOTE: AllowAnonymous() must NOT be combined with Roles() — in ASP.NET Core
         // AllowAnonymous short-circuits authorization and silently disables the role check.
-        Roles("SuperAdmin", "Admin");
+        Definition.RequireCapability(SystemCapabilities.ManageContentTypes, "SuperAdmin", "Admin");
     }
 
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)

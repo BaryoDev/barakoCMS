@@ -82,6 +82,10 @@ public class SystemCapabilitiesTests
             SystemCapabilities.ManageUserGroups,
             SystemCapabilities.ManageApiKeys,
             SystemCapabilities.ViewAuditLog,
+            // Content types: all five routes were Roles("SuperAdmin", "Admin"), so Admin reached
+            // both halves already and this migration narrows nothing.
+            SystemCapabilities.ManageContentTypes,
+            SystemCapabilities.ManagePublicDelivery,
         });
         admin.Should().NotContain(SystemCapabilities.ManageRoles);
         admin.Should().NotContain(SystemCapabilities.ManageTenants);
