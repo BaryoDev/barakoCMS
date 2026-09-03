@@ -108,6 +108,11 @@ DROP TABLE IF EXISTS public.mt_doc_request_definitions;
 -- untouched. Note them down before rolling back, because nothing else records them.
 DROP TABLE IF EXISTS public.mt_doc_query_definitions;
 
+-- Workflow runs. 3.x executes workflow actions inline inside the projection and has nowhere to put
+-- these, so dropping the table loses the record of what ran and any work still queued. Anything
+-- Pending or Running when you roll back simply never happens: drain the queue first if that matters.
+DROP TABLE IF EXISTS public.mt_doc_workflow_runs;
+
 -- URL redirects. 3.x has no such table and nothing references it, so dropping it moves no content:
 -- the entries are untouched. What is lost is the map of which URLs moved, which is editorial work
 -- somebody did by hand. Export it before rolling back, because nothing else records it.

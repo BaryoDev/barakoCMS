@@ -101,8 +101,8 @@ public class OpenApiTagTests
         // host referenced them, so their assemblies were never loaded and their operations never
         // reached the document. The shipped suite loads all of them. The pin was describing the test
         // host rather than the product, which is worth remembering if a tag ever goes missing here.
-        // One per line, and sorted. This array conflicted on five separate merges in one day,
-        // because every branch that adds a feature area rewraps the same packed lines. One tag per
+        // One per line, and sorted. Every branch that adds a feature area used to rewrap the same
+        // packed lines, so this array conflicted on five separate merges in one day. One tag per
         // line means two branches adding two tags touch two different lines and git merges them.
         var expected = new[]
         {
@@ -138,6 +138,7 @@ public class OpenApiTagTests
             "Tenants",
             "UserGroups",
             "Users",
+            "WorkflowRuns",
             "Workflows",
         };
 
