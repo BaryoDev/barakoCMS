@@ -343,8 +343,14 @@ Two things keep an existing deployment working:
 
 - The seeder backfills the capabilities its four system roles already had the access
   for, on the next start, so they are visible and editable rather than showing as roles
-  with nothing. Only an empty list is filled: capabilities an operator has curated are
-  left alone.
+  with nothing. It adds whatever is missing from the default set rather than filling only
+  an empty list, so a capability added to the vocabulary after your deployment upgraded
+  still reaches your Admin.
+
+  The cost of that, plainly: a default you have deliberately removed from a seeded system
+  role comes back on the next restart, because nothing records that the removal was
+  deliberate. If you need one gone for good, do not run the seeder. A role you created is
+  untouched, since the defaults are keyed on the names the seeder creates.
 - The gate also honours the role names it replaced. That is what makes access survive
   even on a host that never calls the seeder.
 
