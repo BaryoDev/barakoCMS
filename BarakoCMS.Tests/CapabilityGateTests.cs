@@ -136,6 +136,51 @@ public class CapabilityGateTests
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
+    /// <summary>
+    /// The legacy fallback list on a destructive route is pinned, name by name.
+    /// </summary>
+    /// <remarks>
+    /// Every other test of a migrated gate goes through <c>CallerHolding</c>, which mints the token
+    /// role as <c>"{name} {guid}"</c> so the fallback cannot be what admits it. That is exactly right
+    /// for proving a capability works, and it means the fallback list itself is never read. Adding
+    /// "Admin" to the erase gate therefore handed every Admin an irreversible delete on any
+    /// deployment running with <c>Auth:LegacyRoleFallback=true</c>, and the whole suite stayed green.
+    ///
+    /// Erase and rollback are the pair worth pinning: both destructive, and their gates deliberately
+    /// differ, so one name would widen one of them. This reads the fallback path specifically, with
+    /// the positive control beside it, because "Admin is refused" is also what a route that refuses
+    /// everybody looks like.
+    ///
+    /// A deployment mid-upgrade is told to set the fallback back on, which is what makes this the
+    /// live path rather than a historical one.
+    /// </remarks>
+    [Fact]
+    public async Task The_erase_fallback_names_SuperAdmin_alone_and_rollback_names_both()
+    {
+        var admin = await CallerWithNoStoredRoles("Admin");
+        var superAdmin = await CallerWithNoStoredRoles("SuperAdmin");
+
+        var adminErase = await admin.SendAsync(
+            Probe("DELETE", $"/api/contents/{Guid.NewGuid()}/erase"), TestContext.Current.CancellationToken);
+        adminErase.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "erase was Roles(\"SuperAdmin\") and must stay that way: the name Admin opening it is the "
+          + "widening #443 exists to prevent, and it is irreversible");
+
+        var superAdminErase = await superAdmin.SendAsync(
+            Probe("DELETE", $"/api/contents/{Guid.NewGuid()}/erase"), TestContext.Current.CancellationToken);
+        superAdminErase.StatusCode.Should().NotBe(HttpStatusCode.Forbidden,
+            "the positive control: without it a route that refused everybody would satisfy the "
+          + "assertion above");
+
+        // Rollback named both, so Admin passing here is correct and is what says the two routes were
+        // not collapsed onto one name.
+        var adminRollback = await admin.SendAsync(
+            Probe("POST", $"/api/contents/{Guid.NewGuid()}/rollback/{Guid.NewGuid()}"),
+            TestContext.Current.CancellationToken);
+        adminRollback.StatusCode.Should().NotBe(HttpStatusCode.Forbidden,
+            "rollback was Roles(\"SuperAdmin\", \"Admin\"), so the fallback still admits Admin");
+    }
+
     private const string NotAGuid = "not-a-guid";
 
     /// <summary>
@@ -797,41 +842,126 @@ public class CapabilityGateTests
     /// token and on a 500. Ids and slugs are deliberately unparseable, so a caller through the gate
     /// is answered by binding or by the endpoint's own check and nothing is created or deleted.
     /// </remarks>
-    public static TheoryData<string, string, HttpStatusCode> RoutesMigratedLast() => new()
+    /// <summary>
+    /// Every route this migration moved, with the status an Admin holding the defaults should get.
+    /// </summary>
+    /// <remarks>
+    /// One array rather than a TheoryData literal, so the coverage test below can read the same
+    /// source the theory runs on. Two routes were missing from the earlier literal and nothing said
+    /// so, which is what a hand-kept list does by construction: it answers "did we miss one" with
+    /// "no".
+    /// </remarks>
+    private static readonly (string Verb, string Path, HttpStatusCode Expected)[] MigratedRoutes =
+    [
+        ("GET", "/api/monitoring/health", HttpStatusCode.OK),
+        ("GET", "/api/monitoring/k8s", HttpStatusCode.OK),
+        ("GET", "/api/monitoring/metrics", HttpStatusCode.OK),
+        ("GET", "/api/redirects", HttpStatusCode.OK),
+        ("POST", "/api/redirects", HttpStatusCode.BadRequest),
+        ("DELETE", $"/api/redirects/{NotAGuid}", HttpStatusCode.BadRequest),
+        ("POST", "/api/redirects/import", HttpStatusCode.BadRequest),
+        ("GET", "/api/queries", HttpStatusCode.OK),
+        ("POST", "/api/queries", HttpStatusCode.BadRequest),
+        ("GET", $"/api/queries/{NotASlug}", HttpStatusCode.BadRequest),
+        ("DELETE", $"/api/queries/{NotASlug}", HttpStatusCode.BadRequest),
+        ("POST", $"/api/queries/{NotASlug}/preview", HttpStatusCode.BadRequest),
+        ("GET", "/api/requests", HttpStatusCode.OK),
+        ("POST", "/api/requests", HttpStatusCode.BadRequest),
+        ("GET", $"/api/requests/{NotASlug}", HttpStatusCode.BadRequest),
+        ("DELETE", $"/api/requests/{NotASlug}", HttpStatusCode.BadRequest),
+        ("POST", $"/api/requests/{NotASlug}/dry-run/{NotAGuid}", HttpStatusCode.BadRequest),
+        ("GET", "/api/connectors", HttpStatusCode.OK),
+        ("POST", "/api/connectors", HttpStatusCode.BadRequest),
+        ("GET", $"/api/connectors/{NotASlug}", HttpStatusCode.BadRequest),
+        ("PUT", $"/api/connectors/{NotASlug}", HttpStatusCode.BadRequest),
+        ("DELETE", $"/api/connectors/{NotASlug}", HttpStatusCode.BadRequest),
+        ("POST", $"/api/connectors/{NotASlug}/test", HttpStatusCode.BadRequest),
+        ("GET", "/api/workflows", HttpStatusCode.OK),
+        ("POST", "/api/workflows", HttpStatusCode.BadRequest),
+        ("GET", "/api/workflows/actions", HttpStatusCode.OK),
+        ("POST", "/api/workflows/validate", HttpStatusCode.BadRequest),
+        ("POST", "/api/workflows/dry-run", HttpStatusCode.BadRequest),
+        ("GET", "/api/workflows/variables", HttpStatusCode.OK),
+        ("GET", $"/api/workflows/{NotAGuid}/debug", HttpStatusCode.BadRequest),
+        ("GET", "/api/workflow-runs", HttpStatusCode.OK),
+        ("GET", $"/api/workflow-runs/{NotAGuid}", HttpStatusCode.BadRequest),
+        ("POST", $"/api/workflow-runs/{NotAGuid}/actions/0/retry", HttpStatusCode.BadRequest),
+        ("POST", $"/api/contents/{NotAGuid}/rollback/{NotAGuid}", HttpStatusCode.BadRequest),
+    ];
+
+    public static TheoryData<string, string, HttpStatusCode> RoutesMigratedLast()
     {
-        { "GET", "/api/monitoring/health", HttpStatusCode.OK },
-        { "GET", "/api/monitoring/k8s", HttpStatusCode.OK },
-        { "GET", "/api/monitoring/metrics", HttpStatusCode.OK },
-        { "GET", "/api/redirects", HttpStatusCode.OK },
-        { "POST", "/api/redirects", HttpStatusCode.BadRequest },
-        { "DELETE", $"/api/redirects/{NotAGuid}", HttpStatusCode.BadRequest },
-        { "POST", "/api/redirects/import", HttpStatusCode.BadRequest },
-        { "GET", "/api/queries", HttpStatusCode.OK },
-        { "POST", "/api/queries", HttpStatusCode.BadRequest },
-        { "GET", $"/api/queries/{NotASlug}", HttpStatusCode.BadRequest },
-        { "DELETE", $"/api/queries/{NotASlug}", HttpStatusCode.BadRequest },
-        { "POST", $"/api/queries/{NotASlug}/preview", HttpStatusCode.BadRequest },
-        { "GET", "/api/requests", HttpStatusCode.OK },
-        { "POST", "/api/requests", HttpStatusCode.BadRequest },
-        { "GET", $"/api/requests/{NotASlug}", HttpStatusCode.BadRequest },
-        { "DELETE", $"/api/requests/{NotASlug}", HttpStatusCode.BadRequest },
-        { "POST", $"/api/requests/{NotASlug}/dry-run/{NotAGuid}", HttpStatusCode.BadRequest },
-        { "GET", "/api/connectors", HttpStatusCode.OK },
-        { "POST", "/api/connectors", HttpStatusCode.BadRequest },
-        { "GET", $"/api/connectors/{NotASlug}", HttpStatusCode.BadRequest },
-        { "PUT", $"/api/connectors/{NotASlug}", HttpStatusCode.BadRequest },
-        { "DELETE", $"/api/connectors/{NotASlug}", HttpStatusCode.BadRequest },
-        { "POST", $"/api/connectors/{NotASlug}/test", HttpStatusCode.BadRequest },
-        { "GET", "/api/workflows", HttpStatusCode.OK },
-        { "POST", "/api/workflows", HttpStatusCode.BadRequest },
-        { "GET", "/api/workflows/actions", HttpStatusCode.OK },
-        { "POST", "/api/workflows/validate", HttpStatusCode.BadRequest },
-        { "POST", "/api/workflows/dry-run", HttpStatusCode.BadRequest },
-        { "GET", "/api/workflow-runs", HttpStatusCode.OK },
-        { "GET", $"/api/workflow-runs/{NotAGuid}", HttpStatusCode.BadRequest },
-        { "POST", $"/api/workflow-runs/{NotAGuid}/actions/0/retry", HttpStatusCode.BadRequest },
-        { "POST", $"/api/contents/{NotAGuid}/rollback/{NotAGuid}", HttpStatusCode.BadRequest },
-    };
+        var data = new TheoryData<string, string, HttpStatusCode>();
+        foreach (var (verb, path, expected) in MigratedRoutes) data.Add(verb, path, expected);
+        return data;
+    }
+
+    /// <summary>
+    /// The list above covers every migrated route, so a new one cannot be added untested.
+    /// </summary>
+    /// <remarks>
+    /// Two routes were missing from it and nothing said so, which is the failure a hand-kept list has
+    /// by construction: it answers "did we miss one" with "no". Read off the running host instead,
+    /// with the exclusions named rather than implied.
+    ///
+    /// Erase is excluded because Admin deliberately cannot reach it, which is the whole point of that
+    /// gate. The two routes still on role names are excluded because they are not migrated yet.
+    /// </remarks>
+    [Fact]
+    public void Every_migrated_route_is_in_the_list_above()
+    {
+        var core = typeof(Program).Assembly;
+
+        // Scoped to the capabilities this migration introduced. The areas migrated earlier have
+        // their own coverage, and pulling them in here would make this a second, worse copy of it.
+        var mine = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            barakoCMS.Models.SystemCapabilities.ViewMonitoring,
+            barakoCMS.Models.SystemCapabilities.ManageRedirects,
+            barakoCMS.Models.SystemCapabilities.ManageQueries,
+            barakoCMS.Models.SystemCapabilities.ManageRequests,
+            barakoCMS.Models.SystemCapabilities.ViewConnectors,
+            barakoCMS.Models.SystemCapabilities.ManageConnectors,
+            barakoCMS.Models.SystemCapabilities.ManageWorkflows,
+            barakoCMS.Models.SystemCapabilities.ViewWorkflowRuns,
+            barakoCMS.Models.SystemCapabilities.RetryWorkflowActions,
+            barakoCMS.Models.SystemCapabilities.RollbackContent,
+            barakoCMS.Models.SystemCapabilities.EraseContent,
+        };
+
+        var withCapability = _factory.Services.GetServices<EndpointDataSource>()
+            .SelectMany(source => source.Endpoints)
+            .Where(endpoint => endpoint.Metadata.OfType<FastEndpoints.EndpointDefinition>()
+                .FirstOrDefault()?.EndpointType.Assembly == core)
+            .Where(endpoint => endpoint.Metadata
+                .GetMetadata<barakoCMS.Infrastructure.Auth.RequiredCapability>() is { } required
+                     && mine.Contains(required.Capability))
+            .Select(endpoint => (endpoint as RouteEndpoint)?.RoutePattern.RawText)
+            .Where(route => route is not null)
+            .Select(route => "/" + route!.TrimStart('/'))
+            .Distinct()
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        withCapability.Should().NotBeEmpty(
+            "core endpoints declare capabilities, so reading none means this stopped looking");
+
+        // Admin cannot reach erase, so it has no row in a list about what Admin still reaches.
+        withCapability.Remove("/api/contents/{id}/erase");
+
+        // TheoryData rows are not indexable, so read the paths from the same source the theory does.
+        var listed = MigratedRoutes
+            .Select(row => NormaliseRouteParameters("/" + row.Path.TrimStart('/')))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        withCapability.Select(NormaliseRouteParameters).Should().BeSubsetOf(listed,
+            "a migrated route with no row here is a gate nobody checks Admin can still pass");
+    }
+
+    /// <summary>Route templates carry names; the theory rows carry values. Compare shapes.</summary>
+    private static string NormaliseRouteParameters(string route) =>
+        System.Text.RegularExpressions.Regex.Replace(
+            System.Text.RegularExpressions.Regex.Replace(route, @"\{[^}]+\}", "*"),
+            @"/(" + NotAGuid + "|" + NotASlug + @"|[0-9]+)(?=/|$)", "/*");
 
     [Theory]
     [MemberData(nameof(RoutesMigratedLast))]

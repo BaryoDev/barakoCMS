@@ -62,8 +62,14 @@ somebody reviews.
 
 ## Authorisation
 
-`Roles("SuperAdmin", "Admin")`, matching `Features/Monitoring`, which is the nearest neighbour by
-purpose and still gates the same way.
+`Roles("SuperAdmin", "Admin")`. This is one of the two core routes still gated on a role name rather
+than a capability, and it is pinned as such by
+`RoleGateTests.The_core_routes_still_on_a_role_name_are_the_two_that_are_meant_to_be`, so it cannot
+be forgotten and no third one can join it quietly.
+
+Monitoring used to be the argument for leaving it: the nearest neighbour by purpose, gating the same
+way. That stopped being true when monitoring moved to `view_monitoring`, so the reason recorded here
+is now the pinned list rather than a neighbour.
 
 Not anonymous, and not reachable with an API key. A module list tells a caller which surfaces an
 instance exposes, which is reconnaissance. `ApiKeyScopeProcessor` confines API keys to the content
