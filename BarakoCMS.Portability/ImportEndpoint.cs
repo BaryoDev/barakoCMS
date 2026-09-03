@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Events;
 using barakoCMS.Infrastructure.Audit;
@@ -33,7 +34,8 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
     public override void Configure()
     {
         Post("/api/portability/import");
-        Roles("SuperAdmin", "Admin");
+        Definition.RequireCapability(
+            PortabilityCapabilities.ImportContent, PortabilityCapabilities.LegacyRoles);
         Claims("UserId");
     }
 

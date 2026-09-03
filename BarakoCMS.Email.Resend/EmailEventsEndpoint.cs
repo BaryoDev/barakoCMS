@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure.Auth;
 using FastEndpoints;
 using Marten;
 
@@ -25,7 +26,8 @@ public sealed class EmailEventsEndpoint : Endpoint<EmailEventsEndpoint.Request, 
     public override void Configure()
     {
         Get("/api/email-events");
-        Roles("Admin", "SuperAdmin");
+        Definition.RequireCapability(
+            ResendEmailCapabilities.ViewEmailEvents, ResendEmailCapabilities.LegacyRoles);
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)

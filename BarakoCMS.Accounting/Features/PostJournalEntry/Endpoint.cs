@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure.Auth;
 using FastEndpoints;
 
 namespace BarakoCMS.Accounting.Features.PostJournalEntry;
@@ -36,7 +37,8 @@ public class Endpoint : Endpoint<Request, Response>
     public override void Configure()
     {
         Post("/api/accounting/journal-entries");
-        Roles("Accountant", "Admin", "SuperAdmin");
+        Definition.RequireCapability(
+            AccountingCapabilities.PostEntries, AccountingCapabilities.LegacyRoles);
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)

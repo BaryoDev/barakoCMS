@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
@@ -28,7 +29,8 @@ public class IndexEndpoint : EndpointWithoutRequest<IndexResponse>
     public override void Configure()
     {
         Post("/api/ai/index/{type}");
-        Roles("SuperAdmin", "Admin");
+        Definition.RequireCapability(
+            AiCapabilities.ManageSearchIndex, AiCapabilities.LegacyRoles);
     }
 
     public override async Task HandleAsync(CancellationToken ct)

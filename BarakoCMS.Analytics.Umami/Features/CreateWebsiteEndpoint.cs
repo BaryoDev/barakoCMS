@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure.Auth;
 using FastEndpoints;
 using FluentValidation;
 
@@ -39,7 +40,8 @@ public sealed class CreateWebsiteEndpoint : Endpoint<CreateWebsiteRequest, Creat
     public override void Configure()
     {
         Post("/api/analytics/websites");
-        Roles("Admin", "SuperAdmin");
+        Definition.RequireCapability(
+            AnalyticsCapabilities.ManageAnalyticsWebsites, AnalyticsCapabilities.LegacyRoles);
     }
 
     public override async Task HandleAsync(CreateWebsiteRequest req, CancellationToken ct)

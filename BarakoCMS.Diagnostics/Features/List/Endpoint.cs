@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
@@ -65,7 +66,8 @@ public class Endpoint : Endpoint<ListRequest, PaginatedResponse<ClientErrorDto>>
     public override void Configure()
     {
         Get("/api/client-errors");
-        Roles("SuperAdmin", "Admin");
+        Definition.RequireCapability(
+            DiagnosticsCapabilities.ManageClientErrors, DiagnosticsCapabilities.LegacyRoles);
     }
 
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)

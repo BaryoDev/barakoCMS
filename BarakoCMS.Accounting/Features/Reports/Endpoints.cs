@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure.Auth;
 using FastEndpoints;
 
 namespace BarakoCMS.Accounting.Features.Reports;
@@ -13,7 +14,8 @@ public class BalancesEndpoint : Endpoint<BalancesEndpoint.Request, IReadOnlyList
     public override void Configure()
     {
         Get("/api/accounting/balances");
-        Roles("Accountant", "Admin", "SuperAdmin");
+        Definition.RequireCapability(
+            AccountingCapabilities.ViewLedger, AccountingCapabilities.LegacyRoles);
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
@@ -31,7 +33,8 @@ public class AccountLedgerEndpoint : Endpoint<AccountLedgerEndpoint.Request, Acc
     public override void Configure()
     {
         Get("/api/accounting/accounts/{code}/ledger");
-        Roles("Accountant", "Admin", "SuperAdmin");
+        Definition.RequireCapability(
+            AccountingCapabilities.ViewLedger, AccountingCapabilities.LegacyRoles);
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)

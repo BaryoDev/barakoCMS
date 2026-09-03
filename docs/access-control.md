@@ -386,6 +386,40 @@ ordinary auditor case, and a single name makes it unexpressible. `view_audit_log
 reading because the surface is one GET: entries are append-only and the chain is tamper-evident,
 so there is nothing to manage.
 
+### Modules
+
+Every first-party module is migrated too, and a module declares its own capability names rather than
+core declaring them: core does not reference a module, and a third-party one is not in this
+repository at all. Nothing validates a capability name on the way into a role, so a name a module
+declares is grantable the day the module ships.
+
+| Module | Capability | Routes |
+| --- | --- | --- |
+| Accounting | `view_ledger` | `GET /api/accounting/accounts`, `/balances`, `/accounts/{code}/ledger` |
+| Accounting | `post_journal_entries` | `POST /api/accounting/accounts`, `/journal-entries` |
+| AI | `manage_search_index` | `POST /api/ai/index/{type}` |
+| Analytics (Umami) | `view_analytics` | the five read endpoints under `/api/analytics` |
+| Analytics (Umami) | `manage_analytics_websites` | `POST /api/analytics/websites` |
+| Diagnostics | `manage_client_errors` | `GET /api/client-errors`, `POST /api/client-errors/{id}/resolve` |
+| Email (Resend) | `view_email_events` | `GET /api/email-events` |
+| Feature flags | `manage_feature_flags` | everything under `/api/feature-flags/admin` |
+| Files | `upload_files` | `POST /api/files` |
+| Portability | `export_content` | `GET /api/portability/export` |
+| Portability | `import_content` | `POST /api/portability/import` |
+| PWA | `view_pwa_installs` | `GET /api/pwa/installs` |
+
+Three of those are splits of a gate that used to be one role list. Accounting splits reading the
+books from writing to them, which is the separation every accounting system makes and which lets an
+auditor read a ledger without being able to post to it. Analytics splits reading the numbers from
+provisioning a website in somebody else's system using this deployment's credentials. Portability
+splits export from import because the risks are opposite: export reads a whole tenant out in one
+request, import writes a whole tenant in.
+
+A module grants its own capabilities at seed time, to the roles its old `Roles(...)` gate listed,
+using `ModuleCapabilities.GrantAsync`. Additive, idempotent, and it skips a role the host never
+seeded rather than inventing one. SuperAdmin is not granted anything: it holds `*`, which satisfies a
+capability from a module core has never heard of. A module you do not install grants nothing, because
+its seeder never runs.
 Content types split for the audit-log reason rather than the users reason: both gates were the same
 role pair, so one name would have covered them and no seeded role would have noticed. They are split
 because designing a schema and deciding what an anonymous caller can read are different jobs. Field

@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure.Auth;
 using FastEndpoints;
 using Marten;
 
@@ -36,7 +37,8 @@ public class ListFlagsEndpoint : EndpointWithoutRequest<List<FlagDto>>
     public override void Configure()
     {
         Get("/api/feature-flags/admin");
-        Roles("SuperAdmin", "Admin");
+        Definition.RequireCapability(
+            FeatureFlagCapabilities.ManageFeatureFlags, FeatureFlagCapabilities.LegacyRoles);
     }
 
     public override async Task HandleAsync(CancellationToken ct)
@@ -72,7 +74,8 @@ public class SaveFlagEndpoint : Endpoint<UpsertFlagRequest, FlagDto>
     public override void Configure()
     {
         Post("/api/feature-flags/admin");
-        Roles("SuperAdmin", "Admin");
+        Definition.RequireCapability(
+            FeatureFlagCapabilities.ManageFeatureFlags, FeatureFlagCapabilities.LegacyRoles);
     }
 
     public override async Task HandleAsync(UpsertFlagRequest req, CancellationToken ct)
@@ -110,7 +113,8 @@ public class ToggleFlagEndpoint : Endpoint<KeyRequest, FlagDto>
     public override void Configure()
     {
         Post("/api/feature-flags/admin/{key}/toggle");
-        Roles("SuperAdmin", "Admin");
+        Definition.RequireCapability(
+            FeatureFlagCapabilities.ManageFeatureFlags, FeatureFlagCapabilities.LegacyRoles);
     }
 
     public override async Task HandleAsync(KeyRequest req, CancellationToken ct)
@@ -135,7 +139,8 @@ public class DeleteFlagEndpoint : Endpoint<KeyRequest>
     public override void Configure()
     {
         Delete("/api/feature-flags/admin/{key}");
-        Roles("SuperAdmin", "Admin");
+        Definition.RequireCapability(
+            FeatureFlagCapabilities.ManageFeatureFlags, FeatureFlagCapabilities.LegacyRoles);
     }
 
     public override async Task HandleAsync(KeyRequest req, CancellationToken ct)
