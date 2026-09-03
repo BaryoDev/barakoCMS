@@ -264,7 +264,17 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         // host that had every module's endpoints and none of the capabilities those endpoints ask
         // for, which was invisible while the role-name fallback answered instead. BarakoCMS.Suite
         // makes the same call for the same reason, right after the core seeder.
-        foreach (var module in ConfiguredModules)
+        var modules = DiscoverModules();
+        if (modules.Count < 8)
+        {
+            // Finding almost none means the discovery stopped working rather than that the modules
+            // stopped existing, and a fixture that silently seeds nothing is what this replaced.
+            throw new InvalidOperationException(
+                $"Only {modules.Count} module(s) were discovered to seed. The suite references every "
+              + "first-party module, so this is a discovery failure rather than a real answer.");
+        }
+
+        foreach (var module in modules)
         {
             using var moduleScope = Services.CreateScope();
             var moduleSession = moduleScope.ServiceProvider.GetRequiredService<IDocumentSession>();
@@ -288,20 +298,31 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
     /// modules, and registering them here would take that case away. Same instances, same seeds,
     /// one list.
     /// </remarks>
-    private static readonly barakoCMS.Modules.IBarakoModule[] ConfiguredModules =
-    [
-        new BarakoCMS.Accounting.AccountingModule(),
-        new BarakoCMS.AI.AiModule(),
-        new BarakoCMS.Analytics.Umami.UmamiAnalyticsModule(),
-        new BarakoCMS.DeviceTrust.DeviceTrustModule(),
-        new BarakoCMS.Diagnostics.DiagnosticsModule(),
-        new BarakoCMS.Email.Resend.ResendEmailModule(),
-        new BarakoCMS.ExternalAuth.ExternalAuthModule(),
-        new BarakoCMS.FeatureFlags.FeatureFlagsModule(),
-        new BarakoCMS.Files.FilesModule(),
-        new BarakoCMS.Portability.PortabilityModule(),
-        new BarakoCMS.Pwa.PwaModule(),
-    ];
+    /// <summary>
+    /// Every module type the loaded assemblies define, constructed and seeded.
+    /// </summary>
+    /// <remarks>
+    /// A module's capabilities reach the Admin role only from its own seeder, because core cannot
+    /// name them. The fixture configured module services and seeded none of them, so their endpoints
+    /// were present and the capabilities those endpoints ask for were not, which was invisible while
+    /// the role-name fallback answered instead.
+    ///
+    /// Discovered rather than listed. The first version of this was a hand-written array of eleven,
+    /// and it was stale within the day: BarakoCMS.Import gained a capability and a seeder in #494 and
+    /// was not in it, so three tests failed on a capability nothing had granted. A list of modules
+    /// maintained beside the modules is the same defect the capability gates were changed to stop
+    /// relying on.
+    /// </remarks>
+    private static IReadOnlyList<barakoCMS.Modules.IBarakoModule> DiscoverModules() =>
+        AppDomain.CurrentDomain.GetAssemblies()
+            .Where(a => a.GetName().Name?.StartsWith("BarakoCMS.", StringComparison.Ordinal) == true)
+            .SelectMany(LoadableTypes.In)
+            .Where(t => t is { IsAbstract: false, IsInterface: false }
+                     && typeof(barakoCMS.Modules.IBarakoModule).IsAssignableFrom(t)
+                     && t.GetConstructor(Type.EmptyTypes) is not null)
+            .Select(t => (barakoCMS.Modules.IBarakoModule)Activator.CreateInstance(t)!)
+            .ToList();
+
 
     public new async ValueTask DisposeAsync()
     {
