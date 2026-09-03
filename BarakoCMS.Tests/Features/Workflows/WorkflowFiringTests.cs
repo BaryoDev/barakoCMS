@@ -106,11 +106,11 @@ public class WorkflowFiringTests
 
         var run = await WaitForRunAsync(workflowId);
 
-        run.Success.Should().BeFalse("an action failed, so the run failed");
+        run.Status.Should().Be(RunStatus.Failed, "its only action failed, so the run failed");
         run.Actions.Should().ContainSingle();
         run.Actions[0].ActionType.Should().Be("Webhook");
-        run.Actions[0].Success.Should().BeFalse();
-        run.Actions[0].ErrorMessage.Should().Contain("not allowed",
+        run.Actions[0].Status.Should().Be(AttemptStatus.Failed);
+        run.Actions[0].Error.Should().Contain("not allowed",
             "the reason is the point: without it a failed action and an action that did nothing look "
           + "identical once the log line has scrolled away");
     }
@@ -128,11 +128,11 @@ public class WorkflowFiringTests
 
         var run = await WaitForRunAsync(workflowId);
 
-        run.Success.Should().BeTrue();
+        run.Status.Should().Be(RunStatus.Succeeded);
         run.Actions.Should().ContainSingle();
-        run.Actions[0].Success.Should().BeTrue(
+        run.Actions[0].Status.Should().Be(AttemptStatus.Succeeded,
             "a run record that only ever says 'failed' is as useless as one that never appears");
-        run.Actions[0].ErrorMessage.Should().BeNull();
+        run.Actions[0].Error.Should().BeNull();
     }
 
     private async Task AuthenticateAsync()
@@ -243,23 +243,34 @@ public class WorkflowFiringTests
             .CountAsync(c => c.ContentType == probeContentType);
     }
 
-    private async Task<WorkflowExecutionLog> WaitForRunAsync(Guid workflowId)
+    /// <summary>
+    /// The run once the runner has finished with it.
+    /// </summary>
+    /// <remarks>
+    /// A WorkflowRun rather than a WorkflowExecutionLog. The projection queues and a background
+    /// runner executes (#329), so the outcome lands on the run rather than on the debug log, which
+    /// now records dry runs only. Waits for a terminal status rather than for the row: the row
+    /// appears the moment the projection sees the event, and asserting then would read Pending and
+    /// call it a failure.
+    /// </remarks>
+    private async Task<WorkflowRun> WaitForRunAsync(Guid workflowId)
     {
-        WorkflowExecutionLog? run = null;
+        WorkflowRun? run = null;
 
         await PollAsync(
             async () =>
             {
                 using var scope = _factory.Services.CreateScope();
                 var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
-                run = await session.Query<WorkflowExecutionLog>()
-                    .Where(l => l.WorkflowId == workflowId)
+                run = await session.Query<WorkflowRun>()
+                    .Where(r => r.WorkflowDefinitionId == workflowId)
                     .FirstOrDefaultAsync();
 
-                return run is not null;
+                return run is not null
+                    && run.Status is not (RunStatus.Pending or RunStatus.Running);
             },
-            $"workflow {workflowId} recorded no run. Either it never fired, or the engine still has "
-          + "no outcome to record, which is the whole point of the action result");
+            $"workflow {workflowId} recorded no finished run. Either it never fired, or the runner "
+          + "never claimed it, which is the whole point of moving execution out of the projection");
 
         return run!;
     }

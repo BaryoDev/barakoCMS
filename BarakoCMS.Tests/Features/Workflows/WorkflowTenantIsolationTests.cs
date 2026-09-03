@@ -4,6 +4,7 @@ using FluentAssertions;
 using JasperFx.Events;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using NSubstitute;
 using Xunit;
 
@@ -63,10 +64,66 @@ public class WorkflowTenantIsolationTests
 
         await ProjectPublishedAsync(store, tenant, contentId);
 
-        await using var verify = store.QuerySession(tenant);
-        var updated = await verify.LoadAsync<Content>(contentId);
-        updated!.Data.Should().ContainKey("Stamp");
+        var updated = await DrainUntilAsync(store, tenant, contentId, c => c.Data.ContainsKey("Stamp"));
+
+        updated.Data.Should().ContainKey("Stamp");
         updated.Data["Stamp"]!.ToString().Should().Be("fired");
+    }
+
+    /// <summary>
+    /// Runs the queued work to completion, in this thread.
+    /// </summary>
+    /// <remarks>
+    /// The projection queues and a background runner executes (#329), so asserting straight after
+    /// projecting races the runner. Driven explicitly rather than slept on: a sleep long enough to
+    /// be reliable is long enough to hide a runner that never claimed anything, and the same lesson
+    /// is already recorded on MultiInstanceSchedulingTests about taking the lock rather than racing.
+    /// </remarks>
+    /// <summary>
+    /// Drives the runner until the content satisfies <paramref name="done"/>, or fails on a deadline.
+    /// </summary>
+    /// <remarks>
+    /// Driving it rather than sleeping, for the reason above. But "one pass claimed nothing" is not
+    /// the same as "the work is finished": the host also runs the real <c>WorkflowRunner</c>, which
+    /// polls every five seconds, so it can claim the attempt first and still be executing it when
+    /// this returns. The earlier version stopped on the first pass that claimed nothing and asserted
+    /// immediately, which failed in CI at 201ms with the content untouched.
+    ///
+    /// So the exit condition is the outcome rather than the queue being empty, and the deadline is
+    /// what turns a runner that never claims anything into a failure instead of a hang.
+    /// </remarks>
+    private async Task<Content> DrainUntilAsync(
+        IDocumentStore store, string tenant, Guid contentId, Func<Content, bool> done)
+    {
+        var runner = _fixture.Services.GetServices<IHostedService>()
+            .OfType<barakoCMS.Features.Workflows.WorkflowRunner>()
+            .Single();
+
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
+
+        while (true)
+        {
+            // Each pass claims at most one attempt, so a run with several actions needs several.
+            await runner.RunOnceAsync(TestContext.Current.CancellationToken);
+
+            await using var session = store.QuerySession(tenant);
+            var content = await session.LoadAsync<Content>(contentId, TestContext.Current.CancellationToken);
+
+            if (content is not null && done(content))
+            {
+                return content;
+            }
+
+            if (DateTime.UtcNow > deadline)
+            {
+                content.Should().NotBeNull("the content the workflow should have stamped is gone");
+                throw new Xunit.Sdk.XunitException(
+                    "Timed out after 30s waiting for the workflow to stamp the content. "
+                  + $"Data holds: {string.Join(", ", content!.Data.Keys)}");
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(200), TestContext.Current.CancellationToken);
+        }
     }
 
     /// <summary>

@@ -57,9 +57,11 @@ public class WorkflowProjectionTests
         eventEnvelope.StreamId.Returns(streamId);
         eventEnvelope.TenantId.Returns(JasperFx.StorageConstants.DefaultTenantId);
 
-        // Mock IWorkflowEngine
-        var engine = Substitute.For<IWorkflowEngine>();
-        _serviceProvider.GetService(typeof(IWorkflowEngine)).Returns(engine);
+        // The projection queues rather than executes (#329), so the collaborator it reaches for is
+        // the queue. Asserting on the engine here would keep passing against a projection that had
+        // stopped doing anything at all, since nothing would call the mock either way.
+        var queue = Substitute.For<IWorkflowRunQueue>();
+        _serviceProvider.GetService(typeof(IWorkflowRunQueue)).Returns(queue);
 
         // Mock Document Loading
         var content = new Content { Id = contentId, ContentType = "Article", Data = new Dictionary<string, object>() };
@@ -73,7 +75,7 @@ public class WorkflowProjectionTests
         await _ops.Received(1).LoadAsync<Content>(contentId, Arg.Any<CancellationToken>());
 
         // Verify Engine called
-        await engine.Received(1).ProcessEventAsync("Article", "Updated", content, Arg.Any<CancellationToken>());
+        await queue.Received(1).EnqueueAsync(content, "Updated", Arg.Any<long>(), Arg.Any<CancellationToken>());
     }
 
     /// <summary>
@@ -96,8 +98,8 @@ public class WorkflowProjectionTests
             contentId, new Dictionary<string, object>(), Guid.NewGuid(), String.Empty));
         eventEnvelope.TenantId.Returns(eventTenantId);
 
-        var engine = Substitute.For<IWorkflowEngine>();
-        _serviceProvider.GetService(typeof(IWorkflowEngine)).Returns(engine);
+        var queue = Substitute.For<IWorkflowRunQueue>();
+        _serviceProvider.GetService(typeof(IWorkflowRunQueue)).Returns(queue);
         _ops.LoadAsync<Content>(contentId, Arg.Any<CancellationToken>())
             .Returns(new Content { Id = contentId, ContentType = "Article" });
 
