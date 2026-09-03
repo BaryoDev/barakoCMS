@@ -5,6 +5,7 @@ using System.Text;
 using BarakoCMS.Import;
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace BarakoCMS.Tests.Features.Import;
@@ -111,6 +112,67 @@ public class AnalyzeLimitTests
             .Build();
 
         SpreadsheetLimits.MaxExpandedBytes(configured).Should().Be(99);
+    }
+
+    /// <summary>
+    /// A caller without the capability never reaches the parser.
+    /// </summary>
+    /// <remarks>
+    /// The endpoint had no gate at all, so any authenticated caller could hand the server a
+    /// spreadsheet to parse, and parsing is the expensive half. The role name is a fresh GUID, so
+    /// the legacy fallback cannot be what admits the second caller: whatever it reaches, it reaches
+    /// on the capability.
+    /// </remarks>
+    [Fact]
+    public async Task A_caller_without_the_capability_is_refused_before_anything_is_parsed()
+    {
+        var refused = await AnalyzeAsAsync(Xlsx(rows: 20), "small.xlsx", capabilities: []);
+        refused.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        var allowed = await AnalyzeAsAsync(
+            Xlsx(rows: 20), "small.xlsx", capabilities: [ImportCapabilities.AnalyzeSpreadsheets]);
+        allowed.StatusCode.Should().Be(HttpStatusCode.OK,
+            "the capability is what the endpoint asks for, and without this pairing a route that "
+          + "refused everybody would satisfy the refusal above");
+    }
+
+    private async Task<HttpResponseMessage> AnalyzeAsAsync(
+        byte[] bytes, string name, string[] capabilities)
+    {
+        var unique = $"Import Caller {Guid.NewGuid():N}";
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<Marten.IDocumentSession>();
+            var role = new barakoCMS.Models.Role
+            {
+                Id = Guid.NewGuid(), Name = unique, SystemCapabilities = capabilities.ToList(),
+            };
+            session.Store(role);
+
+            var userId = Guid.NewGuid();
+            session.Store(new barakoCMS.Models.User
+            {
+                Id = userId,
+                Username = $"import-{userId:n}",
+                Email = $"import-{userId:n}@example.com",
+                RoleIds = [role.Id],
+            });
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+            var scoped = _factory.CreateClient();
+            scoped.Timeout = TimeSpan.FromMinutes(3);
+            scoped.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+                "Bearer", _factory.CreateToken(roles: [unique], userId: userId.ToString()));
+
+            using var form = new MultipartFormDataContent();
+            var file = new ByteArrayContent(bytes);
+            file.Headers.ContentType = new MediaTypeHeaderValue(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+            form.Add(file, "file", name);
+
+            return await scoped.PostAsync("/api/import/analyze", form, TestContext.Current.CancellationToken);
+        }
     }
 
     private async Task<HttpResponseMessage> AnalyzeAsync(

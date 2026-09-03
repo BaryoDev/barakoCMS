@@ -103,18 +103,21 @@ public class ModuleCapabilityGrantTests
         var admin = $"Admin Stand In {Guid.NewGuid():N}";
         await SeedRoleAsync(roleName: admin);
 
-        var modules = new IBarakoModule[]
-        {
-            new BarakoCMS.Accounting.AccountingModule(),
-            new BarakoCMS.AI.AiModule(),
-            new BarakoCMS.Analytics.Umami.UmamiAnalyticsModule(),
-            new BarakoCMS.Diagnostics.DiagnosticsModule(),
-            new BarakoCMS.Email.Resend.ResendEmailModule(),
-            new BarakoCMS.FeatureFlags.FeatureFlagsModule(),
-            new BarakoCMS.Files.FilesModule(),
-            new BarakoCMS.Portability.PortabilityModule(),
-            new BarakoCMS.Pwa.PwaModule(),
-        };
+        // Constructed from every module type the loaded assemblies define, rather than a list kept
+        // here. A hardcoded list only covers the modules somebody remembered to add: the Import
+        // module shipped a capability and a seeder, and dropping its grant left this green.
+        var modules = AppDomain.CurrentDomain.GetAssemblies()
+            .Where(a => a.GetName().Name?.StartsWith("BarakoCMS.", StringComparison.Ordinal) == true)
+            .SelectMany(LoadableTypes.In)
+            .Where(t => t is { IsAbstract: false, IsInterface: false }
+                     && typeof(IBarakoModule).IsAssignableFrom(t)
+                     && t!.GetConstructor(Type.EmptyTypes) is not null)
+            .Select(t => (IBarakoModule)Activator.CreateInstance(t!)!)
+            .ToList();
+
+        modules.Should().HaveCountGreaterThan(5,
+            "the suite references every first-party module, so finding almost none means this "
+          + "stopped looking rather than that the modules stopped existing");
 
         var declared = modules
             .SelectMany(m => CapabilitiesDeclaredBy(m.GetType().Assembly))
@@ -139,7 +142,7 @@ public class ModuleCapabilityGrantTests
     }
 
     private static IEnumerable<string> CapabilitiesDeclaredBy(System.Reflection.Assembly assembly) =>
-        assembly.GetTypes()
+        LoadableTypes.In(assembly)
             .Where(t => t.IsAbstract && t.IsSealed && t.Name.EndsWith("Capabilities", StringComparison.Ordinal))
             .SelectMany(t => t.GetFields()
                 .Where(f => f.IsLiteral && f.FieldType == typeof(string))
