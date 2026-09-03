@@ -20,7 +20,7 @@ namespace BarakoCMS.Tests;
 /// role also reported success and granted nothing.
 /// </remarks>
 [Collection("Sequential")]
-public class UserAssignmentNotFoundTests
+public class UserAssignmentNotFoundTests : IAsyncLifetime
 {
     private readonly IntegrationTestFixture _factory;
     private readonly HttpClient _client;
@@ -29,9 +29,22 @@ public class UserAssignmentNotFoundTests
     {
         _factory = factory;
         _client = factory.CreateClient();
-        _client.DefaultRequestHeaders.Authorization =
-            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", factory.CreateToken(roles: new[] { "SuperAdmin" }));
     }
+
+    /// <summary>
+    /// The token needs a stored user, which is a write, which a constructor cannot do.
+    /// </summary>
+    /// <remarks>
+    /// The capability gate answers from the stored user's roles rather than from the claim, so a
+    /// token minted with no user behind it reaches nothing once the role-name fallback is off.
+    /// </remarks>
+    public async ValueTask InitializeAsync() =>
+        _client.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue(
+                "Bearer", await _factory.StoredUserTokenAsync("SuperAdmin"));
+
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
 
     private async Task<Guid> CreateUserAsync()
     {

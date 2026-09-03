@@ -43,19 +43,19 @@ public class UmamiProxyTests
         });
     }
 
-    private HttpClient Admin(WebApplicationFactory<Program> factory)
+    private async Task<HttpClient> Admin(WebApplicationFactory<Program> factory)
     {
         var client = factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
-            "Bearer", _fixture.CreateToken(["Admin", "SuperAdmin"]));
+            "Bearer", await _fixture.StoredUserTokenAsync("Admin", "SuperAdmin"));
         return client;
     }
 
-    private HttpClient PlainUser()
+    private async Task<HttpClient> PlainUser()
     {
         var client = _configured.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
-            "Bearer", _fixture.CreateToken(["User"]));
+            "Bearer", await _fixture.StoredUserTokenAsync("User"));
         return client;
     }
 
@@ -75,7 +75,7 @@ public class UmamiProxyTests
     public async Task The_umami_account_never_reaches_the_browser()
     {
         UmamiStubHandler.Clear();
-        var admin = Admin(_configured);
+        var admin = await Admin(_configured);
 
         var sites = await admin.GetAsync("/api/analytics/websites", TestContext.Current.CancellationToken);
         sites.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -128,7 +128,7 @@ public class UmamiProxyTests
     [Fact]
     public async Task Every_analytics_route_is_closed_to_a_caller_without_an_admin_role()
     {
-        var user = PlainUser();
+        var user = await PlainUser();
 
         foreach (var route in Routes)
         {
@@ -169,7 +169,7 @@ public class UmamiProxyTests
     {
         UmamiStubHandler.Clear();
 
-        var response = await Admin(_fixture).GetAsync(
+        var response = await (await Admin(_fixture)).GetAsync(
             "/api/analytics/websites", TestContext.Current.CancellationToken);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);

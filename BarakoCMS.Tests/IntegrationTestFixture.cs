@@ -238,11 +238,70 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
                      new barakoCMS.Models.Role { Id = barakoCMS.Data.DataSeeder.UserRoleId, Name = "User", Description = "Standard user" },
                  })
         {
-            if (await session.Query<barakoCMS.Models.Role>().FirstOrDefaultAsync(r => r.Name == role.Name) is null)
+            var existing = await session.Query<barakoCMS.Models.Role>()
+                .FirstOrDefaultAsync(r => r.Name == role.Name);
+
+            // Through the same call the real seeder makes, so a system role here holds what a system
+            // role holds in production. Building them by hand without it gave the fixture an "Admin"
+            // that carried no capabilities at all, which was invisible while
+            // Auth:LegacyRoleFallback let the role name open the gate, and which turned into
+            // forty-odd failures the moment that default went off. A test double that does not match
+            // the thing it doubles hides exactly the behaviour you are trying to test.
+            if (existing is null)
+            {
+                barakoCMS.Data.DataSeeder.ApplyCapabilityDefaults(role);
                 session.Store(role);
+            }
+            else if (barakoCMS.Data.DataSeeder.ApplyCapabilityDefaults(existing))
+            {
+                session.Store(existing);
+            }
         }
         await session.SaveChangesAsync();
+
+        // The modules registered above seed too, and a module's capabilities reach the Admin role
+        // only from its own seeder, because core cannot name them. Skipping this gave the fixture a
+        // host that had every module's endpoints and none of the capabilities those endpoints ask
+        // for, which was invisible while the role-name fallback answered instead. BarakoCMS.Suite
+        // makes the same call for the same reason, right after the core seeder.
+        foreach (var module in ConfiguredModules)
+        {
+            using var moduleScope = Services.CreateScope();
+            var moduleSession = moduleScope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            await module.SeedAsync(moduleSession, moduleScope.ServiceProvider, CancellationToken.None);
+            await moduleSession.SaveChangesAsync();
+        }
     }
+
+    /// <summary>
+    /// The modules this fixture configures, so it can seed the same ones it wires up.
+    /// </summary>
+    /// <remarks>
+    /// A module's capabilities reach the Admin role only from its own seeder, because core cannot
+    /// name them. The fixture configured seven modules' services and seeded none of them, so their
+    /// endpoints were present and the capabilities those endpoints ask for were not, which was
+    /// invisible while the role-name fallback answered instead.
+    ///
+    /// Seeded directly rather than through <c>RunBarakoModuleSeedersAsync</c>, which reads
+    /// <c>IBarakoModule</c> singletons out of the container. This fixture deliberately registers
+    /// none: <see cref="ModulesEndpointTests"/> uses the shared host as a deployment running no
+    /// modules, and registering them here would take that case away. Same instances, same seeds,
+    /// one list.
+    /// </remarks>
+    private static readonly barakoCMS.Modules.IBarakoModule[] ConfiguredModules =
+    [
+        new BarakoCMS.Accounting.AccountingModule(),
+        new BarakoCMS.AI.AiModule(),
+        new BarakoCMS.Analytics.Umami.UmamiAnalyticsModule(),
+        new BarakoCMS.DeviceTrust.DeviceTrustModule(),
+        new BarakoCMS.Diagnostics.DiagnosticsModule(),
+        new BarakoCMS.Email.Resend.ResendEmailModule(),
+        new BarakoCMS.ExternalAuth.ExternalAuthModule(),
+        new BarakoCMS.FeatureFlags.FeatureFlagsModule(),
+        new BarakoCMS.Files.FilesModule(),
+        new BarakoCMS.Portability.PortabilityModule(),
+        new BarakoCMS.Pwa.PwaModule(),
+    ];
 
     public new async ValueTask DisposeAsync()
     {
@@ -273,6 +332,78 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
     public WebApplicationFactory<Program> WithSettings(IDictionary<string, string?> settings) =>
         WithWebHostBuilder(b => b.ConfigureAppConfiguration((_, config) =>
             config.AddInMemoryCollection(settings)));
+
+    private static readonly Lock StoredCallers = new();
+    private static readonly Dictionary<string, Task<string>> StoredTokens = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// A token for a user that exists, holding the seeded roles named.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="CreateToken"/> mints role claims and a random <c>UserId</c> with no stored user
+    /// behind it. That is not a token this system issues: <c>TokenIssuer</c> mints claims for a user
+    /// that exists, and a capability gate answers from the stored user's roles rather than from the
+    /// claim. The difference was invisible while <c>Auth:LegacyRoleFallback</c> honoured the role
+    /// name, which is exactly why forty-five tests broke the moment it was turned off.
+    ///
+    /// The role is the seeded one where the seeder made it, so it carries the capabilities the
+    /// seeder and the backfill gave it. A name the seeder does not create gets a role with no
+    /// capabilities, which is the correct answer and what makes a "wrong role" caller meaningful.
+    ///
+    /// Cached per role set. <see cref="RoleGateTests"/> records why: a hundred throwaway users sit
+    /// at the top of <c>GET /api/users</c>, where other tests read the first row.
+    /// </remarks>
+    public Task<string> StoredUserTokenAsync(params string[] roleNames)
+    {
+        var key = string.Join('\u001f', roleNames);
+
+        lock (StoredCallers)
+        {
+            if (StoredTokens.TryGetValue(key, out var cached))
+            {
+                return cached;
+            }
+
+            var minted = MintForStoredUserAsync(roleNames);
+            StoredTokens[key] = minted;
+            return minted;
+        }
+    }
+
+    private async Task<string> MintForStoredUserAsync(string[] roleNames)
+    {
+        using var scope = Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<Marten.IDocumentSession>();
+
+        var roleIds = new List<Guid>();
+        foreach (var roleName in roleNames)
+        {
+            var role = await session.Query<barakoCMS.Models.Role>()
+                .FirstOrDefaultAsync(r => r.Name == roleName);
+
+            // A name the seeder does not create is left alone rather than invented. Such a role
+            // holds nothing, so the user reaches nothing through it, which is the answer these
+            // callers are for. Creating one would also take the name: role names are uniquely
+            // indexed, and tests that create "Editor" through POST /api/roles then fail on a
+            // document that this helper quietly made first.
+            if (role is not null)
+            {
+                roleIds.Add(role.Id);
+            }
+        }
+
+        var userId = Guid.NewGuid();
+        session.Store(new barakoCMS.Models.User
+        {
+            Id = userId,
+            Username = $"stored-{userId:n}",
+            Email = $"stored-{userId:n}@example.com",
+            RoleIds = roleIds,
+        });
+        await session.SaveChangesAsync();
+
+        return CreateToken(roleNames, userId.ToString());
+    }
 
     public string CreateToken(string[] roles, string? userId = null, Dictionary<string, string>? additionalClaims = null)
     {
