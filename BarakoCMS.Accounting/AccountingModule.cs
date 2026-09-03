@@ -71,6 +71,13 @@ public sealed class AccountingModule : IBarakoModule
             });
         }
 
+        // The roles that reached these endpoints before the gate asked for a capability get the
+        // capability, so turning Auth:LegacyRoleFallback off does not take the module away from
+        // them. Core cannot do this: SystemCapabilities.DefaultsFor does not know this module
+        // exists. Additive and idempotent, and it skips a role the host never seeded.
+        await ModuleCapabilities.GrantAsync(
+            session, AccountingCapabilities.SeededRoles, AccountingCapabilities.All, ct);
+
         // Accounts and journal entries are content types (content-type-first). Seed their
         // definitions so the schema validator and the admin's generic content UI know their shape.
         // Idempotent: only inserted when absent, so a host that has customised them is left alone.

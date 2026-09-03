@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure.Auth;
 using FastEndpoints;
 using barakoCMS.Models;
 using Marten;
@@ -30,7 +31,8 @@ public sealed class InstallsEndpoint : Endpoint<barakoCMS.Models.ListRequest, ba
     public override void Configure()
     {
         Get("/api/pwa/installs");
-        Roles("Admin", "SuperAdmin");
+        Definition.RequireCapability(
+            PwaCapabilities.ViewPwaInstalls, PwaCapabilities.LegacyRoles);
     }
 
     public override async Task HandleAsync(barakoCMS.Models.ListRequest req, CancellationToken ct)
