@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using FastEndpoints;
@@ -34,7 +35,7 @@ internal class Endpoint : Endpoint<Request, TemplateVariableCollection>
         // content type to derive its data fields, so anonymously it disclosed both the field names
         // and, until the change in TemplateVariableExtractor, their stored values — bypassing both
         // the role restriction on /api/schemas and field-level sensitivity entirely.
-        Roles("SuperAdmin", "Admin");
+        Definition.RequireCapability(SystemCapabilities.ManageWorkflows, "SuperAdmin", "Admin");
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)

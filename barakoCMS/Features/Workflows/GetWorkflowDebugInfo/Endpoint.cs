@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using FastEndpoints;
@@ -31,7 +32,9 @@ internal class Endpoint : Endpoint<Request, List<WorkflowExecutionLog>>
     public override void Configure()
     {
         Get("/api/workflows/{id}/debug");
-        Roles("SuperAdmin", "Admin"); // Restrict to admins - exposes internal workflow execution logs
+        // The execution log of what already ran, which is the run list from the other end, so it
+        // reads with the runs rather than with authoring.
+        Definition.RequireCapability(SystemCapabilities.ViewWorkflowRuns, "SuperAdmin", "Admin");
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)

@@ -14,8 +14,9 @@ namespace barakoCMS.Features.Modules.List;
 ///
 /// Gated on <c>Roles("SuperAdmin", "Admin")</c> rather than on a capability. Every name in
 /// <see cref="SystemCapabilities"/> covers a management surface this endpoint neither reads nor
-/// writes, and the nearest neighbour by purpose, <c>Features/Monitoring</c>, still gates the same
-/// way. See issue #185 for the whole argument.
+/// writes. See issue #185 for the whole argument, and
+/// <c>RoleGateTests.The_core_routes_still_on_a_role_name_are_the_two_that_are_meant_to_be</c> for the
+/// pinned list this belongs to now that #443 has migrated everything else.
 /// </remarks>
 internal sealed class Endpoint : Endpoint<ListModulesRequest, PaginatedResponse<ModuleSummary>>
 {

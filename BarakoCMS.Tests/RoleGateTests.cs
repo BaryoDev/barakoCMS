@@ -351,6 +351,58 @@ public class RoleGateTests
           + "structural test stops testing without failing");
     }
 
+    /// <summary>
+    /// What is still gated on a role name in core, pinned. Issue #443 migrated every administrative
+    /// area to a capability, and this is the list of what it deliberately left behind, so the test
+    /// is the signal that the migration is finished rather than paused.
+    /// </summary>
+    /// <remarks>
+    /// Two routes, each for a reason written at the endpoint.
+    ///
+    /// <c>GET /api/modules</c> reports which modules the container booted with. Every name in the
+    /// vocabulary covers a management surface it neither reads nor writes, and a capability invented
+    /// for it would be a name with one route behind it. See issue #185.
+    ///
+    /// <c>POST /api/content-types/{name}/seo-fields</c> adds the SEO field set to a type. It is
+    /// schema modelling, so <c>manage_content_types</c> would fit, and it is only outside #443
+    /// because #443's list did not name it. Migrating it is a small follow-up rather than a decision
+    /// this list is defending.
+    ///
+    /// Adding a route here needs the same argument in the same place. Emptying the list is fine and
+    /// means the last two moved; growing it means a new endpoint reached for <c>Roles(...)</c>, and
+    /// the fix for that is a capability, not another line here.
+    /// </remarks>
+    [Fact]
+    public void The_core_routes_still_on_a_role_name_are_the_two_that_are_meant_to_be()
+    {
+        var core = typeof(Program).Assembly;
+
+        var stillOnRoleNames = _factory.Services.GetServices<EndpointDataSource>()
+            .SelectMany(source => source.Endpoints)
+            .OfType<RouteEndpoint>()
+            .Select(endpoint => new
+            {
+                endpoint.RoutePattern,
+                Definition = endpoint.Metadata.OfType<EndpointDefinition>().FirstOrDefault(),
+                Capability = endpoint.Metadata.GetMetadata<barakoCMS.Infrastructure.Auth.RequiredCapability>(),
+                Methods = endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods ?? [],
+            })
+            .Where(x => x.Definition is not null && x.Definition.EndpointType.Assembly == core)
+            .Where(x => x.Definition!.AllowedRoles?.Count > 0 && x.Capability is null)
+            .SelectMany(x => x.Methods
+                .Where(method => x.Definition!.AnonymousVerbs?.Contains(method) != true)
+                .Select(method => $"{method} /{x.RoutePattern.RawText?.TrimStart('/')}"))
+            .Distinct()
+            .OrderBy(x => x, StringComparer.Ordinal)
+            .ToList();
+
+        stillOnRoleNames.Should().BeEquivalentTo(
+        [
+            "GET /api/modules",
+            "POST /api/content-types/{name}/seo-fields",
+        ]);
+    }
+
     private IReadOnlyList<string> GatedRoutesFromTheRunningHost()
     {
         var core = typeof(Program).Assembly;
