@@ -87,6 +87,17 @@ services:
       # assigns its address; override if your bridge is not in the default range.
       - ForwardedHeaders__Enabled=true
       - ForwardedHeaders__KnownNetworks__0=${TRUSTED_PROXY_NETWORK:-172.16.0.0/12}
+      # The origin the API puts in the links it hands out, and the host names it will answer to. The
+      # Host header is written by whoever sent the request, so without these a caller chooses both.
+      # Passed through rather than assumed: quickstart has had them and this file did not, so the
+      # runbook told operators to set variables that reached nothing. Defaults are today's behaviour
+      # exactly, an unset base URL (the feed and the OAuth start endpoints say which key to set) and
+      # any host, so an existing deployment is unchanged until somebody fills them in.
+      - App__BaseUrl=${APP_BASE_URL:-}
+      - AllowedHosts=${ALLOWED_HOSTS:-*}
+      # The site the feed points at, which is the client's front end rather than this API. Preferred
+      # over App__BaseUrl when set.
+      - Feeds__SiteUrl=${FEEDS_SITE_URL:-}
     depends_on:
       postgres:
         condition: service_healthy

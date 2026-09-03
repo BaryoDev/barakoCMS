@@ -390,7 +390,9 @@ content modeling, extending BarakoCMS, and deployment.
 Full docs at **<https://baryo.dev/docs>**: getting started, guides, module references, API
 reference, and architecture. Changelog: [CHANGELOG.md](CHANGELOG.md).
 
-In this repo: [the public delivery API](docs/delivery-api.md) (pagination, the `filter[field][op]`
+In this repo: [delivering a client project](docs/delivering-a-client-project.md) (the whole path from
+a clean machine to handover, and what is not solved yet),
+[the public delivery API](docs/delivery-api.md) (pagination, the `filter[field][op]`
 syntax, sorting, resolving references), [upgrading to 4.0](docs/upgrading-to-4.0.md),
 [event-sourced content types](docs/event-sourced-content-types.md),
 [backup and restore](docs/backup-and-restore.md),
