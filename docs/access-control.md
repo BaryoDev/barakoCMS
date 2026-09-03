@@ -343,8 +343,14 @@ Two things keep an existing deployment working:
 
 - The seeder backfills the capabilities its four system roles already had the access
   for, on the next start, so they are visible and editable rather than showing as roles
-  with nothing. Only an empty list is filled: capabilities an operator has curated are
-  left alone.
+  with nothing. It adds whatever is missing from the default set rather than filling only
+  an empty list, so a capability added to the vocabulary after your deployment upgraded
+  still reaches your Admin.
+
+  The cost of that, plainly: a default you have deliberately removed from a seeded system
+  role comes back on the next restart, because nothing records that the removal was
+  deliberate. If you need one gone for good, do not run the seeder. A role you created is
+  untouched, since the defaults are keyed on the names the seeder creates.
 - The gate also honours the role names it replaced. That is what makes access survive
   even on a host that never calls the seeder.
 
@@ -366,6 +372,8 @@ carry capabilities, and the names stop meaning anything on their own. The defaul
 | `Features/Audit/*` | `view_audit_log` | `GET /api/audit` | SuperAdmin, Admin |
 | `Features/Settings/*` | `manage_settings` | `/api/settings`, `GET /api/settings/email` | SuperAdmin, Admin |
 | `Features/Settings/Email/*` | `manage_email_settings` | `PUT /api/settings/email`, `POST /api/settings/email/test` | SuperAdmin |
+| `Features/ContentType/*` | `manage_content_types` | `/api/content-types` (and its `/api/schemas` alias), `POST /api/content-types/{name}/rebuild` | SuperAdmin, Admin |
+| `Features/ContentType/*` | `manage_public_delivery` | `PUT /api/content-types/{name}/public-delivery`, `PUT /api/content-types/{name}/fields/{field}/sensitivity` | SuperAdmin, Admin |
 
 Users is two capabilities because its old gates were two: listing accounts and resetting
 someone's password were `Roles("SuperAdmin")`, while changing a user's roles and groups
@@ -386,6 +394,12 @@ were `Roles("SuperAdmin")`. Changing where the deployment's mail comes from redi
 reset and every verification token in it, so it is a takeover rather than an administrative tweak,
 and it is exactly the change a compromised admin account makes. One `manage_settings` covering both
 would have handed that to every Admin, so Admin's defaults carry `manage_settings` alone.
+Content types split for the audit-log reason rather than the users reason: both gates were the same
+role pair, so one name would have covered them and no seeded role would have noticed. They are split
+because designing a schema and deciding what an anonymous caller can read are different jobs. Field
+sensitivity is what decides whether a value is scrubbed on the way out, and public delivery decides
+whether the route answers at all, so both are disclosure decisions rather than modelling ones. Admin
+holds both by default, because Admin reached all five routes already and this narrows nothing.
 
 Everything else still gates on `Roles(...)`, which keeps working. Third-party modules
 calling `Roles(...)` are unaffected and compile unchanged.

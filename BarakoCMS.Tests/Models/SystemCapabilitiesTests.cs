@@ -85,6 +85,10 @@ public class SystemCapabilitiesTests
             // Settings: GET and POST /api/settings and GET /api/settings/email were
             // Roles("SuperAdmin", "Admin"), so Admin reached them already.
             SystemCapabilities.ManageSettings,
+            // Content types: all five routes were Roles("SuperAdmin", "Admin"), so Admin reached
+            // both halves already and this migration narrows nothing.
+            SystemCapabilities.ManageContentTypes,
+            SystemCapabilities.ManagePublicDelivery,
         });
         admin.Should().NotContain(SystemCapabilities.ManageRoles);
         admin.Should().NotContain(SystemCapabilities.ManageTenants);

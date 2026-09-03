@@ -71,11 +71,30 @@ public static class SystemCapabilities
     /// <c>manage_settings</c> covering both would hand that to every Admin.
     /// </remarks>
     public const string ManageEmailSettings = "manage_email_settings";
+    /// List and create content types, and rebuild an event-sourced type's read model.
+    /// </summary>
+    public const string ManageContentTypes = "manage_content_types";
+
+    /// <summary>
+    /// Decide what an anonymous caller can read: turn public delivery on or off for a type, and set
+    /// a field's sensitivity, which is what determines whether the field is scrubbed on the way out.
+    /// </summary>
+    /// <remarks>
+    /// Split from <see cref="ManageContentTypes"/> even though both gates were the same role pair,
+    /// for the reason API keys and the audit log are split: the jobs are different. Designing a
+    /// schema is modelling work. Deciding what leaves the building to an anonymous caller is a
+    /// disclosure decision, and a role that should do the first without the second is an ordinary
+    /// thing to want. One name makes it unexpressible.
+    ///
+    /// Both go to Admin's defaults, because Admin reached all five routes already and this migration
+    /// does not narrow anything.
+    /// </remarks>
+    public const string ManagePublicDelivery = "manage_public_delivery";
 
     public static readonly IReadOnlySet<string> Known = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         All, ManageRoles, ManageTenants, ManageTenantMembers, ManageUsers, ManageUserMembership, ManageUserGroups,
-        ManageApiKeys, ViewAuditLog, ManageSettings, ManageEmailSettings,
+        ManageApiKeys, ViewAuditLog, ManageSettings, ManageEmailSettings, ManageContentTypes, ManagePublicDelivery,
     };
 
     public static bool IsKnown(string capability) =>
@@ -88,7 +107,10 @@ public static class SystemCapabilities
     private static readonly string[] None = [];
     private static readonly string[] Everything = [All];
     private static readonly string[] AdminDefaults =
-        [ManageTenantMembers, ManageUserMembership, ManageUserGroups, ManageApiKeys, ViewAuditLog, ManageSettings];
+    [
+        ManageTenantMembers, ManageUserMembership, ManageUserGroups, ManageApiKeys, ViewAuditLog,
+        ManageSettings, ManageContentTypes, ManagePublicDelivery,
+    ];
 
     /// <summary>
     /// The capabilities a seeded system role starts with, chosen to match what that role could
