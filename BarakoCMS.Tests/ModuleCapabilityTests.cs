@@ -119,22 +119,24 @@ public class ModuleCapabilityTests
     [Fact]
     public void Every_capability_a_module_endpoint_requires_is_one_its_module_declares()
     {
-        var declared = new[]
-        {
-            typeof(BarakoCMS.Accounting.AccountingCapabilities),
-            typeof(BarakoCMS.AI.AiCapabilities),
-            typeof(BarakoCMS.Analytics.Umami.AnalyticsCapabilities),
-            typeof(BarakoCMS.Diagnostics.DiagnosticsCapabilities),
-            typeof(BarakoCMS.Email.Resend.ResendEmailCapabilities),
-            typeof(BarakoCMS.FeatureFlags.FeatureFlagCapabilities),
-            typeof(BarakoCMS.Files.FileCapabilities),
-            typeof(BarakoCMS.Portability.PortabilityCapabilities),
-            typeof(BarakoCMS.Pwa.PwaCapabilities),
-        }
-        .SelectMany(t => t.GetFields()
-            .Where(f => f.IsLiteral && f.FieldType == typeof(string))
-            .Select(f => (string)f.GetRawConstantValue()!))
-        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        // Discovered off the assemblies that actually registered endpoints, rather than a list
+        // maintained here. A hardcoded list is a gate that only covers the modules somebody
+        // remembered to add to it, and it failed exactly that way when the Import module arrived
+        // with a capability of its own.
+        var declared = _factory.Services.GetServices<EndpointDataSource>()
+            .SelectMany(source => source.Endpoints)
+            .Select(endpoint => endpoint.Metadata.OfType<FastEndpoints.EndpointDefinition>()
+                .FirstOrDefault()?.EndpointType.Assembly)
+            .Where(assembly => assembly is not null)
+            .Distinct()
+            .SelectMany(assembly => assembly!.GetTypes())
+            .Where(t => t.IsAbstract && t.IsSealed && t.Name.EndsWith("Capabilities", StringComparison.Ordinal))
+            .SelectMany(t => t.GetFields()
+                .Where(f => f.IsLiteral && f.FieldType == typeof(string))
+                .Select(f => (string)f.GetRawConstantValue()!))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        declared.Should().NotBeEmpty("the modules declare capability classes, or this stopped looking");
 
         var core = typeof(Program).Assembly;
 
