@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Mvc.Testing;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -630,7 +631,58 @@ public class CapabilityGateTests
     /// A caller whose token carries a role name but whose stored user holds no roles, so the
     /// capability lookup has nothing to resolve and only the legacy name can open a gate.
     /// </summary>
-    private async Task<HttpClient> CallerWithNoStoredRoles(string tokenRoleName)
+    /// <summary>
+    /// With nobody setting it, a role name opens nothing.
+    /// </summary>
+    /// <remarks>
+    /// The mirror of <see cref="A_seeded_role_name_still_opens_the_gate_it_used_to_open"/>, and the
+    /// case that makes the 4.0 default real rather than assumed. Same caller, same routes, the only
+    /// difference being which host answers: this one says nothing about
+    /// <c>Auth:LegacyRoleFallback</c> and therefore gets the default.
+    ///
+    /// Without it the flip is a default nothing exercises: every other test in this file either
+    /// holds a capability or asks for the fallback explicitly, so putting the old default back
+    /// leaves the whole suite green.
+    /// </remarks>
+    [Theory]
+    [InlineData("SuperAdmin", "/api/roles")]
+    [InlineData("SuperAdmin", "/api/tenants")]
+    [InlineData("Admin", "/api/tenants/members")]
+    public async Task Unset_the_role_name_opens_nothing(string roleName, string path)
+    {
+        var client = await CallerWithNoStoredRoles(roleName, LegacyFallback.Unset);
+
+        var response = await client.GetAsync(path, TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "the name is all this caller has, and from 4.0 a name grants nothing unless a deployment "
+          + "asks for the fallback");
+    }
+
+    private enum LegacyFallback
+    {
+        /// <summary>Nobody set it, so the caller gets whatever 4.0 defaults to.</summary>
+        Unset,
+
+        /// <summary>A deployment that asked for the shim, mid-upgrade.</summary>
+        On,
+    }
+
+    /// <summary>
+    /// A caller on a host with the legacy fallback deliberately turned on.
+    /// </summary>
+    /// <remarks>
+    /// The fallback defaults to off from 4.0, so a test of the fallback has to ask for it. These
+    /// cases exist to prove an upgrading deployment is not locked out while its stored roles have no
+    /// capabilities yet, which is a real thing the shim does and worth keeping tested. Relying on
+    /// the default instead would mean the tests of the shim quietly became tests of nothing on the
+    /// day the default changed.
+    ///
+    /// The stored user holds no roles at all, so the capability lookup cannot grant anything and
+    /// only the role name in the token can.
+    /// </remarks>
+    private async Task<HttpClient> CallerWithNoStoredRoles(
+        string tokenRoleName, LegacyFallback fallback = LegacyFallback.On)
     {
         using var scope = _factory.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
@@ -645,9 +697,22 @@ public class CapabilityGateTests
         });
         await session.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        var client = _factory.CreateClient();
+        var client = (fallback == LegacyFallback.On ? LegacyFallbackHost() : _factory).CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer", _factory.CreateToken(roles: [tokenRoleName], userId: userId.ToString()));
         return client;
+    }
+
+    private static readonly Lock LegacyHostGate = new();
+    private static WebApplicationFactory<Program>? _legacyHost;
+
+    /// <summary>One derived host for every legacy case, since each build costs a server.</summary>
+    private WebApplicationFactory<Program> LegacyFallbackHost()
+    {
+        lock (LegacyHostGate)
+        {
+            return _legacyHost ??= _factory.WithSetting(
+                barakoCMS.Infrastructure.Auth.CapabilityGateProcessor.LegacyRoleFallbackKey, "true");
+        }
     }
 }
