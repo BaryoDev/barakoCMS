@@ -460,3 +460,59 @@ The one gap is pre-4.0 data. Rows the migration moves have no `ContentStatusChan
 replaying one of those streams gives `Draft` with the date still on it. The sweeper accepts both, so
 those entries still publish on time; they would just show under Draft until something writes to them
 again.
+
+## D13. The client is a hand-written base plus generated slices, and we do not write the generator
+
+**Decided** 18 August 2026. Cited by #182, #183, #186, #187 and #188.
+
+**The decision.** A small hand-written base client, extended by generated slices, one slice per
+OpenAPI tag. Not a hand-written client, and not a wholly generated one.
+
+The base holds what a generator produces badly and what does not change: transport, base URL and
+headers, authentication (login, refresh, logout, the token store, `recover()`), the tenant header,
+one error shape so a failure is the same object whatever produced it, and the handful of ergonomic
+helpers already earning their place (`bySlug`, `menu`, `fileUrl`). None of that is well described by
+an OpenAPI document, all of it is what makes the current client pleasant to use, and baryo.dev
+depends on it in production.
+
+Everything else is generated: the typed method surface, one slice per tag, which after the tagging
+work means one per feature area and one per module.
+
+```ts
+const client = createClient({ baseUrl, tenant })   // base: transport, auth, tenancy
+client.use(coreApi)          // generated, ships in the package
+client.use(accountingApi)    // generated, ships with the Accounting module
+client.use(myCrmApi)         // generated from your own instance
+```
+
+This is the same shape as the CMS: a small core, and modules you add. Anyone who understands one
+understands the other, which is the strongest argument for it.
+
+**What it buys.** A third-party module can never appear in a central document, and now it does not
+have to: it publishes a slice, or you generate one from your own instance. A hand-written client
+drifts from the API, and now the drifting part regenerates while the part that stays is small enough
+not to. And calling a module the instance does not run becomes a compile error rather than a runtime
+404, for anyone using types, with no runtime check at all. That last one is why `GET /api/modules`
+(#185) is a diagnostic for the convenience case rather than the mechanism.
+
+**Do not write the generator.** Maintaining code-generation templates for TypeScript and C# is a
+project in itself, and the kind that quietly becomes the main thing. What ships is a configured
+invocation of an existing one: Microsoft Kiota emits both languages from one document, with NSwag and
+openapi-generator as alternatives. The deliverable is a command, a pinned generator version and a
+config file. Which reframes the effort: the tag convention is the actual work, because tags become
+slices, and everything downstream is configuration.
+
+**What this rules out.** Writing the client by hand, which is where this started. It reads well and
+it drifts, and every module author has to be talked into contributing to it. Also ruled out:
+generating the whole thing, which produces one `ApiClient` class with every method on it and none of
+the ergonomics, and is the reason "generated clients are unpleasant" is a fair objection to the
+naive version of this.
+
+**Status of the thing it depended on.** The design recorded that 76 of 79 operations carried the
+single tag `Api`, so generating would have produced one flat class. That was a defect in the source
+document rather than a limit of generation, and fixing it at the source fixed it for every language
+at once. It is fixed: `OpenApiTagTests` now pins the tag set, and a new feature area that does not
+tag itself fails that test.
+
+**Still open, deliberately.** Which generator, proven end to end on one slice (#183), and whether a
+.NET client ships at all (#186). Neither is decided here.
