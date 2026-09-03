@@ -2,6 +2,7 @@ using FastEndpoints;
 using Marten;
 using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Infrastructure.Services;
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Models;
 
 namespace barakoCMS.Features.ContentType.Rebuild;
@@ -67,7 +68,7 @@ internal class Endpoint : Endpoint<Request, Response>
     public override void Configure()
     {
         Post("/api/content-types/{name}/rebuild");
-        Roles("Admin", "SuperAdmin");
+        Definition.RequireCapability(SystemCapabilities.ManageContentTypes, "SuperAdmin", "Admin");
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)

@@ -256,6 +256,83 @@ public class CapabilityGateTests
     }
 
     /// <summary>
+    /// Designing a schema and deciding what an anonymous caller can read are two grants.
+    /// </summary>
+    /// <remarks>
+    /// Both were <c>Roles("SuperAdmin", "Admin")</c>, so one name would have covered them and no
+    /// seeded role would have noticed. Split for the reason API keys and the audit log are: a role
+    /// that models content without also choosing what leaves the building is an ordinary thing to
+    /// want, and one name makes it unexpressible.
+    /// </remarks>
+    [Fact]
+    public async Task Manage_content_types_stops_at_the_disclosure_decisions()
+    {
+        var (client, _) = await CallerHolding(
+            "Schema Author", barakoCMS.Models.SystemCapabilities.ManageContentTypes);
+
+        var list = await client.GetAsync("/api/content-types", TestContext.Current.CancellationToken);
+        var publicDelivery = await client.SendAsync(
+            Probe("PUT", "/api/content-types/nosuchtype/public-delivery"), TestContext.Current.CancellationToken);
+        var sensitivity = await client.SendAsync(
+            Probe("PUT", "/api/content-types/nosuchtype/fields/Title/sensitivity"), TestContext.Current.CancellationToken);
+
+        list.StatusCode.Should().Be(HttpStatusCode.OK);
+        publicDelivery.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "turning anonymous delivery on is manage_public_delivery");
+        sensitivity.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "and so is deciding which fields are scrubbed on the way out");
+    }
+
+    /// <summary>The other half, and it does not carry the schema surface with it.</summary>
+    [Fact]
+    public async Task Manage_public_delivery_opens_the_disclosure_decisions_and_not_the_schema()
+    {
+        var (client, _) = await CallerHolding(
+            "Disclosure Officer", barakoCMS.Models.SystemCapabilities.ManagePublicDelivery);
+
+        var publicDelivery = await client.SendAsync(
+            Probe("PUT", "/api/content-types/nosuchtype/public-delivery"), TestContext.Current.CancellationToken);
+        var create = await client.SendAsync(
+            Probe("POST", "/api/content-types"), TestContext.Current.CancellationToken);
+        var list = await client.GetAsync("/api/content-types", TestContext.Current.CancellationToken);
+
+        publicDelivery.StatusCode.Should().NotBe(HttpStatusCode.Forbidden,
+            "the capability is what the endpoint asks for, so the gate is passed and only the body is "
+          + "left to argue about");
+        create.StatusCode.Should().Be(HttpStatusCode.Forbidden, "creating a type is a different grant");
+        list.StatusCode.Should().Be(HttpStatusCode.Forbidden, "so is reading the schemas");
+    }
+
+    /// <summary>
+    /// Admin reached all five content-type routes before this migration and still does.
+    /// </summary>
+    /// <remarks>
+    /// The split is about what a runtime role can be given, not about narrowing a seeded one. A
+    /// migration that quietly took something away from Admin would be a breaking change with no
+    /// signature change to show for it.
+    /// </remarks>
+    [Fact]
+    public async Task Admin_defaults_still_reach_every_content_type_route()
+    {
+        var client = await AdminDefaultsClient();
+
+        var list = await client.GetAsync("/api/content-types", TestContext.Current.CancellationToken);
+        var schemas = await client.GetAsync("/api/schemas", TestContext.Current.CancellationToken);
+        var publicDelivery = await client.SendAsync(
+            Probe("PUT", "/api/content-types/nosuchtype/public-delivery"), TestContext.Current.CancellationToken);
+        var sensitivity = await client.SendAsync(
+            Probe("PUT", "/api/content-types/nosuchtype/fields/Title/sensitivity"), TestContext.Current.CancellationToken);
+        var rebuild = await client.SendAsync(
+            Probe("POST", "/api/content-types/nosuchtype/rebuild"), TestContext.Current.CancellationToken);
+
+        list.StatusCode.Should().Be(HttpStatusCode.OK);
+        schemas.StatusCode.Should().Be(HttpStatusCode.OK, "the alias is the same endpoint and the same gate");
+        publicDelivery.StatusCode.Should().NotBe(HttpStatusCode.Forbidden);
+        sensitivity.StatusCode.Should().NotBe(HttpStatusCode.Forbidden);
+        rebuild.StatusCode.Should().NotBe(HttpStatusCode.Forbidden);
+    }
+
+    /// <summary>
     /// The invariant of issue #443, asserted through the gate rather than through the constants. A
     /// role holding exactly what the seeder gives Admin, under a name the legacy fallback does not
     /// recognise, reaches every users route Admin reached before.

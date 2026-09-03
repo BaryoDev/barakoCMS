@@ -370,6 +370,8 @@ carry capabilities, and the names stop meaning anything on their own. The defaul
 | `Features/UserGroups/*` | `manage_user_groups` | `/api/user-groups` and everything under it | SuperAdmin, Admin |
 | `Features/ApiKeys/*` | `manage_api_keys` | `/api/api-keys` | SuperAdmin, Admin |
 | `Features/Audit/*` | `view_audit_log` | `GET /api/audit` | SuperAdmin, Admin |
+| `Features/ContentType/*` | `manage_content_types` | `/api/content-types` (and its `/api/schemas` alias), `POST /api/content-types/{name}/rebuild` | SuperAdmin, Admin |
+| `Features/ContentType/*` | `manage_public_delivery` | `PUT /api/content-types/{name}/public-delivery`, `PUT /api/content-types/{name}/fields/{field}/sensitivity` | SuperAdmin, Admin |
 
 Users is two capabilities because its old gates were two: listing accounts and resetting
 someone's password were `Roles("SuperAdmin")`, while changing a user's roles and groups
@@ -383,6 +385,13 @@ split because a role that reads the audit trail without being able to mint crede
 ordinary auditor case, and a single name makes it unexpressible. `view_audit_log` is named for
 reading because the surface is one GET: entries are append-only and the chain is tamper-evident,
 so there is nothing to manage.
+
+Content types split for the audit-log reason rather than the users reason: both gates were the same
+role pair, so one name would have covered them and no seeded role would have noticed. They are split
+because designing a schema and deciding what an anonymous caller can read are different jobs. Field
+sensitivity is what decides whether a value is scrubbed on the way out, and public delivery decides
+whether the route answers at all, so both are disclosure decisions rather than modelling ones. Admin
+holds both by default, because Admin reached all five routes already and this narrows nothing.
 
 Everything else still gates on `Roles(...)`, which keeps working. Third-party modules
 calling `Roles(...)` are unaffected and compile unchanged.

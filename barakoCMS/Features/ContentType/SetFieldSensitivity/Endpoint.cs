@@ -3,6 +3,7 @@ using Marten;
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Events;
 using barakoCMS.Infrastructure.Audit;
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Models;
 using ContentDoc = barakoCMS.Models.Content;
 
@@ -76,7 +77,9 @@ internal class Endpoint : Endpoint<Request, Response>
     public override void Configure()
     {
         Put("/api/content-types/{name}/fields/{field}/sensitivity");
-        Roles("Admin", "SuperAdmin");
+        // Sensitivity is what decides whether a field is scrubbed on the way out to an anonymous
+        // caller, so it is a disclosure decision rather than a modelling one.
+        Definition.RequireCapability(SystemCapabilities.ManagePublicDelivery, "SuperAdmin", "Admin");
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)

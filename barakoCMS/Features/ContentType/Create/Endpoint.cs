@@ -1,5 +1,6 @@
 using FastEndpoints;
 using Marten;
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Models;
 
 namespace barakoCMS.Features.ContentType.Create;
@@ -74,7 +75,7 @@ internal class Endpoint : Endpoint<Request, Response>
         // it says the highest role may set a field's sensitivity and toggle public delivery but
         // may not create the type those settings live on. It read "Only admins can change schema"
         // from the original commit and was never revisited. See #448.
-        Roles("SuperAdmin", "Admin");
+        Definition.RequireCapability(SystemCapabilities.ManageContentTypes, "SuperAdmin", "Admin");
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
