@@ -325,10 +325,19 @@ public sealed class ContentWriter : IContentWriter
     /// Applies an event to the document as the change happens.
     /// </summary>
     /// <remarks>
-    /// <c>DateTime.UtcNow</c> is correct here because this is the moment the change happens. A
-    /// rebuild replaying old events passes the event's own timestamp instead, which is why
-    /// <c>Apply</c> takes it rather than reading the clock itself.
+    /// The event's own stamp, not the clock. Reading <c>DateTime.UtcNow</c> here was correct while
+    /// nothing else could know when the change happened, and it is what made a rebuild disagree with
+    /// the live write by the width of the write latency: the projection could only see Marten's
+    /// transaction time. Now both read the value the event carries, so they agree exactly.
+    ///
+    /// An event with no stamp falls back to the clock, which is the same answer as before for a
+    /// caller still using an obsolete constructor.
     /// </remarks>
     private static void ApplyToDocument(Content content, object @event)
-        => ContentProjection.Apply(content, @event, DateTime.UtcNow);
+        => ContentProjection.Apply(
+            content,
+            @event,
+            @event is barakoCMS.Events.IContentEvent { OccurredAt: var stamped } && stamped != default
+                ? stamped
+                : DateTime.UtcNow);
 }

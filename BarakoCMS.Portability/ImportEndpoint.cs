@@ -147,7 +147,7 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
                         .Select(kv => kv.Value?.ToString())
                         .Where(v => !string.IsNullOrWhiteSpace(v)));
 
-                var evt = new ContentCreated(contentId, rec.ContentType, rec.Data, status, userId, searchText, barakoCMS.Models.SensitivityLevel.Public);
+                var evt = new ContentCreated(contentId, rec.ContentType, rec.Data, status, userId, searchText, barakoCMS.Models.SensitivityLevel.Public, DateTime.UtcNow);
                 await _contentWriter.CreateAsync(evt, ct);
             }
         }

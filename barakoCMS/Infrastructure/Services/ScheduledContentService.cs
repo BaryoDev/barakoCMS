@@ -262,7 +262,7 @@ public class ScheduledContentService : BackgroundService
 
                 var events = new object[]
                 {
-                    new ContentStatusChanged(content.Id, newStatus, SystemActor),
+                    new ContentStatusChanged(content.Id, newStatus, SystemActor, DateTime.UtcNow),
 
                     // Clear only the field just consumed; the opposite one stays armed, since a
                     // Published item can still carry a future unpublish time. Recorded as an event
@@ -270,8 +270,8 @@ public class ScheduledContentService : BackgroundService
                     // change, and one that happened without a user, so the trail is the only place
                     // it is visible.
                     newStatus == ContentStatus.Published
-                        ? new ContentScheduled(content.Id, null, content.ScheduledUnpublishAt, SystemActor)
-                        : new ContentScheduled(content.Id, content.ScheduledPublishAt, null, SystemActor),
+                        ? new ContentScheduled(content.Id, null, content.ScheduledUnpublishAt, SystemActor, DateTime.UtcNow)
+                        : new ContentScheduled(content.Id, content.ScheduledPublishAt, null, SystemActor, DateTime.UtcNow),
                 };
 
                 try

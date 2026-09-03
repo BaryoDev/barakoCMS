@@ -63,7 +63,7 @@ internal class CreateTaskAction : IWorkflowAction
                 : barakoCMS.Models.ContentStatus.Draft,
             content.LastModifiedBy,
             null,
-            barakoCMS.Models.SensitivityLevel.Public);
+            barakoCMS.Models.SensitivityLevel.Public, DateTime.UtcNow);
 
         var newContent = await _contentWriter.CreateAsync(created, ct);
         await _session.SaveChangesAsync(ct);

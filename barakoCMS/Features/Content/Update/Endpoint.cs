@@ -109,7 +109,7 @@ internal class Endpoint : Endpoint<Request, Response>
         var events = new List<object>();
 
         // 1. Data Update Event
-        var updateEvent = new barakoCMS.Events.ContentUpdated(req.Id, req.Data, userId, searchText);
+        var updateEvent = new barakoCMS.Events.ContentUpdated(req.Id, req.Data, userId, searchText, DateTime.UtcNow);
         events.Add(updateEvent);
 
         // An omitted Status means "leave it alone". Comparing against a defaulted enum instead made
@@ -119,7 +119,7 @@ internal class Endpoint : Endpoint<Request, Response>
         // 2. Status Change Event (if changed)
         if (statusChanged)
         {
-            var statusEvent = new barakoCMS.Events.ContentStatusChanged(req.Id, req.Status!.Value, userId);
+            var statusEvent = new barakoCMS.Events.ContentStatusChanged(req.Id, req.Status!.Value, userId, DateTime.UtcNow);
             events.Add(statusEvent);
         }
 

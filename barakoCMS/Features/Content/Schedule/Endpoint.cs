@@ -61,7 +61,7 @@ internal class Endpoint : Endpoint<Request, Response>
 
         var events = new List<object>
         {
-            new barakoCMS.Events.ContentScheduled(content.Id, req.ScheduledPublishAt, req.ScheduledUnpublishAt, userId),
+            new barakoCMS.Events.ContentScheduled(content.Id, req.ScheduledPublishAt, req.ScheduledUnpublishAt, userId, DateTime.UtcNow),
         };
 
         // Scheduled is a status now, so arming or clearing a publish time is a status change and is
@@ -72,7 +72,7 @@ internal class Endpoint : Endpoint<Request, Response>
         var next = NextStatus(content.Status, req.ScheduledPublishAt);
         if (next is { } status)
         {
-            events.Add(new barakoCMS.Events.ContentStatusChanged(content.Id, status, userId));
+            events.Add(new barakoCMS.Events.ContentStatusChanged(content.Id, status, userId, DateTime.UtcNow));
         }
 
         try
