@@ -370,6 +370,8 @@ carry capabilities, and the names stop meaning anything on their own. The defaul
 | `Features/UserGroups/*` | `manage_user_groups` | `/api/user-groups` and everything under it | SuperAdmin, Admin |
 | `Features/ApiKeys/*` | `manage_api_keys` | `/api/api-keys` | SuperAdmin, Admin |
 | `Features/Audit/*` | `view_audit_log` | `GET /api/audit` | SuperAdmin, Admin |
+| `Features/Settings/*` | `manage_settings` | `/api/settings`, `GET /api/settings/email` | SuperAdmin, Admin |
+| `Features/Settings/Email/*` | `manage_email_settings` | `PUT /api/settings/email`, `POST /api/settings/email/test` | SuperAdmin |
 | `Features/ContentType/*` | `manage_content_types` | `/api/content-types` (and its `/api/schemas` alias), `POST /api/content-types/{name}/rebuild` | SuperAdmin, Admin |
 | `Features/ContentType/*` | `manage_public_delivery` | `PUT /api/content-types/{name}/public-delivery`, `PUT /api/content-types/{name}/fields/{field}/sensitivity` | SuperAdmin, Admin |
 
@@ -385,6 +387,13 @@ split because a role that reads the audit trail without being able to mint crede
 ordinary auditor case, and a single name makes it unexpressible. `view_audit_log` is named for
 reading because the surface is one GET: entries are append-only and the chain is tamper-evident,
 so there is nothing to manage.
+
+Settings splits for the same reason Users does: reading settings and reading the email summary were
+`Roles("SuperAdmin", "Admin")`, while changing the email settings and sending a test through them
+were `Roles("SuperAdmin")`. Changing where the deployment's mail comes from redirects every password
+reset and every verification token in it, so it is a takeover rather than an administrative tweak,
+and it is exactly the change a compromised admin account makes. One `manage_settings` covering both
+would have handed that to every Admin, so Admin's defaults carry `manage_settings` alone.
 
 ### Modules
 

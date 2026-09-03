@@ -82,6 +82,9 @@ public class SystemCapabilitiesTests
             SystemCapabilities.ManageUserGroups,
             SystemCapabilities.ManageApiKeys,
             SystemCapabilities.ViewAuditLog,
+            // Settings: GET and POST /api/settings and GET /api/settings/email were
+            // Roles("SuperAdmin", "Admin"), so Admin reached them already.
+            SystemCapabilities.ManageSettings,
             // Content types: all five routes were Roles("SuperAdmin", "Admin"), so Admin reached
             // both halves already and this migration narrows nothing.
             SystemCapabilities.ManageContentTypes,
@@ -92,6 +95,9 @@ public class SystemCapabilitiesTests
         admin.Should().NotContain(SystemCapabilities.ManageUsers,
             "GET /api/users was SuperAdmin only, and handing it to Admin is exactly what #443 warns against");
         admin.Should().NotContain(SystemCapabilities.All);
+        admin.Should().NotContain(SystemCapabilities.ManageEmailSettings,
+            "PUT /api/settings/email was SuperAdmin only, and it redirects every password reset in "
+          + "the deployment, so Admin picking it up here would be the widening #443 warns against");
     }
 
     [Fact]
