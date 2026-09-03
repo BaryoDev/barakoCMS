@@ -31,6 +31,9 @@ internal sealed class RecordingListener : IDisposable
 
     public string? LastBody { get; private set; }
 
+    /// <summary>The headers of the last request, so a test can assert on what was sent as well as what was in it.</summary>
+    public Dictionary<string, string> LastHeaders { get; } = new(StringComparer.OrdinalIgnoreCase);
+
     private async Task ServeAsync(string? redirectTo)
     {
         while (!_stopping.IsCancellationRequested)
@@ -43,6 +46,12 @@ internal sealed class RecordingListener : IDisposable
             catch
             {
                 return;
+            }
+
+            LastHeaders.Clear();
+            foreach (string? name in context.Request.Headers)
+            {
+                if (name is not null) LastHeaders[name] = context.Request.Headers[name] ?? string.Empty;
             }
 
             using (var reader = new StreamReader(context.Request.InputStream, Encoding.UTF8))

@@ -102,6 +102,20 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
 
             services.Remove(sweeper);
 
+            // The retention sweep, for the same reason and with the same assertion. It deletes
+            // finished workflow runs, so leaving it running would let it delete a run a test had just
+            // created and asserted on, and the failure would look like the runner losing work.
+            var retention = services.SingleOrDefault(d =>
+                d.ImplementationType == typeof(barakoCMS.Features.Workflows.WorkflowRunRetentionService));
+            if (retention is null)
+            {
+                throw new InvalidOperationException(
+                    "WorkflowRunRetentionService is no longer registered the way this fixture expects, "
+                  + "so the retention sweep may still be running in tests and deleting their runs.");
+            }
+
+            services.Remove(retention);
+
             new BarakoCMS.Email.Resend.ResendEmailModule().ConfigureServices(services, ctx.Configuration);
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Email.Resend.ResendEmailModule(), opts));
 

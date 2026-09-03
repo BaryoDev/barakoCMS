@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure.Auth;
 using FastEndpoints;
 
 namespace BarakoCMS.Analytics.Umami.Features;
@@ -25,7 +26,8 @@ public sealed class SeriesEndpoint : Endpoint<AnalyticsWindowRequest, SeriesResp
     public override void Configure()
     {
         Get("/api/analytics/{websiteId}/series");
-        Roles("Admin", "SuperAdmin");
+        Definition.RequireCapability(
+            AnalyticsCapabilities.ViewAnalytics, AnalyticsCapabilities.LegacyRoles);
     }
 
     public override async Task HandleAsync(AnalyticsWindowRequest req, CancellationToken ct)
