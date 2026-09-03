@@ -91,10 +91,19 @@ public static class SystemCapabilities
     /// </remarks>
     public const string ManagePublicDelivery = "manage_public_delivery";
 
+    /// <summary>
+    /// Read which modules this instance registered.
+    /// </summary>
+    /// <remarks>
+    /// Two fields per module and nothing else, so this is closer to reading the audit log than to
+    /// managing anything, and it is named for reading.
+    /// </remarks>
+    public const string ViewModules = "view_modules";
+
     public static readonly IReadOnlySet<string> Known = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         All, ManageRoles, ManageTenants, ManageTenantMembers, ManageUsers, ManageUserMembership, ManageUserGroups,
-        ManageApiKeys, ViewAuditLog, ManageSettings, ManageEmailSettings, ManageContentTypes, ManagePublicDelivery,
+        ManageApiKeys, ViewAuditLog, ManageSettings, ManageEmailSettings, ManageContentTypes, ManagePublicDelivery, ViewModules,
     };
 
     public static bool IsKnown(string capability) =>
@@ -109,7 +118,7 @@ public static class SystemCapabilities
     private static readonly string[] AdminDefaults =
     [
         ManageTenantMembers, ManageUserMembership, ManageUserGroups, ManageApiKeys, ViewAuditLog,
-        ManageSettings, ManageContentTypes, ManagePublicDelivery,
+        ManageSettings, ManageContentTypes, ManagePublicDelivery, ViewModules,
     ];
 
     /// <summary>

@@ -89,6 +89,8 @@ public class SystemCapabilitiesTests
             // both halves already and this migration narrows nothing.
             SystemCapabilities.ManageContentTypes,
             SystemCapabilities.ManagePublicDelivery,
+            // Modules: GET /api/modules was Roles("SuperAdmin", "Admin"), so Admin read it already.
+            SystemCapabilities.ViewModules,
         });
         admin.Should().NotContain(SystemCapabilities.ManageRoles);
         admin.Should().NotContain(SystemCapabilities.ManageTenants);

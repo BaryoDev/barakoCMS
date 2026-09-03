@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Models;
 using barakoCMS.Modules;
 using FastEndpoints;
@@ -26,7 +27,7 @@ internal sealed class Endpoint : Endpoint<ListModulesRequest, PaginatedResponse<
     public override void Configure()
     {
         Get("/api/modules");
-        Roles("SuperAdmin", "Admin");
+        Definition.RequireCapability(SystemCapabilities.ViewModules, "SuperAdmin", "Admin");
     }
 
     public override async Task HandleAsync(ListModulesRequest req, CancellationToken ct)

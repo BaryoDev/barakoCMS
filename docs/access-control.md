@@ -373,6 +373,7 @@ carry capabilities, and the names stop meaning anything on their own. The defaul
 | `Features/Settings/*` | `manage_settings` | `/api/settings`, `GET /api/settings/email` | SuperAdmin, Admin |
 | `Features/Settings/Email/*` | `manage_email_settings` | `PUT /api/settings/email`, `POST /api/settings/email/test` | SuperAdmin |
 | `Features/ContentType/*` | `manage_content_types` | `/api/content-types` (and its `/api/schemas` alias), `POST /api/content-types/{name}/rebuild` | SuperAdmin, Admin |
+| `Features/Modules/*` | `view_modules` | `GET /api/modules` | SuperAdmin, Admin |
 | `Features/ContentType/*` | `manage_public_delivery` | `PUT /api/content-types/{name}/public-delivery`, `PUT /api/content-types/{name}/fields/{field}/sensitivity` | SuperAdmin, Admin |
 
 Users is two capabilities because its old gates were two: listing accounts and resetting
@@ -435,6 +436,19 @@ because designing a schema and deciding what an anonymous caller can read are di
 sensitivity is what decides whether a value is scrubbed on the way out, and public delivery decides
 whether the route answers at all, so both are disclosure decisions rather than modelling ones. Admin
 holds both by default, because Admin reached all five routes already and this narrows nothing.
+
+### What is not migrated yet
+
+Twenty-six core routes still gate on a role name: workflows and workflow runs, connectors, requests,
+queries, redirects, monitoring, content erase and content rollback. Most of those areas were written
+after #443 was opened.
+
+They work. `Roles(...)` is FastEndpoints' own authorization and is unaffected by
+`Auth:LegacyRoleFallback`. What they cannot do is admit a role somebody created through
+`POST /api/roles`, which is the reason to finish the migration.
+
+The set is pinned in `CoreRoleGateInventoryTests` and fails in both directions, so it can only shrink
+on purpose. Two role-name gates were added during the migration before that test existed.
 
 Everything else still gates on `Roles(...)`, which keeps working. Third-party modules
 calling `Roles(...)` are unaffected and compile unchanged.
