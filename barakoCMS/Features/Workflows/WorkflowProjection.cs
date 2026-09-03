@@ -24,12 +24,12 @@ internal partial class WorkflowProjection : EventProjection
 
     public async Task Project(IEvent<barakoCMS.Events.ContentUpdated> e, IDocumentOperations ops, CancellationToken ct)
     {
-        await ProcessEventAsync(barakoCMS.Models.WorkflowEvents.Updated, e.Data.Id, e.TenantId, ops);
+        await ProcessEventAsync(barakoCMS.Models.WorkflowEvents.Updated, e.Data.Id, e.TenantId, e.Sequence, ops);
     }
 
     public async Task Project(IEvent<barakoCMS.Events.ContentCreated> e, IDocumentOperations ops, CancellationToken ct)
     {
-        await ProcessEventAsync(barakoCMS.Models.WorkflowEvents.Created, e.Data.Id, e.TenantId, ops);
+        await ProcessEventAsync(barakoCMS.Models.WorkflowEvents.Created, e.Data.Id, e.TenantId, e.Sequence, ops);
     }
 
     public async Task Project(IEvent<barakoCMS.Events.ContentStatusChanged> e, IDocumentOperations ops, CancellationToken ct)
@@ -38,7 +38,7 @@ internal partial class WorkflowProjection : EventProjection
         // configured with TriggerEvent = "Published" actually fire.
         if (e.Data.NewStatus == barakoCMS.Models.ContentStatus.Published)
         {
-            await ProcessEventAsync(barakoCMS.Models.WorkflowEvents.Published, e.Data.Id, e.TenantId, ops);
+            await ProcessEventAsync(barakoCMS.Models.WorkflowEvents.Published, e.Data.Id, e.TenantId, e.Sequence, ops);
         }
     }
 
@@ -54,10 +54,11 @@ internal partial class WorkflowProjection : EventProjection
     public async Task Project(IEvent<barakoCMS.Events.ContentTransitioned> e, IDocumentOperations ops, CancellationToken ct)
     {
         await ProcessEventAsync(
-            barakoCMS.Models.WorkflowEvents.ForTransition(e.Data.Transition), e.Data.Id, e.TenantId, ops);
+            barakoCMS.Models.WorkflowEvents.ForTransition(e.Data.Transition), e.Data.Id, e.TenantId, e.Sequence, ops);
     }
 
-    private async Task ProcessEventAsync(string eventType, Guid contentId, string tenantId, IDocumentOperations ops)
+    private async Task ProcessEventAsync(
+        string eventType, Guid contentId, string tenantId, long sequence, IDocumentOperations ops)
     {
         // This runs inside Marten's async projection daemon. Any unhandled exception here stops the
         // projection shard, and every workflow stops firing with no further signal in the logs, so
@@ -71,12 +72,17 @@ internal partial class WorkflowProjection : EventProjection
             // partition, where a tenant's workflow definitions do not exist and a workflow action's
             // writes would cross the isolation boundary.
             using var scope = _serviceProvider.CreateScopeForTenant(tenantId);
-            var workflowEngine = scope.ServiceProvider.GetRequiredService<IWorkflowEngine>();
+            var queue = scope.ServiceProvider.GetRequiredService<IWorkflowRunQueue>();
 
             var content = await ops.LoadAsync<barakoCMS.Models.Content>(contentId);
             if (content != null)
             {
-                await workflowEngine.ProcessEventAsync(content.ContentType, eventType, content, CancellationToken.None);
+                // Queued, not executed. This runs inside the daemon, which processes a shard
+                // sequentially: an action posting to three third parties used to hold the shard for
+                // the duration of all three, so one slow provider stalled workflow processing for
+                // every tenant and a hanging one stopped it. Writing a run is one Postgres round
+                // trip, and WorkflowRunner does the I/O outside this path.
+                await queue.EnqueueAsync(content, eventType, sequence, CancellationToken.None);
             }
         }
         catch (Exception ex)
