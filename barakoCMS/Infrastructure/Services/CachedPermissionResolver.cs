@@ -115,11 +115,12 @@ public class CachedPermissionResolver : IPermissionResolver
         _logger.LogInformation("Invalidated all permission caches");
     }
 
-    /// <summary>No version in the key. Eviction is what invalidates, not a changed key.</summary>
-    private string GetCacheKey(User user, string contentTypeSlug, string action, Content? content) =>
-        content == null
-            ? $"{CacheKeyPrefix}{_tenant.Slug}:{user.Id}:{contentTypeSlug}:{action}"
-            : $"{CacheKeyPrefix}{_tenant.Slug}:{user.Id}:{contentTypeSlug}:{action}:{content.Id}";
+    /// <summary>
+    /// Tenant, user, type, action. There is no item in it, because there is no item decision in the
+    /// cache any more. Eviction is what invalidates, not a changed key.
+    /// </summary>
+    private string GetCacheKey(User user, string contentTypeSlug, string action) =>
+        $"{CacheKeyPrefix}{_tenant.Slug}:{user.Id}:{contentTypeSlug}:{action}";
 
     public async Task<bool> CanPerformActionAsync(
         User user,
@@ -135,8 +136,27 @@ public class CachedPermissionResolver : IPermissionResolver
             return true;
         }
 
-        // Build cache key with version for invalidation support
-        var cacheKey = GetCacheKey(user, contentTypeSlug, action, content);
+        // An item decision is answered fresh, every time. It can depend on the item's contents:
+        // ConditionEvaluator reads status, lastmodifiedby, createdby and any data field off the
+        // document, and status and lastmodifiedby both change on an ordinary write. Nothing on the
+        // write path invalidates this cache, so a decision keyed on the item's id alone kept
+        // granting for up to five minutes after the state it was based on had gone. A stale denial
+        // is an inconvenience; a stale grant is an authorisation check that has stopped checking.
+        //
+        // Keying on the item's version would close it, but the version is not on the document: the
+        // document is the fold and the version belongs to the stream, so reading it here costs a
+        // query per check and the cache stops paying for itself.
+        //
+        // It was not paying much anyway. See the remarks on PermissionResolver.RolesForAsync: the
+        // key included the item id, so a list was a miss on every row, and what actually fixed the
+        // list was memoising the two role queries per request. That memoisation is untouched, and
+        // ConditionEvaluator reads dictionaries in memory, so what is left here is no I/O per item.
+        if (content != null)
+        {
+            return await _inner.CanPerformActionAsync(user, contentTypeSlug, action, content, cancellationToken);
+        }
+
+        var cacheKey = GetCacheKey(user, contentTypeSlug, action);
 
         // Check cache
         if (_cache.TryGetValue(cacheKey, out bool cachedResult))
@@ -147,7 +167,7 @@ public class CachedPermissionResolver : IPermissionResolver
 
         // Cache miss - call inner resolver
         _logger.LogDebug("Permission cache MISS: {CacheKey}", cacheKey);
-        var result = await _inner.CanPerformActionAsync(user, contentTypeSlug, action, content, cancellationToken);
+        var result = await _inner.CanPerformActionAsync(user, contentTypeSlug, action, content: null, cancellationToken);
 
         // Cache the result
         var cacheOptions = new MemoryCacheEntryOptions
