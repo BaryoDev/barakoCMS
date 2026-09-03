@@ -9,6 +9,11 @@ on:
       - "docs/**"
   pull_request:
     branches: ["master"]
+  # The merge queue tests a batch of PRs against master together, then merges them in order. Without
+  # this trigger the queue waits forever for checks that never start, because a required check only
+  # counts when it reports on the merge_group event. No path filters here on purpose: the queue is
+  # the last gate before master, so it runs everything every time.
+  merge_group:
 
 jobs:
   backend:
