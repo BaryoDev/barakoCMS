@@ -26,6 +26,19 @@ public class StoredFile
     /// <summary>A directly-usable public URL for public objects on a public-capable store; else null.</summary>
     public string? PublicUrl { get; set; }
 
+    /// <summary>
+    /// The original this record was derived from, for a cached resize. Null on an upload.
+    /// </summary>
+    /// <remarks>
+    /// A derived record is not addressable: both download routes refuse an id whose ParentFileId is
+    /// set, and a variant is only ever reached as <c>?w=</c> on its original. That is what keeps a
+    /// variant from having access rules of its own to get out of step with the file it came from.
+    /// </remarks>
+    public Guid? ParentFileId { get; set; }
+
+    /// <summary>The width a derived record was resized to, in pixels. Null on an upload.</summary>
+    public int? VariantWidth { get; set; }
+
     public Guid UploadedBy { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
