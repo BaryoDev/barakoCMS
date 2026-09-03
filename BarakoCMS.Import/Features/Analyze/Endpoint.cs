@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure.Auth;
 using FastEndpoints;
 using Talaan;
 
@@ -38,6 +39,13 @@ public class Endpoint : EndpointWithoutRequest<Response>
     {
         Post("/api/import/analyze");
         AllowFileUploads();
+        // It had no gate at all before this: any authenticated caller could hand the server a
+        // spreadsheet to parse, and parsing is the expensive part. The bulk create next door asks
+        // the target content type's own create permission, which is the right question for a write
+        // and one this endpoint cannot ask, because the mapping that names the target is built from
+        // the preview it is about to return.
+        Definition.RequireCapability(
+            ImportCapabilities.AnalyzeSpreadsheets, ImportCapabilities.LegacyRoles);
     }
 
     public override async Task HandleAsync(CancellationToken ct)
