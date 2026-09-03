@@ -144,6 +144,7 @@ project, through the same `IBarakoModule` contract you can implement yourself.
 | **Import** | [`BarakoCMS.Import`](https://www.nuget.org/packages/BarakoCMS.Import) | **Bulk import** `.xlsx`/CSV into content via [Talaan](https://github.com/BaryoDev/Talaan), through the CMS's own validation, permissions, and event sourcing. |
 | **Files** | [`BarakoCMS.Files`](https://www.nuget.org/packages/BarakoCMS.Files) | **File upload/download** stored in Postgres via Marten: receipts, photos, documents. |
 | **Email.Resend** | [`BarakoCMS.Email.Resend`](https://www.nuget.org/packages/BarakoCMS.Email.Resend) | An `IEmailService` over the [Resend](https://resend.com) API, plus a delivery webhook and an **email-events** feed (bounces/complaints). |
+| **Email.Smtp** | [`BarakoCMS.Email.Smtp`](https://www.nuget.org/packages/BarakoCMS.Email.Smtp) | An `IEmailService` over any **SMTP** relay (your host, Google Workspace, SES, a corporate relay) using MailKit. Registers itself only once a host is configured. |
 | **DeviceTrust** | [`BarakoCMS.DeviceTrust`](https://www.nuget.org/packages/BarakoCMS.DeviceTrust) | Remembers trusted devices; step-up OTP when a new one signs in. |
 | **ExternalAuth** | [`BarakoCMS.ExternalAuth`](https://www.nuget.org/packages/BarakoCMS.ExternalAuth) | "Continue with Google / GitHub / Facebook / LinkedIn" via OAuth, behind one master switch. |
 | **FeatureFlags** | [`BarakoCMS.FeatureFlags`](https://www.nuget.org/packages/BarakoCMS.FeatureFlags) | Create, toggle, and target flags by tenant, user, or percentage: viewable/toggleable in the admin. |
@@ -239,7 +240,8 @@ BarakoCMS is headless, so you build the frontend. These BaryoDev packages help:
               Accounting                    Files ◀── Files.S3        AI
               FeatureFlags                  Import                    Analytics.Umami
               Portability                   Email.Resend              Pwa
-              ExternalAuth                  DeviceTrust               Diagnostics
+              ExternalAuth                  Email.Smtp                Diagnostics
+                                            DeviceTrust
                     │                         │                         │
                     └─────────────────────────┼─────────────────────────┘
                                               ▼

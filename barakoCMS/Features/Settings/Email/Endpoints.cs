@@ -230,7 +230,7 @@ internal sealed class SendTestEmailEndpoint : EndpointWithoutRequest<SendTestEma
         {
             ThrowError(
                 "No email provider is registered, so nothing would be delivered. Add a provider module, "
-              + "for instance BarakoCMS.Email.Resend, and restart.", 400);
+              + "BarakoCMS.Email.Smtp or BarakoCMS.Email.Resend, and restart.", 400);
             return;
         }
 

@@ -55,6 +55,13 @@ ICONS["BarakoCMS.Diagnostics"] = ("BarakoCMS.Diagnostics", "#455A64", f'''  <rec
 ICONS["BarakoCMS.Email.Resend"] = ("BarakoCMS.Email.Resend", "#1976D2", f'''  <rect x="30" y="42" width="68" height="44" rx="10" fill="{WHITE}"/>
   <path d="M34 48 L64 70 L94 48" fill="none" stroke="{GOLD}" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>''')
 
+# Email.Smtp: envelope in flight, white body + gold speed lines.
+ICONS["BarakoCMS.Email.Smtp"] = ("BarakoCMS.Email.Smtp", "#00796B", f'''  <rect x="44" y="42" width="60" height="44" rx="10" fill="{WHITE}"/>
+  <path d="M48 48 L74 68 L100 48" fill="none" stroke="{GOLD}" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <g stroke="{GOLD}" stroke-width="8" stroke-linecap="round">
+    <path d="M16 52 H34"/><path d="M22 64 H34"/><path d="M16 76 H34"/>
+  </g>''')
+
 # ExternalAuth: key, gold ring + white shaft.
 ICONS["BarakoCMS.ExternalAuth"] = ("BarakoCMS.ExternalAuth", "#F57C00", f'''  <circle cx="54" cy="54" r="20" fill="{WHITE}"/>
   <circle cx="54" cy="54" r="9" fill="#F57C00"/>

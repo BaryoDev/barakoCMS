@@ -8,11 +8,16 @@ true before any of it is delivered: a provider module is registered, and it has 
 The provider is a module, so it is chosen when the host is assembled:
 
 ```csharp
-services.AddBarakoCMS(config, m => m.Add(new ResendEmailModule()));
+services.AddBarakoCMS(config, m => m.Add(new ResendEmailModule()));   // Resend HTTP API
+services.AddBarakoCMS(config, m => m.Add(new SmtpEmailModule()));     // any SMTP relay
 ```
 
 Without one, the core registers a mock that logs and delivers nothing. The admin says so, and the
 test send refuses rather than reporting success.
+
+`BarakoCMS.Email.Smtp` registers itself only once `Modules:Email.Smtp:Host` is set. Adding the
+package and configuring nothing leaves whatever was sending before still sending, so an upgrade
+cannot quietly hand email to a provider that has nowhere to send it.
 
 The credentials are editable at **Settings, Email** by a SuperAdmin, and take effect on the next
 send with no restart. That is the point: a process owner standing up an instance can get email
@@ -27,6 +32,17 @@ configured:
 | --- | --- | --- |
 | API key | Settings, Email | `Resend:ApiKey`, or the `RESEND_API_KEY` environment variable |
 | From address | Settings, Email | `Resend:From` |
+
+Those two fields are the whole of it, and the shape is Resend's. **SMTP credentials do not live
+here**: host, port, user, password and TLS mode are read by `BarakoCMS.Email.Smtp` from its own
+`Modules:Email.Smtp` section, which is a deployment decision rather than an admin one. The from
+address does carry across, because it is the one field in this screen that is not about a
+particular provider, and a sender stored here wins over the module's own `From`.
+
+The consequence to know about: with SMTP registered, **the test-send button below refuses with "No
+API key is set"**, because it checks for one before sending. Ordinary sends are unaffected.
+Fixing that means making `IEmailSettingsProvider` provider-neutral, which is a change to the core
+contract rather than to a module, so it is not done here.
 
 Stored wins because it is the one a person set most recently, through the surface built for it.
 Configuration is how a deployment with no database row yet is seeded, and it keeps working when
@@ -76,7 +92,8 @@ It goes to the caller and nowhere else. An endpoint that took a recipient would 
 mail from this deployment's domain to any address somebody named.
 
 It refuses, with the provider's own reason, when there is no provider, no key, or the provider
-rejects the request. A test button that cannot fail is worse than no button: it moves the failure to
+rejects the request. The key check is why this button does not work with the SMTP module, which has
+no API key to find: see the note under "Where a value comes from". A test button that cannot fail is worse than no button: it moves the failure to
 the first real invoice and tells the operator it already worked.
 
 ## Auditing
