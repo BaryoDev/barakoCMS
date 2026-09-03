@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure.Auth;
 using BarakoCMS.Accounting.Domain;
 using FastEndpoints;
 using barakoCMS.Models;
@@ -30,7 +31,8 @@ public class CreateAccountEndpoint : Endpoint<CreateAccountEndpoint.Request, Cre
     public override void Configure()
     {
         Post("/api/accounting/accounts");
-        Roles("Accountant", "Admin", "SuperAdmin");
+        Definition.RequireCapability(
+            AccountingCapabilities.PostEntries, AccountingCapabilities.LegacyRoles);
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
@@ -84,7 +86,8 @@ public class ListAccountsEndpoint : Endpoint<barakoCMS.Models.ListRequest, barak
     public override void Configure()
     {
         Get("/api/accounting/accounts");
-        Roles("Accountant", "Admin", "SuperAdmin");
+        Definition.RequireCapability(
+            AccountingCapabilities.ViewLedger, AccountingCapabilities.LegacyRoles);
     }
 
     public override async Task HandleAsync(barakoCMS.Models.ListRequest req, CancellationToken ct)

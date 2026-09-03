@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure.Auth;
 using FastEndpoints;
 using Marten;
 
@@ -19,7 +20,8 @@ public class Endpoint : Endpoint<ResolveRequest>
     public override void Configure()
     {
         Post("/api/client-errors/{id}/resolve");
-        Roles("SuperAdmin", "Admin");
+        Definition.RequireCapability(
+            DiagnosticsCapabilities.ManageClientErrors, DiagnosticsCapabilities.LegacyRoles);
     }
 
     public override async Task HandleAsync(ResolveRequest req, CancellationToken ct)
