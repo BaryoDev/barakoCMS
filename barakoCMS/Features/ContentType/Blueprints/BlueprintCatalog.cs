@@ -24,6 +24,9 @@ internal sealed class BlueprintCatalog
     /// <summary>How many custom files the list reads. Past this the directory is reported, not read.</summary>
     public const int MaxCustomFiles = 100;
 
+    /// <summary>How large a custom file may be. A larger file is reported invalid, never parsed.</summary>
+    public const int MaxCustomFileBytes = 256 * 1024;
+
     private const string ResourcePrefix = "Blueprints/";
 
     private static readonly Regex NameShape = new("^[a-z0-9]+(?:-[a-z0-9]+)*$", RegexOptions.Compiled);
@@ -95,19 +98,24 @@ internal sealed class BlueprintCatalog
 
                 foreach (var file in files.Take(MaxCustomFiles))
                 {
+                    if (new FileInfo(file).Length > MaxCustomFileBytes)
+                    {
+                        entries.Add(TooLarge(file));
+                        continue;
+                    }
+
                     string json;
                     try
                     {
                         json = File.ReadAllText(file);
                     }
-                    catch (IOException ex)
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                     {
-                        entries.Add(Unreadable(file, ex.Message));
-                        continue;
-                    }
-                    catch (UnauthorizedAccessException ex)
-                    {
-                        entries.Add(Unreadable(file, ex.Message));
+                        // The OS message carries the absolute server path (IOException especially),
+                        // which is not this caller's business even with manage_content_types. The
+                        // full exception still goes to the log, keyed on the base name there too.
+                        _logger.LogWarning(ex, "Custom blueprint {File} could not be read", Path.GetFileName(file));
+                        entries.Add(Unreadable(file));
                         continue;
                     }
 
@@ -272,6 +280,24 @@ internal sealed class BlueprintCatalog
         BuiltIn = false,
         Source = Path.GetFileName(source),
         Errors = [$"{Path.GetFileName(source)} could not be read: {reason}"],
+    };
+
+    /// <summary>An OS-level read failure (permissions, a locked file). No OS message here: it can
+    /// carry the absolute server path, and the caller only needs the file's name.</summary>
+    private static BlueprintEntry Unreadable(string source) => new()
+    {
+        Name = Normalize(Path.GetFileNameWithoutExtension(source)),
+        BuiltIn = false,
+        Source = Path.GetFileName(source),
+        Errors = [$"{Path.GetFileName(source)} cannot be read."],
+    };
+
+    private static BlueprintEntry TooLarge(string source) => new()
+    {
+        Name = Normalize(Path.GetFileNameWithoutExtension(source)),
+        BuiltIn = false,
+        Source = Path.GetFileName(source),
+        Errors = [$"{Path.GetFileName(source)} is larger than {MaxCustomFileBytes / 1024} KB and was not read."],
     };
 
     private static IReadOnlyList<(string Resource, string Json)> ReadBuiltInFiles()

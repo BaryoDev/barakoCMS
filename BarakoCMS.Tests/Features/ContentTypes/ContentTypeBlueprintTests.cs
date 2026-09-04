@@ -444,4 +444,77 @@ public class ContentTypeBlueprintTests
         list.Problems.Should().ContainSingle().Which.Should().Contain("Blueprints:Path");
         list.Items.Where(i => i.BuiltIn).Should().HaveCount(4);
     }
+
+    [Fact]
+    public async Task An_oversized_custom_file_is_reported_invalid_and_never_parsed()
+    {
+        var dir = TempDirectory();
+        var huge = new
+        {
+            name = "huge",
+            description = new string('x', 300 * 1024),
+            contentTypes = new[]
+            {
+                new
+                {
+                    name = "thing",
+                    displayName = "Thing",
+                    fields = new[] { new { name = "Title", displayName = "Title", type = "string" } },
+                },
+            },
+        };
+        await File.WriteAllTextAsync(
+            Path.Combine(dir, "huge.json"), JsonSerializer.Serialize(huge), TestContext.Current.CancellationToken);
+        var host = _factory.WithSetting("Blueprints:Path", dir);
+        var client = await AdminInAsync(await TenantAsync(), host);
+
+        var list = await ListAsync(client);
+
+        var entry = list.Items.Single(i => i.Name == "huge");
+        entry.Source.Should().Be("huge.json");
+        entry.Errors.Should().ContainSingle().Which.Should().Contain("larger than 256 KB");
+
+        var applied = await ApplyAsync(client, "huge");
+
+        applied.StatusCode.Should().BeOneOf(HttpStatusCode.BadRequest, HttpStatusCode.NotFound);
+        (await TypeNamesAsync(client)).Should().NotContain("thing");
+    }
+
+    [Fact]
+    public async Task An_unreadable_custom_file_names_only_the_file_not_the_server_path()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Skip("chmod does not restrict read access on Windows");
+        }
+
+        var dir = TempDirectory();
+        var path = Path.Combine(dir, "secret.json");
+        await File.WriteAllTextAsync(path, AgencyBlueprint, TestContext.Current.CancellationToken);
+        File.SetUnixFileMode(path, UnixFileMode.None);
+
+        try
+        {
+            var host = _factory.WithSetting("Blueprints:Path", dir);
+            var client = await AdminInAsync(await TenantAsync(), host);
+
+            var list = await ListAsync(client);
+
+            var entry = list.Items.Single(i => i.Name == "secret");
+            entry.Errors.Should().ContainSingle();
+            entry.Errors[0].Should().Contain("secret.json");
+            entry.Errors[0].Should().NotContain(dir);
+
+            var applied = await ApplyAsync(client, "secret");
+            var body = await applied.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+
+            applied.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            body.Should().Contain("secret.json");
+            body.Should().NotContain(dir);
+        }
+        finally
+        {
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+    }
 }
