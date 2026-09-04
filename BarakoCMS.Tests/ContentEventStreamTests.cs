@@ -430,4 +430,30 @@ public class ContentEventStreamTests
         var frame = await stream.NextFrameAsync();
         frame.Event.Should().Be(": keepalive", "a keepalive is an SSE comment, which an EventSource never dispatches");
     }
+
+    [Fact]
+    public async Task Raising_a_field_to_sensitive_streams_the_entry_without_that_field()
+    {
+        var host = EnabledHost();
+        var type = TypeName();
+        var slug = Slug();
+        await SeedTypeAsync(host, type);
+
+        var admin = host.CreateClient();
+        admin.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", await _factory.StoredUserTokenAsync("SuperAdmin"));
+
+        using var stream = await OpenStream.OpenAsync(host.CreateClient(), "/api/public/events");
+
+        await PublishNewAsync(host, null, type, slug);
+        (await stream.NextChangeAsync()).Data.Should().Contain("Title");
+
+        var raised = await admin.PutAsJsonAsync($"/api/content-types/{type}/fields/Title/sensitivity", new { sensitivity = "Sensitive" });
+        raised.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", raised.StatusCode, await raised.Content.ReadAsStringAsync());
+
+        var frame = await stream.NextChangeAsync();
+        frame.Event.Should().Be("content.updated");
+        frame.Data.Should().Contain(slug);
+        frame.Data.Should().NotContain("Title", "the field the type just marked Sensitive is absent from the update that announces it");
+    }
 }

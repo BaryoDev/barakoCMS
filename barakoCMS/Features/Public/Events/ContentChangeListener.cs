@@ -96,8 +96,9 @@ internal sealed class ContentChangeListener : DocumentSessionListenerBase
                 continue;
             }
 
-            var slugField = PublicDelivery.SlugField(def!);
-            var projected = PublicDelivery.ToPublic(content, def, slugField);
+            var effective = WithDeclaredSensitivity(def!, stream);
+            var slugField = PublicDelivery.SlugField(effective);
+            var projected = PublicDelivery.ToPublic(content, effective, slugField);
 
             if (projected is not null)
             {
@@ -157,6 +158,54 @@ internal sealed class ContentChangeListener : DocumentSessionListenerBase
         var before = await session.Events.FetchStreamAsync(id, version: firstVersion - 1, token: token);
         var prior = ContentProjection.Fold(before);
         return prior is not null && PublicDelivery.ToPublic(prior, def, slugField) is not null;
+    }
+
+    /// <summary>
+    /// The definition as the commit says it stands. A field's sensitivity change is appended to each
+    /// entry before the type's own write lands (SetFieldSensitivity scrubs search text first, so a
+    /// failure part way leaves the field readable rather than in anonymous search), and the
+    /// definition read here still says Public. Projecting with the sensitivity the event declares
+    /// keeps ToPublic the only masking rule. A copy, so the session's instance is not touched.
+    /// </summary>
+    private static ContentTypeDefinition WithDeclaredSensitivity(ContentTypeDefinition def, IEnumerable<IEvent> committed)
+    {
+        var declared = new Dictionary<string, SensitivityLevel>(StringComparer.OrdinalIgnoreCase);
+        foreach (var change in committed.Select(e => e.Data).OfType<ContentFieldSensitivityChanged>())
+        {
+            declared[change.Field] = change.To;
+        }
+
+        if (declared.Count == 0)
+        {
+            return def;
+        }
+
+        return new ContentTypeDefinition
+        {
+            Id = def.Id,
+            Name = def.Name,
+            DisplayName = def.DisplayName,
+            Description = def.Description,
+            IsPubliclyDeliverable = def.IsPubliclyDeliverable,
+            CreatedAt = def.CreatedAt,
+            UpdatedAt = def.UpdatedAt,
+            Lifecycle = def.Lifecycle,
+            Fields = def.Fields.Select(f => declared.TryGetValue(f.Name, out var to)
+                ? new FieldDefinition
+                {
+                    Name = f.Name,
+                    DisplayName = f.DisplayName,
+                    Type = f.Type,
+                    ReferenceType = f.ReferenceType,
+                    IsRequired = f.IsRequired,
+                    DefaultValue = f.DefaultValue,
+                    ValidationRules = f.ValidationRules,
+                    Sensitivity = to,
+                    VisibleToRoles = f.VisibleToRoles,
+                    Mask = f.Mask,
+                }
+                : f).ToList(),
+        };
     }
 
     private static bool IsContentEvent(object data) => data is
