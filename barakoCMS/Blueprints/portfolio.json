@@ -1,0 +1,46 @@
+{
+  "name": "portfolio",
+  "description": "A portfolio: projects for clients, with a gallery and a link to the live work. Client contact details stay internal.",
+  "contentTypes": [
+    {
+      "name": "project",
+      "displayName": "Project",
+      "description": "A piece of work worth showing.",
+      "isPubliclyDeliverable": true,
+      "fields": [
+        { "name": "Title", "displayName": "Title", "type": "string", "isRequired": true },
+        { "name": "Slug", "displayName": "Slug", "type": "slug", "isRequired": true },
+        { "name": "Summary", "displayName": "Summary", "type": "text" },
+        { "name": "Description", "displayName": "Description", "type": "richtext" },
+        { "name": "Client", "displayName": "Client", "type": "reference", "referenceType": "client" },
+        { "name": "Services", "displayName": "Services", "type": "array" },
+        { "name": "Technologies", "displayName": "Technologies", "type": "array" },
+        { "name": "CoverImage", "displayName": "Cover image", "type": "url" },
+        { "name": "Gallery", "displayName": "Gallery", "type": "array" },
+        { "name": "Url", "displayName": "Live URL", "type": "url" },
+        { "name": "CompletedAt", "displayName": "Completed", "type": "date" },
+        { "name": "Featured", "displayName": "Featured", "type": "bool" },
+        { "name": "SortOrder", "displayName": "Sort order", "type": "int" },
+        { "name": "Testimonial", "displayName": "Testimonial", "type": "text" },
+        { "name": "TestimonialBy", "displayName": "Testimonial by", "type": "string" }
+      ]
+    },
+    {
+      "name": "client",
+      "displayName": "Client",
+      "description": "Who the work was for. The contact fields are masked on the public API and the notes never leave the admin.",
+      "isPubliclyDeliverable": true,
+      "fields": [
+        { "name": "Name", "displayName": "Name", "type": "string", "isRequired": true },
+        { "name": "Slug", "displayName": "Slug", "type": "slug", "isRequired": true },
+        { "name": "Industry", "displayName": "Industry", "type": "string" },
+        { "name": "Website", "displayName": "Website", "type": "url" },
+        { "name": "Logo", "displayName": "Logo", "type": "url" },
+        { "name": "Description", "displayName": "Description", "type": "text" },
+        { "name": "ContactName", "displayName": "Contact name", "type": "string", "sensitivity": "Sensitive" },
+        { "name": "ContactEmail", "displayName": "Contact email", "type": "email", "sensitivity": "Sensitive" },
+        { "name": "Notes", "displayName": "Internal notes", "type": "text", "sensitivity": "Hidden" }
+      ]
+    }
+  ]
+}

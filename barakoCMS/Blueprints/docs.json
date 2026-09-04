@@ -1,0 +1,38 @@
+{
+  "name": "docs",
+  "description": "A documentation site: markdown articles ordered within sections, and sections that can nest.",
+  "contentTypes": [
+    {
+      "name": "article",
+      "displayName": "Article",
+      "description": "One page of documentation.",
+      "isPubliclyDeliverable": true,
+      "fields": [
+        { "name": "Title", "displayName": "Title", "type": "string", "isRequired": true },
+        { "name": "Slug", "displayName": "Slug", "type": "slug", "isRequired": true },
+        { "name": "Section", "displayName": "Section", "type": "reference", "referenceType": "section", "isRequired": true },
+        { "name": "Order", "displayName": "Order within section", "type": "int" },
+        { "name": "Summary", "displayName": "Summary", "type": "text" },
+        { "name": "Body", "displayName": "Body", "type": "markdown", "isRequired": true },
+        { "name": "Keywords", "displayName": "Keywords", "type": "array" },
+        { "name": "AppliesToVersion", "displayName": "Applies to version", "type": "string" },
+        { "name": "Deprecated", "displayName": "Deprecated", "type": "bool" },
+        { "name": "RelatedArticles", "displayName": "Related articles", "type": "array" }
+      ]
+    },
+    {
+      "name": "section",
+      "displayName": "Section",
+      "description": "A group of articles. Nest one under another with the parent field.",
+      "isPubliclyDeliverable": true,
+      "fields": [
+        { "name": "Name", "displayName": "Name", "type": "string", "isRequired": true },
+        { "name": "Slug", "displayName": "Slug", "type": "slug", "isRequired": true },
+        { "name": "Description", "displayName": "Description", "type": "text" },
+        { "name": "Order", "displayName": "Order", "type": "int" },
+        { "name": "Icon", "displayName": "Icon", "type": "string" },
+        { "name": "ParentSection", "displayName": "Parent section", "type": "reference", "referenceType": "section" }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,67 @@
+{
+  "name": "blog",
+  "description": "A blog: posts with an author and a category, plus standalone pages. Run POST /api/content-types/post/seo-fields afterwards for meta tags.",
+  "contentTypes": [
+    {
+      "name": "post",
+      "displayName": "Post",
+      "description": "A blog post.",
+      "isPubliclyDeliverable": true,
+      "fields": [
+        { "name": "Title", "displayName": "Title", "type": "string", "isRequired": true },
+        { "name": "Slug", "displayName": "Slug", "type": "slug", "isRequired": true },
+        { "name": "Excerpt", "displayName": "Excerpt", "type": "text" },
+        { "name": "Body", "displayName": "Body", "type": "richtext", "isRequired": true },
+        { "name": "CoverImage", "displayName": "Cover image", "type": "url" },
+        { "name": "CoverImageAlt", "displayName": "Cover image alt text", "type": "string" },
+        { "name": "PublishedAt", "displayName": "Published at", "type": "datetime" },
+        { "name": "Author", "displayName": "Author", "type": "reference", "referenceType": "author" },
+        { "name": "Category", "displayName": "Category", "type": "reference", "referenceType": "category" },
+        { "name": "Tags", "displayName": "Tags", "type": "array" },
+        { "name": "Featured", "displayName": "Featured", "type": "bool" },
+        { "name": "ReadingTimeMinutes", "displayName": "Reading time (minutes)", "type": "int" }
+      ]
+    },
+    {
+      "name": "category",
+      "displayName": "Category",
+      "description": "A topic posts are filed under.",
+      "isPubliclyDeliverable": true,
+      "fields": [
+        { "name": "Name", "displayName": "Name", "type": "string", "isRequired": true },
+        { "name": "Slug", "displayName": "Slug", "type": "slug", "isRequired": true },
+        { "name": "Description", "displayName": "Description", "type": "text" },
+        { "name": "SortOrder", "displayName": "Sort order", "type": "int" }
+      ]
+    },
+    {
+      "name": "author",
+      "displayName": "Author",
+      "description": "Someone who writes posts. The email is for the editorial team, not the public.",
+      "isPubliclyDeliverable": true,
+      "fields": [
+        { "name": "Name", "displayName": "Name", "type": "string", "isRequired": true },
+        { "name": "Slug", "displayName": "Slug", "type": "slug", "isRequired": true },
+        { "name": "Bio", "displayName": "Bio", "type": "richtext" },
+        { "name": "Photo", "displayName": "Photo", "type": "url" },
+        { "name": "Website", "displayName": "Website", "type": "url" },
+        { "name": "Email", "displayName": "Email", "type": "email", "sensitivity": "Sensitive" }
+      ]
+    },
+    {
+      "name": "page",
+      "displayName": "Page",
+      "description": "A standalone page such as About or Contact.",
+      "isPubliclyDeliverable": true,
+      "fields": [
+        { "name": "Title", "displayName": "Title", "type": "string", "isRequired": true },
+        { "name": "Slug", "displayName": "Slug", "type": "slug", "isRequired": true },
+        { "name": "Summary", "displayName": "Summary", "type": "text" },
+        { "name": "Body", "displayName": "Body", "type": "richtext", "isRequired": true },
+        { "name": "ParentPage", "displayName": "Parent page", "type": "reference", "referenceType": "page" },
+        { "name": "ShowInNavigation", "displayName": "Show in navigation", "type": "bool" },
+        { "name": "NavigationOrder", "displayName": "Navigation order", "type": "int" }
+      ]
+    }
+  ]
+}

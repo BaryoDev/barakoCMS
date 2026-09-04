@@ -812,6 +812,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IWorkflowDebugger, WorkflowDebugger>();
         services.AddScoped<IContentValidatorService, ContentValidatorService>();
         services.AddScoped<IContentTypeValidatorService, ContentTypeValidatorService>();
+        services.AddScoped<barakoCMS.Features.ContentType.Blueprints.BlueprintCatalog>();
         services.AddSingleton<IKubernetesMonitorService, KubernetesMonitorService>();
         services.AddSingleton<IMetricsService, MetricsService>();
         // IBackupService and BackupService were removed in 4.0. Both were registered here and
