@@ -4,7 +4,7 @@
     <PackageType>Template</PackageType>
     <IsPackable>true</IsPackable>
     <PackageId>BarakoCMS.Templates</PackageId>
-    <Version>0.1.0</Version>
+    <Version>0.1.1</Version>
     <Description>dotnet new templates for barakoCMS. barakocms-module produces a module with one capability-gated endpoint, one document type, configuration read from its own section, packaging metadata that inherits from a shared props file, and a test project on BarakoCMS.Testing.</Description>
 
     <!-- A template package is its content. There is no assembly to ship, no symbols to go with
