@@ -76,6 +76,10 @@ public static class ServiceCollectionExtensions
         // below hold only the ones that run, so "off" and "not installed" would otherwise look alike.
         services.AddSingleton(ModuleCatalogue.Of(seen, enabled));
 
+        // Filled by the schema preflight at boot; empty until then, which the endpoint reports as
+        // unknown rather than guessing.
+        services.AddSingleton<ModuleSchemaReport>();
+
         // Sorted before anything runs, so DI registration, schema and seeding all see the same
         // order and a module that must configure after another actually does. Independent modules
         // keep their declared order.
@@ -120,6 +124,25 @@ public static class ServiceCollectionExtensions
             services.AddFastEndpoints(o => o.Assemblies = moduleAssemblies);
         else
             services.AddFastEndpoints();
+
+        // The job queue. The storage provider is a singleton that reaches the request's scoped
+        // session through IHttpContextAccessor, which is what makes an enqueue commit with the
+        // request; see MartenJobStorageProvider and docs/background-jobs.md.
+        //
+        // Read from the container's IConfiguration when first resolved, which UseBarakoCMS does
+        // before the workers start, rather than from the configuration handed in here. The two are
+        // the same object in production. Under WebApplicationFactory they are not yet: settings a
+        // test host adds arrive after this method has run, and an eager read here would pin the
+        // production defaults on every test host.
+        services.AddSingleton(sp =>
+        {
+            var options = barakoCMS.Infrastructure.Jobs.JobOptions.FromConfiguration(
+                sp.GetRequiredService<IConfiguration>());
+            options.Validate();
+            return options;
+        });
+        services.AddHttpContextAccessor();
+        services.AddJobQueues<barakoCMS.Models.JobRecord, barakoCMS.Infrastructure.Jobs.MartenJobStorageProvider>();
 
         // Request body size limit (defends against large-payload memory pressure / DoS on the
         // arbitrary-JSON content endpoints). Configurable via RequestLimits:MaxBodyBytes; default 10 MB.
@@ -499,10 +522,30 @@ public static class ServiceCollectionExtensions
                 .Index(x => x.Status)
                 .Index(x => x.CreatedAt);
 
+            options.Schema.For<WebhookDelivery>()
+                .MultiTenanted()
+                .DocumentAlias("webhook_deliveries")
+                .Index(x => x.WorkflowId)
+                .Index(x => x.CreatedAt);
+
             options.Schema.For<ConnectorSecret>()
                 .MultiTenanted()
                 .DocumentAlias("connector_secrets")
                 .Index(x => x.ConnectorId);
+
+            // Conjoined: a job belongs to the tenant of the request that queued it, and the list
+            // shows one tenant's. The tenant column is mapped onto the document so a worker, which
+            // has no request, can open a session for the right partition when it updates a record.
+            // Optimistic concurrency is the claim: two nodes polling the same table both load a
+            // pending job and only one save wins.
+            options.Schema.For<JobRecord>()
+                .MultiTenanted()
+                .DocumentAlias("jobs")
+                .UseOptimisticConcurrency(true)
+                .Metadata(m => m.TenantId.MapTo(x => x.TenantId))
+                .Index(x => x.QueueID)
+                .Index(x => x.State)
+                .Index(x => x.ExecuteAfter);
 
             options.Schema.For<EmailSettings>()
                 .SingleTenanted() // one mail provider for the deployment, not one per tenant
@@ -734,6 +777,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(sp => barakoCMS.Features.Public.Events.ContentEventsOptions.FromConfiguration(
             sp.GetRequiredService<IConfiguration>()));
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowRunRetentionService>();
+        services.AddHostedService<barakoCMS.Features.WebhookDeliveries.WebhookDeliveryRetentionService>();
         services.AddScoped<barakoCMS.Infrastructure.Auth.Mfa.IMfaService, barakoCMS.Infrastructure.Auth.Mfa.MfaService>();
         // Device trust is opt-in: the default gate does nothing. The DeviceTrust module overrides it.
         services.TryAddScoped<barakoCMS.Core.Interfaces.IDeviceGate, barakoCMS.Core.Interfaces.NoopDeviceGate>();
@@ -768,6 +812,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IWorkflowDebugger, WorkflowDebugger>();
         services.AddScoped<IContentValidatorService, ContentValidatorService>();
         services.AddScoped<IContentTypeValidatorService, ContentTypeValidatorService>();
+        services.AddScoped<barakoCMS.Features.ContentType.Blueprints.BlueprintCatalog>();
         services.AddSingleton<IKubernetesMonitorService, KubernetesMonitorService>();
         services.AddSingleton<IMetricsService, MetricsService>();
         // IBackupService and BackupService were removed in 4.0. Both were registered here and
@@ -1180,6 +1225,15 @@ public static class ServiceCollectionExtensions
             };
         });
 
+        // Starts one worker per command type. Every instance runs workers; the provider's lease
+        // is what stops two of them running the same job.
+        var jobOptions = app.ApplicationServices.GetRequiredService<barakoCMS.Infrastructure.Jobs.JobOptions>();
+        app.ApplicationServices.UseJobQueues(o =>
+        {
+            o.StorageProbeDelay = TimeSpan.FromSeconds(jobOptions.StorageProbeSeconds);
+            o.ExecutionTimeLimit = TimeSpan.FromSeconds(jobOptions.LeaseSeconds);
+        });
+
         // Health check endpoints, unauthenticated because kubelet cannot present a token. The
         // response body stays minimal on all three so anonymous callers cannot enumerate internal
         // check names, descriptions or timings.
@@ -1367,7 +1421,60 @@ public static class ServiceCollectionExtensions
             store,
             host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Tenancy"));
 
+        // Before the apply, so a module that wants a change CreateOnly will not make is refused by
+        // name here rather than by Marten a line later.
+        await host.Services.PreflightModuleSchemaAsync();
+
         await store.Storage.ApplyAllConfiguredChangesToDatabaseAsync();
+    }
+
+    /// <summary>
+    /// Works out the migration Marten would apply, attributes every object in it to a module or to
+    /// core, logs one line per module, and refuses to continue when a module wants a change the
+    /// store's <c>AutoCreate</c> policy will not apply. The result is kept for <c>GET /api/modules</c>.
+    /// </summary>
+    /// <remarks>
+    /// Runs when <c>BarakoCMS:Modules:SchemaPreflight</c> is true, and by default only on a
+    /// <c>CreateOnly</c> store, because everywhere else the store is about to apply the same
+    /// migration anyway. See <see cref="ModuleSchemaPreflight"/>.
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">A module wants a change the store refuses.</exception>
+    internal static async Task PreflightModuleSchemaAsync(this IServiceProvider services, CancellationToken ct = default)
+    {
+        var store = services.GetRequiredService<Marten.IDocumentStore>();
+        var configuration = services.GetRequiredService<IConfiguration>();
+        // IDocumentStore.Options is the read-only view and does not carry the policy.
+        var autoCreate = store is Marten.DocumentStore concrete
+            ? concrete.Options.AutoCreateSchemaObjects
+            : store.Storage.Database.AutoCreate;
+
+        if (!ModuleSchemaPreflight.IsEnabled(configuration, autoCreate))
+        {
+            Log.Information(
+                "Module schema preflight is off (store runs AutoCreate.{AutoCreate}; {Key} is unset or false).",
+                autoCreate, ModuleSchemaPreflight.EnabledKey);
+            return;
+        }
+
+        List<IBarakoModule> modules;
+        using (var probe = services.CreateScope())
+        {
+            modules = probe.ServiceProvider.GetServices<IBarakoModule>().ToList();
+        }
+
+        var findings = await ModuleSchemaPreflight.ComputeAsync(store, modules, ct);
+        services.GetRequiredService<ModuleSchemaReport>().Record(findings);
+
+        foreach (var finding in findings.Values.OrderBy(f => f.Owner, StringComparer.Ordinal))
+        {
+            Log.Information(
+                "Module {Module} schema: {NewCount} new object(s) [{New}], {ChangedCount} change(s) to existing objects [{Changed}].",
+                finding.Owner,
+                finding.NewObjects.Count, string.Join(", ", finding.NewObjects),
+                finding.Changes.Count, string.Join(", ", finding.Changes.Select(c => c.Name)));
+        }
+
+        ModuleSchemaPreflight.AssertAllowed(findings, autoCreate);
     }
 
     /// <summary>

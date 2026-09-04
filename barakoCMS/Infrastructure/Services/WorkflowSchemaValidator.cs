@@ -1,5 +1,7 @@
+using barakoCMS.Features.Workflows.Actions;
 using barakoCMS.Models;
 using Marten;
+using Microsoft.Extensions.Configuration;
 
 namespace barakoCMS.Infrastructure.Services;
 
@@ -37,11 +39,18 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
 {
     private readonly IWorkflowPluginRegistry _pluginRegistry;
     private readonly IQuerySession _session;
+    private readonly bool _allowInsecureSignedUrls;
 
     public WorkflowSchemaValidator(IWorkflowPluginRegistry pluginRegistry, IQuerySession session)
+        : this(pluginRegistry, session, configuration: null)
+    {
+    }
+
+    public WorkflowSchemaValidator(IWorkflowPluginRegistry pluginRegistry, IQuerySession session, IConfiguration? configuration)
     {
         _pluginRegistry = pluginRegistry;
         _session = session;
+        _allowInsecureSignedUrls = WebhookSigning.AllowsInsecureSignedUrls(configuration);
     }
 
     public WorkflowValidationResult Validate(WorkflowDefinition workflow, CancellationToken ct = default)
@@ -220,6 +229,17 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
                     result.IsValid = false;
                 }
             }
+        }
+
+        if (string.Equals(action.Type, "Webhook", StringComparison.Ordinal)
+            && WebhookSigning.IsInsecureSignedUrl(action.Parameters.GetValueOrDefault("Url"), action.Parameters, _allowInsecureSignedUrls))
+        {
+            result.Errors.Add(new ValidationError
+            {
+                Field = $"{fieldPrefix}.parameters.Url",
+                Message = WebhookSigning.InsecureSignedUrlReason
+            });
+            result.IsValid = false;
         }
     }
 }

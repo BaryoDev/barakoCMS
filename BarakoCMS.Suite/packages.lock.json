@@ -786,7 +786,7 @@
         "type": "Project",
         "dependencies": {
           "AWSSDK.S3": "[3.7.511.8, )",
-          "BarakoCMS.Files": "[4.3.0, )",
+          "BarakoCMS.Files": "[4.3.1, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.22.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.22.0, )"
         }

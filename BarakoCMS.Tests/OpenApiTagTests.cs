@@ -124,6 +124,7 @@ public class OpenApiTagTests
             "Files",
             "Forms",
             "Import",
+            "Jobs",
             "Me",
             "Modules",
             "Monitoring",
@@ -140,6 +141,7 @@ public class OpenApiTagTests
             "Tenants",
             "UserGroups",
             "Users",
+            "WebhookDeliveries",
             "WorkflowRuns",
             "Workflows",
         };
