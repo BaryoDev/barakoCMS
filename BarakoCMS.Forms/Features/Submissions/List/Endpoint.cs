@@ -45,8 +45,20 @@ internal static class SubmissionQuery
     public static IQueryable<FormSubmission> For(IQuerySession session, string name, DateTime? from, DateTime? to)
     {
         var query = session.Query<FormSubmission>().Where(s => s.FormName == name);
-        if (from is { } f) query = query.Where(s => s.SubmittedAt >= f);
-        if (to is { } t) query = query.Where(s => s.SubmittedAt <= t);
+        if (from is { } f) { var bound = AsUtc(f); query = query.Where(s => s.SubmittedAt >= bound); }
+        if (to is { } t) { var bound = AsUtc(t); query = query.Where(s => s.SubmittedAt <= bound); }
         return query;
     }
+
+    /// <summary>
+    /// A query-string timestamp with an offset binds as local time, and the stored value is UTC, so
+    /// on any host not running in UTC the window would be shifted by the zone. One without an
+    /// offset is taken as UTC, which is what the request documents.
+    /// </summary>
+    private static DateTime AsUtc(DateTime value) => value.Kind switch
+    {
+        DateTimeKind.Local => value.ToUniversalTime(),
+        DateTimeKind.Utc => value,
+        _ => DateTime.SpecifyKind(value, DateTimeKind.Utc),
+    };
 }

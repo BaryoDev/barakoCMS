@@ -361,7 +361,6 @@ public class FormSubmissionTests
         var name = await DefineAsync(admin);
         var body = new { name = "Ana", email = "ana@example.com" };
 
-        var disabled = ContactForm(name);
         var update = await admin.PutAsJsonAsync($"/api/forms/{name}", new
         {
             displayName = "Contact us",
@@ -374,7 +373,6 @@ public class FormSubmissionTests
         var anon = Anonymous(_factory);
         (await SubmitAsync(anon, name, body)).StatusCode.Should().Be(HttpStatusCode.NotFound);
         (await SubmitAsync(anon, "no-such-form", body)).StatusCode.Should().Be(HttpStatusCode.NotFound);
-        _ = disabled;
     }
 
     [Fact]
@@ -479,6 +477,54 @@ public class FormSubmissionTests
         listA.GetProperty("items")[0].GetProperty("data").GetProperty("message").GetString().Should().Be(marker);
         listB.GetProperty("totalItems").GetInt32().Should().Be(0, "the other tenant's mailbox is empty");
         csvB.Should().NotContain(marker);
+    }
+
+    [Fact]
+    public async Task The_date_window_bounds_the_list_and_the_CSV()
+    {
+        var admin = await AdminClient();
+        var name = await DefineAsync(admin);
+        (await SubmitAsync(Anonymous(_factory), name, new { name = "Ana", email = "ana@example.com" })).StatusCode.Should().Be(HttpStatusCode.Accepted);
+
+        var past = DateTime.UtcNow.AddHours(-1).ToString("O");
+        var future = DateTime.UtcNow.AddHours(1).ToString("O");
+
+        var inside = await admin.GetAsync($"/api/forms/{name}/submissions?from={past}&to={future}", TestContext.Current.CancellationToken);
+        inside.StatusCode.Should().Be(HttpStatusCode.OK, await inside.Content.ReadAsStringAsync());
+        (await inside.Content.ReadFromJsonAsync<JsonElement>(TestContext.Current.CancellationToken))
+            .GetProperty("totalItems").GetInt32().Should().Be(1, "the submission is inside the window");
+
+        var before = await admin.GetFromJsonAsync<JsonElement>($"/api/forms/{name}/submissions?to={past}", TestContext.Current.CancellationToken);
+        before.GetProperty("totalItems").GetInt32().Should().Be(0, "the window ends before the submission");
+
+        var after = await admin.GetFromJsonAsync<JsonElement>($"/api/forms/{name}/submissions?from={future}", TestContext.Current.CancellationToken);
+        after.GetProperty("totalItems").GetInt32().Should().Be(0, "the window starts after the submission");
+
+        var csv = await admin.GetStringAsync($"/api/forms/{name}/submissions.csv?to={past}", TestContext.Current.CancellationToken);
+        csv.Split("\r\n", StringSplitOptions.RemoveEmptyEntries).Should().HaveCount(1, "the header and no rows");
+    }
+
+    [Fact]
+    public async Task Deleting_a_form_in_one_tenant_leaves_the_other_tenants_submissions()
+    {
+        var tenantA = await TenantAsync();
+        var tenantB = await TenantAsync();
+        var adminA = await MemberAsync(tenantA);
+        var adminB = await MemberAsync(tenantB);
+        var name = FreshName();
+
+        (await adminA.PostAsJsonAsync("/api/forms", ContactForm(name), TestContext.Current.CancellationToken)).StatusCode.Should().Be(HttpStatusCode.Created);
+        (await adminB.PostAsJsonAsync("/api/forms", ContactForm(name), TestContext.Current.CancellationToken)).StatusCode.Should().Be(HttpStatusCode.Created);
+
+        var anonB = Anonymous(_factory);
+        anonB.DefaultRequestHeaders.Add("X-Tenant", tenantB);
+        (await SubmitAsync(anonB, name, new { name = "Ben", email = "ben@example.com" })).StatusCode.Should().Be(HttpStatusCode.Accepted);
+
+        (await adminA.DeleteAsync($"/api/forms/{name}", TestContext.Current.CancellationToken)).StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        var listB = await adminB.GetFromJsonAsync<JsonElement>($"/api/forms/{name}/submissions", TestContext.Current.CancellationToken);
+        listB.GetProperty("totalItems").GetInt32().Should().Be(1, "a delete in one tenant reaches only that tenant's submissions");
+        (await adminB.GetAsync($"/api/forms/{name}", TestContext.Current.CancellationToken)).StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
     private static HttpRequestMessage Probe(string verb, string path)
