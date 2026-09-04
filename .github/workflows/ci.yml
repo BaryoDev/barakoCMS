@@ -673,3 +673,32 @@ jobs:
 
       - name: Stand up the stack and run the unmocked pack
         run: bash scripts/smoke-check.sh
+
+  # The release workflow refuses to publish an image that does not serve both architectures. It had
+  # only ever passed, which is not evidence it can fail (#394). 3.21.0 predates the gate and is
+  # amd64 only, so it is the red case: the script must reject it for the reason it exists, and must
+  # still accept a tag that does carry both. Both tags are public, no login needed.
+  image-platform-gate:
+    name: Image platform gate refuses an amd64-only tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+
+      - name: An amd64-only tag is refused, and for the right reason
+        run: |
+          set -uo pipefail
+          out=$(bash scripts/check-image-platforms.sh ghcr.io/baryodev/barako-cms:3.21.0 2>&1)
+          code=$?
+          echo "$out"
+          if [ "$code" -eq 0 ]; then
+            echo "::error::the gate passed an amd64-only tag"; exit 1
+          fi
+          # A network error also exits 1. Only the mismatch message counts as the gate working.
+          echo "$out" | grep -q "serves 'linux/amd64', expected 'linux/amd64,linux/arm64'" || {
+            echo "::error::the gate failed, but not because the tag is amd64 only (exit $code)"; exit 1; }
+
+      - name: A multi-architecture tag is accepted
+        run: bash scripts/check-image-platforms.sh ghcr.io/baryodev/barako-cms:latest
