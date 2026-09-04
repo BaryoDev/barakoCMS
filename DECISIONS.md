@@ -526,11 +526,11 @@ tag itself fails that test.
 **The decision.** Every route under `/api/public` follows the semantic version of the package that
 registers it: the core for the routes in `docs/delivery-api.md`, the module for a route a module adds
 under the prefix (`BarakoCMS.Files`, `BarakoCMS.AI`). Modules version independently of the core, so a
-module route breaks only in that module's major. A breaking
-change to a route, a response shape, a filter's meaning or a default lands only in a major, is
-announced in `CHANGELOG.md` under a Delivery API lead at least one minor before that major, and is
-marked deprecated in `docs/delivery-api.md` on the same schedule. Additive changes land in a minor.
-The policy text lives in `docs/delivery-api.md` under "Stability and deprecation".
+module route breaks only in that module's major. A breaking change to a route, a response shape, a
+filter's meaning or a default lands only in a major, is announced in `CHANGELOG.md` under a Delivery
+API lead at least one minor before that major, and is marked deprecated in `docs/delivery-api.md` on
+the same schedule. Additive changes land in a minor. The policy text lives in `docs/delivery-api.md`
+under "Stability and deprecation".
 
 **What it rules out.** A version segment in the URL (`/api/v1/public`), a version header, or a
 version query parameter. FastEndpoints supports all three and the issue named the URL form as the
