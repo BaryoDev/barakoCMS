@@ -280,6 +280,23 @@ test.describe('accessibility', () => {
         await expect(page.getByLabel('Value for filter 1')).toBeVisible();
         await expect(page.getByLabel('Remove filter 1')).toBeVisible();
 
+        // The other two controls that carry a placeholder, and the same trap for the same reason.
+        // Both survived a mutation that cut their label link, because axe then named them after the
+        // placeholder. Their labels are what a screen reader has to read once a value is typed.
+        await expect(page.getByLabel('Name')).toBeVisible();
+        await expect(page.getByLabel('Slug')).toBeVisible();
+
+        // The screen's headline claim, and until now nothing checked it. SUBSCRIBER carries a
+        // Sensitive Salary field, and the builder must not offer it anywhere: not as a projection
+        // checkbox, and not in the filter-field or sort-by selects, since filtering or sorting on a
+        // field the rows cannot show reads it without printing it. projectableFields is tested on
+        // its own; this is the line that connects it to the form.
+        await expect(page.getByRole('checkbox', { name: /Salary/ })).toHaveCount(0);
+        await expect(page.locator('option', { hasText: 'Salary' })).toHaveCount(0);
+        // Paired with the negatives so they cannot pass on a form that rendered no fields at all.
+        await expect(page.getByRole('checkbox', { name: /Email/ })).toHaveCount(1);
+        await expect(page.locator('option', { hasText: 'Email' })).toHaveCount(2);
+
         await page.getByRole('button', { name: 'Preview' }).click();
         await expect(page.getByRole('cell', { name: 'ana@example.com' })).toBeVisible();
 
