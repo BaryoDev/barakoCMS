@@ -5,4 +5,5 @@
   raiser refused on approve and on their own submit (and the `Lifecycle:AllowSelfTransition` switch),
   attaches an email workflow to the approve transition and sets the sender from settings, one curl
   per step with the status code each answers. `docs/access-control.md` links to it from the
-  permissions section.
+  permissions section. Until the next release the page needs
+  `BARAKO_TAG=master` in the quickstart's `.env`, since `:latest` predates lifecycles.

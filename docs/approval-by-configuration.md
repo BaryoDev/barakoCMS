@@ -19,6 +19,10 @@ fires on a transition (`Features/Workflows/WorkflowProjection.cs`) and email fro
 Bring up the [quickstart](../quickstart/) and export the base URL. The seeded administrator is
 `ADMIN_USERNAME` / `ADMIN_PASSWORD` from your `.env`.
 
+The quickstart pulls `ghcr.io/baryodev/barako-cms:latest`, and until the next release that image
+predates lifecycles, so the requests from step 2 on do not answer as shown. Set `BARAKO_TAG=master`
+in `.env` to run the branch tip, which every push to master publishes.
+
 ```bash
 BASE=http://localhost:5005
 ```
@@ -28,7 +32,7 @@ the `api` service when the step says so, then `docker compose up -d api`.
 
 | Key | Why |
 | --- | --- |
-| `Auth__RequireEmailVerification: "false"` and `Auth__AcknowledgeUnverifiedRegistration: "true"` | Step 4 registers two users. Registration emails a confirmation link, and without an email provider the quickstart's mock logs the recipient and subject only, so the link never reaches anyone. The first key turns verification off and the API refuses to start unless the second one says you meant it (`EmailVerificationOptions.Validate`). Remove both once the users exist. |
+| `Auth__RequireEmailVerification: "false"` and `Auth__AcknowledgeUnverifiedRegistration: "true"` | Step 4 registers two users. Registration emails a confirmation link. With no `RESEND_API_KEY` the suite image's send fails and is logged, and the core-only image's mock logs the recipient and subject only, so either way the link never reaches anyone. The first key turns verification off and the API refuses to start unless the second one says you meant it (`EmailVerificationOptions.Validate`). Remove both once the users exist. |
 | `Lifecycle__AllowSelfTransition__Submit: "true"` | Step 6. Whoever raised an entry may not move it on, by default. This lets the clerk submit their own invoice. |
 
 The examples use `jq` to pull ids out of responses. Read them off the JSON by eye if you do not have
