@@ -143,7 +143,7 @@ public class WorkflowRunTests
     public async Task Retrying_an_action_that_succeeded_is_refused()
     {
         var runId = await SeedRunAsync(actions: 1, status: AttemptStatus.Succeeded);
-        var client = AdminClient();
+        var client = await AdminClient();
 
         var res = await client.PostAsync($"/api/workflow-runs/{runId}/actions/0/retry", null,
             TestContext.Current.CancellationToken);
@@ -158,7 +158,7 @@ public class WorkflowRunTests
     public async Task Retrying_a_failed_action_queues_it_again()
     {
         var runId = await SeedRunAsync(actions: 1, status: AttemptStatus.Failed);
-        var client = AdminClient();
+        var client = await AdminClient();
 
         var res = await client.PostAsync($"/api/workflow-runs/{runId}/actions/0/retry", null,
             TestContext.Current.CancellationToken);
@@ -183,7 +183,7 @@ public class WorkflowRunTests
     public async Task A_retry_does_not_reset_the_attempt_count()
     {
         var runId = await SeedRunAsync(actions: 1, status: AttemptStatus.Failed, attempts: 3);
-        var client = AdminClient();
+        var client = await AdminClient();
 
         await client.PostAsync($"/api/workflow-runs/{runId}/actions/0/retry", null,
             TestContext.Current.CancellationToken);
@@ -226,7 +226,7 @@ public class WorkflowRunTests
     [Fact]
     public async Task An_unknown_status_filter_is_refused()
     {
-        var client = AdminClient();
+        var client = await AdminClient();
 
         var res = await client.GetAsync("/api/workflow-runs?status=Broken", TestContext.Current.CancellationToken);
 
@@ -238,7 +238,7 @@ public class WorkflowRunTests
     public async Task A_real_status_filters_the_list()
     {
         await SeedRunAsync(actions: 1, status: AttemptStatus.Failed);
-        var client = AdminClient();
+        var client = await AdminClient();
 
         var res = await client.GetAsync("/api/workflow-runs?status=Failed", TestContext.Current.CancellationToken);
         var body = await res.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
@@ -262,7 +262,7 @@ public class WorkflowRunTests
     public async Task The_api_returns_no_response_body_and_no_parameters()
     {
         var runId = await SeedRunAsync(actions: 1, status: AttemptStatus.Failed);
-        var client = AdminClient();
+        var client = await AdminClient();
 
         var body = await (await client.GetAsync($"/api/workflow-runs/{runId}", TestContext.Current.CancellationToken))
             .Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
@@ -275,11 +275,11 @@ public class WorkflowRunTests
             "anything else here is a place a credential could arrive in");
     }
 
-    private HttpClient AdminClient()
+    private async Task<HttpClient> AdminClient()
     {
         var client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
-            "Bearer", _factory.CreateToken(["SuperAdmin", "Admin"], Guid.NewGuid().ToString()));
+            "Bearer", await _factory.StoredUserTokenAsync("SuperAdmin", "Admin"));
         return client;
     }
 

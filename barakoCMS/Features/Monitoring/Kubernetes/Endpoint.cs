@@ -1,5 +1,7 @@
-using FastEndpoints;
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Services;
+using barakoCMS.Models;
+using FastEndpoints;
 
 namespace barakoCMS.Features.Monitoring.Kubernetes;
 
@@ -17,8 +19,9 @@ internal class Endpoint : EndpointWithoutRequest<ClusterStatus>
     public override void Configure()
     {
         Get("/api/monitoring/k8s");
-        // Exposes cluster topology (nodes, versions, replica counts) — admins only.
-        Roles("Admin", "SuperAdmin");
+        // Exposes cluster topology (nodes, versions, replica counts), so it is gated like the
+        // rest of the monitoring surface rather than left open.
+        Definition.RequireCapability(SystemCapabilities.ViewMonitoring, "Admin", "SuperAdmin");
         Description(b => b
             .Produces<ClusterStatus>(200)
             .WithTags("Monitoring"));

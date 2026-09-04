@@ -1,4 +1,5 @@
 using barakoCMS.Infrastructure.Audit;
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
@@ -6,7 +7,8 @@ using Marten;
 namespace barakoCMS.Features.Redirects;
 
 /// <summary>
-/// Who may manage redirects.
+/// The role names that gated redirects before <see cref="SystemCapabilities.ManageRedirects"/>,
+/// kept as the legacy fallback so an upgrade does not lock a deployment out.
 /// </summary>
 /// <remarks>
 /// The same pair the other editorial surfaces use. A redirect is content decisions rather than
@@ -14,7 +16,7 @@ namespace barakoCMS.Features.Redirects;
 /// </remarks>
 internal static class RedirectGate
 {
-    public static readonly string[] Roles = ["SuperAdmin", "Admin"];
+    public static readonly string[] LegacyRoles = ["SuperAdmin", "Admin"];
 }
 
 internal sealed class RedirectResponse
@@ -48,7 +50,7 @@ internal sealed class ListRedirectsEndpoint : Endpoint<PaginatedRequest, Paginat
     public override void Configure()
     {
         Get("/api/redirects");
-        Roles(RedirectGate.Roles);
+        Definition.RequireCapability(SystemCapabilities.ManageRedirects, RedirectGate.LegacyRoles);
     }
 
     public override async Task HandleAsync(PaginatedRequest req, CancellationToken ct)
@@ -89,7 +91,7 @@ internal sealed class SaveRedirectEndpoint : Endpoint<SaveRedirectRequest, Redir
     public override void Configure()
     {
         Post("/api/redirects");
-        Roles(RedirectGate.Roles);
+        Definition.RequireCapability(SystemCapabilities.ManageRedirects, RedirectGate.LegacyRoles);
     }
 
     public override async Task HandleAsync(SaveRedirectRequest req, CancellationToken ct)
@@ -175,7 +177,7 @@ internal sealed class DeleteRedirectEndpoint : Endpoint<DeleteRedirectRequest>
     public override void Configure()
     {
         Delete("/api/redirects/{id}");
-        Roles(RedirectGate.Roles);
+        Definition.RequireCapability(SystemCapabilities.ManageRedirects, RedirectGate.LegacyRoles);
     }
 
     public override async Task HandleAsync(DeleteRedirectRequest req, CancellationToken ct)

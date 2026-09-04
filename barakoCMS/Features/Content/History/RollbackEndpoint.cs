@@ -1,6 +1,7 @@
 using barakoCMS.Core.Interfaces;
 using FastEndpoints;
 using Marten;
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Models;
 using barakoCMS.Events;
 
@@ -31,7 +32,10 @@ internal class RollbackEndpoint : Endpoint<RollbackRequest, RollbackResponse>
     public override void Configure()
     {
         Post("/api/contents/{id}/rollback/{versionId}");
-        Roles("SuperAdmin", "Admin");
+        // Not the same capability as the erasure next door. That gate was Roles("SuperAdmin") and
+        // this one was Roles("SuperAdmin", "Admin"), so one name would have to widen or narrow one
+        // of them, and a rollback writes a new version where the erasure destroys the history.
+        Definition.RequireCapability(SystemCapabilities.RollbackContent, "SuperAdmin", "Admin");
     }
     
     public override async Task HandleAsync(RollbackRequest req, CancellationToken ct)

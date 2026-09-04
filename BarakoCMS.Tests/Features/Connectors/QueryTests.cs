@@ -32,7 +32,7 @@ public class QueryTests
     [Fact]
     public async Task A_filter_on_a_field_the_type_does_not_declare_is_refused()
     {
-        var client = AdminClient();
+        var client = await AdminClient();
         var type = await SeedAsync(rows: 3);
 
         var res = await SaveAsync(client, type,
@@ -56,7 +56,7 @@ public class QueryTests
     [Fact]
     public async Task A_filter_on_a_sensitive_field_is_refused_without_saying_why()
     {
-        var client = AdminClient();
+        var client = await AdminClient();
         var type = await SeedAsync(rows: 3);
 
         var res = await SaveAsync(client, type,
@@ -73,7 +73,7 @@ public class QueryTests
     [Fact]
     public async Task A_sensitive_field_cannot_be_projected()
     {
-        var client = AdminClient();
+        var client = await AdminClient();
         var type = await SeedAsync(rows: 3);
 
         var res = await SaveAsync(client, type, filters: [], fields: ["Email", "Salary"]);
@@ -91,7 +91,7 @@ public class QueryTests
     [Fact]
     public async Task A_public_field_filters_sorts_and_projects()
     {
-        var client = AdminClient();
+        var client = await AdminClient();
         var type = await SeedAsync(rows: 3);
 
         var slug = await SaveOkAsync(client, type,
@@ -125,7 +125,7 @@ public class QueryTests
     [Fact]
     public async Task A_public_field_the_query_does_not_name_does_not_leave()
     {
-        var client = AdminClient();
+        var client = await AdminClient();
         var type = await SeedAsync(rows: 2);
 
         var slug = await SaveOkAsync(client, type, filters: [], fields: ["Email"]);
@@ -140,7 +140,7 @@ public class QueryTests
     [Fact]
     public async Task A_limit_above_the_ceiling_is_refused()
     {
-        var client = AdminClient();
+        var client = await AdminClient();
         var type = await SeedAsync(rows: 2);
 
         var res = await SaveAsync(client, type, filters: [], fields: ["Email"], limit: 5000);
@@ -168,7 +168,7 @@ public class QueryTests
     [Fact]
     public async Task A_stored_limit_above_the_ceiling_is_refused_when_it_runs()
     {
-        var client = AdminClient();
+        var client = await AdminClient();
         var type = await SeedAsync(rows: 5);
         var slug = await SaveOkAsync(client, type, filters: [], fields: ["Email"], limit: 2);
 
@@ -199,7 +199,7 @@ public class QueryTests
     [Fact]
     public async Task A_limit_inside_the_ceiling_bounds_the_rows()
     {
-        var client = AdminClient();
+        var client = await AdminClient();
         var type = await SeedAsync(rows: 5);
         var slug = await SaveOkAsync(client, type, filters: [], fields: ["Email"], limit: 2);
 
@@ -219,7 +219,7 @@ public class QueryTests
     [Fact]
     public async Task A_query_with_no_projection_is_refused()
     {
-        var client = AdminClient();
+        var client = await AdminClient();
         var type = await SeedAsync(rows: 2);
 
         var res = await SaveAsync(client, type, filters: [], fields: []);
@@ -239,7 +239,7 @@ public class QueryTests
     [Fact]
     public async Task A_field_raised_to_sensitive_after_saving_stops_being_returned()
     {
-        var client = AdminClient();
+        var client = await AdminClient();
         var type = await SeedAsync(rows: 2);
         var slug = await SaveOkAsync(client, type, filters: [], fields: ["Email"]);
 
@@ -262,11 +262,11 @@ public class QueryTests
             "the field is not Public any more, so it cannot keep leaving");
     }
 
-    private HttpClient AdminClient()
+    private async Task<HttpClient> AdminClient()
     {
         var client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
-            "Bearer", _factory.CreateToken(["SuperAdmin", "Admin"], Guid.NewGuid().ToString()));
+            "Bearer", await _factory.StoredUserTokenAsync("SuperAdmin", "Admin"));
         return client;
     }
 

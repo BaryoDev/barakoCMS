@@ -7,7 +7,7 @@ using Xunit;
 namespace BarakoCMS.Tests.Features.Workflows;
 
 [Collection("Sequential")]
-public class WorkflowToolsApiTests
+public class WorkflowToolsApiTests : IAsyncLifetime
 {
     private readonly HttpClient _client;
     private readonly IntegrationTestFixture _fixture;
@@ -17,11 +17,22 @@ public class WorkflowToolsApiTests
         _fixture = fixture;
         _client = fixture.CreateClient();
 
-        // Add authentication for all tests - workflow debug endpoints require Admin/SuperAdmin role
-        var token = _fixture.CreateToken(new[] { "SuperAdmin" });
-        _client.DefaultRequestHeaders.Authorization =
-            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
     }
+
+    /// <summary>
+    /// The token needs a stored user, which is a write, which a constructor cannot do.
+    /// </summary>
+    /// <remarks>
+    /// These endpoints ask for a capability now rather than a role name, and a capability is answered
+    /// from the stored user's roles rather than from the claim. A token minted with no user behind it
+    /// reaches nothing once the role-name fallback is off, which it is by default from 4.0.
+    /// </remarks>
+    public async ValueTask InitializeAsync() =>
+        _client.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue(
+                "Bearer", await _fixture.StoredUserTokenAsync("SuperAdmin"));
+
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
     #region GET /api/workflows/actions Tests
 

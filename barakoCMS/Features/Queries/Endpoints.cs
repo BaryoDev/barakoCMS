@@ -1,4 +1,5 @@
 using barakoCMS.Infrastructure.Audit;
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Connectors;
 using barakoCMS.Models;
 using FastEndpoints;
@@ -58,7 +59,11 @@ internal sealed class QueryPreviewResponse
 
 internal static class QueryGate
 {
-    internal static readonly string[] Roles = ["SuperAdmin", "Admin"];
+    /// <summary>
+    /// The names that gated queries before <see cref="SystemCapabilities.ManageQueries"/>, kept as
+    /// the legacy fallback so an upgrade does not lock a deployment out.
+    /// </summary>
+    internal static readonly string[] LegacyRoles = ["SuperAdmin", "Admin"];
 
     internal static bool IsSlug(string value) =>
         System.Text.RegularExpressions.Regex.IsMatch(value, "^[a-z0-9][a-z0-9-]{0,62}$");
@@ -73,7 +78,7 @@ internal sealed class ListQueriesEndpoint : Endpoint<ListRequest, PaginatedRespo
     public override void Configure()
     {
         Get("/api/queries");
-        Roles(QueryGate.Roles);
+        Definition.RequireCapability(SystemCapabilities.ManageQueries, QueryGate.LegacyRoles);
     }
 
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)
@@ -99,7 +104,7 @@ internal sealed class GetQueryEndpoint : EndpointWithoutRequest<QueryResponse>
     public override void Configure()
     {
         Get("/api/queries/{slug}");
-        Roles(QueryGate.Roles);
+        Definition.RequireCapability(SystemCapabilities.ManageQueries, QueryGate.LegacyRoles);
     }
 
     public override async Task HandleAsync(CancellationToken ct)
@@ -142,7 +147,7 @@ internal sealed class SaveQueryEndpoint : Endpoint<SaveQueryRequest, QueryRespon
     public override void Configure()
     {
         Post("/api/queries");
-        Roles(QueryGate.Roles);
+        Definition.RequireCapability(SystemCapabilities.ManageQueries, QueryGate.LegacyRoles);
     }
 
     public override async Task HandleAsync(SaveQueryRequest req, CancellationToken ct)
@@ -212,7 +217,7 @@ internal sealed class DeleteQueryEndpoint : EndpointWithoutRequest
     public override void Configure()
     {
         Delete("/api/queries/{slug}");
-        Roles(QueryGate.Roles);
+        Definition.RequireCapability(SystemCapabilities.ManageQueries, QueryGate.LegacyRoles);
     }
 
     public override async Task HandleAsync(CancellationToken ct)
@@ -267,7 +272,7 @@ internal sealed class PreviewQueryEndpoint : EndpointWithoutRequest<QueryPreview
     public override void Configure()
     {
         Post("/api/queries/{slug}/preview");
-        Roles(QueryGate.Roles);
+        Definition.RequireCapability(SystemCapabilities.ManageQueries, QueryGate.LegacyRoles);
     }
 
     public override async Task HandleAsync(CancellationToken ct)

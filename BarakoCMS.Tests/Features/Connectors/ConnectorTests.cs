@@ -34,7 +34,7 @@ public class ConnectorTests
     [Fact]
     public async Task A_stored_credential_is_encrypted_in_the_document()
     {
-        var client = AdminClient();
+        var client = await AdminClient();
         var slug = await CreateAsync(client, secrets: new() { ["Token"] = Token });
 
         var raw = await RawSecretJsonAsync();
@@ -51,7 +51,7 @@ public class ConnectorTests
     [Fact]
     public async Task A_stored_credential_decrypts_again()
     {
-        var client = AdminClient();
+        var client = await AdminClient();
         var slug = await CreateAsync(client, secrets: new() { ["Token"] = Token });
 
         using var scope = _factory.Services.CreateScope();
@@ -73,7 +73,7 @@ public class ConnectorTests
     [Fact]
     public async Task No_endpoint_returns_a_stored_secret()
     {
-        var client = AdminClient();
+        var client = await AdminClient();
 
         var created = await client.PostAsJsonAsync("/api/connectors", NewConnector(NewSlug(), new() { ["Token"] = Token }),
             TestContext.Current.CancellationToken);
@@ -100,7 +100,7 @@ public class ConnectorTests
     [Fact]
     public async Task Creating_a_connector_is_audited_without_the_secret()
     {
-        var client = AdminClient();
+        var client = await AdminClient();
         var slug = await CreateAsync(client, secrets: new() { ["Token"] = Token });
 
         var entries = await AuditAsync(slug);
@@ -125,7 +125,7 @@ public class ConnectorTests
     [Fact]
     public async Task A_connector_pointing_at_a_private_address_fails_at_send_time()
     {
-        var client = AdminClient();
+        var client = await AdminClient();
         var slug = await CreateAsync(client, baseUrl: "http://169.254.169.254", secrets: null);
 
         var res = await client.PostAsync($"/api/connectors/{slug}/test", null, TestContext.Current.CancellationToken);
@@ -148,7 +148,7 @@ public class ConnectorTests
     [Fact]
     public async Task A_test_result_carries_no_response_body()
     {
-        var client = AdminClient();
+        var client = await AdminClient();
         var slug = await CreateAsync(client, baseUrl: "http://127.0.0.1:9", secrets: null);
 
         var body = await (await client.PostAsync($"/api/connectors/{slug}/test", null, TestContext.Current.CancellationToken))
@@ -172,7 +172,7 @@ public class ConnectorTests
     [Fact]
     public async Task Updating_without_the_secret_leaves_it_alone_and_an_empty_one_clears_it()
     {
-        var client = AdminClient();
+        var client = await AdminClient();
         var slug = await CreateAsync(client, secrets: new() { ["Token"] = Token });
 
         var renamed = await client.PutAsJsonAsync($"/api/connectors/{slug}",
@@ -199,7 +199,7 @@ public class ConnectorTests
     [Fact]
     public async Task Deleting_a_connector_removes_its_secrets()
     {
-        var client = AdminClient();
+        var client = await AdminClient();
         var slug = await CreateAsync(client, secrets: new() { ["Token"] = Token });
 
         (await SecretCountAsync(slug)).Should().Be(1, "the secret was stored, so the delete has something to remove");
@@ -218,7 +218,7 @@ public class ConnectorTests
     {
         var client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
-            "Bearer", _factory.CreateToken(["Editor"], Guid.NewGuid().ToString()));
+            "Bearer", await _factory.StoredUserTokenAsync("Editor"));
 
         var res = await client.PostAsJsonAsync("/api/connectors", NewConnector(NewSlug(), null),
             TestContext.Current.CancellationToken);
@@ -321,11 +321,11 @@ public class ConnectorTests
         mine.Should().Be(1, "each tenant sees its own, and neither blocked the other");
     }
 
-    private HttpClient AdminClient()
+    private async Task<HttpClient> AdminClient()
     {
         var client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
-            "Bearer", _factory.CreateToken(["SuperAdmin", "Admin"], Guid.NewGuid().ToString()));
+            "Bearer", await _factory.StoredUserTokenAsync("SuperAdmin", "Admin"));
         return client;
     }
 

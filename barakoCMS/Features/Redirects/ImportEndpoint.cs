@@ -1,4 +1,5 @@
 using barakoCMS.Infrastructure.Audit;
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
@@ -53,7 +54,7 @@ internal sealed class ImportRedirectsEndpoint : Endpoint<ImportRedirectsRequest,
     public override void Configure()
     {
         Post("/api/redirects/import");
-        Roles(RedirectGate.Roles);
+        Definition.RequireCapability(SystemCapabilities.ManageRedirects, RedirectGate.LegacyRoles);
     }
 
     /// <summary>How many lines one upload may carry.</summary>

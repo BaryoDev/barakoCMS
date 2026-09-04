@@ -26,11 +26,11 @@ public class WorkflowMetadataAuthTests
         _factory = factory;
     }
 
-    private HttpClient AuthedAs(params string[] roles)
+    private async Task<HttpClient> AuthedAs(params string[] roles)
     {
         var client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", _factory.CreateToken(roles));
+            new AuthenticationHeaderValue("Bearer", await _factory.StoredUserTokenAsync(roles));
         return client;
     }
 
@@ -51,7 +51,7 @@ public class WorkflowMetadataAuthTests
     [InlineData("/api/workflows/variables")]
     public async Task Refuses_a_signed_in_caller_without_an_admin_role(string route)
     {
-        var response = await AuthedAs("Editor").GetAsync(route);
+        var response = await (await AuthedAs("Editor")).GetAsync(route);
 
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
@@ -63,7 +63,7 @@ public class WorkflowMetadataAuthTests
     [InlineData("/api/workflows/variables")]
     public async Task Still_answers_an_admin(string route)
     {
-        var response = await AuthedAs("Admin").GetAsync(route);
+        var response = await (await AuthedAs("Admin")).GetAsync(route);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
