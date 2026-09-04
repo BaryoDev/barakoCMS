@@ -6,6 +6,7 @@ using BarakoCMS.Files.S3;
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyModel;
 using Xunit;
 
 namespace BarakoCMS.Tests;
@@ -106,6 +107,42 @@ public class ModuleDiscoveryTests
         builder.Modules.Should().NotBeEmpty();
         builder.Modules.Select(m => m.GetType()).Should().OnlyContain(t => t.IsPublic && !t.IsNested);
     }
+
+    /// <summary>
+    /// Only a library whose dependency closure reaches core is loaded. Over a synthetic context,
+    /// because the real one loads whatever it holds and a wrong filter would still pass every test
+    /// above: everything in this process loads fine.
+    /// </summary>
+    [Fact]
+    public void Only_a_library_whose_dependencies_reach_core_is_a_candidate()
+    {
+        var context = new DependencyContext(
+            new TargetInfo(".NETCoreApp,Version=v10.0", null, null, isPortable: true),
+            CompilationOptions.Default,
+            compileLibraries: [],
+            runtimeLibraries:
+            [
+                Library("BarakoCMS"),
+                Library("Acme.Crm", "BarakoCMS"),
+                Library("Acme.Crm.Extras", "Acme.Crm"),
+                Library("Newtonsoft.Json"),
+                Library("Unrelated", "Newtonsoft.Json"),
+            ],
+            runtimeGraph: []);
+
+        var reaches = BarakoModuleBuilder.ReachesCore(context);
+
+        reaches("Acme.Crm").Should().BeTrue("a direct reference to core");
+        reaches("Acme.Crm.Extras").Should().BeTrue("reach is transitive, the way Files.S3 sits on Files");
+        reaches("Unrelated").Should().BeFalse("an unrelated package is never loaded on the chance it holds a module");
+        reaches("BarakoCMS").Should().BeFalse("core does not depend on itself");
+    }
+
+    private static RuntimeLibrary Library(string name, params string[] dependsOn) =>
+        new("package", name, "1.0.0", hash: string.Empty,
+            runtimeAssemblyGroups: [], nativeLibraryGroups: [], resourceAssemblies: [],
+            dependencies: dependsOn.Select(d => new Dependency(d, "1.0.0")).ToList(),
+            serviceable: false);
 
     [Fact]
     public void AddBarakoCMS_discovers_by_default()

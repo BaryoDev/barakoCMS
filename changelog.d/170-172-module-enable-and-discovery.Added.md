@@ -4,7 +4,8 @@
   libraries that reach `BarakoCMS` through their dependencies are loaded, only public top-level types with a parameterless
   constructor count, discovered modules are ordered by type name, and a type the host already added
   is skipped. `modules.Discover = false` on the builder, or `BarakoCMS:Modules:Discover=false` in
-  configuration, keeps the explicit list only.
+  configuration, keeps the explicit list only. A host that references a module package without
+  adding it now runs that module; turn discovery off to keep the old explicit-only behaviour.
 
   `BarakoCMS:Modules:Enabled`, an array or a comma-separated string
   (`BarakoCMS__Modules__Enabled=Accounting,Files`), decides which of the modules found run. Unset

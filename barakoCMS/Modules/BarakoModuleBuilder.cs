@@ -148,7 +148,7 @@ public sealed class BarakoModuleBuilder
     /// Whether a library's dependency closure contains core. Memoised, because the same packages
     /// sit under every module; core itself answers false, since it does not depend on itself.
     /// </summary>
-    private static Func<string, bool> ReachesCore(DependencyContext context)
+    internal static Func<string, bool> ReachesCore(DependencyContext context)
     {
         var dependencies = context.RuntimeLibraries.ToDictionary(
             l => l.Name,

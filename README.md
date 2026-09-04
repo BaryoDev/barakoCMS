@@ -154,21 +154,20 @@ project, through the same `IBarakoModule` contract you can implement yourself.
 | **Pwa** | [`BarakoCMS.Pwa`](https://www.nuget.org/packages/BarakoCMS.Pwa) | Tracks PWA installs / installed-app launches (anonymous or tied to the signed-in user) so the admin shows **who** installed the app. |
 | **AI** | [`BarakoCMS.AI`](https://www.nuget.org/packages/BarakoCMS.AI) | **Semantic search** over published content using a self-hosted embedding model ([Ollama](https://ollama.com) by default), with no third-party API key. Indexes only public fields; results are re-checked as published + public at query time. |
 
-Enable the ones you want when you register the CMS:
+Reference the packages you want and register the CMS. `AddBarakoCMS` finds every module in the
+application's dependency context, so adding one is `dotnet add package` and a restart:
 
 ```csharp
-builder.Services.AddBarakoCMS(builder.Configuration, modules =>
-{
-    modules.Add(new BarakoCMS.Accounting.AccountingModule());
-    modules.Add(new BarakoCMS.Email.Resend.ResendEmailModule());
-    modules.Add(new BarakoCMS.Analytics.Umami.UmamiAnalyticsModule());
-    modules.Add(new BarakoCMS.Pwa.PwaModule());
-    modules.Add(new BarakoCMS.AI.AiModule()); // semantic search (Ollama)
-    // …add only what you need
-});
+builder.Services.AddBarakoCMS(builder.Configuration);
 
 await app.RunBarakoModuleSeedersAsync(); // module baseline data (roles, reference data)
 ```
+
+`BarakoCMS__Modules__Enabled=Accounting,Files` chooses which of the referenced modules run. Unset,
+all of them run and the API logs one warning saying so; an empty string is core only; a name that
+matches nothing refuses to start and lists the names it knows. Turning a module off leaves its data
+in the database. `GET /api/modules` lists each module with `enabled`. A module that needs
+constructor arguments is still added by hand with `modules.Add(...)`; see [MODULES.md](MODULES.md).
 
 A module contributes DI services, its own Marten documents, FastEndpoints endpoints, and seed data,
 implementing only the hooks it needs. See each module's page in the [docs](https://baryo.dev/docs/).
