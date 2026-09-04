@@ -42,6 +42,9 @@ it.
 If runs are piling up in `Pending`, the runner is not keeping up or is switched off
 (`Workflows:RunnerEnabled`). Retention is not the thing to reach for.
 
+Webhook deliveries keep their own log with its own window, `Webhooks:DeliveryLogRetentionDays`.
+See `docs/webhooks.md`.
+
 ## This is not an audit trail
 
 Say it plainly, because a retention setting is exactly the kind of thing that quietly becomes a

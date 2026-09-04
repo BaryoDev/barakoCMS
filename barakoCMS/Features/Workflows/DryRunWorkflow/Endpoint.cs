@@ -86,7 +86,7 @@ internal class Endpoint : Endpoint<Request, Response>
                     // In dry-run mode, we just log what would happen without executing
                     _logger.LogInformation(
                         "DRY-RUN: Would execute {ActionType} with parameters: {Parameters}",
-                        action.Type, System.Text.Json.JsonSerializer.Serialize(resolvedParams));
+                        action.Type, System.Text.Json.JsonSerializer.Serialize(Actions.WebhookSigning.WithoutSecret(resolvedParams)));
 
                     _debugger.LogActionSuccess(executionLog, action.Type, actionTimer, resolvedParams);
                 }

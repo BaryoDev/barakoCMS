@@ -1,6 +1,8 @@
 using barakoCMS.Features.Workflows;
+using barakoCMS.Features.Workflows.Actions;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
+using Microsoft.Extensions.Configuration;
 using Moq;
 using Xunit;
 
@@ -216,6 +218,46 @@ public class WorkflowSchemaValidatorTests
         // Assert
         Assert.False(result.IsValid);
         Assert.True(result.Errors.Count >= 4); // name, triggerContentType, triggerEvent, actions
+    }
+
+    [Fact]
+    public void A_webhook_with_a_secret_and_an_http_url_is_refused()
+    {
+        var result = _validator.Validate(SignedWebhook("http://hooks.example.com/x", secret: "whsec_x"));
+
+        Assert.False(result.IsValid);
+        var error = Assert.Single(result.Errors, e => e.Field == "actions[0].parameters.Url");
+        Assert.Contains("https", error.Message);
+        Assert.Contains(WebhookSigning.AllowInsecureSignedUrlsKey, error.Message);
+    }
+
+    [Fact]
+    public void An_http_url_is_accepted_without_a_secret_and_with_the_opt_in()
+    {
+        Assert.True(_validator.Validate(SignedWebhook("http://hooks.example.com/x", secret: null)).IsValid);
+        Assert.True(_validator.Validate(SignedWebhook("https://hooks.example.com/x", secret: "whsec_x")).IsValid);
+
+        var optedIn = new WorkflowSchemaValidator(_mockRegistry.Object, Mock.Of<Marten.IQuerySession>(),
+            new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                [WebhookSigning.AllowInsecureSignedUrlsKey] = "true",
+            }).Build());
+
+        Assert.True(optedIn.Validate(SignedWebhook("http://hooks.example.com/x", secret: "whsec_x")).IsValid);
+    }
+
+    private static WorkflowDefinition SignedWebhook(string url, string? secret)
+    {
+        var parameters = new Dictionary<string, string> { ["Url"] = url };
+        if (secret is not null) parameters["Secret"] = secret;
+
+        return new WorkflowDefinition
+        {
+            Name = "Signed hook",
+            TriggerContentType = "PurchaseOrder",
+            TriggerEvent = "Created",
+            Actions = new List<WorkflowAction> { new() { Type = "Webhook", Parameters = parameters } },
+        };
     }
 
     private void SetupMockRegistry()

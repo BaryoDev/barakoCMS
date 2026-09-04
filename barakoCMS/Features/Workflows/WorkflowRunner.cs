@@ -326,6 +326,13 @@ internal sealed class WorkflowRunner : BackgroundService
 
             resolved["IdempotencyKey"] = attempt.IdempotencyKey;
 
+            // What the delivery log needs to say which run a delivery belonged to. Same channel as
+            // the idempotency key, because the parameters are the only thing an action receives.
+            resolved["RunId"] = run.Id.ToString();
+            resolved["WorkflowId"] = run.WorkflowDefinitionId.ToString();
+            resolved["TriggerEvent"] = run.TriggerEvent;
+            resolved["Attempt"] = (attempt.Attempts + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
+
             var result = await handler.RunAsync(resolved, content, ct);
             timer.Stop();
 

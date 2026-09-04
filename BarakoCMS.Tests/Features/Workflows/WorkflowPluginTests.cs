@@ -44,11 +44,12 @@ public class WorkflowPluginTests
     {
         // Arrange
         var mockHttpClientFactory = new Mock<IHttpClientFactory>();
-        var mockSession = new Mock<Marten.IQuerySession>();
+        var mockSession = new Mock<Marten.IDocumentSession>();
         var mockLogger = new Mock<ILogger<WebhookAction>>();
         var action = new WebhookAction(
             mockHttpClientFactory.Object,
             mockSession.Object,
+            new Mock<barakoCMS.Infrastructure.Security.ISecretProtector>().Object,
             barakoCMS.Infrastructure.Http.OutboundAddressGuard.Default,
             mockLogger.Object);
 
@@ -155,11 +156,12 @@ public class WorkflowPluginTests
     {
         // Arrange
         var mockHttpClientFactory = new Mock<IHttpClientFactory>();
-        var mockSession = new Mock<Marten.IQuerySession>();
+        var mockSession = new Mock<Marten.IDocumentSession>();
         var mockLogger = new Mock<ILogger<WebhookAction>>();
         var action = new WebhookAction(
             mockHttpClientFactory.Object,
             mockSession.Object,
+            new Mock<barakoCMS.Infrastructure.Security.ISecretProtector>().Object,
             barakoCMS.Infrastructure.Http.OutboundAddressGuard.Default,
             mockLogger.Object);
 
