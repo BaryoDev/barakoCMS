@@ -563,6 +563,13 @@ public static class ServiceCollectionExtensions
             // Register Workflow Projection (Async)
             options.Projections.Add(new WorkflowProjection(sp), JasperFx.Events.Projections.ProjectionLifecycle.Async);
 
+            // The public event stream learns about content changes after the session that wrote
+            // them commits, on this instance. See ContentChangeListener for why it is not a
+            // projection.
+            options.Listeners.Add(new barakoCMS.Features.Public.Events.ContentChangeListener(
+                sp.GetRequiredService<barakoCMS.Features.Public.Events.ContentChangeBroadcaster>(),
+                sp.GetRequiredService<ILogger<barakoCMS.Features.Public.Events.ContentChangeListener>>()));
+
             // Each module registers its own document types through a surface that only accepts
             // types it ships. ConfigureMarten still runs for modules that predate ConfigureSchema,
             // and is warned about, because removing it inside a major would break them silently.
@@ -684,6 +691,13 @@ public static class ServiceCollectionExtensions
 
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowRunQueue, barakoCMS.Features.Workflows.WorkflowRunQueue>();
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowRunner>();
+
+        // GET /api/public/events. The options resolve the container's configuration at first use
+        // rather than the one passed in here, so a host that layers settings on after this call
+        // (the test fixtures do) is read as configured.
+        services.AddSingleton<barakoCMS.Features.Public.Events.ContentChangeBroadcaster>();
+        services.AddSingleton(sp => barakoCMS.Features.Public.Events.ContentEventsOptions.FromConfiguration(
+            sp.GetRequiredService<IConfiguration>()));
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowRunRetentionService>();
         services.AddScoped<barakoCMS.Infrastructure.Auth.Mfa.IMfaService, barakoCMS.Infrastructure.Auth.Mfa.MfaService>();
         // Device trust is opt-in: the default gate does nothing. The DeviceTrust module overrides it.
