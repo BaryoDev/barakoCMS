@@ -283,23 +283,30 @@ public class TransactionalEnqueueTests
 
     /// <summary>
     /// A retry that is due is found on the worker's next storage probe, a minute apart by default,
-    /// so this wait asks for a probe on every poll. The fixture says why the probe is not simply
-    /// shortened: every host the suite keeps alive would pay for it, in database connections.
+    /// so this wait asks for a probe whenever the job is seen waiting. The fixture says why the
+    /// probe is not simply shortened: every host the suite keeps alive would pay for it, in
+    /// database connections.
+    ///
+    /// Only when the job is Pending, never blindly. A probe that lands while the worker is still
+    /// winding down the attempt that just failed re-leases the record, and FastEndpoints then drops
+    /// it as already in flight; it sits Running until the lease expires. The zero backoff the
+    /// fixture sets is what makes a failed job eligible that early, so production never sees it,
+    /// and the fixture keeps the lease short so a test survives it if it happens anyway.
     /// </summary>
     private Task<JobRecord> WaitForDeadLetterAsync(Guid id) =>
         WaitForStateAsync(id, JobState.DeadLettered, DeadLetterTimeout,
-            wake: () => new AlwaysFailsCommand().TriggerJobExecution());
+            wakeWhenPending: () => new AlwaysFailsCommand().TriggerJobExecution());
 
-    private async Task<JobRecord> WaitForStateAsync(Guid id, JobState state, TimeSpan timeout, Action? wake = null)
+    private async Task<JobRecord> WaitForStateAsync(Guid id, JobState state, TimeSpan timeout, Action? wakeWhenPending = null)
     {
         var deadline = DateTime.UtcNow + timeout;
         JobRecord? last = null;
 
         while (DateTime.UtcNow < deadline)
         {
-            wake?.Invoke();
             last = await LoadAsync(id);
             if (last?.State == state) return last;
+            if (last?.State == JobState.Pending) wakeWhenPending?.Invoke();
             await Task.Delay(250, TestContext.Current.CancellationToken);
         }
 

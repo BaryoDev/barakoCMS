@@ -71,7 +71,12 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
                 // returned, and WebApplicationFactory reported a server that had never started. A
                 // test that waits on a retry wakes the worker itself instead; see
                 // TransactionalEnqueueTests.WaitForDeadLetterAsync.
+                //
+                // The lease is short for the same test: a claim the worker drops (that method says
+                // how) is picked up again once the lease has passed, and no handler here runs for
+                // more than a few seconds.
                 { "Jobs:BackoffBaseSeconds", "0" },
+                { "Jobs:LeaseSeconds", "5" },
             });
         });
 
