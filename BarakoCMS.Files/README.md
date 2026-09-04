@@ -23,10 +23,25 @@ builder.Services.AddBarakoCMS(builder.Configuration, modules =>
 |---|---|
 | `POST /api/files` | Upload one image or PDF (≤ 10 MB, multipart). Returns `{ id, fileName, contentType, size }`. |
 | `GET  /api/files/{id}` | Stream the file back with its original content type. Requires a Bearer token. |
+| `GET  /api/files` | List uploads, newest first, paginated. `?q=` matches a substring of the name, `?contentType=image/` a type or prefix. |
+| `GET  /api/files/{id}/meta` | The record without the bytes: name, type, size, public flag, alt text, caption. |
+| `PATCH /api/files/{id}` | Set `alt` and `caption`. A field left out is unchanged; an empty string clears it. |
+| `GET  /api/files/{id}/usage` | The entries whose data references the file, by id or by URL. Paginated. |
+| `DELETE /api/files/{id}` | Remove the file, its cached resizes and their bytes. 409 with the first ten usages while an entry references it; `?force=true` deletes anyway. |
+| `GET  /api/public/files/{id}` | Anonymous download of a public file. Private files are 404. |
+| `GET  /api/public/files/{id}/meta` | Anonymous alt text and caption for a public file. Private files are 404. |
 
 Attach the returned `id` to your own documents; fetch it later with the download endpoint. Because
-`GET` requires authentication, browser `<img>`/`<a>` tags can't load it directly — fetch it with the
-token and use an object URL.
+`GET /api/files/{id}` requires authentication, browser `<img>`/`<a>` tags cannot load it directly:
+fetch it with the token and use an object URL, or upload with `isPublic=true` and use the public
+route.
+
+Every route except the two public ones is gated on the `upload_files` capability, which the module
+grants to Admin at startup. The where-used lookup scans the tenant's entries for the file's id or
+its storage key as a substring of any field, so it finds a bare id, a `/api/public/files/{id}` URL
+with or without `?w=`, and an object store's public URL. A usage row always carries the entry's id
+and status; its title is there only when the caller holds read on the type and the sensitivity
+scrub leaves it, the same two checks as `GET /api/contents`.
 
 ## Notes
 
