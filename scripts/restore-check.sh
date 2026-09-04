@@ -85,7 +85,7 @@ wait_for_health() {
 psql_q() { docker exec "$PG" psql -U postgres -d "$DB" -tAc "$1"; }
 
 step "building the host"
-dotnet publish barakoCMS/barakoCMS.csproj -c Release -o "$WORK/publish" --nologo -v q -clp:ErrorsOnly
+dotnet publish barakoCMS/barakoCMS.csproj -c Release -o "$WORK/publish" --nologo -v q -clp:ErrorsOnly -p:RestoreLockedMode=true
 
 step "starting postgres"
 docker run -d --name "$PG" -e POSTGRES_DB="$DB" -e POSTGRES_USER=postgres \

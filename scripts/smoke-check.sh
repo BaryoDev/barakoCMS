@@ -77,7 +77,7 @@ for _ in $(seq 1 60); do docker exec "$PG" pg_isready -h 127.0.0.1 -U postgres >
 docker exec "$PG" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1 || fail "postgres never became ready"
 
 step "building the API from the working tree"
-dotnet publish barakoCMS/barakoCMS.csproj -c Release -o "$WORK/api" --nologo -v q -clp:ErrorsOnly
+dotnet publish barakoCMS/barakoCMS.csproj -c Release -o "$WORK/api" --nologo -v q -clp:ErrorsOnly -p:RestoreLockedMode=true
 
 step "starting the API"
 # exec, so $! is the dotnet process rather than the subshell. Killing the subshell leaves the host

@@ -50,12 +50,15 @@ for csproj in BarakoCMS.*/BarakoCMS.*.csproj; do
 
   # Code changes after that point. Exclude the .csproj itself: editing dependencies or metadata
   # there is not a reason to republish on its own, and including it makes every bump self-trigger.
-  changes=$(git log --format=%h "$version_commit"..HEAD -- "$module" ':!*.csproj' | wc -l | tr -d ' ')
+  # packages.lock.json is excluded for the same reason: it follows Directory.Packages.props, which
+  # already sits outside every module directory, so a dependency bump keeps not forcing a version
+  # bump on every module at once.
+  changes=$(git log --format=%h "$version_commit"..HEAD -- "$module" ':!*.csproj' ':!*/packages.lock.json' | wc -l | tr -d ' ')
 
   if [ "$changes" -gt 0 ]; then
     failed=1
     echo "::error::$module is at $version but has $changes commit(s) of source changes since that version was set. Bump <Version> in $csproj, or those changes will be skipped at publish time (--skip-duplicate)."
-    git log --oneline "$version_commit"..HEAD -- "$module" ':!*.csproj' | sed 's/^/    /'
+    git log --oneline "$version_commit"..HEAD -- "$module" ':!*.csproj' ':!*/packages.lock.json' | sed 's/^/    /'
   fi
 done
 
