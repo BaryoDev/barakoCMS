@@ -36,9 +36,11 @@ internal sealed class ContentEventsOptions
 {
     public const string EnabledKey = "Delivery:Events:Enabled";
     public const string MaxConnectionsKey = "Delivery:Events:MaxConnections";
+    public const string MaxConnectionsPerClientKey = "Delivery:Events:MaxConnectionsPerClient";
     public const string KeepAliveSecondsKey = "Delivery:Events:KeepAliveSeconds";
 
     public const int DefaultMaxConnections = 100;
+    public const int DefaultMaxConnectionsPerClient = 5;
     public const int DefaultKeepAliveSeconds = 15;
 
     /// <summary>
@@ -53,12 +55,21 @@ internal sealed class ContentEventsOptions
     /// <summary>Open streams across all tenants of this instance; the next one gets 503.</summary>
     public int MaxConnections { get; init; } = DefaultMaxConnections;
 
+    /// <summary>
+    /// Open streams from one client address, so one caller cannot hold every slot under
+    /// <see cref="MaxConnections"/> and starve every other tenant on the instance. The address is
+    /// the one the rate limiter partitions on: the socket peer, or the forwarded client when
+    /// <c>ForwardedHeaders</c> names the proxy. Zero turns the per-client cap off.
+    /// </summary>
+    public int MaxConnectionsPerClient { get; init; } = DefaultMaxConnectionsPerClient;
+
     public TimeSpan KeepAlive { get; init; } = TimeSpan.FromSeconds(DefaultKeepAliveSeconds);
 
     public static ContentEventsOptions FromConfiguration(IConfiguration configuration) => new()
     {
         Enabled = configuration.GetValue(EnabledKey, false),
         MaxConnections = Math.Max(1, configuration.GetValue(MaxConnectionsKey, DefaultMaxConnections)),
+        MaxConnectionsPerClient = Math.Max(0, configuration.GetValue(MaxConnectionsPerClientKey, DefaultMaxConnectionsPerClient)),
         KeepAlive = TimeSpan.FromSeconds(Math.Max(1, configuration.GetValue(KeepAliveSecondsKey, DefaultKeepAliveSeconds))),
     };
 }

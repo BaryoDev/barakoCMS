@@ -63,13 +63,20 @@ internal sealed class StreamEndpoint : EndpointWithoutRequest
             return;
         }
 
-        using var subscription = _broadcaster.TrySubscribe(_tenant.Slug, types, _options.MaxConnections);
+        // The same address the rate limiter partitions on: the socket peer, already rewritten to
+        // the forwarded client when ForwardedHeaders names the proxy. Not read from the header
+        // here, for the reason DeviceContext gives.
+        var client = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+        using var subscription = _broadcaster.TrySubscribe(
+            _tenant.Slug, types, client, _options.MaxConnections, _options.MaxConnectionsPerClient, out var refusal);
         if (subscription is null)
         {
             HttpContext.Response.Headers.RetryAfter = "5";
-            await Send.StringAsync(
-                $"The event stream is at its connection limit ({_options.MaxConnections}). Try again later.",
-                503, "text/plain; charset=utf-8", ct);
+            var reason = refusal == ContentChangeBroadcaster.SubscribeRefusal.ClientCap
+                ? $"This client is at its event stream connection limit ({_options.MaxConnectionsPerClient}). Close a stream before opening another."
+                : $"The event stream is at its connection limit ({_options.MaxConnections}). Try again later.";
+            await Send.StringAsync(reason, 503, "text/plain; charset=utf-8", ct);
             return;
         }
 
