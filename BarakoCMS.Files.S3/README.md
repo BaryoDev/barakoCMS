@@ -12,8 +12,8 @@ private and are proxied through the API so authorisation is still checked on eve
 
 ## Enable it
 
-It depends on the Files module, which owns the upload endpoints, so reference both packages
-and enable both:
+It depends on the Files module, which owns the upload endpoints. The package brings Files in
+with it, so one reference is enough; enable both:
 
 ```sh
 dotnet add package BarakoCMS.Files.S3
