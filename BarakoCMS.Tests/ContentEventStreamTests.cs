@@ -480,6 +480,27 @@ public class ContentEventStreamTests
     }
 
     [Fact]
+    public async Task An_instance_cap_refusal_gives_the_per_client_slot_back()
+    {
+        var host = EnabledHost(new Dictionary<string, string?>
+        {
+            ["Delivery:Events:MaxConnections"] = "1",
+            ["Delivery:Events:MaxConnectionsPerClient"] = "5",
+        });
+        var client = host.CreateClient();
+        const string address = "203.0.113.40";
+
+        using var held = await OpenStream.OpenAsync(client, "/api/public/events", remoteIp: address);
+
+        using var refused = await client.SendAsync(Request("/api/public/events", remoteIp: address), HttpCompletionOption.ResponseHeadersRead);
+        refused.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        (await refused.Content.ReadAsStringAsync()).Should().Contain("The event stream", "the instance cap refused it, not the per-client cap");
+
+        var broadcaster = host.Services.GetRequiredService<barakoCMS.Features.Public.Events.ContentChangeBroadcaster>();
+        broadcaster.ConnectionsFor(address).Should().Be(1, "the refused stream took a per-client slot on the way in and must give it back");
+    }
+
+    [Fact]
     public async Task A_keepalive_arrives_when_nothing_changes()
     {
         var host = EnabledHost(new Dictionary<string, string?> { ["Delivery:Events:KeepAliveSeconds"] = "1" });
