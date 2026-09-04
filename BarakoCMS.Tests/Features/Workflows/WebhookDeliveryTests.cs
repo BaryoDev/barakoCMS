@@ -239,15 +239,6 @@ public class WebhookDeliveryTests
     }
 
     /// <summary>
-    /// The runner is what hands the action the run it belongs to. Driven end to end: a due run in
-    /// its own tenant, claimed by whichever runner gets there first, leaves a row naming the run.
-    /// </summary>
-    /// <remarks>
-    /// The URL is loopback, which the host's address guard refuses, so the row records the refusal.
-    /// That is deliberate: it makes the assertion independent of which runner claimed the run and
-    /// proves a refused delivery is logged too.
-    /// </remarks>
-    /// <summary>
     /// The receiver announces 64 MB, sends exactly the limit, then holds the connection. Reading the
     /// whole body before the cut would sit there until the client's timeout and fail the delivery.
     /// </summary>
@@ -280,6 +271,15 @@ public class WebhookDeliveryTests
         response.Headers.CacheControl!.NoStore.Should().BeTrue();
     }
 
+    /// <summary>
+    /// The runner is what hands the action the run it belongs to. Driven end to end: a due run in
+    /// its own tenant, claimed by whichever runner gets there first, leaves a row naming the run.
+    /// </summary>
+    /// <remarks>
+    /// The URL is loopback, which the host's address guard refuses, so the row records the refusal.
+    /// That is deliberate: it makes the assertion independent of which runner claimed the run and
+    /// proves a refused delivery is logged too.
+    /// </remarks>
     [Fact]
     public async Task A_run_executed_by_the_runner_leaves_a_row_naming_the_run()
     {
