@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using FastEndpoints;
@@ -34,7 +35,8 @@ internal class Endpoint : Endpoint<Request, WorkflowValidationResult>
     public override void Configure()
     {
         Post("/api/workflows/validate");
-        Roles("SuperAdmin", "Admin"); // Restrict to admins - exposes internal workflow logic
+        // Exposes internal workflow logic, so it sits with authoring rather than being read-only.
+        Definition.RequireCapability(SystemCapabilities.ManageWorkflows, "SuperAdmin", "Admin");
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)

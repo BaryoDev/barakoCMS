@@ -1,4 +1,5 @@
 using barakoCMS.Infrastructure.Audit;
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Connectors;
 using barakoCMS.Models;
 using FastEndpoints;
@@ -7,16 +8,22 @@ using Marten;
 namespace barakoCMS.Features.Connectors;
 
 /// <summary>
-/// Shared plumbing for the connector slices: who may call them, and how a change is recorded.
+/// Shared plumbing for the connector slices: the role names that gated them before capabilities,
+/// and how a change is recorded.
 /// </summary>
 /// <remarks>
-/// SuperAdmin and Admin. Configuring a connector is credential management rather than content
-/// editing, and "who added a credential pointing where" is the first question a security review asks,
-/// which is why every one of these writes an audit entry naming the connector and never its secrets.
+/// SuperAdmin and Admin gated every route here, read and write alike, which is why one legacy list
+/// serves both <see cref="SystemCapabilities.ViewConnectors"/> and
+/// <see cref="SystemCapabilities.ManageConnectors"/>: the fallback preserves what the names already
+/// opened, and the split is about what a role created at runtime can be given.
+///
+/// Configuring a connector is credential management rather than content editing, and "who added a
+/// credential pointing where" is the first question a security review asks, which is why every one
+/// of these writes an audit entry naming the connector and never its secrets.
 /// </remarks>
 internal static class ConnectorGate
 {
-    internal static readonly string[] Roles = ["SuperAdmin", "Admin"];
+    internal static readonly string[] LegacyRoles = ["SuperAdmin", "Admin"];
 
     internal static Task AuditAsync(
         IDocumentSession session,
@@ -58,7 +65,7 @@ internal sealed class ListConnectorsEndpoint : Endpoint<ListRequest, PaginatedRe
     public override void Configure()
     {
         Get("/api/connectors");
-        Roles(ConnectorGate.Roles);
+        Definition.RequireCapability(SystemCapabilities.ViewConnectors, ConnectorGate.LegacyRoles);
     }
 
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)
@@ -84,7 +91,7 @@ internal sealed class GetConnectorEndpoint : EndpointWithoutRequest<ConnectorRes
     public override void Configure()
     {
         Get("/api/connectors/{slug}");
-        Roles(ConnectorGate.Roles);
+        Definition.RequireCapability(SystemCapabilities.ViewConnectors, ConnectorGate.LegacyRoles);
     }
 
     public override async Task HandleAsync(CancellationToken ct)
@@ -128,7 +135,7 @@ internal sealed class CreateConnectorEndpoint : Endpoint<SaveConnectorRequest, C
     public override void Configure()
     {
         Post("/api/connectors");
-        Roles(ConnectorGate.Roles);
+        Definition.RequireCapability(SystemCapabilities.ManageConnectors, ConnectorGate.LegacyRoles);
     }
 
     public override async Task HandleAsync(SaveConnectorRequest req, CancellationToken ct)
@@ -217,7 +224,7 @@ internal sealed class UpdateConnectorEndpoint : Endpoint<SaveConnectorRequest, C
     public override void Configure()
     {
         Put("/api/connectors/{slug}");
-        Roles(ConnectorGate.Roles);
+        Definition.RequireCapability(SystemCapabilities.ManageConnectors, ConnectorGate.LegacyRoles);
     }
 
     public override async Task HandleAsync(SaveConnectorRequest req, CancellationToken ct)
@@ -340,7 +347,7 @@ internal sealed class DeleteConnectorEndpoint : EndpointWithoutRequest
     public override void Configure()
     {
         Delete("/api/connectors/{slug}");
-        Roles(ConnectorGate.Roles);
+        Definition.RequireCapability(SystemCapabilities.ManageConnectors, ConnectorGate.LegacyRoles);
     }
 
     public override async Task HandleAsync(CancellationToken ct)
@@ -397,7 +404,7 @@ internal sealed class TestConnectorEndpoint : EndpointWithoutRequest<TestConnect
     public override void Configure()
     {
         Post("/api/connectors/{slug}/test");
-        Roles(ConnectorGate.Roles);
+        Definition.RequireCapability(SystemCapabilities.ManageConnectors, ConnectorGate.LegacyRoles);
     }
 
     public override async Task HandleAsync(CancellationToken ct)
