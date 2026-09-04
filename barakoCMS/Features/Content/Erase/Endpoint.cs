@@ -1,5 +1,7 @@
 using barakoCMS.Infrastructure.Audit;
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Erasure;
+using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
 
@@ -41,7 +43,9 @@ internal class Endpoint : Endpoint<Request>
     public override void Configure()
     {
         Delete("/api/contents/{id}/erase");
-        Roles("SuperAdmin");
+        // SuperAdmin was the only name in this gate, so it is the only legacy fallback, and
+        // erase_content is deliberately absent from Admin's defaults.
+        Definition.RequireCapability(SystemCapabilities.EraseContent, "SuperAdmin");
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)

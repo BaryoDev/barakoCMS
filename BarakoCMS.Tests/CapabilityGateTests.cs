@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Mvc.Testing;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -133,6 +134,51 @@ public class CapabilityGateTests
         var response = await client.GetAsync("/api/roles", TestContext.Current.CancellationToken);
 
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    /// <summary>
+    /// The legacy fallback list on a destructive route is pinned, name by name.
+    /// </summary>
+    /// <remarks>
+    /// Every other test of a migrated gate goes through <c>CallerHolding</c>, which mints the token
+    /// role as <c>"{name} {guid}"</c> so the fallback cannot be what admits it. That is exactly right
+    /// for proving a capability works, and it means the fallback list itself is never read. Adding
+    /// "Admin" to the erase gate therefore handed every Admin an irreversible delete on any
+    /// deployment running with <c>Auth:LegacyRoleFallback=true</c>, and the whole suite stayed green.
+    ///
+    /// Erase and rollback are the pair worth pinning: both destructive, and their gates deliberately
+    /// differ, so one name would widen one of them. This reads the fallback path specifically, with
+    /// the positive control beside it, because "Admin is refused" is also what a route that refuses
+    /// everybody looks like.
+    ///
+    /// A deployment mid-upgrade is told to set the fallback back on, which is what makes this the
+    /// live path rather than a historical one.
+    /// </remarks>
+    [Fact]
+    public async Task The_erase_fallback_names_SuperAdmin_alone_and_rollback_names_both()
+    {
+        var admin = await CallerWithNoStoredRoles("Admin");
+        var superAdmin = await CallerWithNoStoredRoles("SuperAdmin");
+
+        var adminErase = await admin.SendAsync(
+            Probe("DELETE", $"/api/contents/{Guid.NewGuid()}/erase"), TestContext.Current.CancellationToken);
+        adminErase.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "erase was Roles(\"SuperAdmin\") and must stay that way: the name Admin opening it is the "
+          + "widening #443 exists to prevent, and it is irreversible");
+
+        var superAdminErase = await superAdmin.SendAsync(
+            Probe("DELETE", $"/api/contents/{Guid.NewGuid()}/erase"), TestContext.Current.CancellationToken);
+        superAdminErase.StatusCode.Should().NotBe(HttpStatusCode.Forbidden,
+            "the positive control: without it a route that refused everybody would satisfy the "
+          + "assertion above");
+
+        // Rollback named both, so Admin passing here is correct and is what says the two routes were
+        // not collapsed onto one name.
+        var adminRollback = await admin.SendAsync(
+            Probe("POST", $"/api/contents/{Guid.NewGuid()}/rollback/{Guid.NewGuid()}"),
+            TestContext.Current.CancellationToken);
+        adminRollback.StatusCode.Should().NotBe(HttpStatusCode.Forbidden,
+            "rollback was Roles(\"SuperAdmin\", \"Admin\"), so the fallback still admits Admin");
     }
 
     private const string NotAGuid = "not-a-guid";
@@ -345,8 +391,14 @@ public class CapabilityGateTests
             Probe("PUT", "/api/content-types/nosuchtype/public-delivery"), TestContext.Current.CancellationToken);
         var sensitivity = await client.SendAsync(
             Probe("PUT", "/api/content-types/nosuchtype/fields/Title/sensitivity"), TestContext.Current.CancellationToken);
+        var seoFields = await client.SendAsync(
+            Probe("POST", "/api/content-types/nosuchtype/seo-fields"), TestContext.Current.CancellationToken);
 
         list.StatusCode.Should().Be(HttpStatusCode.OK);
+        seoFields.StatusCode.Should().BeOneOf(
+            [HttpStatusCode.BadRequest, HttpStatusCode.NotFound],
+            "adding the SEO field set is schema modelling, so the gate is passed and only the body "
+          + "and the missing type are left to refuse");
         publicDelivery.StatusCode.Should().Be(HttpStatusCode.Forbidden,
             "turning anonymous delivery on is manage_public_delivery");
         sensitivity.StatusCode.Should().Be(HttpStatusCode.Forbidden,
@@ -365,6 +417,8 @@ public class CapabilityGateTests
         var create = await client.SendAsync(
             Probe("POST", "/api/content-types"), TestContext.Current.CancellationToken);
         var list = await client.GetAsync("/api/content-types", TestContext.Current.CancellationToken);
+        var seoFields = await client.SendAsync(
+            Probe("POST", "/api/content-types/nosuchtype/seo-fields"), TestContext.Current.CancellationToken);
 
         // Not "anything but 403", which also passes on a 401 or a 500. Probe sends invalid JSON and
         // the type does not exist, so an authorized caller gets one of those two refusals and never
@@ -375,6 +429,7 @@ public class CapabilityGateTests
           + "and the missing type are left to refuse");
         create.StatusCode.Should().Be(HttpStatusCode.Forbidden, "creating a type is a different grant");
         list.StatusCode.Should().Be(HttpStatusCode.Forbidden, "so is reading the schemas");
+        seoFields.StatusCode.Should().Be(HttpStatusCode.Forbidden, "and so is adding fields to one");
     }
 
     /// <summary>
@@ -398,15 +453,41 @@ public class CapabilityGateTests
             Probe("PUT", "/api/content-types/nosuchtype/fields/Title/sensitivity"), TestContext.Current.CancellationToken);
         var rebuild = await client.SendAsync(
             Probe("POST", "/api/content-types/nosuchtype/rebuild"), TestContext.Current.CancellationToken);
+        var seoFields = await client.SendAsync(
+            Probe("POST", "/api/content-types/nosuchtype/seo-fields"), TestContext.Current.CancellationToken);
+        var modules = await client.GetAsync("/api/modules", TestContext.Current.CancellationToken);
 
         list.StatusCode.Should().Be(HttpStatusCode.OK);
         schemas.StatusCode.Should().Be(HttpStatusCode.OK, "the alias is the same endpoint and the same gate");
+        modules.StatusCode.Should().Be(HttpStatusCode.OK, "GET /api/modules was Roles(\"SuperAdmin\", \"Admin\") and view_modules is in Admin's defaults");
         // Named refusals rather than "not 403": a 401 or a 500 would satisfy the loose form and
         // prove nothing about Admin still reaching these three.
         var reached = new[] { HttpStatusCode.BadRequest, HttpStatusCode.NotFound };
         publicDelivery.StatusCode.Should().BeOneOf(reached);
         sensitivity.StatusCode.Should().BeOneOf(reached);
         rebuild.StatusCode.Should().BeOneOf(reached);
+        seoFields.StatusCode.Should().BeOneOf(reached);
+    }
+
+    /// <summary>
+    /// The last core route to move. <c>view_modules</c> opens the module list and nothing else, and
+    /// the Admin name alone no longer opens it.
+    /// </summary>
+    [Fact]
+    public async Task View_modules_opens_the_module_list_and_nothing_else()
+    {
+        var (client, _) = await CallerHolding(
+            "Module Reader", barakoCMS.Models.SystemCapabilities.ViewModules);
+        var nameOnly = await CallerWithNoStoredRoles("Admin");
+
+        var modules = await client.GetAsync("/api/modules", TestContext.Current.CancellationToken);
+        var contentTypes = await client.GetAsync("/api/content-types", TestContext.Current.CancellationToken);
+        var byName = await nameOnly.GetAsync("/api/modules", TestContext.Current.CancellationToken);
+
+        modules.StatusCode.Should().Be(HttpStatusCode.OK);
+        contentTypes.StatusCode.Should().Be(HttpStatusCode.Forbidden, "reading the module list is not modelling content");
+        byName.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "the name opens nothing on its own now that the gate asks for a capability");
     }
 
     /// <summary>
@@ -487,6 +568,497 @@ public class CapabilityGateTests
         var response = await client.SendAsync(Probe(verb, path), TestContext.Current.CancellationToken);
 
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    /// <summary>Uppercase, so a slug check refuses it before any lookup happens.</summary>
+    /// <remarks>
+    /// The same trick <see cref="RoleGateTests"/> uses, and load bearing here for the same reason: an
+    /// authorized caller is answered 400 by the endpoint's own check, which proves the gate let it
+    /// through. A well formed slug would answer 404, and a 404 is also what a removed route looks
+    /// like.
+    /// </remarks>
+    private const string NotASlug = "NOT_A_SLUG";
+
+    /// <summary>
+    /// The three monitoring routes are one capability, and it is read-only.
+    /// </summary>
+    /// <remarks>
+    /// They are not folded into <see cref="barakoCMS.Models.SystemCapabilities.ManageSettings"/>:
+    /// they disclose infrastructure detail a settings screen never shows, and the gate they replaced
+    /// was its own.
+    /// </remarks>
+    [Fact]
+    public async Task View_monitoring_opens_the_monitoring_surface_and_nothing_else()
+    {
+        var (client, _) = await CallerHolding(
+            "Dashboard Watcher", barakoCMS.Models.SystemCapabilities.ViewMonitoring);
+
+        var health = await client.GetAsync("/api/monitoring/health", TestContext.Current.CancellationToken);
+        var k8s = await client.GetAsync("/api/monitoring/k8s", TestContext.Current.CancellationToken);
+        var metrics = await client.GetAsync("/api/monitoring/metrics", TestContext.Current.CancellationToken);
+        var settings = await client.GetAsync("/api/settings", TestContext.Current.CancellationToken);
+
+        health.StatusCode.Should().Be(HttpStatusCode.OK);
+        k8s.StatusCode.Should().Be(HttpStatusCode.OK);
+        metrics.StatusCode.Should().Be(HttpStatusCode.OK);
+        settings.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "watching the dashboard is not reading or writing the settings");
+    }
+
+    /// <summary>
+    /// Redirects are one capability, import included.
+    /// </summary>
+    /// <remarks>
+    /// The import writes exactly what the single create writes, only more of it, so a role allowed
+    /// to add one redirect and not fifty would be a rate limit dressed up as an authorisation
+    /// decision.
+    /// </remarks>
+    [Fact]
+    public async Task Manage_redirects_covers_the_import_and_opens_nothing_else()
+    {
+        var (client, _) = await CallerHolding(
+            "Redirect Editor", barakoCMS.Models.SystemCapabilities.ManageRedirects);
+
+        var list = await client.GetAsync("/api/redirects", TestContext.Current.CancellationToken);
+        var import = await client.SendAsync(Probe("POST", "/api/redirects/import"), TestContext.Current.CancellationToken);
+        var queries = await client.GetAsync("/api/queries", TestContext.Current.CancellationToken);
+
+        list.StatusCode.Should().Be(HttpStatusCode.OK);
+        // Exactly 400, not "anything but 403": Probe sends invalid JSON, so passing the gate leaves
+        // the malformed body as the only thing left to refuse. NotBe(Forbidden) would also pass on a
+        // 401 and on a 500.
+        import.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        queries.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "a neighbouring editorial surface is a separate grant");
+    }
+
+    /// <summary>
+    /// Queries are one capability, preview included, which is the split deliberately not taken.
+    /// </summary>
+    /// <remarks>
+    /// The preview reads content rows and does not consult the per-role content permissions, so it
+    /// is a real disclosure. It stays with authoring because whoever can save a definition can point
+    /// one at any content type and attach it to a request, which sends those same rows to a third
+    /// party. Showing them to the author instead is strictly less, and withholding the preview would
+    /// leave production as the only way to learn what a query selects.
+    /// </remarks>
+    [Fact]
+    public async Task Manage_queries_covers_the_preview_and_opens_nothing_else()
+    {
+        var (client, _) = await CallerHolding(
+            "Query Author", barakoCMS.Models.SystemCapabilities.ManageQueries);
+
+        var list = await client.GetAsync("/api/queries", TestContext.Current.CancellationToken);
+        var preview = await client.SendAsync(
+            Probe("POST", $"/api/queries/{NotASlug}/preview"), TestContext.Current.CancellationToken);
+        var requests = await client.GetAsync("/api/requests", TestContext.Current.CancellationToken);
+
+        list.StatusCode.Should().Be(HttpStatusCode.OK);
+        preview.StatusCode.Should().Be(HttpStatusCode.BadRequest,
+            "the capability is what the endpoint asks for, so the gate is passed and the slug check "
+          + "is what refuses it");
+        requests.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "the request definitions that consume a query are a separate grant");
+    }
+
+    /// <summary>
+    /// Request definitions are one capability, dry run included.
+    /// </summary>
+    /// <remarks>
+    /// Unlike the query preview there is nothing to weigh: a request definition holds no credential
+    /// by construction, because the connector holds those and the sender attaches them after the
+    /// message is composed.
+    /// </remarks>
+    [Fact]
+    public async Task Manage_requests_covers_the_dry_run_and_not_the_connector_it_names()
+    {
+        var (client, _) = await CallerHolding(
+            "Integration Author", barakoCMS.Models.SystemCapabilities.ManageRequests);
+
+        var list = await client.GetAsync("/api/requests", TestContext.Current.CancellationToken);
+        var dryRun = await client.SendAsync(
+            Probe("POST", $"/api/requests/{NotASlug}/dry-run/{Guid.NewGuid()}"), TestContext.Current.CancellationToken);
+        var connectors = await client.GetAsync("/api/connectors", TestContext.Current.CancellationToken);
+
+        list.StatusCode.Should().Be(HttpStatusCode.OK);
+        dryRun.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        connectors.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "composing a call is not reading the credentials it will be sent with");
+    }
+
+    /// <summary>
+    /// Reading a connector and writing one are two capabilities, and this is the read half.
+    /// </summary>
+    /// <remarks>
+    /// Both halves gated on the same role pair, so one name would have covered them and no seeded
+    /// role would have noticed. They are split because a connector is the only document in core
+    /// holding somebody else's credentials: the reads return the configuration and the secret key
+    /// names, the writes take secret values, and the probe spends them against the configured base
+    /// URL. Answering "where does the invoicing connector point" should not carry the grant that can
+    /// repoint it.
+    /// </remarks>
+    [Fact]
+    public async Task View_connectors_reads_the_configuration_and_stops_at_every_write()
+    {
+        var (client, _) = await CallerHolding(
+            "Integration Auditor", barakoCMS.Models.SystemCapabilities.ViewConnectors);
+
+        var list = await client.GetAsync("/api/connectors", TestContext.Current.CancellationToken);
+        var one = await client.SendAsync(
+            Probe("GET", $"/api/connectors/{NotASlug}"), TestContext.Current.CancellationToken);
+        var create = await client.SendAsync(Probe("POST", "/api/connectors"), TestContext.Current.CancellationToken);
+        var update = await client.SendAsync(
+            Probe("PUT", $"/api/connectors/{NotASlug}"), TestContext.Current.CancellationToken);
+        var remove = await client.SendAsync(
+            Probe("DELETE", $"/api/connectors/{NotASlug}"), TestContext.Current.CancellationToken);
+        var probe = await client.SendAsync(
+            Probe("POST", $"/api/connectors/{NotASlug}/test"), TestContext.Current.CancellationToken);
+
+        list.StatusCode.Should().Be(HttpStatusCode.OK);
+        one.StatusCode.Should().Be(HttpStatusCode.BadRequest, "reading one connector is the same grant");
+        create.StatusCode.Should().Be(HttpStatusCode.Forbidden, "writing a credential is manage_connectors");
+        update.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        remove.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        probe.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "the probe sends the stored credential to the configured base URL, so it is a write");
+    }
+
+    /// <summary>The other half, and it does not carry the read surface with it.</summary>
+    [Fact]
+    public async Task Manage_connectors_opens_the_writes_and_not_the_list()
+    {
+        var (client, _) = await CallerHolding(
+            "Integration Operator", barakoCMS.Models.SystemCapabilities.ManageConnectors);
+
+        var create = await client.SendAsync(Probe("POST", "/api/connectors"), TestContext.Current.CancellationToken);
+        var probe = await client.SendAsync(
+            Probe("POST", $"/api/connectors/{NotASlug}/test"), TestContext.Current.CancellationToken);
+        var list = await client.GetAsync("/api/connectors", TestContext.Current.CancellationToken);
+
+        create.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        probe.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        list.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "the two are separate grants in both directions, or splitting them bought nothing");
+    }
+
+    /// <summary>
+    /// Authoring a workflow is one capability, and the dry run is part of it.
+    /// </summary>
+    /// <remarks>
+    /// The dry run executes nothing: it resolves the templates and reports what each action would
+    /// have done. Splitting it out would leave whoever wrote the workflow with running it in
+    /// production as the only way to see what it does, which is the opposite of what the endpoint is
+    /// for.
+    /// </remarks>
+    [Fact]
+    public async Task Manage_workflows_covers_authoring_and_the_dry_run_and_not_the_runs()
+    {
+        var (client, _) = await CallerHolding(
+            "Workflow Author", barakoCMS.Models.SystemCapabilities.ManageWorkflows);
+
+        var list = await client.GetAsync("/api/workflows", TestContext.Current.CancellationToken);
+        var actions = await client.GetAsync("/api/workflows/actions", TestContext.Current.CancellationToken);
+        var validate = await client.SendAsync(
+            Probe("POST", "/api/workflows/validate"), TestContext.Current.CancellationToken);
+        var dryRun = await client.SendAsync(
+            Probe("POST", "/api/workflows/dry-run"), TestContext.Current.CancellationToken);
+        var runs = await client.GetAsync("/api/workflow-runs", TestContext.Current.CancellationToken);
+        var retry = await client.SendAsync(
+            Probe("POST", $"/api/workflow-runs/{NotAGuid}/actions/0/retry"), TestContext.Current.CancellationToken);
+
+        list.StatusCode.Should().Be(HttpStatusCode.OK);
+        actions.StatusCode.Should().Be(HttpStatusCode.OK);
+        validate.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        dryRun.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        runs.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "what a workflow did when it ran is view_workflow_runs");
+        retry.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "and making an action happen again is retry_workflow_actions");
+    }
+
+    /// <summary>
+    /// Reading runs carries the debug log and stops at the retry.
+    /// </summary>
+    /// <remarks>
+    /// <c>GET /api/workflows/{id}/debug</c> returns the execution log of what already ran, which is
+    /// the run list seen from the other end, so it reads with the runs rather than with authoring.
+    /// </remarks>
+    [Fact]
+    public async Task View_workflow_runs_reads_the_runs_and_the_debug_log_and_cannot_retry()
+    {
+        var (client, _) = await CallerHolding(
+            "Run Watcher", barakoCMS.Models.SystemCapabilities.ViewWorkflowRuns);
+
+        var runs = await client.GetAsync("/api/workflow-runs", TestContext.Current.CancellationToken);
+        var debug = await client.GetAsync(
+            $"/api/workflows/{Guid.NewGuid()}/debug", TestContext.Current.CancellationToken);
+        var retry = await client.SendAsync(
+            Probe("POST", $"/api/workflow-runs/{NotAGuid}/actions/0/retry"), TestContext.Current.CancellationToken);
+        var author = await client.SendAsync(Probe("POST", "/api/workflows"), TestContext.Current.CancellationToken);
+
+        runs.StatusCode.Should().Be(HttpStatusCode.OK);
+        debug.StatusCode.Should().Be(HttpStatusCode.OK,
+            "an unknown workflow has an empty history, which is still an answer this caller may read");
+        retry.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "'did the notification go out' needs the run list and nothing else");
+        author.StatusCode.Should().Be(HttpStatusCode.Forbidden, "authoring is a separate grant");
+    }
+
+    /// <summary>The other half: retrying is a write, and it does not carry the run list.</summary>
+    /// <remarks>
+    /// The runner picks the attempt up and the action happens for real, so this is the grant a
+    /// support role reading runs must not also hold.
+    /// </remarks>
+    [Fact]
+    public async Task Retry_workflow_actions_opens_the_retry_and_not_the_run_list()
+    {
+        var (client, _) = await CallerHolding(
+            "Run Retrier", barakoCMS.Models.SystemCapabilities.RetryWorkflowActions);
+
+        var retry = await client.SendAsync(
+            Probe("POST", $"/api/workflow-runs/{NotAGuid}/actions/0/retry"), TestContext.Current.CancellationToken);
+        var runs = await client.GetAsync("/api/workflow-runs", TestContext.Current.CancellationToken);
+        var debug = await client.GetAsync(
+            $"/api/workflows/{Guid.NewGuid()}/debug", TestContext.Current.CancellationToken);
+
+        retry.StatusCode.Should().Be(HttpStatusCode.BadRequest,
+            "the capability is what this route asks for, so the unparseable run id is what refuses it");
+        runs.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "separate grants in both directions, or splitting them bought nothing");
+        debug.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    /// <summary>
+    /// The two destructive content routes are two capabilities, because their gates differ.
+    /// </summary>
+    /// <remarks>
+    /// Rollback was <c>Roles("SuperAdmin", "Admin")</c> and the erasure was
+    /// <c>Roles("SuperAdmin")</c>. One name would have to pick one of those, and picking the wider
+    /// one hands every Admin an irreversible delete.
+    /// </remarks>
+    [Fact]
+    public async Task Rollback_content_does_not_open_the_erasure()
+    {
+        var (client, _) = await CallerHolding(
+            "Version Restorer", barakoCMS.Models.SystemCapabilities.RollbackContent);
+
+        var rollback = await client.SendAsync(
+            Probe("POST", $"/api/contents/{NotAGuid}/rollback/{NotAGuid}"), TestContext.Current.CancellationToken);
+        var erase = await client.SendAsync(
+            Probe("DELETE", $"/api/contents/{Guid.NewGuid()}/erase"), TestContext.Current.CancellationToken);
+
+        rollback.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        erase.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "a rollback writes a new version; the erasure destroys the history and is its own grant");
+    }
+
+    /// <summary>The other direction, on a real content id so the erasure is the only thing refused.</summary>
+    [Fact]
+    public async Task Erase_content_opens_the_erasure_and_not_the_rollback()
+    {
+        var (client, _) = await CallerHolding(
+            "Erasure Officer", barakoCMS.Models.SystemCapabilities.EraseContent);
+
+        var erase = await client.SendAsync(
+            Probe("DELETE", $"/api/contents/{Guid.NewGuid()}/erase"), TestContext.Current.CancellationToken);
+        var rollback = await client.SendAsync(
+            Probe("POST", $"/api/contents/{NotAGuid}/rollback/{NotAGuid}"), TestContext.Current.CancellationToken);
+
+        erase.StatusCode.Should().Be(HttpStatusCode.NotFound,
+            "the gate is passed and the content does not exist, which only the endpoint can answer");
+        rollback.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    /// <summary>
+    /// Every route migrated in the last pass of #443, with the exact answer Admin's defaults get.
+    /// </summary>
+    /// <remarks>
+    /// Exact statuses rather than <c>NotBe(Forbidden)</c>, which also passes on a 401 from a broken
+    /// token and on a 500. Ids and slugs are deliberately unparseable, so a caller through the gate
+    /// is answered by binding or by the endpoint's own check and nothing is created or deleted.
+    /// </remarks>
+    /// <summary>
+    /// Every route this migration moved, with the status an Admin holding the defaults should get.
+    /// </summary>
+    /// <remarks>
+    /// One array rather than a TheoryData literal, so the coverage test below can read the same
+    /// source the theory runs on. Two routes were missing from the earlier literal and nothing said
+    /// so, which is what a hand-kept list does by construction: it answers "did we miss one" with
+    /// "no".
+    /// </remarks>
+    private static readonly (string Verb, string Path, HttpStatusCode Expected)[] MigratedRoutes =
+    [
+        ("GET", "/api/monitoring/health", HttpStatusCode.OK),
+        ("GET", "/api/monitoring/k8s", HttpStatusCode.OK),
+        ("GET", "/api/monitoring/metrics", HttpStatusCode.OK),
+        ("GET", "/api/redirects", HttpStatusCode.OK),
+        ("POST", "/api/redirects", HttpStatusCode.BadRequest),
+        ("DELETE", $"/api/redirects/{NotAGuid}", HttpStatusCode.BadRequest),
+        ("POST", "/api/redirects/import", HttpStatusCode.BadRequest),
+        ("GET", "/api/queries", HttpStatusCode.OK),
+        ("POST", "/api/queries", HttpStatusCode.BadRequest),
+        ("GET", $"/api/queries/{NotASlug}", HttpStatusCode.BadRequest),
+        ("DELETE", $"/api/queries/{NotASlug}", HttpStatusCode.BadRequest),
+        ("POST", $"/api/queries/{NotASlug}/preview", HttpStatusCode.BadRequest),
+        ("GET", "/api/requests", HttpStatusCode.OK),
+        ("POST", "/api/requests", HttpStatusCode.BadRequest),
+        ("GET", $"/api/requests/{NotASlug}", HttpStatusCode.BadRequest),
+        ("DELETE", $"/api/requests/{NotASlug}", HttpStatusCode.BadRequest),
+        ("POST", $"/api/requests/{NotASlug}/dry-run/{NotAGuid}", HttpStatusCode.BadRequest),
+        ("GET", "/api/connectors", HttpStatusCode.OK),
+        ("POST", "/api/connectors", HttpStatusCode.BadRequest),
+        ("GET", $"/api/connectors/{NotASlug}", HttpStatusCode.BadRequest),
+        ("PUT", $"/api/connectors/{NotASlug}", HttpStatusCode.BadRequest),
+        ("DELETE", $"/api/connectors/{NotASlug}", HttpStatusCode.BadRequest),
+        ("POST", $"/api/connectors/{NotASlug}/test", HttpStatusCode.BadRequest),
+        ("GET", "/api/workflows", HttpStatusCode.OK),
+        ("POST", "/api/workflows", HttpStatusCode.BadRequest),
+        ("GET", "/api/workflows/actions", HttpStatusCode.OK),
+        ("POST", "/api/workflows/validate", HttpStatusCode.BadRequest),
+        ("POST", "/api/workflows/dry-run", HttpStatusCode.BadRequest),
+        ("GET", "/api/workflows/variables", HttpStatusCode.OK),
+        ("GET", $"/api/workflows/{NotAGuid}/debug", HttpStatusCode.BadRequest),
+        ("GET", "/api/workflow-runs", HttpStatusCode.OK),
+        ("GET", $"/api/workflow-runs/{NotAGuid}", HttpStatusCode.BadRequest),
+        ("POST", $"/api/workflow-runs/{NotAGuid}/actions/0/retry", HttpStatusCode.BadRequest),
+        ("POST", $"/api/contents/{NotAGuid}/rollback/{NotAGuid}", HttpStatusCode.BadRequest),
+    ];
+
+    public static TheoryData<string, string, HttpStatusCode> RoutesMigratedLast()
+    {
+        var data = new TheoryData<string, string, HttpStatusCode>();
+        foreach (var (verb, path, expected) in MigratedRoutes) data.Add(verb, path, expected);
+        return data;
+    }
+
+    /// <summary>
+    /// The list above covers every migrated route, so a new one cannot be added untested.
+    /// </summary>
+    /// <remarks>
+    /// Two routes were missing from it and nothing said so, which is the failure a hand-kept list has
+    /// by construction: it answers "did we miss one" with "no". Read off the running host instead,
+    /// with the exclusions named rather than implied.
+    ///
+    /// Erase is excluded because Admin deliberately cannot reach it, which is the whole point of that
+    /// gate. The two routes still on role names are excluded because they are not migrated yet.
+    /// </remarks>
+    [Fact]
+    public void Every_migrated_route_is_in_the_list_above()
+    {
+        var core = typeof(Program).Assembly;
+
+        // Scoped to the capabilities this migration introduced. The areas migrated earlier have
+        // their own coverage, and pulling them in here would make this a second, worse copy of it.
+        var mine = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            barakoCMS.Models.SystemCapabilities.ViewMonitoring,
+            barakoCMS.Models.SystemCapabilities.ManageRedirects,
+            barakoCMS.Models.SystemCapabilities.ManageQueries,
+            barakoCMS.Models.SystemCapabilities.ManageRequests,
+            barakoCMS.Models.SystemCapabilities.ViewConnectors,
+            barakoCMS.Models.SystemCapabilities.ManageConnectors,
+            barakoCMS.Models.SystemCapabilities.ManageWorkflows,
+            barakoCMS.Models.SystemCapabilities.ViewWorkflowRuns,
+            barakoCMS.Models.SystemCapabilities.RetryWorkflowActions,
+            barakoCMS.Models.SystemCapabilities.RollbackContent,
+            barakoCMS.Models.SystemCapabilities.EraseContent,
+        };
+
+        var withCapability = _factory.Services.GetServices<EndpointDataSource>()
+            .SelectMany(source => source.Endpoints)
+            .Where(endpoint => endpoint.Metadata.OfType<FastEndpoints.EndpointDefinition>()
+                .FirstOrDefault()?.EndpointType.Assembly == core)
+            .Where(endpoint => endpoint.Metadata
+                .GetMetadata<barakoCMS.Infrastructure.Auth.RequiredCapability>() is { } required
+                     && mine.Contains(required.Capability))
+            // Keyed on verb and path together. Comparing paths alone would let a new capability
+            // gated method on an existing path pass with no row of its own, which is the same
+            // "checks less than it claims" shape this test exists to close.
+            .SelectMany(endpoint => (endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods
+                                         ?? (IReadOnlyList<string>)["GET"])
+                .Select(method => (Method: method, Route: (endpoint as RouteEndpoint)?.RoutePattern.RawText)))
+            .Where(row => row.Route is not null)
+            .Select(row => RouteKey(row.Method, row.Route!))
+            .Distinct()
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        withCapability.Should().NotBeEmpty(
+            "core endpoints declare capabilities, so reading none means this stopped looking");
+
+        // Admin cannot reach erase, so it has no row in a list about what Admin still reaches.
+        withCapability.Remove(RouteKey("DELETE", "/api/contents/{id}/erase"));
+
+        // TheoryData rows are not indexable, so read the paths from the same source the theory does.
+        var listed = MigratedRoutes
+            .Select(row => RouteKey(row.Verb, row.Path))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        withCapability.Should().BeSubsetOf(listed,
+            "a migrated route with no row here is a gate nobody checks Admin can still pass");
+    }
+
+    /// <summary>Verb plus path, with parameter names and sample values reduced to the same shape.</summary>
+    private static string RouteKey(string method, string path) =>
+        method.ToUpperInvariant() + " " + NormaliseRouteParameters("/" + path.TrimStart('/'));
+
+    /// <summary>Route templates carry names; the theory rows carry values. Compare shapes.</summary>
+    private static string NormaliseRouteParameters(string route) =>
+        System.Text.RegularExpressions.Regex.Replace(
+            System.Text.RegularExpressions.Regex.Replace(route, @"\{[^}]+\}", "*"),
+            @"/(" + NotAGuid + "|" + NotASlug + @"|[0-9]+)(?=/|$)", "/*");
+
+    [Theory]
+    [MemberData(nameof(RoutesMigratedLast))]
+    public async Task Admins_defaults_still_reach_every_route_migrated_last(
+        string verb, string path, HttpStatusCode expected)
+    {
+        var client = await AdminDefaultsClient();
+
+        var response = await client.SendAsync(Probe(verb, path), TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().Be(expected,
+            "Admin was named in every gate these replaced, so its defaults must keep the access");
+    }
+
+    /// <summary>
+    /// The one route in this pass Admin must not pick up, and the reason the erasure has its own name.
+    /// </summary>
+    [Fact]
+    public async Task Admins_defaults_do_not_reach_the_content_erasure()
+    {
+        var client = await AdminDefaultsClient();
+
+        var response = await client.SendAsync(
+            Probe("DELETE", $"/api/contents/{Guid.NewGuid()}/erase"), TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "DELETE /api/contents/{id}/erase was Roles(\"SuperAdmin\") and Admin must not acquire it "
+          + "from its defaults");
+    }
+
+    [Theory]
+    [MemberData(nameof(RoutesMigratedLast))]
+    public async Task The_SuperAdmin_name_still_opens_every_gate_migrated_last(
+        string verb, string path, HttpStatusCode expected)
+    {
+        var client = await LegacyClient("SuperAdmin");
+
+        var response = await client.SendAsync(Probe(verb, path), TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().Be(expected,
+            "upgrading must not lock out a deployment whose stored roles predate capabilities");
+    }
+
+    [Theory]
+    [MemberData(nameof(RoutesMigratedLast))]
+    public async Task The_Admin_name_still_opens_every_gate_migrated_last(
+        string verb, string path, HttpStatusCode expected)
+    {
+        var client = await LegacyClient("Admin");
+
+        var response = await client.SendAsync(Probe(verb, path), TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().Be(expected);
     }
 
     /// <summary>
@@ -630,7 +1202,58 @@ public class CapabilityGateTests
     /// A caller whose token carries a role name but whose stored user holds no roles, so the
     /// capability lookup has nothing to resolve and only the legacy name can open a gate.
     /// </summary>
-    private async Task<HttpClient> CallerWithNoStoredRoles(string tokenRoleName)
+    /// <summary>
+    /// With nobody setting it, a role name opens nothing.
+    /// </summary>
+    /// <remarks>
+    /// The mirror of <see cref="A_seeded_role_name_still_opens_the_gate_it_used_to_open"/>, and the
+    /// case that makes the 4.0 default real rather than assumed. Same caller, same routes, the only
+    /// difference being which host answers: this one says nothing about
+    /// <c>Auth:LegacyRoleFallback</c> and therefore gets the default.
+    ///
+    /// Without it the flip is a default nothing exercises: every other test in this file either
+    /// holds a capability or asks for the fallback explicitly, so putting the old default back
+    /// leaves the whole suite green.
+    /// </remarks>
+    [Theory]
+    [InlineData("SuperAdmin", "/api/roles")]
+    [InlineData("SuperAdmin", "/api/tenants")]
+    [InlineData("Admin", "/api/tenants/members")]
+    public async Task Unset_the_role_name_opens_nothing(string roleName, string path)
+    {
+        var client = await CallerWithNoStoredRoles(roleName, LegacyFallback.Unset);
+
+        var response = await client.GetAsync(path, TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "the name is all this caller has, and from 4.0 a name grants nothing unless a deployment "
+          + "asks for the fallback");
+    }
+
+    private enum LegacyFallback
+    {
+        /// <summary>Nobody set it, so the caller gets whatever 4.0 defaults to.</summary>
+        Unset,
+
+        /// <summary>A deployment that asked for the shim, mid-upgrade.</summary>
+        On,
+    }
+
+    /// <summary>
+    /// A caller on a host with the legacy fallback deliberately turned on.
+    /// </summary>
+    /// <remarks>
+    /// The fallback defaults to off from 4.0, so a test of the fallback has to ask for it. These
+    /// cases exist to prove an upgrading deployment is not locked out while its stored roles have no
+    /// capabilities yet, which is a real thing the shim does and worth keeping tested. Relying on
+    /// the default instead would mean the tests of the shim quietly became tests of nothing on the
+    /// day the default changed.
+    ///
+    /// The stored user holds no roles at all, so the capability lookup cannot grant anything and
+    /// only the role name in the token can.
+    /// </remarks>
+    private async Task<HttpClient> CallerWithNoStoredRoles(
+        string tokenRoleName, LegacyFallback fallback = LegacyFallback.On)
     {
         using var scope = _factory.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
@@ -645,9 +1268,22 @@ public class CapabilityGateTests
         });
         await session.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        var client = _factory.CreateClient();
+        var client = (fallback == LegacyFallback.On ? LegacyFallbackHost() : _factory).CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer", _factory.CreateToken(roles: [tokenRoleName], userId: userId.ToString()));
         return client;
+    }
+
+    private static readonly Lock LegacyHostGate = new();
+    private static WebApplicationFactory<Program>? _legacyHost;
+
+    /// <summary>One derived host for every legacy case, since each build costs a server.</summary>
+    private WebApplicationFactory<Program> LegacyFallbackHost()
+    {
+        lock (LegacyHostGate)
+        {
+            return _legacyHost ??= _factory.WithSetting(
+                barakoCMS.Infrastructure.Auth.CapabilityGateProcessor.LegacyRoleFallbackKey, "true");
+        }
     }
 }

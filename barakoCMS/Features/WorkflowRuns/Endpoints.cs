@@ -1,4 +1,5 @@
 using barakoCMS.Infrastructure.Audit;
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
@@ -76,7 +77,14 @@ internal sealed class ListRunsRequest : ListRequest
 
 internal static class RunGate
 {
-    internal static readonly string[] Roles = ["SuperAdmin", "Admin"];
+    /// <summary>
+    /// The names that gated the run endpoints before capabilities, kept as the legacy fallback for
+    /// both <see cref="SystemCapabilities.ViewWorkflowRuns"/> and
+    /// <see cref="SystemCapabilities.RetryWorkflowActions"/>: the same pair gated reading and
+    /// retrying, so the fallback preserves what the names already opened while the split decides
+    /// what a role created at runtime can be given.
+    /// </summary>
+    internal static readonly string[] LegacyRoles = ["SuperAdmin", "Admin"];
 }
 
 internal sealed class ListRunsEndpoint : Endpoint<ListRunsRequest, PaginatedResponse<RunResponse>>
@@ -88,7 +96,7 @@ internal sealed class ListRunsEndpoint : Endpoint<ListRunsRequest, PaginatedResp
     public override void Configure()
     {
         Get("/api/workflow-runs");
-        Roles(RunGate.Roles);
+        Definition.RequireCapability(SystemCapabilities.ViewWorkflowRuns, RunGate.LegacyRoles);
     }
 
     public override async Task HandleAsync(ListRunsRequest req, CancellationToken ct)
@@ -134,7 +142,7 @@ internal sealed class GetRunEndpoint : EndpointWithoutRequest<RunResponse>
     public override void Configure()
     {
         Get("/api/workflow-runs/{id}");
-        Roles(RunGate.Roles);
+        Definition.RequireCapability(SystemCapabilities.ViewWorkflowRuns, RunGate.LegacyRoles);
     }
 
     public override async Task HandleAsync(CancellationToken ct)
@@ -181,7 +189,10 @@ internal sealed class RetryAttemptEndpoint : EndpointWithoutRequest<RunResponse>
     public override void Configure()
     {
         Post("/api/workflow-runs/{id}/actions/{ordinal}/retry");
-        Roles(RunGate.Roles);
+        // Its own capability, not the one that reads runs. This queues a real attempt: the mail is
+        // sent, the third party is called. Reading a run to answer "did it go out" must not carry
+        // the ability to make it go out again.
+        Definition.RequireCapability(SystemCapabilities.RetryWorkflowActions, RunGate.LegacyRoles);
     }
 
     public override async Task HandleAsync(CancellationToken ct)

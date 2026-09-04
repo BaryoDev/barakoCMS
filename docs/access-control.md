@@ -351,12 +351,19 @@ Two things keep an existing deployment working:
   role comes back on the next restart, because nothing records that the removal was
   deliberate. If you need one gone for good, do not run the seeder. A role you created is
   untouched, since the defaults are keyed on the names the seeder creates.
-- The gate also honours the role names it replaced. That is what makes access survive
-  even on a host that never calls the seeder.
+- The gate can also honour the role names it replaced, which is what makes access survive
+  on a host that never calls the seeder. From 4.0 that is off unless you ask for it.
 
-Set `Auth:LegacyRoleFallback=false` (env `Auth__LegacyRoleFallback`) once your roles
-carry capabilities, and the names stop meaning anything on their own. The default is
-`true`, which is the pre-upgrade behaviour.
+`Auth:LegacyRoleFallback` (env `Auth__LegacyRoleFallback`) decides whether a role name
+still opens the gate it used to. It was `true` through 3.x so an upgrade kept working
+while roles had no capabilities yet. **From 4.0 it defaults to `false`**, because every
+core and module endpoint now gates on a capability and the seeder gives a role the
+capabilities it is missing rather than only filling an empty list. A seeded deployment
+reaches everything it used to without the fallback.
+
+Set it back to `true` if your roles are curated by hand, or while an upgrade is in
+progress. The flag has not gone anywhere; what changed is which way it points when nobody
+says.
 
 ### What is migrated so far
 
@@ -372,9 +379,20 @@ carry capabilities, and the names stop meaning anything on their own. The defaul
 | `Features/Audit/*` | `view_audit_log` | `GET /api/audit` | SuperAdmin, Admin |
 | `Features/Settings/*` | `manage_settings` | `/api/settings`, `GET /api/settings/email` | SuperAdmin, Admin |
 | `Features/Settings/Email/*` | `manage_email_settings` | `PUT /api/settings/email`, `POST /api/settings/email/test` | SuperAdmin |
-| `Features/ContentType/*` | `manage_content_types` | `/api/content-types` (and its `/api/schemas` alias), `POST /api/content-types/{name}/rebuild` | SuperAdmin, Admin |
+| `Features/ContentType/*` | `manage_content_types` | `/api/content-types` (and its `/api/schemas` alias), `POST /api/content-types/{name}/rebuild`, `POST /api/content-types/{name}/seo-fields` | SuperAdmin, Admin |
 | `Features/Modules/*` | `view_modules` | `GET /api/modules` | SuperAdmin, Admin |
 | `Features/ContentType/*` | `manage_public_delivery` | `PUT /api/content-types/{name}/public-delivery`, `PUT /api/content-types/{name}/fields/{field}/sensitivity` | SuperAdmin, Admin |
+| `Features/Monitoring/*` | `view_monitoring` | `GET /api/monitoring/health`, `/k8s`, `/metrics` | SuperAdmin, Admin |
+| `Features/Redirects/*` | `manage_redirects` | `/api/redirects`, `DELETE /api/redirects/{id}`, `POST /api/redirects/import` | SuperAdmin, Admin |
+| `Features/Queries/*` | `manage_queries` | `/api/queries`, `/api/queries/{slug}`, `POST /api/queries/{slug}/preview` | SuperAdmin, Admin |
+| `Features/Requests/*` | `manage_requests` | `/api/requests`, `/api/requests/{slug}`, `POST /api/requests/{slug}/dry-run/{contentId}` | SuperAdmin, Admin |
+| `Features/Connectors/*` | `view_connectors` | `GET /api/connectors`, `GET /api/connectors/{slug}` | SuperAdmin, Admin |
+| `Features/Connectors/*` | `manage_connectors` | `POST /api/connectors`, `PUT` and `DELETE /api/connectors/{slug}`, `POST /api/connectors/{slug}/test` | SuperAdmin, Admin |
+| `Features/Workflows/*` | `manage_workflows` | `/api/workflows`, `/api/workflows/actions`, `/variables`, `/validate`, `/dry-run` | SuperAdmin, Admin |
+| `Features/WorkflowRuns/*` | `view_workflow_runs` | `GET /api/workflow-runs`, `GET /api/workflow-runs/{id}`, `GET /api/workflows/{id}/debug` | SuperAdmin, Admin |
+| `Features/WorkflowRuns/*` | `retry_workflow_actions` | `POST /api/workflow-runs/{id}/actions/{ordinal}/retry` | SuperAdmin, Admin |
+| `Features/Content/History/*` | `rollback_content` | `POST /api/contents/{id}/rollback/{versionId}` | SuperAdmin, Admin |
+| `Features/Content/Erase/*` | `erase_content` | `DELETE /api/contents/{id}/erase` | SuperAdmin |
 
 Users is two capabilities because its old gates were two: listing accounts and resetting
 someone's password were `Roles("SuperAdmin")`, while changing a user's roles and groups
@@ -395,6 +413,39 @@ were `Roles("SuperAdmin")`. Changing where the deployment's mail comes from redi
 reset and every verification token in it, so it is a takeover rather than an administrative tweak,
 and it is exactly the change a compromised admin account makes. One `manage_settings` covering both
 would have handed that to every Admin, so Admin's defaults carry `manage_settings` alone.
+
+Connectors split read from write, and the argument is the surface's own. A connector is the only
+document in core holding somebody else's credentials. The two GETs return the configuration and the
+names of the secrets, never a value; the writes take secret values, and the probe spends them
+against the configured base URL. Writing is credential handling twice over: it is where a token
+enters the system, and where a base URL can be repointed, which redirects every request built on
+that connector without touching a single request definition. The case against splitting is that
+nothing about a connector is harmless, since the list alone says which third parties this deployment
+talks to. That is why reading is gated too, at its own name. It is not a reason to make whoever
+answers "where does the invoicing connector point" hold the grant that can repoint it.
+
+Workflows split three ways. Authoring is one job: creating a workflow, reading the registered actions
+and template variables, validating a definition and dry-running one. The dry run stays with authoring
+because it executes nothing, and withholding the simulation from whoever wrote the workflow leaves
+production as the only way to see what it does. Reading runs is a second job, and
+`GET /api/workflows/{id}/debug` is in that half rather than with authoring, because what it returns
+is the execution log of what already ran. Retrying is the third: the runner picks the attempt up and
+the action happens for real, so "did the notification go out" needs the run list and must not carry
+the ability to send it again.
+
+Queries and requests are one capability each, including the preview and the dry run. The query
+preview is the closer call, since it reads content rows and does not consult the per-role content
+permissions. It stays with authoring because whoever can save a definition can point one at any
+content type and attach it to a request, which sends the same rows to a third party; showing them to
+the author is strictly less than that. What bounds the disclosure is `QueryRunner`, not the gate: a
+query may only filter, sort and project fields whose sensitivity is `Public`, re-checked on every run
+rather than only when the query was saved.
+
+The two destructive content routes are two capabilities because their gates differed:
+`POST /api/contents/{id}/rollback/{versionId}` was `Roles("SuperAdmin", "Admin")` and
+`DELETE /api/contents/{id}/erase` was `Roles("SuperAdmin")`. One name would have to pick one of
+those, and picking the wider one hands every Admin an irreversible delete. `erase_content` is the
+only capability in the whole of #443 that Admin's defaults do not carry.
 
 ### Modules
 
@@ -439,16 +490,12 @@ holds both by default, because Admin reached all five routes already and this na
 
 ### What is not migrated yet
 
-Twenty-six core routes still gate on a role name: workflows and workflow runs, connectors, requests,
-queries, redirects, monitoring, content erase and content rollback. Most of those areas were written
-after #443 was opened.
+None. Every core route that gates at all gates on a capability, and `RoleGateTests` pins that the set
+still on a role name is empty, so a new endpoint reaching for `Roles(...)` fails the suite.
 
-They work. `Roles(...)` is FastEndpoints' own authorization and is unaffected by
-`Auth:LegacyRoleFallback`. What they cannot do is admit a role somebody created through
-`POST /api/roles`, which is the reason to finish the migration.
+The last two moved in the same change. `GET /api/modules` asks for `view_modules`, named for reading
+because it answers with two fields per module and manages nothing. `POST /api/content-types/{name}/seo-fields`
+asks for `manage_content_types`, since adding fields to a content type is exactly what that capability
+is. Admin holds both by default, matching what it reached before.
 
-The set is pinned in `CoreRoleGateInventoryTests` and fails in both directions, so it can only shrink
-on purpose. Two role-name gates were added during the migration before that test existed.
-
-Everything else still gates on `Roles(...)`, which keeps working. Third-party modules
-calling `Roles(...)` are unaffected and compile unchanged.
+Third-party modules calling `Roles(...)` are unaffected and compile unchanged.
