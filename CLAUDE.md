@@ -1,7 +1,8 @@
 # BarakoCMS
 
-Headless CMS for .NET 10. A core web application plus optional modules shipped as NuGet packages,
-with a Next.js admin UI.
+Headless CMS for .NET 10. A core web application plus optional modules shipped as NuGet packages.
+This repository is the API only, and Swagger is its own surface. The console (barakoBrew) and the
+marketing site live in their own repositories.
 
 Human-facing contribution rules live in `CONTRIBUTING.md`. This file is the coding standard, and it
 is the working agreement for anyone (person or agent) changing code here. It is named for the tool
@@ -16,7 +17,6 @@ barakoCMS/              Core application: endpoints, auth, content, workflow
 BarakoCMS.*/            Optional modules, each its own NuGet package
 BarakoCMS.Suite/        Meta-package bundling the modules
 BarakoCMS.Tests/        All backend tests, unit and integration
-admin/                  Next.js admin UI (lint, vitest, playwright)
 docs/                   Feature documentation
 k8s/, scripts/          Deployment
 ```
@@ -105,9 +105,7 @@ not reformat code you are not otherwise changing; it buries the real diff.
 ## 4. Testing
 
 ```bash
-dotnet test BarakoCMS.Tests/BarakoCMS.Tests.csproj      # backend
-npm --prefix admin run test                             # admin unit
-npm --prefix admin run test:e2e                         # admin end to end
+dotnet test BarakoCMS.Tests/BarakoCMS.Tests.csproj
 ```
 
 **Integration tests need Docker running.** Testcontainers starts PostgreSQL and MinIO. Without

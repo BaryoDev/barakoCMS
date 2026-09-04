@@ -53,8 +53,9 @@ Every one is published under the `barakocms-module` tag, so one search on nuget.
 
 ## Documentation
 
-Full documentation, deployment guides and the admin UI live in the
-[repository](https://github.com/BaryoDev/barakoCMS).
+Full documentation and deployment guides live in the
+[repository](https://github.com/BaryoDev/barakoCMS). The console is
+[barakoBrew](https://github.com/BaryoDev/barakoBrew).
 
 ## Part of barakoCMS
 

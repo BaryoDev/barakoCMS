@@ -99,7 +99,6 @@ Plenty of what makes this project usable isn't C#:
   clearer one is a real improvement, not a cosmetic one.
 - **Examples and starter projects** showing a module wired into a real app.
 - **Bug reports** with steps to reproduce. A good report saves more time than most patches.
-- **Translations**, once the admin has the hooks for them.
 
 Design and documentation contributions go through the same pull request process as code. They skip
 the test requirements below, for obvious reasons, but the packaging guardrails still apply, so an
