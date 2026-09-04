@@ -400,7 +400,9 @@ public class ContentEventStreamTests
     [Fact]
     public async Task The_stream_is_404_until_enabled()
     {
-        var response = await _factory.CreateClient().GetAsync("/api/public/events");
+        // Headers only: if the gate were missing this would be an open stream, and reading it
+        // to the end would wait for the connection to close instead of failing.
+        using var response = await _factory.CreateClient().GetAsync("/api/public/events", HttpCompletionOption.ResponseHeadersRead);
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound, "Delivery:Events:Enabled defaults to false");
     }
@@ -413,7 +415,7 @@ public class ContentEventStreamTests
 
         using var first = await OpenStream.OpenAsync(client, "/api/public/events");
 
-        var second = await client.GetAsync("/api/public/events");
+        using var second = await client.GetAsync("/api/public/events", HttpCompletionOption.ResponseHeadersRead);
         second.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
         second.Headers.RetryAfter.Should().NotBeNull();
     }
