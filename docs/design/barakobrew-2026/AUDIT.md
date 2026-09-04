@@ -1,5 +1,7 @@
 # Audit: the barakoBrew 2026 redesign against the admin as it stands
 
+> Kept as design history. `admin/src/` moved to [BaryoDev/barakoBrew](https://github.com/BaryoDev/barakoBrew).
+
 Companion to `README.md` in this directory, which is the design contract. This file answers one
 question per screen: is the change free with the token swap, is it a component rewrite, or does it
 need a route or a server change.

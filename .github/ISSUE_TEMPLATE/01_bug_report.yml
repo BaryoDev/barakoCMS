@@ -48,7 +48,6 @@ body:
         - Auth / RBAC / MFA
         - Multi-tenancy
         - Workflow
-        - Admin UI
         - A module (say which below)
         - Build, packaging or release
         - Not sure

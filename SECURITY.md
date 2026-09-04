@@ -100,8 +100,9 @@ When deploying BarakoCMS:
 
 ## Known advisories we accept
 
-None, currently. Both gates are clean: `dotnet list package --vulnerable` and `npm audit` in `admin/`
-each report zero, and CI fails the build on a Critical or High finding.
+None, currently. `dotnet list package --vulnerable` reports zero, and CI fails the build on a Critical
+or High finding. The console's `npm audit` gate moved with it to
+[BaryoDev/barakoBrew](https://github.com/BaryoDev/barakoBrew), which carries its own advisories.
 
 For a while this section listed three High advisories in `next`, `postcss` and `sharp` as unfixable,
 because upgrading Next appeared to break 28 end-to-end tests. It did not. Next 16.1 began refusing
@@ -113,5 +114,5 @@ here the product was fine and the harness was misconfigured, and reading it the 
 carrying advisories that had a fix available all along.
 
 Note that a raw GitHub Dependabot alert count for this repo overstates the real picture: alerts remain
-open for `examples/nextjs-starter`, a scaffold deleted in `7cfa43c`, and for `admin/` packages that
-have since been patched. `npm audit` in `admin/` is the accurate signal.
+open for `examples/nextjs-starter`, a scaffold deleted in `7cfa43c`, and for the console's packages,
+which no longer live here. `dotnet list package --vulnerable` is the accurate signal.

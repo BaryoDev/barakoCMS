@@ -13,8 +13,6 @@
       "Bash(dotnet restore:*)",
       "Bash(dotnet format:*)",
       "Bash(dotnet list:*)",
-      "Bash(npm --prefix admin run lint:*)",
-      "Bash(npm --prefix admin run test:*)",
       "Bash(git status:*)",
       "Bash(git diff:*)",
       "Bash(git log:*)",

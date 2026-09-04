@@ -1,12 +1,12 @@
-# barakoCMS quickstart — the full "Barako" suite (engine + every module) + admin UI + Postgres,
-# from prebuilt images. Nothing to build.
+# barakoCMS quickstart: the full "Barako" suite (engine + every module) + Postgres, from prebuilt
+# images. Nothing to build. For the console in front of it, use BaryoDev/barakoBrew's quickstart.
 #
 #   1.  cp .env.example .env
 #   2.  edit .env  (at minimum: DB_PASSWORD, JWT_KEY, ADMIN_PASSWORD)
 #   3.  docker compose up -d
 #
-# Admin UI:  http://localhost:${ADMIN_PORT:-3000}
 # CMS API:   http://localhost:${API_PORT:-5005}
+# Swagger:   http://localhost:${API_PORT:-5005}/swagger, once SWAGGER_ENABLED=true
 #
 # Every module ships in the image; each one stays off/mock until you fill in its keys below.
 # See README.md for what each variable does and how to put this behind a reverse proxy + TLS.
@@ -49,10 +49,16 @@ services:
       # holds, which is not something a real instance should start with.
       Seed__DemoContent: ${SEED_DEMO_CONTENT:-false}
 
+<<<<<<< HEAD
       # Which modules run. Left out, every module in the image runs. Uncomment and list names to
       # run only those, or set it to "" for core only. Not mapped from .env on purpose: an unset
       # .env value would arrive as "" and switch every module off.
       # BarakoCMS__Modules__Enabled: Accounting,Files
+=======
+      # The API explorer, which is this image's own surface. Off by default because
+      # ASPNETCORE_ENVIRONMENT defaults to Production above; set SWAGGER_ENABLED=true to turn it on.
+      Swagger__Enabled: ${SWAGGER_ENABLED:-false}
+>>>>>>> origin/master
 
       # The public URL of this deployment. Every absolute link the API hands to something else (an
       # RSS item, an OAuth redirect_uri) is built from this. Left unset those links have no origin,
@@ -94,17 +100,6 @@ services:
 
       # ── Device trust — require new devices to be approved via an emailed code. ──
       DeviceTrust__Enforce: ${DEVICETRUST_ENFORCE:-false}
-
-  admin:
-    image: ghcr.io/baryodev/barako-admin:${BARAKO_TAG:-latest}
-    restart: unless-stopped
-    depends_on:
-      - api
-    ports:
-      - "${ADMIN_PORT:-3000}:3000"
-    environment:
-      # Where the browser reaches the API. Injected at container start — no rebuild to repoint it.
-      NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:5005}
 
   # Nightly backup, using the same hardened script the production stack runs.
   #
