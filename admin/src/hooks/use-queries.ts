@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, type Paginated } from '@/lib/api';
+import { useCurrentTenant } from '@/hooks/use-tenants';
 import { SensitivityLevel, type ContentTypeDefinition, type FieldDefinition } from '@/types/schema';
 
 /**
@@ -145,10 +146,18 @@ export function useDeleteQuery() {
  * button presses on a second run.
  *
  * It reads the *saved* copy, which is why the screen saves before it can show the effect of an edit.
+ *
+ * The tenant is part of the key. Switching tenant invalidates every query, and an invalidated query
+ * keeps its rows on screen while the refetch runs, so without this the first tenant's rows sit in
+ * the panel until the second tenant's arrive. Under a key the new tenant has never used there is
+ * nothing to keep. It goes after the slug so the prefix the save and delete hooks invalidate on
+ * still finds it.
  */
 export function useQueryPreview(slug: string | null) {
+    const tenant = useCurrentTenant();
+
     return useQuery({
-        queryKey: ['query-preview', slug],
+        queryKey: ['query-preview', slug, tenant],
         queryFn: async () =>
             (
                 await api.post<QueryPreview>(
