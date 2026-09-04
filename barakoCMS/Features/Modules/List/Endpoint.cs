@@ -6,12 +6,13 @@ using FastEndpoints;
 namespace barakoCMS.Features.Modules.List;
 
 /// <summary>
-/// GET /api/modules, reporting which modules this instance has registered.
+/// GET /api/modules, reporting every module this instance saw and whether it runs.
 /// </summary>
 /// <remarks>
-/// Read straight off the container. <c>AddBarakoCMS</c> registers each opted-in module as a
-/// singleton <see cref="IBarakoModule"/>, so what the container holds is what the host actually
-/// booted with, not a list somebody maintains alongside it.
+/// Read from the <see cref="ModuleCatalogue"/> <c>AddBarakoCMS</c> built, which holds what the host
+/// added or discovery found, not a list somebody maintains alongside it. The catalogue rather than
+/// the <see cref="IBarakoModule"/> singletons, because those hold only the modules the enabled list
+/// let run, and a module switched off by configuration is still installed.
 ///
 /// Gated on <c>Roles("SuperAdmin", "Admin")</c> rather than on a capability. Every name in
 /// <see cref="SystemCapabilities"/> covers a management surface this endpoint neither reads nor
@@ -21,9 +22,9 @@ namespace barakoCMS.Features.Modules.List;
 /// </remarks>
 internal sealed class Endpoint : Endpoint<ListModulesRequest, PaginatedResponse<ModuleSummary>>
 {
-    private readonly IEnumerable<IBarakoModule> _modules;
+    private readonly ModuleCatalogue _catalogue;
 
-    public Endpoint(IEnumerable<IBarakoModule> modules) => _modules = modules;
+    public Endpoint(ModuleCatalogue catalogue) => _catalogue = catalogue;
 
     public override void Configure()
     {
@@ -35,8 +36,8 @@ internal sealed class Endpoint : Endpoint<ListModulesRequest, PaginatedResponse<
     {
         // Ordered by name so two calls, and two deployments of the same set, agree. Registration
         // order is meaningful to the host (it decides who configures first) and meaningless here.
-        IReadOnlyList<ModuleSummary> modules = _modules
-            .Select(m => new ModuleSummary(m.Name, m.ContractVersion))
+        IReadOnlyList<ModuleSummary> modules = _catalogue.Entries
+            .Select(m => new ModuleSummary(m.Name, m.ContractVersion, m.Enabled))
             .OrderBy(m => m.Name, StringComparer.Ordinal)
             .ToArray();
 

@@ -58,6 +58,15 @@ The module packages version independently of the core, and their support follows
 target rather than their own version number. A module released against 4.x is supported as long as
 4.x is. A module's own major bump does not start a new support window.
 
+A module is trusted, in-process code. Referencing a module package puts its code inside the host
+with the host's own permissions: it runs in the same process, shares the same database and can read
+the whole environment, not only the configuration section it is handed. `AddBarakoCMS` discovers
+and registers every module in a referenced package, and the enabled list only chooses among what is
+referenced. So the review happens at the reference: the site owner who runs `dotnet add package` is
+the reviewer, and nothing in core reviews the package for them. There is no plugin directory and no
+runtime loading, on purpose, because a file dropped into a directory is code that nobody chose to
+reference.
+
 ### What this is not
 
 This is a maintenance policy for an open-source project, not a service-level agreement. It says what

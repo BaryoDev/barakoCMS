@@ -13,30 +13,94 @@ opts into exactly the modules it wants.
 
 ## Using modules
 
-Pass modules when registering the CMS:
+Reference the package and restart. That is the whole install:
+
+```sh
+dotnet add package BarakoCMS.Accounting
+```
 
 ```csharp
-builder.Services.AddBarakoCMS(builder.Configuration, modules =>
-{
-    modules.Add(new BarakoCMS.Accounting.AccountingModule());
-    modules.Add(new BarakoCMS.Import.ImportModule());
-    modules.Add(new BarakoCMS.Files.FilesModule());
-    modules.Add(new BarakoCMS.Email.Resend.ResendEmailModule());
-});
+builder.Services.AddBarakoCMS(builder.Configuration);
 
 var app = builder.Build();
 app.UseBarakoCMS();
 await app.RunBarakoModuleSeedersAsync();  // runs each module's SeedAsync
 ```
 
-Calling `AddBarakoCMS(config)` with no modules behaves exactly as before, because modules are purely additive
-and backward-compatible.
+`AddBarakoCMS` reads the application's dependency context (`DependencyContext.Default`, the
+`deps.json` next to the host) and loads every library that reaches `BarakoCMS` through its
+dependencies, directly or through another module (`BarakoCMS.Files.S3` references only
+`BarakoCMS.Files`), so an unrelated package is never loaded on the chance it holds a module. In each
+one it looks for
+public, top-level, concrete `IBarakoModule` types with a parameterless constructor, and registers
+them ordered by type name so a build is reproducible. A private or nested implementation is not a
+module anyone ships and is left alone. `AppDomain.CurrentDomain.GetAssemblies()` is not used,
+because assemblies load lazily and a referenced module nothing has touched yet is absent from it.
 
-You can also discover modules by reflection:
+A module that needs constructor arguments, or a host that wants only the modules it names, adds
+them by hand. What the callback adds keeps its place ahead of anything discovered, and discovery
+skips a type the host already added:
 
 ```csharp
-modules.DiscoverFrom(typeof(SomeModule).Assembly);
+builder.Services.AddBarakoCMS(builder.Configuration, modules =>
+{
+    modules.Discover = false;                          // explicit list only; the default is true
+    modules.Add(new BarakoCMS.Accounting.AccountingModule());
+    modules.Add(new BarakoCMS.Files.FilesModule());
+});
 ```
+
+`BarakoCMS:Modules:Discover=false` in configuration does the same for a host with no callback; what
+the callback sets wins. A host published without a `deps.json` finds nothing and adds its modules
+by hand. `modules.DiscoverFrom(typeof(SomeModule).Assembly)` still scans a named assembly.
+
+Calling `AddBarakoCMS(config)` in a project that references no modules behaves exactly as before,
+because modules are purely additive.
+
+### Choosing which modules run
+
+Discovery finds modules; configuration decides which run. `BarakoCMS:Modules:Enabled` is read as
+an array or as one comma-separated string, matched against `IBarakoModule.Name` without regard to
+case:
+
+```json
+{ "BarakoCMS": { "Modules": { "Enabled": ["Accounting", "Files"] } } }
+```
+
+```sh
+BarakoCMS__Modules__Enabled=Accounting,Files
+```
+
+Three states, and they are different on purpose:
+
+- **Unset.** Every module found runs, and the host logs one warning naming them and saying how to
+  set the list. This is how every deployment behaved before the list existed, so an upgrade
+  changes nothing.
+- **Set to an empty string.** Core only. (An empty JSON array reads as unset, because the JSON
+  provider produces no key for it; use `""`.)
+- **Set to names.** Exactly those. A name that matches nothing refuses startup with a message
+  listing the names available, because a typo that silently leaves a module off is worse than a
+  boot that says what it knows. A module whose `DependsOn` names one you left off is refused the
+  same way, by `DependsOn`'s own check.
+
+A module enabled for the first time seeds on that boot: the seed runner reads the same
+registrations the list filtered, seeds run on every start, and seeds are idempotent by contract.
+`ModuleEnablementTests` holds this.
+
+**Disabling leaves data.** Taking a module off the list stops its endpoints, services, schema
+registration and seeding. Its tables and documents stay in the database untouched, and come back
+as they were when it is enabled again. Nothing here drops anything.
+
+`GET /api/modules` lists every module the host added or discovery found, each with `enabled`, so
+"installed but off" and "not installed" can be told apart. See
+[docs/module-inventory.md](docs/module-inventory.md).
+
+**Known limitation: schema preflight.** Production runs `AutoCreate.CreateOnly`, which creates a
+missing table with its indexes and never alters an existing one. Enabling a module whose
+`ConfigureSchema` only adds its own tables therefore works on any database, and every first-party
+module is in that position today. A module that adds an index to a table that already exists would
+fail at startup with Marten's error rather than a message naming the module, and nothing checks for
+that before the boot. That preflight is out of scope here and tracked separately.
 
 ## Contract version
 
@@ -71,9 +135,11 @@ about would break the ecosystem to make a point. What core will not do is load a
 a version core cannot honour: that is refused at startup, by name, before anything is registered.
 
 **Checking what an instance loaded.** `GET /api/modules` lists the modules a running instance
-registered, each with the contract version it declared, so an author can confirm a deployment picked
-up their module and which version it thinks it is talking to. It is SuperAdmin or Admin, and it
-reports the name and the contract version and nothing else. See
+saw, each with the contract version it declared and whether it is enabled, so an author can confirm
+a deployment picked up their module and which version it thinks it is talking to. It is SuperAdmin
+or Admin, and it reports the name, the contract version and the enabled flag and nothing else. A
+discovered module goes through the same contract check as one the host added, and the refusal names
+the module, the version it declared and the range core accepts. See
 [docs/module-inventory.md](docs/module-inventory.md).
 
 ## Writing a module

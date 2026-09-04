@@ -64,6 +64,10 @@
 
   <ItemGroup Label="Infrastructure">
     <PackageVersion Include="KubernetesClient" Version="18.0.13" />
+    <!-- Module discovery reads the application's deps.json through this. Already resolved
+         transitively (Serilog.Settings.Configuration, Mvc.Testing); referenced directly because
+         core now compiles against it. -->
+    <PackageVersion Include="Microsoft.Extensions.DependencyModel" Version="10.0.11" />
   </ItemGroup>
 
   <ItemGroup Label="Testing">

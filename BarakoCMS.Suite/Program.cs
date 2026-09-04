@@ -1,12 +1,5 @@
 using Serilog;
 using barakoCMS.Extensions;
-using BarakoCMS.Accounting;
-using BarakoCMS.Import;
-using BarakoCMS.Files;
-using BarakoCMS.Email.Resend;
-using BarakoCMS.ExternalAuth;
-using BarakoCMS.Analytics.Umami;
-using BarakoCMS.Diagnostics;
 
 // "Barako" — the full-suite barakoCMS host: the core engine with every module on. Configure it with
 // just a DATABASE_URL (or ConnectionStrings__DefaultConnection) and a 32+ char JWT__Key; every
@@ -39,22 +32,13 @@ builder.Host.UseSerilog((context, services, configuration) =>
 // Outbound HTTP for the ExternalAuth OAuth token exchange + profile lookups.
 builder.Services.AddHttpClient();
 
-builder.Services.AddBarakoCMS(builder.Configuration, modules =>
-{
-    modules.Add(new AccountingModule());
-    modules.Add(new ImportModule());
-    modules.Add(new FilesModule());
-    modules.Add(new BarakoCMS.Files.S3.S3FilesModule()); // dormant unless Files:S3 is configured
-    modules.Add(new ResendEmailModule());
-    modules.Add(new BarakoCMS.DeviceTrust.DeviceTrustModule());
-    modules.Add(new ExternalAuthModule());
-    modules.Add(new BarakoCMS.FeatureFlags.FeatureFlagsModule());
-    modules.Add(new BarakoCMS.Portability.PortabilityModule());
-    modules.Add(new UmamiAnalyticsModule());
-    modules.Add(new BarakoCMS.Pwa.PwaModule());
-    modules.Add(new BarakoCMS.AI.AiModule()); // dormant unless Ai:Enabled is true
-    modules.Add(new DiagnosticsModule());
-});
+// No module list. Discovery reads this project's dependency context and finds every referenced
+// module: the thirteen the hand-written list used to name, plus Email.Smtp, which the project
+// referenced all along and the list never added. BarakoCMS:Modules:Enabled decides which of them
+// run; unset, all of them do. Files.S3, AI and Email.Smtp stay dormant until their own section is
+// configured (Modules:Files.S3:Bucket, Modules:AI:Enabled, Modules:Email.Smtp:Host), which
+// SuiteCompositionTests holds. Adding a module is now a package reference and a restart.
+builder.Services.AddBarakoCMS(builder.Configuration);
 
 var app = builder.Build();
 

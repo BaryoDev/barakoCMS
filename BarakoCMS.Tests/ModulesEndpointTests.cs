@@ -11,13 +11,14 @@ using Xunit;
 namespace BarakoCMS.Tests;
 
 /// <summary>
-/// GET /api/modules, from issue #185: which modules this instance registered, and nothing else.
+/// GET /api/modules, from issue #185: which modules this instance saw, whether each runs (#170),
+/// and nothing else.
 /// </summary>
 /// <remarks>
-/// The fixture's own host configures module services directly and never registers an
-/// <see cref="IBarakoModule"/> singleton, which is what <c>AddBarakoCMS</c> does and what the
-/// endpoint reads. So the listing tests build a host that registers two, and the shared host stands
-/// in for a deployment running no modules at all.
+/// The fixture's own host configures module services directly, turns discovery off, and so gets an
+/// empty <see cref="ModuleCatalogue"/> from <c>AddBarakoCMS</c>, which is what the endpoint reads.
+/// So the listing tests build a host that replaces the catalogue with three entries, and the shared
+/// host stands in for a deployment running no modules at all.
 /// </remarks>
 [Collection("Sequential")]
 public class ModulesEndpointTests
@@ -26,24 +27,12 @@ public class ModulesEndpointTests
 
     public ModulesEndpointTests(IntegrationTestFixture factory) => _factory = factory;
 
-    /// <summary>
-    /// Registered out of alphabetical order, with one module declaring a contract version and one
-    /// leaving it at the unstated default, because both are cases the contract accepts.
-    /// </summary>
-    private sealed class ProbeModule : IBarakoModule
-    {
-        public ProbeModule(string name, int contractVersion = 0)
-        {
-            Name = name;
-            ContractVersion = contractVersion;
-        }
-
-        public string Name { get; }
-        public int ContractVersion { get; }
-    }
-
+    // Recorded out of alphabetical order, with one module declaring a contract version and one
+    // leaving it at the unstated default, because both are cases the contract accepts, and one
+    // that the enabled list left off, which is the case the catalogue exists to report.
     private const string Zulu = "Zulu Probe Module";
     private const string Alpha = "Alpha Probe Module";
+    private const string Mike = "Mike Probe Module";
 
     // One derived host for the whole class. Each WithWebHostBuilder call builds another server
     // against the shared database, and this needs exactly one.
@@ -57,8 +46,14 @@ public class ModulesEndpointTests
             return _withModules ??= _factory.WithWebHostBuilder(builder =>
                 builder.ConfigureServices(services =>
                 {
-                    services.AddSingleton<IBarakoModule>(new ProbeModule(Zulu, ModuleContract.Version));
-                    services.AddSingleton<IBarakoModule>(new ProbeModule(Alpha));
+                    // A plain AddSingleton after AddBarakoCMS registered the empty one: the last
+                    // registration is the one the endpoint resolves.
+                    services.AddSingleton(new ModuleCatalogue(
+                    [
+                        new ModuleCatalogueEntry(Zulu, ModuleContract.Version, Enabled: true),
+                        new ModuleCatalogueEntry(Mike, 0, Enabled: false),
+                        new ModuleCatalogueEntry(Alpha, 0, Enabled: true),
+                    ]));
                 }));
         }
     }
@@ -72,12 +67,30 @@ public class ModulesEndpointTests
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var items = await ItemsAsync(response);
-        items.Should().HaveCount(2, "the host registered two modules, and an empty list would make every assertion below vacuous");
-        // Ordered, and the host registered them the other way round: two calls, and two
-        // deployments of the same set, have to agree on the order.
-        items.Select(i => i.GetProperty("name").GetString()).Should().Equal([Alpha, Zulu]);
+        items.Should().HaveCount(3, "the host saw three modules, and an empty list would make every assertion below vacuous");
+        // Ordered, and the host recorded them in another order: two calls, and two deployments
+        // of the same set, have to agree on the order.
+        items.Select(i => i.GetProperty("name").GetString()).Should().Equal([Alpha, Mike, Zulu]);
         items[0].GetProperty("contractVersion").GetInt32().Should().Be(0, "a module that states no contract version reports the unstated default");
-        items[1].GetProperty("contractVersion").GetInt32().Should().Be(ModuleContract.Version);
+        items[2].GetProperty("contractVersion").GetInt32().Should().Be(ModuleContract.Version);
+    }
+
+    /// <summary>
+    /// Issue #170: a module the enabled list left off is still installed, and an operator asking
+    /// "is it off, or not there" needs the two told apart. Off is listed with enabled false; not
+    /// there is not listed.
+    /// </summary>
+    [Fact]
+    public async Task A_module_the_enabled_list_left_off_is_listed_with_enabled_false()
+    {
+        var client = await AdminClientFor(HostWithModules());
+
+        var response = await client.GetAsync("/api/modules", TestContext.Current.CancellationToken);
+
+        var items = await ItemsAsync(response);
+        items.Should().HaveCount(3);
+        items.Select(i => (i.GetProperty("name").GetString(), i.GetProperty("enabled").GetBoolean()))
+            .Should().Equal([(Alpha, true), (Mike, false), (Zulu, true)]);
     }
 
     /// <summary>
@@ -98,10 +111,10 @@ public class ModulesEndpointTests
     /// <summary>
     /// The whole security argument for this endpoint. A module knows its configuration section, its
     /// assemblies and therefore its file paths; none of that is a module fact, all of it is
-    /// reconnaissance, and the response carries two fields so there is nowhere for it to hide.
+    /// reconnaissance, and the response carries three fields so there is nowhere for it to hide.
     /// </summary>
     [Fact]
-    public async Task It_reports_the_name_and_the_contract_version_and_nothing_else()
+    public async Task It_reports_the_name_the_contract_version_and_enabled_and_nothing_else()
     {
         var client = await AdminClientFor(HostWithModules());
 
@@ -112,7 +125,7 @@ public class ModulesEndpointTests
 
         foreach (var item in items)
         {
-            item.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(["name", "contractVersion"]);
+            item.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(["name", "contractVersion", "enabled"]);
         }
     }
 

@@ -1,11 +1,13 @@
 # Reporting which modules an instance runs
 
-`GET /api/modules` answers one question: which modules did this instance register at startup.
+`GET /api/modules` answers one question: which modules did this instance see at startup, and which
+of them run.
 
-Nothing else reported it. A deployment is core plus whatever modules the host opted into in
-`AddBarakoCMS`, and an operator, an agent or a client library all needed the same answer for the same
-reason: a call into a module the instance does not run should fail with a sentence rather than a bare
-404.
+Nothing else reported it. A deployment is core plus whatever modules the host added or discovery
+found, filtered by `BarakoCMS:Modules:Enabled`, and an operator, an agent or a client library all
+needed the same answer for the same reason: a call into a module the instance does not run should
+fail with a sentence rather than a bare 404, and "installed but off" is a different sentence from
+"not installed".
 
 ## The response
 
@@ -17,8 +19,8 @@ Authorization: Bearer <token>
 ```json
 {
   "items": [
-    { "name": "Accounting", "contractVersion": 0 },
-    { "name": "Files", "contractVersion": 0 }
+    { "name": "Accounting", "contractVersion": 0, "enabled": true },
+    { "name": "Files", "contractVersion": 0, "enabled": false }
   ],
   "page": 1,
   "pageSize": 100,
@@ -39,9 +41,15 @@ and the root type is frozen, so a bare array is not available even for a list th
 the contract accepts, so zero is an answer rather than a missing value. See `ModuleContract` for what
 the number covers.
 
-Today every first-party module answers zero: none of them override the property. So this endpoint
-confirms that a deployment picked a module up, and does not yet tell you which contract version it
-thinks it is talking to. That becomes useful when a module starts declaring one.
+`enabled` says whether the module runs in this process. False means the host added it or discovery
+found it and `BarakoCMS:Modules:Enabled` left it off; its endpoints answer 404 and its data is still
+in the database. A module that is not installed at all is not listed. See
+[MODULES.md](../MODULES.md#choosing-which-modules-run).
+
+Today every first-party module but Email.Smtp answers zero for `contractVersion`: the others do not
+override the property. So this endpoint confirms that a deployment picked a module up, and mostly
+does not yet tell you which contract version it thinks it is talking to. That becomes useful as
+modules start declaring one.
 
 Items are ordered by name, ascending, always. `sortOrder` is inherited from the shared list request
 and is not read here, so a client that sends `desc` still gets ascending. Registration order decides
@@ -54,11 +62,11 @@ question is trying to tell apart.
 
 ## What it does not report
 
-Name and contract version, and nothing else. A module knows its configuration section, its
-assemblies and therefore its file paths on the host, and none of that is a fact about the module: it
-is a description of the deployment. `ModulesEndpointTests` asserts the property names on each item
-are exactly `name` and `contractVersion`, so a field added later has to be added there too, in a line
-somebody reviews.
+Name, contract version and enabled, and nothing else. A module knows its configuration section,
+its assemblies and therefore its file paths on the host, and none of that is a fact about the
+module: it is a description of the deployment. `ModulesEndpointTests` asserts the property names on
+each item are exactly `name`, `contractVersion` and `enabled`, so a field added later has to be
+added there too, in a line somebody reviews.
 
 ## Authorisation
 
