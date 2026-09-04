@@ -18,11 +18,11 @@
   </ItemGroup>
 
   <ItemGroup Label="Persistence and storage">
-    <PackageVersion Include="Marten" Version="9.30.0" />
+    <PackageVersion Include="Marten" Version="9.31.2" />
     <!-- Marten 9 already brings JasperFx transitively; referenced explicitly because the host
          calls RunJasperFxCommands for the db-patch / db-assert / db-apply schema commands, and a
          compile-time dependency should not rest on someone else's dependency graph. -->
-    <PackageVersion Include="JasperFx" Version="2.56.0" />
+    <PackageVersion Include="JasperFx" Version="2.62.0" />
     <!-- Was floating (3.7.*) before central management, so two builds of the same commit could
          resolve different versions. Pinned to what it last resolved to. -->
     <PackageVersion Include="AWSSDK.S3" Version="3.7.511.8" />
@@ -84,7 +84,7 @@
     <PackageVersion Include="Testcontainers.Minio" Version="4.14.0" />
     <PackageVersion Include="Testcontainers.PostgreSql" Version="4.14.0" />
     <PackageVersion Include="xunit.v3" Version="4.0.0" />
-    <PackageVersion Include="Microsoft.Testing.Extensions.TrxReport" Version="2.3.3" />
+    <PackageVersion Include="Microsoft.Testing.Extensions.TrxReport" Version="2.4.0" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="4.0.0" />
   </ItemGroup>
 
