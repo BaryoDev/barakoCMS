@@ -178,7 +178,10 @@ A 400 carries the reason, including the fields that would have been accepted.
 ## Stability and deprecation
 
 There is no version segment in the URL and none is planned. The delivery API, meaning every route
-under `/api/public`, follows the package's semantic version instead.
+under `/api/public`, follows the semantic version of the package that registers it instead. For the
+routes above that is the core package. A module that adds a route under the same prefix, such as
+`/api/public/files/{id}` from `BarakoCMS.Files` or `/api/public/{type}/semantic` from `BarakoCMS.AI`,
+follows that module's own version under the same rules.
 
 **What counts as breaking.** A route going away or changing shape, a response field being removed or
 changing type, a filter or operator changing meaning, or a default changing (page size, sort order,

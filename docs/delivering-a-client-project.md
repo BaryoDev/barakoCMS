@@ -641,8 +641,10 @@ Until those two surfaces are scoped, a client-facing role must carry no system c
 - **No pinned client generator and no .NET client** (#183, #186). The OpenAPI document is generated
   and correct; what to run over it is not decided, and nothing notices when a generated client stops
   matching the API (#187).
-- **No API versioning on the public delivery endpoints** (#107). A change to the delivery contract is
-  a change every client site sees at once.
+- **No API versioning on the public delivery endpoints**, by decision (#107, D14). A breaking change
+  to the delivery contract lands only in a major and is announced at least one minor ahead;
+  [delivery-api.md](delivery-api.md) has the rule. It still reaches every client site at once when
+  the major ships.
 - **No webhooks and no realtime** (#95, #96). A frontend that caches has to poll or rebuild on a
   schedule.
 - **No preview screen in the admin.** `POST /api/preview` exists and there is deliberately no button

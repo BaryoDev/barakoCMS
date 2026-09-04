@@ -523,7 +523,10 @@ tag itself fails that test.
 
 **Decided** 4 September 2026. Cited by #107.
 
-**The decision.** Every route under `/api/public` follows the package's semantic version. A breaking
+**The decision.** Every route under `/api/public` follows the semantic version of the package that
+registers it: the core for the routes in `docs/delivery-api.md`, the module for a route a module adds
+under the prefix (`BarakoCMS.Files`, `BarakoCMS.AI`). Modules version independently of the core, so a
+module route breaks only in that module's major. A breaking
 change to a route, a response shape, a filter's meaning or a default lands only in a major, is
 announced in `CHANGELOG.md` under a Delivery API lead at least one minor before that major, and is
 marked deprecated in `docs/delivery-api.md` on the same schedule. Additive changes land in a minor.
