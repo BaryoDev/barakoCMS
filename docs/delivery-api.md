@@ -35,6 +35,7 @@ exist.
 | GET | `/api/public/{type}/search?q=` | ranked matches, not a page |
 | GET | `/api/public/{type}/feed.xml` | RSS |
 | GET | `/api/public/sitemap.xml` | sitemap |
+| GET | `/api/public/events` | a server-sent event stream of changes (off by default, see below) |
 
 `/{type}/{slug}` needs the type to have a slug field: a field of type `slug`, or failing that a
 field named `slug`. Without one the route is 404.
@@ -174,3 +175,67 @@ title or name hit outranks a body hit.
 | 404 | unknown type, type not marked publicly deliverable, no slug field, no published entry at that slug |
 
 A 400 carries the reason, including the fields that would have been accepted.
+
+## Change events
+
+`GET /api/public/events` is a [server-sent event](https://html.spec.whatwg.org/multipage/server-sent-events.html)
+stream of the tenant's content changes, for a frontend or a dashboard that wants to react to a
+publish without polling. Anonymous, like every other route here, and it answers to the same three
+rules: an entry is streamed only if its type has opted in, only while it is `Published`, and only
+with its `Public` fields. The payload is produced by the same projection the REST reads use, so a
+field `GET /api/public/{type}/{slug}` masks is masked here for the same reason: it is the same
+function. `ContentEventStreamTests` asserts that directly against a Sensitive field.
+
+It is off by default. `Delivery:Events:Enabled` turns it on; while it is off the route is 404.
+
+```
+GET /api/public/events
+GET /api/public/events?type=post&type=page
+```
+
+`type` repeats to filter by content type. A type that has not opted in never matches, which says
+nothing about whether it exists. At most 20 types per connection.
+
+Three event names, and every payload carries `id`, `contentType` and `slug`:
+
+| Event | When | Payload |
+| --- | --- | --- |
+| `content.published` | an entry became public: published, created as published, or its document sensitivity set back to Public | the entry, in the shape `GET /api/public/{type}/{slug}` returns |
+| `content.updated` | a published entry changed: an edit, a lifecycle transition, or a field's sensitivity changed on its type | the entry, same shape |
+| `content.unpublished` | a public entry stopped being public: moved to Draft or Archived, or its document sensitivity changed | `id`, `contentType`, `slug` only |
+
+A draft save emits nothing. A draft moved to Archived emits nothing either, because it was never
+on anybody's site and an unpublish for it would hand out the slug of an entry the REST API answers
+404 for. Erasing an entry (`DELETE /api/contents/{id}/erase`) emits nothing yet.
+
+A comment line (`: keepalive`) is sent whenever nothing else has been for
+`Delivery:Events:KeepAliveSeconds` (15), so a proxy does not close an idle connection. An
+`EventSource` never dispatches a comment. There is no `id` on the frames and no replay: a client
+that reconnects should re-read what it cares about, then resume listening.
+
+```js
+const source = new EventSource("/api/public/events?type=post");
+source.addEventListener("content.published", e => render(JSON.parse(e.data)));
+source.addEventListener("content.updated", e => render(JSON.parse(e.data)));
+source.addEventListener("content.unpublished", e => remove(JSON.parse(e.data).id));
+```
+
+### Caps
+
+An anonymous long-lived connection is a resource anybody on the internet can hold, which is why
+the stream is opt-in, and why it is capped:
+
+- `Delivery:Events:MaxConnections` (100) is the number of open streams across all tenants on one
+  instance. The next connection gets 503 with `Retry-After`.
+- Each connection buffers 64 changes. A subscriber that stops reading has its oldest change
+  dropped, and the drop is logged once per connection. Nothing a slow subscriber does holds
+  memory for anybody else.
+
+### One instance, its own writes
+
+The stream is fanned out in process, on the instance that committed the write. With several API
+instances behind a load balancer, each streams the writes it handled and nothing else: a subscriber
+connected to instance A does not see a publish that went through instance B. That is the known
+limitation until a shared bus exists between instances; a single-instance deployment sees
+everything. Content types running with `EventSourcing:DocumentTypesAppend` off write no events,
+so nothing about them is streamed, the same way nothing about them fires a workflow.
