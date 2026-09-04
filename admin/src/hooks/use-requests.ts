@@ -55,7 +55,13 @@ export interface RequestDefinition {
   updatedAt: string;
 }
 
-/** What the form holds. The same fields the save endpoint takes, all of them strings or maps. */
+/**
+ * What the form holds. The same fields the save endpoint takes, all of them strings or maps.
+ *
+ * `querySlug` is here without an input for it. The save endpoint upserts on the slug and assigns
+ * every field it was given, so a draft that leaves the field out saves null over whatever the
+ * definition had. The screen shows it and posts it back unchanged.
+ */
 export interface RequestDraft {
   name: string;
   slug: string;
@@ -65,8 +71,32 @@ export interface RequestDraft {
   headerTemplates: Record<string, string>;
   bodyTemplate: string;
   bodyContentType: string;
+  querySlug: string;
   success: string;
   successJsonPath: string;
+}
+
+/**
+ * An existing definition loaded back into the form.
+ *
+ * Every field the save endpoint assigns has to come out of here, including the ones this screen has
+ * no input for: the endpoint upserts on the slug and assigns unconditionally, so a field the draft
+ * drops is a field the next save nulls.
+ */
+export function toDraft(request: RequestDefinition): RequestDraft {
+  return {
+    name: request.name,
+    slug: request.slug,
+    connectorSlug: request.connectorSlug,
+    method: request.method,
+    pathTemplate: request.pathTemplate,
+    headerTemplates: request.headerTemplates,
+    bodyTemplate: request.bodyTemplate ?? '',
+    bodyContentType: request.bodyContentType,
+    querySlug: request.querySlug ?? '',
+    success: request.success,
+    successJsonPath: request.successJsonPath ?? '',
+  };
 }
 
 /**
@@ -133,6 +163,7 @@ export function useSaveRequest() {
         // null as nothing to send, and posting "" would set a Content-Type with nothing under it.
         bodyTemplate: draft.bodyTemplate.length > 0 ? draft.bodyTemplate : null,
         successJsonPath: draft.successJsonPath.length > 0 ? draft.successJsonPath : null,
+        querySlug: draft.querySlug.length > 0 ? draft.querySlug : null,
       });
       return response.data;
     },
@@ -253,9 +284,9 @@ export function templateVariables(draft: RequestDraft): string[] {
 /**
  * The variables the composer will refuse rather than substitute.
  *
- * `{{query.*}}` needs named queries, which are not implemented. The server refuses the whole
- * request rather than posting the literal text to a third party, so saying so on the form is the
- * difference between a warning and a dry run that fails for a reason nobody expected.
+ * Named queries exist, but the composer cannot read one into a template yet (#328), so it refuses
+ * the whole request rather than posting the literal text to a third party. Saying so on the form is
+ * the difference between a warning and a dry run that fails for a reason nobody expected.
  */
 export function unresolvableVariables(names: string[]): string[] {
   return names.filter((name) => name.toLowerCase().startsWith('query.'));

@@ -6,8 +6,8 @@
   while they can still change it. It composes the call against a real entry and renders exactly what
   came back: the finished URL, every header and the body, laid out when it is JSON and left as
   composed when it will not parse, since that is the case worth seeing. A refusal shows the reason
-  instead, which is what happens when a template names a field that is not Public or a query that
-  does not exist yet.
+  instead, which is what happens when a template names a field that is not Public, or reads a named
+  query, which the composer cannot do yet.
 
   Nothing on the screen sends anything, and it says so where a verdict could be misread: the result
   panel is headed "Dry run. Nothing was sent.", the verdict reads "Would be sent" rather than "Sent",

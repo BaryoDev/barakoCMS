@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import React from 'react';
+import { renderHook, act, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   checkDraft,
   describeEntry,
@@ -6,9 +9,20 @@ import {
   parseHeaderTemplates,
   prettyBody,
   templateVariables,
+  toDraft,
   unresolvableVariables,
+  useDeleteRequest,
+  useDryRunRequest,
+  useSaveRequest,
+  type RequestDefinition,
   type RequestDraft,
 } from './use-requests';
+import { api } from '@/lib/api';
+
+vi.mock('@/lib/api', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/api')>('@/lib/api');
+  return { ...actual, api: { get: vi.fn(), post: vi.fn(), delete: vi.fn() } };
+});
 
 function draft(overrides: Partial<RequestDraft> = {}): RequestDraft {
   return {
@@ -20,10 +34,38 @@ function draft(overrides: Partial<RequestDraft> = {}): RequestDraft {
     headerTemplates: {},
     bodyTemplate: '',
     bodyContentType: 'application/json',
+    querySlug: '',
     success: 'TwoHundredRange',
     successJsonPath: '',
     ...overrides,
   };
+}
+
+function definition(overrides: Partial<RequestDefinition> = {}): RequestDefinition {
+  return {
+    id: '9f8c1f4e-0000-4000-8000-000000000001',
+    name: 'Post to the status page',
+    slug: 'status-page',
+    connectorSlug: 'statuspage',
+    method: 'POST',
+    pathTemplate: '/v1/incidents',
+    headerTemplates: { Accept: 'application/json' },
+    bodyTemplate: '{"title":"{{Title}}"}',
+    bodyContentType: 'application/json',
+    querySlug: 'open-incidents',
+    success: 'TwoHundredRange',
+    successJsonPath: null,
+    createdAt: '2026-09-01T00:00:00Z',
+    updatedAt: '2026-09-02T00:00:00Z',
+    ...overrides,
+  };
+}
+
+function wrapper({ children }: { children: React.ReactNode }) {
+  const client = new QueryClient({
+    defaultOptions: { mutations: { retry: false }, queries: { retry: false } },
+  });
+  return React.createElement(QueryClientProvider, { client }, children);
 }
 
 describe('parseHeaderTemplates', () => {
@@ -263,5 +305,193 @@ describe('describeEntry', () => {
     // asked for, or throw on a null.
     expect(describeEntry({ id: 'e1', contentType: 'Post', data: { Title: 12 } })).toBe('Post: e1');
     expect(describeEntry({ id: 'e1', contentType: 'Post', data: { Title: null } })).toBe('Post: e1');
+  });
+});
+
+/**
+ * The save endpoint upserts on the slug and assigns every field it was given, so a field the form
+ * fails to carry is one the next save overwrites with null. That makes the draft's completeness a
+ * behaviour rather than a detail, and this is the round trip that pins it.
+ */
+describe('toDraft', () => {
+  it('carries every field the save endpoint assigns, including the ones with no input', () => {
+    const source = definition();
+    const asDraft = toDraft(source);
+
+    expect(asDraft.querySlug).toBe('open-incidents');
+    expect(asDraft).toEqual({
+      name: source.name,
+      slug: source.slug,
+      connectorSlug: source.connectorSlug,
+      method: source.method,
+      pathTemplate: source.pathTemplate,
+      headerTemplates: source.headerTemplates,
+      bodyTemplate: source.bodyTemplate,
+      bodyContentType: source.bodyContentType,
+      querySlug: source.querySlug,
+      success: source.success,
+      successJsonPath: '',
+    });
+  });
+
+  it('turns the nullable fields into the empty strings the form holds', () => {
+    const asDraft = toDraft(
+      definition({ bodyTemplate: null, querySlug: null, successJsonPath: null }),
+    );
+
+    expect(asDraft.bodyTemplate).toBe('');
+    expect(asDraft.querySlug).toBe('');
+    expect(asDraft.successJsonPath).toBe('');
+  });
+});
+
+/**
+ * The hooks, against a mocked transport. What is worth asserting is not that react-query works but
+ * the three things this module decides on its own: the exact route, the empty-to-null conversions
+ * the server reads as "nothing here", and the invalidation without which the list keeps showing a
+ * definition as it was before the save.
+ */
+describe('useSaveRequest', () => {
+  beforeEach(() => {
+    vi.mocked(api.post).mockReset();
+    vi.mocked(api.post).mockResolvedValue({ data: definition() });
+  });
+
+  function saved(input: RequestDraft) {
+    const { result } = renderHook(() => useSaveRequest(), { wrapper });
+    act(() => result.current.mutate(input));
+    return result;
+  }
+
+  function postedBody() {
+    return vi.mocked(api.post).mock.calls[0][1] as Record<string, unknown>;
+  }
+
+  it('posts an empty body template as null rather than an empty string', async () => {
+    const result = saved(draft({ bodyTemplate: '' }));
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(vi.mocked(api.post).mock.calls[0][0]).toBe('/api/requests');
+    expect(postedBody().bodyTemplate).toBeNull();
+  });
+
+  it('posts a body template that was filled in unchanged', async () => {
+    const result = saved(draft({ bodyTemplate: '{"a":1}' }));
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(postedBody().bodyTemplate).toBe('{"a":1}');
+  });
+
+  it('posts an empty success path as null rather than an empty string', async () => {
+    const result = saved(draft({ successJsonPath: '' }));
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(postedBody().successJsonPath).toBeNull();
+  });
+
+  it('posts a success path that was filled in unchanged', async () => {
+    const result = saved(
+      draft({ success: 'TwoHundredAndJsonPathAbsent', successJsonPath: 'error.code' }),
+    );
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(postedBody().successJsonPath).toBe('error.code');
+  });
+
+  it('posts the query slug back, so a save does not clear one the definition already had', async () => {
+    const result = saved(toDraft(definition({ querySlug: 'open-incidents' })));
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(postedBody().querySlug).toBe('open-incidents');
+  });
+
+  it('posts no query slug as null when the definition never had one', async () => {
+    const result = saved(toDraft(definition({ querySlug: null })));
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(postedBody().querySlug).toBeNull();
+  });
+
+  it('invalidates the request list, so a row shows what was just saved', async () => {
+    const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    const { result } = renderHook(() => useSaveRequest(), {
+      wrapper: ({ children }: { children: React.ReactNode }) =>
+        React.createElement(QueryClientProvider, { client }, children),
+    });
+
+    act(() => result.current.mutate(draft()));
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['requests'] });
+  });
+});
+
+describe('useDeleteRequest', () => {
+  beforeEach(() => {
+    vi.mocked(api.delete).mockReset();
+    vi.mocked(api.delete).mockResolvedValue({ data: null });
+  });
+
+  it('deletes at /api/requests/{slug}', async () => {
+    const { result } = renderHook(() => useDeleteRequest(), { wrapper });
+    act(() => result.current.mutate('status-page'));
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(api.delete).toHaveBeenCalledWith('/api/requests/status-page');
+  });
+
+  it('escapes the slug rather than letting it shape the path', async () => {
+    const { result } = renderHook(() => useDeleteRequest(), { wrapper });
+    act(() => result.current.mutate('a/b'));
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(api.delete).toHaveBeenCalledWith('/api/requests/a%2Fb');
+  });
+
+  it('invalidates the request list, so a deleted row leaves the table', async () => {
+    const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    const { result } = renderHook(() => useDeleteRequest(), {
+      wrapper: ({ children }: { children: React.ReactNode }) =>
+        React.createElement(QueryClientProvider, { client }, children),
+    });
+
+    act(() => result.current.mutate('status-page'));
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['requests'] });
+  });
+});
+
+describe('useDryRunRequest', () => {
+  beforeEach(() => {
+    vi.mocked(api.post).mockReset();
+    vi.mocked(api.post).mockResolvedValue({
+      data: {
+        wouldSend: true,
+        refusal: null,
+        method: 'POST',
+        url: 'https://example.test/v1',
+        headers: {},
+        body: null,
+      },
+    });
+  });
+
+  it('posts to the dry run route for the slug and the entry', async () => {
+    const { result } = renderHook(() => useDryRunRequest(), { wrapper });
+    act(() => result.current.mutate({ slug: 'status-page', contentId: 'entry-1' }));
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(api.post).toHaveBeenCalledWith('/api/requests/status-page/dry-run/entry-1');
+  });
+
+  it('escapes both segments rather than letting either shape the path', async () => {
+    const { result } = renderHook(() => useDryRunRequest(), { wrapper });
+    act(() => result.current.mutate({ slug: 'a/b', contentId: 'c/d' }));
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(api.post).toHaveBeenCalledWith('/api/requests/a%2Fb/dry-run/c%2Fd');
   });
 });

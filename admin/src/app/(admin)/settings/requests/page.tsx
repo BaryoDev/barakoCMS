@@ -12,6 +12,7 @@ import {
   parseHeaderTemplates,
   prettyBody,
   templateVariables,
+  toDraft,
   unresolvableVariables,
   useConnectorOptions,
   useDeleteRequest,
@@ -62,24 +63,10 @@ const BLANK: RequestDraft = {
   headerTemplates: {},
   bodyTemplate: '',
   bodyContentType: 'application/json',
+  querySlug: '',
   success: 'TwoHundredRange',
   successJsonPath: '',
 };
-
-function toDraft(request: RequestDefinition): RequestDraft {
-  return {
-    name: request.name,
-    slug: request.slug,
-    connectorSlug: request.connectorSlug,
-    method: request.method,
-    pathTemplate: request.pathTemplate,
-    headerTemplates: request.headerTemplates,
-    bodyTemplate: request.bodyTemplate ?? '',
-    bodyContentType: request.bodyContentType,
-    success: request.success,
-    successJsonPath: request.successJsonPath ?? '',
-  };
-}
 
 /**
  * What a dry run answered, and nothing about a call having happened.
@@ -520,6 +507,17 @@ export default function RequestsPage() {
             </div>
           </div>
 
+          {draft.querySlug.length > 0 && (
+            <div className="mt-4">
+              <Label htmlFor="request-query">Named query</Label>
+              <Input id="request-query" value={draft.querySlug} readOnly />
+              <p className="text-muted-foreground mt-1 text-[12px]">
+                Set through the API. This screen shows it and saves it back unchanged; a template
+                still cannot read a query yet (#328).
+              </p>
+            </div>
+          )}
+
           {draft.success === 'TwoHundredAndJsonPathAbsent' && (
             <div className="mt-4">
               <Label htmlFor="request-json-path">Path that must be absent</Label>
@@ -568,7 +566,7 @@ export default function RequestsPage() {
               <p className="mt-3 flex items-start gap-2 text-[12.5px]">
                 <IconWarning aria-hidden className="mt-0.5 size-4 shrink-0" />
                 <span>
-                  Named queries are not implemented, so the server refuses a template that reads one
+                  A request template cannot read a named query yet (#328), so the server refuses one
                   rather than posting the literal text to a provider. Remove it.
                 </span>
               </p>
