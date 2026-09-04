@@ -5,7 +5,7 @@
 
     <IsPackable>true</IsPackable>
     <PackageId>BarakoCMS.Forms</PackageId>
-    <Version>0.1.0</Version>
+    <Version>0.1.1</Version>
     <Description>Form submissions for barakoCMS: define a form and its fields per tenant, take anonymous submissions at POST /api/public/forms/{name} behind a honeypot, a body cap and a per-address rate limit, then list, read and export them as CSV and email the people who asked to be told.</Description>
   </PropertyGroup>
 
