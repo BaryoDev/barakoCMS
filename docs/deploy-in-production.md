@@ -82,6 +82,8 @@ opted in returns 404, and a field that is not Public is absent from the response
 
 The browser origin calling that API must be in `FRONTEND_ORIGINS`. If it is not, the request fails
 CORS in the browser and looks like the API is down.
+`FRONTEND_ORIGINS` becomes `CORS__AllowedOrigins` on the `app` service, and
+`BarakoCMS.Tests/CorsTests.cs` pins what a listed and an unlisted origin get back from a preflight.
 
 ## Modules
 
