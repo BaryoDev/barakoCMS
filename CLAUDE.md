@@ -147,6 +147,11 @@ Test classes are `{Subject}Tests`. Test methods read as sentences describing the
 - **Read the exit code, not the last line.** Piping through `tail` or `grep` returns *that*
   command's exit code, so a failed build can look like it succeeded.
 - **Confirm which branch you are on** before drawing a conclusion from a search.
+- **`scripts/preflight.sh`** builds, runs the named test classes, and checks changelog fragments,
+  module versions, locked-mode restore, dash/banned-word usage and workflow YAML for duplicate
+  keys, failing on the first problem. **`scripts/sync-master.sh`** merges `origin/master`,
+  regenerates lock files when a `.csproj` or `Directory.Packages.props` changed, and exits 1 with
+  the conflicting files listed if the merge did not go clean.
 
 ## 6. Public API stability
 
