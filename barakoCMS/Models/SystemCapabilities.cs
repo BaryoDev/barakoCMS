@@ -238,12 +238,25 @@ public static class SystemCapabilities
     /// </remarks>
     public const string EraseContent = "erase_content";
 
+    /// <summary>
+    /// Read the job queue: what is waiting, what is running, what has been retried and what the
+    /// queue gave up on.
+    /// </summary>
+    /// <remarks>
+    /// Named for reading because the surface is one GET, like the audit log. It does not carry a
+    /// command's payload, so it discloses that an email or a webhook was queued and how it went,
+    /// never what it said. In Admin's defaults because a queue nobody can see is worse than no
+    /// queue, and watching it is the same job as watching workflow runs.
+    /// </remarks>
+    public const string ViewJobs = "view_jobs";
+
     public static readonly IReadOnlySet<string> Known = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         All, ManageRoles, ManageTenants, ManageTenantMembers, ManageUsers, ManageUserMembership, ManageUserGroups,
         ManageApiKeys, ViewAuditLog, ManageSettings, ManageEmailSettings, ManageContentTypes, ManagePublicDelivery,
         ViewMonitoring, ManageRedirects, ManageQueries, ManageRequests, ViewConnectors, ManageConnectors,
         ManageWorkflows, ViewWorkflowRuns, RetryWorkflowActions, RollbackContent, EraseContent, ViewModules,
+        ViewJobs,
     };
 
     public static bool IsKnown(string capability) =>
@@ -266,6 +279,8 @@ public static class SystemCapabilities
         ManageConnectors, ManageWorkflows, ViewWorkflowRuns, RetryWorkflowActions, RollbackContent,
         // Modules: GET /api/modules was Roles("SuperAdmin", "Admin"), so Admin read it already.
         ViewModules,
+        // New with the queue, no gate to preserve. Watching jobs sits with watching workflow runs.
+        ViewJobs,
     ];
 
     /// <summary>

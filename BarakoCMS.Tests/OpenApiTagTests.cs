@@ -123,6 +123,7 @@ public class OpenApiTagTests
             "FeatureFlags",
             "Files",
             "Import",
+            "Jobs",
             "Me",
             "Modules",
             "Monitoring",
