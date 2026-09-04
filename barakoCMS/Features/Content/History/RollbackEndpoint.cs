@@ -175,7 +175,7 @@ internal class RollbackEndpoint : Endpoint<RollbackRequest, RollbackResponse>
                 .Where(v => !string.IsNullOrWhiteSpace(v)));
 
         // 5. Create a new update event with the old data and rebuilt SearchText
-        var rollbackEvent = new ContentUpdated(req.Id, data, userId, searchText);
+        var rollbackEvent = new ContentUpdated(req.Id, data, userId, searchText, DateTime.UtcNow);
 
         // 6. Append the new event and update the document together
         await _contentWriter.AppendAsync(content, rollbackEvent, ct);

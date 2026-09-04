@@ -110,7 +110,7 @@ internal class Endpoint : Endpoint<Request, Response>
         // lands on the Content document via the projection, and modules match it exactly.
         // BarakoCMS.Accounting queries ContentType == "journalEntry", so lowercasing the write turned
         // every ledger and trial balance into zero rows, silently, with the postings still in place.
-        var @event = new barakoCMS.Events.ContentCreated(contentId, req.ContentType, req.Data, req.Status, userId, searchText, req.Sensitivity);
+        var @event = new barakoCMS.Events.ContentCreated(contentId, req.ContentType, req.Data, req.Status, userId, searchText, req.Sensitivity, DateTime.UtcNow);
 
         var created = await _contentWriter.CreateAsync(@event, ct);
 
