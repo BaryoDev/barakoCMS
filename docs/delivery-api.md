@@ -174,3 +174,32 @@ title or name hit outranks a body hit.
 | 404 | unknown type, type not marked publicly deliverable, no slug field, no published entry at that slug |
 
 A 400 carries the reason, including the fields that would have been accepted.
+
+## Stability and deprecation
+
+There is no version segment in the URL and none is planned. The delivery API, meaning every route
+under `/api/public`, follows the package's semantic version instead.
+
+**What counts as breaking.** A route going away or changing shape, a response field being removed or
+changing type, a filter or operator changing meaning, or a default changing (page size, sort order,
+cache headers, what an omitted parameter means). Any of those lands only in a major version.
+
+**What can land in a minor.** A new field, a new filter or operator, a new route, a new optional
+parameter. A client that ignores what it does not know keeps working, so write clients that way.
+
+**How a break is announced.** At least one minor release before the major that ships it, the change
+is recorded in `CHANGELOG.md` under a **Delivery API** lead inside the entry, and the field or
+behaviour is marked deprecated in this document. Until the major, the old behaviour keeps working
+unchanged. So a consumer reading the changelog for each minor sees every break coming with at least
+one release of notice, and a consumer who only reads this document sees it too.
+
+**Why no version segment.** `/api/v1/public` and `/api/v2/public` means two code paths, two test
+suites and two sets of projection rules to keep in step, for a project of this size. The change that
+prompted the question, 3.20.0 making public delivery opt-in, would not have been helped by it: that
+was a breaking change shipped in a minor with no notice, and a `v2` would have shipped the same
+break to anyone who moved to it. What was missing was a written rule about when a break may ship and
+how it is announced. This section is that rule.
+
+**Security is the one exception.** A change that closes a data exposure ships in the next release
+whatever its number, as 3.20.0 did. It is still recorded under the same Delivery API lead and under
+`### Breaking`, and it says what a consumer has to do.
