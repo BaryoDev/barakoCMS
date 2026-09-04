@@ -280,6 +280,7 @@ public class DeliveryQueryTests
         var q = Parse(("sort", "distance"));
 
         q.IsValid.Should().BeFalse("there is no centre to measure from");
+        q.Error.Should().Contain("near filter", "the reason must say what is missing, not that 'distance' is an unknown field");
         q.DistanceSortDescending.Should().BeNull();
     }
 

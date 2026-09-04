@@ -191,6 +191,11 @@ public class DeliveryProximityIntegrationTests
     /// <remarks>
     /// Validation stops this on the write path, but a field can be retyped after entries exist. A
     /// cast error would take the whole list down for every caller because of one bad row.
+    ///
+    /// The row that matters is the object whose <c>lat</c> is a non-numeric string. That is the one
+    /// shape that reaches the <c>::double precision</c> cast: <c>-&gt;&gt;</c> on a whole-value
+    /// string or a missing key is already NULL and would never throw. Without the CASE guard in
+    /// NearSql, Postgres fails the query on it, and the request is a 500 rather than a page.
     /// </remarks>
     [Fact]
     public async Task An_entry_with_a_malformed_point_is_skipped_rather_than_failing_the_request()
@@ -200,23 +205,30 @@ public class DeliveryProximityIntegrationTests
         using (var scope = _factory.Services.CreateScope())
         {
             var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-            s.Store(new Content
-            {
-                Id = Guid.NewGuid(), ContentType = type, Status = ContentStatus.Published,
-                Sensitivity = SensitivityLevel.Public,
-                Data = new() { ["Title"] = "stringy", ["Location"] = "6.5031,124.8469" },
-            });
-            s.Store(new Content
-            {
-                Id = Guid.NewGuid(), ContentType = type, Status = ContentStatus.Published,
-                Sensitivity = SensitivityLevel.Public,
-                Data = new() { ["Title"] = "unplaced" },
-            });
+            void Add(string title, object? location) =>
+                s.Store(new Content
+                {
+                    Id = Guid.NewGuid(), ContentType = type, Status = ContentStatus.Published,
+                    Sensitivity = SensitivityLevel.Public,
+                    Data = location is null
+                        ? new() { ["Title"] = title }
+                        : new() { ["Title"] = title, ["Location"] = location },
+                });
+
+            Add("stringy-lat", new Dictionary<string, object> { ["lat"] = "six", ["lng"] = KoronadalLng });
+            Add("stringy-lng", new Dictionary<string, object> { ["lat"] = KoronadalLat, ["lng"] = "east" });
+            Add("stringy", "6.5031,124.8469");
+            Add("unplaced", null);
             await s.SaveChangesAsync();
         }
 
-        var page = await PageAsync($"/api/public/{type}?{Near(KoronadalLat, KoronadalLng, 60)}&sort=distance");
+        var res = await _client.GetAsync($"/api/public/{type}?{Near(KoronadalLat, KoronadalLng, 60)}&sort=distance");
+        var body = await res.Content.ReadAsStringAsync();
 
+        res.StatusCode.Should().Be(HttpStatusCode.OK,
+            "one row with a string where a number should be must not fail the request: {0}", body);
+        var page = JsonSerializer.Deserialize<Page>(body, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        page.TotalItems.Should().Be(2, "the malformed rows are left out by the query, not by the projection");
         page.Items.Select(Title).Should().Equal(["koronadal", "gensan"]);
     }
 
@@ -246,6 +258,8 @@ public class DeliveryProximityIntegrationTests
         var res = await _client.GetAsync($"/api/public/{type}?sort=distance");
 
         res.StatusCode.Should().Be(HttpStatusCode.BadRequest, "there is no centre to measure from");
+        (await res.Content.ReadAsStringAsync()).Should().Contain("near filter",
+            "the reason must say what is missing, not that 'distance' is an unknown field");
     }
 
     [Fact]

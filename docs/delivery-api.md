@@ -98,6 +98,7 @@ Operators:
 | `ne` | not equal |
 | `lt` `lte` `gt` `gte` | ordered comparison |
 | `contains` | case-insensitive substring |
+| `near` | within `radiusKm` of `lat,lng`, geopoint fields only; see [The near filter](#the-near-filter) |
 
 At most **five filters** per request. A sixth returns 400. The cap is there because arbitrary filter
 combinations against a JSONB column on an anonymous endpoint is a denial-of-service surface.
