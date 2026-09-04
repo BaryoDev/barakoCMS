@@ -280,6 +280,42 @@ public class ContentTypeBlueprintTests
         (await TypeNamesAsync(second)).Should().Contain(["article", "section"]);
     }
 
+    [Fact]
+    public async Task Applying_a_blueprint_refreshes_the_delivery_document_and_is_audited()
+    {
+        var tenant = await TenantAsync();
+        var client = await AdminInAsync(tenant);
+
+        // Served once first, so a missing invalidation would hand back this stale document.
+        using (var before = await DeliveryDocumentAsync(tenant))
+        {
+            before.RootElement.GetProperty("paths").TryGetProperty("/api/public/post", out _).Should().BeFalse();
+        }
+
+        (await ApplyAsync(client, "blog")).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var after = await DeliveryDocumentAsync(tenant);
+        after.RootElement.GetProperty("paths").TryGetProperty("/api/public/post", out _).Should().BeTrue(
+            "a new deliverable type has to show up in the delivery document without a restart");
+
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+        var audit = await session.Query<AuditEvent>()
+            .Where(e => e.Action == "contenttype.blueprint_applied" && e.TenantSlug == tenant)
+            .ToListAsync(TestContext.Current.CancellationToken);
+        audit.Should().ContainSingle().Which.TargetId.Should().Be("blog");
+        audit[0].Metadata!["created"].ToString().Should().Contain("post");
+    }
+
+    private async Task<JsonDocument> DeliveryDocumentAsync(string tenantSlug)
+    {
+        var anonymous = _factory.CreateClient();
+        anonymous.DefaultRequestHeaders.Add("X-Tenant", tenantSlug);
+        var response = await anonymous.GetAsync("/swagger/v1/swagger.json", TestContext.Current.CancellationToken);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        return JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+    }
+
     // ---- custom blueprints -----------------------------------------------------------------
 
     [Fact]
