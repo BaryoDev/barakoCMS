@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure.Security;
 using FastEndpoints;
 
 namespace barakoCMS.Infrastructure.Jobs;
@@ -21,7 +22,7 @@ internal sealed class LogMessageCommandHandler(ILogger<LogMessageCommandHandler>
 {
     public Task ExecuteAsync(LogMessageCommand command, CancellationToken ct)
     {
-        logger.LogInformation("Queued job says: {Message}", command.Message);
+        logger.LogInformation("Queued job says: {Message}", LogSafe.Text(command.Message));
         return Task.CompletedTask;
     }
 }

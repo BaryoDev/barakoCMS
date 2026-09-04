@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure.Security;
 using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
@@ -86,19 +87,39 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
         // that wake finds nothing. This one fires after the commit and finds the job.
         var trigger = new TriggerJobAfterCommit((ICommandBase)r.Command);
         session.Listeners.Add(trigger);
+        var origin = Origin(http);
 
         http.Response.OnCompleted(() =>
         {
             if (!trigger.Committed && http.Response.StatusCode < 400)
             {
                 _logger.LogWarning(
-                    "Job {TrackingId} ({CommandType}) was queued by {Method} {Path} but the request's "
+                    "Job {TrackingId} ({CommandType}) was queued by {Endpoint} but the request's "
                     + "session never committed, so the job was discarded. Call SaveChangesAsync after queueing.",
-                    r.TrackingID, r.CommandType, http.Request.Method, http.Request.Path);
+                    r.TrackingID, r.CommandType, origin);
             }
 
             return Task.CompletedTask;
         });
+    }
+
+    /// <summary>
+    /// Names the endpoint that queued the job by what the application registered (its verbs and
+    /// route templates, or its type), never by the request's own method or path, which the caller
+    /// chose and could use to forge a log line.
+    /// </summary>
+    private static string Origin(HttpContext http)
+    {
+        var endpoint = http.GetEndpoint();
+        var definition = endpoint?.Metadata.GetMetadata<EndpointDefinition>();
+        if (definition is not null)
+        {
+            return definition.Verbs is { Length: > 0 } verbs && definition.Routes is { Length: > 0 } routes
+                ? $"{string.Join('|', verbs)} {string.Join('|', routes)} ({definition.EndpointType.FullName})"
+                : definition.EndpointType.FullName ?? definition.EndpointType.Name;
+        }
+
+        return endpoint?.DisplayName ?? "a request outside any endpoint";
     }
 
     public async Task<ICollection<JobRecord>> GetNextBatchAsync(PendingJobSearchParams<JobRecord> p)
@@ -291,11 +312,8 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
         ex is JasperFx.ConcurrencyException || ex.GetType().Name.Contains("Concurrency");
 
     /// <summary>Type and message only. A stack trace is noise here and a response body can hold a credential.</summary>
-    private static string Describe(Exception ex)
-    {
-        var text = $"{ex.GetType().Name}: {ex.Message}";
-        return text.Length <= 1000 ? text : text[..1000];
-    }
+    private static string Describe(Exception ex) =>
+        LogSafe.Text($"{ex.GetType().Name}: {ex.Message}", maxLength: 1000);
 
     /// <summary>Wakes the command's queue once the session the job was staged in has committed.</summary>
     private sealed class TriggerJobAfterCommit(ICommandBase command) : DocumentSessionListenerBase
