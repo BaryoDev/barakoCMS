@@ -208,6 +208,33 @@ public class CapabilityVocabularyTests
         response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
     }
 
+    /// <summary>
+    /// <c>"systemCapabilities": null</c> binds to a null list. A role write took it before this check
+    /// existed, so the check must not turn that into a 500.
+    /// </summary>
+    [Fact]
+    public async Task A_null_capability_list_still_saves_and_reports_nothing_unknown()
+    {
+        foreach (var host in new[] { _factory, StrictHost() })
+        {
+            var client = await SuperAdminOn(host);
+            var name = $"Null Caps Role {Guid.NewGuid():N}";
+
+            var response = await client.PostAsJsonAsync("/api/roles", new
+            {
+                name,
+                description = "",
+                permissions = Array.Empty<object>(),
+                systemCapabilities = (string[]?)null,
+            }, TestContext.Current.CancellationToken);
+
+            response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+            var body = await response.Content.ReadFromJsonAsync<JsonElement>(TestContext.Current.CancellationToken);
+            body.GetProperty("unknownCapabilities").GetArrayLength().Should().Be(0);
+            (await LoadByNameAsync(name)).Should().NotBeNull();
+        }
+    }
+
     private static object RoleBody(string name, string[] capabilities, Guid? id = null) => new
     {
         id,

@@ -64,9 +64,13 @@ internal sealed class CapabilityVocabulary
         !string.IsNullOrWhiteSpace(capability)
         && Entries.Any(e => string.Equals(e.Name, capability, StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>The names in <paramref name="requested"/> this instance does not know, once each.</summary>
-    public IReadOnlyList<string> Unknown(IEnumerable<string> requested) =>
-        requested
+    /// <summary>
+    /// The names in <paramref name="requested"/> this instance does not know, once each. A null list
+    /// is what a client sends as <c>"systemCapabilities": null</c>, which a role write accepted before
+    /// this check existed, so it is treated as empty rather than refused.
+    /// </summary>
+    public IReadOnlyList<string> Unknown(IEnumerable<string>? requested) =>
+        (requested ?? [])
             .Where(name => !IsKnown(name))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
