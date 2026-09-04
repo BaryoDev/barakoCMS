@@ -368,7 +368,7 @@ describe('the delete-a-stored-credential checkbox', () => {
 });
 
 describe('the test button', () => {
-    it('stays disabled while its own probe runs, whatever another connector's probe does', async () => {
+    it('stays disabled while its own probe runs, whatever another probe does', async () => {
         const a = connector({ slug: 'a', name: 'Alpha' });
         const b = connector({ slug: 'b', name: 'Beta' });
         let settleA: (value: { data: unknown }) => void = () => undefined;
