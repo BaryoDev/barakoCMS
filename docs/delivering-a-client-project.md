@@ -224,6 +224,11 @@ curl -s -X POST "$API/api/content-types" \
 Or build it in the admin under **Content Types**. The admin's field editor sets a field's
 sensitivity at the point the type is created.
 
+Or start from a blueprint: `POST /api/content-types/blueprints/blog` creates post, category, author
+and page in one call, and `events`, `portfolio` and `docs` do the same for their sites. It refuses
+rather than replaces a type that already exists. [blueprints.md](blueprints.md) has the field sets
+and how to ship your own.
+
 Three decisions in this step are worth making deliberately.
 
 **Public delivery is opt in.** `isPubliclyDeliverable` defaults to false. Without it,

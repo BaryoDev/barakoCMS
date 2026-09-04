@@ -399,8 +399,15 @@ public class CapabilityGateTests
             Probe("PUT", "/api/content-types/nosuchtype/fields/Title/sensitivity"), TestContext.Current.CancellationToken);
         var seoFields = await client.SendAsync(
             Probe("POST", "/api/content-types/nosuchtype/seo-fields"), TestContext.Current.CancellationToken);
+        var blueprints = await client.GetAsync("/api/content-types/blueprints", TestContext.Current.CancellationToken);
+        var applyBlueprint = await client.SendAsync(
+            Probe("POST", "/api/content-types/blueprints/nosuchblueprint"), TestContext.Current.CancellationToken);
 
         list.StatusCode.Should().Be(HttpStatusCode.OK);
+        blueprints.StatusCode.Should().Be(HttpStatusCode.OK, "reading what a blueprint creates is reading schema");
+        applyBlueprint.StatusCode.Should().BeOneOf(
+            [HttpStatusCode.BadRequest, HttpStatusCode.NotFound],
+            "applying a blueprint is creating types, so the gate is passed and only the missing name is left to refuse");
         seoFields.StatusCode.Should().BeOneOf(
             [HttpStatusCode.BadRequest, HttpStatusCode.NotFound],
             "adding the SEO field set is schema modelling, so the gate is passed and only the body "
@@ -425,6 +432,9 @@ public class CapabilityGateTests
         var list = await client.GetAsync("/api/content-types", TestContext.Current.CancellationToken);
         var seoFields = await client.SendAsync(
             Probe("POST", "/api/content-types/nosuchtype/seo-fields"), TestContext.Current.CancellationToken);
+        var blueprints = await client.GetAsync("/api/content-types/blueprints", TestContext.Current.CancellationToken);
+        var applyBlueprint = await client.SendAsync(
+            Probe("POST", "/api/content-types/blueprints/nosuchblueprint"), TestContext.Current.CancellationToken);
 
         // Not "anything but 403", which also passes on a 401 or a 500. Probe sends invalid JSON and
         // the type does not exist, so an authorized caller gets one of those two refusals and never
@@ -436,6 +446,8 @@ public class CapabilityGateTests
         create.StatusCode.Should().Be(HttpStatusCode.Forbidden, "creating a type is a different grant");
         list.StatusCode.Should().Be(HttpStatusCode.Forbidden, "so is reading the schemas");
         seoFields.StatusCode.Should().Be(HttpStatusCode.Forbidden, "and so is adding fields to one");
+        blueprints.StatusCode.Should().Be(HttpStatusCode.Forbidden, "and so is reading the blueprints");
+        applyBlueprint.StatusCode.Should().Be(HttpStatusCode.Forbidden, "and so is applying one");
     }
 
     /// <summary>
@@ -461,11 +473,17 @@ public class CapabilityGateTests
             Probe("POST", "/api/content-types/nosuchtype/rebuild"), TestContext.Current.CancellationToken);
         var seoFields = await client.SendAsync(
             Probe("POST", "/api/content-types/nosuchtype/seo-fields"), TestContext.Current.CancellationToken);
+        var blueprints = await client.GetAsync("/api/content-types/blueprints", TestContext.Current.CancellationToken);
+        var applyBlueprint = await client.SendAsync(
+            Probe("POST", "/api/content-types/blueprints/nosuchblueprint"), TestContext.Current.CancellationToken);
         var modules = await client.GetAsync("/api/modules", TestContext.Current.CancellationToken);
 
         list.StatusCode.Should().Be(HttpStatusCode.OK);
         schemas.StatusCode.Should().Be(HttpStatusCode.OK, "the alias is the same endpoint and the same gate");
         modules.StatusCode.Should().Be(HttpStatusCode.OK, "GET /api/modules was Roles(\"SuperAdmin\", \"Admin\") and view_modules is in Admin's defaults");
+        blueprints.StatusCode.Should().Be(HttpStatusCode.OK, "blueprints are gated on manage_content_types, which Admin holds");
+        applyBlueprint.StatusCode.Should().BeOneOf([HttpStatusCode.BadRequest, HttpStatusCode.NotFound],
+            "through the gate, and the unknown name is what is refused");
         // Named refusals rather than "not 403": a 401 or a 500 would satisfy the loose form and
         // prove nothing about Admin still reaching these three.
         var reached = new[] { HttpStatusCode.BadRequest, HttpStatusCode.NotFound };
