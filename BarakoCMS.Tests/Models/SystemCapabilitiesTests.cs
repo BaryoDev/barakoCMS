@@ -78,6 +78,8 @@ public class SystemCapabilitiesTests
         admin.Should().BeEquivalentTo(new[]
         {
             SystemCapabilities.ManageTenantMembers,
+            // #106: the job list is a new surface; Admin reads it the way it reads workflow runs.
+            SystemCapabilities.ViewJobs,
             SystemCapabilities.ManageUserMembership,
             SystemCapabilities.ManageUserGroups,
             SystemCapabilities.ManageApiKeys,

@@ -517,7 +517,43 @@ tag itself fails that test.
 **Still open, deliberately.** Which generator, proven end to end on one slice (#183), and whether a
 .NET client ships at all (#186). Neither is decided here.
 
-## D14. The queue owns retry, and an enqueue rides the request's session
+---
+
+## D14. The delivery API is not versioned in the URL; it follows the package version
+
+**Decided** 4 September 2026. Cited by #107.
+
+**The decision.** Every route under `/api/public` follows the semantic version of the package that
+registers it: the core for the routes in `docs/delivery-api.md`, the module for a route a module adds
+under the prefix (`BarakoCMS.Files`, `BarakoCMS.AI`). Modules version independently of the core, so a
+module route breaks only in that module's major. A breaking change to a route, a response shape, a
+filter's meaning or a default lands only in a major, is announced in `CHANGELOG.md` under a Delivery
+API lead at least one minor before that major, and is marked deprecated in `docs/delivery-api.md` on
+the same schedule. Additive changes land in a minor. A security fix, whatever it closes, ships in
+the next release whatever its number. The policy text lives in `docs/delivery-api.md` under
+"Stability and deprecation".
+
+**What it rules out.** A version segment in the URL (`/api/v1/public`), a version header, or a
+version query parameter. FastEndpoints supports all three and the issue named the URL form as the
+most legible and the easiest to cache, which is true.
+
+**Why.** A versioned delivery API is two code paths, two projection rule sets and two test suites
+kept in step, for as long as the old version is promised to work. That is a standing cost paid on
+every change to the surface, and this project is not large enough to spend it. The alternative is
+cheap: a written rule about when a break may ship and how it is announced, and a changelog that
+already carries per-release sections.
+
+The change that raised the question, 3.20.0 making public delivery opt-in, also does not support
+versioning. It was a break shipped in a minor with no notice. A `v2` would have carried the same
+break to anyone who moved to it, and a `v1` kept alive would have kept serving the data exposure it
+closed. That was a policy failure, and the fix for a policy failure is a policy.
+
+**What would have to change for this to be wrong.** A second consumer class with a long upgrade
+cycle, such as a native app store review queue, that cannot take a breaking change on the notice
+window and cannot pin the package version it talks to. If that appears, the door is still open:
+adding a `v2` prefix later breaks nothing, while removing one that exists would.
+
+## D15. The queue owns retry, and an enqueue rides the request's session
 
 **Decided:** 4 Sep 2026. **Issue:** #106. **Status:** implemented for the queue itself; the
 consumers move in follow-ups.
