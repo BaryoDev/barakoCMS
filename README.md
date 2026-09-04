@@ -129,6 +129,7 @@ project, through the same `IBarakoModule` contract you can implement yourself.
 | **Diagnostics** | [`BarakoCMS.Diagnostics`](https://www.nuget.org/packages/BarakoCMS.Diagnostics) | Captures client-side (browser) errors and shows a deduped, resolvable **error log** in the admin. |
 | **Analytics.Umami** | [`BarakoCMS.Analytics.Umami`](https://www.nuget.org/packages/BarakoCMS.Analytics.Umami) | A server-side proxy over self-hosted [Umami](https://umami.is): visitors, pages, referrers, countries, devices, plus registering sites and verifying install. |
 | **Pwa** | [`BarakoCMS.Pwa`](https://www.nuget.org/packages/BarakoCMS.Pwa) | Tracks PWA installs / installed-app launches (anonymous or tied to the signed-in user) so the admin shows **who** installed the app. |
+| **Forms** | [`BarakoCMS.Forms`](https://www.nuget.org/packages/BarakoCMS.Forms) | **Form submissions**: define a form per tenant, take anonymous posts at `/api/public/forms/{name}` behind a honeypot, a body cap and a per-address rate limit, list and export them as CSV, and email whoever asked to be told. |
 | **AI** | [`BarakoCMS.AI`](https://www.nuget.org/packages/BarakoCMS.AI) | **Semantic search** over published content using a self-hosted embedding model ([Ollama](https://ollama.com) by default), with no third-party API key. Indexes only public fields; results are re-checked as published + public at query time. |
 
 Reference the packages you want and register the CMS. `AddBarakoCMS` finds every module in the

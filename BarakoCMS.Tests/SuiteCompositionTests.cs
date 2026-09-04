@@ -68,6 +68,7 @@ public class SuiteCompositionTests
             "FeatureFlags",
             "Files",
             "Files.S3",
+            "Forms",
             "Import",
             "Portability",
             "Pwa",

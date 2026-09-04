@@ -61,6 +61,9 @@
          what crosses the wire, so it can only be checked from a test project that can call the
          endpoints. See #123. -->
     <ProjectReference Include="..\BarakoCMS.Analytics.Umami\BarakoCMS.Analytics.Umami.csproj" />
+    <!-- Forms takes anonymous input, and every protection on that endpoint (honeypot, body cap,
+         rate limit, no public read path) is a claim only an HTTP test can make. -->
+    <ProjectReference Include="..\BarakoCMS.Forms\BarakoCMS.Forms.csproj" />
   </ItemGroup>
 
 </Project>

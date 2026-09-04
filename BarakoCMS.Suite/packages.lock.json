@@ -791,6 +791,14 @@
           "System.IdentityModel.Tokens.Jwt": "[8.22.0, )"
         }
       },
+      "barakocms.forms": {
+        "type": "Project",
+        "dependencies": {
+          "BarakoCMS": "[3.21.0, )",
+          "Microsoft.IdentityModel.JsonWebTokens": "[8.22.0, )",
+          "System.IdentityModel.Tokens.Jwt": "[8.22.0, )"
+        }
+      },
       "barakocms.import": {
         "type": "Project",
         "dependencies": {

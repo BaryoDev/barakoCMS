@@ -100,6 +100,7 @@ public class ModuleCapabilityTests
         {
             "/api/accounting/balances", "/api/feature-flags/admin", "/api/portability/export",
             "/api/client-errors", "/api/pwa/installs", "/api/email-events", "/api/analytics/websites",
+            "/api/forms", "/api/forms/contact/submissions",
         })
         {
             var response = await client.GetAsync(route, TestContext.Current.CancellationToken);

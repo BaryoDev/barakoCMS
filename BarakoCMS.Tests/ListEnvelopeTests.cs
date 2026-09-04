@@ -48,6 +48,7 @@ public class ListEnvelopeTests
         "/api/settings",
         "/api/accounting/accounts",
         "/api/pwa/installs",
+        "/api/forms",
     ];
 
     [Theory]

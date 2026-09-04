@@ -10,8 +10,8 @@ puts `ghcr.io/baryodev/barako-admin` in front of it.
 ## What you get
 
 - **CMS API** (`ghcr.io/baryodev/barako-cms`), core plus every module: Accounting, Analytics
-  (Umami), Email (Resend), Feature flags, Diagnostics, Import, Files, Device trust, External auth,
-  Portability.
+  (Umami), Email (Resend), Feature flags, Diagnostics, Import, Files, Forms, Device trust, External
+  auth, Portability.
 - **Postgres 16** with a persistent volume.
 - A **nightly backup** container running the same script the production stack uses.
 

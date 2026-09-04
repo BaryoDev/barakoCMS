@@ -45,6 +45,7 @@ Optional packages, each installable on its own:
 | `BarakoCMS.ExternalAuth` | Google / GitHub / Facebook / LinkedIn sign-in |
 | `BarakoCMS.FeatureFlags` | Flags with targeting |
 | `BarakoCMS.Files` + `.S3` | Uploads, local or S3-compatible |
+| `BarakoCMS.Forms` | Contact-form submissions |
 | `BarakoCMS.Import` | Bulk import |
 | `BarakoCMS.Portability` | Export / import bundles |
 | `BarakoCMS.Pwa` | Service worker and install tracking |

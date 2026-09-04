@@ -173,6 +173,12 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             services.AddHttpClient<BarakoCMS.Analytics.Umami.IUmamiClient, BarakoCMS.Analytics.Umami.UmamiClient>()
                 .ConfigurePrimaryHttpMessageHandler(() => new UmamiStubHandler());
 
+            // Forms: its own section, as the host scopes it, so the rate limit policy and the
+            // honeypot name come from Modules:Forms exactly as they would in production.
+            new BarakoCMS.Forms.FormsModule().ConfigureServices(
+                services, ctx.Configuration.GetSection("Modules:Forms"));
+            services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Forms.FormsModule(), opts));
+
             // Email transport, replacing the Resend provider the module above registered. Resend
             // throws on every call here because no API key is configured, so any flow that emails
             // something has been running against a transport that always fails. Registration needs
@@ -210,6 +216,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         typeof(BarakoCMS.DeviceTrust.DeviceTrustModule).Assembly,
         typeof(BarakoCMS.Import.ImportModule).Assembly,
         typeof(BarakoCMS.Analytics.Umami.UmamiAnalyticsModule).Assembly,
+        typeof(BarakoCMS.Forms.FormsModule).Assembly,
     ];
 
     /// <summary>

@@ -503,6 +503,8 @@ it on the routing table, which is where `GET /api/capabilities` and the role wri
 | Email (Resend) | `view_email_events` | `GET /api/email-events` |
 | Feature flags | `manage_feature_flags` | everything under `/api/feature-flags/admin` |
 | Files | `upload_files` | `POST /api/files` |
+| Forms | `manage_forms` | the definition CRUD under `/api/forms` |
+| Forms | `view_form_submissions` | `GET /api/forms/{name}/submissions`, `/submissions/{id}`, `/submissions.csv` |
 | Portability | `export_content` | `GET /api/portability/export` |
 | Portability | `import_content` | `POST /api/portability/import` |
 | PWA | `view_pwa_installs` | `GET /api/pwa/installs` |

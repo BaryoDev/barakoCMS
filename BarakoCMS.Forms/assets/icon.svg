@@ -1,0 +1,6 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="BarakoCMS.Forms">
+  <title>BarakoCMS.Forms</title>
+  <rect x="2" y="2" width="124" height="124" rx="28" fill="#455A64"/>
+  <rect x="26" y="40" width="76" height="48" rx="12" fill="#FFFFFF"/>
+  <path d="M36 64 H50 L57 48 L71 80 L78 64 H92" fill="none" stroke="#FFC53D" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
