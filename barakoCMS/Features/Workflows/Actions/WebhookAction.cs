@@ -1,7 +1,13 @@
+using System.Diagnostics;
+using System.Globalization;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Features.Public;
 using barakoCMS.Infrastructure.Attributes;
 using barakoCMS.Infrastructure.Http;
+using barakoCMS.Infrastructure.Security;
 using barakoCMS.Models;
 using Marten;
 using Microsoft.Extensions.Logging;
@@ -11,15 +17,23 @@ namespace barakoCMS.Features.Workflows.Actions;
 /// <summary>
 /// Workflow action plugin for sending HTTP POST requests to webhooks.
 /// </summary>
+/// <remarks>
+/// With a <c>Secret</c> parameter every delivery is signed; see <see cref="WebhookSigning"/> and
+/// <c>docs/webhooks.md</c>. With or without one, every delivery leaves a <see cref="WebhookDelivery"/>
+/// behind saying what was sent and what came back.
+/// </remarks>
 [WorkflowActionMetadata(
-    Description = "Send HTTP POST requests to external webhooks",
+    Description = "Send HTTP POST requests to external webhooks, signed when a Secret is set",
     RequiredParameters = new[] { "Url" },
-    ExampleJson = @"{""Type"":""Webhook"",""Parameters"":{""Url"":""https://example.com/webhook""}}"
+    ExampleJson = @"{""Type"":""Webhook"",""Parameters"":{""Url"":""https://example.com/webhook"",""Secret"":""a shared secret, optional""}}"
 )]
 internal class WebhookAction : IWorkflowAction
 {
+    private static readonly JsonSerializerOptions PayloadJson = new(JsonSerializerDefaults.Web);
+
     private readonly IHttpClientFactory _httpClientFactory;
-    private readonly IQuerySession _session;
+    private readonly IDocumentSession _session;
+    private readonly ISecretProtector _protector;
     private readonly OutboundAddressGuard _addressGuard;
     private readonly ILogger<WebhookAction> _logger;
 
@@ -28,12 +42,14 @@ internal class WebhookAction : IWorkflowAction
     /// </summary>
     public WebhookAction(
         IHttpClientFactory httpClientFactory,
-        IQuerySession session,
+        IDocumentSession session,
+        ISecretProtector protector,
         OutboundAddressGuard addressGuard,
         ILogger<WebhookAction> logger)
     {
         _httpClientFactory = httpClientFactory;
         _session = session;
+        _protector = protector;
         _addressGuard = addressGuard;
         _logger = logger;
     }
@@ -60,6 +76,8 @@ internal class WebhookAction : IWorkflowAction
             return WorkflowActionResult.PermanentFailure("No Url parameter was configured for this webhook action.");
         }
 
+        var delivery = NewDelivery(parameters, redactedUrl: Redact(url));
+
         // Early, logged refusal for a URL that is obviously out of bounds. It is not the guard: the
         // address that gets dialled is checked again when the socket is opened, inside the client's
         // connect callback, which is the only check a changing DNS answer cannot get around.
@@ -69,9 +87,31 @@ internal class WebhookAction : IWorkflowAction
             // Permanent. A URL that is not http or https, or that resolves somewhere the guard
             // refuses, is the same on the fifth attempt as the first: it is a typo in the workflow,
             // not a provider having a bad afternoon.
+            delivery.Error = "The URL is not allowed: it must be http or https to a non-internal host.";
+            await RecordAsync(delivery, ct);
             return WorkflowActionResult.PermanentFailure(
                 $"Webhook URL {Redact(url)} is not allowed: it must be http or https to a non-internal host.");
         }
+
+        string? secret = null;
+        if (WebhookSigning.HasSecret(parameters))
+        {
+            secret = _protector.Unprotect(parameters[WebhookSigning.SecretParameter]);
+            if (secret is null)
+            {
+                // Refused rather than sent unsigned. A receiver that checks signatures would reject
+                // it anyway, and one that does not would never learn that signing had silently
+                // stopped. The reachable cause is a rotated Secrets:Key, and the fix is to enter the
+                // secret again.
+                _logger.LogWarning("The webhook secret for {Url} could not be decrypted. Skipping webhook action.", Redact(url));
+                delivery.Error = "The webhook secret could not be decrypted. Enter it again on the workflow.";
+                await RecordAsync(delivery, ct);
+                return WorkflowActionResult.PermanentFailure(
+                    $"The webhook secret for {Redact(url)} could not be decrypted (Secrets:Key changed?). Enter it again on the workflow.");
+            }
+        }
+
+        var timer = Stopwatch.StartNew();
 
         try
         {
@@ -87,9 +127,17 @@ internal class WebhookAction : IWorkflowAction
                 updatedAt = content.UpdatedAt
             };
 
+            // Serialised here rather than by JsonContent, because the signature is over the exact
+            // bytes on the wire and the receiver recomputes it over the exact bytes it read. A body
+            // serialised twice, once to sign and once to send, is only the same body by luck.
+            var body = JsonSerializer.SerializeToUtf8Bytes(payload, PayloadJson);
+
             using var request = new HttpRequestMessage(HttpMethod.Post, url)
             {
-                Content = JsonContent.Create(payload),
+                Content = new ByteArrayContent(body)
+                {
+                    Headers = { ContentType = new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" } },
+                },
             };
 
             // The key the runner computed for this attempt, sent so the receiver can recognise a
@@ -106,7 +154,24 @@ internal class WebhookAction : IWorkflowAction
                 request.Headers.TryAddWithoutValidation("Idempotency-Key", idempotencyKey);
             }
 
+            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            request.Headers.TryAddWithoutValidation(WebhookSigning.DeliveryHeader, delivery.Id.ToString());
+            request.Headers.TryAddWithoutValidation(WebhookSigning.TimestampHeader, timestamp.ToString(CultureInfo.InvariantCulture));
+
+            if (secret is not null)
+            {
+                request.Headers.TryAddWithoutValidation(WebhookSigning.SignatureHeader, WebhookSigning.Sign(secret, timestamp, body));
+            }
+
+            delivery.RequestHeaders = RecordableHeaders(request);
+
             using var response = await client.SendAsync(request, ct);
+            timer.Stop();
+
+            delivery.ResponseStatus = (int)response.StatusCode;
+            delivery.ResponseBody = await ReadBoundedAsync(response.Content, ct);
+            delivery.DurationMs = timer.ElapsedMilliseconds;
+            await RecordAsync(delivery, ct);
 
             if (response.IsSuccessStatusCode)
             {
@@ -126,6 +191,8 @@ internal class WebhookAction : IWorkflowAction
         }
         catch (HttpRequestException ex)
         {
+            timer.Stop();
+
             // The exception is not attached, and the stack is passed separately. Logging the
             // exception object writes its Message, and a transport failure raised against a URL that
             // carries a token in its query can carry that URL, and with it the token, into whatever
@@ -134,6 +201,10 @@ internal class WebhookAction : IWorkflowAction
                 "Failed to send webhook to {Url} ({Exception}). {Stack}",
                 Redact(url), ex.GetType().Name, ex.StackTrace);
 
+            delivery.DurationMs = timer.ElapsedMilliseconds;
+            delivery.Error = $"The request could not be delivered ({ex.GetType().Name}).";
+            await RecordAsync(delivery, ct);
+
             // The exception type, not its message. A transport failure names the host it could not
             // reach, and for a URL carrying a token in its query that message is the token.
             return WorkflowActionResult.Failure(
@@ -141,13 +212,111 @@ internal class WebhookAction : IWorkflowAction
         }
         catch (Exception ex)
         {
+            timer.Stop();
+
             // Same reason as above. This catch is broader, so the exception is likelier to be one
             // whose message names the request it was made against.
             _logger.LogError(
                 "Unexpected error while sending webhook to {Url} ({Exception}). {Stack}",
                 Redact(url), ex.GetType().Name, ex.StackTrace);
+
+            delivery.DurationMs = timer.ElapsedMilliseconds;
+            delivery.Error = $"The request failed ({ex.GetType().Name}).";
+            await RecordAsync(delivery, ct);
+
             return WorkflowActionResult.Failure(
                 $"Webhook to {Redact(url)} failed unexpectedly ({ex.GetType().Name}).");
+        }
+    }
+
+    /// <summary>
+    /// The row this delivery will leave behind, filled from what the runner put in the parameters.
+    /// </summary>
+    /// <remarks>
+    /// The runner supplies <c>RunId</c>, <c>WorkflowId</c>, <c>TriggerEvent</c> and <c>Attempt</c>
+    /// the same way it supplies <c>IdempotencyKey</c>. An action invoked some other way, the legacy
+    /// engine or a test, leaves them out and the row still gets written with what is known.
+    /// </remarks>
+    private static WebhookDelivery NewDelivery(IReadOnlyDictionary<string, string> parameters, string redactedUrl)
+    {
+        var delivery = new WebhookDelivery
+        {
+            Id = Guid.NewGuid(),
+            Url = redactedUrl,
+            Event = parameters.GetValueOrDefault("TriggerEvent") ?? string.Empty,
+            CreatedAt = DateTimeOffset.UtcNow,
+        };
+
+        if (Guid.TryParse(parameters.GetValueOrDefault("RunId"), out var runId)) delivery.RunId = runId;
+        if (Guid.TryParse(parameters.GetValueOrDefault("WorkflowId"), out var workflowId)) delivery.WorkflowId = workflowId;
+        if (int.TryParse(parameters.GetValueOrDefault("Attempt"), NumberStyles.Integer, CultureInfo.InvariantCulture, out var attempt) && attempt > 0)
+        {
+            delivery.Attempt = attempt;
+        }
+
+        return delivery;
+    }
+
+    /// <summary>Every header on the request except the signature.</summary>
+    private static Dictionary<string, string> RecordableHeaders(HttpRequestMessage request)
+    {
+        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var (name, values) in request.Headers)
+        {
+            if (string.Equals(name, WebhookSigning.SignatureHeader, StringComparison.OrdinalIgnoreCase)) continue;
+            headers[name] = string.Join(", ", values);
+        }
+
+        if (request.Content is not null)
+        {
+            foreach (var (name, values) in request.Content.Headers)
+            {
+                headers[name] = string.Join(", ", values);
+            }
+        }
+
+        return headers;
+    }
+
+    /// <summary>The first <see cref="WebhookDelivery.ResponseBodyLimit"/> bytes of the body, or null when there were none.</summary>
+    private static async Task<string?> ReadBoundedAsync(HttpContent content, CancellationToken ct)
+    {
+        await using var stream = await content.ReadAsStreamAsync(ct);
+
+        var buffer = new byte[WebhookDelivery.ResponseBodyLimit];
+        var total = 0;
+
+        while (total < buffer.Length)
+        {
+            var read = await stream.ReadAsync(buffer.AsMemory(total), ct);
+            if (read == 0) break;
+            total += read;
+        }
+
+        return total == 0 ? null : Encoding.UTF8.GetString(buffer, 0, total);
+    }
+
+    /// <summary>
+    /// Writes the row. A failure to record is logged and does not change the outcome: the delivery
+    /// happened or did not, and the row is the record of that rather than part of it.
+    /// </summary>
+    private async Task RecordAsync(WebhookDelivery delivery, CancellationToken ct)
+    {
+        try
+        {
+            _session.Store(delivery);
+            await _session.SaveChangesAsync(ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                "Could not record webhook delivery {DeliveryId} ({Exception})",
+                delivery.Id, ex.GetType().Name);
         }
     }
 

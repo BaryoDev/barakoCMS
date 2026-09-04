@@ -138,6 +138,7 @@ public class OpenApiTagTests
             "Tenants",
             "UserGroups",
             "Users",
+            "WebhookDeliveries",
             "WorkflowRuns",
             "Workflows",
         };

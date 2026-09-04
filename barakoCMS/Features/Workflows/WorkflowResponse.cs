@@ -1,3 +1,4 @@
+using barakoCMS.Features.Workflows.Actions;
 using barakoCMS.Models;
 
 namespace barakoCMS.Features.Workflows;
@@ -18,7 +19,7 @@ internal sealed class WorkflowResponse
     public string TriggerContentType { get; init; } = string.Empty;
     public string TriggerEvent { get; init; } = string.Empty;
     public Dictionary<string, string> Conditions { get; init; } = new();
-    public List<WorkflowAction> Actions { get; init; } = new();
+    public List<WorkflowActionResponse> Actions { get; init; } = new();
 
     public static WorkflowResponse From(WorkflowDefinition w) => new()
     {
@@ -27,6 +28,26 @@ internal sealed class WorkflowResponse
         TriggerContentType = w.TriggerContentType,
         TriggerEvent = w.TriggerEvent,
         Conditions = w.Conditions,
-        Actions = w.Actions,
+        Actions = w.Actions.Select(WorkflowActionResponse.From).ToList(),
+    };
+}
+
+/// <summary>An action with its secret replaced by whether there is one.</summary>
+/// <remarks>
+/// The stored value is ciphertext, so returning it would not hand out the secret, but a response
+/// shape with nowhere to put it cannot be made to do that by a later change that forgets why. Same
+/// reasoning as <c>EmailSettingsResponse.ApiKeySet</c>.
+/// </remarks>
+internal sealed class WorkflowActionResponse
+{
+    public string Type { get; init; } = string.Empty;
+    public Dictionary<string, string> Parameters { get; init; } = new();
+    public bool SecretSet { get; init; }
+
+    public static WorkflowActionResponse From(WorkflowAction a) => new()
+    {
+        Type = a.Type,
+        Parameters = WebhookSigning.WithoutSecret(a.Parameters),
+        SecretSet = WebhookSigning.HasSecret(a.Parameters),
     };
 }

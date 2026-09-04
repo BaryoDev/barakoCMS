@@ -464,6 +464,12 @@ public static class ServiceCollectionExtensions
                 .Index(x => x.Status)
                 .Index(x => x.CreatedAt);
 
+            options.Schema.For<WebhookDelivery>()
+                .MultiTenanted()
+                .DocumentAlias("webhook_deliveries")
+                .Index(x => x.WorkflowId)
+                .Index(x => x.CreatedAt);
+
             options.Schema.For<ConnectorSecret>()
                 .MultiTenanted()
                 .DocumentAlias("connector_secrets")
@@ -685,6 +691,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowRunQueue, barakoCMS.Features.Workflows.WorkflowRunQueue>();
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowRunner>();
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowRunRetentionService>();
+        services.AddHostedService<barakoCMS.Features.WebhookDeliveries.WebhookDeliveryRetentionService>();
         services.AddScoped<barakoCMS.Infrastructure.Auth.Mfa.IMfaService, barakoCMS.Infrastructure.Auth.Mfa.MfaService>();
         // Device trust is opt-in: the default gate does nothing. The DeviceTrust module overrides it.
         services.TryAddScoped<barakoCMS.Core.Interfaces.IDeviceGate, barakoCMS.Core.Interfaces.NoopDeviceGate>();

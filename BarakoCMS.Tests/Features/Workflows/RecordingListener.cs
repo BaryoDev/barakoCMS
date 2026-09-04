@@ -17,12 +17,12 @@ internal sealed class RecordingListener : IDisposable
     private readonly HttpListener _listener = new();
     private readonly CancellationTokenSource _stopping = new();
 
-    public RecordingListener(string? redirectTo = null)
+    public RecordingListener(string? redirectTo = null, int statusCode = 200, string? responseBody = null)
     {
         Url = $"http://127.0.0.1:{FreePort()}/";
         _listener.Prefixes.Add(Url);
         _listener.Start();
-        _ = ServeAsync(redirectTo);
+        _ = ServeAsync(redirectTo, statusCode, responseBody);
     }
 
     public string Url { get; }
@@ -31,10 +31,13 @@ internal sealed class RecordingListener : IDisposable
 
     public string? LastBody { get; private set; }
 
+    /// <summary>The exact bytes received, which is what a signature is computed over.</summary>
+    public byte[]? LastBodyBytes { get; private set; }
+
     /// <summary>The headers of the last request, so a test can assert on what was sent as well as what was in it.</summary>
     public Dictionary<string, string> LastHeaders { get; } = new(StringComparer.OrdinalIgnoreCase);
 
-    private async Task ServeAsync(string? redirectTo)
+    private async Task ServeAsync(string? redirectTo, int statusCode, string? responseBody)
     {
         while (!_stopping.IsCancellationRequested)
         {
@@ -54,9 +57,11 @@ internal sealed class RecordingListener : IDisposable
                 if (name is not null) LastHeaders[name] = context.Request.Headers[name] ?? string.Empty;
             }
 
-            using (var reader = new StreamReader(context.Request.InputStream, Encoding.UTF8))
+            using (var buffer = new MemoryStream())
             {
-                LastBody = await reader.ReadToEndAsync();
+                await context.Request.InputStream.CopyToAsync(buffer);
+                LastBodyBytes = buffer.ToArray();
+                LastBody = Encoding.UTF8.GetString(LastBodyBytes);
             }
 
             WasCalled = true;
@@ -67,7 +72,13 @@ internal sealed class RecordingListener : IDisposable
             }
             else
             {
-                context.Response.StatusCode = 200;
+                context.Response.StatusCode = statusCode;
+                if (responseBody is not null)
+                {
+                    var bytes = Encoding.UTF8.GetBytes(responseBody);
+                    context.Response.ContentLength64 = bytes.Length;
+                    await context.Response.OutputStream.WriteAsync(bytes);
+                }
             }
 
             context.Response.Close();
