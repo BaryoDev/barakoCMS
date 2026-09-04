@@ -40,7 +40,7 @@ public class RequestTests
     [Fact]
     public async Task A_template_naming_a_sensitive_field_is_refused()
     {
-        var client = AdminClient();
+        var client = await AdminClient();
         var (type, id) = await SeedContentAsync(sensitiveField: true);
         await SeedConnectorAsync(client);
         var slug = await SaveRequestAsync(client, body: "{\"ssn\":\"{{Secret}}\"}");
@@ -65,7 +65,7 @@ public class RequestTests
     [Fact]
     public async Task A_template_naming_a_public_field_composes()
     {
-        var client = AdminClient();
+        var client = await AdminClient();
         var (_, id) = await SeedContentAsync(sensitiveField: false);
         await SeedConnectorAsync(client);
         var slug = await SaveRequestAsync(client, body: "{\"title\":\"{{Title}}\"}");
@@ -90,7 +90,7 @@ public class RequestTests
     [Fact]
     public async Task A_value_containing_a_quote_cannot_add_a_field()
     {
-        var client = AdminClient();
+        var client = await AdminClient();
         var hostile = "\",\"admin\":true,\"x\":\"";
         var (_, id) = await SeedContentAsync(sensitiveField: false, title: hostile);
         await SeedConnectorAsync(client);
@@ -118,7 +118,7 @@ public class RequestTests
     [Fact]
     public async Task A_path_value_is_escaped_for_a_url()
     {
-        var client = AdminClient();
+        var client = await AdminClient();
         var (_, id) = await SeedContentAsync(sensitiveField: false, title: "a/b c");
         await SeedConnectorAsync(client);
         var slug = await SaveRequestAsync(client, body: null, path: "/posts/{{Title}}");
@@ -141,7 +141,7 @@ public class RequestTests
     [Fact]
     public async Task A_query_variable_is_refused_while_queries_do_not_exist()
     {
-        var client = AdminClient();
+        var client = await AdminClient();
         var (_, id) = await SeedContentAsync(sensitiveField: false);
         await SeedConnectorAsync(client);
         var slug = await SaveRequestAsync(client, body: "{\"rows\":\"{{query.rows}}\"}");
@@ -158,7 +158,7 @@ public class RequestTests
     [Fact]
     public async Task A_body_that_is_not_valid_json_is_refused()
     {
-        var client = AdminClient();
+        var client = await AdminClient();
         var (_, id) = await SeedContentAsync(sensitiveField: false);
         await SeedConnectorAsync(client);
         var slug = await SaveRequestAsync(client, body: "{\"title\": {{Title}}}");
@@ -180,7 +180,7 @@ public class RequestTests
     [Fact]
     public async Task A_request_naming_a_missing_connector_is_refused_when_saved()
     {
-        var client = AdminClient();
+        var client = await AdminClient();
 
         var res = await client.PostAsJsonAsync("/api/requests", new
         {
@@ -206,7 +206,7 @@ public class RequestTests
     [Fact]
     public async Task A_json_path_rule_without_a_path_is_refused()
     {
-        var client = AdminClient();
+        var client = await AdminClient();
         await SeedConnectorAsync(client);
 
         var res = await client.PostAsJsonAsync("/api/requests", new
@@ -236,7 +236,7 @@ public class RequestTests
     [Fact]
     public async Task A_method_outside_the_allowlist_is_refused()
     {
-        var client = AdminClient();
+        var client = await AdminClient();
         await SeedConnectorAsync(client);
 
         var res = await client.PostAsJsonAsync("/api/requests", new
@@ -274,11 +274,11 @@ public class RequestTests
 
     private string _connectorSlug = string.Empty;
 
-    private HttpClient AdminClient()
+    private async Task<HttpClient> AdminClient()
     {
         var client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
-            "Bearer", _factory.CreateToken(["SuperAdmin", "Admin"], Guid.NewGuid().ToString()));
+            "Bearer", await _factory.StoredUserTokenAsync("SuperAdmin", "Admin"));
         return client;
     }
 
