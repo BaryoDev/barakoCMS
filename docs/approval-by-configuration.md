@@ -264,7 +264,7 @@ the state it lands in. "State is now Approved" also describes an administrator c
 mistake, and a supplier notification is the thing that most needs not to fire on that.
 
 `{{data.Field}}` reads the entry's fields; `{{id}}`, `{{contentType}}`, `{{status}}` and
-`{{createdAt}}` are also available (`GET /api/workflows/template-variables` lists them). The
+`{{createdAt}}` are also available (`GET /api/workflows/variables` lists them). The
 `Email` action needs `To`, `Subject` and `Body`.
 
 A workflow on a transition the type does not declare is refused:
