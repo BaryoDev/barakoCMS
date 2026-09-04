@@ -263,13 +263,21 @@ jobs:
           # "found vulnerabilities" from "could not run". The report itself is the signal, and an
           # unreadable one fails the build rather than passing: a gate that cannot see must not wave
           # things through.
-          npm audit --json > audit.json || true
+          # The registry's audit endpoint has gone away for minutes at a time (503, or a hang), which
+          # made every run fail for a reason that had nothing to do with the code. Retry for a while
+          # before concluding that the report is unreadable. The gate below still fails closed.
+          for attempt in 1 2 3 4 5; do
+            timeout 180 npm audit --json > audit.json || true
+            if jq -e '.metadata.vulnerabilities.total' audit.json >/dev/null 2>&1; then break; fi
+            echo "npm audit attempt $attempt returned no report, retrying in 60s"
+            sleep 60
+          done
 
           CRIT=$(jq -r '.metadata.vulnerabilities.critical // empty' audit.json 2>/dev/null || true)
           HIGH=$(jq -r '.metadata.vulnerabilities.high // empty' audit.json 2>/dev/null || true)
           case "${CRIT}|${HIGH}" in
             *[!0-9]\|*|*\|*[!0-9]*|\|*|*\|)
-              echo "::error::npm audit did not return a usable report — failing closed"
+              echo "::error::npm audit did not return a usable report, failing closed"
               head -c 500 audit.json || true
               exit 1
               ;;
@@ -334,13 +342,21 @@ jobs:
       # closed rather than waving things through.
       - name: Audit dependencies (fail on Critical or High)
         run: |
-          npm audit --json > audit.json || true
+          # The registry's audit endpoint has gone away for minutes at a time (503, or a hang), which
+          # made every run fail for a reason that had nothing to do with the code. Retry for a while
+          # before concluding that the report is unreadable. The gate below still fails closed.
+          for attempt in 1 2 3 4 5; do
+            timeout 180 npm audit --json > audit.json || true
+            if jq -e '.metadata.vulnerabilities.total' audit.json >/dev/null 2>&1; then break; fi
+            echo "npm audit attempt $attempt returned no report, retrying in 60s"
+            sleep 60
+          done
 
           CRIT=$(jq -r '.metadata.vulnerabilities.critical // empty' audit.json 2>/dev/null || true)
           HIGH=$(jq -r '.metadata.vulnerabilities.high // empty' audit.json 2>/dev/null || true)
           case "${CRIT}|${HIGH}" in
             *[!0-9]\|*|*\|*[!0-9]*|\|*|*\|)
-              echo "::error::npm audit did not return a usable report — failing closed"
+              echo "::error::npm audit did not return a usable report, failing closed"
               head -c 500 audit.json || true
               exit 1
               ;;
