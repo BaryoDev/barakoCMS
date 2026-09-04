@@ -50,6 +50,10 @@ import { IconBolt, IconPen, IconPlus, IconTrash, IconWarning, IconWebhook } from
 
 const SELECT = 'h-9 w-full rounded-md border bg-transparent px-3 text-sm';
 
+// ConnectorRules.IsSlug, character for character. The save is gated on it rather than the typing,
+// because rewriting the box on every keystroke deletes the hyphen the operator has just typed.
+const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,62}$/;
+
 const PROBE_LABELS: Record<ReturnType<typeof probeOutcome>, { label: string; tone: Tone }> = {
     succeeded: { label: 'Reachable', tone: 'success' },
     failed: { label: 'Failing', tone: 'destructive' },
@@ -115,7 +119,8 @@ function ConnectorDialog({ connector, open, onOpenChange }: ConnectorDialogProps
     const secretKey = mode?.secretKey ?? null;
     const secretStored = secretKey !== null && storedKeys.includes(secretKey);
     const pending = create.isPending || update.isPending;
-    const canSave = name.trim().length > 0 && slug.length > 0 && baseUrl.trim().length > 0 && !pending;
+    const slugValid = SLUG_RE.test(slug);
+    const canSave = name.trim().length > 0 && slugValid && baseUrl.trim().length > 0 && !pending;
 
     function onNameChange(value: string) {
         setName(value);
@@ -200,17 +205,27 @@ function ConnectorDialog({ connector, open, onOpenChange }: ConnectorDialogProps
                                 value={slug}
                                 disabled={editing}
                                 className="font-mono text-xs"
+                                aria-invalid={!editing && slug.length > 0 && !slugValid}
                                 onChange={(e) => {
                                     setSlugEdited(true);
-                                    setSlug(slugify(e.target.value));
+                                    setSlug(e.target.value);
                                 }}
                                 placeholder="company-jira"
                             />
                             <p className="text-muted-foreground text-xs">
                                 {editing
                                     ? 'Fixed after creation. A request definition references a connector by slug, so renaming it would break those without saying so.'
-                                    : 'Lowercase letters, digits and hyphens. This is what a request definition will reference, and it cannot be changed later.'}
+                                    : 'Lowercase letters, digits and hyphens, starting with a letter or a digit. This is what a request definition will reference, and it cannot be changed later.'}
                             </p>
+                            {!editing && slug.length > 0 && !slugValid && (
+                                <p className="text-warning flex gap-2 text-xs">
+                                    <IconWarning aria-hidden className="mt-0.5 shrink-0 size-3.5" />
+                                    <span>
+                                        The server will refuse that slug, and it cannot be corrected
+                                        once the connector exists.
+                                    </span>
+                                </p>
+                            )}
                         </div>
 
                         <div className="space-y-1.5">

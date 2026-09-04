@@ -165,6 +165,32 @@ describe('configGap', () => {
         expect(gap).toContain('Username');
     });
 
+    // The Basic arm of ConnectorSender.TryAttachAuthAsync reads the username with
+    // GetValueOrDefault(...) ?? string.Empty and only returns early when the password is missing,
+    // so a blank username is sent as base64(":password") and the provider answers 401. Saying it is
+    // refused here would send the operator hunting for a client-side refusal that does not exist.
+    it('does not claim a missing basic username is refused before the call is sent', () => {
+        const gap = configGap(connector({ auth: 'Basic', secretKeys: ['Password'] }));
+
+        expect(gap).toContain('empty username');
+        expect(gap).not.toContain('refused');
+    });
+
+    // The ApiKeyHeader arm does return early, so this one is a refusal and says so.
+    it('says a missing header name is refused before the call is sent', () => {
+        const gap = configGap(connector({ auth: 'ApiKeyHeader', secretKeys: ['ApiKey'] }));
+
+        expect(gap).toContain('HeaderName');
+        expect(gap).toContain('refused before it is sent');
+    });
+
+    // Same for the credential itself, on either mode.
+    it('says a missing credential is refused before the call is sent', () => {
+        expect(configGap(connector({ auth: 'BearerToken' }))).toContain(
+            'refused before it is sent',
+        );
+    });
+
     it('is silent for basic auth once the username and the password are both set', () => {
         expect(
             configGap(

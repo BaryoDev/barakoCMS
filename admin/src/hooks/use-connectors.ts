@@ -65,6 +65,17 @@ export interface AuthSetting {
     key: string;
     label: string;
     placeholder?: string;
+    /**
+     * What the sender actually does when this setting is blank, in the operator's words.
+     *
+     * It is per setting because the two are not the same. `ConnectorSender.TryAttachAuthAsync`
+     * returns early on a blank `HeaderName`, so that call never leaves the process. A blank
+     * `Username` is not checked at all: the Basic arm reads it with `GetValueOrDefault(...) ??
+     * string.Empty` and sends `Authorization: Basic base64(":password")`, so the provider answers
+     * 401 and the operator is owed a message that says so rather than one that sends them looking
+     * for a refusal on this side.
+     */
+    whenMissing: string;
 }
 
 export interface AuthMode {
@@ -106,14 +117,30 @@ export const CONNECTOR_AUTH_MODES: AuthMode[] = [
         label: 'Basic',
         description: 'The username is configuration, the password is a credential.',
         secretKey: 'Password',
-        settings: [{ key: 'Username', label: 'Username', placeholder: 'reporting-bot' }],
+        settings: [
+            {
+                key: 'Username',
+                label: 'Username',
+                placeholder: 'reporting-bot',
+                whenMissing:
+                    'Username is not set, so this connector authenticates as an empty username. The call is still sent, and the provider answers it.',
+            },
+        ],
     },
     {
         value: 'ApiKeyHeader',
         label: 'API key header',
         description: 'The key is sent as the header you name.',
         secretKey: 'ApiKey',
-        settings: [{ key: 'HeaderName', label: 'Header name', placeholder: 'X-Api-Key' }],
+        settings: [
+            {
+                key: 'HeaderName',
+                label: 'Header name',
+                placeholder: 'X-Api-Key',
+                whenMissing:
+                    'HeaderName is not set, so a call through this connector is refused before it is sent.',
+            },
+        ],
     },
     {
         value: 'OAuth2ClientCredentials',
@@ -208,12 +235,14 @@ export function probeOutcome(connector: Pick<Connector, 'lastTestResult'>): Prob
 }
 
 /**
- * Why a call through this connector would be refused before it is even sent, or null.
+ * What is wrong with this connector's configuration, in the operator's words, or null.
  *
- * Mirrors the refusals in `ConnectorSender.TryAttachAuthAsync` so an operator reads them on the
- * screen instead of discovering them in the first workflow run. It is a hint, not a gate: the
- * server decides, and an auth mode this build does not recognise is left alone rather than reported
- * as broken.
+ * Read off `ConnectorSender.TryAttachAuthAsync` so an operator sees it on the screen instead of
+ * discovering it in the first workflow run. Not every gap is a refusal, and the message says which
+ * it is: a missing secret and a missing `HeaderName` stop the call on this side, while a missing
+ * `Username` does not, because the Basic arm defaults it to empty and sends the request anyway.
+ * It is a hint, not a gate: the server decides, and an auth mode this build does not recognise is
+ * left alone rather than reported as broken.
  */
 export function configGap(
     connector: Pick<Connector, 'auth' | 'settings' | 'secretKeys'>,
@@ -225,7 +254,7 @@ export function configGap(
     for (const setting of mode.settings) {
         const value = connector.settings[setting.key];
         if (!value || value.trim().length === 0) {
-            return `${setting.key} is not set, so a call through this connector is refused before it is sent.`;
+            return setting.whenMissing;
         }
     }
 
