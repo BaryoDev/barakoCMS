@@ -74,7 +74,10 @@ const RUNS = [
 ];
 
 /** Stubs the three endpoints and reports how many times the detail was read. */
-async function stubRuns(page: Page, options: { retry?: (route: import('@playwright/test').Route) => void } = {}) {
+async function stubRuns(
+  page: Page,
+  options: { retry?: (route: import('@playwright/test').Route) => void | Promise<void> } = {}
+) {
   const detailReads: string[] = [];
   const retries: string[] = [];
 
@@ -204,5 +207,146 @@ test.describe('workflow runs', () => {
 
     await expect(page.getByText('That action is running now. Wait for it to finish.')).toBeVisible();
     expect(stubs.detailReads.length).toBe(readsBefore);
+  });
+
+  test('every retry button is disabled while one retry is in flight', async ({ page }) => {
+    await authed(page);
+    await stubShell(page);
+
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    await stubRuns(page, {
+      retry: async (route) => {
+        await held;
+        await route.fulfill({ json: { ...PARTLY_FAILED, status: 'Running' } });
+      },
+    });
+
+    await page.goto('/workflow-runs');
+    await page.getByRole('radio', { name: /Announce a post/ }).check();
+    await expect(actions(page)).toHaveCount(5);
+
+    const second = page.getByRole('button', { name: /Retry action 2/ });
+    const third = page.getByRole('button', { name: /Retry action 3/ });
+    await expect(second).toBeEnabled();
+    await expect(third).toBeEnabled();
+
+    await second.click();
+
+    // The page has to raise the in-flight flag, not merely pass one the card knows how to honour.
+    // Pressing retry twice sends the action twice, and the second post is what the idempotency key
+    // is there to absorb rather than something the screen should invite.
+    await expect(second).toBeDisabled();
+    await expect(third).toBeDisabled();
+
+    release();
+
+    await expect(page.getByText('Queued that action to run again.')).toBeVisible();
+    await expect(third).toBeEnabled();
+  });
+
+  test('fits a phone screen, so the retry button can be pressed', async ({ page }) => {
+    await page.setViewportSize({ width: 393, height: 851 });
+    await open(page);
+
+    await page.getByRole('radio', { name: /Announce a post/ }).check();
+    await expect(actions(page)).toHaveCount(5);
+
+    // The two-column grid used to let the table's own width grow the track, so the page scrolled
+    // sideways and the detail card sat past the right edge with the retry button on it.
+    const width = await page.evaluate(() => ({
+      scroll: document.documentElement.scrollWidth,
+      client: document.documentElement.clientWidth,
+    }));
+    expect(width.scroll).toBe(width.client);
+
+    const retry = page.getByRole('button', { name: /Retry action 2/ });
+    const box = await retry.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.x + box!.width).toBeLessThanOrEqual(width.client);
+
+    // The measurement is the diagnosis; the click is the thing an operator could not do.
+    await retry.click();
+    await expect(page.getByText('Queued that action to run again.')).toBeVisible();
+  });
+});
+
+/**
+ * Paging, which the single-page fixture above cannot reach: PaginationControls renders nothing when
+ * there is only one page, so the page-change handler and the reset-to-page-one both sit unexercised.
+ */
+test.describe('workflow runs paging', () => {
+  /** One run per page, so there is always a next page, and reports the query each read carried. */
+  async function stubPagedRuns(page: Page) {
+    const asked: URL[] = [];
+
+    await page.route(/\/api\/workflow-runs(\?|$)/, (route) => {
+      const url = new URL(route.request().url());
+      asked.push(url);
+
+      const status = url.searchParams.get('status');
+      const source = status ? RUNS.filter((r) => r.status === status) : RUNS;
+      const wanted = Number(url.searchParams.get('page') ?? '1');
+      const item = source[wanted - 1];
+
+      return route.fulfill({
+        json: {
+          items: item ? [item] : [],
+          page: wanted,
+          pageSize: 1,
+          totalItems: source.length,
+          totalPages: source.length,
+          hasNextPage: wanted < source.length,
+          hasPreviousPage: wanted > 1,
+        },
+      });
+    });
+
+    return asked;
+  }
+
+  test('next asks the API for the following page', async ({ page }) => {
+    await authed(page);
+    await stubShell(page);
+    const asked = await stubPagedRuns(page);
+
+    await page.goto('/workflow-runs');
+    const table = page.getByRole('table');
+    await expect(table.getByText('Announce a post')).toBeVisible({ timeout: 15000 });
+
+    await page.getByRole('button', { name: 'Next', exact: true }).click();
+
+    await expect(table.getByText('Tidy the index')).toBeVisible();
+    await expect(table.getByText('Announce a post')).toBeHidden();
+    expect(asked.map((url) => url.searchParams.get('page'))).toContain('2');
+  });
+
+  test('choosing a status from page 2 starts the filtered list at page 1', async ({ page }) => {
+    await authed(page);
+    await stubShell(page);
+    const asked = await stubPagedRuns(page);
+
+    await page.goto('/workflow-runs');
+    await expect(page.getByRole('table').getByText('Announce a post')).toBeVisible({ timeout: 15000 });
+
+    await page.getByRole('button', { name: 'Next', exact: true }).click();
+    await expect(page.getByRole('table').getByText('Tidy the index')).toBeVisible();
+
+    await page.getByLabel('Filter runs by status').click();
+    await page.getByRole('option', { name: 'Failed', exact: true }).click();
+
+    // Page 2 of everything is not page 2 of one status. Staying there reads an empty page for a
+    // filter that has a match, which is the screen telling the operator nothing is Failed.
+    await expect
+      .poll(() =>
+        asked
+          .filter((url) => url.searchParams.get('status') === 'Failed')
+          .map((url) => url.searchParams.get('page'))
+      )
+      .toEqual(['1']);
+    await expect(page.getByRole('table').getByText('Push to the CDN')).toBeVisible();
   });
 });

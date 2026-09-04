@@ -22,6 +22,7 @@ test.describe('U.5 — failed lists show an error, not an empty state', () => {
         { route: '/users', api: '**/api/users**', entity: 'users', paged: true },
         { route: '/user-groups', api: '**/api/user-groups**', entity: 'groups', paged: false },
         { route: '/workflows', api: '**/api/workflows**', entity: 'workflows', paged: false },
+        { route: '/workflow-runs', api: '**/api/workflow-runs**', entity: 'workflow runs', paged: true },
     ];
 
     for (const p of pages) {

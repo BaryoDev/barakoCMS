@@ -37,7 +37,7 @@ import {
 } from '@/hooks/use-workflow-runs';
 import { AttemptCard } from './attempt-card';
 
-const CARD = 'bg-card rounded-xl border p-6 shadow-[var(--shadow-card)]';
+const CARD = 'min-w-0 bg-card rounded-xl border p-6 shadow-[var(--shadow-card)]';
 
 function formatMoment(value: string | null | undefined): string {
   if (!value) return '';
