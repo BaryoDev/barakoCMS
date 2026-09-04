@@ -12,15 +12,27 @@ private and are proxied through the API so authorisation is still checked on eve
 
 ## Enable it
 
-Register it alongside the Files module, which owns the upload endpoints:
+It depends on the Files module, which owns the upload endpoints. The package brings Files in
+with it, so one reference is enough; enable both:
+
+```sh
+dotnet add package BarakoCMS.Files.S3
+```
 
 ```csharp
-builder.Services.AddBarakoCMS(builder.Configuration, modules =>
-{
-    modules.Add(new BarakoCMS.Files.FilesModule());
-    modules.Add(new BarakoCMS.Files.S3.S3FilesModule());
-});
+builder.Services.AddBarakoCMS(builder.Configuration);
+
+var app = builder.Build();
+app.UseBarakoCMS();
 ```
+
+The package reference plus a restart is the install. `AddBarakoCMS` finds every module in the
+application's dependency context, and `BarakoCMS:Modules:Enabled` decides which of them run
+(`BarakoCMS__Modules__Enabled=Files,Files.S3`). Unset, every referenced module runs and the API logs
+one warning saying so. To name it by hand instead, put
+`modules.Add(new BarakoCMS.Files.S3.S3FilesModule())`
+in the `AddBarakoCMS` callback; discovery skips a type the host already added. See `MODULES.md` in
+the repository.
 
 ## Configuration
 

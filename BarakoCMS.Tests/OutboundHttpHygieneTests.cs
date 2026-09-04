@@ -74,7 +74,10 @@ public class OutboundHttpHygieneTests
         var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = body };
         var action = new WebhookAction(
             new StubHttpClientFactory(new HttpClient(new StubHandler(response))),
-            session: null!, // never reached: a non-Public document returns no data without a query
+            // A non-Public document sends no data without a query, and the delivery row's write is
+            // a no-op on the mock, so nothing here reaches a database.
+            new Moq.Mock<Marten.IDocumentSession>().Object,
+            new Moq.Mock<barakoCMS.Infrastructure.Security.ISecretProtector>().Object,
             AllowingGuard(),
             NullLogger<WebhookAction>.Instance);
 
