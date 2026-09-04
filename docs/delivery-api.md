@@ -210,8 +210,9 @@ on anybody's site and an unpublish for it would hand out the slug of an entry th
 
 A comment line (`: keepalive`) is sent whenever nothing else has been for
 `Delivery:Events:KeepAliveSeconds` (15), so a proxy does not close an idle connection. An
-`EventSource` never dispatches a comment. There is no `id` on the frames and no replay: a client
-that reconnects should re-read what it cares about, then resume listening.
+`EventSource` never dispatches a comment. The frames carry no event id (the `id:` line is empty)
+and there is no replay: a client that reconnects should re-read what it cares about, then resume
+listening.
 
 ```js
 const source = new EventSource("/api/public/events?type=post");
