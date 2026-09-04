@@ -46,7 +46,7 @@ public interface IWorkflowDebugger
             ActionType = actionType,
             Success = false,
             ErrorMessage = error,
-            ResolvedParameters = new Dictionary<string, string>(resolvedParams),
+            ResolvedParameters = barakoCMS.Features.Workflows.Actions.WebhookSigning.WithoutSecret(resolvedParams),
             Duration = timer.Elapsed
         });
 
@@ -111,7 +111,7 @@ public class WorkflowDebugger : IWorkflowDebugger
         {
             ActionType = actionType,
             Success = true,
-            ResolvedParameters = new Dictionary<string, string>(resolvedParams),
+            ResolvedParameters = barakoCMS.Features.Workflows.Actions.WebhookSigning.WithoutSecret(resolvedParams),
             Duration = timer.Elapsed
         };
 
@@ -149,7 +149,7 @@ public class WorkflowDebugger : IWorkflowDebugger
             ActionType = actionType,
             Success = false,
             ErrorMessage = error,
-            ResolvedParameters = new Dictionary<string, string>(resolvedParams),
+            ResolvedParameters = barakoCMS.Features.Workflows.Actions.WebhookSigning.WithoutSecret(resolvedParams),
             Duration = timer.Elapsed
         };
 

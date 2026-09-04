@@ -120,6 +120,19 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
 
             services.Remove(retention);
 
+            // The delivery log sweep, for the same reason: it would delete a row a test seeded as
+            // old on purpose to prove the sweep removes it.
+            var deliveryRetention = services.SingleOrDefault(d =>
+                d.ImplementationType == typeof(barakoCMS.Features.WebhookDeliveries.WebhookDeliveryRetentionService));
+            if (deliveryRetention is null)
+            {
+                throw new InvalidOperationException(
+                    "WebhookDeliveryRetentionService is no longer registered the way this fixture expects, "
+                  + "so the delivery log sweep may still be running in tests.");
+            }
+
+            services.Remove(deliveryRetention);
+
             new BarakoCMS.Email.Resend.ResendEmailModule().ConfigureServices(services, ctx.Configuration);
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Email.Resend.ResendEmailModule(), opts));
 

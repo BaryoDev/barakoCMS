@@ -1,5 +1,7 @@
 using FastEndpoints;
+using barakoCMS.Features.Workflows.Actions;
 using barakoCMS.Infrastructure.Auth;
+using barakoCMS.Infrastructure.Security;
 using barakoCMS.Models;
 using Marten;
 
@@ -9,11 +11,16 @@ internal class CreateWorkflowEndpoint : Endpoint<WorkflowDefinition, barakoCMS.F
 {
     private readonly IDocumentSession _session;
     private readonly barakoCMS.Infrastructure.Services.IWorkflowSchemaValidator _validator;
+    private readonly ISecretProtector _protector;
 
-    public CreateWorkflowEndpoint(IDocumentSession session, barakoCMS.Infrastructure.Services.IWorkflowSchemaValidator validator)
+    public CreateWorkflowEndpoint(
+        IDocumentSession session,
+        barakoCMS.Infrastructure.Services.IWorkflowSchemaValidator validator,
+        ISecretProtector protector)
     {
         _session = session;
         _validator = validator;
+        _protector = protector;
     }
 
     public override void Configure()
@@ -44,6 +51,10 @@ internal class CreateWorkflowEndpoint : Endpoint<WorkflowDefinition, barakoCMS.F
         {
             req.TriggerEvent = declared;
         }
+
+        // Encrypted before it is stored, so the definition, the runs that copy its parameters and
+        // the execution log all hold ciphertext. Only the webhook action decrypts it, when sending.
+        WebhookSigning.ProtectSecrets(req, _protector);
 
         req.Id = Guid.NewGuid();
         _session.Store(req);
