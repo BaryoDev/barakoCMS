@@ -8,11 +8,26 @@ countries — and register new tracked sites — without ever exposing Umami cre
 
 ## Install
 
-```csharp
-services.AddBarakoCMS(config, m => m.Add(new UmamiAnalyticsModule()));
+```sh
+dotnet add package BarakoCMS.Analytics.Umami
 ```
 
-(The `BarakoCMS.Suite` host already registers it.)
+```csharp
+builder.Services.AddBarakoCMS(builder.Configuration);
+
+var app = builder.Build();
+app.UseBarakoCMS();
+```
+
+The package reference plus a restart is the install. `AddBarakoCMS` finds every module in the
+application's dependency context, and `BarakoCMS:Modules:Enabled` decides which of them run
+(`BarakoCMS__Modules__Enabled=Analytics.Umami`). Unset, every referenced module runs and the API logs
+one warning saying so. To name it by hand instead, put
+`modules.Add(new BarakoCMS.Analytics.Umami.UmamiAnalyticsModule())`
+in the `AddBarakoCMS` callback; discovery skips a type the host already added. See `MODULES.md` in
+the repository.
+
+(The `BarakoCMS.Suite` image already references it.)
 
 ## Configure
 

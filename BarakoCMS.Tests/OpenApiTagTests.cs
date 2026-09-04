@@ -123,6 +123,7 @@ public class OpenApiTagTests
             "FeatureFlags",
             "Files",
             "Import",
+            "Jobs",
             "Me",
             "Modules",
             "Monitoring",
@@ -139,6 +140,7 @@ public class OpenApiTagTests
             "Tenants",
             "UserGroups",
             "Users",
+            "WebhookDeliveries",
             "WorkflowRuns",
             "Workflows",
         };

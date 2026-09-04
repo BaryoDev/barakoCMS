@@ -1,0 +1,68 @@
+{
+  "name": "events",
+  "description": "An events site: events at a venue with speakers, and a geopoint so the delivery API can answer what is on nearby.",
+  "contentTypes": [
+    {
+      "name": "event",
+      "displayName": "Event",
+      "description": "Something happening at a time and, unless it is online, a place.",
+      "isPubliclyDeliverable": true,
+      "fields": [
+        { "name": "Title", "displayName": "Title", "type": "string", "isRequired": true },
+        { "name": "Slug", "displayName": "Slug", "type": "slug", "isRequired": true },
+        { "name": "Summary", "displayName": "Summary", "type": "text" },
+        { "name": "Description", "displayName": "Description", "type": "richtext" },
+        { "name": "StartsAt", "displayName": "Starts at", "type": "datetime", "isRequired": true },
+        { "name": "EndsAt", "displayName": "Ends at", "type": "datetime" },
+        { "name": "Timezone", "displayName": "Timezone", "type": "string" },
+        { "name": "Venue", "displayName": "Venue", "type": "reference", "referenceType": "venue" },
+        { "name": "Location", "displayName": "Location", "type": "geopoint" },
+        { "name": "IsOnline", "displayName": "Online event", "type": "bool" },
+        { "name": "OnlineUrl", "displayName": "Online URL", "type": "url" },
+        { "name": "Speakers", "displayName": "Speakers", "type": "array" },
+        { "name": "Image", "displayName": "Image", "type": "url" },
+        { "name": "RegistrationUrl", "displayName": "Registration URL", "type": "url" },
+        { "name": "Capacity", "displayName": "Capacity", "type": "int" },
+        { "name": "IsFree", "displayName": "Free to attend", "type": "bool" },
+        { "name": "Price", "displayName": "Price", "type": "money" },
+        { "name": "Tags", "displayName": "Tags", "type": "array" }
+      ]
+    },
+    {
+      "name": "venue",
+      "displayName": "Venue",
+      "description": "A place events happen. Contact details are for organisers, not the public.",
+      "isPubliclyDeliverable": true,
+      "fields": [
+        { "name": "Name", "displayName": "Name", "type": "string", "isRequired": true },
+        { "name": "Slug", "displayName": "Slug", "type": "slug", "isRequired": true },
+        { "name": "Address", "displayName": "Address", "type": "text" },
+        { "name": "City", "displayName": "City", "type": "string" },
+        { "name": "Country", "displayName": "Country", "type": "string" },
+        { "name": "Location", "displayName": "Location", "type": "geopoint" },
+        { "name": "Website", "displayName": "Website", "type": "url" },
+        { "name": "Photo", "displayName": "Photo", "type": "url" },
+        { "name": "Capacity", "displayName": "Capacity", "type": "int" },
+        { "name": "AccessNotes", "displayName": "Access notes", "type": "text" },
+        { "name": "ContactEmail", "displayName": "Contact email", "type": "email", "sensitivity": "Sensitive" },
+        { "name": "ContactPhone", "displayName": "Contact phone", "type": "string", "sensitivity": "Sensitive" }
+      ]
+    },
+    {
+      "name": "speaker",
+      "displayName": "Speaker",
+      "description": "Someone presenting at an event.",
+      "isPubliclyDeliverable": true,
+      "fields": [
+        { "name": "Name", "displayName": "Name", "type": "string", "isRequired": true },
+        { "name": "Slug", "displayName": "Slug", "type": "slug", "isRequired": true },
+        { "name": "JobTitle", "displayName": "Job title", "type": "string" },
+        { "name": "Organisation", "displayName": "Organisation", "type": "string" },
+        { "name": "Bio", "displayName": "Bio", "type": "richtext" },
+        { "name": "Photo", "displayName": "Photo", "type": "url" },
+        { "name": "Website", "displayName": "Website", "type": "url" },
+        { "name": "Email", "displayName": "Email", "type": "email", "sensitivity": "Sensitive" }
+      ]
+    }
+  ]
+}

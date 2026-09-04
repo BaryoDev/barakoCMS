@@ -216,13 +216,14 @@ public class WebhookPayloadTests
         OutboundAddressGuard guard,
         Dictionary<string, string>? parameters = null)
     {
-        await using var session = store.QuerySession(tenant);
+        await using var session = store.LightweightSession(tenant);
         using var handler = OutboundHttpHandler.Create(guard);
         using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(10) };
 
         var action = new WebhookAction(
             new SingleClientFactory(client),
             session,
+            new Moq.Mock<barakoCMS.Infrastructure.Security.ISecretProtector>().Object,
             guard,
             NullLogger<WebhookAction>.Instance);
 

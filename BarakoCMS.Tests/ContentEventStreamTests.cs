@@ -69,15 +69,9 @@ public class ContentEventStreamTests
 
         public HttpStatusCode StatusCode => _response.StatusCode;
 
-        public static async Task<OpenStream> OpenAsync(HttpClient client, string url, string? tenant = null)
+        public static async Task<OpenStream> OpenAsync(HttpClient client, string url, string? tenant = null, string? remoteIp = null)
         {
-            var request = new HttpRequestMessage(HttpMethod.Get, url);
-            if (tenant is not null)
-            {
-                request.Headers.Add("X-Tenant", tenant);
-            }
-
-            var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+            var response = await client.SendAsync(Request(url, tenant, remoteIp), HttpCompletionOption.ResponseHeadersRead);
             if (response.StatusCode != HttpStatusCode.OK)
             {
                 // Read the body only on the failure path: on a 200 it is an open stream, and
@@ -148,6 +142,22 @@ public class ContentEventStreamTests
             _reader.Dispose();
             _response.Dispose();
         }
+    }
+
+    private static HttpRequestMessage Request(string url, string? tenant = null, string? remoteIp = null)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        if (tenant is not null)
+        {
+            request.Headers.Add("X-Tenant", tenant);
+        }
+
+        if (remoteIp is not null)
+        {
+            request.Headers.Add(TestRemoteIpFilter.Header, remoteIp);
+        }
+
+        return request;
     }
 
     private static string Slug() => "evt-" + Guid.NewGuid().ToString("n")[..8];
@@ -418,6 +428,55 @@ public class ContentEventStreamTests
         using var second = await client.GetAsync("/api/public/events", HttpCompletionOption.ResponseHeadersRead);
         second.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
         second.Headers.RetryAfter.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task Beyond_the_per_client_cap_one_client_is_refused_while_another_still_connects()
+    {
+        var host = EnabledHost(new Dictionary<string, string?> { ["Delivery:Events:MaxConnectionsPerClient"] = "2" });
+        var client = host.CreateClient();
+        const string first = "203.0.113.10";
+        const string second = "203.0.113.20";
+
+        using var firstA = await OpenStream.OpenAsync(client, "/api/public/events", remoteIp: first);
+        using var firstB = await OpenStream.OpenAsync(client, "/api/public/events", remoteIp: first);
+
+        using var refused = await client.SendAsync(Request("/api/public/events", remoteIp: first), HttpCompletionOption.ResponseHeadersRead);
+        refused.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable, "the third stream from one address is over its cap of 2");
+        refused.Headers.RetryAfter.Should().NotBeNull();
+        (await refused.Content.ReadAsStringAsync()).Should().Contain("This client", "the reason names the per-client cap, not the instance cap");
+
+        using var other = await OpenStream.OpenAsync(client, "/api/public/events", remoteIp: second);
+        other.StatusCode.Should().Be(HttpStatusCode.OK, "another address is under its own cap");
+    }
+
+    [Fact]
+    public async Task Closing_a_stream_gives_the_client_its_slot_back()
+    {
+        var host = EnabledHost(new Dictionary<string, string?> { ["Delivery:Events:MaxConnectionsPerClient"] = "1" });
+        var client = host.CreateClient();
+        const string address = "203.0.113.30";
+
+        var held = await OpenStream.OpenAsync(client, "/api/public/events", remoteIp: address);
+
+        using var refused = await client.SendAsync(Request("/api/public/events", remoteIp: address), HttpCompletionOption.ResponseHeadersRead);
+        refused.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+
+        held.Dispose();
+
+        // The server learns of the disconnect asynchronously, so the slot comes back a moment
+        // after Dispose returns. Poll rather than sleep, and fail if it never does.
+        var broadcaster = host.Services.GetRequiredService<barakoCMS.Features.Public.Events.ContentChangeBroadcaster>();
+        var deadline = DateTime.UtcNow + ReadTimeout;
+        while (broadcaster.ConnectionsFor(address) > 0 && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(50);
+        }
+
+        broadcaster.ConnectionsFor(address).Should().Be(0, "the count releases when the connection ends");
+
+        using var again = await OpenStream.OpenAsync(client, "/api/public/events", remoteIp: address);
+        again.StatusCode.Should().Be(HttpStatusCode.OK, "the address is back under its cap");
     }
 
     [Fact]

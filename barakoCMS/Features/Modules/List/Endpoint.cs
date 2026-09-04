@@ -6,7 +6,8 @@ using FastEndpoints;
 namespace barakoCMS.Features.Modules.List;
 
 /// <summary>
-/// GET /api/modules, reporting every module this instance saw and whether it runs.
+/// GET /api/modules, reporting every module this instance saw, whether it runs, and what the
+/// schema preflight found for it.
 /// </summary>
 /// <remarks>
 /// Read from the <see cref="ModuleCatalogue"/> <c>AddBarakoCMS</c> built, which holds what the host
@@ -23,8 +24,13 @@ namespace barakoCMS.Features.Modules.List;
 internal sealed class Endpoint : Endpoint<ListModulesRequest, PaginatedResponse<ModuleSummary>>
 {
     private readonly ModuleCatalogue _catalogue;
+    private readonly ModuleSchemaReport _schema;
 
-    public Endpoint(ModuleCatalogue catalogue) => _catalogue = catalogue;
+    public Endpoint(ModuleCatalogue catalogue, ModuleSchemaReport schema)
+    {
+        _catalogue = catalogue;
+        _schema = schema;
+    }
 
     public override void Configure()
     {
@@ -37,10 +43,23 @@ internal sealed class Endpoint : Endpoint<ListModulesRequest, PaginatedResponse<
         // Ordered by name so two calls, and two deployments of the same set, agree. Registration
         // order is meaningful to the host (it decides who configures first) and meaningless here.
         IReadOnlyList<ModuleSummary> modules = _catalogue.Entries
-            .Select(m => new ModuleSummary(m.Name, m.ContractVersion, m.Enabled))
+            .Select(Summarise)
             .OrderBy(m => m.Name, StringComparer.Ordinal)
             .ToArray();
 
         await Send.OkAsync(modules.ToPagedResponse(req), ct);
+    }
+
+    /// <summary>
+    /// Unknown, not ready, whenever the preflight has nothing on the module: the check was switched
+    /// off, or the module is not enabled and so registered no schema for it to look at.
+    /// </summary>
+    private ModuleSummary Summarise(ModuleCatalogueEntry entry)
+    {
+        var finding = entry.Enabled ? _schema.For(entry.Name) : null;
+        return finding is null
+            ? new ModuleSummary(entry.Name, entry.ContractVersion, entry.Enabled, ModuleSchemaState.Unknown, [])
+            : new ModuleSummary(entry.Name, entry.ContractVersion, entry.Enabled, finding.State,
+                finding.Changes.Select(c => c.Name).ToArray());
     }
 }

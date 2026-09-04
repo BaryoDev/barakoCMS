@@ -57,6 +57,13 @@ So your example is pure configuration, no code:
 Set these via the Roles endpoints / admin UI. Because logic is additive, a user
 with both Treasurer and Secretary gets the union.
 
+`ContentTypePermission.Transitions` sits alongside the four CRUD rules, keyed by
+transition name, for a content type that declares its own lifecycle. Update
+does not imply a transition and a transition does not imply update.
+[Approval by configuration](approval-by-configuration.md) walks an invoice
+through Submit and Approve against the API, with every request as a curl and the
+status code each one answers.
+
 ## Layer 2: Row-level scope (already works)
 
 `PermissionRule.Conditions` uses Directus/Strapi-style predicates evaluated by
@@ -431,6 +438,7 @@ says.
 | `Features/WorkflowRuns/*` | `retry_workflow_actions` | `POST /api/workflow-runs/{id}/actions/{ordinal}/retry` | SuperAdmin, Admin |
 | `Features/Content/History/*` | `rollback_content` | `POST /api/contents/{id}/rollback/{versionId}` | SuperAdmin, Admin |
 | `Features/Content/Erase/*` | `erase_content` | `DELETE /api/contents/{id}/erase` | SuperAdmin |
+| `Features/Jobs/*` | `view_jobs` | `GET /api/jobs` | SuperAdmin, Admin |
 
 Users is two capabilities because its old gates were two: listing accounts and resetting
 someone's password were `Roles("SuperAdmin")`, while changing a user's roles and groups

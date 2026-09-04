@@ -39,6 +39,14 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The built-in content type blueprints. Removed from Content first, because this SDK treats
+         every .json as Content and would pack them into the consumer's project the way it once did
+         appsettings.json. -->
+    <Content Remove="Blueprints\*.json" />
+    <EmbeddedResource Include="Blueprints\*.json" LogicalName="Blueprints/%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="AspNetCore.HealthChecks.Npgsql" />
     <PackageReference Include="AspNetCore.HealthChecks.System" />
     <PackageReference Include="AspNetCore.HealthChecks.UI" />

@@ -12,7 +12,7 @@ namespace BarakoCMS.Tests;
 
 /// <summary>
 /// GET /api/modules, from issue #185: which modules this instance saw, whether each runs (#170),
-/// and nothing else.
+/// what the schema preflight found for each (#519), and nothing else.
 /// </summary>
 /// <remarks>
 /// The fixture's own host configures module services directly, turns discovery off, and so gets an
@@ -125,7 +125,28 @@ public class ModulesEndpointTests
 
         foreach (var item in items)
         {
-            item.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(["name", "contractVersion", "enabled"]);
+            item.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(
+                ["name", "contractVersion", "enabled", "schemaState", "schemaChanges"]);
+        }
+    }
+
+    /// <summary>
+    /// Issue #519. The shared host runs the store under CreateOrUpdate, where the preflight is off
+    /// by default, so nothing was computed and the endpoint says so rather than guessing "ready".
+    /// </summary>
+    [Fact]
+    public async Task A_host_whose_preflight_did_not_run_reports_the_schema_state_as_unknown()
+    {
+        var client = await AdminClientFor(HostWithModules());
+
+        var response = await client.GetAsync("/api/modules", TestContext.Current.CancellationToken);
+
+        var items = await ItemsAsync(response);
+        items.Should().HaveCount(3);
+        foreach (var item in items)
+        {
+            item.GetProperty("schemaState").GetString().Should().Be(ModuleSchemaState.Unknown);
+            item.GetProperty("schemaChanges").EnumerateArray().Should().BeEmpty();
         }
     }
 
