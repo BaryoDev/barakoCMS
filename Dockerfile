@@ -7,9 +7,12 @@ WORKDIR /src
 # Directory.Packages.props, and the shared MSBuild settings — TargetFramework among them — live in
 # Directory.Build.props. Restoring with only the .csproj present gives NETSDK1013 ("The TargetFramework
 # value '' was not recognized"), which is what broke the Decaf image on the 3.18.0 release.
+#
+# The lock file rides in the same layer as the .csproj: locked mode needs it beside the project it
+# restores, and a restore that finds no lock file fails rather than generating one (NU1004).
 COPY ["Directory.Build.props", "Directory.Packages.props", "./"]
-COPY ["barakoCMS/barakoCMS.csproj", "barakoCMS/"]
-RUN dotnet restore "barakoCMS/barakoCMS.csproj"
+COPY ["barakoCMS/barakoCMS.csproj", "barakoCMS/packages.lock.json", "barakoCMS/"]
+RUN dotnet restore "barakoCMS/barakoCMS.csproj" --locked-mode
 
 # Copy everything else and build
 COPY . .

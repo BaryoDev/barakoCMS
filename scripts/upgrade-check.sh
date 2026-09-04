@@ -84,7 +84,7 @@ for port in "$PG_PORT" "$NEW_PORT" "$OLD_PORT"; do
 done
 
 step "building 4.0 from the working tree"
-dotnet publish barakoCMS/barakoCMS.csproj -c Release -o "$WORK/publish" --nologo -v q -clp:ErrorsOnly
+dotnet publish barakoCMS/barakoCMS.csproj -c Release -o "$WORK/publish" --nologo -v q -clp:ErrorsOnly -p:RestoreLockedMode=true
 
 step "starting postgres"
 docker network create "$NETWORK" >/dev/null 2>&1 || true

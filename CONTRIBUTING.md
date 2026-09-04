@@ -188,7 +188,9 @@ proposing, not on a similar one, and not before your last change.
   `Nullable`, licence or company metadata in a `.csproj`.
 - Package versions live in `Directory.Packages.props` (Central Package Management). Reference
   packages without a version: `<PackageReference Include="Marten" />`. This is what stops two
-  projects drifting onto different versions of the same dependency.
+  projects drifting onto different versions of the same dependency. After adding or bumping a
+  package, run `dotnet restore` and commit the `packages.lock.json` changes; CI restores in locked
+  mode and fails (NU1004) on a lock file that does not match.
 - No floating versions (`3.7.*`). They make a build of the same commit non-reproducible.
 - Formatting is settled by `.editorconfig` and enforced at build time. If the build complains
   about style, fix the code rather than arguing in review.

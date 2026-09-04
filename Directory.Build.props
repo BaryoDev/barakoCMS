@@ -73,4 +73,12 @@
     <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
   </PropertyGroup>
 
+  <!-- Every project writes packages.lock.json and commits it. A transitive bump then shows up as a
+       diff instead of arriving silently, and CI restores in locked mode so a stale lock fails
+       the build rather than being regenerated. It is also what makes GitHub attribute the
+       dependency graph to this repository (#158). -->
+  <PropertyGroup>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+  </PropertyGroup>
+
 </Project>

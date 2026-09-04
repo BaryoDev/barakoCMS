@@ -72,7 +72,7 @@ licensed, and has all of them. That is a genuine recommendation, not a hedge.
 
 - [Quick start](#quick-start) · [Live demo](#live-demo) · [Modules](#modules)
 - [Frontend kit](#frontend-kit) · [Architecture](#architecture)
-- [How the pieces fit](#how-the-pieces-fit) · [Module, or core?](#module-or-core) · [Why this and not that](#why-this-and-not-that)
+- [How the pieces fit](#how-the-pieces-fit) · [Module, or core?](#module-or-core) · [Why this and not that](#why-this-and-not-that) · [What it runs on](#what-it-runs-on)
 - [Docs](#documentation) · [Support](#support) · [License](#license)
 
 ---
@@ -360,6 +360,24 @@ content creation on a live instance once. Development keeps `CreateOrUpdate` for
 
 Deep dives live in the [docs](https://baryo.dev/docs/): event sourcing, concurrency,
 content modeling, extending BarakoCMS, and deployment.
+
+### What it runs on
+
+Versions are the ones pinned in [Directory.Packages.props](Directory.Packages.props), and every
+project commits a `packages.lock.json`, so the dependency graph GitHub shows for this repository is
+the one that builds.
+
+- [FastEndpoints](https://fast-endpoints.com/) 8.3.0, with its Security, Swagger and Testing packages.
+- [Marten](https://martendb.io/) 9.30.0 over PostgreSQL, for documents and the event store.
+- [Talaan](https://github.com/BaryoDev/Talaan) 0.1.0, our own `.xlsx`/CSV reader, used by the Import module.
+- [Serilog](https://serilog.net/) (Serilog.AspNetCore 10.0.0) for logging.
+- [prometheus-net](https://github.com/prometheus-net/prometheus-net) 8.2.1 for metrics.
+- [Testcontainers](https://dotnet.testcontainers.org/) 4.14.0 (PostgreSql and Minio) for the integration tests.
+
+Two things run next to the app rather than inside it, so they do not appear in any manifest here:
+[Umami](https://umami.is) is a separate self-hosted service that the Analytics.Umami module talks to
+over HTTP, and [Caddy](https://caddyserver.com/) is the reverse proxy that terminates TLS in
+`docker-compose.prod.yml`. Both are deployment choices, not package references.
 
 ---
 

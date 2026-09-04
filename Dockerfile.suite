@@ -3,7 +3,9 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 COPY . .
-RUN dotnet publish "BarakoCMS.Suite/BarakoCMS.Suite.csproj" -c Release -o /app/publish /p:UseAppHost=false
+# The implicit restore inside publish runs in locked mode against the committed packages.lock.json
+# files, which COPY . . brought in with everything else.
+RUN dotnet publish "BarakoCMS.Suite/BarakoCMS.Suite.csproj" -c Release -o /app/publish /p:UseAppHost=false /p:RestoreLockedMode=true
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app

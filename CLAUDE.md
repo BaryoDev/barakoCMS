@@ -83,7 +83,9 @@ genuinely its own: `PackageId`, `Version`, `Description`, `RootNamespace`, proje
 ```
 
 Adding a new package means adding a `<PackageVersion>` entry there first. This is what stops two
-modules resolving different versions of the same dependency.
+modules resolving different versions of the same dependency. Then run `dotnet restore` and commit
+the `packages.lock.json` changes: every restore in CI, the Dockerfiles and the scripts runs in
+locked mode, and a lock file that does not match fails with NU1004 instead of being regenerated.
 
 **No floating versions.** `3.7.*` makes two builds of the same commit non-reproducible. Pin it.
 
