@@ -1,6 +1,6 @@
 # Workflow engine: rethink and improvement plan
 
-**Status:** Parked (design notes for a future pickup)
+**Status:** Parked (design notes for a future pickup). The admin workflow UI and the `admin/` paths named here moved to [BaryoDev/barakoBrew](https://github.com/BaryoDev/barakoBrew).
 **Scope:** `barakoCMS/Features/Workflows/*`, `barakoCMS/Models/WorkflowDefinition.cs`, `WorkflowProjection`, admin workflow UI
 **TL;DR:** The engine's basic shape (content-event → conditions → actions, async, pluggable actions) is sound. The work is in **trust** (idempotency, run history, retries), **consistency** (one expression language, fix trigger gaps), and **expressiveness** (structured data, cross-action outputs). Harden and expand the rules engine; don't over-build a durable orchestrator yet.
 

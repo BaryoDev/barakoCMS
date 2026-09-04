@@ -43,7 +43,7 @@ Each row is a control that is implemented and checkable, not a plan.
 | Multi-tenant isolation | Marten conjoined tenancy: every document and event stream is tagged and auto-filtered by tenant |
 | Field-level sensitivity | Per-field allowlist on public delivery, applied on both read and write |
 | Static analysis | CodeQL on every pull request |
-| Dependency vulnerabilities | Dependabot, plus `dotnet list package --vulnerable` and `npm audit` gates that fail the build on High or Critical |
+| Dependency vulnerabilities | Dependabot, plus a `dotnet list package --vulnerable` gate that fails the build on High or Critical |
 | Secret scanning | Gitleaks on every pull request |
 | Software bill of materials | CycloneDX per package and for the container image, attached to each release |
 | Backup and restore | Every deployment path takes verified backups; CI restores one and boots against it on every pull request (`docs/backup-and-restore.md`) |
@@ -104,7 +104,8 @@ whose value is never being altered. What that choice commits an operator to is i
 
 ## Where the admin keeps your session
 
-The admin holds the access token in memory and the refresh token in an httpOnly cookie the page
+The admin, barakoBrew (its own repository), holds the access token in memory and the refresh token
+in an httpOnly cookie the page
 cannot read. Before 4.0 both sat in `localStorage`, where any script on the origin could read them,
 which made one cross-site scripting bug worth seven days of renewable sessions rather than fifteen
 minutes.

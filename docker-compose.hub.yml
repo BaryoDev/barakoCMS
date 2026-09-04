@@ -2,7 +2,8 @@
 #
 #   docker compose -f docker-compose.hub.yml up -d
 #
-# Then open http://localhost:3000 (admin UI). The API is on http://localhost:5005.
+# The API is on http://localhost:5005. For the console, run BaryoDev/barakoBrew's quickstart
+# against it.
 #
 # This is a local try-out: no TLS, dev defaults, and a JWT key printed in this file. For a real
 # deployment use docker-compose.prod.yml, which runs these same published images behind Caddy with
@@ -49,19 +50,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-
-  admin:
-    image: ghcr.io/baryodev/barako-admin:latest
-    container_name: barako-admin
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
-    environment:
-      # Injected at container start (entrypoint.sh) — no rebuild needed to point
-      # the UI at a different API host.
-      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:5005}
-    depends_on:
-      - app
 
 volumes:
   postgres_data:
