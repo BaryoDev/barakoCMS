@@ -57,6 +57,13 @@ So your example is pure configuration, no code:
 Set these via the Roles endpoints / admin UI. Because logic is additive, a user
 with both Treasurer and Secretary gets the union.
 
+`ContentTypePermission.Transitions` sits alongside the four CRUD rules, keyed by
+transition name, for a content type that declares its own lifecycle. Update
+does not imply a transition and a transition does not imply update.
+[Approval by configuration](approval-by-configuration.md) walks an invoice
+through Submit and Approve against the API, with every request as a curl and the
+status code each one answers.
+
 ## Layer 2: Row-level scope (already works)
 
 `PermissionRule.Conditions` uses Directus/Strapi-style predicates evaluated by
