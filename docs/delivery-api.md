@@ -99,6 +99,7 @@ Operators:
 | `ne` | not equal |
 | `lt` `lte` `gt` `gte` | ordered comparison |
 | `contains` | case-insensitive substring |
+| `near` | within `radiusKm` of `lat,lng`, geopoint fields only; see [The near filter](#the-near-filter) |
 
 At most **five filters** per request. A sixth returns 400. The cap is there because arbitrary filter
 combinations against a JSONB column on an anonymous endpoint is a denial-of-service surface.
@@ -131,6 +132,63 @@ tiebreaker so a page boundary cannot move between two entries that compare equal
 Entries missing the sort field collect at the end in both directions.
 
 `sortBy` was removed in 4.0. It was accepted here and honoured nowhere.
+
+## Locations and proximity
+
+A field of type `geopoint` holds a coordinate pair:
+
+```json
+{ "lat": 6.5031, "lng": 124.8469 }
+```
+
+Both keys are required, both must be JSON numbers, latitude within -90..90 and longitude within
+-180..180. A string like `"6.5031,124.8469"` is refused on write, because the proximity query casts
+the stored numbers and a string would not cast. The admin editor hint is `geopoint`.
+
+### The near filter
+
+```text
+filter[field][near]=lat,lng,radiusKm
+```
+
+Everything within `radiusKm` of the centre. Only a `geopoint` field marked `Public` can be named,
+one `near` per request, and it counts against the five-filter cap. A malformed centre, a centre
+outside the valid range, a radius of zero or below, or a radius above the cap is 400 with the
+reason. The cap is `Delivery:MaxRadiusKm`, default 1000, and a request above it is refused rather
+than quietly narrowed.
+
+The query runs in SQL over the stored JSONB in two stages: a bounding box on the latitude and
+longitude, then the haversine distance against the radius. It is applied in the same chain as every
+other filter, so the published, public and sensitivity rules apply unchanged: a Draft two kilometres
+from the centre is not returned.
+
+Distances are great-circle on a sphere of mean radius 6371 km. That is right for "within 10 km" and
+for ordering a list. It is not geodesy: against the ellipsoid it is off by up to a third of a
+percent, and a survey or a legal boundary needs PostGIS, which this deliberately does not require.
+
+### Distance in the response
+
+When a `near` filter is present each item carries `distanceKm`, kilometres from the centre to two
+decimals, the same number the rows were filtered and ordered by. Without a `near` filter the key is
+absent, not null.
+
+`sort=distance` and `sort=-distance` order by it. Without a `near` filter, `sort=distance` is 400,
+unless the type has a `Public` field called `Distance`, which then sorts as any other field would.
+
+```bash
+curl "https://cms.example.com/api/public/store?filter[Location][near]=6.5031,124.8469,60&sort=distance" \
+  -H "X-Tenant: default"
+```
+
+```json
+{
+  "items": [
+    { "id": "3f2c1a9e-6b0d-4f7a-9c2e-1d5b8a7e4c01", "data": { "Title": "Koronadal", "Location": { "lat": 6.5031, "lng": 124.8469 } }, "distanceKm": 0 },
+    { "id": "8a1e4d2c-0b9f-4e3a-a7c6-2f4d9b8e1c02", "data": { "Title": "General Santos", "Location": { "lat": 6.1164, "lng": 125.1716 } }, "distanceKm": 56.01 }
+  ],
+  "totalItems": 2
+}
+```
 
 ## Resolving references
 
@@ -171,7 +229,7 @@ title or name hit outranks a body hit.
 
 | Status | When |
 | --- | --- |
-| 400 | unknown filter field, unknown operator, malformed `filter[...]`, more than 5 filters, unknown or non-reference `include`, more than 5 includes, unsortable field |
+| 400 | unknown filter field, unknown operator, malformed `filter[...]`, more than 5 filters, unknown or non-reference `include`, more than 5 includes, unsortable field, malformed `near` centre or radius, `near` on a field that is not a `geopoint`, `sort=distance` without a `near` filter |
 | 404 | unknown type, type not marked publicly deliverable, no slug field, no published entry at that slug |
 
 A 400 carries the reason, including the fields that would have been accepted.

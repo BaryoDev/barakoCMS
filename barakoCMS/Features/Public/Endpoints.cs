@@ -41,7 +41,18 @@ internal sealed record PublicContentResponse(
     /// JSON entirely and a caller cannot mistake "this type has no SEO fields" for "this entry has
     /// not filled them in".
     /// </remarks>
-    barakoCMS.Features.Seo.SeoMetadata? Seo = null);
+    barakoCMS.Features.Seo.SeoMetadata? Seo = null,
+
+    /// <summary>
+    /// Kilometres from the centre of the request's near filter, two decimals. Absent without one.
+    /// </summary>
+    /// <remarks>
+    /// Great-circle distance, the same number the rows were filtered and ordered by. Left out of
+    /// the JSON entirely when there is no near filter, so a frontend can test for the key rather
+    /// than for null.
+    /// </remarks>
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    double? DistanceKm = null);
 
 internal static class PublicDelivery
 {
@@ -270,7 +281,27 @@ internal sealed class PublicListRequest : PaginatedRequest { }
 internal class ListPublishedEndpoint : Endpoint<PublicListRequest, PaginatedResponse<PublicContentResponse>>
 {
     private readonly IQuerySession _session;
-    public ListPublishedEndpoint(IQuerySession session) => _session = session;
+    private readonly IConfiguration _config;
+
+    public ListPublishedEndpoint(IQuerySession session, IConfiguration config)
+    {
+        _session = session;
+        _config = config;
+    }
+
+    /// <summary>
+    /// <c>Delivery:MaxRadiusKm</c>, the widest near filter a caller may ask for. Defaults to
+    /// <see cref="DeliveryQuery.DefaultMaxRadiusKm"/>; a value that is not a positive number is
+    /// treated as unset rather than as no limit.
+    /// </summary>
+    private double MaxRadiusKm()
+    {
+        var raw = _config["Delivery:MaxRadiusKm"];
+        return double.TryParse(raw, System.Globalization.NumberStyles.Float,
+                   System.Globalization.CultureInfo.InvariantCulture, out var v) && v > 0
+            ? v
+            : DeliveryQuery.DefaultMaxRadiusKm;
+    }
 
     public override void Configure()
     {
@@ -296,7 +327,8 @@ internal class ListPublishedEndpoint : Endpoint<PublicListRequest, PaginatedResp
         var query = DeliveryQuery.Parse(
             HttpContext.Request.Query.SelectMany(kv =>
                 kv.Value.Select(v => new KeyValuePair<string, string?>(kv.Key, v))),
-            def);
+            def,
+            MaxRadiusKm());
 
         if (!query.IsValid)
         {
@@ -331,6 +363,14 @@ internal class ListPublishedEndpoint : Endpoint<PublicListRequest, PaginatedResp
             baseQuery = baseQuery.Where(c => c.MatchesSql(sql, parameters));
         }
 
+        // Same chain, same rule: the proximity test narrows the published and public set and can
+        // never replace it.
+        if (query.Near is { } near)
+        {
+            var (sql, parameters) = DeliveryQuery.NearSql(near);
+            baseQuery = baseQuery.Where(c => c.MatchesSql(sql, parameters));
+        }
+
         var total = await baseQuery.CountAsync(ct);
 
         /*
@@ -340,9 +380,12 @@ internal class ListPublishedEndpoint : Endpoint<PublicListRequest, PaginatedResp
          * same entry twice and skip another, which reads as data loss rather than as an ordering
          * question.
          */
-        var ordered = query.Sort is { } sort
-            ? baseQuery.OrderBySql(DeliveryQuery.ToOrderBySql(sort))
-            : baseQuery.OrderByDescending(c => c.CreatedAt);
+        var ordered = query switch
+        {
+            { Near: { } n, DistanceSortDescending: { } desc } => baseQuery.OrderBySql(DeliveryQuery.DistanceOrderBySql(n, desc)),
+            { Sort: { } sort } => baseQuery.OrderBySql(DeliveryQuery.ToOrderBySql(sort)),
+            _ => baseQuery.OrderByDescending(c => c.CreatedAt),
+        };
 
         var page = await ordered
             .Skip(req.Skip)
@@ -354,6 +397,11 @@ internal class ListPublishedEndpoint : Endpoint<PublicListRequest, PaginatedResp
             .Where(r => r is not null)
             .Select(r => r!)
             .ToList();
+
+        // Read off the projected data, which the field has already survived: a near filter is only
+        // accepted on a Public field, so the point is in there.
+        if (query.Near is { } centre)
+            items = items.Select(i => i with { DistanceKm = DeliveryQuery.DistanceKm(i.Data, centre) }).ToList();
 
         // Resolved after projection, never before. Projecting first means the reference id being
         // resolved has already survived the field allowlist, so a Sensitive reference field is not

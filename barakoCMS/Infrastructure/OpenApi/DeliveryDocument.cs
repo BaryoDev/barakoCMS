@@ -226,6 +226,16 @@ internal static class DeliveryDocument
         "bool" => new JsonObject { ["type"] = "boolean" },
         "array" => new JsonObject { ["type"] = "array", ["items"] = new JsonObject() },
         "json" or "object" => new JsonObject { ["type"] = "object" },
+        "geopoint" => new JsonObject
+        {
+            ["type"] = "object",
+            ["properties"] = new JsonObject
+            {
+                ["lat"] = new JsonObject { ["type"] = "number", ["minimum"] = -90, ["maximum"] = 90 },
+                ["lng"] = new JsonObject { ["type"] = "number", ["minimum"] = -180, ["maximum"] = 180 },
+            },
+            ["required"] = new JsonArray("lat", "lng"),
+        },
         _ => new JsonObject(),
     };
 
@@ -241,6 +251,11 @@ internal static class DeliveryDocument
             ["data"] = Ref(fieldsRef),
             ["createdAt"] = new JsonObject { ["type"] = "string", ["format"] = "date-time" },
             ["updatedAt"] = new JsonObject { ["type"] = "string", ["format"] = "date-time" },
+            ["distanceKm"] = new JsonObject
+            {
+                ["type"] = "number",
+                ["description"] = "Kilometres from the centre of a near filter. Present only when the request had one.",
+            },
         },
     };
 
