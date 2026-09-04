@@ -115,15 +115,18 @@ backup, so do it once before you have data worth keeping.
 ## Known rough edges
 
 - **Pick a tag your machine can run.** The `3.21.0` version tags of both images are
-  `linux/amd64` only. `latest` carries both amd64 and arm64. On an arm64 host (Ampere, Graviton,
-  an Apple laptop) pinning `BARAKO_TAG=3.21.0` fails the pull with `no matching manifest for
-  linux/arm64/v8`. Check before you pin:
+  `linux/amd64` only, and so is `barako-cms-decaf:latest`. `barako-cms:latest` carries both amd64
+  and arm64. On an arm64 host (Ampere, Graviton, an Apple laptop) pinning `BARAKO_TAG=3.21.0`
+  fails the pull with `no matching manifest for linux/arm64/v8`. Check before you pin:
 
   ```bash
-  docker buildx imagetools inspect ghcr.io/baryodev/barako-cms:$BARAKO_TAG | grep Platform
+  bash scripts/check-image-platforms.sh ghcr.io/baryodev/barako-cms:$BARAKO_TAG
+  bash scripts/check-image-platforms.sh ghcr.io/baryodev/barako-cms-decaf:$BARAKO_TAG
   ```
 
-  Tracked as #394.
+  Run the line for the image you actually pull; the two are published separately and one can
+  carry both architectures while the other does not. That is the same check the release workflow runs on every tag it publishes, and CI proves it
+  fails on `3.21.0`. Tracked as #394.
 
 - **The first nightly-backup container logs a failure** (#395). `db-backup` starts as soon as Postgres is
   healthy and takes a proof backup immediately, which on a fresh stack races the API's schema
