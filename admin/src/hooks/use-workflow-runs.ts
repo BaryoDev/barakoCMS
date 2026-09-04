@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, type Paginated } from '@/lib/api';
 import type { Tone } from '@/components/patterns/status-badge';
+import { useCurrentTenant } from '@/hooks/use-tenants';
 
 // Mirrors barakoCMS/Features/WorkflowRuns/Endpoints.cs (camelCase over the wire).
 
@@ -147,11 +148,19 @@ export function toneForAttemptStatus(status: string): Tone {
   }
 }
 
+/**
+ * The tenant is the last part of both keys. Switching tenant invalidates every query, and an
+ * invalidated query keeps its rows on screen while the refetch runs, so without it the first
+ * tenant's runs would sit in the list until the second tenant's arrived. Under a key the new
+ * tenant has never used there is nothing to keep. It goes last so the prefixes the retry hook
+ * invalidates on still find it.
+ */
 export function useWorkflowRuns(query: WorkflowRunsQuery) {
   const params = runListParams(query);
+  const tenant = useCurrentTenant();
 
   return useQuery({
-    queryKey: ['workflow-runs', params],
+    queryKey: ['workflow-runs', params, tenant],
     queryFn: async () => {
       const response = await api.get<Paginated<WorkflowRun>>('/api/workflow-runs', { params });
       return response.data;
@@ -160,8 +169,10 @@ export function useWorkflowRuns(query: WorkflowRunsQuery) {
 }
 
 export function useWorkflowRun(id: string | null) {
+  const tenant = useCurrentTenant();
+
   return useQuery({
-    queryKey: ['workflow-run', id],
+    queryKey: ['workflow-run', id, tenant],
     queryFn: async () => {
       const response = await api.get<WorkflowRun>(`/api/workflow-runs/${id}`);
       return response.data;
