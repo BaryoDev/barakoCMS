@@ -93,6 +93,9 @@ internal sealed class ListDeliveriesEndpoint : Endpoint<ListDeliveriesRequest, P
 
         var page = await query.OrderByDescending(d => d.CreatedAt).ToPagedResponseAsync(req, ct);
 
+        // A row can hold a credential a provider echoed in a 401 body, so no cache keeps a page.
+        HttpContext.Response.Headers.CacheControl = "no-store";
+
         await Send.ResponseAsync(new PaginatedResponse<WebhookDeliveryResponse>
         {
             Items = page.Items.Select(WebhookDeliveryResponse.From).ToList(),

@@ -17,12 +17,17 @@ internal sealed class RecordingListener : IDisposable
     private readonly HttpListener _listener = new();
     private readonly CancellationTokenSource _stopping = new();
 
-    public RecordingListener(string? redirectTo = null, int statusCode = 200, string? responseBody = null)
+    /// <param name="declaredResponseLength">
+    /// When set, the Content-Length announced is this rather than the body's length, and the
+    /// connection is held open after the body until the listener is disposed. A client that waits
+    /// for the whole body before handing the response back sits here until its own timeout.
+    /// </param>
+    public RecordingListener(string? redirectTo = null, int statusCode = 200, string? responseBody = null, long? declaredResponseLength = null)
     {
         Url = $"http://127.0.0.1:{FreePort()}/";
         _listener.Prefixes.Add(Url);
         _listener.Start();
-        _ = ServeAsync(redirectTo, statusCode, responseBody);
+        _ = ServeAsync(redirectTo, statusCode, responseBody, declaredResponseLength);
     }
 
     public string Url { get; }
@@ -37,7 +42,7 @@ internal sealed class RecordingListener : IDisposable
     /// <summary>The headers of the last request, so a test can assert on what was sent as well as what was in it.</summary>
     public Dictionary<string, string> LastHeaders { get; } = new(StringComparer.OrdinalIgnoreCase);
 
-    private async Task ServeAsync(string? redirectTo, int statusCode, string? responseBody)
+    private async Task ServeAsync(string? redirectTo, int statusCode, string? responseBody, long? declaredResponseLength)
     {
         while (!_stopping.IsCancellationRequested)
         {
@@ -76,9 +81,17 @@ internal sealed class RecordingListener : IDisposable
                 if (responseBody is not null)
                 {
                     var bytes = Encoding.UTF8.GetBytes(responseBody);
-                    context.Response.ContentLength64 = bytes.Length;
+                    context.Response.ContentLength64 = declaredResponseLength ?? bytes.Length;
                     await context.Response.OutputStream.WriteAsync(bytes);
+                    await context.Response.OutputStream.FlushAsync();
                 }
+            }
+
+            if (declaredResponseLength is not null)
+            {
+                try { await Task.Delay(Timeout.Infinite, _stopping.Token); } catch (OperationCanceledException) { }
+                try { context.Response.Abort(); } catch { }
+                continue;
             }
 
             context.Response.Close();

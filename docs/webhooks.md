@@ -31,6 +31,27 @@ If `Secrets:Key` is rotated, stored secrets can no longer be decrypted. The acti
 send rather than sending unsigned, marks the attempt as a permanent failure with that reason, and
 the fix is to enter the secret again on the workflow.
 
+## Signed deliveries need https
+
+A `Webhook` with a `Secret` must use an `https` URL. Over `http` the body and the signature travel
+in cleartext, and whoever reads them can replay the delivery inside the receiver's tolerance window.
+Creating or validating a workflow with a `Secret` and an `http://` URL fails with an error on
+`actions[n].parameters.Url` that names this rule. A delivery that reaches the action anyway (a
+definition saved before the rule) is recorded as a permanent failure with the same reason and
+nothing is sent. Webhooks without a secret are unaffected.
+
+```json
+{
+  "Webhooks": {
+    "AllowInsecureSignedUrls": true
+  }
+}
+```
+
+`Webhooks:AllowInsecureSignedUrls` (default `false`) turns the check off at create and at delivery,
+for a lab talking to a loopback receiver. `WebhookDeliveryTests` verifies the signing recipe over a
+loopback `http` listener, which is the case the setting exists for.
+
 ## The headers
 
 Every delivery carries:

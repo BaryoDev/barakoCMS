@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -42,7 +43,7 @@ public class WebhookDeliveryTests
     public async Task A_signed_delivery_verifies_with_the_documented_recipe_and_not_with_another_secret()
     {
         using var listener = new RecordingListener();
-        var sent = await SendAsync("webhook-signed", listener.Url, secret: Secret);
+        var sent = await SendAsync("webhook-signed", listener.Url, secret: Secret, allowInsecureSignedUrls: true);
 
         listener.WasCalled.Should().BeTrue();
         listener.LastHeaders.Should().ContainKey(WebhookSigning.SignatureHeader);
@@ -126,7 +127,7 @@ public class WebhookDeliveryTests
         // The delivery row and the log, from a real signed send.
         using var listener = new RecordingListener();
         var logger = new CapturingLogger();
-        var sent = await SendAsync("webhook-secret-hygiene", listener.Url, secret: plaintext, logger: logger);
+        var sent = await SendAsync("webhook-secret-hygiene", listener.Url, secret: plaintext, logger: logger, allowInsecureSignedUrls: true);
 
         listener.WasCalled.Should().BeTrue();
         var row = JsonSerializer.Serialize(sent.Delivery);
@@ -154,7 +155,7 @@ public class WebhookDeliveryTests
             ["TriggerEvent"] = "Published",
             ["Attempt"] = "1",
             ["IdempotencyKey"] = "run-row-200",
-        });
+        }, allowInsecureSignedUrls: true);
 
         sent.Result.Succeeded.Should().BeTrue();
 
@@ -172,6 +173,43 @@ public class WebhookDeliveryTests
         row.RequestHeaders.Should().ContainKey("Content-Type");
         row.RequestHeaders.Should().ContainKey(WebhookSigning.TimestampHeader);
         row.RequestHeaders.Should().NotContainKey(WebhookSigning.SignatureHeader);
+    }
+
+    [Fact]
+    public async Task A_signed_delivery_to_an_http_url_is_refused_and_leaves_a_permanent_failure_row()
+    {
+        using var listener = new RecordingListener();
+
+        var sent = await SendAsync("webhook-signed-http", listener.Url, secret: Secret);
+
+        listener.WasCalled.Should().BeFalse("the body and its signature must not go out in cleartext");
+        sent.Result.Succeeded.Should().BeFalse();
+        sent.Result.Retryable.Should().BeFalse("an http URL is the same on every attempt");
+        sent.Result.Error.Should().Contain(WebhookSigning.AllowInsecureSignedUrlsKey);
+        sent.Delivery.ResponseStatus.Should().BeNull();
+        sent.Delivery.Error.Should().Contain("https");
+    }
+
+    [Fact]
+    public async Task A_signed_webhook_with_an_http_url_is_refused_at_create()
+    {
+        var client = await AdminClientAsync();
+
+        var created = await client.PostAsJsonAsync("/api/workflows", new
+        {
+            name = "Cleartext signed hook " + Guid.NewGuid().ToString("N")[..8],
+            triggerContentType = "article",
+            triggerEvent = "Published",
+            actions = new[]
+            {
+                new { type = "Webhook", parameters = new Dictionary<string, string> { ["Url"] = "http://hooks.example.com/x", ["Secret"] = "whsec_x" } },
+            },
+        }, TestContext.Current.CancellationToken);
+
+        var body = await created.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        created.StatusCode.Should().Be(HttpStatusCode.BadRequest, body);
+        body.Should().Contain("actions[0].parameters.Url").And.Contain(WebhookSigning.AllowInsecureSignedUrlsKey,
+            "the error names the setting that would allow it");
     }
 
     [Fact]
@@ -209,6 +247,39 @@ public class WebhookDeliveryTests
     /// That is deliberate: it makes the assertion independent of which runner claimed the run and
     /// proves a refused delivery is logged too.
     /// </remarks>
+    /// <summary>
+    /// The receiver announces 64 MB, sends exactly the limit, then holds the connection. Reading the
+    /// whole body before the cut would sit there until the client's timeout and fail the delivery.
+    /// </summary>
+    [Fact]
+    public async Task A_response_past_the_limit_is_cut_at_4_KB_without_waiting_for_the_rest()
+    {
+        using var listener = new RecordingListener(
+            responseBody: new string('y', WebhookDelivery.ResponseBodyLimit),
+            declaredResponseLength: 64L * 1024 * 1024);
+
+        var timer = Stopwatch.StartNew();
+        var sent = await SendAsync("webhook-row-unbuffered", listener.Url, secret: null);
+        timer.Stop();
+
+        sent.Result.Succeeded.Should().BeTrue(sent.Result.Error);
+        sent.Delivery.ResponseStatus.Should().Be(200);
+        sent.Delivery.ResponseBody.Should().HaveLength(WebhookDelivery.ResponseBodyLimit);
+        timer.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(5), "the read stops at the limit, not at the end of the body");
+    }
+
+    [Fact]
+    public async Task The_delivery_log_is_marked_no_store()
+    {
+        var client = await AdminClientAsync();
+
+        var response = await client.GetAsync("/api/webhook-deliveries", TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.Headers.CacheControl.Should().NotBeNull("a response body can echo a credential, so no cache may keep the page");
+        response.Headers.CacheControl!.NoStore.Should().BeTrue();
+    }
+
     [Fact]
     public async Task A_run_executed_by_the_runner_leaves_a_row_naming_the_run()
     {
@@ -374,8 +445,13 @@ public class WebhookDeliveryTests
 
     private sealed record Sent(barakoCMS.Features.Workflows.WorkflowActionResult Result, WebhookDelivery Delivery, string? Ciphertext);
 
+    /// <summary>
+    /// The listener is loopback over http, so a signed send here is the lab case the opt-in exists
+    /// for. A test that wants the production refusal leaves <paramref name="allowInsecureSignedUrls"/> off.
+    /// </summary>
     private async Task<Sent> SendAsync(
-        string tenant, string url, string? secret, Dictionary<string, string>? extra = null, ILogger<WebhookAction>? logger = null)
+        string tenant, string url, string? secret, Dictionary<string, string>? extra = null, ILogger<WebhookAction>? logger = null,
+        bool allowInsecureSignedUrls = false)
     {
         var store = _fixture.Services.GetRequiredService<IDocumentStore>();
         var protector = _fixture.Services.GetRequiredService<ISecretProtector>();
@@ -402,8 +478,13 @@ public class WebhookDeliveryTests
         using var handler = OutboundHttpHandler.Create(guard);
         using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(10) };
 
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            [WebhookSigning.AllowInsecureSignedUrlsKey] = allowInsecureSignedUrls ? "true" : "false",
+        }).Build();
+
         var action = new WebhookAction(
-            new SingleClientFactory(client), session, protector, guard, logger ?? NullLogger<WebhookAction>.Instance);
+            new SingleClientFactory(client), session, protector, guard, logger ?? NullLogger<WebhookAction>.Instance, configuration);
 
         var result = await action.RunAsync(parameters, content, TestContext.Current.CancellationToken);
 

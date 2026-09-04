@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using barakoCMS.Infrastructure.Security;
 using barakoCMS.Models;
+using Microsoft.Extensions.Configuration;
 
 namespace barakoCMS.Features.Workflows.Actions;
 
@@ -27,6 +28,27 @@ internal static class WebhookSigning
     public const string SignatureHeader = "X-Barako-Signature";
     public const string TimestampHeader = "X-Barako-Timestamp";
     public const string DeliveryHeader = "X-Barako-Delivery";
+
+    /// <summary>
+    /// Set true to let a Webhook with a Secret post to an <c>http://</c> URL. Off by default: a
+    /// signed body over cleartext hands a network observer the payload and a signature it can replay
+    /// inside the receiver's tolerance window. A lab talking to a loopback receiver is what it is for.
+    /// </summary>
+    public const string AllowInsecureSignedUrlsKey = "Webhooks:AllowInsecureSignedUrls";
+
+    public static bool AllowsInsecureSignedUrls(IConfiguration? configuration) =>
+        configuration?.GetValue(AllowInsecureSignedUrlsKey, false) ?? false;
+
+    /// <summary>The reason a signed delivery to an http URL is refused. The validation error and the delivery row both carry it.</summary>
+    public const string InsecureSignedUrlReason =
+        "A Webhook with a Secret must use an https URL. Set " + AllowInsecureSignedUrlsKey + " to true to allow http.";
+
+    /// <summary>True when the delivery would be signed over cleartext and the deployment has not opted in.</summary>
+    public static bool IsInsecureSignedUrl(string? url, IReadOnlyDictionary<string, string> parameters, bool allowInsecure)
+    {
+        if (allowInsecure || !HasSecret(parameters)) return false;
+        return Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttp;
+    }
 
     /// <summary><c>sha256=</c> followed by the lowercase hex HMAC-SHA256 of <c>"{timestamp}.{body}"</c>.</summary>
     public static string Sign(string secret, long unixSeconds, ReadOnlySpan<byte> body)

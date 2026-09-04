@@ -10,6 +10,7 @@ using barakoCMS.Infrastructure.Http;
 using barakoCMS.Infrastructure.Security;
 using barakoCMS.Models;
 using Marten;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace barakoCMS.Features.Workflows.Actions;
@@ -36,6 +37,7 @@ internal class WebhookAction : IWorkflowAction
     private readonly ISecretProtector _protector;
     private readonly OutboundAddressGuard _addressGuard;
     private readonly ILogger<WebhookAction> _logger;
+    private readonly bool _allowInsecureSignedUrls;
 
     /// <summary>
     /// Creates a new WebhookAction.
@@ -45,13 +47,15 @@ internal class WebhookAction : IWorkflowAction
         IDocumentSession session,
         ISecretProtector protector,
         OutboundAddressGuard addressGuard,
-        ILogger<WebhookAction> logger)
+        ILogger<WebhookAction> logger,
+        IConfiguration? configuration = null)
     {
         _httpClientFactory = httpClientFactory;
         _session = session;
         _protector = protector;
         _addressGuard = addressGuard;
         _logger = logger;
+        _allowInsecureSignedUrls = WebhookSigning.AllowsInsecureSignedUrls(configuration);
     }
 
     /// <inheritdoc />
@@ -91,6 +95,18 @@ internal class WebhookAction : IWorkflowAction
             await RecordAsync(delivery, ct);
             return WorkflowActionResult.PermanentFailure(
                 $"Webhook URL {Redact(url)} is not allowed: it must be http or https to a non-internal host.");
+        }
+
+        // Permanent, like a refused address: the scheme is in the workflow and a retry sends the same
+        // one. The create endpoint refuses this first, so reaching it here means a definition saved
+        // before the rule, or with the opt-in since turned off.
+        if (WebhookSigning.IsInsecureSignedUrl(url, parameters, _allowInsecureSignedUrls))
+        {
+            _logger.LogWarning("Webhook URL {Url} is http and the action holds a secret. Skipping webhook action.", Redact(url));
+            delivery.Error = WebhookSigning.InsecureSignedUrlReason;
+            await RecordAsync(delivery, ct);
+            return WorkflowActionResult.PermanentFailure(
+                $"Webhook to {Redact(url)} was not sent. {WebhookSigning.InsecureSignedUrlReason}");
         }
 
         string? secret = null;
@@ -165,11 +181,14 @@ internal class WebhookAction : IWorkflowAction
 
             delivery.RequestHeaders = RecordableHeaders(request);
 
-            using var response = await client.SendAsync(request, ct);
-            timer.Stop();
+            // Headers only. The default completion option holds the whole body in memory before
+            // returning, so the 4 KB cut below would apply after a receiver's 100 MB answer had
+            // already been buffered.
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
 
             delivery.ResponseStatus = (int)response.StatusCode;
             delivery.ResponseBody = await ReadBoundedAsync(response.Content, ct);
+            timer.Stop();
             delivery.DurationMs = timer.ElapsedMilliseconds;
             await RecordAsync(delivery, ct);
 
