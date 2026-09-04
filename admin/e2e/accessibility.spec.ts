@@ -292,6 +292,9 @@ test.describe('accessibility', () => {
         // an empty panel. Every badge tone this screen can draw is on the page at once.
         await page.getByRole('radio', { name: /Announce a post/ }).check();
         await expect(page.getByRole('button', { name: /Retry action 2/ })).toBeVisible();
+        await scan(page);
+    });
+
     test('the queries screen, with the builder open and a preview rendered', async ({ page }) => {
         await authed(page);
         await stubShell(page);
