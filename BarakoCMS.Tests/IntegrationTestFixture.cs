@@ -58,12 +58,20 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
                 { "Connectors:Key", "test-connectors-key-that-is-its-own-and-long-enough" },
                 { "Feeds:SiteUrl", "https://test.example.com" },
                 { "Feeds:Paths:sitemap_paths", "/articles/{slug}" },
-                // The job queue, tuned for a test run: a retry waits nothing and the worker
-                // re-reads storage every second, so a job that fails five times dead-letters in
-                // seconds rather than in the minutes production's defaults take. The backoff
-                // arithmetic itself is JobBackoffTests, a unit test.
+                // The job queue, tuned for a test run: a retry waits nothing, so a job that fails
+                // five times dead-letters in seconds. The backoff arithmetic itself is
+                // JobBackoffTests, a unit test.
+                //
+                // The storage probe keeps its default of a minute. Every host a test builds with
+                // WithSettings stays alive for the rest of the run (see WithSetting), and each one
+                // runs a worker per command type that opens an unpooled connection on every probe.
+                // At one second that was two connections a second per host, times the ninety-odd
+                // hosts a full run accumulates, against the hundred postgres:16 allows: a new
+                // host's schema apply then failed to connect, Program.cs logged the failure and
+                // returned, and WebApplicationFactory reported a server that had never started. A
+                // test that waits on a retry wakes the worker itself instead; see
+                // TransactionalEnqueueTests.WaitForDeadLetterAsync.
                 { "Jobs:BackoffBaseSeconds", "0" },
-                { "Jobs:StorageProbeSeconds", "1" },
             });
         });
 

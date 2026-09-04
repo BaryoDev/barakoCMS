@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using barakoCMS.Models;
 using BarakoCMS.Tests.Jobs;
+using FastEndpoints;
 using FluentAssertions;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
@@ -109,7 +110,7 @@ public class TransactionalEnqueueTests
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var id = await response.Content.ReadFromJsonAsync<Guid>(TestContext.Current.CancellationToken);
 
-        var dead = await WaitForStateAsync(id, JobState.DeadLettered, DeadLetterTimeout);
+        var dead = await WaitForDeadLetterAsync(id);
 
         dead.AttemptCount.Should().Be(dead.MaxAttempts);
         dead.MaxAttempts.Should().Be(barakoCMS.Infrastructure.Jobs.JobOptions.DefaultMaxAttempts);
@@ -133,7 +134,7 @@ public class TransactionalEnqueueTests
             $"/api/_test/jobs/enqueue-failing?message={marker}", null, TestContext.Current.CancellationToken);
         var id = await response.Content.ReadFromJsonAsync<Guid>(TestContext.Current.CancellationToken);
 
-        var dead = await WaitForStateAsync(id, JobState.DeadLettered, DeadLetterTimeout);
+        var dead = await WaitForDeadLetterAsync(id);
 
         dead.AttemptCount.Should().BeGreaterThan(1, "every attempt before the last was counted and retried");
         dead.ExpireOn.Should().BeAfter(dead.CreatedAt.AddHours(4).AddMinutes(-1),
@@ -280,13 +281,23 @@ public class TransactionalEnqueueTests
             .FirstOrDefaultAsync(TestContext.Current.CancellationToken);
     }
 
-    private async Task<JobRecord> WaitForStateAsync(Guid id, JobState state, TimeSpan timeout)
+    /// <summary>
+    /// A retry that is due is found on the worker's next storage probe, a minute apart by default,
+    /// so this wait asks for a probe on every poll. The fixture says why the probe is not simply
+    /// shortened: every host the suite keeps alive would pay for it, in database connections.
+    /// </summary>
+    private Task<JobRecord> WaitForDeadLetterAsync(Guid id) =>
+        WaitForStateAsync(id, JobState.DeadLettered, DeadLetterTimeout,
+            wake: () => new AlwaysFailsCommand().TriggerJobExecution());
+
+    private async Task<JobRecord> WaitForStateAsync(Guid id, JobState state, TimeSpan timeout, Action? wake = null)
     {
         var deadline = DateTime.UtcNow + timeout;
         JobRecord? last = null;
 
         while (DateTime.UtcNow < deadline)
         {
+            wake?.Invoke();
             last = await LoadAsync(id);
             if (last?.State == state) return last;
             await Task.Delay(250, TestContext.Current.CancellationToken);
