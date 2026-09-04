@@ -52,7 +52,6 @@ description = "Placeholders, test fixtures, and two historical commits that cann
 commits = ["6922698d1563e1ee4c1c67b58641ee711dee51c6", "97fb29cb7e30547757c95261648217a35b0c4692"]
 paths = [
   '''(^|/)BarakoCMS\.Tests/''',
-  '''(^|/)admin/e2e/''',
   '''(^|/)docs/''',
   '''\.md$''',
 ]

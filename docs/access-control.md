@@ -1,5 +1,8 @@
 # Content access control: CRUD RBAC + field/document sensitivity
 
+> The admin UI this note plans for is barakoBrew, now in its own repository
+> ([BaryoDev/barakoBrew](https://github.com/BaryoDev/barakoBrew)). The API side is unchanged.
+
 > What exists today vs what needs building, for per-role CRUD, row-level scope,
 > and granular field sensitivity on content types. All of this is core (content
 > types + RBAC already live in core), not a module.

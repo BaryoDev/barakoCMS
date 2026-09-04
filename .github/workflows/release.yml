@@ -216,18 +216,12 @@ jobs:
           mkdir -p sbom
           dotnet CycloneDX barakoCMS.sln --output sbom --filename barakoCMS.cdx.json --json
 
-          # npm ci here rather than reusing the admin job: that job runs in parallel on a different
-          # runner, so its node_modules do not exist on this one.
-          npm --prefix admin ci --ignore-scripts
-          npx --yes @cyclonedx/cyclonedx-npm --output-file sbom/barako-admin.cdx.json admin/package.json
-
-          # A tool that writes nothing still exits 0, so check the files rather than the command.
-          for f in sbom/barakoCMS.cdx.json sbom/barako-admin.cdx.json; do
-            [ -s "$f" ] || { echo "::error::$f is missing or empty."; exit 1; }
-            COMPONENTS=$(python3 -c "import json,sys; print(len(json.load(open('$f')).get('components', [])))")
-            [ "$COMPONENTS" -gt 0 ] || { echo "::error::$f lists no components, so it describes nothing."; exit 1; }
-            echo "$f: $COMPONENTS components"
-          done
+          # A tool that writes nothing still exits 0, so check the file rather than the command.
+          f=sbom/barakoCMS.cdx.json
+          [ -s "$f" ] || { echo "::error::$f is missing or empty."; exit 1; }
+          COMPONENTS=$(python3 -c "import json,sys; print(len(json.load(open('$f')).get('components', [])))")
+          [ "$COMPONENTS" -gt 0 ] || { echo "::error::$f lists no components, so it describes nothing."; exit 1; }
+          echo "$f: $COMPONENTS components"
 
       - name: Upload the SBOM
         uses: actions/upload-artifact@v7
@@ -287,12 +281,11 @@ jobs:
       - name: Confirm the SBOM was produced
         run: |
           set -euo pipefail
-          for f in sbom/barakoCMS.cdx.json sbom/barako-admin.cdx.json; do
-            [ -s "$f" ] || { echo "::error::$f is missing or empty."; exit 1; }
-            COMPONENTS=$(python3 -c "import json; print(len(json.load(open('$f')).get('components', [])))")
-            [ "$COMPONENTS" -gt 0 ] || { echo "::error::$f lists no components."; exit 1; }
-            echo "$f: $COMPONENTS components"
-          done
+          f=sbom/barakoCMS.cdx.json
+          [ -s "$f" ] || { echo "::error::$f is missing or empty."; exit 1; }
+          COMPONENTS=$(python3 -c "import json; print(len(json.load(open('$f')).get('components', [])))")
+          [ "$COMPONENTS" -gt 0 ] || { echo "::error::$f lists no components."; exit 1; }
+          echo "$f: $COMPONENTS components"
 
       # The release claims Source Link, and Source Link without a published .snupkg gives a consumer
       # nothing to step into. The upload pattern silently dropped every symbol package for as long
@@ -453,9 +446,6 @@ jobs:
           - name: barako-cms-decaf
             file: Dockerfile
             context: .
-          - name: barako-admin
-            file: admin/Dockerfile
-            context: ./admin
         arch: [amd64, arm64]
         include:
           - arch: amd64
@@ -480,13 +470,9 @@ jobs:
           context: ${{ matrix.image.context }}
           file: ${{ matrix.image.file }}
           platforms: ${{ matrix.platform }}
-          # Stamped from the release version rather than read from package.json, which has said
-          # 0.1.0 since the beginning. Harmless on the two API images, which ignore it.
-          #
           # BARAKO_BUILD_SHA is what /health/build answers with. .git is in .dockerignore, so the
           # commit cannot be read inside the build; it has to be handed in here.
           build-args: |
-            BARAKO_VERSION=${{ env.VERSION }}
             BARAKO_BUILD_SHA=${{ github.sha }}
           labels: org.opencontainers.image.source=https://github.com/BaryoDev/barakoCMS
           outputs: type=image,name=ghcr.io/baryodev/${{ matrix.image.name }},push-by-digest=true,name-canonical=true,push=true
@@ -553,7 +539,7 @@ jobs:
         run: |
           set -euo pipefail
           V="${{ env.VERSION }}"
-          for img in barako-cms barako-cms-decaf barako-admin; do
+          for img in barako-cms barako-cms-decaf; do
             REFS=""
             for arch in amd64 arm64; do
               F="/tmp/digests/$img.$arch"
@@ -574,7 +560,7 @@ jobs:
         run: |
           set -euo pipefail
           V="${{ env.VERSION }}"
-          for img in barako-cms barako-cms-decaf barako-admin; do
+          for img in barako-cms barako-cms-decaf; do
             PLATFORMS=$(docker buildx imagetools inspect --raw "ghcr.io/baryodev/$img:$V" \
               | jq -r '[.manifests[]? | select(.platform.os != "unknown") | "\(.platform.os)/\(.platform.architecture)"] | sort | join(",")')
             case "$PLATFORMS" in
@@ -593,7 +579,7 @@ jobs:
         run: |
           set -euo pipefail
           V="${{ env.VERSION }}"
-          for img in barako-cms barako-cms-decaf barako-admin; do
+          for img in barako-cms barako-cms-decaf; do
             docker buildx imagetools create \
               --tag "arnelirobles/$img:latest" \
               --tag "arnelirobles/$img:$V" \
@@ -603,7 +589,7 @@ jobs:
   # Native arm64 :playground images for the Ampere VM — built on an arm runner so
   # the suite compiles natively (no QEMU). The playground runs these directly.
   build-playground-images:
-    name: Build arm64 playground images
+    name: Build the arm64 playground image
     needs: [gate, test, verify-packages]
     if: needs.gate.outputs.should_release == 'true'
     runs-on: ubuntu-24.04-arm
@@ -639,24 +625,6 @@ jobs:
           cache-from: type=gha,scope=pg-api
           cache-to: type=gha,mode=max,scope=pg-api
 
-      - name: Build and push admin (arm64)
-        uses: docker/build-push-action@v7
-        with:
-          context: ./admin
-          file: admin/Dockerfile
-          platforms: linux/arm64
-          push: true
-          build-args: |
-            NEXT_BASE_PATH=/barakocms
-            NEXT_PUBLIC_API_URL=https://playground.baryo.dev/barakocms-api
-            BARAKO_VERSION=${{ env.VERSION }}
-          tags: |
-            ghcr.io/baryodev/barako-admin:playground
-            ghcr.io/baryodev/barako-admin:playground-${{ env.VERSION }}
-          labels: org.opencontainers.image.source=https://github.com/BaryoDev/barakoCMS
-          cache-from: type=gha,scope=pg-admin
-          cache-to: type=gha,mode=max,scope=pg-admin
-
   # Runs before anything is published, which is the whole of #157. It used to need publish-packages
   # and publish-images, so the order was: tests pass, the packages become permanent, and only
   # then does anything get deployed and looked at.
@@ -675,13 +643,13 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: playground
-      url: https://playground.baryo.dev/barakocms
+      url: https://playground.baryo.dev/barakocms-api/health
     steps:
       - uses: actions/checkout@v7 # for scripts/smoke-test.sh
 
-      # Forced-command key (/home/opc/deploy-playground.sh) — pulls both
-      # :playground images, recreates app + admin, fails if either doesn't
-      # answer 200. A leaked key cannot open a shell.
+      # Forced-command key (/home/opc/deploy-playground.sh): pulls the :playground image,
+      # recreates the app, and fails if it does not answer 200. A leaked key cannot open a
+      # shell. The console on the same host is deployed by barakoBrew's own workflow.
       - name: Pull and restart over SSH
         uses: appleboy/ssh-action@v1.2.5
         with:

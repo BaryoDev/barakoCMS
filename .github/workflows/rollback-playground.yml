@@ -23,7 +23,7 @@ jobs:
       packages: write
     environment:
       name: playground
-      url: https://playground.baryo.dev/barakocms
+      url: https://playground.baryo.dev/barakocms-api/health
     steps:
       - uses: actions/checkout@v7 # for scripts/smoke-test.sh
 
@@ -33,13 +33,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Confirm the target images exist, then repoint :playground at them (imagetools copies the
-      # manifest — no rebuild). Fails loudly if the version was never released.
+      # Confirm the target image exists, then repoint :playground at it (imagetools copies the
+      # manifest, no rebuild). Fails loudly if the version was never released. The console's
+      # :playground tag is barakoBrew's to roll back.
       - name: Repoint :playground to ${{ inputs.version }}
         run: |
           set -euo pipefail
           V='${{ inputs.version }}'
-          for img in barako-cms barako-admin; do
+          for img in barako-cms; do
             src="ghcr.io/baryodev/$img:playground-$V"
             docker buildx imagetools inspect "$src" >/dev/null \
               || { echo "::error::$src not found — was $V released?"; exit 1; }

@@ -102,7 +102,7 @@ deployment with no memberships at all behaves exactly as it did before multi-ten
 - `/api/tenants` creates, lists and updates tenants, gated on `SuperAdmin`.
 - `GET /api/tenants/{handle}/public` is the anonymous lookup a sign-in page needs.
 
-The admin UI has a tenant switcher built on these.
+barakoBrew has a tenant switcher built on these.
 
 ## Isolation, and its limits
 

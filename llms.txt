@@ -15,6 +15,7 @@ BarakoCMS is designed to be a simple, fast, and developer-friendly headless CMS.
 - **Database**: PostgreSQL (via MartenDB)
 - **API Pattern**: REPR (Request-Endpoint-Response) using FastEndpoints.
 - **Authentication**: JWT Bearer Auth.
+- **Surface**: Swagger. This repository is the API only. The console, barakoBrew, lives at https://github.com/BaryoDev/barakoBrew.
 
 ## Key Directories
 

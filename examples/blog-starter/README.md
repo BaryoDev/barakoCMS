@@ -8,7 +8,7 @@ Assumes barakoCMS is running on `http://localhost:5005`, which is what
 
 ## 1. Create the content type
 
-There is no schema import in the admin, so `blog-schema.json` is posted to the API. Sign in as an
+There is no schema import in barakoBrew, so `blog-schema.json` is posted to the API. Sign in as an
 admin first and keep the token:
 
 ```bash
@@ -28,13 +28,13 @@ curl -s -X POST "$API_URL/api/content-types" \
 `isPubliclyDeliverable: true` in the schema is what puts the type on `/api/public/{type}`. Without
 it that route returns 404, whatever the content underneath it says.
 
-Prefer clicking? Build the same type under **Content Types** in the admin: `blog-post`, with
+Prefer clicking? Build the same type under **Content Types** in barakoBrew: `blog-post`, with
 `title` (text), `slug` (slug), `publishedAt` (date), `content` (richtext), `coverImage` (url) and
 `tags` (array), then turn on public delivery.
 
 ## 2. Add a post and publish it
 
-Write one in the admin and publish it. Delivery serves published entries only, so a draft will not
+Write one in barakoBrew and publish it. Delivery serves published entries only, so a draft will not
 appear no matter how the query is written.
 
 ## 3. Fetch
@@ -107,7 +107,7 @@ npx serve . -l 3002
 ```
 
 The API's CORS allowlist has to include whatever origin you serve from. The quickstart sets
-`CORS__AllowedOrigins` to `http://localhost:3000` (the admin), so add the page's origin to
+`CORS__AllowedOrigins` to `http://localhost:3000` (where barakoBrew runs), so add the page's origin to
 `ALLOWED_ORIGINS` in your `.env` and restart the API:
 
 ```ini

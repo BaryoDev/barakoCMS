@@ -27,8 +27,6 @@ jobs:
         include:
           - language: csharp
             build-mode: autobuild # C# is compiled; CodeQL builds it to analyze
-          - language: javascript-typescript
-            build-mode: none # interpreted; no build needed
     steps:
       - uses: actions/checkout@v7
 

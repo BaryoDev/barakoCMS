@@ -1,20 +1,17 @@
 # barakoCMS production stack, from published images. This is the only production compose file.
 #
 #   cp .env.prod.example .env
-#   # edit .env, then point both domains' DNS A records at this machine
+#   # edit .env, then point the domain's DNS A record at this machine
 #   docker compose -f docker-compose.prod.yml up -d
 #
 # Nothing is built here. Every service is an image the release workflow publishes
-# (ghcr.io/baryodev/barako-cms, barako-cms-decaf, barako-admin, mirrored to
-# arnelirobles/* on Docker Hub), so the host needs Docker and this file, not a .NET
-# SDK and a Node toolchain.
+# (ghcr.io/baryodev/barako-cms, barako-cms-decaf, mirrored to arnelirobles/* on Docker
+# Hub), so the host needs Docker and this file, not a .NET SDK.
 #
-# The admin used to be built here because of a comment claiming Next.js needs the API
-# URL at build time. It does not for this image: admin/entrypoint.sh regenerates
-# public/env-config.js from any NEXT_PUBLIC_* variable at container start, and the
-# browser reads that. See #309.
+# The API only. The console is BaryoDev/barakoBrew and deploys from its own repository,
+# pointed at DOMAIN_API.
 #
-# Caddy requests TLS certificates on first start, so both domains must already resolve
+# Caddy requests a TLS certificate on first start, so the domain must already resolve
 # here before you bring the stack up. See docs/deploy-in-production.md.
 #
 # For local development use docker-compose.yml. For a local try-out of the published
@@ -35,12 +32,10 @@ services:
       - caddy_config:/config
     environment:
       - DOMAIN_API=${DOMAIN_API:?set DOMAIN_API in .env, for example api.example.com}
-      - DOMAIN_ADMIN=${DOMAIN_ADMIN:?set DOMAIN_ADMIN in .env, for example admin.example.com}
       # Certificate expiry warnings go here. Let's Encrypt wants a contact address.
       - ACME_EMAIL=${ACME_EMAIL:?set ACME_EMAIL in .env}
     depends_on:
       - app
-      - admin
 
   # 2. Database (PostgreSQL)
   postgres:
@@ -75,10 +70,10 @@ services:
       - ConnectionStrings__DefaultConnection=Host=postgres;Database=${DB_NAME:-barako_cms};Username=${DB_USER:-postgres};Password=${DB_PASSWORD}
       # Refuses to start below 32 characters, deliberately.
       - JWT__Key=${JWT_KEY:?set JWT_KEY in .env to at least 32 random characters}
-      # The admin domain plus your own site. A browser request from an origin that is not
+      # The console's origin plus your own site. A browser request from an origin that is not
       # listed fails CORS, which reads as a broken API rather than a missing setting, so
       # FRONTEND_ORIGINS is asked for at deploy time instead of found later.
-      - CORS__AllowedOrigins=https://${DOMAIN_ADMIN},${FRONTEND_ORIGINS:?set FRONTEND_ORIGINS in .env}
+      - CORS__AllowedOrigins=${FRONTEND_ORIGINS:?set FRONTEND_ORIGINS in .env}
       - InitialAdmin__Username=${ADMIN_USER:-admin}
       - InitialAdmin__Password=${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env, this is your first sign-in}
       - Kubernetes__Enabled=false
@@ -102,20 +97,7 @@ services:
       postgres:
         condition: service_healthy
 
-  # 4. Frontend Admin UI
-  admin:
-    image: ghcr.io/baryodev/barako-admin:${BARAKO_TAG}
-    container_name: barako-admin
-    restart: always
-    environment:
-      # Read at container start by entrypoint.sh, which writes public/env-config.js. The
-      # browser reads that file, so this is the API address as the browser sees it, not as
-      # the container sees it.
-      - NEXT_PUBLIC_API_URL=https://${DOMAIN_API}
-    depends_on:
-      - app
-
-  # 5. Nightly backup
+  # 4. Nightly backup
   #
   # This stack had none. The one hardened backup path was wired into the development compose file
   # only, so the deployment that holds real data was the one with nothing behind it.

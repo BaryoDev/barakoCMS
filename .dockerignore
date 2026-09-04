@@ -3,7 +3,6 @@
 .vscode
 bin
 obj
-admin
 docs
 examples
 k8s

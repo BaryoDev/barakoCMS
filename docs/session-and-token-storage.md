@@ -1,5 +1,9 @@
 # Where the admin keeps your session, and why
 
+> The admin described here is barakoBrew, which now lives in its own repository
+> ([BaryoDev/barakoBrew](https://github.com/BaryoDev/barakoBrew)). The API half, the refresh cookie
+> and the endpoints that issue and read it, is still here.
+
 Short version: the access token lives in memory and disappears on reload; the refresh token lives in
 a cookie the page cannot read. If you sign in on a second tab and it pauses for a moment before
 loading, that is this working as intended.

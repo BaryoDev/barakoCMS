@@ -1,8 +1,8 @@
 ---
-description: Deploy the full stack (Database, Backend, Frontend) to Fly.io
+description: Deploy the database and the API to Fly.io
 ---
 
-This workflow will guide you through deploying your PostgreSQL database, .NET Backend, and Next.js Frontend to Fly.io.
+This workflow will guide you through deploying your PostgreSQL database and the .NET API to Fly.io. The console, barakoBrew, deploys from its own repository (https://github.com/BaryoDev/barakoBrew) and takes the API URL from Phase 2.
 
 ### Prerequisites
 - You must have `flyctl` installed and be logged in (`fly auth login`).
@@ -50,30 +50,8 @@ This workflow will guide you through deploying your PostgreSQL database, .NET Ba
    ```
    *Wait for it to finish. Note the URL (e.g., `https://barako-api.fly.dev`).*
 
-### Phase 3: Deploy the Frontend (Next.js)
-
-1. Navigate to the admin directory.
-   ```bash
-   cd admin
-   ```
-
-2. Initialize the frontend app.
-   ```bash
-   fly launch --name barako-admin --dockerfile Dockerfile --internal-port 3000 --region sin --no-deploy
-   ```
-
-3. Set the Backend API URL (Use the URL from Phase 2).
-   ```bash
-   fly secrets set NEXT_PUBLIC_API_URL=https://barako-api.fly.dev
-   ```
-
-4. Deploy the Frontend.
-   ```bash
-   fly deploy
-   ```
-
 ### Verification
-- Visit your frontend URL (e.g., `https://barako-admin.fly.dev`).
+- Call `https://barako-api.fly.dev/health` and expect 200.
 - Sign in as the initial admin. Set the password yourself before the first boot:
   ```bash
   fly secrets set --app barako-api InitialAdmin__Username=admin InitialAdmin__Password='<a 12+ char password>'

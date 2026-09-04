@@ -1,6 +1,6 @@
 # Event-sourced content types
 
-This page is for the person creating a content type in the admin UI and deciding whether to turn
+This page is for the person creating a content type, in barakoBrew or through the API, and deciding whether to turn
 event sourcing on. It explains what the toggle commits you to, in the order the surprises would
 otherwise arrive.
 
