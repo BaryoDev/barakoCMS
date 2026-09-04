@@ -46,7 +46,8 @@ public class MyModuleTests : IClassFixture<MyHost>
 ```
 
 `BarakoTestHost<MyModule>` is the same for a module with a parameterless constructor and no
-settings. One container per fixture, shared by every test in the class.
+settings. One container per fixture, shared by every test in the class. Each host validates
+tokens with its own key, so several fixtures can run in one test process.
 
 ## What it gives you
 
@@ -60,6 +61,7 @@ settings. One container per fixture, shared by every test in the class.
 | `OpenSession()` | A Marten session for arranging data or reading what an endpoint wrote |
 | `Services` | The host's service provider |
 | `AdminUsername`, `AdminPassword` | For a test that signs in through `POST /api/auth/login` |
+| `JwtKey` | The key this host signs and validates with |
 
 Settings you pass override the host's own. The host sets the connection string, a fresh JWT key,
 `InitialAdmin`, `Swagger:Enabled=true` and `Seed:DemoContent=false`.

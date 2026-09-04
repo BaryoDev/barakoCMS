@@ -11,6 +11,7 @@ using barakoCMS.Models;
 using barakoCMS.Modules;
 using FastEndpoints;
 using Marten;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
@@ -55,6 +56,13 @@ namespace BarakoCMS.Testing;
 /// then the module seeders. Nothing is faked, so a module that fails the contract check or the
 /// schema ownership check fails here the way it would fail on a deployment.
 /// </para>
+/// <para>
+/// Each host validates tokens with its own key, so any number of fixtures can share a test
+/// process. A host of some other kind in the same process (a <c>WebApplicationFactory</c> over
+/// core, say) validates through FastEndpoints' process-wide key, which every host that starts
+/// overwrites with its own; give such a host and every <see cref="BarakoTestHost"/> beside it the
+/// same <c>Settings["JWT:Key"]</c>.
+/// </para>
 /// </remarks>
 public class BarakoTestHost : IAsyncLifetime
 {
@@ -62,7 +70,7 @@ public class BarakoTestHost : IAsyncLifetime
     private readonly PostgreSqlContainer _postgres;
     private const string JwtIssuer = "BarakoCMS.Testing";
     private const string JwtAudience = "BarakoCMS.Testing";
-    private readonly string _jwtKey = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+    private readonly string _jwtKey;
     private WebApplication? _app;
 
     static BarakoTestHost()
@@ -88,6 +96,12 @@ public class BarakoTestHost : IAsyncLifetime
         _options = new BarakoTestHostOptions();
         configure?.Invoke(_options);
 
+        // One key for the host and for the tokens minted here. A JWT:Key set through the options
+        // is the one the host validates with, so it has to be the one the clients sign with too.
+        _jwtKey = _options.Settings.TryGetValue("JWT:Key", out var configuredKey) && !string.IsNullOrWhiteSpace(configuredKey)
+            ? configuredKey
+            : Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+
         _postgres = new PostgreSqlBuilder()
             .WithImage(_options.PostgresImage)
             .WithDatabase("barako_module_tests")
@@ -107,6 +121,12 @@ public class BarakoTestHost : IAsyncLifetime
 
     /// <summary>The seeded admin's password, for a test that goes through <c>POST /api/auth/login</c>.</summary>
     public string AdminPassword => _options.AdminPassword;
+
+    /// <summary>
+    /// The key this host signs and validates tokens with: <c>Settings["JWT:Key"]</c> when the
+    /// options set one, otherwise a fresh random key.
+    /// </summary>
+    public string JwtKey => _jwtKey;
 
     /// <summary>The connection string the host is running on, for a test that reads the database directly.</summary>
     public string ConnectionString =>
@@ -156,6 +176,17 @@ public class BarakoTestHost : IAsyncLifetime
         {
             o.DisableAutoDiscovery = true;
             o.Assemblies = endpointAssemblies;
+        });
+
+        // FastEndpoints keeps the JWT signing key in a static (JwtSigningOptions) and validates
+        // through a resolver that reads it, so with two hosts in one process the last one to
+        // materialise its bearer options validates every token in the process with its own key.
+        // Two fixture classes are two hosts, and xunit runs classes in parallel. This host
+        // validates with its own key, whatever another host did to the static.
+        builder.Services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, o =>
+        {
+            o.TokenValidationParameters.IssuerSigningKeyResolver = null;
+            o.TokenValidationParameters.IssuerSigningKey = new SymmetricSecurityKey(Encoding.ASCII.GetBytes(_jwtKey));
         });
 
         var app = builder.Build();
@@ -344,8 +375,9 @@ public class BarakoTestHost : IAsyncLifetime
         if (roles.Count == 0)
             claims.Add(new Claim(ClaimTypes.Role, "User"));
 
+        // ASCII, the encoding the host's own issuer uses for the same key.
         var credentials = new SigningCredentials(
-            new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwtKey)), SecurityAlgorithms.HmacSha256);
+            new SymmetricSecurityKey(Encoding.ASCII.GetBytes(_jwtKey)), SecurityAlgorithms.HmacSha256);
         var token = new JwtSecurityTokenHandler().WriteToken(new JwtSecurityToken(
             issuer: JwtIssuer,
             audience: JwtAudience,

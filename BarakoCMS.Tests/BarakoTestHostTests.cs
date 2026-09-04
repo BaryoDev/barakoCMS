@@ -1,12 +1,16 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using BarakoCMS.Portability;
 using BarakoCMS.Testing;
 using barakoCMS.Modules;
 using FluentAssertions;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Tokens;
 using Xunit;
 
 namespace BarakoCMS.Tests;
@@ -30,10 +34,19 @@ public class BarakoTestHostTests : IClassFixture<BarakoTestHostTests.Host>
             o.Modules.Add(new SettingsProbe());
             o.Settings["Modules:SettingsProbe:Greeting"] = "from the scoped section";
             o.Settings["Greeting"] = "from the root";
+            o.Settings["JWT:Key"] = SharedJwtKey;
         })
         {
         }
     }
+
+    /// <summary>
+    /// FastEndpoints validates through one process-wide signing key, overwritten by whichever host
+    /// materialises its bearer options last. This class runs beside IntegrationTestFixture, which
+    /// validates through that key, so every host started here uses the fixture's key: a host with a
+    /// random one would turn the fixture's tokens into 401s for the rest of the run.
+    /// </summary>
+    private const string SharedJwtKey = IntegrationTestFixture.JwtKey;
 
     /// <summary>Keeps the configuration it was handed, so the test can see which section that was.</summary>
     private sealed class SettingsProbe : IBarakoModule
@@ -142,11 +155,38 @@ public class BarakoTestHostTests : IClassFixture<BarakoTestHostTests.Host>
     }
 
     [Fact]
+    public void The_host_validates_tokens_with_its_own_key_rather_than_the_process_wide_one()
+    {
+        // A second host with a different key would prove this end to end, and would also overwrite
+        // the process-wide key under IntegrationTestFixture and fail the rest of the suite, which
+        // is what happened on the first CI run. So the validation parameters are read instead: no
+        // resolver, which is what reads the static, and this host's own key in its place.
+        var parameters = _host.Services.GetRequiredService<IOptionsMonitor<JwtBearerOptions>>()
+            .Get(JwtBearerDefaults.AuthenticationScheme)
+            .TokenValidationParameters;
+
+        parameters.IssuerSigningKeyResolver.Should().BeNull("the resolver reads FastEndpoints' static key");
+        parameters.IssuerSigningKey.Should().BeOfType<SymmetricSecurityKey>()
+            .Which.Key.Should().Equal(Encoding.ASCII.GetBytes(_host.JwtKey));
+    }
+
+    [Fact]
+    public async Task A_configured_JWT_key_is_the_one_the_clients_sign_with()
+    {
+        _host.JwtKey.Should().Be(SharedJwtKey, "the options set it");
+
+        var client = await _host.CreateAdminClientAsync(TestContext.Current.CancellationToken);
+        var response = await client.GetAsync("/api/modules", TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, "a token signed with a key the host does not validate with is a 401");
+    }
+
+    [Fact]
     public async Task A_host_running_no_modules_does_not_serve_the_module_endpoint()
     {
         // Registration is what puts a module's endpoints in the host, so the same request on a host
         // without the module has to miss. Its own container, so it costs a few seconds.
-        await using var bare = new BarakoTestHost();
+        await using var bare = new BarakoTestHost(o => o.Settings["JWT:Key"] = SharedJwtKey);
         await bare.InitializeAsync();
 
         var client = await bare.CreateAdminClientAsync(TestContext.Current.CancellationToken);
