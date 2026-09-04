@@ -19,6 +19,7 @@ import {
   IconServer,
   IconSettings,
   IconShield,
+  IconTasks,
   IconUsers,
   IconWorkflows,
   IconTable,
@@ -119,6 +120,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { title: 'Audit log', href: '/audit', icon: IconHistory , roles: ['SuperAdmin', 'Admin'] },
       { title: 'Errors', href: '/errors', icon: IconBug, metric: 'unresolvedErrors', tone: 'danger', roles: ['SuperAdmin', 'Admin'] },
+      { title: 'Workflow runs', href: '/workflow-runs', icon: IconTasks, roles: ['SuperAdmin', 'Admin'] },
       { title: 'Health', href: '/ops/health', icon: IconHealth },
       { title: 'Email', href: '/settings/email', icon: IconEnvelope , roles: ['SuperAdmin'] },
       { title: 'Security', href: '/settings/security', icon: IconShield , roles: ['SuperAdmin', 'Admin'] },
@@ -141,6 +143,7 @@ const SEGMENT_TITLES: Record<string, string> = {
   schemas: 'Content types',
   content: 'Entries',
   workflows: 'Workflows',
+  'workflow-runs': 'Workflow runs',
   queries: 'Queries',
   users: 'Users',
   roles: 'Roles',
