@@ -202,7 +202,10 @@ export default function QueriesPage() {
 
             {list.isLoading ? (
                 <TableSkeleton />
-            ) : list.isError ? (
+            ) : list.isError && !list.data ? (
+                // Only when there is nothing to show. A refetch that fails after a save or a delete
+                // leaves the last good page in the cache, and an error panel in place of it would
+                // take the table and its delete buttons away over a request that changed nothing.
                 <ErrorState entity="queries" onRetry={() => list.refetch()} />
             ) : items.length === 0 ? (
                 <EmptyState
