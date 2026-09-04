@@ -122,7 +122,7 @@ public class Endpoint : Endpoint<Request, Response>
                     .Select(kv => kv.Value?.ToString())
                     .Where(v => !string.IsNullOrWhiteSpace(v)));
 
-            var @event = new ContentCreated(id, req.ContentType, data, req.Status, userId, searchText, SensitivityLevel.Public);
+            var @event = new ContentCreated(id, req.ContentType, data, req.Status, userId, searchText, SensitivityLevel.Public, DateTime.UtcNow);
 
             await _contentWriter.CreateAsync(@event, ct);
         }

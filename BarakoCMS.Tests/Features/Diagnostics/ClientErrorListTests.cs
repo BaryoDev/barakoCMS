@@ -23,11 +23,15 @@ public class ClientErrorListTests
 
     public ClientErrorListTests(IntegrationTestFixture factory) => _factory = factory;
 
-    private HttpClient AdminClient()
+    /// <summary>An admin GET, so the call sites do not stack three awaits to read a body.</summary>
+    private async Task<HttpResponseMessage> AdminGetAsync(string url) =>
+        await (await AdminClient()).GetAsync(url);
+
+    private async Task<HttpClient> AdminClient()
     {
         var c = _factory.CreateClient();
         c.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", _factory.CreateToken(new[] { "Admin" }));
+            new AuthenticationHeaderValue("Bearer", await _factory.StoredUserTokenAsync("Admin"));
         return c;
     }
 
@@ -56,7 +60,7 @@ public class ClientErrorListTests
             ("TypeError: cannot read property of undefined", "error", false),
             ("NetworkError when fetching resource", "error", false));
 
-        var res = await AdminClient().GetAsync("/api/client-errors?q=TypeError");
+        var res = await AdminGetAsync("/api/client-errors?q=TypeError");
 
         res.StatusCode.Should().Be(HttpStatusCode.OK, "a search must not throw a LINQ translation error");
         var body = await res.Content.ReadAsStringAsync();
@@ -69,7 +73,7 @@ public class ClientErrorListTests
     {
         await SeedAsync(("Uncaught ReferenceError in checkout", "error", false));
 
-        var res = await AdminClient().GetAsync("/api/client-errors?q=referenceerror");
+        var res = await AdminGetAsync("/api/client-errors?q=referenceerror");
 
         res.StatusCode.Should().Be(HttpStatusCode.OK);
         (await res.Content.ReadAsStringAsync()).Should().Contain("ReferenceError");
@@ -84,11 +88,11 @@ public class ClientErrorListTests
             ($"done-{tag}", "error", true),
             ($"warn-{tag}", "warning", false));
 
-        var open = await (await AdminClient().GetAsync($"/api/client-errors?resolved=false&q={tag}")).Content.ReadAsStringAsync();
+        var open = await (await AdminGetAsync($"/api/client-errors?resolved=false&q={tag}")).Content.ReadAsStringAsync();
         open.Should().Contain($"open-{tag}").And.Contain($"warn-{tag}");
         open.Should().NotContain($"done-{tag}");
 
-        var warnings = await (await AdminClient().GetAsync($"/api/client-errors?severity=warning&q={tag}")).Content.ReadAsStringAsync();
+        var warnings = await (await AdminGetAsync($"/api/client-errors?severity=warning&q={tag}")).Content.ReadAsStringAsync();
         warnings.Should().Contain($"warn-{tag}");
         warnings.Should().NotContain($"open-{tag}");
     }
@@ -110,7 +114,7 @@ public class ClientErrorListTests
         });
         post.IsSuccessStatusCode.Should().BeTrue();
 
-        var listed = await (await AdminClient().GetAsync($"/api/client-errors?q={marker}")).Content.ReadAsStringAsync();
+        var listed = await (await AdminGetAsync($"/api/client-errors?q={marker}")).Content.ReadAsStringAsync();
         listed.Should().Contain(marker);
     }
 
@@ -124,7 +128,7 @@ public class ClientErrorListTests
         await anon.PostAsJsonAsync("/api/client-errors", Body());
         await anon.PostAsJsonAsync("/api/client-errors", Body());
 
-        var json = await (await AdminClient().GetAsync($"/api/client-errors?q={marker}")).Content.ReadFromJsonAsync<JsonElement>();
+        var json = await (await AdminGetAsync($"/api/client-errors?q={marker}")).Content.ReadFromJsonAsync<JsonElement>();
         json.GetProperty("totalItems").GetInt32().Should().Be(1, "the same fault is one row with a count, not two rows");
     }
 
@@ -136,7 +140,7 @@ public class ClientErrorListTests
 
         var editor = _factory.CreateClient();
         editor.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", _factory.CreateToken(new[] { "Editor" }));
+            new AuthenticationHeaderValue("Bearer", await _factory.StoredUserTokenAsync("Editor"));
         (await editor.GetAsync("/api/client-errors")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 }

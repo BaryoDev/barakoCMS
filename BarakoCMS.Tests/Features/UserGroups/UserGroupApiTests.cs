@@ -18,16 +18,16 @@ public class UserGroupApiTests
         _client = fixture.CreateClient();
     }
 
-    private string CreateAdminToken()
-    {
-        return _fixture.CreateToken(roles: new[] { "SuperAdmin" });
-    }
+    // A token for a user that exists. A capability gate answers from the stored user's roles, not
+    // from the claim, and the legacy role-name fallback that used to paper over the difference is
+    // off by default from 4.0.
+    private Task<string> CreateAdminToken() => _fixture.StoredUserTokenAsync("SuperAdmin");
 
     [Fact]
     public async Task POST_UserGroups_WithValidData_ShouldCreateGroup()
     {
         // Arrange
-        var token = CreateAdminToken();
+        var token = await CreateAdminToken();
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
@@ -51,7 +51,7 @@ public class UserGroupApiTests
     public async Task GET_UserGroups_ShouldReturnAllGroups()
     {
         // Arrange
-        var token = CreateAdminToken();
+        var token = await CreateAdminToken();
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
@@ -77,7 +77,7 @@ public class UserGroupApiTests
     public async Task GET_UserGroupsById_ExistingGroup_ShouldReturnGroup()
     {
         // Arrange
-        var token = CreateAdminToken();
+        var token = await CreateAdminToken();
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
@@ -103,7 +103,7 @@ public class UserGroupApiTests
     public async Task PUT_UserGroups_ShouldUpdateGroup()
     {
         // Arrange
-        var token = CreateAdminToken();
+        var token = await CreateAdminToken();
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
@@ -137,7 +137,7 @@ public class UserGroupApiTests
     public async Task DELETE_UserGroups_ShouldDeleteGroup()
     {
         // Arrange
-        var token = CreateAdminToken();
+        var token = await CreateAdminToken();
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
@@ -164,7 +164,7 @@ public class UserGroupApiTests
     public async Task POST_AddUserToGroup_ShouldAddUser()
     {
         // Arrange
-        var token = CreateAdminToken();
+        var token = await CreateAdminToken();
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
@@ -195,7 +195,7 @@ public class UserGroupApiTests
     public async Task DELETE_RemoveUserFromGroup_ShouldRemoveUser()
     {
         // Arrange
-        var token = CreateAdminToken();
+        var token = await CreateAdminToken();
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
