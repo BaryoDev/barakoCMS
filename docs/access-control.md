@@ -329,6 +329,41 @@ so a single `manage_settings` invented ahead of the migration would have to pick
 those and would hand out access it was meant to preserve. Users split the same way, which
 is why that area has three names and not one (see below).
 
+### Discovering the vocabulary
+
+`GET /api/capabilities` lists every name this instance understands. It is gated on `manage_roles`,
+the same as reading roles, and it answers with the usual list envelope:
+
+```json
+{ "items": [
+  { "name": "*", "source": "core", "note": "Satisfies every capability, including ones added after the role was written. A role holding it reaches every gated endpoint on this instance." },
+  { "name": "manage_roles", "source": "core", "note": null },
+  { "name": "view_ledger", "source": "Accounting", "note": null }
+], "page": 1, "pageSize": 100, "totalItems": 38 }
+```
+
+The list is `SystemCapabilities.Known` plus every name a served endpoint declares through
+`Definition.RequireCapability(...)`, read off the routing table at first use. That is the same
+metadata `CapabilityGateProcessor` enforces, so a name is listed exactly when some endpoint asks for
+it. A module you have not installed contributes nothing, and a module needs no new contract member to
+be listed. `source` is `core` or the registered module's `Name`; a module whose endpoints are served
+without the module itself being registered is named by its assembly instead.
+
+### Unknown names on a role write
+
+`POST /api/roles` and `PUT /api/roles/{id}` check `systemCapabilities` against that list. A name no
+endpoint asks for grants nothing, since `Satisfies` is an exact match, so this is about telling the
+operator rather than about access. `*` is always known.
+
+`Roles:RefuseUnknownCapabilities` (env `Roles__RefuseUnknownCapabilities`) decides what happens to an
+unknown name. Off, the default, is what always happened: the role saves. What is new is that the
+unknown names are logged at warning and returned in the response as `unknownCapabilities`, so a
+console can show them. Saving rather than refusing is deliberate: a module installed later that
+declares the name starts working without the role being edited again.
+
+On, the write is refused with a 400 whose entries name each unknown capability and point at
+`GET /api/capabilities`. Nothing is saved.
+
 ### It is a lookup, not a claim
 
 Capabilities are resolved per request from the caller's roles, not baked into the token.
@@ -451,8 +486,8 @@ only capability in the whole of #443 that Admin's defaults do not carry.
 
 Every first-party module is migrated too, and a module declares its own capability names rather than
 core declaring them: core does not reference a module, and a third-party one is not in this
-repository at all. Nothing validates a capability name on the way into a role, so a name a module
-declares is grantable the day the module ships.
+repository at all. A name a module declares is grantable the day the module ships: its endpoints put
+it on the routing table, which is where `GET /api/capabilities` and the role write check read from.
 
 | Module | Capability | Routes |
 | --- | --- | --- |

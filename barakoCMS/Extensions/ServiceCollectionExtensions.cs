@@ -735,6 +735,10 @@ public static class ServiceCollectionExtensions
         // no-op for endpoints that still gate on Roles(...).
         services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Auth.CapabilityGateProcessor>();
 
+        // The names those gates ask for, read off the routing table. GET /api/capabilities lists it
+        // and a role write checks against it.
+        services.AddSingleton<barakoCMS.Infrastructure.Auth.CapabilityVocabulary>();
+
         services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Filters.IdempotencyFilter>();
         // The finalizer completes an idempotency claim on success or releases it on failure, so a
         // failed request stays retryable. See IdempotencyFilter.
