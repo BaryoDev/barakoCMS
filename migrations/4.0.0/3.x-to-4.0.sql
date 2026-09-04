@@ -46,6 +46,10 @@
 --                         (#329). Execution moves out of the projection into a background runner,
 --                         and this is the queue plus the record. Empty on arrival, so nothing
 --                         queued exists until 4.0 starts writing them.
+--   mt_doc_webhook_deliveries
+--                         New table. One row per webhook delivery attempt: what was sent and
+--                         what came back (#95). Conjoined multi-tenant. Empty on arrival, so
+--                         creating it moves no data.
 --   mt_doc_email_settings
 --                         New table. The email provider credentials an operator entered in the
 --                         admin, with the API key encrypted (#343). One row at most. Nothing
@@ -350,6 +354,29 @@ CREATE INDEX IF NOT EXISTS mt_doc_workflow_runs_idx_status
 
 CREATE INDEX IF NOT EXISTS mt_doc_workflow_runs_idx_created_at
     ON public.mt_doc_workflow_runs USING btree ((public.mt_immutable_timestamptz(data ->> 'CreatedAt')));
+
+-- ---------------------------------------------------------------------------
+-- Webhook deliveries (#95)
+--
+-- One row per delivery attempt, written by the webhook action whether the
+-- request was sent or refused. Conjoined multi-tenant. Empty on arrival: 3.x
+-- never recorded a delivery.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.mt_doc_webhook_deliveries (
+    id                  uuid                        NOT NULL,
+    data                jsonb                       NOT NULL,
+    mt_last_modified    timestamp with time zone    NULL DEFAULT (transaction_timestamp()),
+    mt_version          uuid                        NOT NULL DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
+    mt_dotnet_type      varchar                     NULL,
+    tenant_id           varchar                     NOT NULL DEFAULT '*DEFAULT*',
+    CONSTRAINT pkey_mt_doc_webhook_deliveries_tenant_id_id PRIMARY KEY (tenant_id, id)
+);
+
+CREATE INDEX IF NOT EXISTS mt_doc_webhook_deliveries_idx_workflow_id
+    ON public.mt_doc_webhook_deliveries USING btree ((CAST(data ->> 'WorkflowId' as uuid)));
+
+CREATE INDEX IF NOT EXISTS mt_doc_webhook_deliveries_idx_created_at
+    ON public.mt_doc_webhook_deliveries USING btree ((public.mt_immutable_timestamptz(data ->> 'CreatedAt')));
 
 CREATE TABLE IF NOT EXISTS public.mt_doc_email_settings (
     id                  uuid                        NOT NULL,

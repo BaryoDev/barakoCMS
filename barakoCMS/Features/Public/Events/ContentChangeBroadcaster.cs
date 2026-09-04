@@ -25,6 +25,8 @@ internal sealed class ContentChangeBroadcaster
     private readonly ConcurrentDictionary<string, ConcurrentDictionary<Guid, Subscription>> _tenants =
         new(StringComparer.Ordinal);
 
+    private readonly ConcurrentDictionary<string, int> _perClient = new(StringComparer.Ordinal);
+
     private readonly ILogger<ContentChangeBroadcaster> _logger;
     private int _connections;
 
@@ -41,23 +43,63 @@ internal sealed class ContentChangeBroadcaster
     public bool HasSubscribers(string tenant) =>
         _tenants.TryGetValue(tenant, out var subscriptions) && !subscriptions.IsEmpty;
 
+    /// <summary>Open connections from one client address on this instance.</summary>
+    public int ConnectionsFor(string client) => _perClient.GetValueOrDefault(client);
+
     /// <summary>
-    /// Registers a connection, or returns null when the instance is already at
-    /// <paramref name="maxConnections"/>. The slot is taken before the check so two connections
-    /// arriving together cannot both squeeze past the cap.
+    /// Registers a connection, or returns null with <paramref name="refusal"/> saying which cap
+    /// was hit. Each slot is taken before its check so two connections arriving together cannot
+    /// both squeeze past a cap. The per-client cap is checked first, so a caller that is over its
+    /// own limit is told so even when the instance is full too; <paramref name="maxPerClient"/>
+    /// of zero skips it.
     /// </summary>
-    public Subscription? TrySubscribe(string tenant, IReadOnlyCollection<string> contentTypes, int maxConnections)
+    public Subscription? TrySubscribe(
+        string tenant,
+        IReadOnlyCollection<string> contentTypes,
+        string client,
+        int maxConnections,
+        int maxPerClient,
+        out SubscribeRefusal refusal)
     {
-        if (Interlocked.Increment(ref _connections) > maxConnections)
+        refusal = SubscribeRefusal.None;
+
+        if (maxPerClient > 0 && _perClient.AddOrUpdate(client, 1, (_, n) => n + 1) > maxPerClient)
         {
-            Interlocked.Decrement(ref _connections);
+            ReleaseClient(client);
+            refusal = SubscribeRefusal.ClientCap;
             return null;
         }
 
-        var subscription = new Subscription(this, tenant, contentTypes, _logger);
+        if (Interlocked.Increment(ref _connections) > maxConnections)
+        {
+            Interlocked.Decrement(ref _connections);
+            if (maxPerClient > 0)
+            {
+                ReleaseClient(client);
+            }
+
+            refusal = SubscribeRefusal.InstanceCap;
+            return null;
+        }
+
+        var subscription = new Subscription(this, tenant, contentTypes, maxPerClient > 0 ? client : null, _logger);
         _tenants.GetOrAdd(tenant, _ => new ConcurrentDictionary<Guid, Subscription>())
             .TryAdd(subscription.Id, subscription);
         return subscription;
+    }
+
+    /// <summary>
+    /// Gives a client's slot back and drops the entry once it reaches zero, so the dictionary
+    /// holds only addresses with an open stream. The remove is conditional on the value still
+    /// being zero, which is what keeps a connection arriving in between from losing its count.
+    /// </summary>
+    private void ReleaseClient(string client)
+    {
+        var remaining = _perClient.AddOrUpdate(client, 0, (_, n) => n - 1);
+        if (remaining <= 0)
+        {
+            ((ICollection<KeyValuePair<string, int>>)_perClient).Remove(new KeyValuePair<string, int>(client, remaining));
+        }
     }
 
     /// <summary>Offers a change to every connection on its tenant that wants its content type.</summary>
@@ -85,6 +127,18 @@ internal sealed class ContentChangeBroadcaster
         }
 
         Interlocked.Decrement(ref _connections);
+        if (subscription.Client is not null)
+        {
+            ReleaseClient(subscription.Client);
+        }
+    }
+
+    /// <summary>Why <see cref="TrySubscribe"/> said no.</summary>
+    internal enum SubscribeRefusal
+    {
+        None,
+        InstanceCap,
+        ClientCap,
     }
 
     /// <summary>One connection's view of the stream. Dispose it when the connection ends.</summary>
@@ -101,11 +155,13 @@ internal sealed class ContentChangeBroadcaster
             ContentChangeBroadcaster owner,
             string tenant,
             IReadOnlyCollection<string> contentTypes,
+            string? client,
             ILogger logger)
         {
             _owner = owner;
             _logger = logger;
             Tenant = tenant;
+            Client = client;
             _contentTypes = contentTypes.Count == 0
                 ? null
                 : new HashSet<string>(contentTypes, StringComparer.OrdinalIgnoreCase);
@@ -122,6 +178,9 @@ internal sealed class ContentChangeBroadcaster
         public Guid Id { get; } = Guid.NewGuid();
 
         public string Tenant { get; }
+
+        /// <summary>The address counted against the per-client cap, or null when that cap is off.</summary>
+        public string? Client { get; }
 
         public ChannelReader<ContentChange> Reader => _channel.Reader;
 

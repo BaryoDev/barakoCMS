@@ -114,6 +114,25 @@ public class PackagingTests
 
     [Theory]
     [MemberData(nameof(PackableProjects))]
+    public void Every_module_readme_teaches_the_package_reference_as_the_install(string project)
+    {
+        if (project == "barakoCMS") return;   // core is not a module and has no install section
+
+        // The README is the package page on nuget.org. Since discovery from the dependency context
+        // (#172), the install is the package reference plus a restart and the enabled list decides
+        // whether the module runs; a README that still leads with modules.Add teaches the long way.
+        var readme = File.ReadAllText(Path.Combine(ProjectDir(project), "README.md"));
+
+        readme.Should().Contain($"dotnet add package {project}",
+            $"{project}'s README must show the package reference as the install");
+        readme.Should().Contain("BarakoCMS:Modules:Enabled",
+            $"{project}'s README must say the enabled list decides whether it runs");
+        readme.Should().Contain("modules.Add(new ",
+            $"{project}'s README must still show the explicit add as the override");
+    }
+
+    [Theory]
+    [MemberData(nameof(PackableProjects))]
     public void Every_package_declares_an_id_a_version_and_a_description(string project)
     {
         var doc = Packable().Single(p => Path.GetFileName(Path.GetDirectoryName(p.Path)) == project).Doc;

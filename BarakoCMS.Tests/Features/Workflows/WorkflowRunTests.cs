@@ -55,12 +55,14 @@ public class WorkflowRunTests
 
         a!.Actions[0].Status = AttemptStatus.Running;
         a.Actions[0].LeasedBy = "node-a";
+        a.Actions[0].LeaseExpiresAt = ParkedUntil;
         a.Recompute();
         first.Update(a);
         await first.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         b!.Actions[0].Status = AttemptStatus.Running;
         b.Actions[0].LeasedBy = "node-b";
+        b.Actions[0].LeaseExpiresAt = ParkedUntil;
         b.Recompute();
         second.Update(b);
 
@@ -69,6 +71,13 @@ public class WorkflowRunTests
         (await claimTwice.Should().ThrowAsync<Exception>())
             .Which.GetType().Name.Should().Contain("Concurrency",
                 "the second claim has to be refused, or both nodes send the same message");
+
+        // The hosted runner is a third node. It polls every five seconds and treats a Running
+        // attempt whose lease is not in the future as a dead node's work, so a claim written without
+        // LeaseExpiresAt was taken from under this test whenever a poll landed between the first
+        // save and the read below. Driving the poll here makes that deterministic: a claim the
+        // runner would steal fails every time rather than on a slow CI box.
+        await DrainRunnerAsync();
 
         await using var check = store.QuerySession();
         var latest = await check.LoadAsync<WorkflowRun>(runId, TestContext.Current.CancellationToken);
@@ -275,6 +284,27 @@ public class WorkflowRunTests
             "anything else here is a place a credential could arrive in");
     }
 
+    /// <summary>Runs the hosted runner's poll until it finds nothing to claim.</summary>
+    /// <remarks>
+    /// Drained rather than polled once. RunOnceAsync returns as soon as it claims anything, and the
+    /// database holds runs from other classes, so a single poll could return before it ever reached
+    /// the run under test and the assertion after it would be vacuous. Draining to "nothing left to
+    /// claim" means every candidate was examined.
+    /// </remarks>
+    private async Task DrainRunnerAsync()
+    {
+        var runner = new barakoCMS.Features.Workflows.WorkflowRunner(
+            _factory.Services,
+            _factory.Services.GetRequiredService<ILogger<barakoCMS.Features.Workflows.WorkflowRunner>>(),
+            _factory.Services.GetRequiredService<IConfiguration>());
+
+        var polls = 0;
+        while (await runner.RunOnceAsync(TestContext.Current.CancellationToken))
+        {
+            (++polls).Should().BeLessThan(200, "the runner should drain rather than find work forever");
+        }
+    }
+
     private async Task<HttpClient> AdminClient()
     {
         var client = _factory.CreateClient();
@@ -300,20 +330,7 @@ public class WorkflowRunTests
         var pending = await SeedRunAsync(actions: 1);
         var running = await SeedRunAsync(actions: 1, status: AttemptStatus.Running);
 
-        var runner = new barakoCMS.Features.Workflows.WorkflowRunner(
-            _factory.Services,
-            _factory.Services.GetRequiredService<ILogger<barakoCMS.Features.Workflows.WorkflowRunner>>(),
-            _factory.Services.GetRequiredService<IConfiguration>());
-
-        // Drained rather than polled once. RunOnceAsync returns as soon as it claims anything, and
-        // the database holds runs from other classes, so a single poll could return before it ever
-        // reached these two and the assertions below would be vacuous. Draining to "nothing left to
-        // claim" means every candidate was examined, including both of these.
-        var polls = 0;
-        while (await runner.RunOnceAsync(TestContext.Current.CancellationToken))
-        {
-            (++polls).Should().BeLessThan(200, "the runner should drain rather than find work forever");
-        }
+        await DrainRunnerAsync();
 
         var store = _factory.Services.GetRequiredService<IDocumentStore>();
         await using var check = store.QuerySession();
