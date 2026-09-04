@@ -1,0 +1,79 @@
+{
+  "$schema": "http://json.schemastore.org/template",
+  "author": "BaryoDev",
+  "classifications": [ "barakoCMS", "Module", "Library", "Web" ],
+  "identity": "BarakoCMS.Templates.Module",
+  "name": "barakoCMS module",
+  "shortName": "barakocms-module",
+  "description": "A barakoCMS module with one capability-gated endpoint, one document type, configuration read from its own section, and a test project on BarakoCMS.Testing.",
+  "tags": {
+    "language": "C#",
+    "type": "solution"
+  },
+  "sourceName": "MyBarakoModule",
+  "preferNameDirectory": true,
+  "forms": {
+    "lastSegment": {
+      "identifier": "replace",
+      "pattern": "^.*\\.",
+      "replacement": ""
+    }
+  },
+  "symbols": {
+    "ModuleName": {
+      "type": "derived",
+      "valueSource": "name",
+      "valueTransform": "lastSegment",
+      "replaces": "ModuleName",
+      "fileRename": "ModuleName",
+      "description": "The module's short name (the last segment of the project name): IBarakoModule.Name, the class prefix and the configuration section."
+    },
+    "moduleSlug": {
+      "type": "derived",
+      "valueSource": "ModuleName",
+      "valueTransform": "lowerCaseInvariant",
+      "replaces": "modulename",
+      "description": "The short name in lower case, for the route and the capability name."
+    },
+    "BarakoCMSVersion": {
+      "type": "parameter",
+      "datatype": "string",
+      "defaultValue": "3.21.0",
+      "replaces": "BARAKOCMS_VERSION",
+      "description": "The BarakoCMS package version the module compiles against."
+    },
+    "TestingVersion": {
+      "type": "parameter",
+      "datatype": "string",
+      "defaultValue": "0.1.2",
+      "replaces": "BARAKOCMS_TESTING_VERSION",
+      "description": "The BarakoCMS.Testing package version the tests run on."
+    },
+    "Author": {
+      "type": "parameter",
+      "datatype": "string",
+      "defaultValue": "Module authors",
+      "replaces": "TEMPLATE_AUTHOR",
+      "description": "The package Authors metadata."
+    },
+    "License": {
+      "type": "parameter",
+      "datatype": "string",
+      "defaultValue": "MIT",
+      "replaces": "TEMPLATE_LICENSE",
+      "description": "The package licence, as an SPDX expression."
+    }
+  },
+  "sources": [
+    {
+      "modifiers": [
+        { "exclude": [ "**/bin/**", "**/obj/**" ] }
+      ]
+    }
+  ],
+  "primaryOutputs": [
+    { "path": "MyBarakoModule.slnx" },
+    { "path": "src/MyBarakoModule/MyBarakoModule.csproj" },
+    { "path": "tests/MyBarakoModule.Tests/MyBarakoModule.Tests.csproj" }
+  ]
+}

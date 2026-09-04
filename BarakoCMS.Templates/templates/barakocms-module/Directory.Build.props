@@ -1,0 +1,37 @@
+<Project>
+
+  <!-- Settings shared by both projects. A .csproj keeps only what is its own: PackageId, Version,
+       Description and references. -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Authors>TEMPLATE_AUTHOR</Authors>
+    <PackageLicenseExpression>TEMPLATE_LICENSE</PackageLicenseExpression>
+    <PackageIcon>icon.png</PackageIcon>
+
+    <!-- barakocms-module is how a barakoCMS module is found: one search on nuget.org returns every
+         module that carries it, first-party or not. Keep it, and append your own after it. -->
+    <PackageTags>barakocms;barakocms-module</PackageTags>
+
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="Exists('$(MSBuildProjectDirectory)/README.md')">
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="$(MSBuildProjectDirectory)/assets/icon.png" Pack="true" PackagePath="/" Visible="false" Condition="Exists('$(MSBuildProjectDirectory)/assets/icon.png')" />
+    <None Include="README.md" Pack="true" PackagePath="/" Condition="Exists('$(MSBuildProjectDirectory)/README.md')" />
+  </ItemGroup>
+
+</Project>
