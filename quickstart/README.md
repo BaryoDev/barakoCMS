@@ -49,6 +49,13 @@ Full reference is in [`.env.example`](.env.example). The essentials:
 ### Turning modules on
 Each module block in `.env` is optional. Fill it in and `docker compose up -d` again to apply.
 
+Every module in the image is registered unless `BarakoCMS__Modules__Enabled` says otherwise. Unset,
+all of them run and the API logs one warning saying so at boot. Set it to a comma-separated list of
+module names (`BarakoCMS__Modules__Enabled=Accounting,Files`) to run only those, or to an empty
+string for core only. A name that matches nothing stops the boot and lists the names available.
+Turning a module off leaves its data in the database; `GET /api/modules` shows each module with
+`enabled`. See `MODULES.md` in the repository.
+
 - **Email (Resend)** — set `RESEND_API_KEY` + `RESEND_FROM` to actually send mail (otherwise emails
   are logged by a mock). `RESEND_WEBHOOK_SECRET` enables bounce/complaint tracking.
 - **Analytics (Umami)** — point `UMAMI_BASEURL` at your Umami instance, set `UMAMI_ENABLED=true` and
