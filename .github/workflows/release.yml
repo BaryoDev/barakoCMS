@@ -129,7 +129,7 @@ jobs:
       # tested" held only for as long as two separate builds happened to agree.
       - name: Build the solution once
         run: |
-          dotnet restore barakoCMS.sln
+          dotnet restore barakoCMS.sln --locked-mode
           dotnet build barakoCMS.sln --no-restore --configuration Release
 
       # The step below names one project. That is fine while there is one, and it is a silent hole
