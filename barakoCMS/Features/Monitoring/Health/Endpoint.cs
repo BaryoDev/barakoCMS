@@ -1,3 +1,5 @@
+using barakoCMS.Infrastructure.Auth;
+using barakoCMS.Models;
 using FastEndpoints;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 
@@ -33,7 +35,7 @@ internal class Endpoint : EndpointWithoutRequest<DetailedHealthStatus>
     public override void Configure()
     {
         Get("/api/monitoring/health");
-        Roles("Admin", "SuperAdmin");
+        Definition.RequireCapability(SystemCapabilities.ViewMonitoring, "Admin", "SuperAdmin");
         Description(b => b
             .Produces<DetailedHealthStatus>(200)
             .Produces(401)
