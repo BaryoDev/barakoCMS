@@ -60,8 +60,10 @@ export function QueryBuilder({
     const [filters, setFilters] = useState<QueryFilter[]>(saved?.filters ?? []);
     const [sortField, setSortField] = useState(saved?.sortField ?? '');
     const [descending, setDescending] = useState(saved?.descending ?? false);
-    // Held as text so the box can be emptied while typing. An empty box parses to NaN, which the
-    // draft's own check refuses, rather than silently becoming 0 or the default.
+    // Held as text so the box can be emptied while typing. It is read back with Number rather than
+    // parseInt: parseInt takes "1.5" as 1 and "1e2" as 1, and the draft would save a limit the
+    // operator never typed. Number keeps the whole value, so the check refuses 1.5 and takes 1e2 as
+    // the 100 it is. An empty box becomes 0, which the check refuses.
     const [limit, setLimit] = useState(String(saved?.limit ?? DEFAULT_LIMIT));
     const [fields, setFields] = useState<string[]>(saved?.fields ?? []);
 
@@ -76,7 +78,7 @@ export function QueryBuilder({
             filters,
             sortField: sortField || null,
             descending,
-            limit: Number.parseInt(limit, 10),
+            limit: Number(limit),
             fields,
         }),
         [name, slug, contentType, filters, sortField, descending, limit, fields],
