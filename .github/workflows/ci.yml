@@ -424,7 +424,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Start a throwaway cluster
-        uses: helm/kind-action@v1.14.0
+        uses: helm/kind-action@v1.15.0
         with:
           cluster_name: barako-manifest-check
 
