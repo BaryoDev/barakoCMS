@@ -225,7 +225,9 @@ describe('the list', () => {
         await screen.findByText('Company Jira');
 
         expect(api.get).toHaveBeenCalledWith('/api/connectors', {
-            params: { page: 1, pageSize: CONNECTORS_PAGE_SIZE },
+            // A literal rather than the constant, so the size drifting past the server's cap of 100
+            // (PaginationModels.MaxPageSize, which clamps silently) shows up here.
+            params: { page: 1, pageSize: 25 },
         });
     });
 
@@ -255,6 +257,30 @@ describe('the list', () => {
 
     // The controls hide themselves once there is a single page, so deleting the only row on page 2
     // would strand the operator on an empty page with no way back.
+    it('offers a way back when the rows this page held were deleted elsewhere', async () => {
+        const firstPage = many(CONNECTORS_PAGE_SIZE);
+        vi.mocked(api.get).mockImplementation(async (_url, config) => {
+            const page = (config as { params: { page: number } }).params.page;
+            // Page 1 was read while the server held 26 rows. By the time page 2 is asked for,
+            // somebody else has deleted the 26th, so it comes back empty and there is one page.
+            const items = page === 1 ? firstPage : [];
+            const total = page === 1 ? CONNECTORS_PAGE_SIZE + 1 : CONNECTORS_PAGE_SIZE;
+            return { data: pageOf(items, page, total) };
+        });
+        renderWith();
+        await screen.findByText('Connector 0');
+        fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+        await screen.findByText('Nothing on this page');
+        expect(screen.queryByRole('button', { name: 'Next' })).not.toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Back to the first page' }));
+
+        await screen.findByText('Connector 0');
+        const pages = vi.mocked(api.get).mock.calls.map((_, i) => requestedPage(i));
+        expect(pages.at(-1)).toBe(1);
+        expect(screen.queryByText('Nothing on this page')).not.toBeInTheDocument();
+    });
+
     it('steps back a page after deleting the only row on a later page', async () => {
         const firstPage = many(CONNECTORS_PAGE_SIZE);
         const [last] = many(1, CONNECTORS_PAGE_SIZE);
