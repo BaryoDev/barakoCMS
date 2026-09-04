@@ -64,6 +64,28 @@ function device(id: string, description: string, status: string, current: boolea
     };
 }
 
+/** A run with an action in every state, so the badge tones and the retry button are all rendered. */
+function workflowRun() {
+    return {
+        id: 'r1',
+        workflowDefinitionId: 'wf-1',
+        workflowName: 'Announce a post',
+        contentId: '11111111-1111-1111-1111-111111111111',
+        contentType: 'article',
+        triggerEvent: 'ContentPublished',
+        status: 'PartiallyFailed',
+        createdAt: new Date(Date.now() - 3600_000).toISOString(),
+        completedAt: new Date().toISOString(),
+        actions: [
+            { ordinal: 1, actionType: 'Email', status: 'Succeeded', attempts: 1, responseStatus: 202, durationMs: 420, error: null, completedAt: new Date().toISOString(), nextAttemptAt: null },
+            { ordinal: 2, actionType: 'Webhook', status: 'Failed', attempts: 3, responseStatus: 503, durationMs: 15_400, error: 'Service Unavailable from hooks.example.com', completedAt: null, nextAttemptAt: null },
+            { ordinal: 3, actionType: 'Webhook', status: 'Unknown', attempts: 1, responseStatus: null, durationMs: null, error: 'The request timed out.', completedAt: null, nextAttemptAt: null },
+            { ordinal: 4, actionType: 'Email', status: 'Running', attempts: 1, responseStatus: null, durationMs: null, error: null, completedAt: null, nextAttemptAt: null },
+            { ordinal: 5, actionType: 'Email', status: 'Skipped', attempts: 0, responseStatus: null, durationMs: null, error: null, completedAt: null, nextAttemptAt: null },
+        ],
+    };
+}
+
 function row(id: string, contentType: string, status: string, title: string, version = 3) {
     return {
         id,
@@ -242,6 +264,34 @@ test.describe('accessibility', () => {
 
         await page.goto('/schemas');
         await expect(page.getByRole('link', { name: /Article/ }).first()).toBeVisible({ timeout: 15000 });
+        await scan(page);
+    });
+
+    test('the workflow runs screen, with a run open and every badge tone on screen', async ({ page }) => {
+        await authed(page);
+        await stubShell(page);
+
+        const detail = workflowRun();
+        await page.route(/\/api\/workflow-runs(\?|$)/, (r) =>
+            r.fulfill({
+                json: pageOf([
+                    detail,
+                    { ...detail, id: 'r2', workflowName: 'Tidy the index', status: 'Succeeded' },
+                    { ...detail, id: 'r3', workflowName: 'Push to the CDN', status: 'Failed' },
+                    { ...detail, id: 'r4', workflowName: 'Notify the desk', status: 'Running' },
+                    { ...detail, id: 'r5', workflowName: 'Archive the draft', status: 'Pending' },
+                ]),
+            })
+        );
+        await page.route(/\/api\/workflow-runs\/[^/]+$/, (r) => r.fulfill({ json: detail }));
+
+        await page.goto('/workflow-runs');
+        await expect(page.getByRole('heading', { name: 'Workflow runs' })).toBeVisible({ timeout: 15000 });
+
+        // Opened, so the scan sees the action list, the error block and the retry button rather than
+        // an empty panel. Every badge tone this screen can draw is on the page at once.
+        await page.getByRole('radio', { name: /Announce a post/ }).check();
+        await expect(page.getByRole('button', { name: /Retry action 2/ })).toBeVisible();
         await scan(page);
     });
 
