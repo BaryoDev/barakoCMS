@@ -51,7 +51,7 @@ public class SeoFieldsTests
     [InlineData("Heading")]
     public void The_fallback_uses_the_same_names_the_admin_uses(string field)
     {
-        // Same list, same order as admin/src/lib/content-title.ts. Two lists would answer
+        // Same list, same order as barakoBrew's src/lib/content-title.ts. Two lists would answer
         // differently the first time one of them gained a name, and the symptom is a page whose tab
         // and whose search result disagree.
         SeoFields.Resolve(Data((field, "a title"))).Title.Should().Be("a title");

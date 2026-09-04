@@ -1,5 +1,8 @@
 # Handoff: barakoBrew admin redesign and barakoCMS site redesign
 
+> Kept as design history. The `admin/` and `site/` paths named below moved out of this repository:
+> the console is [BaryoDev/barakoBrew](https://github.com/BaryoDev/barakoBrew) and the site has its own.
+
 ## Overview
 
 A 2026 redesign of the **barakoCMS** marketing site and its Next.js admin, which is renamed

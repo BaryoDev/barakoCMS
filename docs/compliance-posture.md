@@ -104,7 +104,8 @@ whose value is never being altered. What that choice commits an operator to is i
 
 ## Where the admin keeps your session
 
-The admin holds the access token in memory and the refresh token in an httpOnly cookie the page
+The admin, barakoBrew (its own repository), holds the access token in memory and the refresh token
+in an httpOnly cookie the page
 cannot read. Before 4.0 both sat in `localStorage`, where any script on the origin could read them,
 which made one cross-site scripting bug worth seven days of renewable sessions rather than fifteen
 minutes.

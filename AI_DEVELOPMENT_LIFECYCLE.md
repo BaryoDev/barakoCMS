@@ -71,7 +71,7 @@ flowchart TD
     A[Work on a branch] --> Z[Test LOCALLY first:<br/>unit + integration + edge<br/>+ Playwright e2e, written<br/>with the feature]
     Z -- red --> A
     Z -- green --> B[Open PR]
-    B --> C{CI: backend tests · admin lint/type/vitest<br/>· full e2e pack · security scan}
+    B --> C{CI: backend tests · upgrade and restore checks<br/>· compose and k8s checks · security scan}
     C -- red --> A
     C -- green --> D[Merge to dev]
     D --> E[deploy-dev-playground.yml:<br/>test → arm64 images → forced-command<br/>deploy → verify 200 → smoke test]
@@ -101,17 +101,10 @@ until this is green.
 - **Backend integration tests** for the API path, against a real Postgres (Testcontainers) — no
   mocking your own layer. Example: `ValidationIntegrationTests` posts to the real `/api/content-types`
   and `/api/contents`, asserting a valid value is accepted (200) and a malformed one rejected (400).
-- **Admin e2e (Playwright)** for anything with a UI, driving the real components with a mocked API.
-  Example: `field-types.spec.ts` asserts each type renders the right control, a valid entry saves,
-  and a bad value surfaces the server error.
 
 ```bash
 # backend (unit + integration; Testcontainers needs Docker running)
 dotnet test BarakoCMS.Tests/BarakoCMS.Tests.csproj -c Release
-
-# admin
-cd admin && npm run lint && npx tsc --noEmit && npx vitest run
-npx playwright test                 # full pack, all viewports
 ```
 
 Rule of thumb: **whatever you'll later verify by hand on dev-playground, pin it in a test first.**
@@ -155,7 +148,6 @@ Work on a branch off `dev`. Push it and open a PR. CI (`ci.yml`) runs on every p
 and every PR:
 
 - **Backend** — build + full `dotnet test` (Testcontainers Postgres).
-- **Admin** — lint, typecheck, vitest, production build, and the **whole e2e folder** on chromium.
 - **Security** — gitleaks secret scan + a vulnerable-dependency report (both report-only for now;
   see the security note below).
 
@@ -167,10 +159,10 @@ already passed locally — CI confirms, it does not discover.
 Merging to `dev` triggers `deploy-dev-playground.yml`:
 
 1. Run the test suite again (a merge is not a PR).
-2. Build `:dev` suite + admin images natively on an arm64 runner (the Ampere VM is arm64; no QEMU).
+2. Build the `:dev` suite image natively on an arm64 runner (the Ampere VM is arm64; no QEMU).
 3. Deploy over SSH with a **forced-command key** — the key in `authorized_keys` can only run
    `/home/opc/deploy-dev-playground.sh`, nothing else, so a leaked key can't open a shell. The script
-   pulls both images, recreates the stack, and fails unless API and admin answer 200.
+   pulls the image, recreates the stack, and fails unless the API answers 200.
 4. **Smoke test** (`scripts/smoke-test.sh`, write tier): log in, create a content type, post a valid
    value and a malformed one, confirm validation still rejects the bad one. A 200 means "up"; the
    smoke means "actually works."
@@ -178,15 +170,10 @@ Merging to `dev` triggers `deploy-dev-playground.yml`:
 
 Then break it by hand on dev-playground. This is the tier where a broken build is fine.
 
-### 3. Verify + capture screenshots
+### 3. Verify on the live tier
 
-Confirm the feature does what you claimed, on the live tier. Capture screenshots for the
-announcement while you're there:
-
-```bash
-cd admin && npx playwright test screenshots.spec.ts --project=chromium
-# → admin/test-results/screenshots/*.png
-```
+Confirm the feature does what you claimed, on the live tier: call the endpoint, read the body, check
+which tenant the data came from. Screenshots of the console are barakoBrew's job.
 
 ### 4. Bump the version → PR to `master` → release
 
@@ -205,7 +192,7 @@ long-lived; see Branch model). When the version is new, `release.yml`:
 1. **Gate** — read the version, check NuGet, decide if there's anything to release.
 2. **Test** — the suite, once more.
 3. **Publish** — core + 11 modules to NuGet.org and GitHub Packages; Docker images
-   (`barako-cms`, `barako-cms-decaf`, `barako-admin`) as amd64 for public users, mirrored to Docker Hub.
+   (`barako-cms`, `barako-cms-decaf`) for amd64 and arm64, mirrored to Docker Hub.
 4. **Build arm64 `:playground` images** on an arm64 runner, so the VM runs them natively.
 5. **Deploy** the full stack to playground via forced command, verify 200, then a read-only smoke
    test (no writes on the public demo).
@@ -215,8 +202,6 @@ long-lived; see Branch model). When the version is new, `release.yml`:
 ## What CI runs (`ci.yml`)
 
 - **backend**: `dotnet build` + `dotnet test` (unit + integration, real Postgres).
-- **admin**: lint, `tsc --noEmit`, vitest, `next build`, and `playwright test --project=chromium`
-  over the **whole** `e2e/` folder — every feature spec is enforced, not honour-checked.
 - **security**: gitleaks secret scan + `dotnet list package --vulnerable`. Both report-only for now —
   dev-only secrets still live in git history (roadmap 0.4) and there's a dependency backlog to burn
   down. Flip gitleaks to a hard gate once history is scrubbed.
