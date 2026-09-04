@@ -1,7 +1,8 @@
 name: Publish master image
 
-# Every push to master publishes ghcr.io/baryodev/barako-cms:master, so a consumer can test against
-# the API as it is today without a release. The release workflow is untouched: its gate still reads
+# Every push to master publishes ghcr.io/baryodev/barako-cms:master, documentation-only pushes
+# included, so the tag always matches the branch tip and a consumer can test against the API as it
+# is today without a release. The release workflow is untouched: its gate still reads
 # <Version>, and nothing here touches NuGet, :latest or :playground.
 #
 # The console repository (BaryoDev/barakoBrew) runs its contract smoke against this tag. Before it
@@ -11,9 +12,6 @@ name: Publish master image
 on:
   push:
     branches: ["master"]
-    paths-ignore:
-      - "**/*.md"
-      - "docs/**"
   workflow_dispatch:
 
 concurrency:
@@ -27,6 +25,8 @@ permissions:
 jobs:
   build:
     name: Build ${{ matrix.arch }}
+    # A manual dispatch from any other branch would overwrite :master with that branch's build.
+    if: github.ref == 'refs/heads/master'
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -63,6 +63,7 @@ jobs:
 
   manifest:
     name: Publish the multi-arch tag
+    if: github.ref == 'refs/heads/master'
     needs: build
     runs-on: ubuntu-latest
     steps:
