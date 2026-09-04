@@ -69,6 +69,7 @@ public class RoleGateTests
         new("GET", "/api/monitoring/k8s", "/api/monitoring/k8s"),
         new("GET", "/api/monitoring/metrics", "/api/monitoring/metrics"),
         new("GET", "/api/modules", "/api/modules"),
+        new("GET", "/api/capabilities", "/api/capabilities"),
         new("POST", "/api/roles", "/api/roles"),
         new("GET", "/api/roles", "/api/roles"),
         new("GET", "/api/roles/{id}", $"/api/roles/{NotAGuid}"),

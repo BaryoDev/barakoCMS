@@ -32,24 +32,59 @@ public static class ServiceCollectionExtensions
     /// with no modules this behaves exactly like the core-only overload. Each module can contribute
     /// services, Marten document types, endpoints (from its own assembly), and seed data.
     /// </summary>
+    /// <remarks>
+    /// Modules come from two places: the callback, and discovery over the dependency context, which
+    /// runs after the callback unless <see cref="BarakoModuleBuilder.Discover"/> is off. Which of
+    /// them run is then decided by <c>BarakoCMS:Modules:Enabled</c>; see <see cref="ModuleEnablement"/>.
+    /// </remarks>
     public static IServiceCollection AddBarakoCMS(
         this IServiceCollection services,
         IConfiguration configuration,
         Action<BarakoModuleBuilder>? configureModules)
     {
-        // Collect opted-in modules first, so their endpoint assemblies and Marten config are
-        // available when we wire up FastEndpoints and Marten below.
-        var moduleBuilder = new BarakoModuleBuilder();
+        // Collect modules first, so their endpoint assemblies and Marten config are available when
+        // we wire up FastEndpoints and Marten below. Configuration sets the discovery default and
+        // the callback can override it, so a host that wants only its explicit list says so in code.
+        var moduleBuilder = new BarakoModuleBuilder
+        {
+            Discover = configuration.GetValue(ModuleEnablement.DiscoverKey, true),
+        };
         configureModules?.Invoke(moduleBuilder);
+        if (moduleBuilder.Discover)
+            moduleBuilder.DiscoverFrom();
+
+        var seen = moduleBuilder.Modules;
+        var enabledNames = ModuleEnablement.ReadEnabled(configuration);
+        IReadOnlyList<IBarakoModule> enabled;
+        if (enabledNames is null)
+        {
+            // Unset keeps today's behaviour: everything runs. Warned once per boot, and only when
+            // there is something the list would decide; a core-only host has nothing to switch off.
+            enabled = seen;
+            if (seen.Count > 0)
+            {
+                Log.Warning(ModuleEnablement.UnsetWarning,
+                    string.Join(", ", seen.Select(m => m.Name).OrderBy(n => n, StringComparer.Ordinal)));
+            }
+        }
+        else
+        {
+            enabled = ModuleEnablement.Apply(seen, enabledNames);
+        }
+
+        // Every module seen and whether it runs, for GET /api/modules. The IBarakoModule singletons
+        // below hold only the ones that run, so "off" and "not installed" would otherwise look alike.
+        services.AddSingleton(ModuleCatalogue.Of(seen, enabled));
 
         // Sorted before anything runs, so DI registration, schema and seeding all see the same
         // order and a module that must configure after another actually does. Independent modules
         // keep their declared order.
-        var modules = ModuleOrder.Sort(moduleBuilder.Modules);
+        var modules = ModuleOrder.Sort(enabled);
 
         // Contract compatibility, checked before anything is registered. A module that states a
         // version core cannot honour is refused here rather than allowed to half-configure and fail
-        // somewhere that does not name it.
+        // somewhere that does not name it. Discovered modules go through the same check as added
+        // ones, and only the enabled ones are checked: a module switched off cannot fail anything.
         var unsupported = modules
             .Where(m => m.ContractVersion != 0
                         && (m.ContractVersion < ModuleContract.MinimumSupported
@@ -596,6 +631,13 @@ public static class ServiceCollectionExtensions
             // Register Workflow Projection (Async)
             options.Projections.Add(new WorkflowProjection(sp), JasperFx.Events.Projections.ProjectionLifecycle.Async);
 
+            // The public event stream learns about content changes after the session that wrote
+            // them commits, on this instance. See ContentChangeListener for why it is not a
+            // projection.
+            options.Listeners.Add(new barakoCMS.Features.Public.Events.ContentChangeListener(
+                sp.GetRequiredService<barakoCMS.Features.Public.Events.ContentChangeBroadcaster>(),
+                sp.GetRequiredService<ILogger<barakoCMS.Features.Public.Events.ContentChangeListener>>()));
+
             // Each module registers its own document types through a surface that only accepts
             // types it ships. ConfigureMarten still runs for modules that predate ConfigureSchema,
             // and is warned about, because removing it inside a major would break them silently.
@@ -717,6 +759,13 @@ public static class ServiceCollectionExtensions
 
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowRunQueue, barakoCMS.Features.Workflows.WorkflowRunQueue>();
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowRunner>();
+
+        // GET /api/public/events. The options resolve the container's configuration at first use
+        // rather than the one passed in here, so a host that layers settings on after this call
+        // (the test fixtures do) is read as configured.
+        services.AddSingleton<barakoCMS.Features.Public.Events.ContentChangeBroadcaster>();
+        services.AddSingleton(sp => barakoCMS.Features.Public.Events.ContentEventsOptions.FromConfiguration(
+            sp.GetRequiredService<IConfiguration>()));
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowRunRetentionService>();
         services.AddScoped<barakoCMS.Infrastructure.Auth.Mfa.IMfaService, barakoCMS.Infrastructure.Auth.Mfa.MfaService>();
         // Device trust is opt-in: the default gate does nothing. The DeviceTrust module overrides it.
@@ -767,6 +816,10 @@ public static class ServiceCollectionExtensions
         // Enforces the capability an endpoint declares with Definition.RequireCapability(...). A
         // no-op for endpoints that still gate on Roles(...).
         services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Auth.CapabilityGateProcessor>();
+
+        // The names those gates ask for, read off the routing table. GET /api/capabilities lists it
+        // and a role write checks against it.
+        services.AddSingleton<barakoCMS.Infrastructure.Auth.CapabilityVocabulary>();
 
         services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Filters.IdempotencyFilter>();
         // The finalizer completes an idempotency claim on success or releases it on failure, so a

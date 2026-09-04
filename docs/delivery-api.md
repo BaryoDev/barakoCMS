@@ -35,6 +35,7 @@ exist.
 | GET | `/api/public/{type}/search?q=` | ranked matches, not a page |
 | GET | `/api/public/{type}/feed.xml` | RSS |
 | GET | `/api/public/sitemap.xml` | sitemap |
+| GET | `/api/public/events` | a server-sent event stream of changes (off by default, see below) |
 
 `/{type}/{slug}` needs the type to have a slug field: a field of type `slug`, or failing that a
 field named `slug`. Without one the route is 404.
@@ -98,6 +99,7 @@ Operators:
 | `ne` | not equal |
 | `lt` `lte` `gt` `gte` | ordered comparison |
 | `contains` | case-insensitive substring |
+| `near` | within `radiusKm` of `lat,lng`, geopoint fields only; see [The near filter](#the-near-filter) |
 
 At most **five filters** per request. A sixth returns 400. The cap is there because arbitrary filter
 combinations against a JSONB column on an anonymous endpoint is a denial-of-service surface.
@@ -130,6 +132,63 @@ tiebreaker so a page boundary cannot move between two entries that compare equal
 Entries missing the sort field collect at the end in both directions.
 
 `sortBy` was removed in 4.0. It was accepted here and honoured nowhere.
+
+## Locations and proximity
+
+A field of type `geopoint` holds a coordinate pair:
+
+```json
+{ "lat": 6.5031, "lng": 124.8469 }
+```
+
+Both keys are required, both must be JSON numbers, latitude within -90..90 and longitude within
+-180..180. A string like `"6.5031,124.8469"` is refused on write, because the proximity query casts
+the stored numbers and a string would not cast. The admin editor hint is `geopoint`.
+
+### The near filter
+
+```text
+filter[field][near]=lat,lng,radiusKm
+```
+
+Everything within `radiusKm` of the centre. Only a `geopoint` field marked `Public` can be named,
+one `near` per request, and it counts against the five-filter cap. A malformed centre, a centre
+outside the valid range, a radius of zero or below, or a radius above the cap is 400 with the
+reason. The cap is `Delivery:MaxRadiusKm`, default 1000, and a request above it is refused rather
+than quietly narrowed.
+
+The query runs in SQL over the stored JSONB in two stages: a bounding box on the latitude and
+longitude, then the haversine distance against the radius. It is applied in the same chain as every
+other filter, so the published, public and sensitivity rules apply unchanged: a Draft two kilometres
+from the centre is not returned.
+
+Distances are great-circle on a sphere of mean radius 6371 km. That is right for "within 10 km" and
+for ordering a list. It is not geodesy: against the ellipsoid it is off by up to a third of a
+percent, and a survey or a legal boundary needs PostGIS, which this deliberately does not require.
+
+### Distance in the response
+
+When a `near` filter is present each item carries `distanceKm`, kilometres from the centre to two
+decimals, the same number the rows were filtered and ordered by. Without a `near` filter the key is
+absent, not null.
+
+`sort=distance` and `sort=-distance` order by it. Without a `near` filter, `sort=distance` is 400,
+unless the type has a `Public` field called `Distance`, which then sorts as any other field would.
+
+```bash
+curl "https://cms.example.com/api/public/store?filter[Location][near]=6.5031,124.8469,60&sort=distance" \
+  -H "X-Tenant: default"
+```
+
+```json
+{
+  "items": [
+    { "id": "3f2c1a9e-6b0d-4f7a-9c2e-1d5b8a7e4c01", "data": { "Title": "Koronadal", "Location": { "lat": 6.5031, "lng": 124.8469 } }, "distanceKm": 0 },
+    { "id": "8a1e4d2c-0b9f-4e3a-a7c6-2f4d9b8e1c02", "data": { "Title": "General Santos", "Location": { "lat": 6.1164, "lng": 125.1716 } }, "distanceKm": 56.01 }
+  ],
+  "totalItems": 2
+}
+```
 
 ## Resolving references
 
@@ -170,7 +229,72 @@ title or name hit outranks a body hit.
 
 | Status | When |
 | --- | --- |
-| 400 | unknown filter field, unknown operator, malformed `filter[...]`, more than 5 filters, unknown or non-reference `include`, more than 5 includes, unsortable field |
+| 400 | unknown filter field, unknown operator, malformed `filter[...]`, more than 5 filters, unknown or non-reference `include`, more than 5 includes, unsortable field, malformed `near` centre or radius, `near` on a field that is not a `geopoint`, `sort=distance` without a `near` filter |
 | 404 | unknown type, type not marked publicly deliverable, no slug field, no published entry at that slug |
 
 A 400 carries the reason, including the fields that would have been accepted.
+
+## Change events
+
+`GET /api/public/events` is a [server-sent event](https://html.spec.whatwg.org/multipage/server-sent-events.html)
+stream of the tenant's content changes, for a frontend or a dashboard that wants to react to a
+publish without polling. Anonymous, like every other route here, and it answers to the same three
+rules: an entry is streamed only if its type has opted in, only while it is `Published`, and only
+with its `Public` fields. The payload is produced by the same projection the REST reads use, so a
+field `GET /api/public/{type}/{slug}` masks is masked here for the same reason: it is the same
+function. `ContentEventStreamTests` asserts that directly against a Sensitive field.
+
+It is off by default. `Delivery:Events:Enabled` turns it on; while it is off the route is 404.
+
+```
+GET /api/public/events
+GET /api/public/events?type=post&type=page
+```
+
+`type` repeats to filter by content type. A type that has not opted in never matches, which says
+nothing about whether it exists. At most 20 types per connection.
+
+Three event names, and every payload carries `id`, `contentType` and `slug`:
+
+| Event | When | Payload |
+| --- | --- | --- |
+| `content.published` | an entry became public: published, created as published, or its document sensitivity set back to Public | the entry, in the shape `GET /api/public/{type}/{slug}` returns |
+| `content.updated` | a published entry changed: an edit, a lifecycle transition, or a field's sensitivity changed on its type | the entry, same shape |
+| `content.unpublished` | a public entry stopped being public: moved to Draft or Archived, or its document sensitivity changed | `id`, `contentType`, `slug` only |
+
+A draft save emits nothing. A draft moved to Archived emits nothing either, because it was never
+on anybody's site and an unpublish for it would hand out the slug of an entry the REST API answers
+404 for. Erasing an entry (`DELETE /api/contents/{id}/erase`) emits nothing yet.
+
+A comment line (`: keepalive`) is sent whenever nothing else has been for
+`Delivery:Events:KeepAliveSeconds` (15), so a proxy does not close an idle connection. An
+`EventSource` never dispatches a comment. The frames carry no event id (the `id:` line is empty)
+and there is no replay: a client that reconnects should re-read what it cares about, then resume
+listening.
+
+```js
+const source = new EventSource("/api/public/events?type=post");
+source.addEventListener("content.published", e => render(JSON.parse(e.data)));
+source.addEventListener("content.updated", e => render(JSON.parse(e.data)));
+source.addEventListener("content.unpublished", e => remove(JSON.parse(e.data).id));
+```
+
+### Caps
+
+An anonymous long-lived connection is a resource anybody on the internet can hold, which is why
+the stream is opt-in, and why it is capped:
+
+- `Delivery:Events:MaxConnections` (100) is the number of open streams across all tenants on one
+  instance. The next connection gets 503 with `Retry-After`.
+- Each connection buffers 64 changes. A subscriber that stops reading has its oldest change
+  dropped, and the drop is logged once per connection. Nothing a slow subscriber does holds
+  memory for anybody else.
+
+### One instance, its own writes
+
+The stream is fanned out in process, on the instance that committed the write. With several API
+instances behind a load balancer, each streams the writes it handled and nothing else: a subscriber
+connected to instance A does not see a publish that went through instance B. That is the known
+limitation until a shared bus exists between instances; a single-instance deployment sees
+everything. Content types running with `EventSourcing:DocumentTypesAppend` off write no events,
+so nothing about them is streamed, the same way nothing about them fires a workflow.
