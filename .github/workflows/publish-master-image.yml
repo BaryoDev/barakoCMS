@@ -1,0 +1,89 @@
+name: Publish master image
+
+# Every push to master publishes ghcr.io/baryodev/barako-cms:master, so a consumer can test against
+# the API as it is today without a release. The release workflow is untouched: its gate still reads
+# <Version>, and nothing here touches NuGet, :latest or :playground.
+#
+# The console repository (BaryoDev/barakoBrew) runs its contract smoke against this tag. Before it
+# existed, the only published images were the last release, which was behind master by every 4.0
+# change, so the smoke could only ever be red.
+
+on:
+  push:
+    branches: ["master"]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+  workflow_dispatch:
+
+concurrency:
+  group: publish-master-image
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+            platform: linux/amd64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            platform: linux/arm64
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push the suite for ${{ matrix.arch }}
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile.suite
+          platforms: ${{ matrix.platform }}
+          push: true
+          build-args: |
+            BARAKO_BUILD_SHA=${{ github.sha }}
+          tags: ghcr.io/baryodev/barako-cms:master-${{ matrix.arch }}
+          labels: org.opencontainers.image.source=https://github.com/BaryoDev/barakoCMS
+          cache-from: type=gha,scope=master-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=master-${{ matrix.arch }}
+
+  manifest:
+    name: Publish the multi-arch tag
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Merge the two builds into :master and :master-<sha>
+        run: |
+          docker buildx imagetools create \
+            -t ghcr.io/baryodev/barako-cms:master \
+            -t ghcr.io/baryodev/barako-cms:master-${{ github.sha }} \
+            ghcr.io/baryodev/barako-cms:master-amd64 \
+            ghcr.io/baryodev/barako-cms:master-arm64
+
+      # Read the tag back rather than trusting the push: both platforms must be in the manifest, or
+      # the arm runner in the console repository pulls an image that is not there.
+      - name: Both platforms are in the manifest
+        run: |
+          docker buildx imagetools inspect ghcr.io/baryodev/barako-cms:master > manifest.txt
+          grep -q 'linux/amd64' manifest.txt
+          grep -q 'linux/arm64' manifest.txt
