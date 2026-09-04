@@ -94,6 +94,15 @@ public static class SystemCapabilities
     public const string ManagePublicDelivery = "manage_public_delivery";
 
     /// <summary>
+    /// Read which modules this instance registered.
+    /// </summary>
+    /// <remarks>
+    /// Two fields per module and nothing else, so this is closer to reading the audit log than to
+    /// managing anything, and it is named for reading.
+    /// </remarks>
+    public const string ViewModules = "view_modules";
+
+    /// <summary>
     /// Read the monitoring surface: per-check health detail, the Kubernetes cluster view and the
     /// metrics summary.
     /// </summary>
@@ -234,7 +243,7 @@ public static class SystemCapabilities
         All, ManageRoles, ManageTenants, ManageTenantMembers, ManageUsers, ManageUserMembership, ManageUserGroups,
         ManageApiKeys, ViewAuditLog, ManageSettings, ManageEmailSettings, ManageContentTypes, ManagePublicDelivery,
         ViewMonitoring, ManageRedirects, ManageQueries, ManageRequests, ViewConnectors, ManageConnectors,
-        ManageWorkflows, ViewWorkflowRuns, RetryWorkflowActions, RollbackContent, EraseContent,
+        ManageWorkflows, ViewWorkflowRuns, RetryWorkflowActions, RollbackContent, EraseContent, ViewModules,
     };
 
     public static bool IsKnown(string capability) =>
@@ -255,6 +264,8 @@ public static class SystemCapabilities
         // purpose: DELETE /api/contents/{id}/erase was Roles("SuperAdmin").
         ViewMonitoring, ManageRedirects, ManageQueries, ManageRequests, ViewConnectors,
         ManageConnectors, ManageWorkflows, ViewWorkflowRuns, RetryWorkflowActions, RollbackContent,
+        // Modules: GET /api/modules was Roles("SuperAdmin", "Admin"), so Admin read it already.
+        ViewModules,
     ];
 
     /// <summary>

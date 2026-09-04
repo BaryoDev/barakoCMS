@@ -391,8 +391,14 @@ public class CapabilityGateTests
             Probe("PUT", "/api/content-types/nosuchtype/public-delivery"), TestContext.Current.CancellationToken);
         var sensitivity = await client.SendAsync(
             Probe("PUT", "/api/content-types/nosuchtype/fields/Title/sensitivity"), TestContext.Current.CancellationToken);
+        var seoFields = await client.SendAsync(
+            Probe("POST", "/api/content-types/nosuchtype/seo-fields"), TestContext.Current.CancellationToken);
 
         list.StatusCode.Should().Be(HttpStatusCode.OK);
+        seoFields.StatusCode.Should().BeOneOf(
+            [HttpStatusCode.BadRequest, HttpStatusCode.NotFound],
+            "adding the SEO field set is schema modelling, so the gate is passed and only the body "
+          + "and the missing type are left to refuse");
         publicDelivery.StatusCode.Should().Be(HttpStatusCode.Forbidden,
             "turning anonymous delivery on is manage_public_delivery");
         sensitivity.StatusCode.Should().Be(HttpStatusCode.Forbidden,
@@ -411,6 +417,8 @@ public class CapabilityGateTests
         var create = await client.SendAsync(
             Probe("POST", "/api/content-types"), TestContext.Current.CancellationToken);
         var list = await client.GetAsync("/api/content-types", TestContext.Current.CancellationToken);
+        var seoFields = await client.SendAsync(
+            Probe("POST", "/api/content-types/nosuchtype/seo-fields"), TestContext.Current.CancellationToken);
 
         // Not "anything but 403", which also passes on a 401 or a 500. Probe sends invalid JSON and
         // the type does not exist, so an authorized caller gets one of those two refusals and never
@@ -421,6 +429,7 @@ public class CapabilityGateTests
           + "and the missing type are left to refuse");
         create.StatusCode.Should().Be(HttpStatusCode.Forbidden, "creating a type is a different grant");
         list.StatusCode.Should().Be(HttpStatusCode.Forbidden, "so is reading the schemas");
+        seoFields.StatusCode.Should().Be(HttpStatusCode.Forbidden, "and so is adding fields to one");
     }
 
     /// <summary>
@@ -444,15 +453,43 @@ public class CapabilityGateTests
             Probe("PUT", "/api/content-types/nosuchtype/fields/Title/sensitivity"), TestContext.Current.CancellationToken);
         var rebuild = await client.SendAsync(
             Probe("POST", "/api/content-types/nosuchtype/rebuild"), TestContext.Current.CancellationToken);
+        var seoFields = await client.SendAsync(
+            Probe("POST", "/api/content-types/nosuchtype/seo-fields"), TestContext.Current.CancellationToken);
+        var modules = await client.GetAsync("/api/modules", TestContext.Current.CancellationToken);
 
         list.StatusCode.Should().Be(HttpStatusCode.OK);
         schemas.StatusCode.Should().Be(HttpStatusCode.OK, "the alias is the same endpoint and the same gate");
+        modules.StatusCode.Should().Be(HttpStatusCode.OK, "GET /api/modules was Roles(\"SuperAdmin\", \"Admin\") and view_modules is in Admin's defaults");
         // Named refusals rather than "not 403": a 401 or a 500 would satisfy the loose form and
         // prove nothing about Admin still reaching these three.
         var reached = new[] { HttpStatusCode.BadRequest, HttpStatusCode.NotFound };
         publicDelivery.StatusCode.Should().BeOneOf(reached);
         sensitivity.StatusCode.Should().BeOneOf(reached);
         rebuild.StatusCode.Should().BeOneOf(reached);
+        seoFields.StatusCode.Should().BeOneOf(reached);
+    }
+
+    /// <summary>
+    /// The last core route to move. <c>view_modules</c> opens the module list and nothing else, and
+    /// a role name with nothing stored behind it opens nothing.
+    /// </summary>
+    [Fact]
+    public async Task View_modules_opens_the_module_list_and_nothing_else()
+    {
+        var (client, _) = await CallerHolding(
+            "Module Reader", barakoCMS.Models.SystemCapabilities.ViewModules);
+        // A name the seeder never creates, so nothing is stored under it to resolve. "Admin" would
+        // reach it, because the seeded Admin role holds view_modules by default.
+        var nameOnly = await CallerWithNoStoredRoles("Modules Team");
+
+        var modules = await client.GetAsync("/api/modules", TestContext.Current.CancellationToken);
+        var contentTypes = await client.GetAsync("/api/content-types", TestContext.Current.CancellationToken);
+        var byName = await nameOnly.GetAsync("/api/modules", TestContext.Current.CancellationToken);
+
+        modules.StatusCode.Should().Be(HttpStatusCode.OK);
+        contentTypes.StatusCode.Should().Be(HttpStatusCode.Forbidden, "reading the module list is not modelling content");
+        byName.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "the name opens nothing on its own now that the gate asks for a capability");
     }
 
     /// <summary>

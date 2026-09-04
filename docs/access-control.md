@@ -379,7 +379,8 @@ says.
 | `Features/Audit/*` | `view_audit_log` | `GET /api/audit` | SuperAdmin, Admin |
 | `Features/Settings/*` | `manage_settings` | `/api/settings`, `GET /api/settings/email` | SuperAdmin, Admin |
 | `Features/Settings/Email/*` | `manage_email_settings` | `PUT /api/settings/email`, `POST /api/settings/email/test` | SuperAdmin |
-| `Features/ContentType/*` | `manage_content_types` | `/api/content-types` (and its `/api/schemas` alias), `POST /api/content-types/{name}/rebuild` | SuperAdmin, Admin |
+| `Features/ContentType/*` | `manage_content_types` | `/api/content-types` (and its `/api/schemas` alias), `POST /api/content-types/{name}/rebuild`, `POST /api/content-types/{name}/seo-fields` | SuperAdmin, Admin |
+| `Features/Modules/*` | `view_modules` | `GET /api/modules` | SuperAdmin, Admin |
 | `Features/ContentType/*` | `manage_public_delivery` | `PUT /api/content-types/{name}/public-delivery`, `PUT /api/content-types/{name}/fields/{field}/sensitivity` | SuperAdmin, Admin |
 | `Features/Monitoring/*` | `view_monitoring` | `GET /api/monitoring/health`, `/k8s`, `/metrics` | SuperAdmin, Admin |
 | `Features/Redirects/*` | `manage_redirects` | `/api/redirects`, `DELETE /api/redirects/{id}`, `POST /api/redirects/import` | SuperAdmin, Admin |
@@ -489,14 +490,12 @@ holds both by default, because Admin reached all five routes already and this na
 
 ### What is not migrated yet
 
-Two core routes, and `RoleGateTests` pins the list so it cannot drift:
+None. Every core route that gates at all gates on a capability, and `RoleGateTests` pins that the set
+still on a role name is empty, so a new endpoint reaching for `Roles(...)` fails the suite.
 
-- `GET /api/modules`, which reports which modules the container booted with. Every name in the
-  vocabulary covers a management surface it neither reads nor writes, and a capability invented for
-  it would be a name with one route behind it. See issue #185.
-- `POST /api/content-types/{name}/seo-fields`, which adds the SEO field set to a type. This is
-  schema modelling, so `manage_content_types` would fit; it is outside #443 only because #443's list
-  did not name it, and moving it is a small follow-up.
+The last two moved in the same change. `GET /api/modules` asks for `view_modules`, named for reading
+because it answers with two fields per module and manages nothing. `POST /api/content-types/{name}/seo-fields`
+asks for `manage_content_types`, since adding fields to a content type is exactly what that capability
+is. Admin holds both by default, matching what it reached before.
 
-Both keep working exactly as before. Third-party modules calling `Roles(...)` are unaffected and
-compile unchanged.
+Third-party modules calling `Roles(...)` are unaffected and compile unchanged.

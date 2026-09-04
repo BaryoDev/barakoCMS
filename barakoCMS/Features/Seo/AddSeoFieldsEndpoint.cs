@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Models;
 using FastEndpoints;
@@ -48,7 +49,9 @@ internal sealed class AddSeoFieldsEndpoint : Endpoint<AddSeoFieldsRequest, AddSe
     public override void Configure()
     {
         Post("/api/content-types/{name}/seo-fields");
-        Roles("SuperAdmin", "Admin");
+        // Adding fields to a content type is exactly what manage_content_types is, so this asks for
+        // that rather than inventing a name for one endpoint.
+        Definition.RequireCapability(SystemCapabilities.ManageContentTypes, "SuperAdmin", "Admin");
     }
 
     public override async Task HandleAsync(AddSeoFieldsRequest req, CancellationToken ct)

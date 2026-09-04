@@ -111,6 +111,8 @@ public class SystemCapabilitiesTests
             SystemCapabilities.RetryWorkflowActions,
             // Rollback: POST /api/contents/{id}/rollback/{versionId} was Roles("SuperAdmin", "Admin").
             SystemCapabilities.RollbackContent,
+            // Modules: GET /api/modules was Roles("SuperAdmin", "Admin"), so Admin read it already.
+            SystemCapabilities.ViewModules,
         });
         admin.Should().NotContain(SystemCapabilities.ManageRoles);
         admin.Should().NotContain(SystemCapabilities.ManageTenants);
