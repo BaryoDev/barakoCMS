@@ -17,12 +17,24 @@ Microsoft's own documentation tells you not to use in new code.
 
 ## Enable it
 
-```csharp
-builder.Services.AddBarakoCMS(builder.Configuration, modules =>
-{
-    modules.Add(new BarakoCMS.Email.Smtp.SmtpEmailModule());
-});
+```sh
+dotnet add package BarakoCMS.Email.Smtp
 ```
+
+```csharp
+builder.Services.AddBarakoCMS(builder.Configuration);
+
+var app = builder.Build();
+app.UseBarakoCMS();
+```
+
+The package reference plus a restart is the install. `AddBarakoCMS` finds every module in the
+application's dependency context, and `BarakoCMS:Modules:Enabled` decides which of them run
+(`BarakoCMS__Modules__Enabled=Email.Smtp`). Unset, every referenced module runs and the API logs
+one warning saying so. To name it by hand instead, put
+`modules.Add(new BarakoCMS.Email.Smtp.SmtpEmailModule())`
+in the `AddBarakoCMS` callback; discovery skips a type the host already added. See `MODULES.md` in
+the repository.
 
 barakoCMS registers its mock email service with `TryAdd`, so this module's registration wins.
 

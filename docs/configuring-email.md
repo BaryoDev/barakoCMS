@@ -5,12 +5,16 @@ true before any of it is delivered: a provider module is registered, and it has 
 
 ## The provider is a deployment decision, the credentials are not
 
-The provider is a module, so it is chosen when the host is assembled:
+The provider is a module, so it is chosen when the host is assembled. The package reference plus a
+restart is the install:
 
-```csharp
-services.AddBarakoCMS(config, m => m.Add(new ResendEmailModule()));   // Resend HTTP API
-services.AddBarakoCMS(config, m => m.Add(new SmtpEmailModule()));     // any SMTP relay
+```sh
+dotnet add package BarakoCMS.Email.Resend   # Resend HTTP API
+dotnet add package BarakoCMS.Email.Smtp     # any SMTP relay
 ```
+
+`AddBarakoCMS(builder.Configuration)` finds the referenced module, and `BarakoCMS:Modules:Enabled`
+decides whether it runs; see `MODULES.md`.
 
 Without one, the core registers a mock that logs and delivers nothing. The admin says so, and the
 test send refuses rather than reporting success.

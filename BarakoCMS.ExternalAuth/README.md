@@ -12,15 +12,24 @@ flows — social sign-in is another way in, not a second, weaker way in.
 
 ## Enable it
 
+```sh
+dotnet add package BarakoCMS.ExternalAuth
+```
+
 ```csharp
-builder.Services.AddBarakoCMS(builder.Configuration, modules =>
-{
-    modules.Add(new BarakoCMS.ExternalAuth.ExternalAuthModule());
-});
+builder.Services.AddBarakoCMS(builder.Configuration);
 
 var app = builder.Build();
 app.UseBarakoCMS();
 ```
+
+The package reference plus a restart is the install. `AddBarakoCMS` finds every module in the
+application's dependency context, and `BarakoCMS:Modules:Enabled` decides which of them run
+(`BarakoCMS__Modules__Enabled=ExternalAuth`). Unset, every referenced module runs and the API logs
+one warning saying so. To name it by hand instead, put
+`modules.Add(new BarakoCMS.ExternalAuth.ExternalAuthModule())`
+in the `AddBarakoCMS` callback; discovery skips a type the host already added. See `MODULES.md` in
+the repository.
 
 
 ## Endpoints

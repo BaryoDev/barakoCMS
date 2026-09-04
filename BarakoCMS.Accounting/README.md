@@ -12,18 +12,27 @@ double-entry ledger: a chart of accounts, balanced journal entries, and reportin
 
 ## Enable it
 
+```sh
+dotnet add package BarakoCMS.Accounting
+```
+
 ```csharp
-builder.Services.AddBarakoCMS(builder.Configuration, modules =>
-{
-    modules.Add(new BarakoCMS.Accounting.AccountingModule());
-});
+builder.Services.AddBarakoCMS(builder.Configuration);
 
 var app = builder.Build();
 app.UseBarakoCMS();
 await app.RunBarakoModuleSeedersAsync();   // seeds the "Accountant" role
 ```
 
-The module wires itself in: it registers its services, its Marten document schema, its endpoints,
+The package reference plus a restart is the install. `AddBarakoCMS` finds every module in the
+application's dependency context, and `BarakoCMS:Modules:Enabled` decides which of them run
+(`BarakoCMS__Modules__Enabled=Accounting`). Unset, every referenced module runs and the API logs
+one warning saying so. To name it by hand instead, put
+`modules.Add(new BarakoCMS.Accounting.AccountingModule())`
+in the `AddBarakoCMS` callback; discovery skips a type the host already added. See `MODULES.md` in
+the repository.
+
+Enabled, the module wires itself in: it registers its services, its Marten document schema, its endpoints,
 and a baseline `Accountant` role — no other setup.
 
 ## What it guarantees

@@ -555,19 +555,26 @@ Modules are optional NuGet packages layered on the core. Two ways to run them.
 mock until its keys are set. Turning one on is adding environment variables and restarting. This is
 the default and the cheap answer: an empty but valid `.env` boots a working CMS you can grow into.
 
-**The lean core** (`ghcr.io/baryodev/barako-cms-decaf`) ships nothing, and you register the modules
-you want in your own host:
+**The lean core** (`ghcr.io/baryodev/barako-cms-decaf`) ships nothing, and you reference the modules
+you want from your own host. The package reference plus a restart is the install:
+
+```sh
+dotnet add package BarakoCMS.Files
+dotnet add package BarakoCMS.Email.Resend
+```
 
 ```csharp
-builder.Services.AddBarakoCMS(builder.Configuration, modules =>
-{
-    modules.Add(new BarakoCMS.Files.FilesModule());
-    modules.Add(new BarakoCMS.Email.Resend.ResendEmailModule());
-});
+builder.Services.AddBarakoCMS(builder.Configuration);
 var app = builder.Build();
 app.UseBarakoCMS();
 await app.RunBarakoModuleSeedersAsync();
 ```
+
+`AddBarakoCMS` finds every module in the application's dependency context, and
+`BarakoCMS:Modules:Enabled` decides which of them run (`BarakoCMS__Modules__Enabled=Files,Email.Resend`).
+Unset, every referenced module runs and the API logs one warning saying so; an empty string is core
+only. A host that wants to name its modules by hand puts `modules.Add(new BarakoCMS.Files.FilesModule())`
+in the `AddBarakoCMS` callback; discovery skips a type the host already added. See `MODULES.md`.
 
 Adding a module later is cheap in both shapes. A module's configuration is its own `Modules:{Name}`
 section, its schema is created on start, and its seed is idempotent and runs every boot. Removing one

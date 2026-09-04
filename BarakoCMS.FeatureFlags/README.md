@@ -11,15 +11,24 @@ global with per-tenant targeting, and every decision is made server-side.
 
 ## Enable it
 
+```sh
+dotnet add package BarakoCMS.FeatureFlags
+```
+
 ```csharp
-builder.Services.AddBarakoCMS(builder.Configuration, modules =>
-{
-    modules.Add(new BarakoCMS.FeatureFlags.FeatureFlagsModule());
-});
+builder.Services.AddBarakoCMS(builder.Configuration);
 
 var app = builder.Build();
 app.UseBarakoCMS();
 ```
+
+The package reference plus a restart is the install. `AddBarakoCMS` finds every module in the
+application's dependency context, and `BarakoCMS:Modules:Enabled` decides which of them run
+(`BarakoCMS__Modules__Enabled=FeatureFlags`). Unset, every referenced module runs and the API logs
+one warning saying so. To name it by hand instead, put
+`modules.Add(new BarakoCMS.FeatureFlags.FeatureFlagsModule())`
+in the `AddBarakoCMS` callback; discovery skips a type the host already added. See `MODULES.md` in
+the repository.
 
 
 ## Endpoints

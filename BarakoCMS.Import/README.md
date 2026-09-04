@@ -13,12 +13,24 @@ CMS's own validation, permissions, and event-sourcing.
 
 ## Enable it
 
-```csharp
-builder.Services.AddBarakoCMS(builder.Configuration, modules =>
-{
-    modules.Add(new BarakoCMS.Import.ImportModule());
-});
+```sh
+dotnet add package BarakoCMS.Import
 ```
+
+```csharp
+builder.Services.AddBarakoCMS(builder.Configuration);
+
+var app = builder.Build();
+app.UseBarakoCMS();
+```
+
+The package reference plus a restart is the install. `AddBarakoCMS` finds every module in the
+application's dependency context, and `BarakoCMS:Modules:Enabled` decides which of them run
+(`BarakoCMS__Modules__Enabled=Import`). Unset, every referenced module runs and the API logs
+one warning saying so. To name it by hand instead, put
+`modules.Add(new BarakoCMS.Import.ImportModule())`
+in the `AddBarakoCMS` callback; discovery skips a type the host already added. See `MODULES.md` in
+the repository.
 
 No services or schema to configure — the module only contributes endpoints.
 
