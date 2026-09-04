@@ -58,6 +58,15 @@ The module packages version independently of the core, and their support follows
 target rather than their own version number. A module released against 4.x is supported as long as
 4.x is. A module's own major bump does not start a new support window.
 
+A module is trusted, in-process code. Referencing a module package puts its code inside the host
+with the host's own permissions: it runs in the same process, shares the same database and can read
+the whole environment, not only the configuration section it is handed. `AddBarakoCMS` discovers
+and registers every module in a referenced package, and the enabled list only chooses among what is
+referenced. So the review happens at the reference: the site owner who runs `dotnet add package` is
+the reviewer, and nothing in core reviews the package for them. There is no plugin directory and no
+runtime loading, on purpose, because a file dropped into a directory is code that nobody chose to
+reference.
+
 ### What this is not
 
 This is a maintenance policy for an open-source project, not a service-level agreement. It says what
@@ -91,8 +100,9 @@ When deploying BarakoCMS:
 
 ## Known advisories we accept
 
-None, currently. Both gates are clean: `dotnet list package --vulnerable` and `npm audit` in `admin/`
-each report zero, and CI fails the build on a Critical or High finding.
+None, currently. `dotnet list package --vulnerable` reports zero, and CI fails the build on a Critical
+or High finding. The console's `npm audit` gate moved with it to
+[BaryoDev/barakoBrew](https://github.com/BaryoDev/barakoBrew), which carries its own advisories.
 
 For a while this section listed three High advisories in `next`, `postcss` and `sharp` as unfixable,
 because upgrading Next appeared to break 28 end-to-end tests. It did not. Next 16.1 began refusing
@@ -104,5 +114,5 @@ here the product was fine and the harness was misconfigured, and reading it the 
 carrying advisories that had a fix available all along.
 
 Note that a raw GitHub Dependabot alert count for this repo overstates the real picture: alerts remain
-open for `examples/nextjs-starter`, a scaffold deleted in `7cfa43c`, and for `admin/` packages that
-have since been patched. `npm audit` in `admin/` is the accurate signal.
+open for `examples/nextjs-starter`, a scaffold deleted in `7cfa43c`, and for the console's packages,
+which no longer live here. `dotnet list package --vulnerable` is the accurate signal.

@@ -529,8 +529,9 @@ under the prefix (`BarakoCMS.Files`, `BarakoCMS.AI`). Modules version independen
 module route breaks only in that module's major. A breaking change to a route, a response shape, a
 filter's meaning or a default lands only in a major, is announced in `CHANGELOG.md` under a Delivery
 API lead at least one minor before that major, and is marked deprecated in `docs/delivery-api.md` on
-the same schedule. Additive changes land in a minor. The policy text lives in `docs/delivery-api.md`
-under "Stability and deprecation".
+the same schedule. Additive changes land in a minor. A security fix, whatever it closes, ships in
+the next release whatever its number. The policy text lives in `docs/delivery-api.md` under
+"Stability and deprecation".
 
 **What it rules out.** A version segment in the URL (`/api/v1/public`), a version header, or a
 version query parameter. FastEndpoints supports all three and the issue named the URL form as the

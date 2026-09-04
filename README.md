@@ -4,7 +4,7 @@
 
 <h1 align="center">BarakoCMS</h1>
 
-<p align="center"><strong>A headless CMS suite for .NET 10: an event-sourced engine, opt-in modules, an admin UI, and a PWA kit.</strong></p>
+<p align="center"><strong>A headless CMS suite for .NET 10: an event-sourced engine, opt-in modules, and a PWA kit.</strong></p>
 
 <p align="center">
   <a href="https://www.nuget.org/packages/BarakoCMS"><img src="https://img.shields.io/nuget/v/BarakoCMS.svg" alt="NuGet" /></a>
@@ -16,15 +16,15 @@
 BarakoCMS is a headless, API-first CMS built on [FastEndpoints](https://fast-endpoints.com/) and
 [Marten](https://martendb.io/) (event sourcing over PostgreSQL). The core stays small and generic;
 everything else, from accounting and analytics to email, file storage and auth providers, ships as **opt-in
-modules** you compose per project. It comes with a Next.js **admin UI** that surfaces your content
-*and* every installed module, and it's **multi-tenant** out of the box.
+modules** you compose per project, and it's **multi-tenant** out of the box.
+
+This repository is the API, and its own surface is Swagger (`/swagger`, on when `Swagger:Enabled`
+is true). The console that sits on top of it is **barakoBrew**, in its own repository at
+[BaryoDev/barakoBrew](https://github.com/BaryoDev/barakoBrew), still published as
+`ghcr.io/baryodev/barako-admin`. This repository has no front end.
 
 > The name **Barako** comes from *kapeng barako*, a bold Philippine coffee varietal, hence the
 > coffee-bean mark. The full-module image is "Barako"; the lean core is "Decaf".
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/BaryoDev/barakoCMS/master/assets/screenshots/overview.png" alt="BarakoCMS admin, Overview" width="900" />
-</p>
 
 ### What it is, and what it is not
 
@@ -70,7 +70,7 @@ licensed, and has all of them. That is a genuine recommendation, not a hedge.
 
 ## Contents
 
-- [Quick start](#quick-start) · [Live demo](#live-demo) · [The admin](#the-admin) · [Modules](#modules)
+- [Quick start](#quick-start) · [Live demo](#live-demo) · [Modules](#modules)
 - [Frontend kit](#frontend-kit) · [Architecture](#architecture)
 - [How the pieces fit](#how-the-pieces-fit) · [Module, or core?](#module-or-core) · [Why this and not that](#why-this-and-not-that)
 - [Docs](#documentation) · [Support](#support) · [License](#license)
@@ -79,9 +79,10 @@ licensed, and has all of them. That is a genuine recommendation, not a hedge.
 
 ## Quick start
 
-The fastest path is the **[quickstart bundle](quickstart/)**, the full suite (core + every module),
-the admin UI, and PostgreSQL, from prebuilt images, driven by one documented `.env`. No build, no
-clone.
+The fastest path is the **[quickstart bundle](quickstart/)**, the full suite (core + every module)
+and PostgreSQL, from prebuilt images, driven by one documented `.env`. No build, no clone. For the
+API with the console in front of it, start from [barakoBrew](https://github.com/BaryoDev/barakoBrew)
+instead; it runs this same image.
 
 ```bash
 curl -O https://raw.githubusercontent.com/BaryoDev/barakoCMS/master/quickstart/docker-compose.yml
@@ -90,7 +91,7 @@ cp .env.example .env      # then set DB_PASSWORD, JWT_KEY (32+ chars), ADMIN_PAS
 docker compose up -d
 ```
 
-- **Admin UI** → <http://localhost:3000> · **API** → <http://localhost:5005> · health at `/health`
+- **API** at <http://localhost:5005>, health at `/health`, Swagger at `/swagger` once `SWAGGER_ENABLED=true`
 - Every module ships in the image and stays off/mock until you add its keys, so you grow into Umami
   analytics, Resend email, social sign-in, and the rest without touching the compose.
 
@@ -102,34 +103,10 @@ behind a domain with TLS. To build from source instead, see the
 
 ## Live demo
 
-**<https://playground.baryo.dev/barakocms>**. Sign in as `demo_admin` / `BarakoDemo2026!`. The API
-is at `https://playground.baryo.dev/barakocms-api` ([health](https://playground.baryo.dev/barakocms-api/health)).
-
----
-
-## The admin
-
-A Next.js admin for modeling content, managing access, and running the system. Installed modules
-appear automatically as their own sections, so the admin is a window into your whole deployment.
-
-- **Content.** Define content types with typed fields (including per-field sensitivity/masking),
-  write and version entries, and automate with workflows.
-- **Access.** Users, roles, and groups with fine-grained RBAC.
-- **Multi-tenancy.** Auto-scopes to your tenant on sign-in, with a switcher to move between the
-  tenants you belong to; all data reloads under the one you pick.
-- **Module sections.** Accounting, Analytics, Email events, Feature flags, PWA installs, and more,
-  each shown only when its module is installed.
-
-<table>
-  <tr>
-    <td><img src="https://raw.githubusercontent.com/BaryoDev/barakoCMS/master/assets/screenshots/analytics.png" alt="Analytics" /></td>
-    <td><img src="https://raw.githubusercontent.com/BaryoDev/barakoCMS/master/assets/screenshots/content-types.png" alt="Content types" /></td>
-  </tr>
-  <tr>
-    <td><img src="https://raw.githubusercontent.com/BaryoDev/barakoCMS/master/assets/screenshots/pwa-installs.png" alt="PWA installs" /></td>
-    <td><img src="https://raw.githubusercontent.com/BaryoDev/barakoCMS/master/assets/screenshots/health.png" alt="Health" /></td>
-  </tr>
-</table>
+The API runs at `https://playground.baryo.dev/barakocms-api`
+([health](https://playground.baryo.dev/barakocms-api/health)). The console on top of it, at
+**<https://playground.baryo.dev/barakocms>**, is barakoBrew's playground; sign in as `demo_admin` /
+`BarakoDemo2026!`.
 
 ---
 
@@ -154,21 +131,20 @@ project, through the same `IBarakoModule` contract you can implement yourself.
 | **Pwa** | [`BarakoCMS.Pwa`](https://www.nuget.org/packages/BarakoCMS.Pwa) | Tracks PWA installs / installed-app launches (anonymous or tied to the signed-in user) so the admin shows **who** installed the app. |
 | **AI** | [`BarakoCMS.AI`](https://www.nuget.org/packages/BarakoCMS.AI) | **Semantic search** over published content using a self-hosted embedding model ([Ollama](https://ollama.com) by default), with no third-party API key. Indexes only public fields; results are re-checked as published + public at query time. |
 
-Enable the ones you want when you register the CMS:
+Reference the packages you want and register the CMS. `AddBarakoCMS` finds every module in the
+application's dependency context, so adding one is `dotnet add package` and a restart:
 
 ```csharp
-builder.Services.AddBarakoCMS(builder.Configuration, modules =>
-{
-    modules.Add(new BarakoCMS.Accounting.AccountingModule());
-    modules.Add(new BarakoCMS.Email.Resend.ResendEmailModule());
-    modules.Add(new BarakoCMS.Analytics.Umami.UmamiAnalyticsModule());
-    modules.Add(new BarakoCMS.Pwa.PwaModule());
-    modules.Add(new BarakoCMS.AI.AiModule()); // semantic search (Ollama)
-    // …add only what you need
-});
+builder.Services.AddBarakoCMS(builder.Configuration);
 
 await app.RunBarakoModuleSeedersAsync(); // module baseline data (roles, reference data)
 ```
+
+`BarakoCMS__Modules__Enabled=Accounting,Files` chooses which of the referenced modules run. Unset,
+all of them run and the API logs one warning saying so; an empty string is core only; a name that
+matches nothing refuses to start and lists the names it knows. Turning a module off leaves its data
+in the database. `GET /api/modules` lists each module with `enabled`. A module that needs
+constructor arguments is still added by hand with `modules.Add(...)`; see [MODULES.md](MODULES.md).
 
 A module contributes DI services, its own Marten documents, FastEndpoints endpoints, and seed data,
 implementing only the hooks it needs. See each module's page in the [docs](https://baryo.dev/docs/).
@@ -216,35 +192,35 @@ BarakoCMS is headless, so you build the frontend. These BaryoDev packages help:
 ### How the pieces fit
 
 ```text
-                      ┌──────────────────────────────────────────┐
-   admin UI ─────────▶│  /api/contents  /api/content-types       │
-   (Next.js)          │  /api/users  /api/roles  /api/workflows  │  authenticated
-   barako-client ────▶│  /api/api-keys  /api/tenants  /api/audit │
-                      └──────────────────────────────────────────┘
-                                        │
-   any browser ──────▶  /api/public/{type}  ──┐                     anonymous, and only
-                        /feed.xml  /search    │                     for types opted in
-                                        ┌─────▼──────┐
-                                        │    CORE    │
-                                        │            │
-                                        │  content   │  a document bag + a runtime
-                                        │  types     │  type definition, not classes
-                                        │  auth      │  JWT, API keys, MFA, RBAC
-                                        │  tenancy   │  conjoined: one database, many tenants
-                                        │  delivery  │  opt-in, field-masked, fail-closed
-                                        │  workflows │  events in, actions out
-                                        └─────┬──────┘
-                                              │ IBarakoModule
-                    ┌─────────────────────────┼─────────────────────────┐
-                    ▼                         ▼                         ▼
-              Accounting                    Files ◀── Files.S3        AI
+                      +------------------------------------------+
+   barakoBrew ------->|  /api/contents  /api/content-types       |
+   (the console)      |  /api/users  /api/roles  /api/workflows  |  authenticated
+   barako-client ---->|  /api/api-keys  /api/tenants  /api/audit |
+                      +------------------------------------------+
+                                        |
+   any browser ------>  /api/public/{type}  --+                     anonymous, and only
+                        /feed.xml  /search    |                     for types opted in
+                                        +-----v------+
+                                        |    CORE    |
+                                        |            |
+                                        |  content   |  a document bag + a runtime
+                                        |  types     |  type definition, not classes
+                                        |  auth      |  JWT, API keys, MFA, RBAC
+                                        |  tenancy   |  conjoined: one database, many tenants
+                                        |  delivery  |  opt-in, field-masked, fail-closed
+                                        |  workflows |  events in, actions out
+                                        +-----+------+
+                                              | IBarakoModule
+                    +-------------------------+-------------------------+
+                    v                         v                         v
+              Accounting                    Files <-- Files.S3        AI
               FeatureFlags                  Import                    Analytics.Umami
               Portability                   Email.Resend              Pwa
               ExternalAuth                  Email.Smtp                Diagnostics
                                             DeviceTrust
-                    │                         │                         │
-                    └─────────────────────────┼─────────────────────────┘
-                                              ▼
+                    |                         |                         |
+                    +-------------------------+-------------------------+
+                                              v
                                        PostgreSQL (Marten)
                                   documents + event streams, one store
 ```

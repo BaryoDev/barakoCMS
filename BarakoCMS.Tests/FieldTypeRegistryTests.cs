@@ -136,6 +136,64 @@ public class FieldTypeRegistryTests
         FieldTypeRegistry.IsValidValue("money", money).Should().BeTrue();
     }
 
+    // ---- geopoint: a coordinate pair, not free text ---------------------------
+
+    private static Dictionary<string, object> Point(object lat, object lng) => new() { ["lat"] = lat, ["lng"] = lng };
+
+    [Fact]
+    public void Geopoint_AcceptsACoordinatePair()
+    {
+        FieldTypeRegistry.IsValidValue("geopoint", Point(6.5031, 124.8469)).Should().BeTrue();
+        FieldTypeRegistry.IsValidValue("geopoint", Point(-90, 180)).Should().BeTrue("the range is inclusive");
+        FieldTypeRegistry.IsValidValue("geopoint", Point(0L, 0L)).Should().BeTrue("a whole number is still a number");
+        FieldTypeRegistry.IsValidValue("geopoint", Point(6.5m, 124.8m)).Should().BeTrue("stored values read back as decimal");
+    }
+
+    [Theory]
+    [InlineData(90.001, 0)]
+    [InlineData(-91, 0)]
+    [InlineData(0, 180.5)]
+    [InlineData(0, -181)]
+    public void Geopoint_RejectsACoordinateOutOfRange(double lat, double lng)
+    {
+        FieldTypeRegistry.IsValidValue("geopoint", Point(lat, lng)).Should().BeFalse(
+            "a longitude past 180 is a mistake, not a position");
+    }
+
+    [Fact]
+    public void Geopoint_RejectsAString()
+    {
+        FieldTypeRegistry.IsValidValue("geopoint", "6.5031,124.8469").Should().BeFalse(
+            "the delivery query casts the stored numbers and a string would not cast");
+        FieldTypeRegistry.IsValidValue("geopoint", Point("6.5031", "124.8469")).Should().BeFalse(
+            "numeric strings inside the object are still strings");
+    }
+
+    [Fact]
+    public void Geopoint_RejectsAMissingLongitude()
+    {
+        FieldTypeRegistry.IsValidValue("geopoint", new Dictionary<string, object> { ["lat"] = 6.5031 })
+            .Should().BeFalse();
+    }
+
+    [Fact]
+    public void Geopoint_WorksThroughJsonElement()
+    {
+        var good = JsonDocument.Parse("{\"lat\": 6.5031, \"lng\": 124.8469}").RootElement;
+        var stringy = JsonDocument.Parse("{\"lat\": \"6.5031\", \"lng\": 124.8469}").RootElement;
+        var array = JsonDocument.Parse("[6.5031, 124.8469]").RootElement;
+
+        FieldTypeRegistry.IsValidValue("geopoint", good).Should().BeTrue();
+        FieldTypeRegistry.IsValidValue("geopoint", stringy).Should().BeFalse();
+        FieldTypeRegistry.IsValidValue("geopoint", array).Should().BeFalse("an array has no lat and lng keys");
+    }
+
+    [Fact]
+    public void Geopoint_HasItsOwnEditorHint()
+    {
+        FieldTypeRegistry.EditorHintFor("geopoint").Should().Be("geopoint");
+    }
+
     [Fact]
     public void EditorHint_IsProvidedForNewTypes()
     {

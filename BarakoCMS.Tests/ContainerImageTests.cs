@@ -32,14 +32,14 @@ public class ContainerImageTests
     /// <summary>The two ways a Dockerfile can name uid 0.</summary>
     private static readonly string[] RootSpellings = ["root", "0"];
 
-    public static TheoryData<string> RuntimeImages() => new() { "Dockerfile", "Dockerfile.suite", "admin/Dockerfile" };
+    public static TheoryData<string> RuntimeImages() => new() { "Dockerfile", "Dockerfile.suite" };
 
     [Theory]
     [MemberData(nameof(RuntimeImages))]
     public void The_image_drops_to_a_non_root_user_before_its_entrypoint(string dockerfile)
     {
         var path = Path.Combine(RepoRoot(), dockerfile.Replace('/', Path.DirectorySeparatorChar));
-        File.Exists(path).Should().BeTrue("{0} is one of the three published images", dockerfile);
+        File.Exists(path).Should().BeTrue("{0} is one of the published images", dockerfile);
 
         var lines = File.ReadAllLines(path);
 
@@ -55,8 +55,8 @@ public class ContainerImageTests
 
         user.Should().NotBeNull(
             "{0} runs as root without a USER in its final stage. The .NET base images ship app as "
-          + "uid 1654 and the admin image uses nextjs; nothing here needs privilege, because 8080 is "
-          + "above 1024 and the app writes nothing to the container filesystem", dockerfile);
+          + "uid 1654; nothing here needs privilege, because 8080 is above 1024 and the app writes "
+          + "nothing to the container filesystem", dockerfile);
 
         // USER takes name or numeric id, with an optional group, so root has six spellings: root, 0,
         // root:root, 0:0, root:0, 0:root. Comparing against the literal "root" catches one of them
@@ -114,7 +114,7 @@ public class ContainerImageTests
         // deleted, and the control would go on reporting that a file nobody publishes is guarded.
         var declared = release.Split('\n').Select(l => l.Trim()).ToArray();
 
-        foreach (var f in new[] { "Dockerfile", "Dockerfile.suite", "admin/Dockerfile" })
+        foreach (var f in new[] { "Dockerfile", "Dockerfile.suite" })
         {
             declared.Should().Contain($"file: {f}",
                 "{0} is asserted above, so the release has to be the thing that builds it. If this "

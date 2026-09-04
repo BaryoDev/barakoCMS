@@ -41,8 +41,8 @@ it, and model there.
 
 ## 1. Stand an instance up
 
-Local first. [`quickstart/README.md`](../quickstart/README.md) brings up the API, the admin UI and
-Postgres from published images with no build step:
+Local first. [`quickstart/README.md`](../quickstart/README.md) brings up the API and Postgres from
+published images with no build step:
 
 ```bash
 cd quickstart
@@ -51,8 +51,9 @@ cp .env.example .env
 docker compose up -d
 ```
 
-Admin UI on `http://localhost:3000`, API on `http://localhost:5005`, health on
-`http://localhost:5005/health`.
+API on `http://localhost:5005`, health on `http://localhost:5005/health`. The console is
+[barakoBrew](https://github.com/BaryoDev/barakoBrew), in its own repository; it runs against this
+same image.
 
 The quickstart image is the full suite, so every module is present and each one stays off or on a
 mock until you give it keys. That is the right default while you are still finding out what the
@@ -177,7 +178,7 @@ curl -s "$API/api/content-types" -H "Authorization: Bearer $TOKEN" -H "X-Tenant:
 A token minted for one tenant and sent with another tenant's header is refused with 403 by
 `TenantAccessMiddleware`, so the two cannot drift apart silently.
 
-From the admin UI, you sign in and then switch. The admin derives `X-Tenant` from the token's own
+From barakoBrew, you sign in and then switch. The console derives `X-Tenant` from the token's own
 `tenant` claim, so at the login screen there is no header at all and you land on whichever tenant the
 host resolved to. The tenant switcher then calls `GET /api/me/tenants` and `POST /api/me/switch` to
 swap your token for one scoped to the tenant you picked.
@@ -280,7 +281,7 @@ caller's *current* tenant rather than one named in the path, and all gated on
 | DELETE | `/api/tenants/members/{userId}` | mark them removed |
 | GET | `/api/tenants/members/roles` | the roles you may assign in a tenant |
 
-The admin UI has all of this on the Tenants screen.
+barakoBrew has all of this on the Tenants screen.
 
 ```bash
 curl -s -X POST "$API/api/tenants/members" \
@@ -642,7 +643,8 @@ Until those two surfaces are scoped, a client-facing role must carry no system c
   and correct; what to run over it is not decided, and nothing notices when a generated client stops
   matching the API (#187).
 - **No API versioning on the public delivery endpoints**, by decision (#107, D14). A breaking change
-  to the delivery contract lands only in a major and is announced at least one minor ahead;
+  to the delivery contract lands only in a major (a security fix excepted) and is announced at
+  least one minor ahead;
   [delivery-api.md](delivery-api.md) has the rule. It still reaches every client site at once when
   the major ships.
 - **No webhooks and no realtime** (#95, #96). A frontend that caches has to poll or rebuild on a
@@ -657,12 +659,12 @@ Until those two surfaces are scoped, a client-facing role must carry no system c
   production one builds nothing, and the same images run on the playground, but certificate issuance
   on a real VM is verified by hand.
 - **Versioned image tags are amd64 only** (#394).
-- **No CLI** (#169, #345). Everything in this document is the admin UI or curl. There is no
+- **No CLI** (#169, #345). Everything in this document is barakoBrew or curl. There is no
   reviewable file that configures an instance, which is what would make step 3 through step 5
   repeatable per client instead of retyped.
 - **No per-tenant email settings.** One provider for the deployment.
 - **Custom domains and branding are database writes**, as section 3 says.
-- **Per-field sensitivity can be set when a content type is created but not edited in the admin.**
+- **Per-field sensitivity can be set when a content type is created but not edited in barakoBrew.**
   Changing it afterwards is `PUT /api/content-types/{name}/fields/{field}/sensitivity`, called
   directly.
 

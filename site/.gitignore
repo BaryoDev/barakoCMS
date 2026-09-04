@@ -1,8 +1,0 @@
-node_modules/
-.next/
-out/
-next-env.d.ts
-*.tsbuildinfo
-
-# vitest JSON reporter output, written by CI to assert the test count
-test-results.json
