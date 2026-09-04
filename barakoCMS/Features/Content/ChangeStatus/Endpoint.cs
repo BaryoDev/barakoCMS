@@ -118,7 +118,7 @@ internal class Endpoint : Endpoint<Request, Response>
             return;
         }
 
-        var @event = new barakoCMS.Events.ContentStatusChanged(req.Id, newStatus, userId);
+        var @event = new barakoCMS.Events.ContentStatusChanged(req.Id, newStatus, userId, DateTime.UtcNow);
 
         // Append the event AND update the read-model document in one transaction so they can't
         // diverge. Workflows fire out-of-band via the async WorkflowProjection, which is driven off the
@@ -269,7 +269,7 @@ internal class Endpoint : Endpoint<Request, Response>
         }
 
         var transitioned = new barakoCMS.Events.ContentTransitioned(
-            content.Id, transition.Name, currentState, transition.To, userId);
+            content.Id, transition.Name, currentState, transition.To, userId, DateTime.UtcNow);
 
         try
         {

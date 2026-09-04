@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests.Features.Portability;
 /// See issue #168.
 /// </remarks>
 [Collection("Sequential")]
-public class ImportTests
+public class ImportTests : IAsyncLifetime
 {
     private readonly IntegrationTestFixture _fixture;
     private readonly HttpClient _client;
@@ -29,12 +29,22 @@ public class ImportTests
     {
         _fixture = fixture;
         _client = fixture.CreateClient();
-        _client.DefaultRequestHeaders.Authorization =
-            new System.Net.Http.Headers.AuthenticationHeaderValue(
-                "Bearer", fixture.CreateToken(roles: new[] { "SuperAdmin", "Admin" }));
-
         _anonymous = fixture.CreateClient();
     }
+
+    /// <summary>
+    /// The token needs a stored user, which is a write, which cannot happen in a constructor.
+    /// </summary>
+    /// <remarks>
+    /// The capability gate answers from the stored user's roles rather than from the claim, so a
+    /// token minted with no user behind it reaches nothing once the role-name fallback is off.
+    /// </remarks>
+    public async ValueTask InitializeAsync() =>
+        _client.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue(
+                "Bearer", await _fixture.StoredUserTokenAsync("SuperAdmin", "Admin"));
+
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
     private static object Bundle(string type, bool deliverable, string title) => new
     {

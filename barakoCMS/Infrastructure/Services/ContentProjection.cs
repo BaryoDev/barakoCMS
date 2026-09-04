@@ -35,11 +35,30 @@ internal static class ContentProjection
         var content = new Content();
         foreach (var e in events)
         {
-            Apply(content, e.Data, e.Timestamp.UtcDateTime);
+            Apply(content, e.Data, OccurredAt(e));
         }
 
         return content;
     }
+
+    /// <summary>
+    /// When the change happened, from the event itself where it says so.
+    /// </summary>
+    /// <remarks>
+    /// The event's own <see cref="barakoCMS.Events.IContentEvent.OccurredAt"/> is what the writer
+    /// stamped as it applied the change, so the live document and a rebuild read the same value and
+    /// the timestamps match exactly. Marten's is the transaction time, which differs by the write
+    /// latency, and a rebuild could previously see only that one.
+    ///
+    /// An event written before 4.0 carries no such field and deserialises to <c>default</c>. Those
+    /// fall back to the Marten timestamp, which is what the rebuild used for everything until now,
+    /// so an old stream rebuilds exactly as well as it did before and no better. Treating
+    /// <c>default</c> as a real answer would rebuild those documents at year one.
+    /// </remarks>
+    internal static DateTime OccurredAt(IEvent e) =>
+        e.Data is barakoCMS.Events.IContentEvent { OccurredAt: var stamped } && stamped != default
+            ? stamped
+            : e.Timestamp.UtcDateTime;
 
     /// <summary>
     /// Routes an event to the matching <c>Content.Apply</c> overload.

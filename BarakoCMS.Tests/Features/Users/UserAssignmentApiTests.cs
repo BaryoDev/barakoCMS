@@ -21,10 +21,9 @@ public class UserAssignmentApiTests
         _client = fixture.CreateClient();
     }
 
-    private string CreateAdminToken()
-    {
-        return _fixture.CreateToken(roles: new[] { "SuperAdmin" });
-    }
+    // A user that exists, holding the seeded SuperAdmin role. The capability gate answers from the
+    // stored user's roles, not from the claim.
+    private Task<string> CreateAdminToken() => _fixture.StoredUserTokenAsync("SuperAdmin");
 
     /// <summary>
     /// A real user to assign things to.
@@ -54,7 +53,7 @@ public class UserAssignmentApiTests
     public async Task POST_AssignRoleToUser_ShouldAddRole()
     {
         // Arrange
-        var token = CreateAdminToken();
+        var token = await CreateAdminToken();
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
@@ -91,7 +90,7 @@ public class UserAssignmentApiTests
     public async Task DELETE_RemoveRoleFromUser_ShouldRemoveRole()
     {
         // Arrange
-        var token = CreateAdminToken();
+        var token = await CreateAdminToken();
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
@@ -113,7 +112,7 @@ public class UserAssignmentApiTests
     public async Task POST_AddUserToGroup_ShouldAddToGroup()
     {
         // Arrange
-        var token = CreateAdminToken();
+        var token = await CreateAdminToken();
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
@@ -136,7 +135,7 @@ public class UserAssignmentApiTests
     public async Task DELETE_RemoveUserFromGroup_ShouldRemoveFromGroup()
     {
         // Arrange
-        var token = CreateAdminToken();
+        var token = await CreateAdminToken();
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
