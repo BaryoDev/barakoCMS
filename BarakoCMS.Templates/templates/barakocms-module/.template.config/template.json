@@ -45,7 +45,7 @@
     "TestingVersion": {
       "type": "parameter",
       "datatype": "string",
-      "defaultValue": "0.1.1",
+      "defaultValue": "0.1.2",
       "replaces": "BARAKOCMS_TESTING_VERSION",
       "description": "The BarakoCMS.Testing package version the tests run on."
     },

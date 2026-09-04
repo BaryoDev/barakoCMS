@@ -23,7 +23,15 @@ namespace BarakoCMS.Tests;
 /// A fixture that stood in for the host it doubles is what the main suite got wrong for a long
 /// time (roles with no capabilities, modules with no seeds), so every claim here is made over HTTP
 /// against the pipeline a deployment runs, with the roles the deployment's seeder makes.
+/// <para>
+/// In the Sequential collection like every other class that starts a host. FastEndpoints keeps its
+/// endpoint configuration in a static that each host's <c>UseFastEndpoints</c> overwrites while it
+/// maps its own endpoints, so a host starting in parallel with another can leave the other's
+/// endpoints without the global processors its container registered. DeviceEnforcementTests lost
+/// its enforcement processor that way while this class ran beside it.
+/// </para>
 /// </remarks>
+[Collection("Sequential")]
 public class BarakoTestHostTests : IClassFixture<BarakoTestHostTests.Host>
 {
     public sealed class Host : BarakoTestHost

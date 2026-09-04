@@ -73,6 +73,11 @@ public class BarakoTestHost : IAsyncLifetime
     private readonly string _jwtKey;
     private WebApplication? _app;
 
+    // FastEndpoints configures itself through a static that each host's UseFastEndpoints writes
+    // while it maps its own endpoints. Two hosts starting at once can cross there, so hosts in
+    // this process start one at a time.
+    private static readonly SemaphoreSlim StartupGate = new(1, 1);
+
     static BarakoTestHost()
     {
         // Core stores UTC DateTime values and binds them to 'timestamp without time zone', which
@@ -189,17 +194,25 @@ public class BarakoTestHost : IAsyncLifetime
             o.TokenValidationParameters.IssuerSigningKey = new SymmetricSecurityKey(Encoding.ASCII.GetBytes(_jwtKey));
         });
 
-        var app = builder.Build();
-        app.UseBarakoCMS();
+        await StartupGate.WaitAsync();
+        try
+        {
+            var app = builder.Build();
+            app.UseBarakoCMS();
 
-        // The same order as BarakoCMS.Suite: schema before anything reads it, the core seeder for
-        // the roles and the admin, then each module's own seeder in its own session.
-        await app.ApplyMartenSchemaAsync();
-        await DataSeeder.SeedAsync(app);
-        await app.RunBarakoModuleSeedersAsync();
-        await app.StartAsync();
+            // The same order as BarakoCMS.Suite: schema before anything reads it, the core seeder
+            // for the roles and the admin, then each module's own seeder in its own session.
+            await app.ApplyMartenSchemaAsync();
+            await DataSeeder.SeedAsync(app);
+            await app.RunBarakoModuleSeedersAsync();
+            await app.StartAsync();
 
-        _app = app;
+            _app = app;
+        }
+        finally
+        {
+            StartupGate.Release();
+        }
     }
 
     public async ValueTask DisposeAsync()

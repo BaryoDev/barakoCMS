@@ -5,7 +5,7 @@
 
     <IsPackable>true</IsPackable>
     <PackageId>BarakoCMS.Testing</PackageId>
-    <Version>0.1.1</Version>
+    <Version>0.1.2</Version>
     <Description>A test host for barakoCMS modules: a real barakoCMS over a Testcontainers PostgreSQL with the module under test registered, an HTTP client signed in as the seeded admin, and a tenant helper. Use it as an xunit class fixture.</Description>
   </PropertyGroup>
 
