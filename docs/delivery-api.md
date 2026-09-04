@@ -286,6 +286,14 @@ the stream is opt-in, and why it is capped:
 
 - `Delivery:Events:MaxConnections` (100) is the number of open streams across all tenants on one
   instance. The next connection gets 503 with `Retry-After`.
+- `Delivery:Events:MaxConnectionsPerClient` (5) is the number of open streams from one client
+  address, so one caller cannot hold every slot under the instance cap and starve every other
+  tenant on the instance. The next stream from that address gets 503 with `Retry-After` and a body
+  that says the client is at its own limit, while another address still connects. The slot comes
+  back when the stream closes. The address is the one the rate limiter partitions on: the socket
+  peer, or the forwarded client when `ForwardedHeaders` names the proxy. Behind a proxy that is
+  not named, every client shares the proxy's address and the cap counts them together. Zero turns
+  the per-client cap off.
 - Each connection buffers 64 changes. A subscriber that stops reading has its oldest change
   dropped, and the drop is logged once per connection. Nothing a slow subscriber does holds
   memory for anybody else.
