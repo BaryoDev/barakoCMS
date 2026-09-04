@@ -288,13 +288,16 @@ public class RoleGateTests
     }
 
     /// <summary>
-    /// A role gate that names Admin also names SuperAdmin.
+    /// A capability gate's legacy role list that names Admin also names SuperAdmin.
     /// </summary>
     /// <remarks>
     /// <c>POST /api/content-types</c> was <c>Roles("Admin")</c> alone, the only gate in the tree
     /// that left SuperAdmin out, from the endpoint's first commit until #448. Nothing caught it:
     /// the seeded admin holds both roles and <see cref="AdminClient"/> authenticates as both, so no
     /// test in the suite has ever presented a SuperAdmin-only principal to a gate.
+    ///
+    /// Since #443 no core route gates on a role name, so the list read here is the legacy list
+    /// each capability gate carries for <c>Auth:LegacyRoleFallback</c>.
     ///
     /// Asserted structurally rather than by adding such a principal to the three theories above.
     /// Those probe with unparseable ids and read status codes, so they would have to know each
@@ -304,91 +307,79 @@ public class RoleGateTests
     /// with the route named and the reason written down. Do not delete it to make one route pass.
     /// </remarks>
     [Fact]
-    public void A_role_gate_that_names_Admin_also_names_SuperAdmin()
+    public void A_legacy_list_that_names_Admin_also_names_SuperAdmin()
     {
-        var core = typeof(Program).Assembly;
-
-        var offenders = _factory.Services.GetServices<EndpointDataSource>()
-            .SelectMany(source => source.Endpoints)
-            .OfType<RouteEndpoint>()
-            .Select(endpoint => new
-            {
-                endpoint.RoutePattern,
-                Definition = endpoint.Metadata.OfType<EndpointDefinition>().FirstOrDefault(),
-                Methods = endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods ?? [],
-            })
-            .Where(x => x.Definition is not null && x.Definition.EndpointType.Assembly == core)
-            .Where(x => x.Definition!.AllowedRoles?.Contains("Admin") == true
-                        && x.Definition.AllowedRoles?.Contains("SuperAdmin") != true)
-            .SelectMany(x => x.Methods.Select(m => $"{m} /{x.RoutePattern.RawText?.TrimStart('/')}"))
+        var offenders = LegacyLists()
+            .Where(x => x.Legacy.Contains("Admin") && !x.Legacy.Contains("SuperAdmin"))
+            .Select(x => x.Route)
             .Distinct()
             .OrderBy(x => x, StringComparer.Ordinal)
             .ToList();
 
         offenders.Should().BeEmpty(
-            "a gate naming Admin but not SuperAdmin locks the higher role out of a surface the "
-          + "lower one reaches, and PermissionResolver treats SuperAdmin as a blanket bypass "
-          + "everywhere else");
+            "a legacy list naming Admin but not SuperAdmin locks the higher role out of a surface the "
+          + "lower one reaches under Auth:LegacyRoleFallback, and PermissionResolver treats SuperAdmin "
+          + "as a blanket bypass everywhere else");
     }
 
     /// <summary>
     /// The control for the test above: it is reading real gates, not an empty sequence.
     /// </summary>
     [Fact]
-    public void Some_core_gate_actually_names_Admin()
+    public void Some_legacy_list_actually_names_Admin()
     {
-        var core = typeof(Program).Assembly;
-
-        var naming = _factory.Services.GetServices<EndpointDataSource>()
-            .SelectMany(source => source.Endpoints)
-            .OfType<RouteEndpoint>()
-            .Select(endpoint => endpoint.Metadata.OfType<EndpointDefinition>().FirstOrDefault())
-            .Where(d => d is not null && d.EndpointType.Assembly == core)
-            .Count(d => d!.AllowedRoles?.Contains("Admin") == true);
+        var naming = LegacyLists().Count(x => x.Legacy.Contains("Admin"));
 
         naming.Should().BeGreaterThan(0,
             "otherwise the assertion above passes by finding nothing to check, which is how a "
           + "structural test stops testing without failing");
     }
 
-    /// <summary>
-    /// What is still gated on a role name in core, pinned. Issue #443 migrated every administrative
-    /// area to a capability, and this is the list of what it deliberately left behind, so the test
-    /// is the signal that the migration is finished rather than paused.
-    /// </summary>
-    /// <remarks>
-    /// Two routes, each for a reason written at the endpoint.
-    ///
-    /// <c>GET /api/modules</c> reports which modules the container booted with. Every name in the
-    /// vocabulary covers a management surface it neither reads nor writes, and a capability invented
-    /// for it would be a name with one route behind it. See issue #185.
-    ///
-    /// <c>POST /api/content-types/{name}/seo-fields</c> adds the SEO field set to a type. It is
-    /// schema modelling, so <c>manage_content_types</c> would fit, and it is only outside #443
-    /// because #443's list did not name it. Migrating it is a small follow-up rather than a decision
-    /// this list is defending.
-    ///
-    /// Adding a route here needs the same argument in the same place. Emptying the list is fine and
-    /// means the last two moved; growing it means a new endpoint reached for <c>Roles(...)</c>, and
-    /// the fix for that is a capability, not another line here.
-    /// </remarks>
-    [Fact]
-    public void The_core_routes_still_on_a_role_name_are_the_two_that_are_meant_to_be()
+    private IEnumerable<(string Route, IReadOnlyList<string> Legacy)> LegacyLists()
     {
         var core = typeof(Program).Assembly;
 
-        var stillOnRoleNames = _factory.Services.GetServices<EndpointDataSource>()
+        return _factory.Services.GetServices<EndpointDataSource>()
             .SelectMany(source => source.Endpoints)
             .OfType<RouteEndpoint>()
             .Select(endpoint => new
             {
                 endpoint.RoutePattern,
                 Definition = endpoint.Metadata.OfType<EndpointDefinition>().FirstOrDefault(),
-                Capability = endpoint.Metadata.GetMetadata<barakoCMS.Infrastructure.Auth.RequiredCapability>(),
+                Required = endpoint.Metadata.GetMetadata<barakoCMS.Infrastructure.Auth.RequiredCapability>(),
+            })
+            .Where(x => x.Definition is not null && x.Definition.EndpointType.Assembly == core && x.Required is not null)
+            .Select(x => ($"/{x.RoutePattern.RawText?.TrimStart('/')}", x.Required!.LegacyRoles));
+    }
+
+    /// <summary>
+    /// No core route gates on a role name. Issue #443 migrated every one to a capability, and this
+    /// pins that at zero so a new endpoint reaching for <c>Roles(...)</c> fails the suite.
+    /// </summary>
+    /// <remarks>
+    /// A route carrying both a capability and a role list counts as on a role name. FastEndpoints
+    /// enforces the role list on its own, so a runtime role holding the capability would still be
+    /// refused, and excluding such a route here would hide exactly that.
+    ///
+    /// The fix for a failure is a capability, with the old names as its legacy list, not a line
+    /// here.
+    /// </remarks>
+    [Fact]
+    public void No_core_route_gates_on_a_role_name()
+    {
+        var core = typeof(Program).Assembly;
+
+        var onRoleNames = _factory.Services.GetServices<EndpointDataSource>()
+            .SelectMany(source => source.Endpoints)
+            .OfType<RouteEndpoint>()
+            .Select(endpoint => new
+            {
+                endpoint.RoutePattern,
+                Definition = endpoint.Metadata.OfType<EndpointDefinition>().FirstOrDefault(),
                 Methods = endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods ?? [],
             })
             .Where(x => x.Definition is not null && x.Definition.EndpointType.Assembly == core)
-            .Where(x => x.Definition!.AllowedRoles?.Count > 0 && x.Capability is null)
+            .Where(x => x.Definition!.AllowedRoles?.Count > 0)
             .SelectMany(x => x.Methods
                 .Where(method => x.Definition!.AnonymousVerbs?.Contains(method) != true)
                 .Select(method => $"{method} /{x.RoutePattern.RawText?.TrimStart('/')}"))
@@ -396,11 +387,7 @@ public class RoleGateTests
             .OrderBy(x => x, StringComparer.Ordinal)
             .ToList();
 
-        stillOnRoleNames.Should().BeEquivalentTo(
-        [
-            "GET /api/modules",
-            "POST /api/content-types/{name}/seo-fields",
-        ]);
+        onRoleNames.Should().BeEmpty();
     }
 
     private IReadOnlyList<string> GatedRoutesFromTheRunningHost()
