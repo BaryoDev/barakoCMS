@@ -17,15 +17,37 @@ namespace barakoCMS.Infrastructure.Auth;
 /// </remarks>
 public sealed class CapabilityGateProcessor : IGlobalPreProcessor
 {
-    /// <summary>Whether the pre-capability role names still open the gate. Default on.</summary>
+    /// <summary>
+    /// Whether the pre-capability role names still open the gate. Default off since 4.0.
+    /// </summary>
+    /// <remarks>
+    /// It was on through 3.x so a deployment kept working across the upgrade while its roles had no
+    /// capabilities yet. 4.0 is a major, every core and module endpoint now gates on a capability
+    /// (#443), and the seeder adds capabilities a role is missing rather than only filling an empty
+    /// list (#488), so a seeded deployment reaches everything it used to without the fallback.
+    ///
+    /// A deployment whose roles are curated by hand, or one mid-upgrade, sets it back to true and
+    /// nothing changes for it. What changed is which way it points when nobody says.
+    /// </remarks>
     public const string LegacyRoleFallbackKey = "Auth:LegacyRoleFallback";
 
-    private readonly bool _legacyRoleFallback;
-
-    public CapabilityGateProcessor(IConfiguration configuration)
-    {
-        _legacyRoleFallback = configuration.GetValue(LegacyRoleFallbackKey, true);
-    }
+    /// <summary>
+    /// Read from the request's own services rather than captured in the constructor.
+    /// </summary>
+    /// <remarks>
+    /// FastEndpoints keeps global pre-processors in process-wide configuration, so the first host
+    /// built in a process supplies the instance every later host uses. Capturing the flag at
+    /// construction therefore froze it to whichever host started first, which is invisible in
+    /// production (one host per process) and wrong in a test suite that builds a second host to
+    /// exercise the other setting: the derived host's own instance held the right value and a
+    /// request through it was still judged by the first host's.
+    ///
+    /// Per request it is a dictionary lookup on an already-built configuration, and it means a host
+    /// that says the fallback is on is a host where it is on.
+    /// </remarks>
+    private static bool LegacyRoleFallback(HttpContext http) =>
+        http.RequestServices.GetRequiredService<IConfiguration>()
+            .GetValue(LegacyRoleFallbackKey, false);
 
     public async Task PreProcessAsync(IPreProcessorContext context, CancellationToken ct)
     {
@@ -44,7 +66,7 @@ public sealed class CapabilityGateProcessor : IGlobalPreProcessor
         // pre-processor inventing a gate the endpoint did not declare.
         if (principal.Identity?.IsAuthenticated != true) return;
 
-        if (_legacyRoleFallback && required.LegacyRoles.Any(principal.IsInRole)) return;
+        if (required.LegacyRoles.Any(principal.IsInRole) && LegacyRoleFallback(http)) return;
 
         if (!Guid.TryParse(principal.FindFirst("UserId")?.Value, out var userId))
         {

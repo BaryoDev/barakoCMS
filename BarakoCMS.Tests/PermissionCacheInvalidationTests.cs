@@ -67,7 +67,7 @@ public class PermissionCacheInvalidationTests
         }
 
         var userToken = _factory.CreateToken(roles: new[] { "Editor" }, userId: userId.ToString());
-        var adminToken = _factory.CreateToken(roles: new[] { "SuperAdmin" });
+        var adminToken = await _factory.StoredUserTokenAsync("SuperAdmin");
 
         // 1. User can read the content (result gets cached).
         _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", userToken);
@@ -152,7 +152,7 @@ public class PermissionCacheInvalidationTests
         }
 
         var userToken = _factory.CreateToken(roles: ["Reader"], userId: userId.ToString());
-        var adminToken = _factory.CreateToken(roles: ["SuperAdmin"]);
+        var adminToken = await _factory.StoredUserTokenAsync("SuperAdmin");
 
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", userToken);

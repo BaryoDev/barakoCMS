@@ -19,16 +19,16 @@ public class RoleApiTests
         _client = fixture.CreateClient();
     }
 
-    private string CreateAdminToken()
-    {
-        return _fixture.CreateToken(roles: new[] { "SuperAdmin" });
-    }
+    // A token for a user that exists. A capability gate answers from the stored user's roles, not
+    // from the claim, and the legacy role-name fallback that used to paper over the difference is
+    // off by default from 4.0.
+    private Task<string> CreateAdminToken() => _fixture.StoredUserTokenAsync("SuperAdmin");
 
     [Fact]
     public async Task POST_Roles_WithValidData_ShouldCreateRole()
     {
         // Arrange
-        var token = CreateAdminToken();
+        var token = await CreateAdminToken();
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
@@ -85,7 +85,7 @@ public class RoleApiTests
     public async Task GET_Roles_ShouldReturnAllRoles()
     {
         // Arrange
-        var token = CreateAdminToken();
+        var token = await CreateAdminToken();
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
@@ -111,7 +111,7 @@ public class RoleApiTests
     public async Task GET_RolesById_ExistingRole_ShouldReturnRole()
     {
         // Arrange
-        var token = CreateAdminToken();
+        var token = await CreateAdminToken();
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
@@ -139,7 +139,7 @@ public class RoleApiTests
     public async Task GET_RolesById_NonExistent_ShouldReturn404()
     {
         // Arrange
-        var token = CreateAdminToken();
+        var token = await CreateAdminToken();
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
         var nonExistentId = Guid.NewGuid();
@@ -155,7 +155,7 @@ public class RoleApiTests
     public async Task PUT_Roles_ShouldUpdateRole()
     {
         // Arrange
-        var token = CreateAdminToken();
+        var token = await CreateAdminToken();
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
@@ -192,7 +192,7 @@ public class RoleApiTests
     public async Task DELETE_Roles_ShouldDeleteRole()
     {
         // Arrange
-        var token = CreateAdminToken();
+        var token = await CreateAdminToken();
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
@@ -267,7 +267,7 @@ public class RoleApiTests
     private async Task<Guid> CreateRoleAsync(string label)
     {
         _client.DefaultRequestHeaders.Authorization =
-            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", CreateAdminToken());
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", await CreateAdminToken());
 
         var response = await _client.PostAsJsonAsync("/api/roles", new
         {
