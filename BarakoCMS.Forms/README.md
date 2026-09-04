@@ -18,6 +18,13 @@ Reference the package and restart. `AddBarakoCMS` discovers it.
 dotnet add package BarakoCMS.Forms
 ```
 
+The package reference plus a restart is the install: `AddBarakoCMS` discovers the module from the
+application's dependency context, and `BarakoCMS:Modules:Enabled` decides which of them run
+(`BarakoCMS__Modules__Enabled=Forms`). Unset, every referenced module runs and the API logs one
+warning saying so. To name it by hand instead, put `modules.Add(new BarakoCMS.Forms.FormsModule())`
+in the `AddBarakoCMS` callback; discovery skips a type the host already added. See `MODULES.md` in
+the repository.
+
 ## Endpoints
 
 | Method & path | Purpose | Access |
