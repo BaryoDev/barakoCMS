@@ -16,9 +16,8 @@ repository are for other jobs and say so in their headers:
 ## What you need
 
 - A machine with Docker and the Compose plugin.
-- Two DNS A records pointing at it, one for the API and one for the admin UI. Both must resolve
-  before you start the stack, because Caddy requests certificates on first boot and Let's Encrypt
-  validates over HTTP.
+- A DNS A record for the API pointing at it. It must resolve before you start the stack, because
+  Caddy requests a certificate on first boot and Let's Encrypt validates over HTTP.
 - Ports 80 and 443 reachable from the internet.
 - A checkout of this repository on the machine. The compose file mounts `Caddyfile` and
   `scripts/backup-cron.sh` from it. What you no longer need is a .NET SDK or Node.
@@ -36,8 +35,8 @@ docker compose -f docker-compose.prod.yml up -d
 `.env.prod.example` lists every variable with the command that generates it. The required ones have
 no default, so the stack refuses to start rather than booting on a placeholder:
 
-- `DOMAIN_API`, `DOMAIN_ADMIN`, `ACME_EMAIL`
-- `FRONTEND_ORIGINS`, the origin of the site you are about to build
+- `DOMAIN_API`, `ACME_EMAIL`
+- `FRONTEND_ORIGINS`, the origins of the console and of the site you are about to build
 - `BARAKO_TAG`, a published version, not `latest`
 - `DB_PASSWORD`, `JWT_KEY` (32 characters or more), `ADMIN_PASSWORD`
 
@@ -63,19 +62,22 @@ curl -o /dev/null -w '%{http_code}\n' https://$DOMAIN_API/api/schemas   # 401, t
 A 401 means routing and TLS work and the endpoint still checks its role. A 404 means Caddy is not
 routing. A 200 would mean the role check is gone.
 
-Then open `https://$DOMAIN_ADMIN` and sign in with `ADMIN_USER` and `ADMIN_PASSWORD`.
+Sign in with `ADMIN_USER` and `ADMIN_PASSWORD`, from Swagger at `https://$DOMAIN_API/swagger` if you
+set `Swagger__Enabled=true` on the `app` service, or from the console. The console is
+[barakoBrew](https://github.com/BaryoDev/barakoBrew): deploy it from its own repository, point it at
+`https://$DOMAIN_API`, and put its origin in `FRONTEND_ORIGINS`.
 
 ## Pointing a frontend at it
 
-The admin UI reads its API address at container start, not at build time, so the published
-`barako-admin` image works on any domain. Your own frontend calls the delivery API directly:
+Your own frontend calls the delivery API directly:
 
 ```http
 GET https://api.example.com/api/public/{contentType}
 ```
 
 Two switches decide whether a content type is served there. The type has to be opted in, and each
-field has to be marked Public. Both are set in the admin UI on the content type. A type that is not
+field has to be marked Public. Both are set on the content type, from barakoBrew or
+`POST /api/content-types`. A type that is not
 opted in returns 404, and a field that is not Public is absent from the response rather than empty.
 
 The browser origin calling that API must be in `FRONTEND_ORIGINS`. If it is not, the request fails
@@ -112,19 +114,17 @@ backup, so do it once before you have data worth keeping.
 
 ## Known rough edges
 
-- **Pick a tag your machine can run.** Every `3.x` version tag is `linux/amd64` only.
-  `latest` carries both amd64 and arm64. On an arm64 host (Ampere, Graviton, an Apple laptop)
-  pinning `BARAKO_TAG=3.21.0` fails the pull with `no matching manifest for linux/arm64/v8`. Check
-  before you pin:
+- **Pick a tag your machine can run.** The `3.21.0` version tags of both images are
+  `linux/amd64` only, and so is `barako-cms-decaf:latest`. `barako-cms:latest` carries both amd64
+  and arm64. On an arm64 host (Ampere, Graviton, an Apple laptop) pinning `BARAKO_TAG=3.21.0`
+  fails the pull with `no matching manifest for linux/arm64/v8`. Check before you pin:
 
   ```bash
   bash scripts/check-image-platforms.sh ghcr.io/baryodev/barako-cms:$BARAKO_TAG
   ```
 
   That is the same check the release workflow runs on every tag it publishes, and CI proves it
-  fails on `3.21.0`. `barako-admin` moves to [BaryoDev/barakoBrew](https://github.com/BaryoDev/barakoBrew),
-  so this repo's gate covers `barako-cms` and `barako-cms-decaf`; it keeps checking `barako-admin`
-  for as long as `release.yml` here still publishes it. Tracked as #394.
+  fails on `3.21.0`. Tracked as #394.
 
 - **The first nightly-backup container logs a failure** (#395). `db-backup` starts as soon as Postgres is
   healthy and takes a proof backup immediately, which on a fresh stack races the API's schema
@@ -141,5 +141,3 @@ backup, so do it once before you have data worth keeping.
   production one builds nothing, and the same images are exercised by the playground deploy, but the
   certificate issuance path is verified by hand. Tracked as #308.
 
-- **The admin serves at the domain root.** Hosting it under a sub-path needs a base-path build of
-  the admin image.

@@ -41,24 +41,27 @@ jobs:
       - name: Check changelog fragments
         run: bash scripts/changelog-assemble.sh --check
 
-      # A directory Dependabot does not watch produces no error and no pull request, which is why
-      # site/ drifted unwatched (#153). This fails the build instead of saying nothing.
+      # A directory Dependabot does not watch produces no error and no pull request, which is how a
+      # front-end folder drifted unwatched for months (#153). This fails the build instead of saying
+      # nothing. There is no npm lockfile in this repository today, so the check passes by finding
+      # nothing to watch; it fires the day one is added without a Dependabot entry.
       - name: Check Dependabot covers every lockfile
         run: bash scripts/check-dependabot-coverage.sh
 
-      # The check above is only worth its minute if it can fail. Hide the site entry in a copy of
-      # the config and confirm it does, the same shape as the secret-scan proof in the security job.
+      # The check above is only worth its minute if it can fail. Stage a lockfile in a directory no
+      # entry watches and confirm the check refuses it, the same shape as the secret-scan proof in
+      # the security job. Staged rather than committed: the check reads the index, and the file is
+      # taken out of it again before anything else runs.
       - name: Prove the Dependabot check can fail
         run: |
           set -euo pipefail
-          TMP=$(mktemp -d)
-          ruby -ryaml -e '
-            cfg = YAML.load_file(".github/dependabot.yml")
-            cfg["updates"] = cfg["updates"].reject { |u| u["directory"] == "/site" }
-            File.write(ARGV[0], YAML.dump(cfg))
-          ' "$TMP/dependabot.yml"
-          if bash scripts/check-dependabot-coverage.sh "$TMP/dependabot.yml"; then
-            echo "::error::The Dependabot coverage check passed a config with no /site entry. The gate is not working."
+          PROOF=unwatched-proof
+          mkdir -p "$PROOF"
+          echo '{}' > "$PROOF/package-lock.json"
+          git add "$PROOF/package-lock.json"
+          trap 'git rm -q --cached "$PROOF/package-lock.json"; rm -rf "$PROOF"' EXIT
+          if bash scripts/check-dependabot-coverage.sh; then
+            echo "::error::The Dependabot coverage check passed with an unwatched lockfile staged. The gate is not working."
             exit 1
           fi
           echo "Unwatched lockfile was caught. The check is live."
@@ -213,9 +216,6 @@ jobs:
             exit 1
           fi
           grep -q 'ghcr.io/baryodev/barako-cms:' /tmp/prod.resolved
-          grep -q 'ghcr.io/baryodev/barako-admin:' /tmp/prod.resolved
-          # The admin's API URL is a runtime variable, not a build arg (#309).
-          grep -q 'NEXT_PUBLIC_API_URL: https://api.example.com' /tmp/prod.resolved
 
       - name: The production file refuses to resolve without a JWT key
         run: |
@@ -230,184 +230,6 @@ jobs:
             exit 1
           fi
           echo "refused, as it should"
-
-  admin:
-    name: Admin UI (Next.js)
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: admin
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Setup Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: admin/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      # Dependency vulnerability gate for the npm side, matching the NuGet one below: Critical or High
-      # fails the build.
-      #
-      # This used to fail on Critical only, because three High advisories in `next` had no fix we could
-      # take and a permanently red gate is one everybody learns to ignore. Taking Next 16.3 cleared
-      # them, so the gate now holds the same line as the .NET side. Keep them the same: a gate that is
-      # weaker than its documentation is worse than no gate, because it is trusted anyway.
-      - name: Audit dependencies (fail on Critical or High)
-        run: |
-          # `npm audit` exits non-zero when it finds anything, so its status cannot distinguish
-          # "found vulnerabilities" from "could not run". The report itself is the signal, and an
-          # unreadable one fails the build rather than passing: a gate that cannot see must not wave
-          # things through.
-          # The registry's audit endpoint has gone away for minutes at a time (503, or a hang), which
-          # made every run fail for a reason that had nothing to do with the code. Retry for a while
-          # before concluding that the report is unreadable. The gate below still fails closed.
-          for attempt in 1 2 3 4 5; do
-            timeout 180 npm audit --json > audit.json || true
-            if jq -e '.metadata.vulnerabilities.total' audit.json >/dev/null 2>&1; then break; fi
-            echo "npm audit attempt $attempt returned no report, retrying in 60s"
-            sleep 60
-          done
-
-          CRIT=$(jq -r '.metadata.vulnerabilities.critical // empty' audit.json 2>/dev/null || true)
-          HIGH=$(jq -r '.metadata.vulnerabilities.high // empty' audit.json 2>/dev/null || true)
-          case "${CRIT}|${HIGH}" in
-            *[!0-9]\|*|*\|*[!0-9]*|\|*|*\|)
-              echo "::error::npm audit did not return a usable report, failing closed"
-              head -c 500 audit.json || true
-              exit 1
-              ;;
-          esac
-
-          echo "npm audit: critical=$CRIT high=$HIGH" >> "$GITHUB_STEP_SUMMARY"
-          if [ "$CRIT" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
-            echo "::error::npm audit found $CRIT critical and $HIGH high severity vulnerabilities"
-            jq -r '.vulnerabilities | to_entries[]
-                   | select(.value.severity == "critical" or .value.severity == "high")
-                   | "\(.value.severity)\t\(.key)"' audit.json
-            exit 1
-          fi
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Typecheck
-        run: npx tsc --noEmit
-
-      - name: Unit tests
-        run: npx vitest run
-
-      - name: Build
-        run: npm run build
-
-      # End-to-end suite — drives the real UI (mocked API) to catch the class of bug unit tests miss:
-      # empty-vs-error states, routing, forms, per-field-type controls. The whole e2e/ folder runs
-      # (chromium), so every feature spec is enforced here, not just honour-checked locally.
-      - name: Install Playwright browser
-        run: npx playwright install --with-deps chromium
-
-      - name: E2E (full pack)
-        run: npx playwright test --project=chromium
-
-      - name: Admin Summary
-        if: always()
-        run: |
-          echo "## Admin UI" >> $GITHUB_STEP_SUMMARY
-          echo "✅ lint (including jsx-a11y), typecheck, vitest, production build, and the full E2E pack (including the axe accessibility scan) completed" >> $GITHUB_STEP_SUMMARY
-
-  site:
-    name: Site (barakocms.baryo.dev)
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: site
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Setup Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: site/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      # Same line as the admin and .NET gates: Critical or High fails, and an unreadable report fails
-      # closed rather than waving things through.
-      - name: Audit dependencies (fail on Critical or High)
-        run: |
-          # The registry's audit endpoint has gone away for minutes at a time (503, or a hang), which
-          # made every run fail for a reason that had nothing to do with the code. Retry for a while
-          # before concluding that the report is unreadable. The gate below still fails closed.
-          for attempt in 1 2 3 4 5; do
-            timeout 180 npm audit --json > audit.json || true
-            if jq -e '.metadata.vulnerabilities.total' audit.json >/dev/null 2>&1; then break; fi
-            echo "npm audit attempt $attempt returned no report, retrying in 60s"
-            sleep 60
-          done
-
-          CRIT=$(jq -r '.metadata.vulnerabilities.critical // empty' audit.json 2>/dev/null || true)
-          HIGH=$(jq -r '.metadata.vulnerabilities.high // empty' audit.json 2>/dev/null || true)
-          case "${CRIT}|${HIGH}" in
-            *[!0-9]\|*|*\|*[!0-9]*|\|*|*\|)
-              echo "::error::npm audit did not return a usable report, failing closed"
-              head -c 500 audit.json || true
-              exit 1
-              ;;
-          esac
-
-          echo "site npm audit: critical=$CRIT high=$HIGH" >> "$GITHUB_STEP_SUMMARY"
-          if [ "$CRIT" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
-            echo "::error::npm audit found $CRIT critical and $HIGH high severity vulnerabilities"
-            exit 1
-          fi
-
-      - name: Typecheck
-        run: npx tsc --noEmit
-
-      # Covers the changelog renderer, which drops raw HTML and allowlists link protocols. The
-      # changelog is edited by pull request, so this is the gate between a CHANGELOG.md diff and a
-      # script running on every visitor of a static page.
-      - name: Unit tests
-        run: |
-          set -o pipefail
-          npm test -- --reporter=default --reporter=json --outputFile.json=test-results.json
-
-          # A run that discovers no test files exits zero, so the count is asserted rather than
-          # the status. Read from the JSON reporter, not the console output: the human output is
-          # ANSI-coloured under CI and not under a local pipe, so a grep for "Test Files  1" passes
-          # on a laptop and fails on the runner.
-          COUNT=$(jq -r '.numTotalTests // 0' test-results.json)
-          [ "$COUNT" -gt 0 ] 2>/dev/null || {
-            echo "::error::vitest discovered no tests (numTotalTests=$COUNT)"; exit 1; }
-          echo "site unit tests: $COUNT" >> "$GITHUB_STEP_SUMMARY"
-
-      # The build renders the marketplace from NuGet. It must also succeed when that call fails —
-      # the fallback manifest exists for exactly that — so a NuGet outage cannot break the build.
-      - name: Build (static export)
-        run: npm run build
-
-      - name: Check every page exported
-        run: |
-          test -f out/index.html || { echo "::error::landing page missing from the export"; exit 1; }
-          test -f out/marketplace/index.html || { echo "::error::marketplace missing from the export"; exit 1; }
-          test -f out/changelog/index.html || { echo "::error::changelog missing from the export"; exit 1; }
-
-          # The changelog is rendered from CHANGELOG.md at build time. If the build context ever
-          # stops including the repository root, or the heading format changes, the page would
-          # export as a valid but empty shell — so assert the newest version actually rendered.
-          VERSION=$(grep -m1 -oE '^## \[[0-9][^]]*\]' ../CHANGELOG.md | tr -d '#[] ')
-          grep -q "$VERSION" out/changelog/index.html || {
-            echo "::error::changelog exported without its newest release ($VERSION)"; exit 1; }
-          echo "changelog exported, newest release $VERSION" >> "$GITHUB_STEP_SUMMARY"
-          grep -q "barakocms-module" out/marketplace/index.html \
-            || { echo "::error::the marketplace did not render the discovery tag"; exit 1; }
 
   security:
     name: Security scan
@@ -566,13 +388,6 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      - name: Setup Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: admin/package-lock.json
-
       # Deliberately the same commands and the same tool versions as the release job. A smoke test
       # that drifts from the thing it is smoke testing stops being evidence about it.
       - name: Generate the SBOM
@@ -583,16 +398,12 @@ jobs:
           mkdir -p sbom
           dotnet CycloneDX barakoCMS.sln --output sbom --filename barakoCMS.cdx.json --json
 
-          npm --prefix admin ci --ignore-scripts
-          npx --yes @cyclonedx/cyclonedx-npm --output-file sbom/barako-admin.cdx.json admin/package.json
-
-          # A tool that writes nothing still exits 0, so check the files rather than the command.
-          for f in sbom/barakoCMS.cdx.json sbom/barako-admin.cdx.json; do
-            [ -s "$f" ] || { echo "::error::$f is missing or empty."; exit 1; }
-            COMPONENTS=$(python3 -c "import json,sys; print(len(json.load(open('$f')).get('components', [])))")
-            [ "$COMPONENTS" -gt 0 ] || { echo "::error::$f lists no components, so it describes nothing."; exit 1; }
-            echo "$f: $COMPONENTS components" >> "$GITHUB_STEP_SUMMARY"
-          done
+          # A tool that writes nothing still exits 0, so check the file rather than the command.
+          f=sbom/barakoCMS.cdx.json
+          [ -s "$f" ] || { echo "::error::$f is missing or empty."; exit 1; }
+          COMPONENTS=$(python3 -c "import json,sys; print(len(json.load(open('$f')).get('components', [])))")
+          [ "$COMPONENTS" -gt 0 ] || { echo "::error::$f lists no components, so it describes nothing."; exit 1; }
+          echo "$f: $COMPONENTS components" >> "$GITHUB_STEP_SUMMARY"
 
   # Nothing in CI ever read k8s/ (#383). That is how an unparseable memory quantity, 128Mw, sat in
   # the repo through several releases: the manifests are only ever read by a human running kubectl.
@@ -632,47 +443,6 @@ jobs:
             exit 1
           fi
           echo "The known-bad manifests were rejected. The gate is live."
-
-  # The admin against the real API, with nothing mocked.
-  #
-  # Every other admin job mocks the API with page.route, so it proves the admin behaves correctly
-  # given fixtures the same person wrote, and cannot prove those fixtures match the server. That gap
-  # shipped a bug and kept it: the History panel read `versions` from a response that had returned
-  # `items` since the envelope change, rendered an empty list rather than failing, and every mocked
-  # spec stayed green because the mock returned `versions` too.
-  #
-  # Heavier than the other jobs because it stands up Postgres, the API and the admin. That cost is
-  # the point: it is the only job in which the two halves of this product meet.
-  smoke:
-    name: Admin against the real API
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: 10.0.x
-
-      - name: Setup Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: admin/package-lock.json
-
-      - name: Install admin dependencies
-        run: npm ci
-        working-directory: admin
-
-      - name: Install Playwright browser
-        run: npx playwright install --with-deps chromium
-        working-directory: admin
-
-      - name: Stand up the stack and run the unmocked pack
-        run: bash scripts/smoke-check.sh
 
   # The release workflow refuses to publish an image that does not serve both architectures. It had
   # only ever passed, which is not evidence it can fail (#394). 3.21.0 predates the gate and is
