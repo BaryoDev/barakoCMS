@@ -42,7 +42,13 @@ concurrency:
 # gate failed on "expected 14", and publish-packages needs it.
 env:
   PACKAGE_PROJECTS: >-
-    barakoCMS BarakoCMS.Accounting BarakoCMS.Import BarakoCMS.Files BarakoCMS.Files.S3 BarakoCMS.Email.Resend BarakoCMS.Email.Smtp BarakoCMS.DeviceTrust BarakoCMS.ExternalAuth BarakoCMS.FeatureFlags BarakoCMS.Portability BarakoCMS.Diagnostics BarakoCMS.Analytics.Umami BarakoCMS.Pwa BarakoCMS.AI
+    barakoCMS BarakoCMS.Accounting BarakoCMS.Import BarakoCMS.Files BarakoCMS.Files.S3 BarakoCMS.Email.Resend BarakoCMS.Email.Smtp BarakoCMS.DeviceTrust BarakoCMS.ExternalAuth BarakoCMS.FeatureFlags BarakoCMS.Portability BarakoCMS.Diagnostics BarakoCMS.Analytics.Umami BarakoCMS.Pwa BarakoCMS.AI BarakoCMS.Testing
+  # The dotnet new template package. Kept out of PACKAGE_PROJECTS on purpose: it ships no assembly
+  # and no symbols, so the two verify-packages gates that assert a .snupkg beside every package and
+  # a net10.0 assembly out of every package are the wrong questions for it. It is packed to its own
+  # artifact and proved by verify-template, which installs it and builds what it generates.
+  TEMPLATE_PROJECTS: >-
+    BarakoCMS.Templates
 
 jobs:
   # Read the version and decide whether there's anything to release. Everything
@@ -139,7 +145,9 @@ jobs:
       - name: Every test project is covered by the step below
         run: |
           set -euo pipefail
-          FOUND=$(find . -name '*.Tests.csproj' -not -path './**/bin/*' -not -path './**/obj/*' | sort)
+          # The module template's content holds a test project for somebody else's repository;
+          # verify-template runs that one, after generating it.
+          FOUND=$(find . -name '*.Tests.csproj' -not -path './**/bin/*' -not -path './**/obj/*' -not -path './BarakoCMS.Templates/templates/*' | sort)
           EXPECTED="./BarakoCMS.Tests/BarakoCMS.Tests.csproj"
           [ "$FOUND" = "$EXPECTED" ] || {
             echo "::error::Test projects on disk do not match what this workflow runs."
@@ -199,6 +207,9 @@ jobs:
           for p in $PACKAGE_PROJECTS; do
             dotnet pack "$p/$p.csproj" --no-build --configuration Release -o out
           done
+          for p in $TEMPLATE_PROJECTS; do
+            dotnet pack "$p/$p.csproj" --no-build --configuration Release -o out-templates
+          done
 
       # A software bill of materials is a hard requirement under the EU Cyber Resilience Act and US
       # federal procurement, and this release produced none for any of the packages or the
@@ -241,6 +252,14 @@ jobs:
         with:
           name: nupkg
           path: out/*.*nupkg
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload the template package
+        uses: actions/upload-artifact@v7
+        with:
+          name: template-nupkg
+          path: out-templates/*.nupkg
           if-no-files-found: error
           retention-days: 7
 
@@ -375,6 +394,39 @@ jobs:
           done
           echo "no package injects content files"
 
+  # The template package is content, not code, so the consumer restore above proves nothing about
+  # it. This installs it from the artifact, generates a module, and builds and tests that module
+  # against the packed core and harness, with source mapping sending every BarakoCMS* id to the
+  # artifact so nothing resolves from nuget.org or from a project reference. The checkout is for
+  # the script; the generated module lives in a temporary directory outside it.
+  verify-template:
+    name: Install the template and build what it generates
+    needs: [gate, test]
+    if: needs.gate.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: "*nupkg"
+          path: feed
+          merge-multiple: true
+
+      - name: Generate a module from the packed template and run its tests
+        run: bash scripts/check-module-template.sh "$RUNNER_TEMP/module-template"
+        env:
+          BARAKO_TEMPLATE_FEED: ${{ github.workspace }}/feed
+          DOCKER_HOST: unix:///var/run/docker.sock
+
   # Pushes the exact files that were tested and install-verified. Deliberately has no
   # actions/checkout: without the source this job *cannot* rebuild, even by accident. If you find
   # yourself adding a checkout here, what you actually want is a step in the test job.
@@ -385,7 +437,7 @@ jobs:
     name: Publish packages ${{ needs.gate.outputs.version }} to NuGet
     # Waits on the playground, which is the ordering change in #157: the irreversible step runs
     # last. NuGet has no delete, only unlist, and anyone who already resolved a version keeps it.
-    needs: [gate, test, verify-packages, deploy-playground]
+    needs: [gate, test, verify-packages, verify-template, deploy-playground]
     if: needs.gate.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     # The approval (#203). The gate job has already checked this environment has a required
@@ -401,10 +453,13 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      # Both artifacts into one directory: the packages with their symbols, and the template
+      # package, which has none.
       - uses: actions/download-artifact@v8
         with:
-          name: nupkg
+          pattern: "*nupkg"
           path: out
+          merge-multiple: true
 
       # The pattern stays `*.nupkg`. `dotnet nuget push` is symbol-aware: it pushes each .nupkg and
       # then the .snupkg sitting next to it, which is why the artifact above has to carry both.
@@ -766,7 +821,7 @@ jobs:
 
   # A failed release (bad publish, deploy, or smoke) should ping. Best-effort; never fails the run.
   notify-failure:
-    needs: [gate, test, verify-packages, publish-packages, publish-images, build-playground-images, deploy-playground, tag-release]
+    needs: [gate, test, verify-packages, verify-template, publish-packages, publish-images, build-playground-images, deploy-playground, tag-release]
     if: failure()
     runs-on: ubuntu-latest
     steps:

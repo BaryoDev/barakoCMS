@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageType>Template</PackageType>
+    <IsPackable>true</IsPackable>
+    <PackageId>BarakoCMS.Templates</PackageId>
+    <Version>0.1.2</Version>
+    <Description>dotnet new templates for barakoCMS. barakocms-module produces a module with one capability-gated endpoint, one document type, configuration read from its own section, packaging metadata that inherits from a shared props file, and a test project on BarakoCMS.Testing.</Description>
+
+    <!-- A template package is its content. There is no assembly to ship, no symbols to go with
+         one, and no dependencies for a consumer to resolve: dotnet new reads the content folder. -->
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <IncludeContentInPack>true</IncludeContentInPack>
+    <ContentTargetFolders>content</ContentTargetFolders>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <IncludeSymbols>false</IncludeSymbols>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <EnableDefaultItems>false</EnableDefaultItems>
+    <!-- .template.config starts with a dot, which the default excludes would drop from the pack. -->
+    <NoDefaultExcludes>true</NoDefaultExcludes>
+    <NoWarn>$(NoWarn);NU5128;CS2008</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="templates\**\*" Exclude="templates\**\bin\**;templates\**\obj\**" />
+  </ItemGroup>
+</Project>

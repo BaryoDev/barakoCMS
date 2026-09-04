@@ -61,6 +61,9 @@
          what crosses the wire, so it can only be checked from a test project that can call the
          endpoints. See #123. -->
     <ProjectReference Include="..\BarakoCMS.Analytics.Umami\BarakoCMS.Analytics.Umami.csproj" />
+    <!-- The packable test host a third-party module tests on. Its own tests run it against
+         Portability, so the harness is proved on a real module before anyone outside installs it. -->
+    <ProjectReference Include="..\BarakoCMS.Testing\BarakoCMS.Testing.csproj" />
   </ItemGroup>
 
 </Project>

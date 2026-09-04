@@ -1,0 +1,20 @@
+<Project>
+
+  <!-- Every package version lives here. Reference packages without a version. -->
+
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageVersion Include="BarakoCMS" Version="BARAKOCMS_VERSION" />
+    <PackageVersion Include="BarakoCMS.Testing" Version="BARAKOCMS_TESTING_VERSION" />
+  </ItemGroup>
+
+  <ItemGroup Label="Testing">
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageVersion Include="xunit.v3" Version="4.0.0" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="4.0.0" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/MyBarakoModule/MyBarakoModule.csproj" />
+  <Project Path="tests/MyBarakoModule.Tests/MyBarakoModule.Tests.csproj" />
+</Solution>
