@@ -121,9 +121,11 @@ backup, so do it once before you have data worth keeping.
 
   ```bash
   bash scripts/check-image-platforms.sh ghcr.io/baryodev/barako-cms:$BARAKO_TAG
+  bash scripts/check-image-platforms.sh ghcr.io/baryodev/barako-cms-decaf:$BARAKO_TAG
   ```
 
-  That is the same check the release workflow runs on every tag it publishes, and CI proves it
+  Run the line for the image you actually pull; the two are published separately and one can
+  carry both architectures while the other does not. That is the same check the release workflow runs on every tag it publishes, and CI proves it
   fails on `3.21.0`. Tracked as #394.
 
 - **The first nightly-backup container logs a failure** (#395). `db-backup` starts as soon as Postgres is
