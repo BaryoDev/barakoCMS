@@ -1,0 +1,8 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="BarakoCMS.Testing">
+  <title>BarakoCMS.Testing</title>
+  <rect x="2" y="2" width="124" height="124" rx="28" fill="#00796B"/>
+  <rect x="52" y="24" width="24" height="20" rx="4" fill="#FFFFFF"/>
+  <path d="M54 44 H74 L100 92 L96 100 H32 L28 92 Z" fill="#FFFFFF"/>
+  <path d="M44 78 H84 L94 94 H34 Z" fill="#FFC53D"/>
+  <circle cx="64" cy="62" r="4" fill="#FFC53D"/>
+</svg>

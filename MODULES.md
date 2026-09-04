@@ -296,6 +296,137 @@ Under the hood `AddBarakoCMS` collects the modules and:
 Default services (e.g. the mock `IEmailService`) are registered with `TryAdd`, so a module can
 substitute a real implementation.
 
+## Writing a module outside this repository
+
+Everything above applies. This section is what a module that ships as its own package needs on top.
+
+### Start from the template
+
+```sh
+dotnet new install BarakoCMS.Templates
+dotnet new barakocms-module -n Acme.Notes
+cd Acme.Notes
+dotnet test
+```
+
+`-n Acme.Notes` gives a module named `Notes` in the `Acme.Notes` package: an `IBarakoModule` that
+declares `ContractVersion`, binds its options from `Modules:Notes`, registers one document type and
+grants its capability to Admin at seed; one endpoint, `GET /api/notes/notes`, gated on that
+capability, paged and tenant scoped; a README in the structure below; an icon placeholder; a
+`Directory.Build.props` carrying the packaging metadata and the `barakocms-module` tag; and a test
+project on `BarakoCMS.Testing` with three tests. The tests need Docker. `--BarakoCMSVersion` and
+`--TestingVersion` pin the packages the module builds against; the defaults are the versions the
+template shipped beside.
+
+### Test it on a real host
+
+`BarakoCMS.Testing` holds `BarakoTestHost`: the real host pipeline over a PostgreSQL that
+Testcontainers starts, with the modules you name registered and discovery off, the system roles
+and the initial admin seeded, and every module's seeder run. Derive a fixture that names your
+module, then take it as an xunit class fixture:
+
+```csharp
+public sealed class NotesHost : BarakoTestHost
+{
+    public NotesHost() : base(o =>
+    {
+        o.Modules.Add(new NotesModule());
+        o.Settings["Modules:Notes:Greeting"] = "test";
+    }) { }
+}
+
+public class NotesModuleTests : IClassFixture<NotesHost>
+{
+    private readonly NotesHost _host;
+    public NotesModuleTests(NotesHost host) => _host = host;
+
+    [Fact]
+    public async Task An_Admin_reaches_the_endpoint()
+    {
+        var client = await _host.CreateClientAsync("Admin");   // only what the seeders granted Admin
+        var response = await client.GetAsync("/api/notes/notes");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+}
+```
+
+`CreateAdminClientAsync()` signs in as the seeded admin, who is also SuperAdmin and so passes every
+gate; `CreateClientAsync("Admin")` is the one that proves your seeder granted the capability.
+`CreateTenantAsync()` and `CreateAdminClientAsync(slug)` cover a second tenant, `OpenSession()` is a
+Marten session for arranging data, and `CreateClient()` is anonymous. Nothing is faked: a module
+that fails the contract check or configures a document type it does not own fails here the way it
+fails on a deployment.
+
+### What the host checks at startup, and what it does not
+
+Checked, in this order, before any request is served:
+
+1. **The contract version.** A module stating a `ContractVersion` outside
+   `ModuleContract.MinimumSupported` through `ModuleContract.Version` is refused by name. Unstated
+   (`0`) is accepted. Only enabled modules are checked.
+2. **Registration.** The same module class added twice is refused, and so are two modules sharing a
+   `Name`.
+3. **Ordering.** A `DependsOn` naming a module that is not registered is refused by name; a cycle is
+   refused with the cycle printed.
+4. **The enabled list.** A name in `BarakoCMS:Modules:Enabled` that matches no module refuses
+   startup and lists the names available.
+5. **Schema ownership.** `ConfigureSchema` throws on a document type from an assembly the module
+   did not declare in `SchemaAssemblies`.
+6. **Seeding.** Each seeder runs in its own session; one throwing is logged against the module and
+   does not stop the others.
+
+Not checked, and worth knowing:
+
+- **The core version you compiled against.** The contract version is about `IBarakoModule`, not
+  about the `BarakoCMS` package. Whether your module binds against the core it is loaded into is
+  NuGet's question, answered by the dependency range in your `.csproj`. A module compiled against
+  core 3.21 and loaded into a 5.0 that renamed a type you used fails at the first call, not at
+  startup.
+- **What your services and endpoints do.** The host registers what `ConfigureServices` adds and
+  serves what your assembly declares. It does not inspect either.
+- **The capabilities you seed.** A capability name is a string; nothing validates it. Your
+  endpoints ask for it and your seeder grants it, and the two agreeing is your test's job.
+- **Schema changes to existing tables.** Production runs `CreateOnly`. See the known limitation
+  under "Choosing which modules run".
+
+### A module is trusted code
+
+Say it plainly: a module runs in the host's process, as the host's identity, with the host's
+database connection. The scoped configuration section keeps core's secrets out of what the host
+hands you, and it keeps nothing out of what in-process code can reach for. There is no sandbox, no
+permission model and no isolation between modules beyond the schema ownership check and the
+per-module seed session.
+
+The trust decision is made when someone references your package, the same way it is made for any
+other dependency. For a module author that means: read what you depend on, pin versions, and do not
+reach past the contract into core's internals, because nothing stops you and the contract version
+says nothing about what you find there.
+
+### Publishing
+
+**Name.** `BarakoCMS.*` is the first-party prefix; do not use it. `<Vendor>.BarakoCMS.<Feature>` or
+`<Vendor>.<Feature>` both read well. `IBarakoModule.Name` is the short feature name (`Notes`, not
+`Acme.Notes`), because it is the configuration section, the `Enabled` entry and the `DependsOn`
+target, and none of those want a vendor in them.
+
+**Tag.** Keep `barakocms-module` in `PackageTags`. One search on nuget.org returns every module that
+carries it, first-party or not, and that is the whole listing. The template's `Directory.Build.props`
+sets it; append your own tags after it.
+
+**Version.** Your version is yours, semver over your own surface. Two things are versioned against
+core and both belong in the README, not the version number: the `BarakoCMS` dependency range you
+build against, and the contract version you declare. Widen the range when you have tested against a
+newer core; bump your major when a core change forces you to break your own surface. Do not mirror
+core's version, since a module that says 4.0 because core said 4.0 tells nobody what changed in it.
+
+**README.** The template's is the house structure: one line on what it adds, how to enable it, the
+configuration keys under `Modules:<Name>`, a table of endpoints with the capability each asks for,
+and a compatibility line naming the contract version and the core range it was tested on. A package
+with no README renders as an empty page on nuget.org, which is where people decide.
+
+**Icon.** `assets/icon.png`, a real PNG under a megabyte, referenced from the props file. The
+template ships a placeholder.
+
 ## First-party modules
 
 | Package | What it adds |

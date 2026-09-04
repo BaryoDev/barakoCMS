@@ -64,6 +64,12 @@ public class PackagingTests
         {
             if (proj.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")) continue;
 
+            // The module template's content is a project for somebody else's repository, with its
+            // own props file. ModuleTemplateTests reads it and scripts/check-module-template.sh
+            // builds and packs what it generates, so the rules for this repository's packages are
+            // not applied to it here.
+            if (proj.Contains($"{Path.DirectorySeparatorChar}templates{Path.DirectorySeparatorChar}")) continue;
+
             // Nested working copies are not this checkout.
             //
             // Detected by looking for a .git entry between the project and the root, rather than by

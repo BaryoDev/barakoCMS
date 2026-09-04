@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>BarakoCMS.Testing</RootNamespace>
+
+    <IsPackable>true</IsPackable>
+    <PackageId>BarakoCMS.Testing</PackageId>
+    <Version>0.1.0</Version>
+    <Description>A test host for barakoCMS modules: a real barakoCMS over a Testcontainers PostgreSQL with the module under test registered, an HTTP client signed in as the seeded admin, and a tenant helper. Use it as an xunit class fixture.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\barakoCMS\barakoCMS.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Marten" />
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
+    <PackageReference Include="Testcontainers.PostgreSql" />
+    <PackageReference Include="xunit.v3.extensibility.core" />
+  </ItemGroup>
+</Project>

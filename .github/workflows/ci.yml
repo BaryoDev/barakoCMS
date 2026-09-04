@@ -371,6 +371,39 @@ jobs:
             exit 1
           fi
 
+  # The template and the test harness are what a third party starts from, and the solution build
+  # exercises neither as they ship: the template's content is not in the solution, and
+  # BarakoCMS.Testing is only ever referenced by project from inside it. This packs core, the
+  # harness and the template into a local feed, installs the template from that feed, generates a
+  # module, builds it against the packed packages and runs its tests over a real PostgreSQL. The
+  # release runs the same script against the artifact it is about to publish.
+  module-template:
+    name: Module template generates, builds and tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build the solution once
+        run: |
+          set -euo pipefail
+          dotnet restore barakoCMS.sln --locked-mode
+          dotnet build barakoCMS.sln --no-restore --configuration Release
+
+      - name: Pack, install the template, generate a module, build it and run its tests
+        run: bash scripts/check-module-template.sh
+        env:
+          BARAKO_SKIP_BUILD: "1"
+          DOCKER_HOST: unix:///var/run/docker.sock
+
   # The SBOM is generated in the release workflow, which means it had never run: it was added after
   # the last release, so the first time anything executed it would have been the 4.0 release itself.
   # That is the shape this project keeps getting caught by, a gate that can only be tested by

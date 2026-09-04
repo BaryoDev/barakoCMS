@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>MyBarakoModule</PackageId>
+    <Version>0.1.0</Version>
+    <Description>A barakoCMS module. Say in one line what it adds; this is what a search result shows.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BarakoCMS" />
+  </ItemGroup>
+
+</Project>
