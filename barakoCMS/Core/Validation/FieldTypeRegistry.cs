@@ -77,6 +77,12 @@ public static class FieldTypeRegistry
         // cannot reach the database. That the target exists, and is of the declared type, is checked
         // by ContentValidatorService, which has a session.
         new("reference", "reference", v => AsString(v) is { } s && Guid.TryParse(s, out _)),
+
+        // A coordinate pair, { "lat": number, "lng": number }, checked as a real position rather
+        // than free text. Delivery filters on it in SQL (see DeliveryQuery), which is why the shape
+        // is fixed to numbers under those two keys: the query casts them and a string would not
+        // cast. A string, an array, a missing key or a value outside the range is refused.
+        new("geopoint", "geopoint", v => TryReadGeoPoint(v, out _, out _)),
     };
 
     // Alias -> canonical spec. Aliases are the historical synonyms both live
@@ -202,6 +208,63 @@ public static class FieldTypeRegistry
 
     // A json field holds an arbitrary structured value: an object or an array.
     private static bool IsJson(object value) => IsObject(value) || IsArray(value);
+
+    /// <summary>
+    /// Reads a geopoint value, whatever the object shape it arrived in, or returns false.
+    /// </summary>
+    /// <remarks>
+    /// Three shapes reach this: a <see cref="JsonElement"/> from a raw request, a
+    /// <c>Dictionary&lt;string, object&gt;</c> with <c>long</c>/<c>decimal</c> values after
+    /// <c>ObjectJsonConverter</c> has read a body or a stored document, and a dictionary a test built
+    /// with doubles. Keys are exactly <c>lat</c> and <c>lng</c>, so the SQL that reads them back can
+    /// address them with a plain <c>-&gt;</c>. A number outside the range is refused rather than
+    /// wrapped: a longitude of 200 is a mistake, not a position.
+    /// </remarks>
+    public static bool TryReadGeoPoint(object? value, out double lat, out double lng)
+    {
+        lat = 0;
+        lng = 0;
+
+        double? latRaw = null, lngRaw = null;
+        switch (value)
+        {
+            case JsonElement { ValueKind: JsonValueKind.Object } je:
+                if (je.TryGetProperty("lat", out var jl) && jl.ValueKind == JsonValueKind.Number && jl.TryGetDouble(out var a))
+                    latRaw = a;
+                if (je.TryGetProperty("lng", out var jn) && jn.ValueKind == JsonValueKind.Number && jn.TryGetDouble(out var b))
+                    lngRaw = b;
+                break;
+            case IDictionary<string, object> dict:
+                if (dict.TryGetValue("lat", out var dl)) latRaw = AsDouble(dl);
+                if (dict.TryGetValue("lng", out var dn)) lngRaw = AsDouble(dn);
+                break;
+            default:
+                return false;
+        }
+
+        if (latRaw is not { } la || lngRaw is not { } ln) return false;
+        if (double.IsNaN(la) || double.IsInfinity(la) || double.IsNaN(ln) || double.IsInfinity(ln)) return false;
+        if (la < -90 || la > 90 || ln < -180 || ln > 180) return false;
+
+        lat = la;
+        lng = ln;
+        return true;
+    }
+
+    // Numbers only, whichever CLR type the deserializer chose. A numeric string is not a number
+    // here: the SQL casts the stored jsonb number and would not cast a string.
+    private static double? AsDouble(object? value) => value switch
+    {
+        double d => d,
+        float f => f,
+        decimal m => (double)m,
+        int i => i,
+        long l => l,
+        short sh => sh,
+        byte by => by,
+        JsonElement { ValueKind: JsonValueKind.Number } je when je.TryGetDouble(out var d) => d,
+        _ => null,
+    };
 
     private static bool IsAbsoluteUrl(string s) =>
         Uri.TryCreate(s, UriKind.Absolute, out var uri) &&

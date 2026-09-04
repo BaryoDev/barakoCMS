@@ -86,7 +86,7 @@ public class FieldDefinition
     // Field type. The accepted set lives in FieldTypeRegistry (the single source of
     // truth both validators read from): string/text, int, decimal, money, bool,
     // date/datetime, time, email, url, slug, uuid, richtext, markdown, json, array,
-    // object, reference. (blob is still planned, not yet accepted.)
+    // object, reference, geopoint. (blob is still planned, not yet accepted.)
     public string Type { get; set; } = "text";
 
     /// <summary>For a <c>reference</c> field, the content type its value points at.</summary>

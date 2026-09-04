@@ -1,3 +1,4 @@
+using System.Globalization;
 using barakoCMS.Models;
 
 namespace barakoCMS.Features.Public;
@@ -15,13 +16,35 @@ internal readonly record struct DeliveryFilter(string Field, FilterOp Op, string
 /// <summary>A validated sort, or none.</summary>
 internal readonly record struct DeliverySort(string Field, bool Descending);
 
+/// <summary>
+/// A validated proximity filter: everything within <paramref name="RadiusKm"/> of a centre.
+/// </summary>
+/// <param name="Field">A geopoint field the content type marks Public. Never caller-supplied text.</param>
+internal readonly record struct DeliveryNear(string Field, double Lat, double Lng, double RadiusKm);
+
 /// <summary>The outcome of parsing the query string: either a query to run, or the reason it was refused.</summary>
 internal sealed class DeliveryQuery
 {
     public const int MaxFilters = 5;
 
+    /// <summary>
+    /// The largest radius a near filter may ask for, in kilometres, unless
+    /// <c>Delivery:MaxRadiusKm</c> says otherwise.
+    /// </summary>
+    /// <remarks>
+    /// The bounding box is what keeps a proximity query from computing a haversine for every row of
+    /// the type, and a radius wider than a continent makes the box the whole table. A thousand
+    /// kilometres covers "in this country" for most countries and keeps the prefilter meaningful.
+    /// </remarks>
+    public const double DefaultMaxRadiusKm = 1000;
+
     public IReadOnlyList<DeliveryFilter> Filters { get; init; } = Array.Empty<DeliveryFilter>();
     public DeliverySort? Sort { get; init; }
+    public DeliveryNear? Near { get; init; }
+
+    /// <summary>Order by the distance a near filter computed: null for no, else whether descending.</summary>
+    public bool? DistanceSortDescending { get; init; }
+
     public string? Error { get; init; }
 
     public bool IsValid => Error is null;
@@ -51,7 +74,8 @@ internal sealed class DeliveryQuery
     /// caller cannot tell the difference between "no filter" and "no matches".
     /// </remarks>
     public static DeliveryQuery Parse(
-        IEnumerable<KeyValuePair<string, string?>> query, ContentTypeDefinition? def)
+        IEnumerable<KeyValuePair<string, string?>> query, ContentTypeDefinition? def,
+        double maxRadiusKm = DefaultMaxRadiusKm)
     {
         if (def is null)
             return new DeliveryQuery { Error = "Unknown content type." };
@@ -61,23 +85,18 @@ internal sealed class DeliveryQuery
             .ToDictionary(f => f.Name, f => f.Type ?? string.Empty, StringComparer.OrdinalIgnoreCase);
 
         var filters = new List<DeliveryFilter>();
-        DeliverySort? sort = null;
+        DeliveryNear? near = null;
+        string? sortValue = null;
 
         foreach (var (rawKey, rawValue) in query)
         {
             if (string.Equals(rawKey, "sort", StringComparison.OrdinalIgnoreCase))
             {
+                // Resolved after the loop. sort=distance is only meaningful next to a near filter,
+                // and the query string does not promise which of the two comes first.
                 var value = rawValue?.Trim();
-                if (string.IsNullOrEmpty(value))
-                    continue;
-
-                var descending = value.StartsWith('-');
-                var field = descending ? value[1..] : value;
-
-                if (!allowed.ContainsKey(field))
-                    return new DeliveryQuery { Error = Unsortable(field, allowed) };
-
-                sort = new DeliverySort(Canonical(allowed, field), descending);
+                if (!string.IsNullOrEmpty(value))
+                    sortValue = value;
                 continue;
             }
 
@@ -98,27 +117,109 @@ internal sealed class DeliveryQuery
                 return new DeliveryQuery { Error = Unfilterable(name, allowed) };
             var canonical = Canonical(allowed, name);
 
-            if (!Ops.TryGetValue(op, out var parsedOp))
-                return new DeliveryQuery
-                {
-                    Error = $"Unknown operator '{op}'. Supported: {string.Join(", ", Ops.Keys)}.",
-                };
+            if (string.Equals(op, "near", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!string.Equals(declaredType, "geopoint", StringComparison.OrdinalIgnoreCase))
+                    return new DeliveryQuery
+                    {
+                        Error = $"Operator 'near' needs a geopoint field, and '{canonical}' is not one.",
+                    };
+                if (near is not null)
+                    return new DeliveryQuery { Error = "At most one near filter is allowed per request." };
 
-            // The canonical name from the schema is stored, never the caller's spelling, so what
-            // reaches the query builder can only be a string the content type already declared.
-            filters.Add(new DeliveryFilter(canonical, parsedOp, rawValue ?? string.Empty, declaredType));
+                var (parsed, nearError) = ParseNear(canonical, rawValue, maxRadiusKm);
+                if (nearError is not null)
+                    return new DeliveryQuery { Error = nearError };
+                near = parsed;
+            }
+            else
+            {
+                if (!Ops.TryGetValue(op, out var parsedOp))
+                    return new DeliveryQuery
+                    {
+                        Error = $"Unknown operator '{op}'. Supported: {string.Join(", ", Ops.Keys)}, near.",
+                    };
+
+                // The canonical name from the schema is stored, never the caller's spelling, so what
+                // reaches the query builder can only be a string the content type already declared.
+                filters.Add(new DeliveryFilter(canonical, parsedOp, rawValue ?? string.Empty, declaredType));
+            }
 
             // Arbitrary filter combinations against a JSONB column on an anonymous endpoint is a
             // denial-of-service surface, so the count is capped rather than left to the caller.
-            if (filters.Count > MaxFilters)
+            // The near filter counts: it is the most expensive one.
+            if (filters.Count + (near is null ? 0 : 1) > MaxFilters)
                 return new DeliveryQuery
                 {
                     Error = $"Too many filters. At most {MaxFilters} are allowed per request.",
                 };
         }
 
-        return new DeliveryQuery { Filters = filters, Sort = sort };
+        DeliverySort? sort = null;
+        bool? distanceSort = null;
+        if (sortValue is not null)
+        {
+            var descending = sortValue.StartsWith('-');
+            var field = descending ? sortValue[1..] : sortValue;
+            var isDistance = string.Equals(field, "distance", StringComparison.OrdinalIgnoreCase);
+
+            // The computed distance wins over a field that happens to be called Distance, but only
+            // when there is a distance to sort by. Without a near filter a field of that name keeps
+            // working as it did, and a type without one gets told what is missing.
+            if (isDistance && near is not null)
+                distanceSort = descending;
+            else if (allowed.ContainsKey(field))
+                sort = new DeliverySort(Canonical(allowed, field), descending);
+            else if (isDistance)
+                return new DeliveryQuery
+                {
+                    Error = "sort=distance needs a near filter to measure from. Add filter[<field>][near]=lat,lng,radiusKm.",
+                };
+            else
+                return new DeliveryQuery { Error = Unsortable(field, allowed) };
+        }
+
+        return new DeliveryQuery
+        {
+            Filters = filters, Sort = sort, Near = near, DistanceSortDescending = distanceSort,
+        };
     }
+
+    /// <summary>
+    /// <c>lat,lng,radiusKm</c>, every part a finite number, the centre a real position and the
+    /// radius positive and no wider than the cap.
+    /// </summary>
+    /// <remarks>
+    /// Refused above the cap rather than clamped. A silently narrowed radius returns fewer rows than
+    /// the caller asked for with nothing in the response saying so, which is the same fault as a
+    /// silently ignored filter.
+    /// </remarks>
+    private static (DeliveryNear? Near, string? Error) ParseNear(string field, string? raw, double maxRadiusKm)
+    {
+        const string shape = "Expected filter[field][near]=lat,lng,radiusKm.";
+        var parts = (raw ?? string.Empty).Split(',', StringSplitOptions.TrimEntries);
+        if (parts.Length != 3)
+            return (null, $"Filter 'near' on '{field}' is malformed. {shape}");
+
+        if (!TryNumber(parts[0], out var lat) || !TryNumber(parts[1], out var lng) || !TryNumber(parts[2], out var radius))
+            return (null, $"Filter 'near' on '{field}' is malformed: every part must be a number. {shape}");
+
+        if (lat < -90 || lat > 90 || lng < -180 || lng > 180)
+            return (null, $"Filter 'near' on '{field}' has a centre outside latitude -90..90, longitude -180..180.");
+
+        if (radius <= 0)
+            return (null, $"Filter 'near' on '{field}' needs a radius above zero kilometres.");
+
+        if (radius > maxRadiusKm)
+            return (null, $"Filter 'near' on '{field}' asks for {radius.ToString(CultureInfo.InvariantCulture)} km. "
+                          + $"The most a request may ask for is {maxRadiusKm.ToString(CultureInfo.InvariantCulture)} km.");
+
+        return (new DeliveryNear(field, lat, lng, radius), null);
+    }
+
+    private static bool TryNumber(string text, out double value) =>
+        double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value)
+        && double.IsFinite(value);
 
     /// <summary>
     /// One filter as a SQL fragment plus its bound parameters, for Marten's <c>MatchesSql</c>.
@@ -197,6 +298,151 @@ internal sealed class DeliveryQuery
     /// </remarks>
     public static (string Sql, object[] Parameters) FieldEqualsIgnoreCaseSql(string field, string value)
         => ($"lower({KeyLookup} #>> '{{}}') = lower(?)", [field, value]);
+
+    /// <summary>Mean Earth radius in kilometres. The one constant the SQL and the C# share.</summary>
+    private const double EarthRadiusKm = 6371.0088;
+
+    private const double KmPerDegree = 2 * Math.PI * EarthRadiusKm / 360;
+
+    /// <summary>
+    /// The near filter as a SQL fragment plus its bound parameters, for <c>MatchesSql</c>.
+    /// </summary>
+    /// <remarks>
+    /// Two stages inside one subquery. The bounding box compares the stored latitude and longitude
+    /// against four bounds, which is cheap and throws away most rows; the haversine then decides the
+    /// rest. The box is computed here rather than in SQL so the same bounds can be read in a test,
+    /// and it is slightly wider than the radius on purpose: an approximate box that is too narrow
+    /// would silently drop entries at the rim.
+    ///
+    /// Only a value whose <c>lat</c> and <c>lng</c> are both jsonb numbers reaches the casts. That is
+    /// a CASE rather than an AND because Postgres does not promise to evaluate the left side of an
+    /// AND first, and a cast of a stored string would fail the whole request rather than the row.
+    /// A missing field, a non-object, or a malformed point is NULL, which COALESCE turns into "not
+    /// within", so the row is left out instead of the query failing.
+    ///
+    /// Field name, bounds, centre and radius all travel as parameters. Nothing caller-supplied
+    /// reaches the SQL text.
+    ///
+    /// Great-circle distance on a sphere. Good for "within 10 km" and wrong by up to a third of a
+    /// percent against the ellipsoid, which is not the question a store locator is asking.
+    /// </remarks>
+    public static (string Sql, object[] Parameters) NearSql(DeliveryNear near)
+    {
+        var (minLat, maxLat, minLng, maxLng) = BoundingBox(near);
+
+        // Placeholders in text order: the four bounds, then the haversine's lat, lat, lng, then the
+        // radius, then the field name. HaversineSql documents its own order.
+        var sql =
+            "COALESCE((SELECT CASE WHEN " + GeoIsPointSql + " THEN "
+            + GeoLatSql + " BETWEEN ? AND ? AND " + GeoLngSql + " BETWEEN ? AND ? AND "
+            + HaversineSql("?", "?") + " <= ? END "
+            + "FROM jsonb_each(d.data -> 'Data') e WHERE lower(e.key) = lower(?) LIMIT 1), false)";
+
+        return (sql, [minLat, maxLat, minLng, maxLng, near.Lat, near.Lat, near.Lng, near.RadiusKm, near.Field]);
+    }
+
+    /// <summary>The ORDER BY fragment for <c>sort=distance</c>, with CreatedAt as the tiebreaker.</summary>
+    /// <remarks>
+    /// <c>OrderBySql</c> binds nothing, so the field name and the centre are interpolated. The field
+    /// name is guarded the same way <see cref="ToOrderBySql"/> guards it. The centre is two doubles
+    /// that <c>Parse</c> already checked are finite and in range, printed with the invariant culture,
+    /// so the text can only be digits, a sign, a point and an exponent marker.
+    /// </remarks>
+    public static string DistanceOrderBySql(DeliveryNear near, bool descending)
+    {
+        if (!IsSafeFieldName(near.Field))
+            throw new InvalidOperationException(
+                $"Refusing to order by distance on '{near.Field}'. A field name reaches SQL as text "
+                + "and must be letters and digits only. Parse should never have produced this.");
+
+        var direction = descending ? "DESC" : "ASC";
+        var lat = near.Lat.ToString("R", CultureInfo.InvariantCulture);
+        var lng = near.Lng.ToString("R", CultureInfo.InvariantCulture);
+
+        return "(SELECT CASE WHEN " + GeoIsPointSql + " THEN " + HaversineSql(lat, lng) + " END "
+             + $"FROM jsonb_each(d.data -> 'Data') e WHERE lower(e.key) = lower('{near.Field}') LIMIT 1) "
+             + $"{direction} NULLS LAST, (d.data ->> 'CreatedAt')::timestamptz DESC";
+    }
+
+    /// <summary>
+    /// The distance from the near filter's centre to a delivered entry's point, rounded to two
+    /// decimals, or null when the entry has no readable point.
+    /// </summary>
+    /// <remarks>
+    /// The same formula and the same radius as the SQL, so the number a caller sees is the number
+    /// the rows were filtered and ordered by. Computed from the returned document rather than
+    /// selected as an extra column because Marten's LINQ path cannot project a scalar alongside the
+    /// document without leaving the Where chain, and leaving that chain is where the published and
+    /// public predicate would get dropped.
+    /// </remarks>
+    public static double? DistanceKm(IReadOnlyDictionary<string, object> data, DeliveryNear near)
+    {
+        var key = data.Keys.FirstOrDefault(k => string.Equals(k, near.Field, StringComparison.OrdinalIgnoreCase));
+        if (key is null || !barakoCMS.Core.Validation.FieldTypeRegistry.TryReadGeoPoint(data[key], out var lat, out var lng))
+            return null;
+
+        return Math.Round(Haversine(near.Lat, near.Lng, lat, lng), 2, MidpointRounding.AwayFromZero);
+    }
+
+    internal static double Haversine(double lat1, double lng1, double lat2, double lng2)
+    {
+        var dLat = Radians(lat2 - lat1);
+        var dLng = Radians(lng2 - lng1);
+        var a = Math.Pow(Math.Sin(dLat / 2), 2)
+              + Math.Cos(Radians(lat1)) * Math.Cos(Radians(lat2)) * Math.Pow(Math.Sin(dLng / 2), 2);
+        return 2 * EarthRadiusKm * Math.Asin(Math.Min(1, Math.Sqrt(a)));
+    }
+
+    /// <summary>
+    /// A box that contains every point within the radius, clamped to the globe.
+    /// </summary>
+    /// <remarks>
+    /// Latitude bounds are exact on a sphere. The longitude half-width is
+    /// <c>asin(sin(r/R) / cos(lat))</c>, which is the true extent rather than the flat-earth
+    /// <c>r / (R cos lat)</c>, and both are widened by a tenth of a percent so rounding can never
+    /// exclude a point the haversine would accept. A box that reaches a pole or crosses the
+    /// antimeridian opens the longitude to the full range: still a correct prefilter, just a
+    /// looser one, which beats the alternative of a wrapped box that is wrong.
+    /// </remarks>
+    internal static (double MinLat, double MaxLat, double MinLng, double MaxLng) BoundingBox(DeliveryNear near)
+    {
+        const double slack = 1.001;
+        var dLat = near.RadiusKm / KmPerDegree * slack;
+        var minLat = Math.Max(-90, near.Lat - dLat);
+        var maxLat = Math.Min(90, near.Lat + dLat);
+
+        var ratio = Math.Sin(near.RadiusKm / EarthRadiusKm) / Math.Cos(Radians(near.Lat));
+        if (minLat <= -90 || maxLat >= 90 || ratio >= 1)
+            return (minLat, maxLat, -180, 180);
+
+        var dLng = Degrees(Math.Asin(ratio)) * slack;
+        var minLng = near.Lng - dLng;
+        var maxLng = near.Lng + dLng;
+        if (minLng < -180 || maxLng > 180)
+            return (minLat, maxLat, -180, 180);
+
+        return (minLat, maxLat, minLng, maxLng);
+    }
+
+    private static double Radians(double degrees) => degrees * Math.PI / 180;
+    private static double Degrees(double radians) => radians * 180 / Math.PI;
+
+    // Inside the jsonb_each subquery, e.value is the field's stored value.
+    private const string GeoIsPointSql =
+        "jsonb_typeof(e.value -> 'lat') = 'number' AND jsonb_typeof(e.value -> 'lng') = 'number'";
+    private const string GeoLatSql = "(e.value ->> 'lat')::double precision";
+    private const string GeoLngSql = "(e.value ->> 'lng')::double precision";
+
+    /// <summary>
+    /// The haversine in SQL, in kilometres. The centre appears as <paramref name="lat0"/> twice and
+    /// then <paramref name="lng0"/> once, in that order, which is what <see cref="NearSql"/> binds
+    /// against when the three are placeholders.
+    /// </summary>
+    private static string HaversineSql(string lat0, string lng0) =>
+        $"(2 * {EarthRadiusKm.ToString("R", CultureInfo.InvariantCulture)} * asin(least(1.0, sqrt("
+        + $"power(sin(radians({GeoLatSql} - {lat0}) / 2), 2) "
+        + $"+ cos(radians({lat0})) * cos(radians({GeoLatSql})) "
+        + $"* power(sin(radians({GeoLngSql} - {lng0}) / 2), 2)))))";
 
     /// <summary>The ORDER BY fragment for a validated sort.</summary>
     /// <remarks>
