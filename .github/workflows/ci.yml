@@ -690,8 +690,10 @@ jobs:
       - name: An amd64-only tag is refused, and for the right reason
         run: |
           set -uo pipefail
-          out=$(bash scripts/check-image-platforms.sh ghcr.io/baryodev/barako-cms:3.21.0 2>&1)
-          code=$?
+          # Actions runs this under bash -e. Capturing the status on the same line keeps -e from
+          # ending the step at the assignment, before the output is read.
+          code=0
+          out=$(bash scripts/check-image-platforms.sh ghcr.io/baryodev/barako-cms:3.21.0 2>&1) || code=$?
           echo "$out"
           if [ "$code" -eq 0 ]; then
             echo "::error::the gate passed an amd64-only tag"; exit 1

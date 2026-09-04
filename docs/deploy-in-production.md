@@ -112,7 +112,7 @@ backup, so do it once before you have data worth keeping.
 
 ## Known rough edges
 
-- **Pick a tag your machine can run.** Versioned tags before `4.0.0` are `linux/amd64` only.
+- **Pick a tag your machine can run.** Every `3.x` version tag is `linux/amd64` only.
   `latest` carries both amd64 and arm64. On an arm64 host (Ampere, Graviton, an Apple laptop)
   pinning `BARAKO_TAG=3.21.0` fails the pull with `no matching manifest for linux/arm64/v8`. Check
   before you pin:
