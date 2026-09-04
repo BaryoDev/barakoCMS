@@ -8,6 +8,7 @@ import {
   IconContentTypes,
   IconDashboard,
   IconEnvelope,
+  IconFilter,
   IconFlag,
   IconGroups,
   IconHealth,
@@ -77,8 +78,8 @@ export function visibleGroups(groups: NavGroup[], userRoles: readonly string[] |
 }
 
 /**
- * The first group carries no label on purpose: it is the primary set, the four destinations someone
- * works in all day, and a heading over them would only name the app. Every group after it is
+ * The first group carries no label on purpose: it is the primary set, the destinations someone works
+ * in all day, and a heading over them would only name the app. Every group after it is
  * labelled, and the rail renders those at a smaller size.
  */
 export const NAV_GROUPS: NavGroup[] = [
@@ -90,6 +91,7 @@ export const NAV_GROUPS: NavGroup[] = [
       // rendered a link the API answered 403 to, and nothing creates an Editor role anyway.
       { title: 'Content types', href: '/schemas', icon: IconContentTypes, metric: 'contentTypes', roles: ['SuperAdmin', 'Admin'] },
       { title: 'Workflows', href: '/workflows', icon: IconWorkflows, metric: 'workflows', roles: ['SuperAdmin', 'Admin'] },
+      { title: 'Queries', href: '/queries', icon: IconFilter, roles: ['SuperAdmin', 'Admin'] },
     ],
   },
   {
@@ -138,6 +140,7 @@ const SEGMENT_TITLES: Record<string, string> = {
   schemas: 'Content types',
   content: 'Entries',
   workflows: 'Workflows',
+  queries: 'Queries',
   users: 'Users',
   roles: 'Roles',
   'user-groups': 'Groups',
