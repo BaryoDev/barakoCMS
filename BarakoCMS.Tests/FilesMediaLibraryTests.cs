@@ -6,6 +6,9 @@ using barakoCMS.Models;
 using FluentAssertions;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats.Png;
+using SixLabors.ImageSharp.PixelFormats;
 using Xunit;
 
 namespace BarakoCMS.Tests;
@@ -170,6 +173,43 @@ public class FilesMediaLibraryTests
         row.Status.Should().Be("Draft");
     }
 
+    /// <summary>
+    /// On an object store the entry holds the bucket's URL, which carries the storage key and not
+    /// the id, and a resized copy's key is the parent's stem with a width suffix.
+    /// </summary>
+    [Fact]
+    public async Task Usage_finds_an_entry_holding_the_storage_key_or_a_variant_key_of_the_file()
+    {
+        var admin = await AdminAsync();
+        var id = await UploadAsync(admin, isPublic: true, "bucket.png", "image/png");
+        var type = await SeedTypeAsync();
+
+        string key;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var file = await s.LoadAsync<BarakoCMS.Files.StoredFile>(id, TestContext.Current.CancellationToken);
+            key = file!.StorageKey;
+        }
+        key.Should().NotBeNullOrEmpty();
+        key.Should().NotContain(id.ToString(), "the storage key match only proves anything when the id is not in it");
+
+        var byKey = await StoreEntryAsync(type, new()
+        {
+            ["Title"] = "Bucket URL",
+            ["Hero"] = $"https://bucket.example.com/{key}",
+        });
+        var byVariantKey = await StoreEntryAsync(type, new()
+        {
+            ["Title"] = "Resized bucket URL",
+            ["Hero"] = $"https://bucket.example.com/{Path.GetFileNameWithoutExtension(key)}_w640{Path.GetExtension(key)}",
+        });
+
+        var page = await admin.GetFromJsonAsync<Listing<UsageRow>>($"/api/files/{id}/usage", TestContext.Current.CancellationToken);
+        page!.Items.Should().HaveCount(2);
+        page.Items.Select(u => u.Id).Should().BeEquivalentTo([byKey, byVariantKey]);
+    }
+
     [Fact]
     public async Task Usage_of_an_unreferenced_file_is_an_empty_page_and_of_a_missing_file_a_404()
     {
@@ -283,6 +323,55 @@ public class FilesMediaLibraryTests
         response.StatusCode.Should().Be(HttpStatusCode.NoContent, await response.Content.ReadAsStringAsync());
         var again = await admin.DeleteAsync($"/api/files/{id}", TestContext.Current.CancellationToken);
         again.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    /// <summary>
+    /// A cached resize is reached only through its original, so it has no row in the list and no
+    /// existence once the original is gone: the row and the bytes both go.
+    /// </summary>
+    [Fact]
+    public async Task Delete_takes_the_cached_resizes_with_the_original_and_the_list_never_showed_them()
+    {
+        var admin = await AdminAsync();
+        var name = $"resized-{Guid.NewGuid():N}"[..20] + ".png";
+        var id = await UploadAsync(admin, isPublic: true, name, "image/png", Png(1200, 800));
+
+        var resized = await _factory.CreateClient().GetAsync($"/api/public/files/{id}?w=640", TestContext.Current.CancellationToken);
+        resized.StatusCode.Should().Be(HttpStatusCode.OK, await resized.Content.ReadAsStringAsync());
+
+        IReadOnlyList<BarakoCMS.Files.StoredFile> variants;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            variants = await s.Query<BarakoCMS.Files.StoredFile>()
+                .Where(v => v.ParentFileId == id)
+                .ToListAsync(TestContext.Current.CancellationToken);
+        }
+        variants.Should().NotBeEmpty("the ?w= request is what makes the resize this test deletes");
+
+        var listed = await admin.GetFromJsonAsync<Listing<FileMeta>>(
+            $"/api/files?q={name[..12]}", TestContext.Current.CancellationToken);
+        listed!.Items.Should().ContainSingle().Which.Id.Should().Be(id, "a resize has no row of its own in the list");
+
+        var response = await admin.DeleteAsync($"/api/files/{id}", TestContext.Current.CancellationToken);
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent, await response.Content.ReadAsStringAsync());
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var storage = scope.ServiceProvider.GetRequiredService<BarakoCMS.Files.IFileStorage>();
+
+            var left = await s.Query<BarakoCMS.Files.StoredFile>()
+                .Where(v => v.ParentFileId == id)
+                .ToListAsync(TestContext.Current.CancellationToken);
+            left.Should().BeEmpty("a resize outliving its original would be bytes nothing can serve");
+
+            foreach (var variant in variants)
+            {
+                (await storage.GetAsync(variant.StorageKey, TestContext.Current.CancellationToken))
+                    .Should().BeNull("the bytes behind a resize go with its row");
+            }
+        }
     }
 
     // ---- list -------------------------------------------------------------------------------
@@ -480,10 +569,10 @@ public class FilesMediaLibraryTests
         return client;
     }
 
-    private async Task<Guid> UploadAsync(HttpClient client, bool isPublic, string name, string contentType)
+    private async Task<Guid> UploadAsync(HttpClient client, bool isPublic, string name, string contentType, byte[]? bytes = null)
     {
         using var form = new MultipartFormDataContent();
-        var file = new ByteArrayContent([1, 2, 3, 4, 5]);
+        var file = new ByteArrayContent(bytes ?? [1, 2, 3, 4, 5]);
         file.Headers.ContentType = new MediaTypeHeaderValue(contentType);
         form.Add(file, "file", name);
         form.Add(new StringContent(isPublic ? "true" : "false"), "isPublic");
@@ -492,6 +581,29 @@ public class FilesMediaLibraryTests
         res.StatusCode.Should().Be(HttpStatusCode.Created, await res.Content.ReadAsStringAsync());
         var body = await res.Content.ReadFromJsonAsync<FileMeta>(TestContext.Current.CancellationToken);
         return body!.Id;
+    }
+
+    /// <summary>A real PNG, as in ImageVariantTests: the resizer decodes it, so bytes will not do.</summary>
+    private static byte[] Png(int width, int height)
+    {
+        using var image = new Image<Rgba32>(width, height);
+        var random = new Random(width * 31 + height);
+
+        image.ProcessPixelRows(accessor =>
+        {
+            for (var y = 0; y < accessor.Height; y++)
+            {
+                var row = accessor.GetRowSpan(y);
+                for (var x = 0; x < row.Length; x++)
+                {
+                    row[x] = new Rgba32((byte)random.Next(256), (byte)random.Next(256), (byte)random.Next(256), 255);
+                }
+            }
+        });
+
+        using var output = new MemoryStream();
+        image.Save(output, new PngEncoder());
+        return output.ToArray();
     }
 
     /// <summary>A type with a string field and a url field, which is all a file reference is today.</summary>
