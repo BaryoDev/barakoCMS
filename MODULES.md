@@ -95,12 +95,36 @@ as they were when it is enabled again. Nothing here drops anything.
 "installed but off" and "not installed" can be told apart. See
 [docs/module-inventory.md](docs/module-inventory.md).
 
-**Known limitation: schema preflight.** Production runs `AutoCreate.CreateOnly`, which creates a
-missing table with its indexes and never alters an existing one. Enabling a module whose
-`ConfigureSchema` only adds its own tables therefore works on any database, and every first-party
-module is in that position today. A module that adds an index to a table that already exists would
-fail at startup with Marten's error rather than a message naming the module, and nothing checks for
-that before the boot. That preflight is out of scope here and tracked separately.
+### Schema preflight
+
+Production runs `AutoCreate.CreateOnly`, which creates a missing table with its indexes and never
+alters an existing one. A module whose `ConfigureSchema` only adds its own tables therefore boots on
+any database, and every first-party module is in that position today. A module that adds an index
+to a table that already exists used to fail at startup inside Marten, several layers down and
+without the module's name.
+
+On boot, before the schema is applied and before anything seeds, the host now asks Marten for the
+migration it would apply and attributes every object in it to a module by the assembly its document
+type ships in (the module's own, plus `SchemaAssemblies`), or to core. It logs one line per module
+saying which objects are new and which existing ones would change. When the store is `CreateOnly`
+and a module wants a change to an existing object, startup stops with a message naming the module,
+the object, the policy that refuses it and the two ways out: apply the change first with `db-patch`
+(see [docs/upgrading-to-4.0.md](docs/upgrading-to-4.0.md)), or run the store with
+`AutoCreate.CreateOrUpdate`, which this host uses when `ASPNETCORE_ENVIRONMENT` is `Development`.
+Core's own deltas are logged and then left to Marten, whose message that document already covers.
+
+The one way a module reaches an object it does not own is the deprecated `ConfigureMarten`, which
+hands over the raw `StoreOptions`. A change to a core object is therefore attributed to every
+enabled module that overrides that hook; Marten stores schema alterations on deferred builders, so
+two such modules cannot be told apart, and both are named.
+
+`BarakoCMS:Modules:SchemaPreflight` switches it. Unset means on for a `CreateOnly` store and off
+otherwise, so a development store that applies the change anyway behaves as before. `false` keeps
+today's behaviour everywhere and leaves the refusal to Marten. `true` on a `CreateOrUpdate` or
+`All` store runs the check and refuses only what that policy refuses too, so a change to an
+existing object is reported instead of refused. That is how a developer sees what production would
+refuse before deploying: `GET /api/modules` reports it as `needs-migration` with the object names.
+`ModuleSchemaPreflightTests` covers these cases.
 
 ## Contract version
 
@@ -137,7 +161,8 @@ a version core cannot honour: that is refused at startup, by name, before anythi
 **Checking what an instance loaded.** `GET /api/modules` lists the modules a running instance
 saw, each with the contract version it declared and whether it is enabled, so an author can confirm
 a deployment picked up their module and which version it thinks it is talking to. It is SuperAdmin
-or Admin, and it reports the name, the contract version and the enabled flag and nothing else. A
+or Admin, and it reports the name, the contract version, the enabled flag and the schema preflight
+state and nothing else. A
 discovered module goes through the same contract check as one the host added, and the refusal names
 the module, the version it declared and the range core accepts. See
 [docs/module-inventory.md](docs/module-inventory.md).

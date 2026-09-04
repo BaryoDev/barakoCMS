@@ -16,8 +16,9 @@ internal sealed class ListModulesRequest : ListRequest;
 
 /// <summary>
 /// What core will say about a module: the name it registered under, the module contract version it
-/// declared, and whether the enabled list let it run. Nothing else is safe to publish here, because
-/// everything else a module knows is about the deployment rather than about the module.
+/// declared, whether the enabled list let it run, and what the schema preflight found for it.
+/// Nothing else is safe to publish here, because everything else a module knows is about the
+/// deployment rather than about the module.
 /// </summary>
 /// <param name="Name"><see cref="barakoCMS.Modules.IBarakoModule.Name"/>, verbatim.</param>
 /// <param name="ContractVersion">
@@ -28,4 +29,19 @@ internal sealed class ListModulesRequest : ListRequest;
 /// Whether the module runs in this process. False means it was added or discovered and then left
 /// out by <c>BarakoCMS:Modules:Enabled</c>; a module that is not installed at all is not listed.
 /// </param>
-internal sealed record ModuleSummary(string Name, int ContractVersion, bool Enabled);
+/// <param name="SchemaState">
+/// One of <see cref="barakoCMS.Modules.ModuleSchemaState"/>: <c>ready</c> when the preflight found
+/// nothing the store would refuse, <c>needs-migration</c> when the module wanted a change to an
+/// existing object, <c>unknown</c> when the preflight did not run for it (switched off, or the
+/// module is not enabled).
+/// </param>
+/// <param name="SchemaChanges">
+/// The existing database objects the module wanted to change, by qualified name. Empty unless
+/// <paramref name="SchemaState"/> is <c>needs-migration</c>.
+/// </param>
+internal sealed record ModuleSummary(
+    string Name,
+    int ContractVersion,
+    bool Enabled,
+    string SchemaState,
+    IReadOnlyList<string> SchemaChanges);

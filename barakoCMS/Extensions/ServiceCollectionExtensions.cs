@@ -76,6 +76,10 @@ public static class ServiceCollectionExtensions
         // below hold only the ones that run, so "off" and "not installed" would otherwise look alike.
         services.AddSingleton(ModuleCatalogue.Of(seen, enabled));
 
+        // Filled by the schema preflight at boot; empty until then, which the endpoint reports as
+        // unknown rather than guessing.
+        services.AddSingleton<ModuleSchemaReport>();
+
         // Sorted before anything runs, so DI registration, schema and seeding all see the same
         // order and a module that must configure after another actually does. Independent modules
         // keep their declared order.
@@ -1374,7 +1378,60 @@ public static class ServiceCollectionExtensions
             store,
             host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Tenancy"));
 
+        // Before the apply, so a module that wants a change CreateOnly will not make is refused by
+        // name here rather than by Marten a line later.
+        await host.Services.PreflightModuleSchemaAsync();
+
         await store.Storage.ApplyAllConfiguredChangesToDatabaseAsync();
+    }
+
+    /// <summary>
+    /// Works out the migration Marten would apply, attributes every object in it to a module or to
+    /// core, logs one line per module, and refuses to continue when a module wants a change the
+    /// store's <c>AutoCreate</c> policy will not apply. The result is kept for <c>GET /api/modules</c>.
+    /// </summary>
+    /// <remarks>
+    /// Runs when <c>BarakoCMS:Modules:SchemaPreflight</c> is true, and by default only on a
+    /// <c>CreateOnly</c> store, because everywhere else the store is about to apply the same
+    /// migration anyway. See <see cref="ModuleSchemaPreflight"/>.
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">A module wants a change the store refuses.</exception>
+    internal static async Task PreflightModuleSchemaAsync(this IServiceProvider services, CancellationToken ct = default)
+    {
+        var store = services.GetRequiredService<Marten.IDocumentStore>();
+        var configuration = services.GetRequiredService<IConfiguration>();
+        // IDocumentStore.Options is the read-only view and does not carry the policy.
+        var autoCreate = store is Marten.DocumentStore concrete
+            ? concrete.Options.AutoCreateSchemaObjects
+            : store.Storage.Database.AutoCreate;
+
+        if (!ModuleSchemaPreflight.IsEnabled(configuration, autoCreate))
+        {
+            Log.Information(
+                "Module schema preflight is off (store runs AutoCreate.{AutoCreate}; {Key} is unset or false).",
+                autoCreate, ModuleSchemaPreflight.EnabledKey);
+            return;
+        }
+
+        List<IBarakoModule> modules;
+        using (var probe = services.CreateScope())
+        {
+            modules = probe.ServiceProvider.GetServices<IBarakoModule>().ToList();
+        }
+
+        var findings = await ModuleSchemaPreflight.ComputeAsync(store, modules, ct);
+        services.GetRequiredService<ModuleSchemaReport>().Record(findings);
+
+        foreach (var finding in findings.Values.OrderBy(f => f.Owner, StringComparer.Ordinal))
+        {
+            Log.Information(
+                "Module {Module} schema: {NewCount} new object(s) [{New}], {ChangedCount} change(s) to existing objects [{Changed}].",
+                finding.Owner,
+                finding.NewObjects.Count, string.Join(", ", finding.NewObjects),
+                finding.Changes.Count, string.Join(", ", finding.Changes.Select(c => c.Name)));
+        }
+
+        ModuleSchemaPreflight.AssertAllowed(findings, autoCreate);
     }
 
     /// <summary>

@@ -19,8 +19,8 @@ Authorization: Bearer <token>
 ```json
 {
   "items": [
-    { "name": "Accounting", "contractVersion": 0, "enabled": true },
-    { "name": "Files", "contractVersion": 0, "enabled": false }
+    { "name": "Accounting", "contractVersion": 0, "enabled": true, "schemaState": "ready", "schemaChanges": [] },
+    { "name": "Files", "contractVersion": 0, "enabled": false, "schemaState": "unknown", "schemaChanges": [] }
   ],
   "page": 1,
   "pageSize": 100,
@@ -46,6 +46,16 @@ found it and `BarakoCMS:Modules:Enabled` left it off; its endpoints answer 404 a
 in the database. A module that is not installed at all is not listed. See
 [MODULES.md](../MODULES.md#choosing-which-modules-run).
 
+`schemaState` is what the schema preflight found for the module at boot: `ready` when nothing it
+registered would be refused by the store's `AutoCreate` policy, `needs-migration` when it wanted a
+change to an existing database object, and `unknown` when the preflight did not run for it, either
+because `BarakoCMS:Modules:SchemaPreflight` is off or because the module is not enabled and so
+registered no schema. `schemaChanges` lists the existing objects it wanted to change by qualified
+name, and is empty in every other state. A `CreateOnly` store refuses to boot on `needs-migration`,
+so that value is only ever seen on a store that applied the change, which is the point: run the
+check in development and read off what production would refuse. See
+[MODULES.md](../MODULES.md#schema-preflight).
+
 Today every first-party module but Email.Smtp answers zero for `contractVersion`: the others do not
 override the property. So this endpoint confirms that a deployment picked a module up, and mostly
 does not yet tell you which contract version it thinks it is talking to. That becomes useful as
@@ -62,11 +72,13 @@ question is trying to tell apart.
 
 ## What it does not report
 
-Name, contract version and enabled, and nothing else. A module knows its configuration section,
-its assemblies and therefore its file paths on the host, and none of that is a fact about the
-module: it is a description of the deployment. `ModulesEndpointTests` asserts the property names on
-each item are exactly `name`, `contractVersion` and `enabled`, so a field added later has to be
-added there too, in a line somebody reviews.
+Name, contract version, enabled, schema state and the objects behind it, and nothing else. A module
+knows its configuration section, its assemblies and therefore its file paths on the host, and none
+of that is a fact about the module: it is a description of the deployment. `schemaChanges` names
+database objects, which is the one deployment fact here, and it is there because the operator who
+reads it is the one who has to apply the migration. `ModulesEndpointTests` asserts the property
+names on each item are exactly `name`, `contractVersion`, `enabled`, `schemaState` and
+`schemaChanges`, so a field added later has to be added there too, in a line somebody reviews.
 
 ## Authorisation
 
