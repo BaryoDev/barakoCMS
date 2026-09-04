@@ -58,6 +58,12 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
                 { "Connectors:Key", "test-connectors-key-that-is-its-own-and-long-enough" },
                 { "Feeds:SiteUrl", "https://test.example.com" },
                 { "Feeds:Paths:sitemap_paths", "/articles/{slug}" },
+                // The job queue, tuned for a test run: a retry waits nothing and the worker
+                // re-reads storage every second, so a job that fails five times dead-letters in
+                // seconds rather than in the minutes production's defaults take. The backoff
+                // arithmetic itself is JobBackoffTests, a unit test.
+                { "Jobs:BackoffBaseSeconds", "0" },
+                { "Jobs:StorageProbeSeconds", "1" },
             });
         });
 

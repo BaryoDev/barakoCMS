@@ -516,3 +516,40 @@ tag itself fails that test.
 
 **Still open, deliberately.** Which generator, proven end to end on one slice (#183), and whether a
 .NET client ships at all (#186). Neither is decided here.
+
+## D14. The queue owns retry, and an enqueue rides the request's session
+
+**Decided:** 4 Sep 2026. **Issue:** #106. **Status:** implemented for the queue itself; the
+consumers move in follow-ups.
+
+**The queue owns retry.** A job record carries the attempt count, the next attempt time, the last
+error and a dead-letter state from the first version, and webhook delivery (#95), email and AI
+indexing become jobs on it. The alternative was each consumer retrying on its own: #95 has a
+delivery log with an attempt field and could have grown a loop around it. That is three retry
+policies to explain, three backoff tables, and three places a failed send can be found, and the
+argument in the issue thread was that one mechanism serving both is the better reason to build the
+queue at all. So the record has the fields now, because a record without them cannot be upgraded
+into one that has them without a migration.
+
+**The transactional answer.** `IJobStorageProvider.StoreJobAsync` receives the record and a token
+and nothing else, and the provider is a singleton, so the caller's session cannot arrive by
+injection. It is reachable anyway: `IHttpContextAccessor` gives the current request, and its service
+scope holds the one scoped `IDocumentSession` the endpoint is writing with. The provider stages the
+job there, and it commits when the endpoint calls `SaveChangesAsync`, or not at all.
+`TransactionalEnqueueTests` proves it in both directions, including the harder one from the issue:
+the store succeeded, the commit that followed failed on a unique index, and no job was left.
+
+That is a property of the request, not of the contract, and it is written down as two rules on the
+endpoint: queue from a request that writes through the scoped session, and save afterwards. The
+outbox shape (a job document written through the caller's session and a poller handing due rows to
+the queue) was the fallback if the session could not be reached, and it was not needed. What the
+provider does is close to it anyway, since the queue's own worker polls the same table; the
+difference is that FastEndpoints owns the polling and the claim, and nothing was written twice.
+
+**What it costs.** FastEndpoints wakes the worker as soon as `StoreJobAsync` returns, which is
+before the commit, so that wake finds nothing. A Marten session listener fires a second wake after
+the commit. Outside a request there is no scope to share, so a job queued from a background service
+commits on its own in the default tenant. And a request that queues and never saves discards the
+job; the provider logs a warning naming the request when that happens on a successful response, and
+the docs say so.
+

@@ -396,6 +396,7 @@ says.
 | `Features/WorkflowRuns/*` | `retry_workflow_actions` | `POST /api/workflow-runs/{id}/actions/{ordinal}/retry` | SuperAdmin, Admin |
 | `Features/Content/History/*` | `rollback_content` | `POST /api/contents/{id}/rollback/{versionId}` | SuperAdmin, Admin |
 | `Features/Content/Erase/*` | `erase_content` | `DELETE /api/contents/{id}/erase` | SuperAdmin |
+| `Features/Jobs/*` | `view_jobs` | `GET /api/jobs` | SuperAdmin, Admin |
 
 Users is two capabilities because its old gates were two: listing accounts and resetting
 someone's password were `Roles("SuperAdmin")`, while changing a user's roles and groups
