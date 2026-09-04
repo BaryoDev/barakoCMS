@@ -19,6 +19,7 @@ import {
 } from '@/hooks/use-connectors';
 import { apiErrorMessage } from '@/lib/api';
 import { PageHeader } from '@/components/patterns/page-header';
+import { PaginationControls } from '@/components/patterns/pagination-controls';
 import { EmptyState } from '@/components/patterns/empty-state';
 import { ErrorState } from '@/components/patterns/error-state';
 import { TableSkeleton } from '@/components/patterns/table-skeleton';
@@ -120,6 +121,9 @@ function ConnectorDialog({ connector, open, onOpenChange }: ConnectorDialogProps
     const secretStored = secretKey !== null && storedKeys.includes(secretKey);
     const pending = create.isPending || update.isPending;
     const slugValid = SLUG_RE.test(slug);
+    // The warning is for a slug the operator has typed on a create. An empty box is not yet wrong,
+    // and an existing slug is fixed, so neither is flagged.
+    const slugRefused = !editing && slug.length > 0 && !slugValid;
     const canSave = name.trim().length > 0 && slugValid && baseUrl.trim().length > 0 && !pending;
 
     function onNameChange(value: string) {
@@ -205,20 +209,25 @@ function ConnectorDialog({ connector, open, onOpenChange }: ConnectorDialogProps
                                 value={slug}
                                 disabled={editing}
                                 className="font-mono text-xs"
-                                aria-invalid={!editing && slug.length > 0 && !slugValid}
+                                aria-invalid={slugRefused}
+                                aria-describedby={
+                                    slugRefused
+                                        ? 'connector-slug-hint connector-slug-warning'
+                                        : 'connector-slug-hint'
+                                }
                                 onChange={(e) => {
                                     setSlugEdited(true);
                                     setSlug(e.target.value);
                                 }}
                                 placeholder="company-jira"
                             />
-                            <p className="text-muted-foreground text-xs">
+                            <p id="connector-slug-hint" className="text-muted-foreground text-xs">
                                 {editing
                                     ? 'Fixed after creation. A request definition references a connector by slug, so renaming it would break those without saying so.'
                                     : 'Lowercase letters, digits and hyphens, starting with a letter or a digit. This is what a request definition will reference, and it cannot be changed later.'}
                             </p>
-                            {!editing && slug.length > 0 && !slugValid && (
-                                <p className="text-warning flex gap-2 text-xs">
+                            {slugRefused && (
+                                <p id="connector-slug-warning" className="text-warning flex gap-2 text-xs">
                                     <IconWarning aria-hidden className="mt-0.5 shrink-0 size-3.5" />
                                     <span>
                                         The server will refuse that slug, and it cannot be corrected
@@ -368,7 +377,9 @@ function ConnectorDialog({ connector, open, onOpenChange }: ConnectorDialogProps
 }
 
 export default function ConnectorsPage() {
-    const { data: connectors, isLoading, isError, refetch } = useConnectors();
+    const [page, setPage] = useState(1);
+    const { data, isLoading, isError, refetch } = useConnectors(page);
+    const connectors = data?.items ?? [];
     const test = useTestConnector();
     const remove = useDeleteConnector();
 
@@ -408,6 +419,9 @@ export default function ConnectorsPage() {
         try {
             await remove.mutateAsync(connector.slug);
             toast.success(`Deleted "${connector.name}"`);
+            // Deleting the only row on a later page would leave the operator on an empty page with
+            // no controls, since the controls hide themselves once there is one page.
+            if (connectors.length === 1 && page > 1) setPage(page - 1);
         } catch (error) {
             toast.error(apiErrorMessage(error, 'Could not delete the connector.'));
         }
@@ -432,124 +446,140 @@ export default function ConnectorsPage() {
                 <TableSkeleton />
             ) : isError ? (
                 <ErrorState entity="connectors" onRetry={() => refetch()} />
-            ) : !connectors?.length ? (
+            ) : !data || data.totalItems === 0 ? (
                 <EmptyState
                     icon={IconWebhook}
                     title="No connectors yet"
                     description="Add one to hold a third party's base URL and credentials, so a workflow can call it without anybody writing code."
                     action={newButton}
                 />
+            ) : connectors.length === 0 ? (
+                // Somebody else deleted the rows this page held. The controls hide once there is one
+                // page, so this is the only way back.
+                <EmptyState
+                    icon={IconWebhook}
+                    title="Nothing on this page"
+                    description="The connectors on this page were deleted."
+                    action={
+                        <Button size="sm" variant="outline" onClick={() => setPage(1)}>
+                            Back to the first page
+                        </Button>
+                    }
+                />
             ) : (
-                <div className="rounded-lg border">
-                    <Table>
-                        <TableHeader>
-                            <TableRow>
-                                <TableHead>Connector</TableHead>
-                                <TableHead>Base URL</TableHead>
-                                <TableHead>Auth</TableHead>
-                                <TableHead>Credentials</TableHead>
-                                <TableHead>Last probe</TableHead>
-                                <TableHead className="w-28" />
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {connectors.map((connector) => {
-                                const gap = configGap(connector);
-                                const mode = authModeFor(connector.auth);
-
-                                return (
-                                    <TableRow key={connector.id}>
-                                        <TableCell className="align-top">
-                                            <div className="font-medium">
-                                                {connector.name}
-                                                {!connector.enabled && (
-                                                    <Badge variant="secondary" className="ml-2 text-[11px]">
-                                                        Disabled
-                                                    </Badge>
-                                                )}
-                                            </div>
-                                            <div className="text-muted-foreground font-mono text-xs">
-                                                {connector.slug}
-                                            </div>
-                                            {gap && (
-                                                <p className="text-warning mt-1 flex max-w-xs gap-1.5 text-[11px]">
-                                                    <IconWarning aria-hidden className="mt-0.5 size-3 shrink-0" />
-                                                    <span>{gap}</span>
-                                                </p>
-                                            )}
-                                        </TableCell>
-                                        <TableCell className="text-muted-foreground align-top font-mono text-xs">
-                                            {connector.baseUrl}
-                                            <div>{connector.probePath}</div>
-                                        </TableCell>
-                                        <TableCell className="align-top text-xs">
-                                            {mode?.label ?? connector.auth}
-                                        </TableCell>
-                                        <TableCell className="align-top">
-                                            {connector.secretKeys.length === 0 ? (
-                                                <span className="text-muted-foreground text-xs">None stored</span>
-                                            ) : (
-                                                <div className="flex flex-wrap gap-1">
-                                                    {/* Names, which is all the API returns. There is no
-                                                        value here to show or to send back. */}
-                                                    {connector.secretKeys.map((key) => (
-                                                        <Badge key={key} variant="secondary" className="text-[11px]">
-                                                            {key}
+                <>
+                    <div className="rounded-lg border">
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>Connector</TableHead>
+                                    <TableHead>Base URL</TableHead>
+                                    <TableHead>Auth</TableHead>
+                                    <TableHead>Credentials</TableHead>
+                                    <TableHead>Last probe</TableHead>
+                                    <TableHead className="w-28" />
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {connectors.map((connector) => {
+                                    const gap = configGap(connector);
+                                    const mode = authModeFor(connector.auth);
+    
+                                    return (
+                                        <TableRow key={connector.id}>
+                                            <TableCell className="align-top">
+                                                <div className="font-medium">
+                                                    {connector.name}
+                                                    {!connector.enabled && (
+                                                        <Badge variant="secondary" className="ml-2 text-[11px]">
+                                                            Disabled
                                                         </Badge>
-                                                    ))}
+                                                    )}
                                                 </div>
-                                            )}
-                                        </TableCell>
-                                        <TableCell className="align-top">
-                                            <ProbeCell connector={connector} />
-                                        </TableCell>
-                                        <TableCell className="align-top">
-                                            <div className="flex items-center gap-1">
-                                                <Button
-                                                    type="button"
-                                                    variant="ghost"
-                                                    size="icon-sm"
-                                                    aria-label={`Test ${connector.name}`}
-                                                    disabled={testing === connector.slug}
-                                                    onClick={() => void onTest(connector)}
-                                                >
-                                                    <IconBolt className="size-3.5" />
-                                                </Button>
-                                                <Button
-                                                    type="button"
-                                                    variant="ghost"
-                                                    size="icon-sm"
-                                                    aria-label={`Edit ${connector.name}`}
-                                                    onClick={() => openEdit(connector)}
-                                                >
-                                                    <IconPen className="size-3.5" />
-                                                </Button>
-                                                <ConfirmDialog
-                                                    title={`Delete ${connector.name}?`}
-                                                    description={`Its stored credentials go with it, in the same transaction. Any request definition or workflow naming "${connector.slug}" will stop working, and re-adding it means entering the credentials again.`}
-                                                    confirmLabel="Delete"
-                                                    destructive
-                                                    onConfirm={() => void onDelete(connector)}
-                                                    trigger={
-                                                        <Button
-                                                            type="button"
-                                                            variant="ghost"
-                                                            size="icon-sm"
-                                                            aria-label={`Delete ${connector.name}`}
-                                                            className="text-destructive hover:text-destructive"
-                                                        >
-                                                            <IconTrash className="size-3.5" />
-                                                        </Button>
-                                                    }
-                                                />
-                                            </div>
-                                        </TableCell>
-                                    </TableRow>
-                                );
-                            })}
-                        </TableBody>
-                    </Table>
-                </div>
+                                                <div className="text-muted-foreground font-mono text-xs">
+                                                    {connector.slug}
+                                                </div>
+                                                {gap && (
+                                                    <p className="text-warning mt-1 flex max-w-xs gap-1.5 text-[11px]">
+                                                        <IconWarning aria-hidden className="mt-0.5 size-3 shrink-0" />
+                                                        <span>{gap}</span>
+                                                    </p>
+                                                )}
+                                            </TableCell>
+                                            <TableCell className="text-muted-foreground align-top font-mono text-xs">
+                                                {connector.baseUrl}
+                                                <div>{connector.probePath}</div>
+                                            </TableCell>
+                                            <TableCell className="align-top text-xs">
+                                                {mode?.label ?? connector.auth}
+                                            </TableCell>
+                                            <TableCell className="align-top">
+                                                {connector.secretKeys.length === 0 ? (
+                                                    <span className="text-muted-foreground text-xs">None stored</span>
+                                                ) : (
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {/* Names, which is all the API returns. There is no
+                                                            value here to show or to send back. */}
+                                                        {connector.secretKeys.map((key) => (
+                                                            <Badge key={key} variant="secondary" className="text-[11px]">
+                                                                {key}
+                                                            </Badge>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </TableCell>
+                                            <TableCell className="align-top">
+                                                <ProbeCell connector={connector} />
+                                            </TableCell>
+                                            <TableCell className="align-top">
+                                                <div className="flex items-center gap-1">
+                                                    <Button
+                                                        type="button"
+                                                        variant="ghost"
+                                                        size="icon-sm"
+                                                        aria-label={`Test ${connector.name}`}
+                                                        disabled={testing === connector.slug}
+                                                        onClick={() => void onTest(connector)}
+                                                    >
+                                                        <IconBolt className="size-3.5" />
+                                                    </Button>
+                                                    <Button
+                                                        type="button"
+                                                        variant="ghost"
+                                                        size="icon-sm"
+                                                        aria-label={`Edit ${connector.name}`}
+                                                        onClick={() => openEdit(connector)}
+                                                    >
+                                                        <IconPen className="size-3.5" />
+                                                    </Button>
+                                                    <ConfirmDialog
+                                                        title={`Delete ${connector.name}?`}
+                                                        description={`Its stored credentials go with it, in the same transaction. Any request definition or workflow naming "${connector.slug}" will stop working, and re-adding it means entering the credentials again.`}
+                                                        confirmLabel="Delete"
+                                                        destructive
+                                                        onConfirm={() => void onDelete(connector)}
+                                                        trigger={
+                                                            <Button
+                                                                type="button"
+                                                                variant="ghost"
+                                                                size="icon-sm"
+                                                                aria-label={`Delete ${connector.name}`}
+                                                                className="text-destructive hover:text-destructive"
+                                                            >
+                                                                <IconTrash className="size-3.5" />
+                                                            </Button>
+                                                        }
+                                                    />
+                                                </div>
+                                            </TableCell>
+                                        </TableRow>
+                                    );
+                                })}
+                            </TableBody>
+                        </Table>
+                    </div>
+                    <PaginationControls page={data} onPageChange={setPage} />
+                </>
             )}
 
             {dialogOpen && (

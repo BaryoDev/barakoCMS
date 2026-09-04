@@ -159,10 +159,15 @@ describe('configGap', () => {
         expect(configGap(connector({ auth: 'BearerToken', secretKeys: ['Token'] }))).toBeNull();
     });
 
-    it('names the missing setting before the missing credential for basic auth', () => {
-        const gap = configGap(connector({ auth: 'Basic' }));
+    // A fresh Basic connector has neither a Username nor a Password. The sender returns
+    // Missing(Password) and sends nothing, so the Username message, which says the call is still
+    // sent, would be false here. The credential wins because it is the refusal.
+    it('names the missing password, not the username, when a basic connector has neither', () => {
+        const gap = configGap(connector({ auth: 'Basic', settings: {}, secretKeys: [] }));
 
-        expect(gap).toContain('Username');
+        expect(gap).toContain('Password');
+        expect(gap).toContain('refused before it is sent');
+        expect(gap).not.toContain('still sent');
     });
 
     // The Basic arm of ConnectorSender.TryAttachAuthAsync reads the username with
@@ -172,6 +177,7 @@ describe('configGap', () => {
     it('does not claim a missing basic username is refused before the call is sent', () => {
         const gap = configGap(connector({ auth: 'Basic', secretKeys: ['Password'] }));
 
+        expect(gap).toContain('Username');
         expect(gap).toContain('empty username');
         expect(gap).not.toContain('refused');
     });

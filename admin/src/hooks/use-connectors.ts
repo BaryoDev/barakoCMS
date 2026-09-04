@@ -74,6 +74,9 @@ export interface AuthSetting {
      * string.Empty` and sends `Authorization: Basic base64(":password")`, so the provider answers
      * 401 and the operator is owed a message that says so rather than one that sends them looking
      * for a refusal on this side.
+     *
+     * Written for the case where the credential is stored and only this setting is blank. `configGap`
+     * checks the credential first, so this text is never shown while the credential is missing too.
      */
     whenMissing: string;
 }
@@ -243,6 +246,11 @@ export function probeOutcome(connector: Pick<Connector, 'lastTestResult'>): Prob
  * `Username` does not, because the Basic arm defaults it to empty and sends the request anyway.
  * It is a hint, not a gate: the server decides, and an auth mode this build does not recognise is
  * left alone rather than reported as broken.
+ *
+ * The credential is checked before the settings. A missing credential is a refusal in every mode,
+ * so it is the message that stays true whatever else is blank. A fresh Basic connector has neither
+ * a Username nor a Password, and the Username message says the call is still sent, which it is
+ * not until the Password exists.
  */
 export function configGap(
     connector: Pick<Connector, 'auth' | 'settings' | 'secretKeys'>,
@@ -251,6 +259,10 @@ export function configGap(
     if (!mode) return null;
     if (mode.unsupported) return mode.unsupported;
 
+    if (mode.secretKey && !connector.secretKeys.includes(mode.secretKey)) {
+        return `No ${mode.secretKey} is stored, so a call through this connector is refused before it is sent.`;
+    }
+
     for (const setting of mode.settings) {
         const value = connector.settings[setting.key];
         if (!value || value.trim().length === 0) {
@@ -258,19 +270,29 @@ export function configGap(
         }
     }
 
-    if (mode.secretKey && !connector.secretKeys.includes(mode.secretKey)) {
-        return `No ${mode.secretKey} is stored, so a call through this connector is refused before it is sent.`;
-    }
-
     return null;
 }
 
 const QUERY_KEY = ['connectors'];
 
-export function useConnectors() {
+/** Rows per page on the connectors screen. The server caps a page at 100 and this stays under it. */
+export const CONNECTORS_PAGE_SIZE = 25;
+
+/**
+ * One page of connectors, in name order.
+ *
+ * `GET /api/connectors` is paged like every list endpoint, so the screen asks for a page and
+ * renders the controls rather than reading the first hundred and calling that the list. The page
+ * number is part of the key, and the mutations invalidate the `['connectors']` prefix, so every
+ * page refetches after a save.
+ */
+export function useConnectors(page: number) {
+    const params = { page, pageSize: CONNECTORS_PAGE_SIZE };
+
     return useQuery({
-        queryKey: QUERY_KEY,
-        queryFn: async () => (await api.get<Paginated<Connector>>('/api/connectors')).data.items,
+        queryKey: [...QUERY_KEY, params],
+        queryFn: async () =>
+            (await api.get<Paginated<Connector>>('/api/connectors', { params })).data,
     });
 }
 
