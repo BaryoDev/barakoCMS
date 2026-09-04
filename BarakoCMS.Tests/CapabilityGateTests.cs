@@ -936,9 +936,14 @@ public class CapabilityGateTests
             .Where(endpoint => endpoint.Metadata
                 .GetMetadata<barakoCMS.Infrastructure.Auth.RequiredCapability>() is { } required
                      && mine.Contains(required.Capability))
-            .Select(endpoint => (endpoint as RouteEndpoint)?.RoutePattern.RawText)
-            .Where(route => route is not null)
-            .Select(route => "/" + route!.TrimStart('/'))
+            // Keyed on verb and path together. Comparing paths alone would let a new capability
+            // gated method on an existing path pass with no row of its own, which is the same
+            // "checks less than it claims" shape this test exists to close.
+            .SelectMany(endpoint => (endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods
+                                         ?? (IReadOnlyList<string>)["GET"])
+                .Select(method => (Method: method, Route: (endpoint as RouteEndpoint)?.RoutePattern.RawText)))
+            .Where(row => row.Route is not null)
+            .Select(row => RouteKey(row.Method, row.Route!))
             .Distinct()
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
@@ -946,16 +951,20 @@ public class CapabilityGateTests
             "core endpoints declare capabilities, so reading none means this stopped looking");
 
         // Admin cannot reach erase, so it has no row in a list about what Admin still reaches.
-        withCapability.Remove("/api/contents/{id}/erase");
+        withCapability.Remove(RouteKey("DELETE", "/api/contents/{id}/erase"));
 
         // TheoryData rows are not indexable, so read the paths from the same source the theory does.
         var listed = MigratedRoutes
-            .Select(row => NormaliseRouteParameters("/" + row.Path.TrimStart('/')))
+            .Select(row => RouteKey(row.Verb, row.Path))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        withCapability.Select(NormaliseRouteParameters).Should().BeSubsetOf(listed,
+        withCapability.Should().BeSubsetOf(listed,
             "a migrated route with no row here is a gate nobody checks Admin can still pass");
     }
+
+    /// <summary>Verb plus path, with parameter names and sample values reduced to the same shape.</summary>
+    private static string RouteKey(string method, string path) =>
+        method.ToUpperInvariant() + " " + NormaliseRouteParameters("/" + path.TrimStart('/'));
 
     /// <summary>Route templates carry names; the theory rows carry values. Compare shapes.</summary>
     private static string NormaliseRouteParameters(string route) =>
