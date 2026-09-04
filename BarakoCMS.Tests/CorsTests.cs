@@ -16,7 +16,11 @@ public class CorsTests
 {
     private const string Listed = "https://console.example.com";
     private const string Unlisted = "https://evil.example.net";
-    private const string PublicRoute = "/health/live";
+    // /health/build, not /health/live: the liveness probe runs the private-memory check, which
+    // answers 503 once the full suite has grown the test process past its threshold, and this
+    // class asserts the allow header, not the health of the process. The build route is a fixed
+    // branch that always answers 200.
+    private const string PublicRoute = "/health/build";
 
     private readonly IntegrationTestFixture _factory;
 
