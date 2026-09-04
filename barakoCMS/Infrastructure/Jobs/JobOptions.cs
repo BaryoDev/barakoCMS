@@ -9,11 +9,13 @@ public sealed class JobOptions
     public const string BackoffBaseSecondsKey = "Jobs:BackoffBaseSeconds";
     public const string BackoffMaxSecondsKey = "Jobs:BackoffMaxSeconds";
     public const string StorageProbeSecondsKey = "Jobs:StorageProbeSeconds";
+    public const string LeaseSecondsKey = "Jobs:LeaseSeconds";
 
     public const int DefaultMaxAttempts = 5;
     public const int DefaultBackoffBaseSeconds = 30;
     public const int DefaultBackoffMaxSeconds = 3600;
     public const int DefaultStorageProbeSeconds = 60;
+    public const int DefaultLeaseSeconds = 600;
 
     /// <summary>How many times a handler may throw before the job is dead-lettered.</summary>
     public int MaxAttempts { get; init; } = DefaultMaxAttempts;
@@ -31,12 +33,20 @@ public sealed class JobOptions
     /// </summary>
     public int StorageProbeSeconds { get; init; } = DefaultStorageProbeSeconds;
 
+    /// <summary>
+    /// How long a claimed job stays claimed, and how long a handler may run. Another instance may
+    /// take the job once this has passed, so the handler's token is cancelled at the same moment
+    /// and the attempt counts as a failure rather than running twice.
+    /// </summary>
+    public int LeaseSeconds { get; init; } = DefaultLeaseSeconds;
+
     public static JobOptions FromConfiguration(IConfiguration configuration) => new()
     {
         MaxAttempts = configuration.GetValue(MaxAttemptsKey, DefaultMaxAttempts),
         BackoffBaseSeconds = configuration.GetValue(BackoffBaseSecondsKey, DefaultBackoffBaseSeconds),
         BackoffMaxSeconds = configuration.GetValue(BackoffMaxSecondsKey, DefaultBackoffMaxSeconds),
         StorageProbeSeconds = configuration.GetValue(StorageProbeSecondsKey, DefaultStorageProbeSeconds),
+        LeaseSeconds = configuration.GetValue(LeaseSecondsKey, DefaultLeaseSeconds),
     };
 
     public void Validate()
@@ -49,5 +59,7 @@ public sealed class JobOptions
             throw new InvalidOperationException($"{BackoffMaxSecondsKey} must be at least {BackoffBaseSecondsKey}, or the cap cuts the first wait.");
         if (StorageProbeSeconds < 1)
             throw new InvalidOperationException($"{StorageProbeSecondsKey} must be at least 1.");
+        if (LeaseSeconds < 1)
+            throw new InvalidOperationException($"{LeaseSecondsKey} must be at least 1.");
     }
 }

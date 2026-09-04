@@ -1166,6 +1166,7 @@ public static class ServiceCollectionExtensions
         app.ApplicationServices.UseJobQueues(o =>
         {
             o.StorageProbeDelay = TimeSpan.FromSeconds(jobOptions.StorageProbeSeconds);
+            o.ExecutionTimeLimit = TimeSpan.FromSeconds(jobOptions.LeaseSeconds);
         });
 
         // Health check endpoints, unauthenticated because kubelet cannot present a token. The

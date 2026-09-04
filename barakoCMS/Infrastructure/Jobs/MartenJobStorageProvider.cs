@@ -36,9 +36,6 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
     private readonly JobOptions _options;
     private readonly ILogger<MartenJobStorageProvider> _logger;
 
-    /// <summary>How long a claimed job stays claimed when the queue sets no execution time limit.</summary>
-    public static readonly TimeSpan DefaultLease = TimeSpan.FromMinutes(10);
-
     /// <summary>
     /// A retry the queue itself planned must not expire before it happens, so the expiry is pushed
     /// past the next attempt by this much when it would otherwise land first.
@@ -107,9 +104,11 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
     public async Task<ICollection<JobRecord>> GetNextBatchAsync(PendingJobSearchParams<JobRecord> p)
     {
         var ct = p.CancellationToken;
+        // The queue's execution limit is Jobs:LeaseSeconds, set in UseBarakoCMS, so the lease and
+        // the handler's cancellation expire together. The fallback covers a queue given its own limit.
         var lease = p.ExecutionTimeLimit > TimeSpan.Zero && p.ExecutionTimeLimit != Timeout.InfiniteTimeSpan
             ? p.ExecutionTimeLimit
-            : DefaultLease;
+            : TimeSpan.FromSeconds(_options.LeaseSeconds);
 
         IReadOnlyList<JobRecord> candidates;
         await using (var query = _store.QuerySession())

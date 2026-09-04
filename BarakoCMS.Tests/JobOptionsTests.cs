@@ -21,6 +21,7 @@ public class JobOptionsTests
         options.BackoffBaseSeconds.Should().Be(30);
         options.BackoffMaxSeconds.Should().Be(3600);
         options.StorageProbeSeconds.Should().Be(60);
+        options.LeaseSeconds.Should().Be(600);
         options.Invoking(o => o.Validate()).Should().NotThrow();
     }
 
@@ -31,12 +32,14 @@ public class JobOptionsTests
             (JobOptions.MaxAttemptsKey, "3"),
             (JobOptions.BackoffBaseSecondsKey, "5"),
             (JobOptions.BackoffMaxSecondsKey, "60"),
-            (JobOptions.StorageProbeSecondsKey, "2")));
+            (JobOptions.StorageProbeSecondsKey, "2"),
+            (JobOptions.LeaseSecondsKey, "45")));
 
         options.MaxAttempts.Should().Be(3);
         options.BackoffBaseSeconds.Should().Be(5);
         options.BackoffMaxSeconds.Should().Be(60);
         options.StorageProbeSeconds.Should().Be(2);
+        options.LeaseSeconds.Should().Be(45);
     }
 
     [Fact]
@@ -46,6 +49,15 @@ public class JobOptionsTests
 
         options.Invoking(o => o.Validate()).Should().Throw<InvalidOperationException>()
             .WithMessage($"*{JobOptions.MaxAttemptsKey}*");
+    }
+
+    [Fact]
+    public void A_lease_below_one_second_is_refused()
+    {
+        var options = JobOptions.FromConfiguration(Config((JobOptions.LeaseSecondsKey, "0")));
+
+        options.Invoking(o => o.Validate()).Should().Throw<InvalidOperationException>()
+            .WithMessage($"*{JobOptions.LeaseSecondsKey}*");
     }
 
     [Fact]

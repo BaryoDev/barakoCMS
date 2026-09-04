@@ -39,7 +39,8 @@ construction. A command carries what its handler needs, including the tenant.
     "MaxAttempts": 5,
     "BackoffBaseSeconds": 30,
     "BackoffMaxSeconds": 3600,
-    "StorageProbeSeconds": 60
+    "StorageProbeSeconds": 60,
+    "LeaseSeconds": 600
   }
 }
 ```
@@ -63,7 +64,7 @@ trace, and never a response body, because a body is where a credential turns up.
 | State | Meaning |
 | --- | --- |
 | `Pending` | Stored and waiting for `ExecuteAfter`, or waiting for its next attempt |
-| `Running` | Claimed by a worker. The lease is `DequeueAfter`; a crash frees the job when it passes |
+| `Running` | Claimed by a worker. The lease is `DequeueAfter`, `LeaseSeconds` long; a crash frees the job when it passes |
 | `Completed` | The handler returned. Deleted by the hourly purge |
 | `DeadLettered` | Failed `MaxAttempts` times, expired before it ran, or was cancelled. Kept |
 
@@ -77,5 +78,8 @@ carries the command's payload, because a queued email is an address and a body.
 ## Several instances
 
 Every instance runs workers. A claim is a load, a lease and a save under Marten's optimistic
-concurrency, so two instances polling the same table cannot both run one job. A job belongs to the
-tenant of the request that queued it, and a worker serves every tenant.
+concurrency, so two instances polling the same table cannot both run one job. The lease is
+`LeaseSeconds`, and it is also the handler's execution limit: a handler still running when the lease
+expires has its token cancelled and the attempt counts as a failure, so the job is retried rather
+than run by two instances at once. A handler that ignores its token can still overrun. A job belongs
+to the tenant of the request that queued it, and a worker serves every tenant.
