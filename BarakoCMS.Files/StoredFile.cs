@@ -39,6 +39,12 @@ public class StoredFile
     /// <summary>The width a derived record was resized to, in pixels. Null on an upload.</summary>
     public int? VariantWidth { get; set; }
 
+    /// <summary>What a screen reader says for the image. Null until an editor writes one.</summary>
+    public string? Alt { get; set; }
+
+    /// <summary>Text shown alongside the file. Null until an editor writes one.</summary>
+    public string? Caption { get; set; }
+
     public Guid UploadedBy { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
