@@ -65,6 +65,10 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         // Register the module's services + schema so those endpoints can activate (Postgres storage;
         // S3 stays dormant with no Files:S3 config). This also gives us a host that can test the
         // Files endpoints end to end.
+        //
+        // By hand, and with module discovery off for the process (see DiscoveryDefault), so this
+        // host registers no IBarakoModule singletons: ModulesEndpointTests uses it as a deployment
+        // running no modules, and the fakes below stand in for the real clients.
         builder.ConfigureServices((ctx, services) =>
         {
             // Let a test choose its own client IP so the auth rate limiter (5 attempts /

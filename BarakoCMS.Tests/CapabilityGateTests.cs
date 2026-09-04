@@ -42,8 +42,11 @@ public class CapabilityGateTests
         var (client, _) = await CallerHolding("Auditor", barakoCMS.Models.SystemCapabilities.ManageRoles);
 
         var response = await client.GetAsync("/api/roles", TestContext.Current.CancellationToken);
+        var vocabulary = await client.GetAsync("/api/capabilities", TestContext.Current.CancellationToken);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
+        vocabulary.StatusCode.Should().Be(HttpStatusCode.OK,
+            "whoever can read roles can read what a role can be granted");
     }
 
     /// <summary>
@@ -72,9 +75,11 @@ public class CapabilityGateTests
 
         var tenants = await client.GetAsync("/api/tenants", TestContext.Current.CancellationToken);
         var roles = await client.GetAsync("/api/roles", TestContext.Current.CancellationToken);
+        var vocabulary = await client.GetAsync("/api/capabilities", TestContext.Current.CancellationToken);
 
         tenants.StatusCode.Should().Be(HttpStatusCode.OK);
         roles.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        vocabulary.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
     /// <summary>
@@ -108,6 +113,7 @@ public class CapabilityGateTests
     /// </summary>
     [Theory]
     [InlineData("SuperAdmin", "/api/roles")]
+    [InlineData("SuperAdmin", "/api/capabilities")]
     [InlineData("SuperAdmin", "/api/tenants")]
     [InlineData("Admin", "/api/tenants/members")]
     public async Task A_seeded_role_name_still_opens_the_gate_it_used_to_open(string roleName, string path)
@@ -1219,6 +1225,7 @@ public class CapabilityGateTests
     /// </remarks>
     [Theory]
     [InlineData("SuperAdmin", "/api/roles")]
+    [InlineData("SuperAdmin", "/api/capabilities")]
     [InlineData("SuperAdmin", "/api/tenants")]
     [InlineData("Admin", "/api/tenants/members")]
     public async Task Unset_the_role_name_opens_nothing(string roleName, string path)
