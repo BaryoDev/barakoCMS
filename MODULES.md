@@ -120,10 +120,11 @@ two such modules cannot be told apart, and both are named.
 
 `BarakoCMS:Modules:SchemaPreflight` switches it. Unset means on for a `CreateOnly` store and off
 otherwise, so a development store that applies the change anyway behaves as before. `false` keeps
-today's behaviour everywhere and leaves the refusal to Marten. `true` on a `CreateOrUpdate` store
-runs the check without refusing, which is how a developer sees what production would refuse before
-deploying: `GET /api/modules` reports it as `needs-migration` with the object names.
-`ModuleSchemaPreflightTests` holds all four cases.
+today's behaviour everywhere and leaves the refusal to Marten. `true` on a `CreateOrUpdate` or
+`All` store runs the check and refuses only what that policy refuses too, so a change to an
+existing object is reported instead of refused. That is how a developer sees what production would
+refuse before deploying: `GET /api/modules` reports it as `needs-migration` with the object names.
+`ModuleSchemaPreflightTests` covers these cases.
 
 ## Contract version
 
