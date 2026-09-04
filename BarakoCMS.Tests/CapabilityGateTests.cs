@@ -471,14 +471,16 @@ public class CapabilityGateTests
 
     /// <summary>
     /// The last core route to move. <c>view_modules</c> opens the module list and nothing else, and
-    /// the Admin name alone no longer opens it.
+    /// a role name with nothing stored behind it opens nothing.
     /// </summary>
     [Fact]
     public async Task View_modules_opens_the_module_list_and_nothing_else()
     {
         var (client, _) = await CallerHolding(
             "Module Reader", barakoCMS.Models.SystemCapabilities.ViewModules);
-        var nameOnly = await CallerWithNoStoredRoles("Admin");
+        // A name the seeder never creates, so nothing is stored under it to resolve. "Admin" would
+        // reach it, because the seeded Admin role holds view_modules by default.
+        var nameOnly = await CallerWithNoStoredRoles("Modules Team");
 
         var modules = await client.GetAsync("/api/modules", TestContext.Current.CancellationToken);
         var contentTypes = await client.GetAsync("/api/content-types", TestContext.Current.CancellationToken);
