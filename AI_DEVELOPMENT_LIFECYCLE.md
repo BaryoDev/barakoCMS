@@ -13,7 +13,7 @@ the checklist in "Shipping a feature, step by step" and use the rest as referenc
 An agent produces plausible code quickly. Plausible is not correct. The lifecycle closes that gap:
 
 - **Tests gate every promotion.** Not "the model says it's fine" — the suite runs, red stops the line.
-- **Prove it locally first.** Unit + integration + e2e run on your machine before the branch is
+- **Prove it locally first.** Unit and integration tests run on your machine before the branch is
   pushed. CI is the backstop, not the first discovery.
 - **A breakable tier absorbs mistakes.** New builds land on dev-playground first, on an empty
   database, where breaking things is the point. Only then do they touch anything users see.
@@ -68,7 +68,7 @@ Production is never in the automated pipeline — real people, separate blast ra
 
 ```mermaid
 flowchart TD
-    A[Work on a branch] --> Z[Test LOCALLY first:<br/>unit + integration + edge<br/>+ Playwright e2e, written<br/>with the feature]
+    A[Work on a branch] --> Z[Test LOCALLY first:<br/>unit + integration + edge,<br/>written with the feature]
     Z -- red --> A
     Z -- green --> B[Open PR]
     B --> C{CI: backend tests · upgrade and restore checks<br/>· compose and k8s checks · security scan}
