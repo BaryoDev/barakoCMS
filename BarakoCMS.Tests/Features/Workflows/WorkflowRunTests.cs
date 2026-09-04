@@ -178,6 +178,12 @@ public class WorkflowRunTests
     /// An action that keeps failing should still stop. Resetting the count on every manual retry
     /// turns the cap into a suggestion, and the cap is what stops this instance hammering a third
     /// party until they ban the account.
+    ///
+    /// The retry endpoint clears NextAttemptAt, so the attempt is due the moment this request
+    /// commits, and the hosted runner polls every five seconds and could claim, run and record it
+    /// before a second query got there: that race is what turned this into Attempts == 4 on a slow
+    /// CI box. The response body is built from the same save the endpoint just made, before anything
+    /// else could touch it, so reading Attempts from it cannot lose that race.
     /// </remarks>
     [Fact]
     public async Task A_retry_does_not_reset_the_attempt_count()
@@ -185,14 +191,28 @@ public class WorkflowRunTests
         var runId = await SeedRunAsync(actions: 1, status: AttemptStatus.Failed, attempts: 3);
         var client = await AdminClient();
 
-        await client.PostAsync($"/api/workflow-runs/{runId}/actions/0/retry", null,
+        var res = await client.PostAsync($"/api/workflow-runs/{runId}/actions/0/retry", null,
             TestContext.Current.CancellationToken);
+        var body = await res.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+
+        res.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", res.StatusCode, body);
+
+        using var doc = JsonDocument.Parse(body);
+        doc.RootElement.GetProperty("actions")[0].GetProperty("attempts").GetInt32()
+            .Should().Be(3, "the count carries across a manual retry");
+
+        // Drive the race deterministically rather than leaving it to a real 5-second timer: force
+        // the runner to claim and finish the attempt this request just queued (no handler is
+        // registered for "Webhook", so it terminates as Failed on one pass), and confirm what
+        // actually happens to Attempts once it does. This also stops the now-due attempt from
+        // lingering into later tests.
+        await DrainRunnerAsync();
 
         var store = _factory.Services.GetRequiredService<IDocumentStore>();
         await using var session = store.QuerySession();
         var run = await session.LoadAsync<WorkflowRun>(runId, TestContext.Current.CancellationToken);
 
-        run!.Actions[0].Attempts.Should().Be(3, "the count carries across a manual retry");
+        run!.Actions[0].Attempts.Should().Be(4, "one real run afterward counts once, same as any other attempt");
     }
 
     /// <summary>
@@ -283,6 +303,27 @@ public class WorkflowRunTests
         return client;
     }
 
+    /// <summary>Runs the hosted runner's poll until it finds nothing to claim.</summary>
+    /// <remarks>
+    /// Drained rather than polled once. RunOnceAsync returns as soon as it claims anything, and the
+    /// database holds runs from other classes, so a single poll could return before it ever reached
+    /// the run under test and the assertions after it would be vacuous. Draining to "nothing left to
+    /// claim" means every candidate was examined.
+    /// </remarks>
+    private async Task DrainRunnerAsync()
+    {
+        var runner = new barakoCMS.Features.Workflows.WorkflowRunner(
+            _factory.Services,
+            _factory.Services.GetRequiredService<ILogger<barakoCMS.Features.Workflows.WorkflowRunner>>(),
+            _factory.Services.GetRequiredService<IConfiguration>());
+
+        var polls = 0;
+        while (await runner.RunOnceAsync(TestContext.Current.CancellationToken))
+        {
+            (++polls).Should().BeLessThan(200, "the runner should drain rather than find work forever");
+        }
+    }
+
     /// <summary>
     /// The parking below is load-bearing, so it gets a gate rather than a comment.
     /// </summary>
@@ -300,20 +341,7 @@ public class WorkflowRunTests
         var pending = await SeedRunAsync(actions: 1);
         var running = await SeedRunAsync(actions: 1, status: AttemptStatus.Running);
 
-        var runner = new barakoCMS.Features.Workflows.WorkflowRunner(
-            _factory.Services,
-            _factory.Services.GetRequiredService<ILogger<barakoCMS.Features.Workflows.WorkflowRunner>>(),
-            _factory.Services.GetRequiredService<IConfiguration>());
-
-        // Drained rather than polled once. RunOnceAsync returns as soon as it claims anything, and
-        // the database holds runs from other classes, so a single poll could return before it ever
-        // reached these two and the assertions below would be vacuous. Draining to "nothing left to
-        // claim" means every candidate was examined, including both of these.
-        var polls = 0;
-        while (await runner.RunOnceAsync(TestContext.Current.CancellationToken))
-        {
-            (++polls).Should().BeLessThan(200, "the runner should drain rather than find work forever");
-        }
+        await DrainRunnerAsync();
 
         var store = _factory.Services.GetRequiredService<IDocumentStore>();
         await using var check = store.QuerySession();
