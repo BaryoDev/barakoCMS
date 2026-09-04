@@ -125,6 +125,25 @@ public static class ServiceCollectionExtensions
         else
             services.AddFastEndpoints();
 
+        // The job queue. The storage provider is a singleton that reaches the request's scoped
+        // session through IHttpContextAccessor, which is what makes an enqueue commit with the
+        // request; see MartenJobStorageProvider and docs/background-jobs.md.
+        //
+        // Read from the container's IConfiguration when first resolved, which UseBarakoCMS does
+        // before the workers start, rather than from the configuration handed in here. The two are
+        // the same object in production. Under WebApplicationFactory they are not yet: settings a
+        // test host adds arrive after this method has run, and an eager read here would pin the
+        // production defaults on every test host.
+        services.AddSingleton(sp =>
+        {
+            var options = barakoCMS.Infrastructure.Jobs.JobOptions.FromConfiguration(
+                sp.GetRequiredService<IConfiguration>());
+            options.Validate();
+            return options;
+        });
+        services.AddHttpContextAccessor();
+        services.AddJobQueues<barakoCMS.Models.JobRecord, barakoCMS.Infrastructure.Jobs.MartenJobStorageProvider>();
+
         // Request body size limit (defends against large-payload memory pressure / DoS on the
         // arbitrary-JSON content endpoints). Configurable via RequestLimits:MaxBodyBytes; default 10 MB.
         var maxBodyBytes = configuration.GetValue<long?>("RequestLimits:MaxBodyBytes") ?? 10L * 1024 * 1024;
@@ -513,6 +532,20 @@ public static class ServiceCollectionExtensions
                 .MultiTenanted()
                 .DocumentAlias("connector_secrets")
                 .Index(x => x.ConnectorId);
+
+            // Conjoined: a job belongs to the tenant of the request that queued it, and the list
+            // shows one tenant's. The tenant column is mapped onto the document so a worker, which
+            // has no request, can open a session for the right partition when it updates a record.
+            // Optimistic concurrency is the claim: two nodes polling the same table both load a
+            // pending job and only one save wins.
+            options.Schema.For<JobRecord>()
+                .MultiTenanted()
+                .DocumentAlias("jobs")
+                .UseOptimisticConcurrency(true)
+                .Metadata(m => m.TenantId.MapTo(x => x.TenantId))
+                .Index(x => x.QueueID)
+                .Index(x => x.State)
+                .Index(x => x.ExecuteAfter);
 
             options.Schema.For<EmailSettings>()
                 .SingleTenanted() // one mail provider for the deployment, not one per tenant
@@ -1189,6 +1222,15 @@ public static class ServiceCollectionExtensions
                 if (globalPostProcessors.Length > 0)
                     ep.PostProcessors(Order.After, globalPostProcessors);
             };
+        });
+
+        // Starts one worker per command type. Every instance runs workers; the provider's lease
+        // is what stops two of them running the same job.
+        var jobOptions = app.ApplicationServices.GetRequiredService<barakoCMS.Infrastructure.Jobs.JobOptions>();
+        app.ApplicationServices.UseJobQueues(o =>
+        {
+            o.StorageProbeDelay = TimeSpan.FromSeconds(jobOptions.StorageProbeSeconds);
+            o.ExecutionTimeLimit = TimeSpan.FromSeconds(jobOptions.LeaseSeconds);
         });
 
         // Health check endpoints, unauthenticated because kubelet cannot present a token. The
