@@ -130,6 +130,12 @@
           "Weasel.Storage": "9.27.0"
         }
       },
+      "Microsoft.Extensions.DependencyModel": {
+        "type": "Direct",
+        "requested": "[10.0.11, )",
+        "resolved": "10.0.11",
+        "contentHash": "PJPtFYsZ+r+uz9qqXWUTEyKeJ1EiBGIJtqavkg9ZXijjGSFAk4Fgi5sqIxj+uAyLZwEKgexDUQXhWhvU6l3+og=="
+      },
       "Microsoft.Extensions.Http.Resilience": {
         "type": "Direct",
         "requested": "[10.9.0, )",
@@ -427,11 +433,6 @@
         "type": "Transitive",
         "resolved": "10.9.0",
         "contentHash": "hO/IpudHBl+EMXm1Ag8+7ersCN7VuiR6ech1+cVk8I+o7ssPRKdTozIAO4HGPt49G/lY6lo7G2kY5Q00biMHew=="
-      },
-      "Microsoft.Extensions.DependencyModel": {
-        "type": "Transitive",
-        "resolved": "10.0.0",
-        "contentHash": "RFYJR7APio/BiqdQunRq6DB+nDB6nc2qhHr77mlvZ0q0BT8PubMXN7XicmfzCbrDE/dzhBnUKBRXLTcqUiZDGg=="
       },
       "Microsoft.Extensions.Diagnostics.ExceptionSummarization": {
         "type": "Transitive",
