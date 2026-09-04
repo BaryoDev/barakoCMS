@@ -14,11 +14,20 @@ fail() { echo "sync-master: $1"; exit 1; }
 echo "== fetch =="
 git fetch origin || fail "fetch failed"
 
+# Git refuses a merge outright when the working tree is dirty, before it ever writes conflict
+# markers. Catch that up front so the failure reads as "dirty tree", not as an empty conflict list.
+if [ -n "$(git status --porcelain)" ]; then
+  fail "working tree has uncommitted changes; commit or stash before running sync-master"
+fi
+
 before=$(git rev-parse HEAD)
 
 echo "== merge origin/master =="
 if ! git merge origin/master --no-edit; then
   conflicts=$(git diff --name-only --diff-filter=U)
+  if [ -z "$conflicts" ]; then
+    fail "merge failed with no conflict markers; check for a dirty working tree or another git error above"
+  fi
   echo "sync-master: merge conflicts in:"
   printf '%s\n' "$conflicts"
   exit 1
