@@ -1,4 +1,5 @@
 using FastEndpoints;
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Models;
 using Marten;
 
@@ -18,7 +19,7 @@ internal class CreateWorkflowEndpoint : Endpoint<WorkflowDefinition, barakoCMS.F
     public override void Configure()
     {
         Post("/api/workflows");
-        Roles("SuperAdmin", "Admin");
+        Definition.RequireCapability(SystemCapabilities.ManageWorkflows, "SuperAdmin", "Admin");
     }
 
     public override async Task HandleAsync(WorkflowDefinition req, CancellationToken ct)
@@ -63,7 +64,7 @@ internal class ListWorkflowsEndpoint : Endpoint<ListRequest, PaginatedResponse<b
     public override void Configure()
     {
         Get("/api/workflows");
-        Roles("SuperAdmin", "Admin");
+        Definition.RequireCapability(SystemCapabilities.ManageWorkflows, "SuperAdmin", "Admin");
     }
 
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)

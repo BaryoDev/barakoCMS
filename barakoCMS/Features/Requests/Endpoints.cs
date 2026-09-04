@@ -1,5 +1,6 @@
 using barakoCMS.Features.Connectors;
 using barakoCMS.Infrastructure.Audit;
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Connectors;
 using barakoCMS.Models;
 using FastEndpoints;
@@ -77,7 +78,12 @@ internal sealed class DryRunResponse
 
 internal static class RequestRules
 {
-    internal static readonly string[] Roles = ["SuperAdmin", "Admin"];
+    /// <summary>
+    /// The names that gated request definitions before
+    /// <see cref="SystemCapabilities.ManageRequests"/>, kept as the legacy fallback so an upgrade
+    /// does not lock a deployment out.
+    /// </summary>
+    internal static readonly string[] LegacyRoles = ["SuperAdmin", "Admin"];
 
     /// <summary>Methods a configured integration may use.</summary>
     /// <remarks>
@@ -127,7 +133,7 @@ internal sealed class ListRequestsEndpoint : Endpoint<ListRequest, PaginatedResp
     public override void Configure()
     {
         Get("/api/requests");
-        Roles(RequestRules.Roles);
+        Definition.RequireCapability(SystemCapabilities.ManageRequests, RequestRules.LegacyRoles);
     }
 
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)
@@ -153,7 +159,7 @@ internal sealed class GetRequestEndpoint : EndpointWithoutRequest<RequestRespons
     public override void Configure()
     {
         Get("/api/requests/{slug}");
-        Roles(RequestRules.Roles);
+        Definition.RequireCapability(SystemCapabilities.ManageRequests, RequestRules.LegacyRoles);
     }
 
     public override async Task HandleAsync(CancellationToken ct)
@@ -191,7 +197,7 @@ internal sealed class SaveRequestEndpoint : Endpoint<SaveRequestRequest, Request
     public override void Configure()
     {
         Post("/api/requests");
-        Roles(RequestRules.Roles);
+        Definition.RequireCapability(SystemCapabilities.ManageRequests, RequestRules.LegacyRoles);
     }
 
     public override async Task HandleAsync(SaveRequestRequest req, CancellationToken ct)
@@ -266,7 +272,7 @@ internal sealed class DeleteRequestEndpoint : EndpointWithoutRequest
     public override void Configure()
     {
         Delete("/api/requests/{slug}");
-        Roles(RequestRules.Roles);
+        Definition.RequireCapability(SystemCapabilities.ManageRequests, RequestRules.LegacyRoles);
     }
 
     public override async Task HandleAsync(CancellationToken ct)
@@ -324,7 +330,7 @@ internal sealed class DryRunRequestEndpoint : EndpointWithoutRequest<DryRunRespo
     public override void Configure()
     {
         Post("/api/requests/{slug}/dry-run/{contentId}");
-        Roles(RequestRules.Roles);
+        Definition.RequireCapability(SystemCapabilities.ManageRequests, RequestRules.LegacyRoles);
     }
 
     public override async Task HandleAsync(CancellationToken ct)

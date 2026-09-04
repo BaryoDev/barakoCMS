@@ -1,4 +1,5 @@
 using barakoCMS.Features.Workflows;
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using FastEndpoints;
@@ -56,7 +57,10 @@ internal class Endpoint : Endpoint<Request, Response>
     public override void Configure()
     {
         Post("/api/workflows/dry-run");
-        Roles("SuperAdmin", "Admin"); // Restrict to admins - exposes internal workflow logic
+        // The authoring capability, not one of its own. This executes nothing, and withholding
+        // the simulation from whoever wrote the workflow leaves production as the only way to see
+        // what it does.
+        Definition.RequireCapability(SystemCapabilities.ManageWorkflows, "SuperAdmin", "Admin");
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)

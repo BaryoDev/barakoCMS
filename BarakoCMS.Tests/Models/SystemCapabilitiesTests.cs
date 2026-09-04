@@ -89,6 +89,28 @@ public class SystemCapabilitiesTests
             // both halves already and this migration narrows nothing.
             SystemCapabilities.ManageContentTypes,
             SystemCapabilities.ManagePublicDelivery,
+            // Monitoring: /api/monitoring/health, /k8s and /metrics were Roles("Admin", "SuperAdmin").
+            SystemCapabilities.ViewMonitoring,
+            // Redirects: the list, the create, the delete and the import were all
+            // Roles("SuperAdmin", "Admin") through RedirectGate.
+            SystemCapabilities.ManageRedirects,
+            // Queries: all five routes, preview included, were Roles("SuperAdmin", "Admin").
+            SystemCapabilities.ManageQueries,
+            // Requests: all five routes, dry run included, were Roles("SuperAdmin", "Admin").
+            SystemCapabilities.ManageRequests,
+            // Connectors: all six routes were Roles("SuperAdmin", "Admin"), so Admin holds both
+            // halves of the read/write split and nothing is narrowed by it.
+            SystemCapabilities.ViewConnectors,
+            SystemCapabilities.ManageConnectors,
+            // Workflows: authoring, the actions and variables lists, validate and dry-run were
+            // Roles("SuperAdmin", "Admin").
+            SystemCapabilities.ManageWorkflows,
+            // Workflow runs: the two reads and the debug log were Roles("SuperAdmin", "Admin"), and
+            // so was the retry, so Admin keeps both sides of that split too.
+            SystemCapabilities.ViewWorkflowRuns,
+            SystemCapabilities.RetryWorkflowActions,
+            // Rollback: POST /api/contents/{id}/rollback/{versionId} was Roles("SuperAdmin", "Admin").
+            SystemCapabilities.RollbackContent,
         });
         admin.Should().NotContain(SystemCapabilities.ManageRoles);
         admin.Should().NotContain(SystemCapabilities.ManageTenants);
@@ -98,6 +120,35 @@ public class SystemCapabilitiesTests
         admin.Should().NotContain(SystemCapabilities.ManageEmailSettings,
             "PUT /api/settings/email was SuperAdmin only, and it redirects every password reset in "
           + "the deployment, so Admin picking it up here would be the widening #443 warns against");
+        admin.Should().NotContain(SystemCapabilities.EraseContent,
+            "DELETE /api/contents/{id}/erase was Roles(\"SuperAdmin\") and it destroys content and "
+          + "its history irrecoverably, so Admin must not acquire it from the migration");
+    }
+
+    /// <summary>
+    /// #443 is finished, so every name the vocabulary declares is one Admin either holds or is
+    /// deliberately denied. This is what stops a name being added without that decision being made.
+    /// </summary>
+    [Fact]
+    public void Every_capability_is_either_an_Admin_default_or_named_here_as_withheld()
+    {
+        string[] withheldFromAdmin =
+        [
+            SystemCapabilities.All,
+            SystemCapabilities.ManageRoles,
+            SystemCapabilities.ManageTenants,
+            SystemCapabilities.ManageUsers,
+            SystemCapabilities.ManageEmailSettings,
+            SystemCapabilities.EraseContent,
+        ];
+
+        var admin = SystemCapabilities.DefaultsFor("Admin");
+
+        SystemCapabilities.Known.Should().NotBeEmpty();
+        SystemCapabilities.Known.Should().BeEquivalentTo(
+            admin.Concat(withheldFromAdmin),
+            "a capability that is neither granted to Admin nor listed as withheld is one nobody "
+          + "decided about");
     }
 
     [Fact]

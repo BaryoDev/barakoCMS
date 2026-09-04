@@ -19,9 +19,9 @@ import {
   IconSettings,
   IconShield,
   IconUsers,
-  IconWebhook,
   IconWorkflows,
   IconTable,
+  IconWebhook,
 } from '@/components/icons';
 
 /**
@@ -128,6 +128,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { title: 'Export and import', href: '/settings/portability', icon: IconArchive , roles: ['SuperAdmin', 'Admin'] },
       { title: 'Import a spreadsheet', href: '/settings/import', icon: IconTable , roles: ['SuperAdmin', 'Admin'] },
       { title: 'Connectors', href: '/settings/connectors', icon: IconWebhook , roles: ['SuperAdmin', 'Admin'] },
+      { title: 'Outbound requests', href: '/settings/requests', icon: IconWebhook , roles: ['SuperAdmin', 'Admin'] },
       { title: 'Settings', href: '/settings', icon: IconSettings , roles: ['SuperAdmin', 'Admin'] },
     ],
   },
@@ -153,6 +154,7 @@ const SEGMENT_TITLES: Record<string, string> = {
   devices: 'Devices',
   portability: 'Export and import',
   connectors: 'Connectors',
+  requests: 'Outbound requests',
   settings: 'Settings',
   new: 'New',
 };
