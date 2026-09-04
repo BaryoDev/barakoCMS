@@ -366,3 +366,28 @@ describe('the delete-a-stored-credential checkbox', () => {
         expect(vi.mocked(api.put).mock.calls[0][1]).toMatchObject({ secrets: { Password: 'hunter2' } });
     });
 });
+
+describe('the test button', () => {
+    it('stays disabled while its own probe runs, whatever another connector's probe does', async () => {
+        const a = connector({ slug: 'a', name: 'Alpha' });
+        const b = connector({ slug: 'b', name: 'Beta' });
+        let settleA: (value: { data: unknown }) => void = () => undefined;
+        vi.mocked(api.post).mockImplementation((url: string) =>
+            url.includes('/a/')
+                ? new Promise((resolve) => { settleA = resolve; })
+                : new Promise(() => undefined),
+        );
+        renderPage([a, b]);
+        await screen.findByText('Alpha');
+
+        fireEvent.click(screen.getByRole('button', { name: 'Test Alpha' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Test Beta' }));
+        await waitFor(() => expect(api.post).toHaveBeenCalledTimes(2));
+        expect(screen.getByRole('button', { name: 'Test Beta' })).toBeDisabled();
+
+        settleA({ data: { succeeded: true, statusCode: 200, elapsedMs: 5 } });
+
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Test Alpha' })).toBeEnabled());
+        expect(screen.getByRole('button', { name: 'Test Beta' })).toBeDisabled();
+    });
+});

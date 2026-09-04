@@ -385,7 +385,9 @@ export default function ConnectorsPage() {
 
     const [dialogOpen, setDialogOpen] = useState(false);
     const [editing, setEditing] = useState<Connector | null>(null);
-    const [testing, setTesting] = useState<string | null>(null);
+    // One entry per probe in flight, keyed by slug. A single slug would let the first probe to
+    // settle re-enable a button whose probe is still running.
+    const [testing, setTesting] = useState<ReadonlySet<string>>(() => new Set());
 
     function openCreate() {
         setEditing(null);
@@ -398,7 +400,7 @@ export default function ConnectorsPage() {
     }
 
     async function onTest(connector: Connector) {
-        setTesting(connector.slug);
+        setTesting((pending) => new Set(pending).add(connector.slug));
         try {
             const result = await test.mutateAsync(connector.slug);
             if (result.succeeded) {
@@ -411,7 +413,11 @@ export default function ConnectorsPage() {
         } catch (error) {
             toast.error(apiErrorMessage(error, 'The test could not be run.'));
         } finally {
-            setTesting(null);
+            setTesting((pending) => {
+                const next = new Set(pending);
+                next.delete(connector.slug);
+                return next;
+            });
         }
     }
 
@@ -538,7 +544,7 @@ export default function ConnectorsPage() {
                                                         variant="ghost"
                                                         size="icon-sm"
                                                         aria-label={`Test ${connector.name}`}
-                                                        disabled={testing === connector.slug}
+                                                        disabled={testing.has(connector.slug)}
                                                         onClick={() => void onTest(connector)}
                                                     >
                                                         <IconBolt className="size-3.5" />
