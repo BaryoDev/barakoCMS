@@ -49,16 +49,13 @@ services:
       # holds, which is not something a real instance should start with.
       Seed__DemoContent: ${SEED_DEMO_CONTENT:-false}
 
-<<<<<<< HEAD
+      # The API explorer, which is this image's own surface. Off by default because
+      # ASPNETCORE_ENVIRONMENT defaults to Production above; set SWAGGER_ENABLED=true to turn it on.
+      Swagger__Enabled: ${SWAGGER_ENABLED:-false}
       # Which modules run. Left out, every module in the image runs. Uncomment and list names to
       # run only those, or set it to "" for core only. Not mapped from .env on purpose: an unset
       # .env value would arrive as "" and switch every module off.
       # BarakoCMS__Modules__Enabled: Accounting,Files
-=======
-      # The API explorer, which is this image's own surface. Off by default because
-      # ASPNETCORE_ENVIRONMENT defaults to Production above; set SWAGGER_ENABLED=true to turn it on.
-      Swagger__Enabled: ${SWAGGER_ENABLED:-false}
->>>>>>> origin/master
 
       # The public URL of this deployment. Every absolute link the API hands to something else (an
       # RSS item, an OAuth redirect_uri) is built from this. Left unset those links have no origin,
