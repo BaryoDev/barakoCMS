@@ -391,6 +391,8 @@ a clean machine to handover, and what is not solved yet),
 [the public delivery API](docs/delivery-api.md) (pagination, the `filter[field][op]`
 syntax, sorting, resolving references), [upgrading to 4.0](docs/upgrading-to-4.0.md),
 [event-sourced content types](docs/event-sourced-content-types.md),
+[approval by configuration](docs/approval-by-configuration.md) (an invoice through Submit and
+Approve, one curl per step),
 [backup and restore](docs/backup-and-restore.md),
 [compliance posture](docs/compliance-posture.md), and
 [reporting which modules an instance runs](docs/module-inventory.md).
