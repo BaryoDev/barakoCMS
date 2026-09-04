@@ -109,6 +109,11 @@ export function useSaveQuery() {
         onSuccess: (saved) => {
             queryClient.invalidateQueries({ queryKey: ['queries'] });
             queryClient.setQueryData(['queries', saved.slug], saved);
+            // The rows in the cache came from the definition that was there before this save, and
+            // the panel showing them says they are what the query returns right now. Without this
+            // the screen answers that with the pre-edit rows and makes no request to find out,
+            // because a preview is held with staleTime Infinity.
+            queryClient.invalidateQueries({ queryKey: ['query-preview', saved.slug] });
         },
     });
 }
@@ -120,7 +125,14 @@ export function useDeleteQuery() {
         mutationFn: async (slug: string) => {
             await api.delete(`/api/queries/${encodeURIComponent(slug)}`);
         },
-        onSuccess: () => queryClient.invalidateQueries({ queryKey: ['queries'] }),
+        onSuccess: (_result, slug) => {
+            // Prefix matching, so this covers the deleted query's own detail entry too.
+            queryClient.invalidateQueries({ queryKey: ['queries'] });
+            // Removed rather than invalidated: the query is gone, so these rows belong to nothing.
+            // A slug is free to be taken again, and the new query would otherwise open on the old
+            // one's rows.
+            queryClient.removeQueries({ queryKey: ['query-preview', slug] });
+        },
     });
 }
 
