@@ -112,6 +112,7 @@ public class OpenApiTagTests
             "ApiKeys",
             "Audit",
             "Auth",
+            "Capabilities",
             "Connectors",
             "Content",
             "ContentType",

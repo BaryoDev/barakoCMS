@@ -112,9 +112,10 @@ public class ModuleCapabilityTests
     /// asks for must be one that module declares, so a typo cannot ship as a route nobody can reach.
     /// </summary>
     /// <remarks>
-    /// Nothing validates a capability name on the way into a role, which is what lets a module
-    /// declare its own without core knowing. The same absence means a misspelled name in a gate is
-    /// accepted silently and grants nobody anything, and only the legacy fallback would hide it.
+    /// A role write checks a name against the routing table rather than against a list core keeps
+    /// (#490), which is what lets a module declare its own without core knowing. The same source
+    /// means a misspelled name in a gate is listed as grantable and grants nobody anything, and only
+    /// the legacy fallback would hide it.
     /// </remarks>
     [Fact]
     public void Every_capability_a_module_endpoint_requires_is_one_its_module_declares()
