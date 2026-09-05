@@ -217,4 +217,81 @@ public class FilesEndpointTests
         await s.SaveChangesAsync();
         return _factory.CreateToken(new[] { "User" }, userId.ToString());
     }
+
+    /// <summary>
+    /// A signed-in account holding only <c>upload_files</c>: no Admin or SuperAdmin role, and not the
+    /// uploader of the file it is about to be asked to reach.
+    /// </summary>
+    private async Task<string> MediaEditorTokenAsync()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var role = new Role
+        {
+            Id = Guid.NewGuid(),
+            Name = $"Media Editor {Guid.NewGuid():N}",
+            SystemCapabilities = new() { BarakoCMS.Files.FileCapabilities.UploadFiles },
+        };
+        s.Store(role);
+        var userId = Guid.NewGuid();
+        s.Store(new User { Id = userId, Username = $"editor-{userId}", Email = $"editor-{userId}@example.com", RoleIds = new() { role.Id } });
+        await s.SaveChangesAsync();
+        return _factory.CreateToken(new[] { role.Name }, userId.ToString());
+    }
+
+    /// <summary>
+    /// The two gates disagreed (#547): a media editor holding only <c>upload_files</c> could delete
+    /// any file in the tenant, including one it could not download. Download already refused a
+    /// stranger with 404 (<see cref="PrivateFile_IsNotReadableByAnotherUser"/>); this is delete
+    /// brought into line, refusing with 403 since the same editor already knows the file exists
+    /// (it can list and describe it), so there is nothing to hide by matching download's 404.
+    /// </summary>
+    [Fact]
+    public async Task MediaEditor_IsRefusedBothDownloadAndDeleteOfAnotherAccountsFile()
+    {
+        var owner = await AdminTokenAsync();
+        var id = await UploadAsync(owner, isPublic: false, new byte[] { 3, 1, 4 });
+        var stranger = await MediaEditorTokenAsync();
+
+        using var downloadReq = new HttpRequestMessage(HttpMethod.Get, $"/api/files/{id}");
+        downloadReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", stranger);
+        var download = await _client.SendAsync(downloadReq);
+
+        using var deleteReq = new HttpRequestMessage(HttpMethod.Delete, $"/api/files/{id}");
+        deleteReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", stranger);
+        var delete = await _client.SendAsync(deleteReq);
+
+        download.StatusCode.Should().Be(HttpStatusCode.NotFound,
+            "upload_files does not make a stranger the uploader, and download must not say the id exists");
+        delete.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "upload_files does not make a stranger the uploader, and delete must refuse exactly as download did");
+
+        using var stillThereReq = new HttpRequestMessage(HttpMethod.Get, $"/api/files/{id}/meta");
+        stillThereReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", owner);
+        var stillThere = await _client.SendAsync(stillThereReq);
+        stillThere.StatusCode.Should().Be(HttpStatusCode.OK, "the refused delete must not have removed the file");
+    }
+
+    /// <summary>
+    /// The positive control for the pair above: without it, refusing every download and delete would
+    /// pass that test too. The same account, on its own upload, gets both.
+    /// </summary>
+    [Fact]
+    public async Task MediaEditor_CanDownloadAndDeleteItsOwnUpload()
+    {
+        var editor = await MediaEditorTokenAsync();
+        var bytes = new byte[] { 2, 4, 6 };
+        var id = await UploadAsync(editor, isPublic: false, bytes);
+
+        using var downloadReq = new HttpRequestMessage(HttpMethod.Get, $"/api/files/{id}");
+        downloadReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", editor);
+        var download = await _client.SendAsync(downloadReq);
+        download.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await download.Content.ReadAsByteArrayAsync()).Should().Equal(bytes);
+
+        using var deleteReq = new HttpRequestMessage(HttpMethod.Delete, $"/api/files/{id}");
+        deleteReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", editor);
+        var delete = await _client.SendAsync(deleteReq);
+        delete.StatusCode.Should().Be(HttpStatusCode.NoContent);
+    }
 }

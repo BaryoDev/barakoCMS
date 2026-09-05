@@ -56,7 +56,7 @@ public class Endpoint : Endpoint<Request>
         // sufficient here: PublicDownload is the route for public files, it sets its own caching and
         // headers, and honouring the flag on this route too would mean two paths to the same bytes
         // with different rules.
-        if (!CanRead(file))
+        if (!FileOwnership.CanAccess(User, file))
         {
             // 404, not 403, matching PublicDownload: a 403 confirms the id exists, which turns a
             // leaked id into a probe for what else is there.
@@ -87,18 +87,5 @@ public class Endpoint : Endpoint<Request>
         if (bytes is null) { await Send.NotFoundAsync(ct); return; }
 
         await Send.BytesAsync(bytes, served.FileName, served.ContentType, cancellation: ct);
-    }
-
-    /// <summary>The uploader, or an account administering the tenant.</summary>
-    private bool CanRead(StoredFile file)
-    {
-        if (User.IsInRole("SuperAdmin") || User.IsInRole("Admin"))
-        {
-            return true;
-        }
-
-        return Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId)
-            && userId != Guid.Empty
-            && file.UploadedBy == userId;
     }
 }
