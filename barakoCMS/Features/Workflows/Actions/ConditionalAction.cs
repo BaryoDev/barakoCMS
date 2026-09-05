@@ -137,9 +137,11 @@ internal class ConditionalAction : IWorkflowAction
                 continue;
             }
 
-            // Logged here, not carried into the aggregated result below: a child's error can itself
-            // hold what it was trying to send, and that must not land on the run record.
-            _logger.LogWarning("Child action {Type} failed: {Error}", childAction.Type, childResult.Error);
+            // The child's error is dropped, not relocated: it can hold what the child was trying to
+            // send, and neither the run record nor the log is a safe home for text a child action
+            // composed. A log aggregator is a different place, not a safer one, same reasoning
+            // WebhookAction applies to an HttpRequestException's message.
+            _logger.LogWarning("Child action {Type} failed", childAction.Type);
             failedTypes.Add(childAction.Type);
             if (!childResult.Retryable)
             {
