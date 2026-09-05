@@ -425,12 +425,15 @@ Three limits to plan around before you promise the client an image workflow:
 - **10 MB per file**, and only `image/png`, `image/jpeg`, `image/gif`, `image/webp`, `image/avif` and
   `application/pdf`. SVG is deliberately not on the list, because a public SVG opened directly would
   run script on the API's origin. Vector art has to be an external URL.
-- **Uploading is `Roles("SuperAdmin", "Admin")`**, not a capability and not a content permission. A
-  client editor holding the custom role from step 5 cannot upload anything. Today that means either
-  you upload their images, or they hold a role that reaches further than you wanted. There is no good
-  answer to this yet.
-- **There is no admin screen for files at all.** No browsing, no picking, no image variants. See
-  section 10.
+- **Uploading is the `upload_files` capability**, not a content permission. Grant it to the custom
+  role from step 5 and the client's editor can upload, describe and remove files; without it they
+  cannot upload anything.
+- **The API has a media library; the console does not yet.** `GET /api/files?q=&contentType=image/`
+  lists and searches uploads, `PATCH /api/files/{id}` sets alt text and a caption, and
+  `GET /api/public/files/{id}/meta` hands them to the frontend for a public file. Before deleting,
+  `GET /api/files/{id}/usage` lists the entries that reference the file, and `DELETE /api/files/{id}`
+  refuses with a 409 naming them until you pass `?force=true`. The grid and picker are barakoBrew's
+  half of #113. Image variants are `?w=` on either download route; see `image-variants.md`.
 
 If you use the S3 module instead of Postgres storage, the bytes are outside the database dump and
 that bucket needs its own backup.

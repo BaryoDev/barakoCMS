@@ -510,7 +510,7 @@ it on the routing table, which is where `GET /api/capabilities` and the role wri
 | Diagnostics | `manage_client_errors` | `GET /api/client-errors`, `POST /api/client-errors/{id}/resolve` |
 | Email (Resend) | `view_email_events` | `GET /api/email-events` |
 | Feature flags | `manage_feature_flags` | everything under `/api/feature-flags/admin` |
-| Files | `upload_files` | `POST /api/files` |
+| Files | `upload_files` | `POST /api/files`, `GET /api/files`, `GET /api/files/{id}/meta`, `PATCH /api/files/{id}`, `GET /api/files/{id}/usage`, `DELETE /api/files/{id}` |
 | Forms | `manage_forms` | the definition CRUD under `/api/forms` |
 | Forms | `view_form_submissions` | `GET /api/forms/{name}/submissions`, `/submissions/{id}`, `/submissions.csv` |
 | Portability | `export_content` | `GET /api/portability/export` |
