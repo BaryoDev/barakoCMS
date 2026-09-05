@@ -75,6 +75,10 @@
     <PackageVersion Include="FastEndpoints.Testing" Version="8.3.0" />
     <PackageVersion Include="FluentAssertions" Version="8.10.0" />
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.11" />
+    <!-- BarakoCMS.Testing hosts a real barakoCMS over TestServer without a Program.cs to point
+         WebApplicationFactory at, so it takes the TestHost package directly. Same version line as
+         Mvc.Testing, which depends on it. -->
+    <PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="10.0.11" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageVersion Include="Moq" Version="4.20.72" />
     <PackageVersion Include="NSubstitute" Version="5.3.0" />
@@ -84,6 +88,11 @@
     <PackageVersion Include="Testcontainers.Minio" Version="4.14.0" />
     <PackageVersion Include="Testcontainers.PostgreSql" Version="4.14.0" />
     <PackageVersion Include="xunit.v3" Version="4.0.0" />
+    <!-- The core assembly on its own, for BarakoCMS.Testing. It implements IAsyncLifetime so a
+         module's tests can use it as a class fixture, and this package carries that type without
+         the MSBuild targets that would turn a library into a test project. Same version as
+         xunit.v3, which depends on it. -->
+    <PackageVersion Include="xunit.v3.extensibility.core" Version="4.0.0" />
     <PackageVersion Include="Microsoft.Testing.Extensions.TrxReport" Version="2.3.3" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="4.0.0" />
   </ItemGroup>

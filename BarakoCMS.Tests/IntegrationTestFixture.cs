@@ -23,10 +23,17 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         .WithPassword("postgres")
         .Build();
 
+    /// <summary>
+    /// The key this host signs and validates with. FastEndpoints validates through one process-wide
+    /// key, overwritten by whichever host starts last, so any other host started in this test
+    /// process (a <c>BarakoTestHost</c>, say) has to use the same one.
+    /// </summary>
+    public const string JwtKey = "test-super-secret-key-that-is-at-least-32-chars-long";
+
     public IntegrationTestFixture()
     {
         Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", "Development");
-        Environment.SetEnvironmentVariable("JWT__Key", "test-super-secret-key-that-is-at-least-32-chars-long");
+        Environment.SetEnvironmentVariable("JWT__Key", JwtKey);
     }
 
     /// <summary>The API key this host is configured with, standing in for a deployment's own.</summary>
@@ -41,7 +48,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 { "ConnectionStrings:DefaultConnection", ConnectionString },
-                { "JWT:Key", "test-super-secret-key-that-is-at-least-32-chars-long" },
+                { "JWT:Key", JwtKey },
                 { "JWT:Issuer", "BarakoTest" },
                 { "JWT:Audience", "BarakoClient" },
                 // The OpenAPI document is a shipped artifact (tags group a generated client, and the

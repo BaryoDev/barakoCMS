@@ -64,6 +64,9 @@
     <!-- Forms takes anonymous input, and every protection on that endpoint (honeypot, body cap,
          rate limit, no public read path) is a claim only an HTTP test can make. -->
     <ProjectReference Include="..\BarakoCMS.Forms\BarakoCMS.Forms.csproj" />
+    <!-- The packable test host a third-party module tests on. Its own tests run it against
+         Portability, so the harness is proved on a real module before anyone outside installs it. -->
+    <ProjectReference Include="..\BarakoCMS.Testing\BarakoCMS.Testing.csproj" />
   </ItemGroup>
 
 </Project>
