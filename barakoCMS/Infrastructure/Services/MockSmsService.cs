@@ -13,7 +13,9 @@ public class MockSmsService : ISmsService
 
     public Task SendSmsAsync(string to, string message, CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("Sending SMS to {To}: [REDACTED]", to);
+        // No recipient here, redacted or otherwise: a phone number is personal data, and the only
+        // signal an operator needs is that a send was attempted with no provider configured.
+        _logger.LogInformation("MockSmsService: no SMS provider configured, so the message was not sent.");
         return Task.CompletedTask;
     }
 }
