@@ -85,6 +85,52 @@ CORS in the browser and looks like the API is down.
 `FRONTEND_ORIGINS` becomes `CORS__AllowedOrigins` on the `app` service, and
 `BarakoCMS.Tests/CorsTests.cs` pins what a listed and an unlisted origin get back from a preflight.
 
+## Putting a shared cache or CDN in front of it
+
+The delivery API (`docs/delivery-api.md`) marks its responses `Cache-Control: public, max-age=60`,
+which is an invitation to put a CDN in front of it. Whether that is safe depends on how tenants are
+routed (`docs/multi-tenancy.md`), because the response is cacheable per tenant, not globally.
+
+This section is about that cacheable majority. `GET /api/public/events`, the change stream, is not
+part of it: it sends `no-store` and must never be cached, for reasons that have nothing to do with
+tenancy. See the "Change events" section of `docs/delivery-api.md` for what a proxy in front of it
+has to do instead.
+
+**Safe on nearly every CDN's default behaviour, and still worth confirming rather than assuming:**
+
+- a single-tenant deployment, where `X-Tenant` is never sent and every request resolves to the same
+  tenant, so there is no second tenant a cache entry could be confused with, and
+- a multi-tenant deployment with one hostname per tenant (a subdomain or a custom domain). Keying the
+  cache on the full URL, Host included, is near-universal default behaviour, not a law: it is still a
+  property of that CDN's own configuration. Confirm it is not running a rule that treats every host on
+  the origin as one cache key (most often a wildcard-TLS or single-origin setting, not one aimed at
+  caching, but it has the same effect here), which would undo the guarantee this relies on.
+
+**Not safe without configuring the CDN, and `Vary: X-Tenant` alone does not make it safe:**
+
+- a deployment routed by the `X-Tenant` header, where more than one tenant is reachable through the
+  same hostname and path, and
+- path-based routing where the front end resolves the tenant from the URL handle and forwards it as
+  `X-Tenant`, if the path the CDN sees no longer carries that handle (the tenant-distinguishing part
+  of the request is only in the header by the time a shared cache looks at it).
+
+On both of those, this API sends `Vary: X-Tenant` so a conforming cache knows the response depends on
+it, but `Vary` is a request to the cache, not a guarantee. A CDN that does not honour it, or honours
+`Vary` only for a fixed set of headers that does not include `X-Tenant`, or strips the header before
+the cache lookup runs, still serves one tenant's response to another. Before putting a shared cache
+in front of a header- or path-routed deployment, confirm and configure, for the specific CDN:
+
+- it keys its cache on the `X-Tenant` request header, not on the URL alone (this is usually a
+  separate "cache key" setting from "respect origin `Vary`", and the header often has to be named
+  explicitly),
+- it does not strip, rename or coalesce `X-Tenant` before the cache lookup, and
+- `X-Tenant` reaches the origin unchanged on a cache miss, so the value the cache keyed on is the one
+  this API actually resolved against.
+
+If the CDN cannot be made to do all three, do not put it in front of that deployment. `max-age=60` is
+short enough that skipping the shared cache and letting every request reach the origin is the safer
+default.
+
 ## Modules
 
 Every module ships in the `barako-cms` image and stays off or mocked until you configure it. To turn

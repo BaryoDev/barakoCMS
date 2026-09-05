@@ -1,5 +1,6 @@
 using FastEndpoints;
 using Marten;
+using barakoCMS.Core.Interfaces;
 using barakoCMS.Models;
 
 namespace barakoCMS.Features.Content.Get;
@@ -8,11 +9,16 @@ internal class Endpoint : Endpoint<Request, Response>
 {
     private readonly IQuerySession _session;
     private readonly barakoCMS.Infrastructure.Services.IPermissionResolver _permissionResolver;
+    private readonly IContentSourcingPolicy _sourcing;
 
-    public Endpoint(IQuerySession session, barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver)
+    public Endpoint(
+        IQuerySession session,
+        barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver,
+        IContentSourcingPolicy sourcing)
     {
         _session = session;
         _permissionResolver = permissionResolver;
+        _sourcing = sourcing;
     }
 
     public override void Configure()
@@ -64,6 +70,22 @@ internal class Endpoint : Endpoint<Request, Response>
         }
 
         var streamState = await _session.Events.FetchStreamStateAsync(req.Id, ct);
+
+        // #565 / D16: the document's own Marten version, exposed as a standard ETag so a client can
+        // do read-modify-write safely. Gated on the same eventSourced check Update/Endpoint.cs uses
+        // for If-Match, and for the same reason: an event-sourced type's PUT does not consult
+        // If-Match at all (it already has its own expected-version check on the stream, D3), so an
+        // ETag here would promise a precondition nothing on the write side honours. A client that
+        // did a correct read-modify-write against one would believe it was protected when nothing
+        // was checking. One header, one meaning: emit it only where PUT will act on it.
+        if (!await _sourcing.IsEventSourcedAsync(content.ContentType, ct))
+        {
+            var metadata = await _session.MetadataForAsync(content, ct);
+            if (metadata is not null)
+            {
+                HttpContext.Response.Headers.ETag = ContentETag.Format(metadata.CurrentVersion);
+            }
+        }
 
         Response = new Response
         {

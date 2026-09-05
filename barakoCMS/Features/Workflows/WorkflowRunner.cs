@@ -301,7 +301,18 @@ internal sealed class WorkflowRunner : BackgroundService
             return new Outcome(AttemptStatus.Failed, $"No handler is registered for action type '{attempt.ActionType}'.", 0, Retryable: false);
         }
 
-        await using var session = store.LightweightSession(tenantId);
+        // Resolved from the scope, not a separately opened store.LightweightSession(tenantId), and
+        // not disposed here: an IWorkflowAction is constructed from this same scope (the handler
+        // lookup above already built one, for every registered action type) and receives this exact
+        // instance through DI, since Marten registers IDocumentSession scoped and a scope caches the
+        // first resolution. Content now carries real optimistic concurrency (#565 / D16), and a
+        // handler that stores the triggering content back (UpdateFieldAction, when no TargetId is
+        // given) does it through that DI session; loading content through a second, separate session
+        // here meant the handler's Store() had no version Marten could vouch for and was refused
+        // outright, which read from the outside as "the workflow never fired". One session for the
+        // whole attempt is what keeps the load-then-store pattern every other write in this codebase
+        // relies on.
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
         var content = await session.LoadAsync<barakoCMS.Models.Content>(run.ContentId, ct);
 
         if (content is null)

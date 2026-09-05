@@ -346,6 +346,10 @@ public static class ServiceCollectionExtensions
             options.CompactionPercentage = 0.25; // Remove 25% when limit hit
         });
 
+        // Output Cache, so an endpoint's Options(x => x.CacheOutput(...)) is more than metadata.
+        // See #545: this was missing, so every endpoint's CacheOutput policy was silently ignored.
+        services.AddOutputCache();
+
         connectionString = ResolveConnectionString(configuration);
         services.AddMarten((IServiceProvider sp) =>
         {
@@ -412,6 +416,13 @@ public static class ServiceCollectionExtensions
             // Configure document versioning and indexes
             options.Schema.For<Content>()
                 .DocumentAlias("contents")
+                // #565 / D16: the document a client reads and writes through GET/PUT gets the same
+                // protection WorkflowRun, JobRecord and the rest already have below. Event-sourced
+                // types keep their own expected-version check on the stream (D3); this is the
+                // document itself, which every content type is stored as regardless of sourcing mode.
+                // The Update endpoint reads the version via MetadataForAsync and binds it back with
+                // UpdateExpectedVersion, so GET's ETag and PUT's If-Match round-trip through it.
+                .UseOptimisticConcurrency(true)
                 .Index(x => x.ContentType)  // Frequently filtered
                 .Index(x => x.CreatedAt)    // Frequently sorted
                 .Index(x => x.UpdatedAt)
@@ -1194,6 +1205,25 @@ public static class ServiceCollectionExtensions
         app.UseMiddleware<barakoCMS.Infrastructure.Multitenancy.TenantAccessMiddleware>();
 
         app.UseAuthorization();
+
+        // Output Cache, after CORS/Authentication/Authorization and before the endpoints that read
+        // CacheOutput policies, matching Microsoft's documented order. Placed after
+        // TenantResolutionMiddleware (above) so a cache key can vary by tenant; placed after
+        // UseAuthorization so an endpoint that also requires auth is not served to a caller who
+        // never passed it.
+        //
+        // The health probes branch around it entirely rather than relying on nobody ever calling
+        // .CacheOutput() on them. Today's default policy only caches an endpoint that opts in, so
+        // /health/ready is not cached either way, but that is one future AddOutputCache base policy
+        // away from changing: the health middleware here is registered the classic way (UseHealthChecks
+        // on IApplicationBuilder), not as a routed Endpoint, so it has no metadata of its own to carry
+        // a NoCache() override. A kubelet reading a stale ready response either kills a healthy pod or
+        // keeps sending traffic to a broken one, so this is excluded by path rather than trusted to
+        // stay unconfigured.
+        app.UseWhen(
+            context => !barakoCMS.Infrastructure.Health.HealthProbePaths.IsHealthPath(context.Request.Path.Value),
+            branch => branch.UseOutputCache());
+
         // Global pre/post processors come from DI, so modules can contribute their own (e.g. the
         // DeviceTrust enforcement pre-processor) simply by registering IGlobalPreProcessor/PostProcessor.
         var globalPreProcessors = app.ApplicationServices.GetServices<FastEndpoints.IGlobalPreProcessor>().ToArray();
