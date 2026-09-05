@@ -67,6 +67,21 @@ internal class UpdateFieldAction : IWorkflowAction
 
     /// <inheritdoc />
     public async Task ExecuteAsync(Dictionary<string, string> parameters, barakoCMS.Models.Content content, CancellationToken ct)
+        => await RunAsync(parameters, content, ct);
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Every early exit below used to be a bare <c>return</c> inside a catch-and-log-everything
+    /// try block, so a missing Field, a target that does not exist, or a write that genuinely
+    /// failed were all indistinguishable from success to whatever called this: the run recorded
+    /// Succeeded and the field was never touched. That is the same class of gap #569 and #572
+    /// fixed for SmsAction, EmailAction and RequestAction. A webhook answering 500, a missing
+    /// parameter, a write that throws: these are outcomes this method can name, so they are
+    /// <see cref="WorkflowActionResult"/> values now, and WorkflowRunner already knows what to do
+    /// with a thrown exception it does not catch here (see its own remarks on
+    /// <see cref="WorkflowActionResult"/>: an action that throws is still recorded as a failure).
+    /// </remarks>
+    public async Task<WorkflowActionResult> RunAsync(Dictionary<string, string> parameters, barakoCMS.Models.Content content, CancellationToken ct)
     {
         var targetIdStr = parameters.GetValueOrDefault("TargetId");
         var field = parameters.GetValueOrDefault("Field");
@@ -75,39 +90,38 @@ internal class UpdateFieldAction : IWorkflowAction
         if (string.IsNullOrEmpty(field))
         {
             _logger.LogWarning("UpdateField action missing required 'Field' parameter");
-            return;
+            // Permanent: no amount of retrying supplies a Field the workflow definition never set.
+            return WorkflowActionResult.PermanentFailure("No Field parameter was configured for this UpdateField action.");
         }
+
+        var targetId = !string.IsNullOrEmpty(targetIdStr) && Guid.TryParse(targetIdStr, out var parsedTargetId)
+            ? parsedTargetId
+            : content.Id;
+
+        barakoCMS.Models.Content? targetContent;
+        barakoCMS.Models.WorkflowFieldApplyMarker? marker = null;
+        string? idempotencyKey = null;
+        var attemptNumber = 0;
 
         try
         {
-            var targetId = !string.IsNullOrEmpty(targetIdStr) && Guid.TryParse(targetIdStr, out var parsedTargetId)
-                ? parsedTargetId
-                : content.Id;
-
             // Reloaded rather than trusting the caller's copy, even when the target is the
             // triggering content the runner already loaded. The runner loads it once, right after
             // claiming the lease; if this node then runs past that lease, another node can claim,
             // run and commit before this call gets far enough to check anything, and only a load
             // taken now can see that commit.
-            var targetContent = await _session.LoadAsync<barakoCMS.Models.Content>(targetId, ct);
-            if (targetContent == null)
-            {
-                _logger.LogWarning("Target content {TargetId} not found", targetId);
-                return;
-            }
+            targetContent = await _session.LoadAsync<barakoCMS.Models.Content>(targetId, ct);
 
-            // The runner injects these onto every parameter set (see WorkflowRunner.ExecuteAsync);
-            // an action invoked some other way, a legacy engine or a test, leaves them out, and the
-            // guard below is simply skipped for it, exactly as it always ran before this existed.
-            string? idempotencyKey = null;
-            var attemptNumber = 0;
-            barakoCMS.Models.WorkflowFieldApplyMarker? marker = null;
-
-            if (parameters.TryGetValue("IdempotencyKey", out var rawKey)
+            if (targetContent is not null
+                && parameters.TryGetValue("IdempotencyKey", out var rawKey)
                 && !string.IsNullOrWhiteSpace(rawKey)
                 && parameters.TryGetValue("Attempt", out var rawAttempt)
                 && int.TryParse(rawAttempt, NumberStyles.Integer, CultureInfo.InvariantCulture, out attemptNumber))
             {
+                // The runner injects these onto every parameter set (see WorkflowRunner.ExecuteAsync);
+                // an action invoked some other way, a legacy engine or a test, leaves them out, and
+                // the guard below is simply skipped for it, exactly as it always ran before this
+                // existed.
                 idempotencyKey = rawKey;
 
                 // IdempotencyKey is stable across every rerun of this one action (it is derived
@@ -118,54 +132,72 @@ internal class UpdateFieldAction : IWorkflowAction
                 // attempt carry the same Attempt value; a retry after a real failure carries the
                 // next one.
                 marker = await _session.LoadAsync<barakoCMS.Models.WorkflowFieldApplyMarker>(idempotencyKey, ct);
-
-                if (marker is not null && marker.Attempt == attemptNumber)
-                {
-                    _logger.LogInformation(
-                        "UpdateField attempt {Attempt} of {IdempotencyKey} was already applied to {TargetId}; skipping.",
-                        attemptNumber, idempotencyKey, targetId);
-                    return;
-                }
             }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load content or marker for field {Field}", field);
+            return WorkflowActionResult.Failure($"Could not read the content or marker for field '{field}' ({ex.GetType().Name}).");
+        }
 
-            var events = new List<object>();
-            var dataChanged = false;
+        if (targetContent is null)
+        {
+            _logger.LogWarning("Target content {TargetId} not found", targetId);
+            return WorkflowActionResult.Failure($"Target content {targetId} was not found.");
+        }
 
-            // Handle nested field paths (e.g., "data.AssignedTo")
-            if (field.StartsWith("data.", StringComparison.OrdinalIgnoreCase))
+        if (idempotencyKey is not null && marker is not null && marker.Attempt == attemptNumber)
+        {
+            _logger.LogInformation(
+                "UpdateField attempt {Attempt} of {IdempotencyKey} was already applied to {TargetId}; skipping.",
+                attemptNumber, idempotencyKey, targetId);
+            // The field is already at the state this attempt wanted; a marker match means some
+            // earlier run of this exact attempt is what put it there. That is success, not a
+            // no-op nobody asked for.
+            return WorkflowActionResult.Success();
+        }
+
+        var events = new List<object>();
+        var dataChanged = false;
+
+        // Handle nested field paths (e.g., "data.AssignedTo")
+        if (field.StartsWith("data.", StringComparison.OrdinalIgnoreCase))
+        {
+            var dataKey = field.Substring(5);
+            targetContent.Data[dataKey] = value;
+            dataChanged = true;
+        }
+        else if (field.Equals("Status", StringComparison.OrdinalIgnoreCase))
+        {
+            if (Enum.TryParse<barakoCMS.Models.ContentStatus>(value, true, out var newStatus))
             {
-                var dataKey = field.Substring(5);
-                targetContent.Data[dataKey] = value;
-                dataChanged = true;
+                events.Add(new barakoCMS.Events.ContentStatusChanged(targetContent.Id, newStatus, content.LastModifiedBy, DateTime.UtcNow));
             }
-            else if (field.Equals("Status", StringComparison.OrdinalIgnoreCase))
-            {
-                if (Enum.TryParse<barakoCMS.Models.ContentStatus>(value, true, out var newStatus))
-                {
-                    events.Add(new barakoCMS.Events.ContentStatusChanged(targetContent.Id, newStatus, content.LastModifiedBy, DateTime.UtcNow));
-                }
-            }
-            else
-            {
-                // Default to data field
-                targetContent.Data[field] = value;
-                dataChanged = true;
-            }
+        }
+        else
+        {
+            // Default to data field
+            targetContent.Data[field] = value;
+            dataChanged = true;
+        }
 
-            if (dataChanged)
-            {
-                // Data is replaced wholesale by Content.Apply(ContentUpdated, ...), so this carries
-                // the field just set alongside everything already on the document.
-                events.Insert(0, new barakoCMS.Events.ContentUpdated(
-                    targetContent.Id, targetContent.Data, content.LastModifiedBy, targetContent.SearchText, DateTime.UtcNow));
-            }
+        if (dataChanged)
+        {
+            // Data is replaced wholesale by Content.Apply(ContentUpdated, ...), so this carries
+            // the field just set alongside everything already on the document.
+            events.Insert(0, new barakoCMS.Events.ContentUpdated(
+                targetContent.Id, targetContent.Data, content.LastModifiedBy, targetContent.SearchText, DateTime.UtcNow));
+        }
 
-            if (events.Count == 0)
-            {
-                // Nothing to apply: an unrecognised Status value with no marker to record either.
-                return;
-            }
+        if (events.Count == 0)
+        {
+            // Nothing to apply: an unrecognised Status value. Permanent, like a missing Field:
+            // the value in the workflow definition parses the same way on the fifth retry.
+            return WorkflowActionResult.PermanentFailure($"'{value}' is not a recognised Status value.");
+        }
 
+        try
+        {
             if (idempotencyKey is not null)
             {
                 // Staged into the same session as the content write below, so one SaveChangesAsync
@@ -183,18 +215,50 @@ internal class UpdateFieldAction : IWorkflowAction
 
             // Optimistic rather than a plain Store: a document type keeps last-write-wins today,
             // but this stops being true the moment a type turns on optimistic concurrency, and
-            // nothing here can assume it never will.
-            await _contentWriter.AppendOptimisticAsync(targetContent, events, ct);
-            await _session.SaveChangesAsync(ct);
+            // nothing here can assume it never will. That guard needs a stream to guard, though,
+            // and not every Content document has one: BarakoCMS.Accounting writes Account content
+            // straight through session.Store, bypassing IContentWriter and starting no stream for
+            // it at all, the way this action itself did before #571. AppendOptimisticAsync always
+            // tries to append to the document's stream regardless of its content type's sourcing
+            // policy, and Marten refuses to append to a stream that has never been started rather
+            // than create one implicitly, so a content with no stream has nothing that call can do.
+            //
+            // Checked up front rather than caught after the fact: AppendOptimistic's refusal comes
+            // from an actual query it runs before ever staging anything, so nothing is undone by
+            // asking first instead of letting it throw.
+            if (await _session.Events.FetchStreamStateAsync(targetContent.Id, ct) is not null)
+            {
+                await _contentWriter.AppendOptimisticAsync(targetContent, events, ct);
+            }
+            else
+            {
+                // No stream, so IContentWriter never gets a chance to apply these; do it by hand
+                // and write the document plainly, the same shape of write this action always made
+                // for this content before #571. The marker staged above still commits with it in
+                // the same SaveChangesAsync below.
+                foreach (var @event in events)
+                {
+                    barakoCMS.Infrastructure.Services.ContentProjection.Apply(targetContent, @event, DateTime.UtcNow);
+                }
 
-            _logger.LogInformation(
-                "Updated field {Field} on content {ContentId} to value {Value}",
-                field, targetContent.Id, value);
+                _session.Store(targetContent);
+            }
+
+            await _session.SaveChangesAsync(ct);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to update field {Field}", field);
+            // The type, not the message: Value can carry whatever a workflow's template resolved
+            // out of the triggering content, and this string is stored and served over the API.
+            _logger.LogError(ex, "Failed to update field {Field} on content {ContentId}", field, targetContent.Id);
+            return WorkflowActionResult.Failure($"Could not update field '{field}' on content {targetContent.Id} ({ex.GetType().Name}).");
         }
+
+        _logger.LogInformation(
+            "Updated field {Field} on content {ContentId} to value {Value}",
+            field, targetContent.Id, value);
+
+        return WorkflowActionResult.Success();
     }
 
     /// <summary>

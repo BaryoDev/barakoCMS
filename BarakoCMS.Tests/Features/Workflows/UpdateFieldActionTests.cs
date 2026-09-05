@@ -2,6 +2,7 @@ using System.Text.Json;
 using barakoCMS.Core;
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Events;
+using barakoCMS.Features.Workflows;
 using barakoCMS.Features.Workflows.Actions;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
@@ -84,6 +85,121 @@ public class UpdateFieldActionTests
 
         var updated = await LoadAsync(store, tenant, contentId);
         updated.Status.Should().Be(ContentStatus.Published);
+    }
+
+    /// <summary>
+    /// Not every Content document has an event stream: <c>BarakoCMS.Accounting</c> writes its
+    /// Account content straight through <c>session.Store</c>, bypassing <c>IContentWriter</c>
+    /// entirely, the same way this test seeds its content rather than going through
+    /// <see cref="SeedAsync"/>. <c>AppendOptimisticAsync</c> always tries to append to the
+    /// document's stream regardless of its content type, and Marten refuses that append outright
+    /// when no stream was ever started (<c>NonExistentStreamException</c>) rather than starting one.
+    /// Reproduces the regression this caused directly: a field update on such content used to throw
+    /// there, get swallowed by the catch block below, and never apply, exactly the shape of failure
+    /// that made <c>WorkflowTenantIsolationTests</c> time out once this action started appending
+    /// events at all.
+    /// </summary>
+    [Fact]
+    public async Task A_data_field_update_is_applied_to_content_with_no_event_stream()
+    {
+        const string tenant = "update-field-no-stream-data";
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var contentId = Guid.NewGuid();
+
+        await using (var seed = store.LightweightSession(tenant))
+        {
+            seed.Store(new Content
+            {
+                Id = contentId,
+                ContentType = "update-field-account",
+                Status = ContentStatus.Published,
+                Data = new Dictionary<string, object> { { "Balance", "0" } },
+            });
+            await seed.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        await RunOnceAsync(store, tenant, contentId, new Dictionary<string, string>
+        {
+            { "Field", "data.Balance" },
+            { "Value", "100" },
+        });
+
+        var updated = await LoadAsync(store, tenant, contentId);
+        AsString(updated.Data["Balance"]).Should().Be("100");
+    }
+
+    /// <summary>The same gap, on the Status branch, which mutates the event rather than the document
+    /// directly and so needed its own check: applying the event by hand before falling back to a
+    /// plain Store, not just falling back to storing whatever was already on the loaded copy.</summary>
+    [Fact]
+    public async Task A_status_update_is_applied_to_content_with_no_event_stream()
+    {
+        const string tenant = "update-field-no-stream-status";
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var contentId = Guid.NewGuid();
+
+        await using (var seed = store.LightweightSession(tenant))
+        {
+            seed.Store(new Content
+            {
+                Id = contentId,
+                ContentType = "update-field-account",
+                Status = ContentStatus.Draft,
+                Data = new Dictionary<string, object>(),
+            });
+            await seed.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        await RunOnceAsync(store, tenant, contentId, new Dictionary<string, string>
+        {
+            { "Field", "Status" },
+            { "Value", "Published" },
+        });
+
+        var updated = await LoadAsync(store, tenant, contentId);
+        updated.Status.Should().Be(ContentStatus.Published);
+    }
+
+    /// <summary>
+    /// A workflow action that cannot do its job must say so rather than report success while doing
+    /// nothing, the same class of gap #569 and #572 fixed for the other actions. Before RunAsync was
+    /// implemented, this and every other early exit in the action were a bare `return` inside a
+    /// catch-and-log-everything ExecuteAsync, indistinguishable from success to WorkflowRunner.
+    /// </summary>
+    [Fact]
+    public async Task A_missing_target_content_reports_failure_rather_than_success()
+    {
+        const string tenant = "update-field-missing-target";
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+
+        var result = await RunAndGetResultAsync(store, tenant, Guid.NewGuid(), new Dictionary<string, string>
+        {
+            { "TargetId", Guid.NewGuid().ToString() },
+            { "Field", "data.Stock" },
+            { "Value", "9" },
+        });
+
+        result.Succeeded.Should().BeFalse("the target content does not exist, so nothing was applied");
+    }
+
+    /// <summary>The same point, on the other permanent early exit: no Field parameter at all.</summary>
+    [Fact]
+    public async Task A_missing_field_parameter_reports_failure_rather_than_success()
+    {
+        const string tenant = "update-field-missing-field";
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var contentId = Guid.NewGuid();
+
+        await SeedAsync(store, tenant, contentId, "update-field-task", ContentStatus.Draft, new Dictionary<string, object>());
+
+        var result = await RunAndGetResultAsync(store, tenant, contentId, new Dictionary<string, string>
+        {
+            { "Value", "SomeValue" },
+            // Missing "Field" parameter
+        });
+
+        result.Succeeded.Should().BeFalse();
+        result.Retryable.Should().BeFalse("no Field parameter parses differently on a retry");
     }
 
     /// <summary>
@@ -453,6 +569,20 @@ public class UpdateFieldActionTests
     {
         await using var session = store.LightweightSession(tenant);
         await RunOnceAsync(session, contentId, parameters);
+    }
+
+    /// <summary>Like <see cref="RunOnceAsync(IDocumentStore, string, Guid, Dictionary{string, string})"/>,
+    /// but through RunAsync directly so the caller can see what the action reports, the way
+    /// WorkflowRunner does.</summary>
+    private static async Task<WorkflowActionResult> RunAndGetResultAsync(
+        IDocumentStore store, string tenant, Guid contentId, Dictionary<string, string> parameters)
+    {
+        await using var session = store.LightweightSession(tenant);
+        var writer = new ContentWriter(session, new ContentSourcingPolicyService(session));
+        var action = new UpdateFieldAction(session, writer, NullLogger<UpdateFieldAction>.Instance);
+        var triggerContent = new Content { Id = contentId, LastModifiedBy = Guid.NewGuid() };
+
+        return await action.RunAsync(parameters, triggerContent, TestContext.Current.CancellationToken);
     }
 
     /// <summary>
