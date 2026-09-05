@@ -594,7 +594,7 @@ the docs say so.
 
 ## D16. Document types get expected-version concurrency too, and 4.0 is the only free moment
 
-**Decided:** 5 Sept 2026. **Issue:** #565. **Status:** accepted, not yet implemented.
+**Decided:** 5 Sept 2026. **Issue:** #565. **Status:** implemented.
 
 `Content` gets Marten optimistic concurrency. `GET` returns the document version as an `ETag` and
 `PUT` accepts `If-Match`, answering 412 when it does not match. Whether a write that carries no
