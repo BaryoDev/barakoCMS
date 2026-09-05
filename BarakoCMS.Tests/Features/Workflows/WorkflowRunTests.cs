@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using FluentAssertions;
 using Marten;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -323,6 +324,78 @@ public class WorkflowRunTests
             "anything else here is a place a credential could arrive in");
     }
 
+    /// <summary>
+    /// A thrown action records its type, never the exception message that may contain a secret.
+    /// </summary>
+    /// <remarks>
+    /// This uses the real runner and store rather than calling the catch block directly. A provider
+    /// exception is the path that previously persisted its message into the run record, where the
+    /// API and admin UI serve it back to operators.
+    /// </remarks>
+    [Fact]
+    public async Task A_thrown_action_records_only_the_exception_type()
+    {
+        var host = _factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+            services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, ThrowingRunnerAction>()));
+        var store = host.Services.GetRequiredService<IDocumentStore>();
+        var contentId = Guid.NewGuid();
+        var run = new WorkflowRun
+        {
+            Id = Guid.NewGuid(),
+            WorkflowDefinitionId = Guid.NewGuid(),
+            WorkflowName = "Redaction regression",
+            ContentId = contentId,
+            ContentType = "article",
+            TriggerEvent = "Published",
+            TriggeringEventSequence = 1,
+            Actions =
+            [
+                new WorkflowActionAttempt
+                {
+                    Ordinal = 0,
+                    ActionType = "ThrowingRunner",
+                    Attempts = barakoCMS.Features.Workflows.WorkflowRetryPolicy.MaxAttempts - 1,
+                    IdempotencyKey = $"{Guid.NewGuid():N}",
+                },
+            ],
+        };
+
+        await using (var session = store.LightweightSession())
+        {
+            session.Store(new Content
+            {
+                Id = contentId,
+                ContentType = "article",
+                Status = ContentStatus.Published,
+            });
+            run.Recompute();
+            session.Store(run);
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        // Other workflow runs may be older than this one in the shared database, and the hosted
+        // runner can claim the run before this test's runner. Drain with the same host so the
+        // registered throwing action is available to whichever pass reaches this run.
+        await DrainRunnerAsync(host.Services);
+
+        WorkflowRun? recorded = null;
+        for (var i = 0; i < 100; i++)
+        {
+            await using var check = store.QuerySession();
+            recorded = await check.LoadAsync<WorkflowRun>(run.Id, TestContext.Current.CancellationToken);
+
+            if (recorded!.Actions[0].Status != AttemptStatus.Running) break;
+
+            await Task.Delay(TimeSpan.FromMilliseconds(100), TestContext.Current.CancellationToken);
+        }
+
+        var attempt = recorded!.Actions.Should().ContainSingle().Subject;
+
+        attempt.Status.Should().Be(AttemptStatus.Failed);
+        attempt.Error.Should().Be(nameof(InvalidOperationException));
+        attempt.Error.Should().NotContain("sk_live_1234567890");
+    }
+
     /// <summary>Runs the hosted runner's poll until it finds nothing to claim.</summary>
     /// <remarks>
     /// Drained rather than polled once. RunOnceAsync returns as soon as it claims anything, and the
@@ -330,12 +403,13 @@ public class WorkflowRunTests
     /// the run under test and the assertion after it would be vacuous. Draining to "nothing left to
     /// claim" means every candidate was examined.
     /// </remarks>
-    private async Task DrainRunnerAsync()
+    private async Task DrainRunnerAsync(IServiceProvider? services = null)
     {
+        services ??= _factory.Services;
         var runner = new barakoCMS.Features.Workflows.WorkflowRunner(
-            _factory.Services,
-            _factory.Services.GetRequiredService<ILogger<barakoCMS.Features.Workflows.WorkflowRunner>>(),
-            _factory.Services.GetRequiredService<IConfiguration>());
+            services,
+            services.GetRequiredService<ILogger<barakoCMS.Features.Workflows.WorkflowRunner>>(),
+            services.GetRequiredService<IConfiguration>());
 
         var polls = 0;
         while (await runner.RunOnceAsync(TestContext.Current.CancellationToken))
@@ -388,6 +462,18 @@ public class WorkflowRunTests
     /// out that a slow suite does not walk into it.
     /// </summary>
     private static DateTimeOffset ParkedUntil => DateTimeOffset.UtcNow.AddHours(1);
+
+    private sealed class ThrowingRunnerAction : barakoCMS.Features.Workflows.IWorkflowAction
+    {
+        public string Type => "ThrowingRunner";
+
+        public Task ExecuteAsync(Dictionary<string, string> parameters, Content content, CancellationToken ct) =>
+            throw new InvalidOperationException("provider rejected sk_live_1234567890");
+
+        public Task<barakoCMS.Features.Workflows.WorkflowActionResult> RunAsync(
+            Dictionary<string, string> parameters, Content content, CancellationToken ct) =>
+            throw new InvalidOperationException("provider rejected sk_live_1234567890");
+    }
 
     private async Task<Guid> SeedRunAsync(
         int actions, AttemptStatus status = AttemptStatus.Pending, int attempts = 0)
