@@ -35,13 +35,15 @@ public class RequestDefinition
     public string BodyContentType { get; set; } = "application/json";
 
     /// <summary>
-    /// A named query supplying <c>{{query.*}}</c> values. Not resolvable yet.
+    /// A named <see cref="QueryDefinition"/> supplying <c>{{query.*}}</c> values.
     /// </summary>
     /// <remarks>
-    /// The field exists so the shape is settled before anything stores one, and #328 is what makes
-    /// it mean something. Until then a template referencing <c>{{query.*}}</c> is refused rather
-    /// than sent with the hole still in it: a request that posts the literal text "{{query.rows}}"
-    /// to a third party is worse than one that does not run.
+    /// <c>{{query.rows}}</c> resolves to a JSON array of the query's result rows, each one holding
+    /// exactly the fields the query selects. <c>{{query.SomeField}}</c> resolves to that field from
+    /// the first row, or an empty string when the query matched nothing. A hole naming a query that
+    /// does not exist, or a field the query does not select, is refused rather than sent with the
+    /// hole still in it: a request that posts the literal text "{{query.rows}}" to a third party is
+    /// worse than one that does not run.
     /// </remarks>
     public string? QuerySlug { get; set; }
 
