@@ -3,9 +3,9 @@
 4.0 will not boot against a 3.x database until you apply one SQL file. This page is what to run,
 what each statement does, and what to do when it goes wrong.
 
-The whole sequence is proved in CI by `scripts/upgrade-check.sh`, which stands up a real 3.21.0
-database through the released image and upgrades it. If a step here stops being true, that job goes
-red.
+The whole sequence, including the rollback below, is proved in CI by `scripts/upgrade-check.sh`,
+which stands up a real 3.21.0 database through the released image, upgrades it, then rolls it back
+and boots 3.21.0 again against the result. If a step here stops being true, that job goes red.
 
 ## Why there is a migration at all
 
