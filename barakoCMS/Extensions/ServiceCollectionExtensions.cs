@@ -539,6 +539,15 @@ public static class ServiceCollectionExtensions
                 .Index(x => x.WorkflowId)
                 .Index(x => x.CreatedAt);
 
+            options.Schema.For<WorkflowFieldApplyMarker>()
+                .MultiTenanted()
+                .DocumentAlias("workflow_field_apply_markers")
+                // Same reason WorkflowRun above has it: loading it, deciding, and saving it is a
+                // read, a check and a write with nothing between them, and two nodes racing the
+                // same key must not both silently win.
+                .UseOptimisticConcurrency(true)
+                .Index(x => x.AppliedAt);
+
             options.Schema.For<ConnectorSecret>()
                 .MultiTenanted()
                 .DocumentAlias("connector_secrets")
