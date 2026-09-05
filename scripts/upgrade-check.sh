@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 #
-# Proves the 3.x to 4.0 upgrade against a database that has data in it.
+# Proves the 3.x to 4.0 upgrade, and the rollback, against a database that has data in it.
 #
 # Nothing in the test suite covers this: IntegrationTestFixture forces Development, so the suite
 # always runs CreateOrUpdate against a fresh database, and production runs CreateOnly against one
 # that already exists. That gap is what issue #277 is about, and this script is what closes it.
 #
-# The sequence, which is also the documented upgrade procedure:
+# The sequence, which is also the documented upgrade and rollback procedure:
 #
 #   1. stand up a database with the released FROM_VERSION and put real content in it
 #   2. db-assert must FAIL, because 4.0's schema does not match a 3.x database
@@ -15,9 +15,15 @@
 #   5. 4.0 boots in Production mode and serves
 #   6. an event appends to a stream that already existed, and the projection daemon resumes from
 #      its stored progression rather than restarting from zero
+#   7. 4.0 stops, migrations/4.0.0/rollback-to-3.x.sql is applied
+#   8. FROM_VERSION boots again against the rolled-back database and still serves the record 4.0
+#      wrote to, with every event still on its stream
 #
 # Step 2 is asserted rather than skipped on purpose. If a future change makes the migration
 # unnecessary, this fails and someone finds out deliberately instead of shipping a stale file.
+# Step 8 exists because #604 shipped a rollback file nothing had ever executed: it did not even
+# parse. Running it here means a future edit that breaks it fails this job instead of an operator
+# mid-incident.
 #
 # Usage: scripts/upgrade-check.sh          (FROM_VERSION defaults to the last 3.x release)
 
@@ -230,4 +236,57 @@ if [ "${PROGRESSION_AFTER:-0}" -le "$PROGRESSION_BEFORE" ]; then
 fi
 echo "$PROGRESSION_BEFORE then $PROGRESSION_AFTER"
 
-printf '\nThe %s to 4.0 upgrade works, with migrations/4.0.0/3.x-to-4.0.sql applied first.\n' "$FROM_VERSION"
+# The rollback. docs/upgrading-to-4.0.md tells an operator to stop 4.0 first, so this does the same:
+# kill the host process, then apply rollback-to-3.x.sql to the same postgres container the forward
+# migration ran against, then boot the FROM_VERSION image again to prove the documented way back
+# actually lands on a schema that version recognises. $OLD is reused rather than started fresh: it
+# already has the admin user and the InitialAdmin env it was created with, so a second `docker run`
+# would either collide on the name or seed a second admin, and neither proves anything a restart of
+# the same container does not.
+step "stopping 4.0 before the rollback"
+kill "$HOST_PID" 2>/dev/null || true
+wait "$HOST_PID" 2>/dev/null || true
+HOST_PID=""
+
+step "applying migrations/4.0.0/rollback-to-3.x.sql"
+docker cp migrations/4.0.0/rollback-to-3.x.sql "$PG:/tmp/down.sql"
+docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/down.sql >/dev/null
+
+step "booting ${FROM_VERSION} again against the rolled-back database"
+docker start "$OLD" >/dev/null
+for _ in $(seq 1 60); do
+    [ "$(curl -s -o /dev/null -w '%{http_code}' "$OLD_URL/health" || true)" = "200" ] && break
+    sleep 2
+done
+[ "$(curl -s -o /dev/null -w '%{http_code}' "$OLD_URL/health")" = "200" ] || {
+    echo "--- ${FROM_VERSION} container after rollback ---" >&2
+    docker logs "$OLD" 2>&1 | tail -30 >&2
+    fail "${FROM_VERSION} did not come back up against the rolled-back database. The documented rollback did not land on a schema ${FROM_VERSION} recognises."
+}
+echo "${FROM_VERSION} is healthy again"
+
+step "${FROM_VERSION} still serves the record 4.0 wrote to, after the rollback"
+ROLLBACK_TOKEN=$(curl -s -X POST "$OLD_URL/api/auth/login" -H 'Content-Type: application/json' \
+    -d "{\"username\":\"admin\",\"password\":\"${ADMIN_PASSWORD}\"}" \
+    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('accessToken') or d.get('token') or '')")
+[ -n "$ROLLBACK_TOKEN" ] || fail "the admin cannot sign in to ${FROM_VERSION} after rollback"
+
+ROLLBACK_FIRST_NAME=$(curl -s "$OLD_URL/api/contents/$CONTENT_ID" -H "Authorization: Bearer $ROLLBACK_TOKEN" \
+    | python3 -c "import sys,json; print(json.load(sys.stdin).get('data',{}).get('FirstName',''))")
+[ "$ROLLBACK_FIRST_NAME" = "Upgrade" ] \
+    || fail "expected content $CONTENT_ID to still read back FirstName 'Upgrade' through ${FROM_VERSION} after rollback, got '$ROLLBACK_FIRST_NAME'"
+
+# The status change was made under 4.0 (newStatus 2, Archived). It lives on the document itself, not
+# only in the event stream, and rollback does not touch mt_doc_contents rows, so it must still be 2.
+# Read straight from the column rather than through the API: the JSON enum name is a 4.0-side detail
+# this test has no need to depend on.
+ROLLBACK_STATUS=$(psql_q "select data ->> 'Status' from mt_doc_contents where id = '$CONTENT_ID';")
+[ "$ROLLBACK_STATUS" = "2" ] \
+    || fail "expected content $CONTENT_ID to still have Status 2 (set by 4.0) after rollback, got '$ROLLBACK_STATUS'"
+
+EVENTS_ROLLED_BACK=$(psql_q "select count(*) from mt_events where stream_id = '$CONTENT_ID';")
+[ "$EVENTS_ROLLED_BACK" = "$EVENTS_AFTER" ] \
+    || fail "expected $EVENTS_AFTER events on stream $CONTENT_ID after rollback, found $EVENTS_ROLLED_BACK. A rollback must not lose events."
+echo "${FROM_VERSION} reads it back: FirstName $ROLLBACK_FIRST_NAME, Status $ROLLBACK_STATUS, $EVENTS_ROLLED_BACK events on the stream"
+
+printf '\nThe %s to 4.0 upgrade works, with migrations/4.0.0/3.x-to-4.0.sql applied first, and rolls back cleanly with migrations/4.0.0/rollback-to-3.x.sql.\n' "$FROM_VERSION"

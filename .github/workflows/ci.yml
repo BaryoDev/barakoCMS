@@ -132,8 +132,9 @@ jobs:
       #
       # The script stands up a real 3.21.0 database through the released image, asserts 4.0 refuses
       # it, applies the reviewed migration, and then proves an event appends to a stream that
-      # already existed and the projection daemon resumed rather than restarting.
-      - name: Prove the 3.x database can be upgraded
+      # already existed and the projection daemon resumed rather than restarting. It then applies
+      # the rollback and boots 3.21.0 again to prove the documented way back actually works (#604).
+      - name: Prove the 3.x database can be upgraded and rolled back
         run: bash scripts/upgrade-check.sh
 
   restore:

@@ -26,7 +26,7 @@ $function$;
 alter table public.mt_streams add column snapshot jsonb NULL;
 alter table public.mt_streams add column snapshot_version integer NULL;
 alter table public.mt_events drop column bdata;
-drop function if exists public.mt_quick_append_events(uuid, varchar, varchar, uuid[], varchar[], varchar[], jsonb[], bytea[], integer DEFAULT NULL::integer) cascade;
+drop function if exists public.mt_quick_append_events(uuid, varchar, varchar, uuid[], varchar[], varchar[], jsonb[], bytea[], integer) cascade;
 CREATE OR REPLACE FUNCTION public.mt_quick_append_events(stream uuid, stream_type character varying, tenantid character varying, event_ids uuid[], event_types character varying[], dotnet_types character varying[], bodies jsonb[])
  RETURNS integer[]
  LANGUAGE plpgsql
