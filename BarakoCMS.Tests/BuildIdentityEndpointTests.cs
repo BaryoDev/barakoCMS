@@ -1,6 +1,8 @@
 using System.Net;
 using System.Text.Json;
 using FluentAssertions;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Xunit;
 
 namespace BarakoCMS.Tests;
@@ -86,19 +88,43 @@ public class BuildIdentityEndpointTests
             await Task.Delay(250, TestContext.Current.CancellationToken);
         }
 
-        // Say what actually went wrong, and which check was still holding readiness closed. Without
-        // this the test fails on the body assertion and reports a shape mismatch when the real
-        // fault was that seeding never finished.
+        // Name the check that is still closed. Asking /health here cannot do that: its body is the
+        // terse one this test exists to pin, so it says "Unhealthy" and nothing else, which is how
+        // a three minute failure arrived with no clue in it. Run the checks directly instead and
+        // report each failing entry with its description.
         if (!becameReady)
         {
-            var report = await client.GetAsync("/health", TestContext.Current.CancellationToken);
-            var reportBody = await report.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+            var health = _factory.Services.GetRequiredService<HealthCheckService>();
+            var report = await health.CheckHealthAsync(TestContext.Current.CancellationToken);
+
+            var failing = string.Join("; ", report.Entries
+                .Where(e => e.Value.Status != HealthStatus.Healthy)
+                .Select(e => $"{e.Key}={e.Value.Status} {e.Value.Description} {e.Value.Exception?.Message}"));
+
             becameReady.Should().BeTrue(
-                $"/health/ready did not report OK within three minutes; /health said {report.StatusCode} {reportBody}");
+                $"/health/ready did not report OK within three minutes. Failing checks: {failing}");
         }
 
         var res = await client.GetAsync("/health", TestContext.Current.CancellationToken);
         var body = await res.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+
+        // Readiness can open while /health is still Unhealthy, because /health runs every check and
+        // readiness runs only the ones tagged "ready". When that happens the assertion below reports
+        // a string mismatch at index 11, which says the status word differs and nothing about which
+        // check produced it. Name the check here too, for the same reason it is named above.
+        if (body != "{\"status\":\"Healthy\"}")
+        {
+            var health = _factory.Services.GetRequiredService<HealthCheckService>();
+            var report = await health.CheckHealthAsync(TestContext.Current.CancellationToken);
+
+            var failing = string.Join("; ", report.Entries
+                .Where(e => e.Value.Status != HealthStatus.Healthy)
+                .Select(e => $"{e.Key}={e.Value.Status} {e.Value.Description} {e.Value.Exception?.Message}"));
+
+            body.Should().Be(
+                "{\"status\":\"Healthy\"}",
+                $"every check should be healthy by now. Failing checks: {failing}");
+        }
 
         body.Should().Be("{\"status\":\"Healthy\"}");
     }
