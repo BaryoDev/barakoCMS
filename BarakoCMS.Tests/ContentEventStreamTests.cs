@@ -68,6 +68,7 @@ public class ContentEventStreamTests
         }
 
         public HttpStatusCode StatusCode => _response.StatusCode;
+        public System.Net.Http.Headers.HttpResponseHeaders Headers => _response.Headers;
 
         public static async Task<OpenStream> OpenAsync(HttpClient client, string url, string? tenant = null, string? remoteIp = null)
         {
@@ -535,5 +536,23 @@ public class ContentEventStreamTests
         frame.Event.Should().Be("content.updated");
         frame.Data.Should().Contain(slug);
         frame.Data.Should().NotContain("Title", "the field the type just marked Sensitive is absent from the update that announces it");
+    }
+
+    /// <summary>
+    /// See #546. A stream is never cacheable, in one tenant let alone across two, so it gets
+    /// <c>no-store</c> rather than the short <c>max-age</c> the rest of <c>Features/Public</c> uses,
+    /// and <c>Vary: X-Tenant</c> for consistency with that surface.
+    /// </summary>
+    [Fact]
+    public async Task The_stream_is_never_cached_and_names_the_tenant_header_in_Vary()
+    {
+        var host = EnabledHost();
+
+        using var stream = await OpenStream.OpenAsync(host.CreateClient(), "/api/public/events");
+
+        stream.Headers.CacheControl.Should().NotBeNull();
+        stream.Headers.CacheControl!.NoStore.Should().BeTrue(
+            "a stream must never be cached, not even for the short window the rest of public delivery allows");
+        stream.Headers.Vary.Should().ContainSingle().Which.Should().Be("X-Tenant");
     }
 }
