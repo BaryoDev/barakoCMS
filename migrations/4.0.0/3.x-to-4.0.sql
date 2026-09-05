@@ -63,6 +63,12 @@
 --                         whatever it finds, because the index cannot be created while a duplicate
 --                         exists. Nothing else in 4.0 depends on it, so a database that keeps the
 --                         duplicates still boots -- it just keeps the old read-then-write behaviour.
+--   mt_doc_workflow_field_apply_markers
+--                         New table. UpdateFieldAction's idempotency marker: which attempt of a
+--                         workflow run last applied its change, so a reclaimed rerun of the same
+--                         attempt finds its own mark and applies nothing a second time (#571).
+--                         Conjoined multi-tenant, like the other workflow tables above. Empty on
+--                         arrival, so creating it moves no data.
 --
 -- Rollback is migrations/4.0.0/rollback-to-3.x.sql, which must be applied while 4.0 is stopped.
 
@@ -418,6 +424,29 @@ CREATE TABLE IF NOT EXISTS public.mt_doc_content_type_sourcing_policies (
 DROP POLICY IF EXISTS marten_tenant_isolation ON public.mt_doc_content_type_sourcing_policies;
 ALTER TABLE public.mt_doc_content_type_sourcing_policies NO FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.mt_doc_content_type_sourcing_policies DISABLE ROW LEVEL SECURITY;
+
+-- ---------------------------------------------------------------------------
+-- UpdateFieldAction idempotency markers (#571).
+--
+-- Guards a workflow's UpdateField action against applying its change twice when an attempt is
+-- reclaimed after running past its lease: the marker records the run's IdempotencyKey and the
+-- attempt number that applied it, and a reclaimed rerun of the same attempt finds its own mark
+-- already there and writes nothing a second time. Conjoined multi-tenant, like every workflow
+-- table above. Empty on arrival: 3.x has no such action state to migrate, and nothing writes here
+-- until 4.0 runs an UpdateField action for the first time.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.mt_doc_workflow_field_apply_markers (
+    tenant_id           varchar                     NOT NULL DEFAULT '*DEFAULT*',
+    id                  varchar                     NOT NULL,
+    data                jsonb                       NOT NULL,
+    mt_last_modified    timestamp with time zone    NULL DEFAULT (transaction_timestamp()),
+    mt_version          uuid                        NOT NULL DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
+    mt_dotnet_type      varchar                     NULL,
+    CONSTRAINT pkey_mt_doc_workflow_field_apply_markers_tenant_id_id PRIMARY KEY (tenant_id, id)
+);
+
+CREATE INDEX IF NOT EXISTS mt_doc_workflow_field_apply_markers_idx_applied_at
+    ON public.mt_doc_workflow_field_apply_markers USING btree ((public.mt_immutable_timestamptz(data ->> 'AppliedAt')));
 
 -- Scheduled becomes a real content status (#440, DECISIONS.md D12).
 --

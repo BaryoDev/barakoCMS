@@ -142,6 +142,13 @@ DROP TABLE IF EXISTS public.mt_doc_connectors;
 -- The rest of the rollback is unaffected: entries and their streams are untouched, and 3.x treats
 -- every type as document sourced regardless of what this table says.
 
+-- UpdateFieldAction idempotency markers (#571). 3.x has no such action state and nothing references
+-- this table, so dropping it moves no content. What is lost is protection against a workflow attempt
+-- that is genuinely mid-flight across the rollback applying its field change twice on the next 4.0
+-- upgrade; unlike content_type_sourcing_policies above, nothing here is a permanent decision a
+-- re-upgrade needs to find, so there is no reason to keep it around unused.
+DROP TABLE IF EXISTS public.mt_doc_workflow_field_apply_markers;
+
 -- Scheduled entries go back to being drafts (#440). 3.x has no Scheduled status,
 -- and its sweeper selects drafts with a publish time, so this is what makes those
 -- entries publish again rather than sitting at a status nothing understands.
