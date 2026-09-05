@@ -117,13 +117,20 @@ public class PublicDeliveryVaryTests
         respB.Headers.Vary.Should().ContainSingle().Which.Should().Be("X-Tenant");
     }
 
-    /// <summary>The slug route funnels through the same <c>PublicDelivery.SetCache</c>, and is checked directly.</summary>
+    /// <summary>
+    /// Every route that shares <c>PublicDelivery.SetCache</c> names the tenant header in <c>Vary</c>,
+    /// not just the list route the test above covers. Search, <c>feed.xml</c> and <c>sitemap.xml</c>
+    /// were unchecked: a future change that isolated one of them from the shared call site would have
+    /// gone undetected. It is the same assertion five times over, which is the point of the routes
+    /// sharing one call site in the first place.
+    /// </summary>
     [Fact]
-    public async Task The_slug_route_also_names_the_tenant_header_in_Vary()
+    public async Task Every_route_that_shares_SetCache_names_the_tenant_header_in_Vary()
     {
         var tenant = await TenantAsync();
         var type = $"probe{Guid.NewGuid():N}"[..12];
         var marker = $"MARKER-{Guid.NewGuid():N}";
+        var slug = "the-entry";
 
         using var scope = _factory.Services.CreateScope();
         var store = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
@@ -147,16 +154,32 @@ public class PublicDeliveryVaryTests
                 ContentType = type,
                 Status = ContentStatus.Published,
                 Sensitivity = SensitivityLevel.Public,
-                Data = new Dictionary<string, object> { ["Title"] = marker, ["Slug"] = "the-entry" },
+                Data = new Dictionary<string, object> { ["Title"] = marker, ["Slug"] = slug },
+                SearchText = marker,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow,
             });
             await session.SaveChangesAsync();
         }
 
-        var resp = await GetAsync($"/api/public/{type}/the-entry", tenant);
-        resp.EnsureSuccessStatusCode();
+        var urls = new[]
+        {
+            $"/api/public/{type}",
+            $"/api/public/{type}/{slug}",
+            $"/api/public/{type}/search?q={marker}",
+            $"/api/public/{type}/search?q=a", // the short-query branch, which used to skip SetCache entirely
+            $"/api/public/{type}/feed.xml",
+            "/api/public/sitemap.xml",
+        };
 
-        resp.Headers.Vary.Should().ContainSingle().Which.Should().Be("X-Tenant");
+        foreach (var url in urls)
+        {
+            var resp = await GetAsync(url, tenant);
+            resp.IsSuccessStatusCode.Should().BeTrue(
+                $"{url} must succeed to prove anything about its Vary header, got {resp.StatusCode}: " +
+                $"{await resp.Content.ReadAsStringAsync()}");
+            resp.Headers.Vary.Should().ContainSingle().Which.Should().Be("X-Tenant",
+                $"{url} must vary on the tenant header the same way the list route does");
+        }
     }
 }

@@ -477,6 +477,9 @@ internal class PublicSearchEndpoint : EndpointWithoutRequest<PublicSearchRespons
 
         if (q.Length < 2)
         {
+            // Otherwise this 200 went out with no cache header at all, the same gap #546 closed
+            // for the stream: nothing here says whether or how an intermediary may store it.
+            PublicDelivery.SetCache(HttpContext);
             await Send.OkAsync(new PublicSearchResponse(Array.Empty<PublicContentResponse>(), 0, q), ct);
             return;
         }

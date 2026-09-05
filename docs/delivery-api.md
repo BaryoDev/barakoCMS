@@ -250,6 +250,18 @@ function. `ContentEventStreamTests` asserts that directly against a Sensitive fi
 
 It is off by default. `Delivery:Events:Enabled` turns it on; while it is off the route is 404.
 
+**This route must never be cached.** Unlike every other route here it sends `Cache-Control: no-store`,
+not `max-age=60`, because a stream has no single response to cache: buffering one connection's frames
+and replaying them to a later request is wrong in a single tenant, and a cross-tenant version of the
+same mistake is the class of bug #546 exists to close. It sends `Vary: X-Tenant` too, for consistency
+with the rest of this surface, though a store honouring `no-store` never needs it. A reverse proxy or
+CDN placed in front of this route has to be told two separate things: not to cache it at all (most
+already treat `no-store` correctly, but confirm rather than assume), and, independently, not to buffer
+the response before forwarding it. A proxy that buffers waits for the stream to end before sending
+anything downstream, which breaks Server-Sent Events outright, whether or not caching is involved.
+nginx's own setting for this is `proxy_buffering off;` on the route; check the equivalent for whatever
+sits in front of it.
+
 ```
 GET /api/public/events
 GET /api/public/events?type=post&type=page

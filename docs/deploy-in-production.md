@@ -91,13 +91,20 @@ The delivery API (`docs/delivery-api.md`) marks its responses `Cache-Control: pu
 which is an invitation to put a CDN in front of it. Whether that is safe depends on how tenants are
 routed (`docs/multi-tenancy.md`), because the response is cacheable per tenant, not globally.
 
-**Safe with a plain CDN, no extra configuration:**
+This section is about that cacheable majority. `GET /api/public/events`, the change stream, is not
+part of it: it sends `no-store` and must never be cached, for reasons that have nothing to do with
+tenancy. See the "Change events" section of `docs/delivery-api.md` for what a proxy in front of it
+has to do instead.
+
+**Safe on nearly every CDN's default behaviour, and still worth confirming rather than assuming:**
 
 - a single-tenant deployment, where `X-Tenant` is never sent and every request resolves to the same
-  tenant, and
-- a multi-tenant deployment with one hostname per tenant (a subdomain or a custom domain). The Host
-  is part of the URL, and every general-purpose cache already keys on the full URL, so two tenants
-  never share a cache entry.
+  tenant, so there is no second tenant a cache entry could be confused with, and
+- a multi-tenant deployment with one hostname per tenant (a subdomain or a custom domain). Keying the
+  cache on the full URL, Host included, is near-universal default behaviour, not a law: it is still a
+  property of that CDN's own configuration. Confirm it is not running a rule that treats every host on
+  the origin as one cache key (most often a wildcard-TLS or single-origin setting, not one aimed at
+  caching, but it has the same effect here), which would undo the guarantee this relies on.
 
 **Not safe without configuring the CDN, and `Vary: X-Tenant` alone does not make it safe:**
 
