@@ -373,15 +373,22 @@ public class WorkflowRunTests
             await session.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
-        var runner = new barakoCMS.Features.Workflows.WorkflowRunner(
-            host.Services,
-            host.Services.GetRequiredService<ILogger<barakoCMS.Features.Workflows.WorkflowRunner>>(),
-            host.Services.GetRequiredService<IConfiguration>());
+        // Other workflow runs may be older than this one in the shared database, and the hosted
+        // runner can claim the run before this test's runner. Drain with the same host so the
+        // registered throwing action is available to whichever pass reaches this run.
+        await DrainRunnerAsync(host.Services);
 
-        (await runner.RunOnceAsync(TestContext.Current.CancellationToken)).Should().BeTrue();
+        WorkflowRun? recorded = null;
+        for (var i = 0; i < 100; i++)
+        {
+            await using var check = store.QuerySession();
+            recorded = await check.LoadAsync<WorkflowRun>(run.Id, TestContext.Current.CancellationToken);
 
-        await using var check = store.QuerySession();
-        var recorded = await check.LoadAsync<WorkflowRun>(run.Id, TestContext.Current.CancellationToken);
+            if (recorded!.Actions[0].Status != AttemptStatus.Running) break;
+
+            await Task.Delay(TimeSpan.FromMilliseconds(100), TestContext.Current.CancellationToken);
+        }
+
         var attempt = recorded!.Actions.Should().ContainSingle().Subject;
 
         attempt.Status.Should().Be(AttemptStatus.Failed);
@@ -396,12 +403,13 @@ public class WorkflowRunTests
     /// the run under test and the assertion after it would be vacuous. Draining to "nothing left to
     /// claim" means every candidate was examined.
     /// </remarks>
-    private async Task DrainRunnerAsync()
+    private async Task DrainRunnerAsync(IServiceProvider? services = null)
     {
+        services ??= _factory.Services;
         var runner = new barakoCMS.Features.Workflows.WorkflowRunner(
-            _factory.Services,
-            _factory.Services.GetRequiredService<ILogger<barakoCMS.Features.Workflows.WorkflowRunner>>(),
-            _factory.Services.GetRequiredService<IConfiguration>());
+            services,
+            services.GetRequiredService<ILogger<barakoCMS.Features.Workflows.WorkflowRunner>>(),
+            services.GetRequiredService<IConfiguration>());
 
         var polls = 0;
         while (await runner.RunOnceAsync(TestContext.Current.CancellationToken))
