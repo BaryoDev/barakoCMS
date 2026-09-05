@@ -43,11 +43,13 @@ internal sealed class RequestComposer : IRequestComposer
 
     private readonly IQuerySession _session;
     private readonly IConfiguration _config;
+    private readonly IQueryRunner _queryRunner;
 
-    public RequestComposer(IQuerySession session, IConfiguration config)
+    public RequestComposer(IQuerySession session, IConfiguration config, IQueryRunner queryRunner)
     {
         _session = session;
         _config = config;
+        _queryRunner = queryRunner;
     }
 
     public async Task<ComposedRequest> ComposeAsync(
@@ -69,23 +71,44 @@ internal sealed class RequestComposer : IRequestComposer
         templates.AddRange(definition.HeaderTemplates.Values);
         if (definition.BodyTemplate is not null) templates.Add(definition.BodyTemplate);
 
+        // Resolved once, before either refusal check, so both a Sensitive field and a bad query hole
+        // are checked against the same set of templates and neither is composed while the other
+        // could still be the reason nothing should be sent.
+        var query = await ResolveQueryAsync(definition, templates, ct);
+        if (query.Refusal is not null) return ComposedRequest.Refused(query.Refusal);
+
         var refusal = Refuse(templates, schema);
         if (refusal is not null) return ComposedRequest.Refused(refusal);
 
         // Path and headers are not JSON, whatever the body is. Escaping a path segment as if it were
         // a JSON string would put backslashes in a URL.
-        var path = Substitute(definition.PathTemplate, content, Escaping.Url);
+        var path = Substitute(definition.PathTemplate, content, query.Rows, Escaping.Url);
 
         var headers = new Dictionary<string, string>(definition.HeaderTemplates.Count);
         foreach (var (name, template) in definition.HeaderTemplates)
         {
-            headers[name] = Substitute(template, content, Escaping.None);
+            var value = Substitute(template, content, query.Rows, Escaping.None);
+
+            // Refused rather than stripped. A header has no quoting to fall back to the way a JSON
+            // body does, so a value here reaches the sender's TryAddWithoutValidation exactly as
+            // composed, and "safe\r\nX-Injected: evil" becomes a second header on a call sent with
+            // the connector's own credentials attached. Stripping the control character would send
+            // a request the operator did not write, silently, which is the same reason a Sensitive
+            // field is refused rather than masked.
+            if (HasControlCharacter(value))
+            {
+                return ComposedRequest.Refused(
+                    $"Header '{name}' cannot be composed: a value in it contains a control character, "
+                    + "which could add another header to this request.");
+            }
+
+            headers[name] = value;
         }
 
         var isJson = definition.BodyContentType.Contains("json", StringComparison.OrdinalIgnoreCase);
         var body = definition.BodyTemplate is null
             ? null
-            : Substitute(definition.BodyTemplate, content, isJson ? Escaping.Json : Escaping.None);
+            : Substitute(definition.BodyTemplate, content, query.Rows, isJson ? Escaping.Json : Escaping.None);
 
         if (body is not null && isJson)
         {
@@ -124,6 +147,12 @@ internal sealed class RequestComposer : IRequestComposer
     /// Refusing beats redacting. The operator wrote <c>{{SSN}}</c> on purpose, and a request that
     /// silently posts <c>***</c> where they expected a value looks like it worked. They should be
     /// told the template cannot run, at the moment they can still change it.
+    ///
+    /// A <c>{{query.*}}</c> hole is checked separately, by <see cref="ResolveQueryAsync"/>, before
+    /// this runs: it needs a database round trip that this method, deliberately synchronous, cannot
+    /// make. Nothing here matches a schema field named "query.something", so those holes pass
+    /// through this check with nothing to say about them, which is correct: they already had their
+    /// chance to be refused.
     /// </remarks>
     private static string? Refuse(IEnumerable<string> templates, ContentTypeDefinition schema)
     {
@@ -132,15 +161,6 @@ internal sealed class RequestComposer : IRequestComposer
             foreach (Match match in Hole.Matches(template ?? string.Empty))
             {
                 var name = match.Groups[1].Value;
-
-                if (name.StartsWith("query.", StringComparison.OrdinalIgnoreCase))
-                {
-                    // Not silently left as a literal. Posting the text "{{query.rows}}" to a third
-                    // party is worse than not running: it looks like a delivery and is a defect.
-                    return $"'{match.Value}' needs a query, and queries are not implemented yet (#328). "
-                         + "Remove it or wait for that.";
-                }
-
                 var field = FieldFor(name, schema);
                 if (field is not null && field.Sensitivity != SensitivityLevel.Public)
                 {
@@ -152,6 +172,108 @@ internal sealed class RequestComposer : IRequestComposer
         }
 
         return null;
+    }
+
+    /// <summary>The rows a <c>{{query.*}}</c> hole may draw from, or the reason none may run.</summary>
+    private readonly record struct QueryContext(IReadOnlyList<Dictionary<string, object>> Rows, string? Refusal)
+    {
+        public static readonly QueryContext None = new([], null);
+    }
+
+    /// <summary>
+    /// Resolves <see cref="RequestDefinition.QuerySlug"/> and runs it, if any template needs it.
+    /// </summary>
+    /// <remarks>
+    /// Run at most once per compose, however many <c>{{query.*}}</c> holes reference it, and not at
+    /// all when none do: a request with a <c>QuerySlug</c> but no hole naming it should not pay for
+    /// a query nothing in the message uses.
+    ///
+    /// <see cref="IQueryRunner.RunAsync"/> re-validates the definition against the current schema
+    /// before running it, the same as the preview and manual-run endpoints do, so a field raised to
+    /// Sensitive after the query was saved is caught here too, not only in the admin screen that
+    /// saved it.
+    /// </remarks>
+    private async Task<QueryContext> ResolveQueryAsync(
+        RequestDefinition definition, List<string> templates, CancellationToken ct)
+    {
+        var names = new List<string>();
+        foreach (var template in templates)
+        {
+            foreach (Match match in Hole.Matches(template ?? string.Empty))
+            {
+                var name = match.Groups[1].Value;
+                if (name.StartsWith("query.", StringComparison.OrdinalIgnoreCase))
+                {
+                    names.Add(name);
+                }
+            }
+        }
+
+        if (names.Count == 0) return QueryContext.None;
+
+        // The first hole found names the refusal, which is enough to act on and reads better than a
+        // refusal that lists every hole that happens to share the same underlying problem.
+        var hole = "{{" + names[0] + "}}";
+
+        if (string.IsNullOrWhiteSpace(definition.QuerySlug))
+        {
+            return new QueryContext([], $"'{hole}' needs a query, and this request does not name one. "
+                + "Set QuerySlug or remove the hole.");
+        }
+
+        var queryDefinition = await _session.Query<QueryDefinition>()
+            .FirstOrDefaultAsync(q => q.Slug == definition.QuerySlug, ct);
+
+        if (queryDefinition is null)
+        {
+            return new QueryContext([], $"'{hole}' needs a query, and '{definition.QuerySlug}' does not exist.");
+        }
+
+        var result = await _queryRunner.RunAsync(queryDefinition, ct);
+        if (!result.Ok)
+        {
+            return new QueryContext([], $"'{hole}' cannot run: {result.Refusal}");
+        }
+
+        // Every field named must be either "rows" or on the query's own allowlist. QueryRunner
+        // already restricts what a row can hold to that allowlist; this is what stops a template
+        // asking for a field the query never selected in the first place, which QueryRunner has no
+        // way to refuse because it never sees the templates.
+        foreach (var name in names.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            var field = name["query.".Length..];
+            if (string.Equals(field, "rows", StringComparison.OrdinalIgnoreCase)) continue;
+
+            if (!queryDefinition.Fields.Any(f => string.Equals(f, field, StringComparison.OrdinalIgnoreCase)))
+            {
+                var available = string.Join(", ", new[] { "rows" }.Concat(queryDefinition.Fields));
+                var thisHole = "{{" + name + "}}";
+                return new QueryContext([], $"'{thisHole}' needs a query, and "
+                    + $"'{definition.QuerySlug}' does not select '{field}'. It returns: {available}.");
+            }
+        }
+
+        // A scalar hole with no rows to draw from is refused rather than composed as an empty
+        // string. Composing it would make "the query matched nothing" and "the field is genuinely
+        // empty" produce the identical value, and there is no way for whoever reads the sent request
+        // to tell those apart afterwards. {{query.rows}} does not need this: an empty array is a
+        // real, distinguishable answer to "how many rows matched", so it is excluded above.
+        if (result.Rows.Count == 0)
+        {
+            foreach (var name in names.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                var field = name["query.".Length..];
+                if (string.Equals(field, "rows", StringComparison.OrdinalIgnoreCase)) continue;
+
+                var thisHole = "{{" + name + "}}";
+                return new QueryContext([], $"'{thisHole}' needs a query, and "
+                    + $"'{definition.QuerySlug}' matched no rows. A single field has no value to "
+                    + "compose when there are no rows: use {{query.rows}} for an empty array instead, "
+                    + "or change the query so it matches something.");
+            }
+        }
+
+        return new QueryContext(result.Rows, null);
     }
 
     /// <summary>The schema field a variable names, or null when it names a system variable.</summary>
@@ -166,6 +288,23 @@ internal sealed class RequestComposer : IRequestComposer
 
     private enum Escaping { None, Json, Url }
 
+    /// <summary>Whether a composed header value carries anything that is not a printable character.</summary>
+    /// <remarks>
+    /// Not just <c>\r</c> and <c>\n</c>: <see cref="char.IsControl(char)"/> covers the whole C0 and
+    /// C1 range, because a header value has no legitimate reason to carry any of it, and narrowing
+    /// the check to the two characters a particular HTTP client happens to split on is how the next
+    /// client's parser becomes the next bypass.
+    /// </remarks>
+    private static bool HasControlCharacter(string value)
+    {
+        foreach (var c in value)
+        {
+            if (char.IsControl(c)) return true;
+        }
+
+        return false;
+    }
+
     /// <summary>
     /// Substitutes each hole with its value, escaped for where it lands.
     /// </summary>
@@ -177,11 +316,19 @@ internal sealed class RequestComposer : IRequestComposer
     /// write. That is injection wearing a different costume. The variable names here are the same
     /// ones it resolves, deliberately, so an operator moves a template between the two unchanged.
     /// </remarks>
-    private string Substitute(string template, Content content, Escaping escaping)
+    private string Substitute(
+        string template, Content content, IReadOnlyList<Dictionary<string, object>> queryRows, Escaping escaping)
     {
         return Hole.Replace(template, match =>
         {
-            var raw = Value(match.Groups[1].Value, content);
+            var name = match.Groups[1].Value;
+
+            if (name.StartsWith("query.", StringComparison.OrdinalIgnoreCase))
+            {
+                return SubstituteQuery(name["query.".Length..], queryRows, escaping);
+            }
+
+            var raw = Value(name, content);
             if (raw is null) return match.Value;
 
             return escaping switch
@@ -194,6 +341,43 @@ internal sealed class RequestComposer : IRequestComposer
             };
         });
     }
+
+    /// <summary>
+    /// The value for a <c>{{query.*}}</c> hole. <see cref="ResolveQueryAsync"/> has already refused
+    /// anything that is not "rows" or one of the query's own fields, and a scalar field when there
+    /// were no rows to read one from, so this only has to produce it.
+    /// </summary>
+    /// <remarks>
+    /// <c>rows</c> is the one case not re-escaped as a JSON string in a JSON body: it is already a
+    /// JSON array, produced by the same projection the preview endpoint returns, and JSON-encoding
+    /// that array as a string would hand the recipient a string full of JSON rather than an array. A
+    /// scalar field is read from the first row, which <see cref="ResolveQueryAsync"/> guarantees
+    /// exists by this point, and treated exactly like a content field: an empty string means the
+    /// field itself was empty on that row, not that the query matched nothing, because that
+    /// ambiguity is exactly what the caller already refused to compose.
+    /// </remarks>
+    private static string SubstituteQuery(
+        string field, IReadOnlyList<Dictionary<string, object>> rows, Escaping escaping)
+    {
+        if (string.Equals(field, "rows", StringComparison.OrdinalIgnoreCase))
+        {
+            var json = JsonSerializer.Serialize(rows);
+            return escaping == Escaping.Url ? Uri.EscapeDataString(json) : json;
+        }
+
+        var value = FieldValue(rows[0], field);
+        if (value is null) return string.Empty;
+
+        return escaping switch
+        {
+            Escaping.Json => JsonEncodedText.Encode(value).ToString(),
+            Escaping.Url => Uri.EscapeDataString(value),
+            _ => value,
+        };
+    }
+
+    private static string? FieldValue(Dictionary<string, object> row, string field) =>
+        row.TryGetValue(field, out var value) ? value?.ToString() : null;
 
     private string? Value(string name, Content content)
     {
