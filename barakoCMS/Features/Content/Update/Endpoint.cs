@@ -218,11 +218,18 @@ internal class Endpoint : Endpoint<Request, Response>
             // write anyone can reason about.
             await _contentWriter.AppendAsync(existingContent, events, req.Version == 0 ? null : req.Version, ct);
 
-            // After the writer, not before. IContentWriter's document-mode path re-loads the document
-            // internally to copy committed state onto the caller's instance before its own Store, and
-            // that second load is what this has to win against: registering the expected version any
-            // earlier gets superseded by it, and the check would silently never fire. Verified in the
-            // mutation check on this PR: disabling this line leaves
+            // ORDERING REQUIREMENT, not enforced by the compiler: this call has to stay after
+            // _contentWriter.AppendAsync above and before _session.SaveChangesAsync below, and
+            // `expected` has to stay the value read at line ~176 (`currentMetadata =
+            // MetadataForAsync(existingContent, ...)`), which runs *before* the writer touches
+            // anything. Move the read to after the append, or compute expectedDocVersion from a
+            // fresh MetadataForAsync call made here instead, and the value bound is whatever this
+            // same write just produced: the check would compare the write against itself, always
+            // match, and never fail. Move this call earlier than the append and it is superseded:
+            // IContentWriter's document-mode path re-loads the document internally to copy committed
+            // state onto the caller's instance before its own Store, and that second load is what
+            // this has to win against, or the registration is silently discarded before it ever
+            // reaches Marten. Verified in the mutation check on this PR: disabling this line leaves
             // ContentConcurrencyTests.Two_racing_updates_with_no_version_sent_one_succeeds_one_is_refused
             // red (the write silently wins instead of the second writer being refused) while the rest
             // of the class stays green, since the stale-If-Match case is refused earlier, above.

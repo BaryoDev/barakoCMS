@@ -133,6 +133,31 @@ public class ContentConcurrencyTests
         return response.Headers.ETag!;
     }
 
+    /// <summary>An event-sourced content type has to be declared before its first entry.</summary>
+    private static async Task<Guid> CreateEventSourcedContentAsync(HttpClient client, string title = "original")
+    {
+        var type = NewTypeName();
+        var typeResponse = await client.PostAsJsonAsync("/api/content-types", new
+        {
+            name = type,
+            displayName = type,
+            eventSourced = true,
+            fields = new[] { new { name = "Title", type = "Text" } },
+        }, TestContext.Current.CancellationToken);
+        typeResponse.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}",
+            typeResponse.StatusCode, await typeResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+
+        var createResp = await client.PostAsJsonAsync("/api/contents", new
+        {
+            contentType = type,
+            data = new Dictionary<string, object> { ["Title"] = title },
+        }, TestContext.Current.CancellationToken);
+        createResp.EnsureSuccessStatusCode();
+        var created = await createResp.Content.ReadFromJsonAsync<barakoCMS.Features.Content.Create.Response>(
+            cancellationToken: TestContext.Current.CancellationToken);
+        return created!.Id;
+    }
+
     [Fact]
     public async Task Get_returns_an_ETag_that_a_matching_If_Match_PUT_accepts()
     {
@@ -155,6 +180,25 @@ public class ContentConcurrencyTests
 
         response.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}",
             response.StatusCode, await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+    }
+
+    /// <summary>
+    /// An event-sourced type's PUT does not consult If-Match at all (D3's own expected-version check
+    /// on the stream already guards it), so GET must not promise a precondition the write side never
+    /// checks. A client doing correct read-modify-write against one would otherwise believe it was
+    /// protected when nothing was.
+    /// </summary>
+    [Fact]
+    public async Task Get_omits_the_ETag_for_an_event_sourced_type()
+    {
+        var client = await AuthenticatedClientAsync();
+        var id = await CreateEventSourcedContentAsync(client);
+
+        var response = await client.GetAsync($"/api/contents/{id}", TestContext.Current.CancellationToken);
+
+        response.EnsureSuccessStatusCode();
+        response.Headers.ETag.Should().BeNull(
+            "PUT ignores If-Match on an event-sourced type, so GET must not offer one");
     }
 
     [Fact]
