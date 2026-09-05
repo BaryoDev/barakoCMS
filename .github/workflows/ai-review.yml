@@ -1,0 +1,85 @@
+# A second-opinion review, asked for rather than given.
+#
+# #467 turned off CodeRabbit's automatic review for the same reason this one is manual: a review on
+# every push spends a shared allowance on pull requests nobody was waiting for. The rule here is the
+# same. Comment `/ai-review` on a pull request when a second opinion on the finished thing is
+# wanted, and nothing runs otherwise.
+#
+# Only people with write access can trigger it. Without that check any drive-by comment on any pull
+# request would spend the account's tokens, and a fork's pull request is exactly where that would be
+# noticed last.
+name: AI review
+
+on:
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number to review
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: write
+
+# One review at a time per pull request. Two comments arriving together would otherwise pay for the
+# same review twice and post it twice.
+concurrency:
+  group: ai-review-${{ github.repository }}-${{ github.event.issue.number || inputs.pr }}
+  cancel-in-progress: false
+
+jobs:
+  review:
+    # Pull requests only, the command spelled exactly, and only from somebody who can already push.
+    # `startsWith` on its own would fire on `/ai-review-later` and on a comment arguing against
+    # asking for one.
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.issue.pull_request &&
+       (github.event.comment.body == '/ai-review' ||
+        startsWith(github.event.comment.body, '/ai-review ')) &&
+       contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Say it started
+        # The comment that asked for this gets a reaction rather than a reply. A review takes a
+        # minute or two and silence for that long reads as a workflow that did not fire, which is
+        # what the self-assign workflow learned the hard way.
+        if: github.event_name == 'issue_comment'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: |
+          gh api --method POST \
+            "repos/$REPO/issues/comments/$COMMENT_ID/reactions" \
+            -f content=eyes --silent || true
+
+      - name: Fetch the diff
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.issue.number || inputs.pr }}
+        run: |
+          set -euo pipefail
+          case "$PR" in
+            ''|*[!0-9]*) echo "ai-review: '$PR' is not a pull request number"; exit 1 ;;
+          esac
+          gh pr diff "$PR" --repo "$REPO" > pr.diff
+          wc -c pr.diff
+
+      - name: Review it
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # Set with: gh variable set OPENAI_MODEL --repo <owner>/<repo> --body <model-id>
+          # Left unset, the script picks the balanced tier. Model names turn over every few months,
+          # which is why this is a variable and not a line in this file.
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.issue.number || inputs.pr }}
+          PR_DIFF_FILE: pr.diff
+        run: python3 .github/scripts/ai_review.py
