@@ -1113,11 +1113,50 @@ public class CapabilityGateTests
         required.Should().OnlyContain(capability => barakoCMS.Models.SystemCapabilities.IsKnown(capability));
     }
 
+    /// <summary>
+    /// The Files module's one capability opens the media library routes as well as the upload, and
+    /// a role name the seeder never made opens none of them.
+    /// </summary>
+    /// <remarks>
+    /// One grant rather than a read/write split: whoever can upload can already publish a file
+    /// anonymously on the deployment's domain, and describing or removing one is the same
+    /// editorial surface. The module declares the name, so this is the only place a runtime role
+    /// holding it is presented to the gate.
+    /// </remarks>
+    [Fact]
+    public async Task Upload_files_opens_the_media_library_and_a_name_alone_does_not()
+    {
+        var (client, _) = await CallerHolding("Media Editor", BarakoCMS.Files.FileCapabilities.UploadFiles);
+
+        var list = await client.GetAsync("/api/files", TestContext.Current.CancellationToken);
+        var meta = await client.GetAsync($"/api/files/{Guid.NewGuid()}/meta", TestContext.Current.CancellationToken);
+        var usage = await client.GetAsync($"/api/files/{Guid.NewGuid()}/usage", TestContext.Current.CancellationToken);
+        var update = await client.SendAsync(
+            Probe("PATCH", $"/api/files/{Guid.NewGuid()}"), TestContext.Current.CancellationToken);
+        var remove = await client.SendAsync(
+            Probe("DELETE", $"/api/files/{Guid.NewGuid()}"), TestContext.Current.CancellationToken);
+
+        list.StatusCode.Should().Be(HttpStatusCode.OK);
+        meta.StatusCode.Should().Be(HttpStatusCode.NotFound, "the gate is passed and the id is what refuses it");
+        usage.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        update.StatusCode.Should().Be(HttpStatusCode.BadRequest, "the gate is passed and the invalid body is what refuses it");
+        remove.StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+        var (named, _) = await CallerHolding("Media Team");
+
+        var namedList = await named.GetAsync("/api/files", TestContext.Current.CancellationToken);
+        var namedRemove = await named.SendAsync(
+            Probe("DELETE", $"/api/files/{Guid.NewGuid()}"), TestContext.Current.CancellationToken);
+
+        namedList.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        namedRemove.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
     private static HttpRequestMessage Probe(string verb, string path)
     {
         var request = new HttpRequestMessage(new HttpMethod(verb), path);
 
-        if (verb is "POST" or "PUT")
+        if (verb is "POST" or "PUT" or "PATCH")
         {
             // Deliberately not valid JSON, as in RoleGateTests: the gate refuses before a binding
             // failure is answered, and an allowed caller then gets a 400 that mutates nothing.
