@@ -87,7 +87,22 @@ internal sealed class RequestComposer : IRequestComposer
         var headers = new Dictionary<string, string>(definition.HeaderTemplates.Count);
         foreach (var (name, template) in definition.HeaderTemplates)
         {
-            headers[name] = Substitute(template, content, query.Rows, Escaping.None);
+            var value = Substitute(template, content, query.Rows, Escaping.None);
+
+            // Refused rather than stripped. A header has no quoting to fall back to the way a JSON
+            // body does, so a value here reaches the sender's TryAddWithoutValidation exactly as
+            // composed, and "safe\r\nX-Injected: evil" becomes a second header on a call sent with
+            // the connector's own credentials attached. Stripping the control character would send
+            // a request the operator did not write, silently, which is the same reason a Sensitive
+            // field is refused rather than masked.
+            if (HasControlCharacter(value))
+            {
+                return ComposedRequest.Refused(
+                    $"Header '{name}' cannot be composed: a value in it contains a control character, "
+                    + "which could add another header to this request.");
+            }
+
+            headers[name] = value;
         }
 
         var isJson = definition.BodyContentType.Contains("json", StringComparison.OrdinalIgnoreCase);
@@ -238,6 +253,26 @@ internal sealed class RequestComposer : IRequestComposer
             }
         }
 
+        // A scalar hole with no rows to draw from is refused rather than composed as an empty
+        // string. Composing it would make "the query matched nothing" and "the field is genuinely
+        // empty" produce the identical value, and there is no way for whoever reads the sent request
+        // to tell those apart afterwards. {{query.rows}} does not need this: an empty array is a
+        // real, distinguishable answer to "how many rows matched", so it is excluded above.
+        if (result.Rows.Count == 0)
+        {
+            foreach (var name in names.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                var field = name["query.".Length..];
+                if (string.Equals(field, "rows", StringComparison.OrdinalIgnoreCase)) continue;
+
+                var thisHole = "{{" + name + "}}";
+                return new QueryContext([], $"'{thisHole}' needs a query, and "
+                    + $"'{definition.QuerySlug}' matched no rows. A single field has no value to "
+                    + "compose when there are no rows: use {{query.rows}} for an empty array instead, "
+                    + "or change the query so it matches something.");
+            }
+        }
+
         return new QueryContext(result.Rows, null);
     }
 
@@ -252,6 +287,23 @@ internal sealed class RequestComposer : IRequestComposer
     }
 
     private enum Escaping { None, Json, Url }
+
+    /// <summary>Whether a composed header value carries anything that is not a printable character.</summary>
+    /// <remarks>
+    /// Not just <c>\r</c> and <c>\n</c>: <see cref="char.IsControl(char)"/> covers the whole C0 and
+    /// C1 range, because a header value has no legitimate reason to carry any of it, and narrowing
+    /// the check to the two characters a particular HTTP client happens to split on is how the next
+    /// client's parser becomes the next bypass.
+    /// </remarks>
+    private static bool HasControlCharacter(string value)
+    {
+        foreach (var c in value)
+        {
+            if (char.IsControl(c)) return true;
+        }
+
+        return false;
+    }
 
     /// <summary>
     /// Substitutes each hole with its value, escaped for where it lands.
@@ -292,15 +344,17 @@ internal sealed class RequestComposer : IRequestComposer
 
     /// <summary>
     /// The value for a <c>{{query.*}}</c> hole. <see cref="ResolveQueryAsync"/> has already refused
-    /// anything that is not "rows" or one of the query's own fields, so this only has to produce it.
+    /// anything that is not "rows" or one of the query's own fields, and a scalar field when there
+    /// were no rows to read one from, so this only has to produce it.
     /// </summary>
     /// <remarks>
     /// <c>rows</c> is the one case not re-escaped as a JSON string in a JSON body: it is already a
     /// JSON array, produced by the same projection the preview endpoint returns, and JSON-encoding
     /// that array as a string would hand the recipient a string full of JSON rather than an array. A
-    /// scalar field is treated exactly like a content field: read from the first row, escaped for
-    /// where it lands, and an empty string rather than the literal hole when there is no first row,
-    /// because "the query matched nothing" is an answer, not a typo.
+    /// scalar field is read from the first row, which <see cref="ResolveQueryAsync"/> guarantees
+    /// exists by this point, and treated exactly like a content field: an empty string means the
+    /// field itself was empty on that row, not that the query matched nothing, because that
+    /// ambiguity is exactly what the caller already refused to compose.
     /// </remarks>
     private static string SubstituteQuery(
         string field, IReadOnlyList<Dictionary<string, object>> rows, Escaping escaping)
@@ -311,7 +365,7 @@ internal sealed class RequestComposer : IRequestComposer
             return escaping == Escaping.Url ? Uri.EscapeDataString(json) : json;
         }
 
-        var value = rows.Count == 0 ? null : FieldValue(rows[0], field);
+        var value = FieldValue(rows[0], field);
         if (value is null) return string.Empty;
 
         return escaping switch

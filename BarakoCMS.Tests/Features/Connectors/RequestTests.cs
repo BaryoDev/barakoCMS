@@ -270,6 +270,94 @@ public class RequestTests
     }
 
     /// <summary>
+    /// A content field carrying a line break is refused rather than sent, when it lands in a header.
+    /// </summary>
+    /// <remarks>
+    /// A header has no quoting to fall back to: a value of <c>"safe\r\nX-Injected: evil"</c> reaches
+    /// the sender's <c>TryAddWithoutValidation</c> exactly as composed, and becomes a second header
+    /// on a call sent with the connector's own credentials attached, whoever supplied the value.
+    /// This predates queries; the fix is one check on every composed header, not one path through it.
+    /// </remarks>
+    [Fact]
+    public async Task A_content_field_carrying_a_line_break_is_refused_in_a_header()
+    {
+        var client = await AdminClient();
+        var hostile = "safe\r\nX-Injected: evil";
+        var (_, id) = await SeedContentAsync(sensitiveField: false, title: hostile);
+        await SeedConnectorAsync(client);
+        var slug = await SaveRequestAsync(
+            client, body: null, headerTemplates: new() { ["X-Custom"] = "{{Title}}" });
+
+        var dry = await DryRunAsync(client, slug, id);
+
+        dry.GetProperty("wouldSend").GetBoolean().Should().BeFalse(
+            "a line break in a header value could forge a second header on the real request");
+        var refusal = dry.GetProperty("refusal").GetString()!;
+        refusal.Should().Contain("X-Custom", "the operator has to know which header was refused");
+        refusal.Should().NotContain("X-Injected",
+            "the refusal names the header, never the value that broke it");
+    }
+
+    /// <summary>
+    /// A query field reaches a header exactly like a content field, and the same refusal catches it.
+    /// </summary>
+    /// <remarks>
+    /// This is the shape the review that asked for this test actually demonstrated: a content field
+    /// selected by a query, surfaced through <c>{{query.SomeField}}</c> in a header template, sent
+    /// through a real <c>HttpClient</c> against a loopback server, and received as two headers.
+    /// </remarks>
+    [Fact]
+    public async Task A_query_field_carrying_a_line_break_is_refused_in_a_header()
+    {
+        var client = await AdminClient();
+        var hostile = "safe\r\nX-Injected: evil";
+        var (type, id, _) = await SeedQueryableContentAsync(rowCount: 0, triggerTitle: hostile);
+        await SeedConnectorAsync(client);
+        var querySlug = await SaveQueryAsync(client, type, fields: ["Title"]);
+        var slug = await SaveRequestAsync(
+            client, body: null, querySlug: querySlug, headerTemplates: new() { ["X-Custom"] = "{{query.Title}}" });
+
+        var dry = await DryRunAsync(client, slug, id);
+
+        dry.GetProperty("wouldSend").GetBoolean().Should().BeFalse(
+            "a line break from a query field is exactly as dangerous in a header as one from content");
+        var refusal = dry.GetProperty("refusal").GetString()!;
+        refusal.Should().Contain("X-Custom");
+        refusal.Should().NotContain("X-Injected");
+    }
+
+    /// <summary>
+    /// A scalar query field is refused when the query matched no rows, rather than composing empty.
+    /// </summary>
+    /// <remarks>
+    /// Composing empty would make "the query matched nothing" and "the field is genuinely empty"
+    /// produce the identical value, with nothing in the sent request to tell them apart afterwards.
+    /// For a payload a payment or accounting provider reads, that is a silent wrong value, which is
+    /// the failure this whole composer exists to avoid. <c>{{query.rows}}</c> does not need this: an
+    /// empty array is still a real, distinguishable answer to "how many rows matched".
+    /// </remarks>
+    [Fact]
+    public async Task A_scalar_query_field_is_refused_when_the_query_matched_no_rows()
+    {
+        var client = await AdminClient();
+        var (type, id) = await SeedContentAsync(sensitiveField: false);
+        await SeedConnectorAsync(client);
+        // No filters, but a ContentType that has nothing stored for it, so the query is well formed
+        // and simply matches zero rows rather than being refused for some other reason.
+        var emptyType = NewSlug("empty");
+        await SeedEmptyContentTypeAsync(emptyType);
+        var querySlug = await SaveQueryAsync(client, emptyType, fields: ["Title"]);
+        var slug = await SaveRequestAsync(
+            client, body: "{\"x\":\"{{query.Title}}\"}", querySlug: querySlug);
+
+        var dry = await DryRunAsync(client, slug, id);
+
+        dry.GetProperty("wouldSend").GetBoolean().Should().BeFalse(
+            "a single field has no value to compose when the query matched nothing");
+        dry.GetProperty("refusal").GetString().Should().Contain("matched no rows");
+    }
+
+    /// <summary>
     /// A query is invisible to a request composed in a different tenant, even one holding the exact
     /// same slug.
     /// </summary>
@@ -532,7 +620,8 @@ public class RequestTests
     }
 
     private async Task<string> SaveRequestAsync(
-        HttpClient client, string? body, string path = "/feed", string? querySlug = null)
+        HttpClient client, string? body, string path = "/feed", string? querySlug = null,
+        Dictionary<string, string>? headerTemplates = null)
     {
         var slug = NewSlug("req");
 
@@ -543,6 +632,7 @@ public class RequestTests
             connectorSlug = _connectorSlug,
             method = "POST",
             pathTemplate = path,
+            headerTemplates = headerTemplates ?? new Dictionary<string, string>(),
             bodyTemplate = body,
             querySlug,
         }, TestContext.Current.CancellationToken);
@@ -687,5 +777,25 @@ public class RequestTests
 
         await session.SaveChangesAsync(TestContext.Current.CancellationToken);
         return (type, triggerId, titles);
+    }
+
+    /// <summary>A content type with a Public Title field and nothing stored of it, so a query
+    /// against it is well formed and simply matches zero rows.</summary>
+    private async Task SeedEmptyContentTypeAsync(string type)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+
+        session.Store(new ContentTypeDefinition
+        {
+            Id = Guid.NewGuid(),
+            Name = type,
+            DisplayName = "Empty",
+            Fields = [new FieldDefinition { Name = "Title", Type = "string" }],
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+        });
+
+        await session.SaveChangesAsync(TestContext.Current.CancellationToken);
     }
 }
