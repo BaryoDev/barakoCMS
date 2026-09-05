@@ -52,7 +52,7 @@ def die(msg: str) -> None:
     sys.exit(1)
 
 
-def post_json(url: str, payload: dict, headers: dict) -> dict:
+def post_json(url: str, payload: dict, headers: dict, model_hint: str = "that model") -> dict:
     body = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(url, data=body, headers=headers, method="POST")
     try:
@@ -60,8 +60,26 @@ def post_json(url: str, payload: dict, headers: dict) -> dict:
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         detail = e.read().decode("utf-8", "replace")[:800]
+        host = url.split("/")[2]
+        # Two failures worth naming, because the raw body sends you to the wrong place.
+        #
+        # A 429 is normally "slow down", so it reads as something that will pass on a retry. From
+        # this endpoint it is usually "no credits", which no retry fixes.
+        if e.code == 429 and "credit" in detail.lower():
+            die(
+                "the OpenAI account has no credits left, so no review ran. This is not a rate "
+                "limit and retrying will not help. Add credits, or point OPENAI_API_KEY at a "
+                "project that has them."
+            )
+        # The codex models are the obvious pick for reviewing code and they are the ones that do
+        # not work here: they are served by /v1/responses, not by chat completions.
+        if e.code == 404 and "v1/responses" in detail:
+            die(
+                f"{model_hint} is not served by the chat completions endpoint. Set OPENAI_MODEL "
+                "to a model that is, such as one of the gpt-5.6 tiers."
+            )
         # The key is in a header, never in the body, so this cannot print it.
-        die(f"{url.split('/')[2]} returned {e.code}: {detail}")
+        die(f"{host} returned {e.code}: {detail}")
     except urllib.error.URLError as e:
         die(f"could not reach {url.split('/')[2]}: {e.reason}")
 
@@ -107,6 +125,7 @@ def main() -> None:
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         },
+        model_hint=model,
     )
 
     try:
