@@ -360,11 +360,11 @@ internal sealed class WorkflowRunner : BackgroundService
         {
             timer.Stop();
 
-            // The type and message, never the exception. A provider's error body can carry the
+            // Keep the exception message in logs only. A provider's error body can carry the
             // credential that was sent, and this string is stored, served over the API and shown in
             // the admin.
             _logger.LogWarning(ex, "Workflow action {Type} failed in run {RunId}", attempt.ActionType, run.Id);
-            return new Outcome(AttemptStatus.Failed, Truncate($"{ex.GetType().Name}: {ex.Message}"), timer.ElapsedMilliseconds);
+            return new Outcome(AttemptStatus.Failed, ex.GetType().Name, timer.ElapsedMilliseconds);
         }
     }
 
