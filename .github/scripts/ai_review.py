@@ -9,9 +9,14 @@ deliberately narrow: a model given "review this code" returns style opinions, an
 settled by the analyzers. Given a fixed checklist it either answers a question or says it cannot,
 and an answer with a line number is one somebody can check.
 
+Every provider worth using speaks the OpenAI chat-completions shape, so the endpoint is a setting
+rather than a constant. Point it at whichever one has quota.
+
 Environment:
   OPENAI_API_KEY   required, from the repository secret of the same name
-  OPENAI_MODEL     model id, defaults to the balanced tier
+  OPENAI_MODEL     model id, defaults to the balanced OpenAI tier
+  OPENAI_BASE_URL  API root, defaults to OpenAI. Set it to use a different provider, for example
+                   https://generativelanguage.googleapis.com/v1beta/openai for Gemini
   PR_DIFF_FILE     path to the unified diff to review
   PR_NUMBER        the pull request being reviewed
   GITHUB_REPOSITORY, GITHUB_TOKEN  for posting the comment
@@ -65,11 +70,12 @@ def post_json(url: str, payload: dict, headers: dict, model_hint: str = "that mo
         #
         # A 429 is normally "slow down", so it reads as something that will pass on a retry. From
         # this endpoint it is usually "no credits", which no retry fixes.
-        if e.code == 429 and "credit" in detail.lower():
+        if e.code == 429 and ("credit" in detail.lower() or "quota" in detail.lower()):
             die(
-                "the OpenAI account has no credits left, so no review ran. This is not a rate "
-                "limit and retrying will not help. Add credits, or point OPENAI_API_KEY at a "
-                "project that has them."
+                "the account has no quota left, so no review ran. This is not a rate limit and "
+                "retrying will not help. On OpenAI the daily free allowance only exists once data "
+                "sharing is turned on for that project; otherwise the project needs credits. Or "
+                "set OPENAI_BASE_URL to a provider that has quota."
             )
         # The codex models are the obvious pick for reviewing code and they are the ones that do
         # not work here: they are served by /v1/responses, not by chat completions.
@@ -90,6 +96,7 @@ def main() -> None:
         die("OPENAI_API_KEY is not set. Add it with: gh secret set OPENAI_API_KEY --repo <owner>/<repo>")
 
     model = os.environ.get("OPENAI_MODEL") or "gpt-5.6-terra"
+    base_url = (os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1").rstrip("/")
     pr_number = os.environ.get("PR_NUMBER") or die("PR_NUMBER is not set")
     repo = os.environ.get("GITHUB_REPOSITORY") or die("GITHUB_REPOSITORY is not set")
     gh_token = os.environ.get("GITHUB_TOKEN") or die("GITHUB_TOKEN is not set")
@@ -113,7 +120,7 @@ def main() -> None:
         )
 
     result = post_json(
-        "https://api.openai.com/v1/chat/completions",
+        f"{base_url}/chat/completions",
         {
             "model": model,
             "messages": [

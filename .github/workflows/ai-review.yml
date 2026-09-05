@@ -79,6 +79,9 @@ jobs:
           # Left unset, the script picks the balanced tier. Model names turn over every few months,
           # which is why this is a variable and not a line in this file.
           OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
+          # Any provider speaking the OpenAI chat-completions shape works. Left unset it is OpenAI.
+          # Set with: gh variable set OPENAI_BASE_URL --repo <owner>/<repo> --body <url>
+          OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.issue.number || inputs.pr }}
           PR_DIFF_FILE: pr.diff
