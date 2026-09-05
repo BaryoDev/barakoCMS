@@ -270,9 +270,18 @@ internal static class PublicDelivery
     /*
      * Short cache window: long enough for a CDN to absorb bursts, short enough that a publish shows up
      * quickly. A publish-triggered rebuild (SSG) is the real freshness mechanism.
+     *
+     * Vary: X-Tenant, because TenantResolutionMiddleware reads that header before it reads Host, and
+     * the response is built entirely from the resolved tenant. A shared cache keyed on URL alone,
+     * fronting a header- or path-routed deployment (the front end sets X-Tenant from the URL handle;
+     * see docs/multi-tenancy.md), would serve one tenant's response to another. A conforming cache
+     * only has to honour Vary if it is configured to: see docs/deploy-in-production.md.
      */
-    public static void SetCache(HttpContext http) =>
+    public static void SetCache(HttpContext http)
+    {
         http.Response.Headers.CacheControl = "public, max-age=60";
+        http.Response.Headers.Vary = barakoCMS.Infrastructure.Multitenancy.TenantResolutionMiddleware.TenantHeader;
+    }
 }
 
 internal sealed class PublicListRequest : PaginatedRequest { }
@@ -468,6 +477,9 @@ internal class PublicSearchEndpoint : EndpointWithoutRequest<PublicSearchRespons
 
         if (q.Length < 2)
         {
+            // Otherwise this 200 went out with no cache header at all, the same gap #546 closed
+            // for the stream: nothing here says whether or how an intermediary may store it.
+            PublicDelivery.SetCache(HttpContext);
             await Send.OkAsync(new PublicSearchResponse(Array.Empty<PublicContentResponse>(), 0, q), ct);
             return;
         }

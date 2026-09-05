@@ -44,6 +44,24 @@ internal sealed class StreamEndpoint : EndpointWithoutRequest
 
     public override async Task HandleAsync(CancellationToken ct)
     {
+        // A stream, never a cached response: no-store outright, not the short max-age the rest of
+        // Features/Public uses. Registered on OnStarting, not set directly, because
+        // Send.EventStreamAsync (FastEndpoints) sets its own Cache-Control: no-cache on the success
+        // path after this method runs, which would otherwise overwrite ours; OnStarting callbacks
+        // fire immediately before headers actually go out, so this one runs last regardless of what
+        // set the header earlier. Applies to every outcome alike (404 while off, 400 on too many
+        // types, 503 at a connection cap, and the stream itself), since it fires whenever headers
+        // are about to be sent, not only for a 200. Vary: X-Tenant goes out too, for consistency
+        // with the rest of the surface, though a cache that honours no-store never needs it. See
+        // docs/delivery-api.md for what a proxy in front of this route has to be configured to do,
+        // which is more than "do not cache".
+        HttpContext.Response.OnStarting(() =>
+        {
+            HttpContext.Response.Headers.CacheControl = "no-store";
+            HttpContext.Response.Headers.Vary = barakoCMS.Infrastructure.Multitenancy.TenantResolutionMiddleware.TenantHeader;
+            return Task.CompletedTask;
+        });
+
         if (!_options.Enabled)
         {
             await Send.NotFoundAsync(ct);

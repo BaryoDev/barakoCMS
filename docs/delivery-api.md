@@ -15,8 +15,12 @@ Any field the content type marks as something other than `Public` is stripped fr
 A type that has not opted in and a type that does not exist both return 404. That is deliberate:
 answering differently would confirm which types exist.
 
-Responses carry `Cache-Control: public, max-age=60`. The one exception is a slug read served under a
-valid `?preview=` token, which is `no-store` because it can return an unpublished entry.
+Responses carry `Cache-Control: public, max-age=60` and `Vary: X-Tenant`, because the tenant can be
+resolved from the `X-Tenant` header (see `docs/multi-tenancy.md`) and the payload is built entirely
+from that tenant's content. The one exception is a slug read served under a valid `?preview=` token,
+which is `no-store` because it can return an unpublished entry. `Vary` tells a conforming cache to
+key on the header, but it is not a CDN setting on its own: see the caching section of
+`docs/deploy-in-production.md` for what the CDN itself has to be configured to do.
 
 **Preview tokens are minted through the API, not the admin.** `POST /api/preview` returns a token
 bound to a tenant, a content type and a slug. It is authenticated, and the caller also needs `read`
@@ -245,6 +249,18 @@ field `GET /api/public/{type}/{slug}` masks is masked here for the same reason: 
 function. `ContentEventStreamTests` asserts that directly against a Sensitive field.
 
 It is off by default. `Delivery:Events:Enabled` turns it on; while it is off the route is 404.
+
+**This route must never be cached.** Unlike every other route here it sends `Cache-Control: no-store`,
+not `max-age=60`, because a stream has no single response to cache: buffering one connection's frames
+and replaying them to a later request is wrong in a single tenant, and a cross-tenant version of the
+same mistake is the class of bug #546 exists to close. It sends `Vary: X-Tenant` too, for consistency
+with the rest of this surface, though a store honouring `no-store` never needs it. A reverse proxy or
+CDN placed in front of this route has to be told two separate things: not to cache it at all (most
+already treat `no-store` correctly, but confirm rather than assume), and, independently, not to buffer
+the response before forwarding it. A proxy that buffers waits for the stream to end before sending
+anything downstream, which breaks Server-Sent Events outright, whether or not caching is involved.
+nginx's own setting for this is `proxy_buffering off;` on the route; check the equivalent for whatever
+sits in front of it.
 
 ```
 GET /api/public/events
