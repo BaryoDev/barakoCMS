@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Text.Json;
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Infrastructure.Attributes;
 using Marten;
@@ -19,24 +18,16 @@ namespace barakoCMS.Features.Workflows.Actions;
 internal class UpdateFieldAction : IWorkflowAction
 {
     /// <summary>
-    /// The reserved <c>Data</c> key an applied attempt marks itself with, so a reclaimed attempt
-    /// that reruns after its outcome was discarded (see the comment above the lease check in
-    /// <c>WorkflowRunner.TryRunAsync</c>) finds its own mark already there and writes nothing a
-    /// second time.
+    /// How many stale <see cref="barakoCMS.Models.WorkflowFieldApplyMarker"/> rows one call removes.
     /// </summary>
     /// <remarks>
-    /// Kept on the content itself rather than in a new document, because the marker has to commit
-    /// in the same write as the field it guards: if either could land without the other, the node
-    /// that runs past its lease could still apply twice with no mark, or mark without applying.
-    /// It never reaches public delivery, because <c>PublicDelivery.PublicData</c> only forwards
-    /// fields a content type's schema declares Public, and no schema declares this one.
-    ///
-    /// Internal rather than private so a test can build the exact key and value this action reads,
-    /// the same reason <c>WorkflowRetryPolicy</c>'s constants are internal: reached through
-    /// <c>InternalsVisibleTo</c> rather than by duplicating the literal format in a test and hoping
-    /// it never drifts.
+    /// Bounded so a single UpdateField invocation, which every other action here treats as fast and
+    /// synchronous, cannot turn into a sweep over an unbounded backlog. A deployment that somehow
+    /// accumulates more stale rows than this drains it over several calls rather than one, which is
+    /// the same trade-off <c>WorkflowRunRetentionService</c> makes with its own batch size, just
+    /// smaller: this runs inline with every call rather than once an hour.
     /// </remarks>
-    internal const string AppliedMarkerPrefix = "__workflow.updateField.applied:";
+    internal const int PruneBatchSize = 50;
 
     /// <summary>How long a marker is worth keeping.</summary>
     /// <remarks>
@@ -45,11 +36,15 @@ internal class UpdateFieldAction : IWorkflowAction
     /// ever selects a Pending or Running run, so a terminal run's attempts are never revisited. The
     /// worst case for how long that can take is <c>WorkflowRetryPolicy.MaxAttempts</c> (5) attempts,
     /// each gated by up to <c>LeaseDuration</c> (5 minutes) plus the backoff between them (up to 10
-    /// minutes, with jitter): comfortably under two hours. This is generously past that, not the
-    /// multi-day window <c>WorkflowRunRetentionService</c> uses to keep a run record readable, since
-    /// that answers a different question (how long a finished run is worth an operator's while to
-    /// look at), and a marker outliving its own run by weeks is dead weight with nothing left to
-    /// guard.
+    /// minutes, with jitter): comfortably under two hours.
+    ///
+    /// Do not widen this to match <c>WorkflowRunRetentionService</c>'s multi-day windows (7 days
+    /// succeeded, 90 failed, both configurable) by pattern-matching the two together: that policy
+    /// answers a different question, how long a finished run is worth an operator's while to look
+    /// at, not how long an attempt can still be reclaimed. A run row surviving past this window does
+    /// not extend it either, since a terminal run is never picked up again regardless of whether its
+    /// row still exists. A marker outliving its own run by weeks is dead weight with nothing left to
+    /// guard, so this stays measured in hours.
     /// </remarks>
     internal static readonly TimeSpan MarkerRetention = TimeSpan.FromHours(24);
 
@@ -104,14 +99,16 @@ internal class UpdateFieldAction : IWorkflowAction
             // The runner injects these onto every parameter set (see WorkflowRunner.ExecuteAsync);
             // an action invoked some other way, a legacy engine or a test, leaves them out, and the
             // guard below is simply skipped for it, exactly as it always ran before this existed.
-            string? markerKey = null;
-            string? attempt = null;
-            if (parameters.TryGetValue("IdempotencyKey", out var idempotencyKey)
-                && !string.IsNullOrWhiteSpace(idempotencyKey)
-                && parameters.TryGetValue("Attempt", out attempt)
-                && !string.IsNullOrWhiteSpace(attempt))
+            string? idempotencyKey = null;
+            var attemptNumber = 0;
+            barakoCMS.Models.WorkflowFieldApplyMarker? marker = null;
+
+            if (parameters.TryGetValue("IdempotencyKey", out var rawKey)
+                && !string.IsNullOrWhiteSpace(rawKey)
+                && parameters.TryGetValue("Attempt", out var rawAttempt)
+                && int.TryParse(rawAttempt, NumberStyles.Integer, CultureInfo.InvariantCulture, out attemptNumber))
             {
-                markerKey = AppliedMarkerPrefix + idempotencyKey;
+                idempotencyKey = rawKey;
 
                 // IdempotencyKey is stable across every rerun of this one action (it is derived
                 // from the run id and the ordinal), so this key alone cannot tell a reclaimed rerun
@@ -120,13 +117,13 @@ internal class UpdateFieldAction : IWorkflowAction
                 // the write a reclaimed attempt never gets to make. Two executions of the same
                 // attempt carry the same Attempt value; a retry after a real failure carries the
                 // next one.
-                if (targetContent.Data.TryGetValue(markerKey, out var recorded)
-                    && TryParseMarker(AsMarkerString(recorded), out var recordedAttempt, out _)
-                    && string.Equals(recordedAttempt, attempt, StringComparison.Ordinal))
+                marker = await _session.LoadAsync<barakoCMS.Models.WorkflowFieldApplyMarker>(idempotencyKey, ct);
+
+                if (marker is not null && marker.Attempt == attemptNumber)
                 {
                     _logger.LogInformation(
                         "UpdateField attempt {Attempt} of {IdempotencyKey} was already applied to {TargetId}; skipping.",
-                        attempt, idempotencyKey, targetId);
+                        attemptNumber, idempotencyKey, targetId);
                     return;
                 }
             }
@@ -155,21 +152,10 @@ internal class UpdateFieldAction : IWorkflowAction
                 dataChanged = true;
             }
 
-            if (markerKey is not null)
-            {
-                // Pruned here, in the same event as the write it guards, rather than by a separate
-                // sweep: a marker's Data key never touches anything else this system reads, so
-                // nothing but another call to this action would ever remove it, and "decrement
-                // stock on every order" calls this action once per order, forever.
-                PruneStaleMarkers(targetContent.Data, DateTimeOffset.UtcNow);
-                targetContent.Data[markerKey] = FormatMarker(attempt!, DateTimeOffset.UtcNow);
-                dataChanged = true;
-            }
-
             if (dataChanged)
             {
                 // Data is replaced wholesale by Content.Apply(ContentUpdated, ...), so this carries
-                // the field just set alongside everything already on the document, marker included.
+                // the field just set alongside everything already on the document.
                 events.Insert(0, new barakoCMS.Events.ContentUpdated(
                     targetContent.Id, targetContent.Data, content.LastModifiedBy, targetContent.SearchText, DateTime.UtcNow));
             }
@@ -178,6 +164,21 @@ internal class UpdateFieldAction : IWorkflowAction
             {
                 // Nothing to apply: an unrecognised Status value with no marker to record either.
                 return;
+            }
+
+            if (idempotencyKey is not null)
+            {
+                // Staged into the same session as the content write below, so one SaveChangesAsync
+                // commits the field change, this marker, and the stale ones swept up here together,
+                // or none of them: Marten commits a session as one transaction across document
+                // types, which is what makes the marker safe to keep in a document of its own
+                // rather than needing it folded into the content write to stay atomic with it.
+                await PruneStaleMarkersAsync(ct);
+
+                marker ??= new barakoCMS.Models.WorkflowFieldApplyMarker { Key = idempotencyKey };
+                marker.Attempt = attemptNumber;
+                marker.AppliedAt = DateTimeOffset.UtcNow;
+                _session.Store(marker);
             }
 
             // Optimistic rather than a plain Store: a document type keeps last-write-wins today,
@@ -196,72 +197,28 @@ internal class UpdateFieldAction : IWorkflowAction
         }
     }
 
-    /// <summary>The marker as a plain string, whether it just round-tripped through Marten's JSON or not.</summary>
-    private static string? AsMarkerString(object? stored) => stored switch
-    {
-        null => null,
-        string s => s,
-        JsonElement { ValueKind: JsonValueKind.String } je => je.GetString(),
-        _ => stored.ToString(),
-    };
-
-    /// <summary>The attempt number and when it was recorded, packed so both survive one Data value.</summary>
-    internal static string FormatMarker(string attempt, DateTimeOffset at) =>
-        $"{attempt}|{at.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture)}";
-
     /// <summary>
-    /// Unpacks a marker written by <see cref="FormatMarker"/>. False for anything else, garbled or
-    /// not: <see cref="PruneStaleMarkers"/> then removes it rather than keeping a value nothing can
-    /// read the age of.
+    /// Stages the removal of up to <see cref="PruneBatchSize"/> markers past
+    /// <see cref="MarkerRetention"/>, in whatever tenant partition this action's own session is
+    /// scoped to.
     /// </summary>
-    private static bool TryParseMarker(string? raw, out string attempt, out DateTimeOffset at)
-    {
-        attempt = string.Empty;
-        at = DateTimeOffset.MinValue;
-
-        if (string.IsNullOrEmpty(raw)) return false;
-
-        var parts = raw.Split('|', 2);
-        if (parts.Length != 2) return false;
-
-        if (!long.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var epochSeconds))
-        {
-            return false;
-        }
-
-        attempt = parts[0];
-        at = DateTimeOffset.FromUnixTimeSeconds(epochSeconds);
-        return true;
-    }
-
-    /// <summary>Removes every marker on <paramref name="data"/> older than <see cref="MarkerRetention"/>.</summary>
     /// <remarks>
-    /// Keys are collected before any are removed, since removing from a dictionary while enumerating
-    /// its own <c>Keys</c> throws. A marker in the old, bare-attempt-number shape (nothing this
-    /// deployment ever wrote once this ran) fails to parse and is treated the same as one that is
-    /// simply too old, rather than kept forever because its age cannot be read.
+    /// Queued onto the caller's session rather than committed here: this only runs where the caller
+    /// is about to call <c>SaveChangesAsync</c> itself, right after staging its own marker and
+    /// content change, so the removals land in that same commit rather than one of their own.
     /// </remarks>
-    private static void PruneStaleMarkers(Dictionary<string, object> data, DateTimeOffset now)
+    private async Task PruneStaleMarkersAsync(CancellationToken ct)
     {
-        List<string>? stale = null;
+        var cutoff = DateTimeOffset.UtcNow - MarkerRetention;
 
-        foreach (var key in data.Keys)
+        var stale = await _session.Query<barakoCMS.Models.WorkflowFieldApplyMarker>()
+            .Where(m => m.AppliedAt < cutoff)
+            .Take(PruneBatchSize)
+            .ToListAsync(ct);
+
+        foreach (var m in stale)
         {
-            if (!key.StartsWith(AppliedMarkerPrefix, StringComparison.Ordinal)) continue;
-
-            if (TryParseMarker(AsMarkerString(data[key]), out _, out var at) && now - at <= MarkerRetention)
-            {
-                continue;
-            }
-
-            (stale ??= new List<string>()).Add(key);
-        }
-
-        if (stale is null) return;
-
-        foreach (var key in stale)
-        {
-            data.Remove(key);
+            _session.Delete(m);
         }
     }
 }
