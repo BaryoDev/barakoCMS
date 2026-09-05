@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Infrastructure.Attributes;
@@ -29,8 +30,28 @@ internal class UpdateFieldAction : IWorkflowAction
     /// that runs past its lease could still apply twice with no mark, or mark without applying.
     /// It never reaches public delivery, because <c>PublicDelivery.PublicData</c> only forwards
     /// fields a content type's schema declares Public, and no schema declares this one.
+    ///
+    /// Internal rather than private so a test can build the exact key and value this action reads,
+    /// the same reason <c>WorkflowRetryPolicy</c>'s constants are internal: reached through
+    /// <c>InternalsVisibleTo</c> rather than by duplicating the literal format in a test and hoping
+    /// it never drifts.
     /// </remarks>
-    private const string AppliedMarkerPrefix = "__workflow.updateField.applied:";
+    internal const string AppliedMarkerPrefix = "__workflow.updateField.applied:";
+
+    /// <summary>How long a marker is worth keeping.</summary>
+    /// <remarks>
+    /// A marker is only ever consulted while its own run can still be reclaimed and rerun, and that
+    /// ends the moment the run reaches a terminal status: <c>WorkflowRunner.RunOnceAsync</c> only
+    /// ever selects a Pending or Running run, so a terminal run's attempts are never revisited. The
+    /// worst case for how long that can take is <c>WorkflowRetryPolicy.MaxAttempts</c> (5) attempts,
+    /// each gated by up to <c>LeaseDuration</c> (5 minutes) plus the backoff between them (up to 10
+    /// minutes, with jitter): comfortably under two hours. This is generously past that, not the
+    /// multi-day window <c>WorkflowRunRetentionService</c> uses to keep a run record readable, since
+    /// that answers a different question (how long a finished run is worth an operator's while to
+    /// look at), and a marker outliving its own run by weeks is dead weight with nothing left to
+    /// guard.
+    /// </remarks>
+    internal static readonly TimeSpan MarkerRetention = TimeSpan.FromHours(24);
 
     private readonly IDocumentSession _session;
     private readonly IContentWriter _contentWriter;
@@ -100,7 +121,8 @@ internal class UpdateFieldAction : IWorkflowAction
                 // attempt carry the same Attempt value; a retry after a real failure carries the
                 // next one.
                 if (targetContent.Data.TryGetValue(markerKey, out var recorded)
-                    && string.Equals(AsMarkerString(recorded), attempt, StringComparison.Ordinal))
+                    && TryParseMarker(AsMarkerString(recorded), out var recordedAttempt, out _)
+                    && string.Equals(recordedAttempt, attempt, StringComparison.Ordinal))
                 {
                     _logger.LogInformation(
                         "UpdateField attempt {Attempt} of {IdempotencyKey} was already applied to {TargetId}; skipping.",
@@ -135,7 +157,12 @@ internal class UpdateFieldAction : IWorkflowAction
 
             if (markerKey is not null)
             {
-                targetContent.Data[markerKey] = attempt!;
+                // Pruned here, in the same event as the write it guards, rather than by a separate
+                // sweep: a marker's Data key never touches anything else this system reads, so
+                // nothing but another call to this action would ever remove it, and "decrement
+                // stock on every order" calls this action once per order, forever.
+                PruneStaleMarkers(targetContent.Data, DateTimeOffset.UtcNow);
+                targetContent.Data[markerKey] = FormatMarker(attempt!, DateTimeOffset.UtcNow);
                 dataChanged = true;
             }
 
@@ -177,4 +204,64 @@ internal class UpdateFieldAction : IWorkflowAction
         JsonElement { ValueKind: JsonValueKind.String } je => je.GetString(),
         _ => stored.ToString(),
     };
+
+    /// <summary>The attempt number and when it was recorded, packed so both survive one Data value.</summary>
+    internal static string FormatMarker(string attempt, DateTimeOffset at) =>
+        $"{attempt}|{at.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture)}";
+
+    /// <summary>
+    /// Unpacks a marker written by <see cref="FormatMarker"/>. False for anything else, garbled or
+    /// not: <see cref="PruneStaleMarkers"/> then removes it rather than keeping a value nothing can
+    /// read the age of.
+    /// </summary>
+    private static bool TryParseMarker(string? raw, out string attempt, out DateTimeOffset at)
+    {
+        attempt = string.Empty;
+        at = DateTimeOffset.MinValue;
+
+        if (string.IsNullOrEmpty(raw)) return false;
+
+        var parts = raw.Split('|', 2);
+        if (parts.Length != 2) return false;
+
+        if (!long.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var epochSeconds))
+        {
+            return false;
+        }
+
+        attempt = parts[0];
+        at = DateTimeOffset.FromUnixTimeSeconds(epochSeconds);
+        return true;
+    }
+
+    /// <summary>Removes every marker on <paramref name="data"/> older than <see cref="MarkerRetention"/>.</summary>
+    /// <remarks>
+    /// Keys are collected before any are removed, since removing from a dictionary while enumerating
+    /// its own <c>Keys</c> throws. A marker in the old, bare-attempt-number shape (nothing this
+    /// deployment ever wrote once this ran) fails to parse and is treated the same as one that is
+    /// simply too old, rather than kept forever because its age cannot be read.
+    /// </remarks>
+    private static void PruneStaleMarkers(Dictionary<string, object> data, DateTimeOffset now)
+    {
+        List<string>? stale = null;
+
+        foreach (var key in data.Keys)
+        {
+            if (!key.StartsWith(AppliedMarkerPrefix, StringComparison.Ordinal)) continue;
+
+            if (TryParseMarker(AsMarkerString(data[key]), out _, out var at) && now - at <= MarkerRetention)
+            {
+                continue;
+            }
+
+            (stale ??= new List<string>()).Add(key);
+        }
+
+        if (stale is null) return;
+
+        foreach (var key in stale)
+        {
+            data.Remove(key);
+        }
+    }
 }

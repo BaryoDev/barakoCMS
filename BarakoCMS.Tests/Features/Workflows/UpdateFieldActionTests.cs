@@ -176,6 +176,44 @@ public class UpdateFieldActionTests
     }
 
     /// <summary>
+    /// A marker past <c>MarkerRetention</c> is dead weight (see the remarks on that constant: its
+    /// own run can never reclaim and rerun again by the time it is that old), and the next real
+    /// apply removes it rather than letting an item that a workflow touches often, "decrement stock
+    /// on every order" is the ticket's own example, grow one marker key per run forever.
+    /// </summary>
+    [Fact]
+    public async Task A_stale_marker_is_pruned_on_the_next_apply()
+    {
+        const string tenant = "update-field-prune";
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var contentId = Guid.NewGuid();
+
+        var staleKey = UpdateFieldAction.AppliedMarkerPrefix + "stale-run:0";
+        var staleValue = UpdateFieldAction.FormatMarker(
+            "1", DateTimeOffset.UtcNow - UpdateFieldAction.MarkerRetention - TimeSpan.FromMinutes(1));
+
+        await SeedAsync(store, tenant, contentId, "update-field-stock", ContentStatus.Published,
+            new Dictionary<string, object> { { "Stock", "10" }, { staleKey, staleValue } });
+
+        var runId = Guid.NewGuid();
+        await RunOnceAsync(store, tenant, contentId, new Dictionary<string, string>
+        {
+            { "Field", "data.Stock" },
+            { "Value", "9" },
+            { "IdempotencyKey", $"{runId}:0" },
+            { "RunId", runId.ToString() },
+            { "Attempt", "1" },
+        });
+
+        var updated = await LoadAsync(store, tenant, contentId);
+
+        updated.Data.Should().NotContainKey(staleKey, "a marker past MarkerRetention must be pruned on the next apply");
+        updated.Data.Keys.Should().Contain(
+            k => k.StartsWith(UpdateFieldAction.AppliedMarkerPrefix, StringComparison.Ordinal),
+            "the new attempt's own marker must still be recorded");
+    }
+
+    /// <summary>
     /// Creates content the way this system actually creates it, through <c>IContentWriter</c>, so
     /// its event stream exists before the action appends to it. A raw <c>session.Store</c> would
     /// leave the stream unstarted, which every real caller here avoids by going through the writer.
