@@ -25,6 +25,7 @@ Environment:
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -49,7 +50,9 @@ Answer the six questions you are given, in order, about the diff you are shown. 
 
 Then, under a heading "Other", list anything that would break in production, at most five items, each with a file and line and a concrete failure: the input or state, and the wrong output or crash it causes. If you have none, write "Nothing else found." Do not pad the list.
 
-Be brief. A reviewer reads this next to the diff, not instead of it. Do not restate what the diff does."""
+Be brief. A reviewer reads this next to the diff, not instead of it. Do not restate what the diff does.
+
+Write plainly. Never use an em dash or an en dash; use a comma, a full stop or brackets."""
 
 
 def die(msg: str) -> None:
@@ -59,35 +62,62 @@ def die(msg: str) -> None:
 
 def post_json(url: str, payload: dict, headers: dict, model_hint: str = "that model") -> dict:
     body = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
-    try:
-        with urllib.request.urlopen(req, timeout=600) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        detail = e.read().decode("utf-8", "replace")[:800]
-        host = url.split("/")[2]
-        # Two failures worth naming, because the raw body sends you to the wrong place.
-        #
-        # A 429 is normally "slow down", so it reads as something that will pass on a retry. From
-        # this endpoint it is usually "no credits", which no retry fixes.
-        if e.code == 429 and ("credit" in detail.lower() or "quota" in detail.lower()):
-            die(
-                "the account has no quota left, so no review ran. This is not a rate limit and "
-                "retrying will not help. On OpenAI the daily free allowance only exists once data "
-                "sharing is turned on for that project; otherwise the project needs credits. Or "
-                "set OPENAI_BASE_URL to a provider that has quota."
-            )
-        # The codex models are the obvious pick for reviewing code and they are the ones that do
-        # not work here: they are served by /v1/responses, not by chat completions.
-        if e.code == 404 and "v1/responses" in detail:
-            die(
-                f"{model_hint} is not served by the chat completions endpoint. Set OPENAI_MODEL "
-                "to a model that is, such as one of the gpt-5.6 tiers."
-            )
-        # The key is in a header, never in the body, so this cannot print it.
-        die(f"{host} returned {e.code}: {detail}")
-    except urllib.error.URLError as e:
-        die(f"could not reach {url.split('/')[2]}: {e.reason}")
+    host = url.split("/")[2]
+
+    # A free tier answers 503 "high demand" often enough that one attempt is not a fair test of
+    # whether a review is possible. Overloaded and rate limited both clear on their own; no quota
+    # does not, so that one is not retried.
+    delays = [5, 15, 40, 90]
+    for attempt in range(len(delays) + 1):
+        req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=600) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode("utf-8", "replace")[:800]
+            low = detail.lower()
+
+            # A 429 normally means "slow down", so it reads as something a retry fixes. When it
+            # carries a quota message it means the opposite, and no retry will ever clear it.
+            if e.code == 429 and ("credit" in low or "quota" in low):
+                die(
+                    "the account has no quota left, so no review ran. This is not a rate limit and "
+                    "retrying will not help. On OpenAI the daily free allowance only exists once "
+                    "data sharing is turned on for that project; otherwise the project needs "
+                    "credits. Or set OPENAI_BASE_URL to a provider that has quota."
+                )
+
+            # The codex models are the obvious pick for reviewing code and they are the ones that
+            # do not work here: they are served by /v1/responses, not by chat completions.
+            if e.code == 404 and "v1/responses" in detail:
+                die(
+                    f"{model_hint} is not served by the chat completions endpoint. Set "
+                    "OPENAI_MODEL to a model that is."
+                )
+
+            retryable = e.code in (429, 500, 502, 503, 504)
+            if retryable and attempt < len(delays):
+                wait = delays[attempt]
+                print(
+                    f"ai-review: {host} returned {e.code}, waiting {wait}s and trying again "
+                    f"({attempt + 1} of {len(delays)})",
+                    file=sys.stderr,
+                )
+                time.sleep(wait)
+                continue
+
+            # The key is in a header, never in the body, so this cannot print it.
+            if retryable:
+                die(
+                    f"{host} returned {e.code} on every attempt. {model_hint} is busy; try again "
+                    f"later or set OPENAI_MODEL to another one. Last body: {detail}"
+                )
+            die(f"{host} returned {e.code}: {detail}")
+        except urllib.error.URLError as e:
+            if attempt < len(delays):
+                time.sleep(delays[attempt])
+                continue
+            die(f"could not reach {host}: {e.reason}")
 
 
 def main() -> None:
@@ -139,6 +169,12 @@ def main() -> None:
         review = result["choices"][0]["message"]["content"].strip()
     except (KeyError, IndexError):
         die(f"unexpected response shape: {json.dumps(result)[:400]}")
+
+    # The prompt asks for no dashes and a model agrees and then uses them anyway. This comment goes
+    # out under the repository's name, and house style here is that those dashes do not appear in
+    # it, so the rule is enforced here rather than requested.
+    for dash, plain in (("\u2014", ", "), ("\u2013", ", "), ("&mdash;", ", "), ("&ndash;", ", ")):
+        review = review.replace(dash, plain)
 
     usage = result.get("usage", {})
     spent = ""
