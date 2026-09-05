@@ -15,8 +15,12 @@ Any field the content type marks as something other than `Public` is stripped fr
 A type that has not opted in and a type that does not exist both return 404. That is deliberate:
 answering differently would confirm which types exist.
 
-Responses carry `Cache-Control: public, max-age=60`. The one exception is a slug read served under a
-valid `?preview=` token, which is `no-store` because it can return an unpublished entry.
+Responses carry `Cache-Control: public, max-age=60` and `Vary: X-Tenant`, because the tenant can be
+resolved from the `X-Tenant` header (see `docs/multi-tenancy.md`) and the payload is built entirely
+from that tenant's content. The one exception is a slug read served under a valid `?preview=` token,
+which is `no-store` because it can return an unpublished entry. `Vary` tells a conforming cache to
+key on the header, but it is not a CDN setting on its own: see the caching section of
+`docs/deploy-in-production.md` for what the CDN itself has to be configured to do.
 
 **Preview tokens are minted through the API, not the admin.** `POST /api/preview` returns a token
 bound to a tenant, a content type and a slug. It is authenticated, and the caller also needs `read`
