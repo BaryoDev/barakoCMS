@@ -42,7 +42,9 @@ internal sealed class ResolveRedirectEndpoint : EndpointWithoutRequest<ResolveRe
 
         // Cacheable, because the answer changes only when somebody edits a rule and the caller is
         // asking on a path that is already slow. Short enough that a correction is not stuck for a
-        // day, long enough that a crawler hitting a dead section does not ask a thousand times.
+        // day. This only collapses repeat hits on a path that resolves; a miss is a 404 and the
+        // default policy does not cache it, so a crawler hitting a dead section still asks Postgres
+        // every time.
         //
         // Varied by tenant as well as path. The route carries no tenant segment, so two tenants on
         // different hosts (or the same host with different X-Tenant headers) can ask for the same
