@@ -31,13 +31,17 @@ is true). The console that sits on top of it is **barakoBrew**, in its own repos
 **Reachable.** No sales call, no partner tier, no procurement cycle, no discovery call. Clone it and
 it runs. That is the part deliberately not for sale.
 
-**Free at any scale.** MPL-2.0, no seat cap, no revenue cap, no metered AI, and every module in this
-repository included rather than sold separately. The [contributor terms](CLA.md) bound the licence
-grant to OSI-approved licences, so this cannot be closed later even if someone wanted to.
+**Free at any scale.** MPL-2.0, no seat cap, no revenue cap, no metered AI, and every module
+BaryoDev publishes included rather than sold separately, wherever that module lives. The
+[contributor terms](CLA.md) bound the licence grant to OSI-approved licences, so this cannot be
+closed later even if someone wanted to. Other vendors may charge for their own modules, and core
+gives them a way to do that; what they price is theirs, and it changes nothing about the above.
 
-**Not an enterprise vendor.** No SLA, no support contract, no SOC 2, no ISO 27001, no third-party
-penetration test, no continuity guarantee. If your evaluation involves legal and a security
-questionnaire, that is a real gap and you should weigh it.
+**The software carries no SLA.** No support contract, no SOC 2, no ISO 27001, no third-party
+penetration test, no continuity guarantee. BaryoDev sells hosting and support separately, and that
+is a commercial relationship somebody chooses rather than a property of what you just cloned. If
+your evaluation involves legal and a security questionnaire, the gap is real and you should weigh
+it.
 
 What there is: [docs/compliance-posture.md](docs/compliance-posture.md) states what exists, what
 does not, and which questions self-hosting moves to you rather than to us, which is most of them.

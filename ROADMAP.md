@@ -9,18 +9,25 @@ than about software.
 Reachable first, because that is the part nothing else in the field offers: no sales call, no partner
 tier, no procurement cycle, no discovery call before you can run it. Clone it and it works.
 
-Free second, and precisely: no seat cap, no revenue cap, no metered AI, and every module in this
-repository included.
+Free second, and precisely: no seat cap, no revenue cap, no metered AI, and every module BaryoDev
+publishes included.
 
-That last phrase is deliberate and worth keeping precise, because two different things get called
-"selling modules" and only one of them breaks the promise.
+That last phrase is deliberate and worth keeping precise, because three different things get called
+"selling modules" and only one of them would break the promise.
 
-- **Every module in this repository is free, forever.** Nothing here gets moved behind a licence
-  later, and no future module is withheld from the project so that people have to buy it. That is
-  the Umbraco model, and it is the thing the comparison below calls out as their weakness.
-- **BaryoDev also builds bespoke modules for clients**, and sells delivery, hosting and support.
-  That is consulting output: someone paid for work that solves their problem, and nobody was
-  expecting it in the open source project.
+- **Every module BaryoDev publishes is free, forever.** Not only the ones in this repository:
+  anything we ship under the `barakocms-module` tag, wherever it lives. Nothing gets moved behind a
+  licence later, and no future module is held back so that people have to buy it. That is the
+  Umbraco model, and it is the thing the comparison below calls out as their weakness.
+- **Other vendors may charge for theirs, and core helps them do it.** Licensing is being built into
+  core so a third-party module can require a key without every vendor inventing that mechanism
+  again, which is the part of the Umbraco marketplace that actually went wrong. What they charge is
+  theirs to decide. The promise above is about what BaryoDev publishes, not about what anybody else
+  is allowed to sell, and a paid third-party module appearing in the module list is the ecosystem
+  working rather than the promise bending.
+- **BaryoDev sells delivery, hosting and support**, and builds bespoke modules for clients. That is
+  consulting output and operations: someone paid for work that solves their problem, or paid us to
+  run it for them. Neither takes anything out of the open source project.
 
 The contributor terms make the first half structural rather than a promise: the licence grant is
 bounded to OSI-approved licences, so this cannot be closed later even if someone wanted to.
