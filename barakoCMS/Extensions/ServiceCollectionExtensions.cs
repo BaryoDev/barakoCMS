@@ -416,6 +416,13 @@ public static class ServiceCollectionExtensions
             // Configure document versioning and indexes
             options.Schema.For<Content>()
                 .DocumentAlias("contents")
+                // #565 / D16: the document a client reads and writes through GET/PUT gets the same
+                // protection WorkflowRun, JobRecord and the rest already have below. Event-sourced
+                // types keep their own expected-version check on the stream (D3); this is the
+                // document itself, which every content type is stored as regardless of sourcing mode.
+                // The Update endpoint reads the version via MetadataForAsync and binds it back with
+                // UpdateExpectedVersion, so GET's ETag and PUT's If-Match round-trip through it.
+                .UseOptimisticConcurrency(true)
                 .Index(x => x.ContentType)  // Frequently filtered
                 .Index(x => x.CreatedAt)    // Frequently sorted
                 .Index(x => x.UpdatedAt)

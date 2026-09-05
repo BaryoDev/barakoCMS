@@ -101,20 +101,40 @@ public sealed class ContentWriter : IContentWriter
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Still <c>Events.Append</c>, not <see cref="AppendCoreAsync"/>'s expected-version-null branch,
+    /// which calls Marten's <c>AppendOptimistic</c> and throws on a stream that does not exist yet.
+    /// <see cref="ScheduledContentService"/> calls this overload specifically because some content
+    /// predates every write going through a stream (seeded rows, or anything written before 4.0's
+    /// document-types-append default), and demanding a stream to check would make the sweep throw on
+    /// exactly the rows it exists to sweep. Delegating to <see cref="AppendCoreAsync"/> here would
+    /// have been a smaller diff and was tried; it broke that case in the mutation check below.
+    ///
+    /// The one thing added, as of #565: the same refresh-from-committed-state <see cref="AppendCoreAsync"/>
+    /// does before it applies an event, copied in rather than shared, so this stays on the older,
+    /// stream-tolerant append call. Content now has real optimistic concurrency on the document
+    /// (DECISIONS.md D16), and a blind <c>Store()</c> from a caller holding a <see cref="Content"/>
+    /// loaded by some other session (a chain of test helpers, most likely, but nothing rules out a
+    /// real one) has no version Marten can vouch for and is refused rather than silently written.
+    /// </remarks>
     public async Task AppendAsync(Content content, object @event, CancellationToken cancellationToken)
     {
-        // Before anything is staged, so an event with no projection cannot leave half a write behind.
         AssertHasProjection(@event);
 
-        // Event sourced: the caller's copy is discarded and rebuilt from the stream, so anything
-        // that reached the document by some other route is gone. Document mode: the caller's copy is
-        // the record and the change is applied on top of it, which is what every type did before
-        // this existed.
         await RebuildFromStreamAsync(content, cancellationToken);
 
         if (await ShouldAppendAsync(content.ContentType, cancellationToken))
         {
             _session.Events.Append(content.Id, @event);
+        }
+
+        if (!_staged.Contains(content.Id))
+        {
+            var committed = await _session.LoadAsync<Content>(content.Id, cancellationToken);
+            if (committed is not null)
+            {
+                CopyState(committed, content);
+            }
         }
 
         ApplyToDocument(content, @event);
