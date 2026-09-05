@@ -346,6 +346,10 @@ public static class ServiceCollectionExtensions
             options.CompactionPercentage = 0.25; // Remove 25% when limit hit
         });
 
+        // Output Cache, so an endpoint's Options(x => x.CacheOutput(...)) is more than metadata.
+        // See #545: this was missing, so every endpoint's CacheOutput policy was silently ignored.
+        services.AddOutputCache();
+
         connectionString = ResolveConnectionString(configuration);
         services.AddMarten((IServiceProvider sp) =>
         {
@@ -1185,6 +1189,14 @@ public static class ServiceCollectionExtensions
         app.UseMiddleware<barakoCMS.Infrastructure.Multitenancy.TenantAccessMiddleware>();
 
         app.UseAuthorization();
+
+        // Output Cache, after CORS/Authentication/Authorization and before the endpoints that read
+        // CacheOutput policies, matching Microsoft's documented order. Placed after
+        // TenantResolutionMiddleware (above) so a cache key can vary by tenant; placed after
+        // UseAuthorization so an endpoint that also requires auth is not served to a caller who
+        // never passed it.
+        app.UseOutputCache();
+
         // Global pre/post processors come from DI, so modules can contribute their own (e.g. the
         // DeviceTrust enforcement pre-processor) simply by registering IGlobalPreProcessor/PostProcessor.
         var globalPreProcessors = app.ApplicationServices.GetServices<FastEndpoints.IGlobalPreProcessor>().ToArray();

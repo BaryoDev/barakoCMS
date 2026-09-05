@@ -43,7 +43,17 @@ internal sealed class ResolveRedirectEndpoint : EndpointWithoutRequest<ResolveRe
         // Cacheable, because the answer changes only when somebody edits a rule and the caller is
         // asking on a path that is already slow. Short enough that a correction is not stuck for a
         // day, long enough that a crawler hitting a dead section does not ask a thousand times.
-        Options(x => x.CacheOutput(p => p.Expire(TimeSpan.FromMinutes(5)).SetVaryByQuery("path")));
+        //
+        // Varied by tenant as well as path. The route carries no tenant segment, so two tenants on
+        // different hosts (or the same host with different X-Tenant headers) can ask for the same
+        // "path" query value and mean two different redirect maps; without this, whichever tenant's
+        // answer is cached first would be served to the other one too.
+        Options(x => x.CacheOutput(p => p
+            .Expire(TimeSpan.FromMinutes(5))
+            .SetVaryByQuery("path")
+            .VaryByValue(context => new KeyValuePair<string, string>(
+                "tenant",
+                context.RequestServices.GetRequiredService<barakoCMS.Infrastructure.Multitenancy.TenantContext>().Slug))));
     }
 
     public override async Task HandleAsync(CancellationToken ct)
