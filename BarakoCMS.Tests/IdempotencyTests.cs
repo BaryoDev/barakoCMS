@@ -2,6 +2,8 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using FluentAssertions;
+using Marten;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace BarakoCMS.Tests;
@@ -96,6 +98,41 @@ public class IdempotencyTests
         var b = await _client.SendAsync(Post(tokenB, sharedKey, Valid("from B")));
         b.StatusCode.Should().NotBe(HttpStatusCode.Conflict, "the key is namespaced per user");
         b.IsSuccessStatusCode.Should().BeTrue();
+    }
+
+    /// <summary>
+    /// The gap #548 asked for: the earlier tests here check the status code a replay gets back, not
+    /// that the write itself only happened once. This posts to the real content route twice with the
+    /// same key and counts the rows that actually landed, plus the exact rejection a replay gets.
+    /// </summary>
+    [Fact]
+    public async Task a_content_post_replayed_with_the_same_key_creates_one_entry()
+    {
+        var (token, _) = await TestHelpers.CreateAdminUserAsync(_factory);
+        var key = $"k-{Guid.NewGuid():N}";
+        var contentType = $"idem_{Guid.NewGuid():N}";
+        var body = new
+        {
+            ContentType = contentType,
+            Data = new Dictionary<string, object> { ["Title"] = "posted once" },
+            Status = 1,
+        };
+
+        var first = await _client.SendAsync(Post(token, key, body));
+        first.IsSuccessStatusCode.Should().BeTrue();
+
+        var replay = await _client.SendAsync(Post(token, key, body));
+        replay.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await replay.Content.ReadAsStringAsync()).Should().Be(
+            "Request with this Idempotency-Key already processed.");
+
+        using var scope = _factory.Services.CreateScope();
+        var query = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+        var entries = await query.Query<barakoCMS.Models.Content>()
+            .Where(c => c.ContentType == contentType)
+            .ToListAsync();
+
+        entries.Should().HaveCount(1, "the replay must not have created a second entry");
     }
 
     /// <summary>A request without the header is unaffected.</summary>
