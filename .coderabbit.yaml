@@ -1,0 +1,29 @@
+# yaml-language-server: $schema=https://storage.googleapis.com/coderabbit_public_assets/schema.v2.json
+
+# Reviews are asked for, not given by default.
+#
+# The OSS plan allows 3 reviews an hour with a burst of 2, and that pool is shared across every
+# repository in the org. An automatic review on every push spends it on pull requests nobody was
+# waiting for, and two of ours hit "Review rate limited" in one hour because of it (#462). Local
+# review through the CodeRabbit CLI has its own per-developer allowance and does not touch this one,
+# so the useful split is: review locally before pushing, ask here when a second opinion is wanted.
+reviews:
+  auto_review:
+    # No review on open, on ready-for-review, or on push. Comment `@coderabbitai review` for one, or
+    # `@coderabbitai full review` to have it disregard its earlier comments.
+    enabled: false
+
+    # The escape hatch for a pull request nobody is watching, which is the case the removed workflow
+    # existed for. Put this word anywhere in the description and it reviews as if automatic review
+    # were on. Kept deliberately ugly so it cannot appear by accident in ordinary prose.
+    description_keyword: "coderabbit-review-please"
+
+  # The summary still runs and costs nothing from the review pool. It is the part that is useful on
+  # every pull request: what changed, in one place, for somebody skimming the list.
+  high_level_summary: true
+
+  # Off. It says "review skipped" on every pull request now that skipping is the default, which is
+  # noise on a setting we chose.
+  review_status: false
+
+  poem: false
