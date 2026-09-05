@@ -123,8 +123,9 @@ internal class ConditionalAction : IWorkflowAction
             catch (Exception ex)
             {
                 // The child's own exception may carry whatever it was sending (a recipient, a
-                // payload); only its type is safe to keep, same as the top-level runner does for an
-                // action that throws.
+                // payload), so only its type is kept here. WorkflowRunner.cs stores the exception
+                // message too (see #598); this is deliberately stricter, not aligned with that, since
+                // this string is stored on the run record and served over the API.
                 _logger.LogWarning(ex, "Child action {Type} threw", childAction.Type);
                 failedTypes.Add(childAction.Type);
                 continue;
