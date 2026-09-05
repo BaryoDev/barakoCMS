@@ -75,12 +75,17 @@ public class BuildIdentityEndpointTests
         // CI runner with fifteen modules that window reached this test twice on Sept 4. Wait for
         // readiness first; the assertion is about the body's shape, not about when seeding ends.
         var deadline = DateTime.UtcNow.AddSeconds(60);
+        var becameReady = false;
         while (DateTime.UtcNow < deadline)
         {
             var ready = await client.GetAsync("/health/ready", TestContext.Current.CancellationToken);
-            if (ready.StatusCode == HttpStatusCode.OK) break;
+            if (ready.StatusCode == HttpStatusCode.OK) { becameReady = true; break; }
             await Task.Delay(250, TestContext.Current.CancellationToken);
         }
+
+        // Say what actually went wrong. Without this the test fails on the body assertion and
+        // reports a shape mismatch when the real fault was that seeding never finished.
+        becameReady.Should().BeTrue("/health/ready did not report OK within 60 seconds");
 
         var res = await client.GetAsync("/health", TestContext.Current.CancellationToken);
         var body = await res.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
