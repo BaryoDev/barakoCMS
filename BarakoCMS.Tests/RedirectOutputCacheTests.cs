@@ -28,6 +28,10 @@ public class RedirectOutputCacheTests
     public RedirectOutputCacheTests(IntegrationTestFixture factory)
     {
         _factory = factory;
+
+        // Do NOT dispose the derived factory below: see WithSetting's own doc comment on this same
+        // fixture. #209 recorded five unrelated PreviewTests failing from exactly that, so it is not
+        // this test's call to make differently.
         var derived = factory.WithWebHostBuilder(builder =>
             builder.ConfigureServices(services =>
                 services.ConfigureMarten(options => options.Logger(_logger))));
