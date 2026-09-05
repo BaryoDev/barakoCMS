@@ -111,6 +111,28 @@ public class AuditListTests
     }
 
     [Fact]
+    public async Task A_row_at_the_window_edge_is_returned_for_a_non_UTC_offset()
+    {
+        var tenant = $"tenant_{Guid.NewGuid():N}";
+        var boundary = new DateTime(2026, 9, 5, 12, 0, 0, DateTimeKind.Utc);
+        await SeedAsync(
+            new AuditEvent { TenantSlug = tenant, Action = "auth.login.succeeded", CreatedAt = boundary },
+            new AuditEvent { TenantSlug = tenant, Action = "auth.login.succeeded", CreatedAt = boundary.AddSeconds(1) });
+
+        // 12:00 UTC as UTC+8, expressed with an offset rather than "Z". A caller in that zone would
+        // send exactly this for "everything up to noon UTC". If the comparison used this value
+        // as-is instead of converting it to UTC first, it would compare 20:00 against a row stored
+        // at 12:00 and both rows above would pass the "to" filter, hiding the bug this test exists
+        // to catch.
+        var to = new DateTimeOffset(boundary).ToOffset(TimeSpan.FromHours(8)).ToString("yyyy-MM-ddTHH:mm:sszzz");
+
+        var result = await ListAsync($"?tenant={tenant}&to={Uri.EscapeDataString(to)}");
+
+        result.TotalItems.Should().Be(1, "to was {0}, at or before the row exactly on the boundary", to);
+        result.Items.Should().ContainSingle().Which.CreatedAt.Should().Be(boundary);
+    }
+
+    [Fact]
     public async Task Orders_newest_first_and_paginates()
     {
         var tenant = $"tenant_{Guid.NewGuid():N}";
