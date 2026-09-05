@@ -71,10 +71,8 @@ internal class Endpoint : Endpoint<ListRequest, PaginatedResponse<AuditEventDto>
             query = query.Where(e => e.ActorUserId == actorId);
         if (!string.IsNullOrWhiteSpace(req.Action))
             query = query.Where(e => e.Action == req.Action);
-        if (req.From is DateTime from)
-            query = query.Where(e => e.CreatedAt >= from);
-        if (req.To is DateTime to)
-            query = query.Where(e => e.CreatedAt <= to);
+        if (req.From is { } from) { var bound = AsUtc(from); query = query.Where(e => e.CreatedAt >= bound); }
+        if (req.To is { } to) { var bound = AsUtc(to); query = query.Where(e => e.CreatedAt <= bound); }
         if (!string.IsNullOrWhiteSpace(req.Tenant))
             query = query.Where(e => e.TenantSlug == req.Tenant);
 
@@ -92,4 +90,16 @@ internal class Endpoint : Endpoint<ListRequest, PaginatedResponse<AuditEventDto>
             TotalItems = total,
         }, cancellation: ct);
     }
+
+    /// <summary>
+    /// A query-string timestamp with an offset binds as local time, and CreatedAt is UTC, so on any
+    /// host not running in UTC the window would be shifted by the zone. One without an offset is
+    /// taken as UTC, which is what ListRequest.From and ListRequest.To already document.
+    /// </summary>
+    private static DateTime AsUtc(DateTime value) => value.Kind switch
+    {
+        DateTimeKind.Local => value.ToUniversalTime(),
+        DateTimeKind.Utc => value,
+        _ => DateTime.SpecifyKind(value, DateTimeKind.Utc),
+    };
 }
