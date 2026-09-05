@@ -376,7 +376,9 @@ internal sealed class DryRunRequestEndpoint : EndpointWithoutRequest<DryRunRespo
             return;
         }
 
-        var composed = await _composer.ComposeAsync(definition, connector, content, ct);
+        // No workflow run behind a dry run, so no idempotency key exists to show: the preview
+        // composes without one, the same as any other action invoked outside the runner.
+        var composed = await _composer.ComposeAsync(definition, connector, content, idempotencyKey: null, ct);
 
         await Send.ResponseAsync(new DryRunResponse
         {

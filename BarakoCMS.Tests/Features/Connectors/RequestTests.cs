@@ -459,7 +459,7 @@ public class RequestTests
         var otherLoaded = await otherSession.LoadAsync<barakoCMS.Models.Content>(otherContentId);
 
         var composed = await composer.ComposeAsync(
-            definition, connector, otherLoaded!, TestContext.Current.CancellationToken);
+            definition, connector, otherLoaded!, idempotencyKey: null, TestContext.Current.CancellationToken);
 
         composed.Ok.Should().BeFalse(
             "tenant 'req-tenancy-other' has no query named '{0}'; tenant 'req-tenancy-owner' having "
@@ -586,6 +586,167 @@ public class RequestTests
         var actual = (bool)method.Invoke(null, [rule, status, body, path])!;
 
         actual.Should().Be(expected);
+    }
+
+    /// <summary>
+    /// Two attempts of the same action send the identical idempotency key: not a derivative of it,
+    /// not one with a per-attempt suffix.
+    /// </summary>
+    /// <remarks>
+    /// This is what WorkflowRunQueue.cs actually does: it computes one key per action when a run is
+    /// queued (<c>IdempotencyKey = $"{run.Id:N}-{i}"</c>) and WorkflowRunner.cs hands that same value
+    /// to every attempt. Simulated here by composing twice with the same key rather than one, since a
+    /// key that is merely present once would pass even if a future change started deriving a
+    /// per-attempt value from it.
+    ///
+    /// Depends on <c>RequestComposer.cs</c>'s <c>headers[idempotencyHeader] = idempotencyKey;</c>
+    /// line: remove it and the header is missing from both composed requests, not just one.
+    /// </remarks>
+    [Fact]
+    public async Task Two_attempts_of_the_same_action_send_the_same_idempotency_key()
+    {
+        var store = _factory.Services.GetRequiredService<IDocumentStore>();
+        var config = _factory.Services.GetRequiredService<IConfiguration>();
+        var tenant = "req-idem-" + Guid.NewGuid().ToString("n")[..8];
+        var type = NewSlug("idem");
+
+        await using (var seed = store.LightweightSession(tenant))
+        {
+            seed.Store(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(),
+                Name = type,
+                DisplayName = "x",
+                Fields = [new FieldDefinition { Name = "Title", Type = "string" }],
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow,
+            });
+            await seed.SaveChangesAsync();
+        }
+
+        var content = new barakoCMS.Models.Content
+        {
+            Id = Guid.NewGuid(),
+            ContentType = type,
+            Status = ContentStatus.Published,
+            Data = new() { ["Title"] = "irrelevant to this test" },
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        };
+
+        var definition = new RequestDefinition
+        {
+            Id = Guid.NewGuid(),
+            Slug = NewSlug("req"),
+            ConnectorSlug = "unused",
+            Method = "POST",
+            PathTemplate = "/feed",
+            BodyTemplate = "{}",
+        };
+        var connector = new Connector
+        {
+            Id = Guid.NewGuid(), Slug = "unused", BaseUrl = "https://example.com", Auth = ConnectorAuth.None,
+        };
+
+        // One key, the way the runner computes one per action when the run is queued, then hands the
+        // same value to every attempt of it.
+        var idempotencyKey = $"{Guid.NewGuid():N}-0";
+
+        await using var session = store.QuerySession(tenant);
+        var composer = new RequestComposer(session, config, new QueryRunner(session));
+
+        var firstAttempt = await composer.ComposeAsync(
+            definition, connector, content, idempotencyKey, TestContext.Current.CancellationToken);
+        var secondAttempt = await composer.ComposeAsync(
+            definition, connector, content, idempotencyKey, TestContext.Current.CancellationToken);
+
+        firstAttempt.Ok.Should().BeTrue("got refusal: {0}", firstAttempt.Refusal);
+        secondAttempt.Ok.Should().BeTrue("got refusal: {0}", secondAttempt.Refusal);
+
+        firstAttempt.Headers.Should().ContainKey("Idempotency-Key",
+            "the default is on, so an operator gets the protection without asking for it");
+        firstAttempt.Headers["Idempotency-Key"].Should().Be(idempotencyKey);
+        secondAttempt.Headers["Idempotency-Key"].Should().Be(firstAttempt.Headers["Idempotency-Key"],
+            "a retry of the same action must carry the same key the first attempt did, unchanged, "
+            + "or a receiver has no way to recognise a duplicate");
+    }
+
+    /// <summary>
+    /// A connector with the idempotency header switched off sends no such header, even when the
+    /// runner supplied a key.
+    /// </summary>
+    /// <remarks>
+    /// A provider that rejects an unknown header needs this to be a deliberate opt-out rather than an
+    /// accident of clearing a text field, which is why the sentinel is the literal value <c>off</c>
+    /// rather than an empty string.
+    ///
+    /// Depends on <c>RequestComposer.cs</c>'s <c>IdempotencyHeaderName</c>, specifically
+    /// <c>string.Equals(configured.Trim(), "off", StringComparison.OrdinalIgnoreCase) ? null : ...</c>:
+    /// remove that branch and this connector's setting stops meaning anything, and the header comes
+    /// back.
+    /// </remarks>
+    [Fact]
+    public async Task A_connector_with_the_idempotency_header_disabled_sends_none()
+    {
+        var store = _factory.Services.GetRequiredService<IDocumentStore>();
+        var config = _factory.Services.GetRequiredService<IConfiguration>();
+        var tenant = "req-idem-off-" + Guid.NewGuid().ToString("n")[..8];
+        var type = NewSlug("idemoff");
+
+        await using (var seed = store.LightweightSession(tenant))
+        {
+            seed.Store(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(),
+                Name = type,
+                DisplayName = "x",
+                Fields = [new FieldDefinition { Name = "Title", Type = "string" }],
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow,
+            });
+            await seed.SaveChangesAsync();
+        }
+
+        var content = new barakoCMS.Models.Content
+        {
+            Id = Guid.NewGuid(),
+            ContentType = type,
+            Status = ContentStatus.Published,
+            Data = new() { ["Title"] = "irrelevant to this test" },
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        };
+
+        var definition = new RequestDefinition
+        {
+            Id = Guid.NewGuid(),
+            Slug = NewSlug("req"),
+            ConnectorSlug = "unused",
+            Method = "POST",
+            PathTemplate = "/feed",
+            BodyTemplate = "{}",
+        };
+        var connector = new Connector
+        {
+            Id = Guid.NewGuid(),
+            Slug = "unused",
+            BaseUrl = "https://example.com",
+            Auth = ConnectorAuth.None,
+            Settings = new() { [ConnectorSettingKeys.IdempotencyHeader] = "off" },
+        };
+
+        var idempotencyKey = $"{Guid.NewGuid():N}-0";
+
+        await using var session = store.QuerySession(tenant);
+        var composer = new RequestComposer(session, config, new QueryRunner(session));
+
+        var composed = await composer.ComposeAsync(
+            definition, connector, content, idempotencyKey, TestContext.Current.CancellationToken);
+
+        composed.Ok.Should().BeTrue("got refusal: {0}", composed.Refusal);
+        composed.Headers.Should().NotContainKey("Idempotency-Key");
+        composed.Headers.Values.Should().NotContain(idempotencyKey,
+            "the key must not leak out under some other header name either");
     }
 
     private string _connectorSlug = string.Empty;
