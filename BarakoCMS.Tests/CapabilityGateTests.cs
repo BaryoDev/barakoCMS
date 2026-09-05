@@ -1119,9 +1119,13 @@ public class CapabilityGateTests
     /// </summary>
     /// <remarks>
     /// One grant rather than a read/write split: whoever can upload can already publish a file
-    /// anonymously on the deployment's domain, and describing or removing one is the same
-    /// editorial surface. The module declares the name, so this is the only place a runtime role
-    /// holding it is presented to the gate.
+    /// anonymously on the deployment's domain, and listing, describing or editing one is the same
+    /// editorial surface. Deleting is not: it destroys something the caller could not already see
+    /// through those routes, so it also needs to be the uploader or an admin, on top of this gate.
+    /// This test proves the random-id probes above the capability gate; it does not prove a holder
+    /// may delete a stranger's upload, which <c>FilesEndpointTests</c> covers instead. The module
+    /// declares the name, so this is the only place a runtime role holding it is presented to the
+    /// gate.
     /// </remarks>
     [Fact]
     public async Task Upload_files_opens_the_media_library_and_a_name_alone_does_not()

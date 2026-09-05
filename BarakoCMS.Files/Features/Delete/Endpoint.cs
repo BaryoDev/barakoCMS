@@ -26,7 +26,9 @@ public class Refusal
 /// <summary>
 /// DELETE /api/files/{id}. Removes the record, its cached resizes and the bytes behind all of them.
 /// Refused with a 409 while an entry still references the file, unless <c>?force=true</c>, so an
-/// editor cannot break a page without being told which one.
+/// editor cannot break a page without being told which one. Refused with a 403 if the caller is not
+/// the uploader or an account administering the tenant, the same rule <c>Download</c> applies; see
+/// <see cref="FileOwnership"/>.
 /// </summary>
 public class Endpoint : Endpoint<Request, Refusal>
 {
@@ -65,6 +67,21 @@ public class Endpoint : Endpoint<Request, Refusal>
         if (file is null || file.ParentFileId is not null)
         {
             await Send.NotFoundAsync(ct);
+            return;
+        }
+
+        // upload_files alone opens list, describe and edit for anyone's upload in the tenant, none
+        // of which exposes bytes or destroys anything the caller could not already see through those
+        // same routes. Delete does destroy something, so it needs what Download already asks for:
+        // the uploader, or an account administering the tenant. Before this check, a media editor
+        // who could not download a stranger's file could still delete it (#547).
+        //
+        // Checked before the usage lookup below, not after: a caller who may not have the file at
+        // all should not spend a database scan to be told so, and should not learn how many entries
+        // reference something that is not theirs to remove.
+        if (!FileOwnership.CanAccess(User, file))
+        {
+            await Send.ForbiddenAsync(ct);
             return;
         }
 

@@ -230,14 +230,19 @@ public class FilesMediaLibraryTests
     /// delete, but its title is only there when the caller holds read on the type and the
     /// sensitivity scrub leaves it.
     /// </summary>
+    /// <remarks>
+    /// The editor uploads the file itself, so the ownership check the delete route also applies
+    /// (#547) lets the request through to the usage conflict this test is actually about. Deleting
+    /// somebody else's upload is covered separately, by <c>FilesEndpointTests</c>.
+    /// </remarks>
     [Fact]
     public async Task Usage_and_the_refusal_hide_the_title_of_an_entry_the_caller_may_not_read()
     {
         var admin = await AdminAsync();
-        var id = await UploadAsync(admin, isPublic: true, "minutes.png", "image/png");
         var type = await SeedTypeAsync();
         var otherType = await SeedTypeAsync();
         var editor = await MediaEditorAsync(readableType: type);
+        var id = await UploadAsync(editor, isPublic: true, "minutes.png", "image/png");
 
         var open = await StoreEntryAsync(type, new() { ["Title"] = "Open page", ["Image"] = id.ToString() });
         var secret = await StoreEntryAsync(type, new() { ["Title"] = "Board minutes", ["Image"] = id.ToString() },

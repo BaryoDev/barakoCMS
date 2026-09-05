@@ -522,6 +522,16 @@ provisioning a website in somebody else's system using this deployment's credent
 splits export from import because the risks are opposite: export reads a whole tenant out in one
 request, import writes a whole tenant in.
 
+Files is one grant, not a split, but it is not uniform either. `upload_files` opens list, describe
+and edit for every file in the tenant, and delete and download for a file this account uploaded,
+because none of list, describe or edit exposes bytes or destroys anything the caller could not
+already see through those same routes. Delete and download are the two that leave the caller with
+something they did not have (the bytes) or take something away for good, so both also need the
+uploader, or an account holding Admin or SuperAdmin; `upload_files` on its own is not enough. Until
+content can reference a file (#141) there is no richer answer than that. Before issue #547 the two
+gates disagreed: download already asked for the uploader or an admin, delete asked only for
+`upload_files`, so a media editor could delete a file they could not read.
+
 A module grants its own capabilities at seed time, to the roles its old `Roles(...)` gate listed,
 using `ModuleCapabilities.GrantAsync`. Additive, idempotent, and it skips a role the host never
 seeded rather than inventing one. SuperAdmin is not granted anything: it holds `*`, which satisfies a
