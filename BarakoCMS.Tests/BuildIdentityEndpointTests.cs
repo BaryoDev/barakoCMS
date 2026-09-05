@@ -69,6 +69,19 @@ public class BuildIdentityEndpointTests
     public async Task The_health_report_body_is_unchanged()
     {
         using var client = _factory.CreateClient();
+
+        // The core host seeds on a background task and the "seed" check holds readiness closed
+        // until it finishes, so /health answers Unhealthy for as long as seeding takes. On a loaded
+        // CI runner with fifteen modules that window reached this test twice on Sept 4. Wait for
+        // readiness first; the assertion is about the body's shape, not about when seeding ends.
+        var deadline = DateTime.UtcNow.AddSeconds(60);
+        while (DateTime.UtcNow < deadline)
+        {
+            var ready = await client.GetAsync("/health/ready", TestContext.Current.CancellationToken);
+            if (ready.StatusCode == HttpStatusCode.OK) break;
+            await Task.Delay(250, TestContext.Current.CancellationToken);
+        }
+
         var res = await client.GetAsync("/health", TestContext.Current.CancellationToken);
         var body = await res.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
 
