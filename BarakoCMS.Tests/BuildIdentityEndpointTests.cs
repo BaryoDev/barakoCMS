@@ -74,12 +74,27 @@ public class BuildIdentityEndpointTests
         // until it finishes, so /health answers Unhealthy for as long as seeding takes. On a loaded
         // CI runner with fifteen modules that window reached this test twice on Sept 4. Wait for
         // readiness first; the assertion is about the body's shape, not about when seeding ends.
-        var deadline = DateTime.UtcNow.AddSeconds(60);
+        // Three minutes, not one. Readiness covers the database, disk, memory and the startup seed,
+        // and on a runner already hosting the rest of this suite the seed alone has taken past a
+        // minute. A minute failed one run and passed the next on the same commit.
+        var deadline = DateTime.UtcNow.AddMinutes(3);
+        var becameReady = false;
         while (DateTime.UtcNow < deadline)
         {
             var ready = await client.GetAsync("/health/ready", TestContext.Current.CancellationToken);
-            if (ready.StatusCode == HttpStatusCode.OK) break;
+            if (ready.StatusCode == HttpStatusCode.OK) { becameReady = true; break; }
             await Task.Delay(250, TestContext.Current.CancellationToken);
+        }
+
+        // Say what actually went wrong, and which check was still holding readiness closed. Without
+        // this the test fails on the body assertion and reports a shape mismatch when the real
+        // fault was that seeding never finished.
+        if (!becameReady)
+        {
+            var report = await client.GetAsync("/health", TestContext.Current.CancellationToken);
+            var reportBody = await report.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+            becameReady.Should().BeTrue(
+                $"/health/ready did not report OK within three minutes; /health said {report.StatusCode} {reportBody}");
         }
 
         var res = await client.GetAsync("/health", TestContext.Current.CancellationToken);
