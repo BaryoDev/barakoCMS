@@ -2,9 +2,11 @@ using Xunit;
 using FluentAssertions;
 using Moq;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using barakoCMS.Features.Workflows;
 using barakoCMS.Features.Workflows.Actions;
 using barakoCMS.Core.Interfaces;
+using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 
 namespace BarakoCMS.Tests.Features.Workflows;
@@ -16,7 +18,7 @@ public class WorkflowPluginTests
     {
         // Arrange
         var mockEmailService = new Mock<IEmailService>();
-        var action = new EmailAction(mockEmailService.Object);
+        var action = new EmailAction(mockEmailService.Object, NullLogger<EmailAction>.Instance);
 
         // Act
         var type = action.Type;
@@ -30,7 +32,7 @@ public class WorkflowPluginTests
     {
         // Arrange
         var mockSmsService = new Mock<ISmsService>();
-        var action = new SmsAction(mockSmsService.Object);
+        var action = new SmsAction(mockSmsService.Object, NullLogger<SmsAction>.Instance);
 
         // Act
         var type = action.Type;
@@ -65,7 +67,7 @@ public class WorkflowPluginTests
     {
         // Arrange
         var mockEmailService = new Mock<IEmailService>();
-        var action = new EmailAction(mockEmailService.Object);
+        var action = new EmailAction(mockEmailService.Object, NullLogger<EmailAction>.Instance);
 
         var parameters = new Dictionary<string, string>
         {
@@ -96,7 +98,7 @@ public class WorkflowPluginTests
     {
         // Arrange
         var mockSmsService = new Mock<ISmsService>();
-        var action = new SmsAction(mockSmsService.Object);
+        var action = new SmsAction(mockSmsService.Object, NullLogger<SmsAction>.Instance);
 
         var parameters = new Dictionary<string, string>
         {
@@ -126,7 +128,7 @@ public class WorkflowPluginTests
     {
         // Arrange
         var mockEmailService = new Mock<IEmailService>();
-        var action = new EmailAction(mockEmailService.Object);
+        var action = new EmailAction(mockEmailService.Object, NullLogger<EmailAction>.Instance);
 
         var parameters = new Dictionary<string, string>(); // No parameters
 
@@ -183,6 +185,138 @@ public class WorkflowPluginTests
     }
 
     /// <summary>
+    /// Issue #569: a stock install has no real SMS provider, so RunAsync has to say so rather than
+    /// report success for a message nobody received.
+    /// </summary>
+    [Fact]
+    public async Task SmsAction_RunAsync_Should_ReportPermanentFailure_WhenProviderIsMock()
+    {
+        // Arrange
+        var mockProvider = new MockSmsService(NullLogger<MockSmsService>.Instance);
+        var action = new SmsAction(mockProvider, NullLogger<SmsAction>.Instance);
+
+        var parameters = new Dictionary<string, string>
+        {
+            { "To", "+1234567890" },
+            { "Message", "Test Message" }
+        };
+
+        var content = new Content
+        {
+            Id = Guid.NewGuid(),
+            ContentType = "TestType",
+            Status = ContentStatus.Published,
+            Data = new Dictionary<string, object>()
+        };
+
+        // Act
+        var result = await action.RunAsync(parameters, content, CancellationToken.None);
+
+        // Assert
+        result.Succeeded.Should().BeFalse("the mock provider sends nothing");
+        result.Retryable.Should().BeFalse("no real provider is registered, and retrying will not change that");
+        result.Error.Should().NotBeNullOrWhiteSpace();
+        result.Error.Should().NotContain("+1234567890", "the recipient number is personal data and must not land in the run record");
+    }
+
+    /// <summary>
+    /// A real provider (anything other than the mock) still reports success on a clean send.
+    /// </summary>
+    [Fact]
+    public async Task SmsAction_RunAsync_Should_ReportSuccess_WhenProviderIsReal()
+    {
+        // Arrange
+        var mockSmsService = new Mock<ISmsService>();
+        var action = new SmsAction(mockSmsService.Object, NullLogger<SmsAction>.Instance);
+
+        var parameters = new Dictionary<string, string>
+        {
+            { "To", "+1234567890" },
+            { "Message", "Test Message" }
+        };
+
+        var content = new Content
+        {
+            Id = Guid.NewGuid(),
+            ContentType = "TestType",
+            Status = ContentStatus.Published,
+            Data = new Dictionary<string, object>()
+        };
+
+        // Act
+        var result = await action.RunAsync(parameters, content, CancellationToken.None);
+
+        // Assert
+        result.Succeeded.Should().BeTrue();
+    }
+
+    /// <summary>
+    /// Issue #569: EmailAction has the same shape as SmsAction, so it gets the same test.
+    /// </summary>
+    [Fact]
+    public async Task EmailAction_RunAsync_Should_ReportPermanentFailure_WhenProviderIsMock()
+    {
+        // Arrange
+        var mockProvider = new MockEmailService(NullLogger<MockEmailService>.Instance);
+        var action = new EmailAction(mockProvider, NullLogger<EmailAction>.Instance);
+
+        var parameters = new Dictionary<string, string>
+        {
+            { "To", "test@example.com" },
+            { "Subject", "Test Subject" },
+            { "Body", "Test Body" }
+        };
+
+        var content = new Content
+        {
+            Id = Guid.NewGuid(),
+            ContentType = "TestType",
+            Status = ContentStatus.Published,
+            Data = new Dictionary<string, object>()
+        };
+
+        // Act
+        var result = await action.RunAsync(parameters, content, CancellationToken.None);
+
+        // Assert
+        result.Succeeded.Should().BeFalse("the mock provider sends nothing");
+        result.Retryable.Should().BeFalse("no real provider is registered, and retrying will not change that");
+        result.Error.Should().NotBeNullOrWhiteSpace();
+    }
+
+    /// <summary>
+    /// A real provider (anything other than the mock) still reports success on a clean send.
+    /// </summary>
+    [Fact]
+    public async Task EmailAction_RunAsync_Should_ReportSuccess_WhenProviderIsReal()
+    {
+        // Arrange
+        var mockEmailService = new Mock<IEmailService>();
+        var action = new EmailAction(mockEmailService.Object, NullLogger<EmailAction>.Instance);
+
+        var parameters = new Dictionary<string, string>
+        {
+            { "To", "test@example.com" },
+            { "Subject", "Test Subject" },
+            { "Body", "Test Body" }
+        };
+
+        var content = new Content
+        {
+            Id = Guid.NewGuid(),
+            ContentType = "TestType",
+            Status = ContentStatus.Published,
+            Data = new Dictionary<string, object>()
+        };
+
+        // Act
+        var result = await action.RunAsync(parameters, content, CancellationToken.None);
+
+        // Assert
+        result.Succeeded.Should().BeTrue();
+    }
+
+    /// <summary>
     /// Every registered action is reachable by the type a workflow names.
     /// </summary>
     /// <remarks>
@@ -200,7 +334,7 @@ public class WorkflowPluginTests
     {
         var actions = new List<IWorkflowAction>
         {
-            new EmailAction(new Mock<IEmailService>().Object),
+            new EmailAction(new Mock<IEmailService>().Object, NullLogger<EmailAction>.Instance),
         };
 
         var byType = actions.ToDictionary(a => a.Type, StringComparer.OrdinalIgnoreCase);
