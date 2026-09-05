@@ -65,6 +65,16 @@ internal class Endpoint : Endpoint<Request, Response>
 
         var streamState = await _session.Events.FetchStreamStateAsync(req.Id, ct);
 
+        // #565 / D16: the document's own Marten version, exposed as a standard ETag so a client can
+        // do read-modify-write safely, regardless of content type or sourcing mode. PUT accepts this
+        // back as If-Match. Ships unconditionally; Content:Concurrency:Require only governs what
+        // happens on the PUT side to a caller that sends neither.
+        var metadata = await _session.MetadataForAsync(content, ct);
+        if (metadata is not null)
+        {
+            HttpContext.Response.Headers.ETag = ContentETag.Format(metadata.CurrentVersion);
+        }
+
         Response = new Response
         {
             Id = content.Id,

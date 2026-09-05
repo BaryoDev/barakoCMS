@@ -66,12 +66,17 @@ it, whatever its fields are marked.
 
 ## Two kinds of types in one API
 
-Once any type is event-sourced, the same API holds types with two behaviours: event-sourced types
-reject stale saves with a 409, the rest keep last-write-wins. That is the direction of travel, not
-an inconsistency awaiting cleanup. Moving a type from last-write-wins to conflict rejection later
-would break clients that never handled a conflict, while the reverse breaks nothing, so new
-semantics arrive only with new event-sourced types and existing types keep behaving as they always
-have. Anyone building against the API should handle 409 on writes to event-sourced types.
+Once any type is event-sourced, the same API holds types with two behaviours on a concurrent edit.
+An event-sourced type rejects a save made against a version the stream has moved past with a 409,
+using the `Version` field `GET` and `PUT` already exchange. A type that is not event-sourced answers
+through `ETag` and `If-Match` instead (see `DECISIONS.md` D16): `GET` returns the document's version
+as an `ETag`, `PUT` accepts it back as `If-Match`, and a stale one gets 412. A caller that sends
+neither still gets last-write-wins by default (`Content:Concurrency:Require`), which is the 3.x
+upgrade path this project is not willing to break in a minor. That is the direction of travel, not
+an inconsistency awaiting cleanup: moving a type from last-write-wins to a rejected conflict later
+would break clients that never handled one, while the reverse breaks nothing, so new semantics
+arrive only with new event-sourced types (409, `Version`) or a flipped default (412, `ETag`), and
+existing types keep behaving as they always have until then.
 
 ## Rebuilding
 
