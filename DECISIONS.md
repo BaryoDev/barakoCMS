@@ -589,3 +589,125 @@ commits on its own in the default tenant. And a request that queues and never sa
 job; the provider logs a warning naming the request when that happens on a successful response, and
 the docs say so.
 
+
+---
+
+## D16. Document types get expected-version concurrency too, and 4.0 is the only free moment
+
+**Decided:** 5 Sept 2026. **Issue:** #565. **Status:** accepted, not yet implemented.
+
+`Content` gets Marten optimistic concurrency. `GET` returns the document version as an `ETag` and
+`PUT` accepts `If-Match`, answering 412 when it does not match. Whether a write that carries no
+version at all is refused is controlled by `Content:Concurrency:Require`, which defaults to false in
+4.x and to true in 5.0.
+
+**Rules out:** leaving document types on last-write-wins indefinitely, which is what D3 accepted as
+an interim state; adding this after the 4.0 tag.
+
+**Why.** D3 already made the argument and then scoped it to event-sourced types, calling the
+difference the direction of travel rather than a design. This finishes it, and the timing is the
+whole point.
+
+Moving from last-write-wins to expected-version is a breaking change: a client starts receiving a
+status it never handled. That cost is zero today, because 4.0 has not been tagged and there are no
+4.0 clients to break. It is not zero the day after the tag. So the choice is between doing it for
+free now and paying for it in a major later, or never doing it and leaving `Content`, the thing the
+product is actually about, as the one document that loses writes silently while `JobRecord`,
+`OtpCode`, `RefreshToken` and `MfaSecret` are all protected.
+
+The defect is real and not theoretical. Two editors open an entry, the second saves, the first
+saves, and the second edit is gone with no error. The history in `Features/Content/History` then
+records the first editor's write as the change, so the trail says the second edit never happened
+rather than that it was overwritten.
+
+**Why the flag, and why it is not a contract flag.** A 3.x client that upgrades does read-modify-write
+without any version, and refusing every one of those writes is not a migration path. The flag is the
+same shape as `Lifecycle:EnforceTransitions`, which exists for exactly this reason: a deployment
+adopting a new rule has data and callers that predate it.
+
+The flag decides reachability, not membership. `ETag` and `If-Match` ship in 4.0 unconditionally and
+are part of the contract from the tag onward, so a client can opt into safety on day one. The flag
+only decides what happens to a caller that says nothing, and its default moves in 5.0 with the
+change announced in the 4.x notes.
+
+**Accepted cost:** for the whole of 4.x, a client that sends no version still gets last-write-wins.
+The defect is fixable by the caller rather than fixed for them. That is the price of an upgrade path
+that works, and it is bounded because the default flips in the next major.
+
+**Wrong if:** the 3.x upgrade path stops mattering, in which case the flag defaults to true
+immediately and there is no interim.
+
+---
+
+## D17. A money value stays a number; currency and rounding live on the field definition
+
+**Decided:** 5 Sept 2026. **Issue:** #581. **Status:** accepted, not yet implemented.
+
+The `money` field type keeps storing a plain JSON number in `Content.Data`. Currency, scale,
+rounding rule and any non-negative constraint are declared on `FieldDefinition` and enforced on
+write.
+
+**Rules out:** storing money as `{ "amount": 1200, "currency": "PHP" }`.
+
+**Why.** The stored value shape is the door, and the feature is not. Today `money` is validated by
+the same predicate as `decimal`, so a money value is a number, and the delivery OpenAPI document
+describes it as `number`. Changing the stored shape rewrites every existing value and breaks every
+generated client and every consumer that reads the field, in a system whose entire delivery
+promise is that a client can rely on the described shape.
+
+Declaring the metadata on the definition costs nothing to reverse and changes no stored data. It
+also puts the rules where the other field rules already live, and where `FieldTypeRegistry` is
+already the single source of what a type accepts.
+
+This is recorded before the feature is built precisely because it is the kind of choice that gets
+made by whoever writes the first line of code, on the grounds that an object is tidier.
+
+**The case it does not cover.** One field holding amounts in different currencies per entry. That
+needs the currency stored per entry, and the answer is a sibling field the definition points at,
+not an object in the value. Multi-currency conversion, with a rate source and a rate date, is a
+separate feature and conflating the two makes both worse.
+
+**Wrong if:** a single field genuinely has to carry its own currency and a sibling field cannot
+express it. No requirement seen so far needs that.
+
+---
+
+## D18. What module authors are promised, and what they are not
+
+**Decided:** 5 Sept 2026. **Issues:** #557, #575. **Status:** accepted, not yet implemented.
+
+Three commitments to anybody building a module outside this repository.
+
+**One. `IModuleSchema` gains projections and event registration before `ConfigureMarten` is
+removed.** `ConfigureMarten` is `[Obsolete]` and scheduled for removal in 5.0, and it is currently
+the only way a module can register a projection or an event type, because `IModuleSchema` exposes
+only `For<T>()`. Removing it in 5.0 without a replacement would delete the only route without ever
+having offered another.
+
+**Two. A member added to `IBarakoModule` or `IWorkflowAction` arrives with a default implementation,
+and the member it replaces is marked `[Obsolete]` with the removal major named in the message.** That
+is what `ExecuteAsync` and `RunAsync` already did, and it is now the stated rule rather than a
+precedent somebody might not notice. `ModuleContract.Version` moves only when a member is removed or
+a hook's call order changes, which is what `ModuleContract` already says.
+
+**Three. `IWorkflowAction` is a supported extension point and is documented as one.** It is public
+because custom actions are an extension point, and `MODULES.md` has never mentioned it, so an author
+writing one reads core's source. A contract nobody documents is a contract nobody can rely on.
+
+**Rules out:** inviting outside module authors while the only route to a projection is a hook we have
+announced we are deleting; changing an extension point without a deprecation window; treating
+`MODULES.md` as covering the module contract when it covers only part of it.
+
+**Why.** The ecosystem cannot start before the 4.0 tag, because `BarakoCMS.Templates` and
+`BarakoCMS.Testing` are not published and the template pins 3.21.0. That makes this the moment to
+decide what is promised, while the number of outside modules is zero and nothing has to be
+migrated.
+
+It also fixes an asymmetry that is easy to miss. 4.0 made 188 `Features` types internal and moved
+the target framework, and `ModuleContract.Version` stayed at 1 throughout, correctly, because the
+contract itself did not change. A module compiled against 3.21 therefore gets no startup refusal and
+no version signal, and fails at the first call instead. Startup should log the core version each
+module assembly was compiled against, and `GET /api/modules` should report the supported range.
+
+**Wrong if:** modules stop being a supported extension point and become an internal implementation
+detail, in which case none of this is owed to anybody.
