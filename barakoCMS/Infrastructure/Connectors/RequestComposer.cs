@@ -33,13 +33,22 @@ public interface IRequestComposer
     /// <summary>
     /// Builds the request a definition describes for one content item, without sending it.
     /// </summary>
-    Task<ComposedRequest> ComposeAsync(RequestDefinition definition, Connector connector, Content content, CancellationToken ct);
+    /// <param name="idempotencyKey">
+    /// The workflow run's key, verbatim, or null when this call has no run behind it (a dry run, a
+    /// test, an action invoked some other way). Composing proceeds either way; a null key just
+    /// means no idempotency header goes on this particular call.
+    /// </param>
+    Task<ComposedRequest> ComposeAsync(
+        RequestDefinition definition, Connector connector, Content content, string? idempotencyKey, CancellationToken ct);
 }
 
 internal sealed class RequestComposer : IRequestComposer
 {
     /// <summary>The same <c>{{name}}</c> syntax workflow actions already use.</summary>
     private static readonly Regex Hole = new(@"\{\{\s*([A-Za-z0-9_.\[\]]+)\s*\}\}", RegexOptions.Compiled);
+
+    /// <summary>Sent when a connector names no header of its own. See <see cref="IdempotencyHeaderName"/>.</summary>
+    private const string DefaultIdempotencyHeader = "Idempotency-Key";
 
     private readonly IQuerySession _session;
     private readonly IConfiguration _config;
@@ -53,7 +62,7 @@ internal sealed class RequestComposer : IRequestComposer
     }
 
     public async Task<ComposedRequest> ComposeAsync(
-        RequestDefinition definition, Connector connector, Content content, CancellationToken ct)
+        RequestDefinition definition, Connector connector, Content content, string? idempotencyKey, CancellationToken ct)
     {
         var schema = await _session.Query<ContentTypeDefinition>()
             .FirstOrDefaultAsync(d => d.Name == content.ContentType, ct);
@@ -103,6 +112,29 @@ internal sealed class RequestComposer : IRequestComposer
             }
 
             headers[name] = value;
+        }
+
+        // The runner's key, unchanged: WebhookAction sends the same value verbatim, and a receiver
+        // comparing the two paths must see one call, not a derivative of it. A template that already
+        // named this exact header is left alone rather than overwritten, since the operator wrote
+        // that one on purpose. A missing key means this call has no run behind it (a dry run, a
+        // test), and composing still proceeds without the header rather than being refused for a
+        // protection only the runner can supply.
+        var idempotencyHeader = IdempotencyHeaderName(connector);
+        if (idempotencyHeader is not null
+            && !string.IsNullOrWhiteSpace(idempotencyKey)
+            && !headers.Keys.Any(k => string.Equals(k, idempotencyHeader, StringComparison.OrdinalIgnoreCase)))
+        {
+            // The same check every templated header value already passes. Nothing but the runner is
+            // expected to supply this value, but a header value has no quoting to fall back on, so it
+            // is checked rather than trusted.
+            if (HasControlCharacter(idempotencyKey))
+            {
+                return ComposedRequest.Refused(
+                    $"'{idempotencyHeader}' cannot be composed: the idempotency key contains a control character.");
+            }
+
+            headers[idempotencyHeader] = idempotencyKey;
         }
 
         var isJson = definition.BodyContentType.Contains("json", StringComparison.OrdinalIgnoreCase);
@@ -284,6 +316,32 @@ internal sealed class RequestComposer : IRequestComposer
         var bare = name.StartsWith("data.", StringComparison.OrdinalIgnoreCase) ? name[5..] : name;
 
         return schema.Fields.FirstOrDefault(f => string.Equals(f.Name, bare, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// The header name that carries the run's idempotency key on this connector, or null when the
+    /// connector has it switched off.
+    /// </summary>
+    /// <remarks>
+    /// Lives on <see cref="Connector.Settings"/>, not the request definition: the spelling a
+    /// provider wants is a property of the provider, not of one call to it, and every request
+    /// definition against the same connector should agree on it without each one repeating the
+    /// choice. Unset means the default, <see cref="DefaultIdempotencyHeader"/>, so an operator gets
+    /// the protection without asking for it.
+    ///
+    /// The opt-out is the literal value <c>off</c>, not an empty string. An empty string is what a
+    /// text field holds after someone clears it by accident, and that should fall back to the
+    /// default rather than silently disable the protection; typing <c>off</c> is deliberate the way
+    /// clearing a field is not.
+    /// </remarks>
+    private static string? IdempotencyHeaderName(Connector connector)
+    {
+        var configured = connector.Settings.GetValueOrDefault(ConnectorSettingKeys.IdempotencyHeader);
+        if (string.IsNullOrWhiteSpace(configured)) return DefaultIdempotencyHeader;
+
+        return string.Equals(configured.Trim(), "off", StringComparison.OrdinalIgnoreCase)
+            ? null
+            : configured.Trim();
     }
 
     private enum Escaping { None, Json, Url }

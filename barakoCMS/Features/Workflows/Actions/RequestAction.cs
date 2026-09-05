@@ -84,7 +84,13 @@ internal sealed class RequestAction : IWorkflowAction
             return WorkflowActionResult.Failure($"Connector '{connector.Slug}' is disabled.");
         }
 
-        var composed = await _composer.ComposeAsync(definition, connector, content, ct);
+        // Present when the runner queued this attempt (WorkflowRunner.cs sets it on every action's
+        // parameters), absent when this action was invoked some other way. Passed through unchanged:
+        // WebhookAction sends the same runner-supplied value verbatim, and the two paths have to
+        // agree for a receiver comparing them to see one call rather than two.
+        parameters.TryGetValue("IdempotencyKey", out var idempotencyKey);
+
+        var composed = await _composer.ComposeAsync(definition, connector, content, idempotencyKey, ct);
         if (!composed.Ok)
         {
             _logger.LogWarning("Request '{Slug}' was refused before sending: {Reason}", slug, composed.Refusal);
