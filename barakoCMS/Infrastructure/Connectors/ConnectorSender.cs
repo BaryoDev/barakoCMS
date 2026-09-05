@@ -276,4 +276,10 @@ public static class ConnectorSettingKeys
 {
     public const string Username = "Username";
     public const string HeaderName = "HeaderName";
+
+    /// <summary>
+    /// The header name a <see cref="barakoCMS.Models.RequestDefinition"/> uses to carry the
+    /// workflow run's idempotency key. See <c>RequestComposer.IdempotencyHeaderName</c>.
+    /// </summary>
+    public const string IdempotencyHeader = "IdempotencyHeader";
 }
