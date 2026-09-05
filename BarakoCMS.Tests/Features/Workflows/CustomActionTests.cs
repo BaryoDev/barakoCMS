@@ -36,8 +36,9 @@ public class CustomActionTests
     {
         // Arrange
         var mockSession = new Mock<IDocumentSession>();
+        var mockContentWriter = new Mock<barakoCMS.Core.Interfaces.IContentWriter>();
         var mockLogger = new Mock<ILogger<UpdateFieldAction>>();
-        var action = new UpdateFieldAction(mockSession.Object, mockLogger.Object);
+        var action = new UpdateFieldAction(mockSession.Object, mockContentWriter.Object, mockLogger.Object);
 
         // Act
         var type = action.Type;
@@ -98,66 +99,10 @@ public class CustomActionTests
         mockSession.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
-    [Fact]
-    public async Task UpdateFieldAction_Should_UpdateDataField()
-    {
-        // Arrange
-        var content = new Content
-        {
-            Id = Guid.NewGuid(),
-            ContentType = "Task",
-            Status = ContentStatus.Draft,
-            Data = new Dictionary<string, object> { { "Priority", "Low" } },
-            UpdatedAt = DateTime.UtcNow.AddDays(-1)
-        };
-
-        var mockSession = new Mock<IDocumentSession>();
-        var mockLogger = new Mock<ILogger<UpdateFieldAction>>();
-        var action = new UpdateFieldAction(mockSession.Object, mockLogger.Object);
-
-        var parameters = new Dictionary<string, string>
-        {
-            { "Field", "data.Priority" },
-            { "Value", "High" }
-        };
-
-        // Act
-        await action.ExecuteAsync(parameters, content, CancellationToken.None);
-
-        // Assert
-        content.Data["Priority"].Should().Be("High");
-        mockSession.Verify(x => x.Store(content), Times.Once);
-        mockSession.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
-    }
-
-    [Fact]
-    public async Task UpdateFieldAction_Should_UpdateStatus()
-    {
-        // Arrange
-        var content = new Content
-        {
-            Id = Guid.NewGuid(),
-            ContentType = "Task",
-            Status = ContentStatus.Draft,
-            Data = new Dictionary<string, object>()
-        };
-
-        var mockSession = new Mock<IDocumentSession>();
-        var mockLogger = new Mock<ILogger<UpdateFieldAction>>();
-        var action = new UpdateFieldAction(mockSession.Object, mockLogger.Object);
-
-        var parameters = new Dictionary<string, string>
-        {
-            { "Field", "Status" },
-            { "Value", "Published" }
-        };
-
-        // Act
-        await action.ExecuteAsync(parameters, content, CancellationToken.None);
-
-        // Assert
-        content.Status.Should().Be(ContentStatus.Published);
-    }
+    // UpdateFieldAction's behavioural tests (data field, status, the idempotency guard for a
+    // reclaimed attempt) live in UpdateFieldActionTests, against a real store: the fix reloads the
+    // target through IContentWriter.AppendOptimisticAsync, which a bare IDocumentSession mock
+    // cannot stand in for meaningfully.
 
     [Fact]
     public async Task UpdateFieldAction_Should_HandleMissingField()
@@ -172,8 +117,9 @@ public class CustomActionTests
         };
 
         var mockSession = new Mock<IDocumentSession>();
+        var mockContentWriter = new Mock<barakoCMS.Core.Interfaces.IContentWriter>();
         var mockLogger = new Mock<ILogger<UpdateFieldAction>>();
-        var action = new UpdateFieldAction(mockSession.Object, mockLogger.Object);
+        var action = new UpdateFieldAction(mockSession.Object, mockContentWriter.Object, mockLogger.Object);
 
         var parameters = new Dictionary<string, string>
         {
