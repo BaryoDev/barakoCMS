@@ -99,26 +99,44 @@ the wire and checks it fails with a different secret.
 
 Each row holds the workflow id, the run id when the runner made the delivery, the URL with its
 userinfo and query removed, the trigger event, the request headers minus the signature, the response
-status, the first 4 KB of the response body, the duration, the error text when nothing answered, the
-attempt number and when it happened.
+status, the response body, when that body was cleared by retention, the duration, the error text
+when nothing answered, the attempt number and when it happened.
 
-The response body is kept because "what did they say" is the next question after "did it fire".
-Some providers echo a credential in a 401 body, which is the reason the read is gated and the
-reason the retention window is short.
+The response body is kept because "what did they say" is the next question after "did it fire", and
+it is the one field on the row that answers to a narrower reader and a shorter clock than the rest.
+Some providers echo a credential in a 401 body, the same reason `Features/WorkflowRuns/Endpoints.cs`
+and `Infrastructure/Connectors/ConnectorSender.cs` carry no response body at all. Reading it needs
+`view_webhook_response_bodies` on top of `view_workflow_runs`; a caller holding only the latter sees
+every row, with the status and everything else intact, and `responseBody: null`. `docs/access-control.md`
+covers the split and who loses access to what on upgrade. See issue #607.
 
 ## Retention
 
 ```json
 {
   "Webhooks": {
-    "DeliveryLogRetentionDays": 30
+    "DeliveryLogRetentionDays": 30,
+    "ResponseBodyRetentionHours": 24
   }
 }
 ```
 
-Thirty days is the default. The sweep runs hourly, two minutes after start, on every tenant holding
-deliveries. Zero or less keeps the log forever, the same reading `Workflows:Retention` uses, because
-"0 days" reads as "delete immediately" just as naturally and keeping is the direction a mistake can
-be recovered from.
+Two windows, on the same sweep, for the reason `WorkflowRunRetentionService` runs two: the row and
+the response body are worth keeping for different lengths of time. Thirty days is the default for the
+row: "did this workflow's hook fire, and when" is worth answering long after the fact, and this is
+still not an audit trail, the same caveat `docs/workflow-runs.md` makes. Twenty-four hours is the
+default for the body: debugging a webhook a provider is rejecting happens in the same shift it broke
+in, and a body that can carry a credential should not sit in the log any longer than that debugging
+window needs.
 
-This is an operational log, not an audit trail. The same caveat in `docs/workflow-runs.md` applies.
+The sweep runs hourly, two minutes after start, on every tenant holding deliveries. It clears expired
+bodies before it deletes expired rows, so a row due for deletion next sweep rather than this one
+never sits with an expired body in the meantime. A cleared body leaves the row in place with
+`responseBody: null` and `responseBodyClearedAt` set to when the sweep cleared it, which is what
+tells it apart from a row whose body was empty to begin with (nothing answered, or the body has not
+expired yet): both read `responseBody: null`, and only a cleared one sets the timestamp.
+
+Zero or less keeps a window forever, the same reading `Workflows:Retention` uses, because "0" reads
+as "delete immediately" just as naturally and keeping is the direction a mistake can be recovered
+from. The two windows are independent: a deployment can keep rows forever while still clearing
+bodies hourly, or the other way round.

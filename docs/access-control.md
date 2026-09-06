@@ -434,8 +434,9 @@ says.
 | `Features/Connectors/*` | `view_connectors` | `GET /api/connectors`, `GET /api/connectors/{slug}` | SuperAdmin, Admin |
 | `Features/Connectors/*` | `manage_connectors` | `POST /api/connectors`, `PUT` and `DELETE /api/connectors/{slug}`, `POST /api/connectors/{slug}/test` | SuperAdmin, Admin |
 | `Features/Workflows/*` | `manage_workflows` | `/api/workflows`, `/api/workflows/actions`, `/variables`, `/validate`, `/dry-run` | SuperAdmin, Admin |
-| `Features/WorkflowRuns/*` | `view_workflow_runs` | `GET /api/workflow-runs`, `GET /api/workflow-runs/{id}`, `GET /api/workflows/{id}/debug` | SuperAdmin, Admin |
+| `Features/WorkflowRuns/*` | `view_workflow_runs` | `GET /api/workflow-runs`, `GET /api/workflow-runs/{id}`, `GET /api/workflows/{id}/debug`, `GET /api/webhook-deliveries` | SuperAdmin, Admin |
 | `Features/WorkflowRuns/*` | `retry_workflow_actions` | `POST /api/workflow-runs/{id}/actions/{ordinal}/retry` | SuperAdmin, Admin |
+| `Features/WebhookDeliveries/*` | `view_webhook_response_bodies` | The `responseBody` field on `GET /api/webhook-deliveries`, nothing else on the row | SuperAdmin |
 | `Features/Content/History/*` | `rollback_content` | `POST /api/contents/{id}/rollback/{versionId}` | SuperAdmin, Admin |
 | `Features/Content/Erase/*` | `erase_content` | `DELETE /api/contents/{id}/erase` | SuperAdmin |
 | `Features/Jobs/*` | `view_jobs` | `GET /api/jobs` | SuperAdmin, Admin |
@@ -492,6 +493,23 @@ The two destructive content routes are two capabilities because their gates diff
 `DELETE /api/contents/{id}/erase` was `Roles("SuperAdmin")`. One name would have to pick one of
 those, and picking the wider one hands every Admin an irreversible delete. `erase_content` is the
 only capability in the whole of #443 that Admin's defaults do not carry.
+
+`view_webhook_response_bodies` gates a field, not a route. `GET /api/webhook-deliveries` still asks
+for `view_workflow_runs` alone, the same gate `GET /api/workflow-runs` uses, because a delivery is a
+run's action seen from the wire and "did it fire, and with what status" is the same question either
+way. The response body a provider sent back is different: `Features/WorkflowRuns/Endpoints.cs` and
+`Infrastructure/Connectors/ConnectorSender.cs` both refuse to carry one at all, for the reason that a
+401 from an OAuth provider frequently echoes the credential that was sent, and the delivery log was
+the one place that reasoning had not reached (issue #607). Gating the whole route would have cost
+the ordinary support case, an operator who only needs to know a delivery failed and with what
+status; gating the field instead means `ViewWorkflowRuns` alone still answers that, and only the
+body itself needs the narrower grant. Not in Admin's defaults: unlike every other capability in this
+section, Admin never held this before the split, because before #607 anyone holding
+`view_workflow_runs` could read the body outright. Granting it to Admin here would be the split
+undoing itself on day one. **A holder of `view_workflow_runs` who does not also hold
+`view_webhook_response_bodies` loses the ability to read a delivery's response body on upgrade**;
+everything else on the row is unaffected. The body itself expires on its own short retention window
+regardless of who can read it: see `docs/webhooks.md`.
 
 ### Modules
 
