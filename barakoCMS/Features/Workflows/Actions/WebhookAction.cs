@@ -112,13 +112,29 @@ internal class WebhookAction : IWorkflowAction
         string? secret = null;
         if (WebhookSigning.HasSecret(parameters))
         {
-            secret = _protector.Unprotect(parameters[WebhookSigning.SecretParameter]);
+            var stored = parameters[WebhookSigning.SecretParameter];
+            secret = _protector.Unprotect(stored);
             if (secret is null)
             {
                 // Refused rather than sent unsigned. A receiver that checks signatures would reject
                 // it anyway, and one that does not would never learn that signing had silently
-                // stopped. The reachable cause is a rotated Secrets:Key, and the fix is to enter the
-                // secret again.
+                // stopped.
+                //
+                // Two different reasons land here and an operator needs to know which. A value that
+                // is not shaped like an envelope at all was saved before this Secret was ever
+                // protected (a workflow from before #524, or a custom action from before #526) and no
+                // key will ever decrypt it; recreating the workflow is the only fix. A value that is
+                // shaped right but still will not decrypt is a rotated Secrets:Key, and the fix is to
+                // enter the secret again.
+                if (!WebhookSigning.LooksProtected(stored))
+                {
+                    _logger.LogWarning("The webhook secret for {Url} is not protected. Skipping webhook action.", Redact(url));
+                    delivery.Error = "The secret is not protected. Recreate the workflow.";
+                    await RecordAsync(delivery, ct);
+                    return WorkflowActionResult.PermanentFailure(
+                        $"The webhook secret for {Redact(url)} is not protected. Recreate the workflow.");
+                }
+
                 _logger.LogWarning("The webhook secret for {Url} could not be decrypted. Skipping webhook action.", Redact(url));
                 delivery.Error = "The webhook secret could not be decrypted. Enter it again on the workflow.";
                 await RecordAsync(delivery, ct);
