@@ -212,6 +212,58 @@ public class WebhookDeliveryTests
             "the error names the setting that would allow it");
     }
 
+    /// <summary>
+    /// Issue #526: a Webhook saved before its Secret was ever encrypted (before #524, or a workflow
+    /// hand-written straight into the store) refuses to send. This is the reachable case
+    /// <see cref="ISecretProtector.Unprotect"/> cannot itself tell apart from a rotated key, so the
+    /// message an operator sees has to come from somewhere else: no key will ever decrypt a value
+    /// that was never encrypted, so the only fix is recreating the workflow, not re-entering a secret.
+    /// </summary>
+    [Fact]
+    public async Task A_secret_saved_before_it_was_ever_protected_refuses_and_says_to_recreate_the_workflow()
+    {
+        var protector = _fixture.Services.GetRequiredService<ISecretProtector>();
+        using var listener = new RecordingListener();
+
+        var sent = await SendWithStoredSecretAsync(
+            "webhook-unprotected-secret", listener.Url, storedSecretValue: "whsec_typed_before_524", protector);
+
+        listener.WasCalled.Should().BeFalse("an unprotected secret must not be signed with or sent");
+        sent.Result.Succeeded.Should().BeFalse();
+        sent.Result.Retryable.Should().BeFalse("no key will ever decrypt a value that was never encrypted");
+        sent.Result.Error.Should().Contain("not protected").And.NotContain("could not be decrypted");
+        sent.Delivery.Error.Should().Contain("not protected");
+    }
+
+    /// <summary>
+    /// The other reason <see cref="ISecretProtector.Unprotect"/> comes back null: the value is shaped
+    /// like ciphertext but <c>Secrets:Key</c> rotated since it was written. Different cause, different
+    /// message: entering the secret again is the fix here, recreating the workflow is not.
+    /// </summary>
+    [Fact]
+    public async Task A_secret_that_cannot_decrypt_under_the_current_key_refuses_and_says_to_enter_it_again()
+    {
+        var writtenWith = new SecretProtector(new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Secrets:Key"] = "the-key-this-secret-was-written-under-32c",
+        }).Build());
+        var rotatedTo = new SecretProtector(new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Secrets:Key"] = "a-completely-different-rotated-key-material",
+        }).Build());
+
+        var ciphertext = writtenWith.Protect("whsec_before_rotation");
+        using var listener = new RecordingListener();
+
+        var sent = await SendWithStoredSecretAsync("webhook-rotated-key", listener.Url, ciphertext, rotatedTo);
+
+        listener.WasCalled.Should().BeFalse();
+        sent.Result.Succeeded.Should().BeFalse();
+        sent.Result.Retryable.Should().BeFalse();
+        sent.Result.Error.Should().Contain("could not be decrypted").And.NotContain("not protected");
+        sent.Delivery.Error.Should().Contain("could not be decrypted");
+    }
+
     [Fact]
     public async Task A_delivery_row_is_written_for_a_connection_failure()
     {
@@ -624,6 +676,55 @@ public class WebhookDeliveryTests
         rows.Should().NotBeEmpty("every delivery, sent or not, leaves a row");
 
         return new Sent(result, rows[0], ciphertext);
+    }
+
+    /// <summary>
+    /// Like <see cref="SendAsync"/>, but the caller controls exactly what lands in the Secret
+    /// parameter and which protector tries to decrypt it, for the two ways
+    /// <see cref="ISecretProtector.Unprotect"/> can come back null (#526): a value that was never
+    /// protected, and one that will not decrypt under the current key.
+    /// </summary>
+    private async Task<Sent> SendWithStoredSecretAsync(string tenant, string url, string storedSecretValue, ISecretProtector protector)
+    {
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var guard = new OutboundAddressGuard(isBlocked: _ => false);
+
+        var parameters = new Dictionary<string, string>
+        {
+            ["Url"] = url,
+            [WebhookSigning.SecretParameter] = storedSecretValue,
+        };
+
+        var content = new Content
+        {
+            Id = Guid.NewGuid(),
+            ContentType = $"{tenant}-record",
+            Status = ContentStatus.Published,
+            Sensitivity = SensitivityLevel.Public,
+            Data = new Dictionary<string, object> { ["Title"] = "hello" },
+        };
+
+        await using var session = store.LightweightSession(tenant);
+        using var handler = OutboundHttpHandler.Create(guard);
+        using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(10) };
+
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            [WebhookSigning.AllowInsecureSignedUrlsKey] = "true",
+        }).Build();
+
+        var action = new WebhookAction(
+            new SingleClientFactory(client), session, protector, guard, NullLogger<WebhookAction>.Instance, configuration);
+
+        var result = await action.RunAsync(parameters, content, TestContext.Current.CancellationToken);
+
+        await using var check = store.QuerySession(tenant);
+        var rows = await check.Query<WebhookDelivery>()
+            .OrderByDescending(d => d.CreatedAt)
+            .ToListAsync(TestContext.Current.CancellationToken);
+        rows.Should().NotBeEmpty("every delivery, sent or not, leaves a row");
+
+        return new Sent(result, rows[0], storedSecretValue);
     }
 
     private static WebhookDelivery Row(
