@@ -388,6 +388,135 @@ public class WebhookDeliveryTests
         (await session.LoadAsync<WebhookDelivery>(ancient.Id, TestContext.Current.CancellationToken)).Should().NotBeNull();
     }
 
+    /// <summary>
+    /// Issue #607, part two: the body is worth keeping for hours, the row for months. This clears the
+    /// body without deleting the row it lives on, on a window entirely independent of
+    /// <see cref="The_sweep_removes_an_old_delivery_and_keeps_a_young_one"/>'s.
+    /// </summary>
+    [Fact]
+    public async Task The_sweep_clears_an_expired_response_body_and_keeps_the_row()
+    {
+        const string tenant = "webhook-body-retention";
+        var now = new DateTimeOffset(2026, 9, 5, 12, 0, 0, TimeSpan.Zero);
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+
+        var expired = Row(now.AddHours(-25), responseBody: "old provider reply");
+        var fresh = Row(now.AddHours(-1), responseBody: "fresh provider reply");
+
+        await using var session = store.LightweightSession(tenant);
+        session.Store(expired, fresh);
+        await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var cleared = await WebhookDeliveryRetentionService.ClearExpiredResponseBodiesAsync(
+            session, now, WebhookDeliveryRetentionService.DefaultResponseBodyRetentionHours, TestContext.Current.CancellationToken);
+
+        cleared.Should().Be(1);
+
+        var expiredRow = await session.LoadAsync<WebhookDelivery>(expired.Id, TestContext.Current.CancellationToken);
+        expiredRow.Should().NotBeNull("clearing the body must not delete the row it lives on");
+        expiredRow!.ResponseBody.Should().BeNull();
+        expiredRow.ResponseBodyClearedAt.Should().Be(now);
+
+        var freshRow = await session.LoadAsync<WebhookDelivery>(fresh.Id, TestContext.Current.CancellationToken);
+        freshRow!.ResponseBody.Should().Be("fresh provider reply", "one hour is inside the default 24 hour window");
+        freshRow.ResponseBodyClearedAt.Should().BeNull();
+    }
+
+    /// <summary>
+    /// A cleared body and a body that never existed both read <c>null</c>, and only
+    /// <see cref="WebhookDelivery.ResponseBodyClearedAt"/> tells them apart. Without this, "cleared"
+    /// silently degrades into "looks exactly like it was empty to begin with".
+    /// </summary>
+    [Fact]
+    public async Task A_cleared_response_body_is_distinguishable_from_one_that_was_never_captured()
+    {
+        const string tenant = "webhook-body-cleared-vs-empty";
+        var now = new DateTimeOffset(2026, 9, 5, 12, 0, 0, TimeSpan.Zero);
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+
+        var hadABody = Row(now.AddHours(-25), responseBody: "will be cleared");
+        var neverHadOne = Row(now.AddHours(-25), status: null, responseBody: null);
+
+        await using var session = store.LightweightSession(tenant);
+        session.Store(hadABody, neverHadOne);
+        await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        await WebhookDeliveryRetentionService.ClearExpiredResponseBodiesAsync(
+            session, now, WebhookDeliveryRetentionService.DefaultResponseBodyRetentionHours, TestContext.Current.CancellationToken);
+
+        var cleared = await session.LoadAsync<WebhookDelivery>(hadABody.Id, TestContext.Current.CancellationToken);
+        var neverCaptured = await session.LoadAsync<WebhookDelivery>(neverHadOne.Id, TestContext.Current.CancellationToken);
+
+        cleared!.ResponseBody.Should().BeNull();
+        neverCaptured!.ResponseBody.Should().BeNull();
+
+        cleared.ResponseBodyClearedAt.Should().NotBeNull("this body existed and its window expired");
+        neverCaptured.ResponseBodyClearedAt.Should().BeNull(
+            "this row never had a body to clear, which must not read the same as one that did");
+    }
+
+    /// <summary>
+    /// #607: the response body is a narrower disclosure than the rest of the row, because it may
+    /// carry a credential a provider echoed back. <c>view_workflow_runs</c> alone must still answer
+    /// "did it fail, and with what status".
+    /// </summary>
+    [Fact]
+    public async Task A_role_holding_view_workflow_runs_but_not_the_body_capability_cannot_read_the_response_body()
+    {
+        var workflowId = Guid.NewGuid();
+        var stored = Row(DateTimeOffset.UtcNow, workflowId, status: 200, responseBody: "secret provider reply");
+
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(stored);
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        var client = await CallerHoldingAsync(SystemCapabilities.ViewWorkflowRuns);
+
+        var response = await client.GetAsync(
+            $"/api/webhook-deliveries?workflowId={workflowId}", TestContext.Current.CancellationToken);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        var items = json.RootElement.GetProperty("items");
+        items.GetArrayLength().Should().Be(1, "the seeded row is the only one for this workflow id");
+        var item = items[0];
+
+        item.GetProperty("responseStatus").GetInt32().Should().Be(200,
+            "the rest of the row is still readable without the body capability");
+        item.GetProperty("responseBody").ValueKind.Should().Be(JsonValueKind.Null,
+            "view_workflow_runs alone must not disclose a body that can carry a credential");
+    }
+
+    /// <summary>The positive control: holding both capabilities is what the second grant is for.</summary>
+    [Fact]
+    public async Task A_role_holding_both_capabilities_reads_the_response_body()
+    {
+        var workflowId = Guid.NewGuid();
+        var stored = Row(DateTimeOffset.UtcNow, workflowId, status: 200, responseBody: "secret provider reply");
+
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(stored);
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        var client = await CallerHoldingAsync(
+            SystemCapabilities.ViewWorkflowRuns, SystemCapabilities.ViewWebhookResponseBodies);
+
+        var response = await client.GetAsync(
+            $"/api/webhook-deliveries?workflowId={workflowId}", TestContext.Current.CancellationToken);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        var item = json.RootElement.GetProperty("items")[0];
+
+        item.GetProperty("responseBody").GetString().Should().Be("secret provider reply");
+    }
+
     [Fact]
     public async Task A_role_created_at_runtime_holding_view_workflow_runs_lists_deliveries()
     {
@@ -497,13 +626,15 @@ public class WebhookDeliveryTests
         return new Sent(result, rows[0], ciphertext);
     }
 
-    private static WebhookDelivery Row(DateTimeOffset createdAt, Guid? workflowId = null, int? status = 200) => new()
+    private static WebhookDelivery Row(
+        DateTimeOffset createdAt, Guid? workflowId = null, int? status = 200, string? responseBody = null) => new()
     {
         Id = Guid.NewGuid(),
         WorkflowId = workflowId ?? Guid.NewGuid(),
         Url = "https://hooks.example.com/x",
         Event = "Published",
         ResponseStatus = status,
+        ResponseBody = responseBody,
         Error = status is null ? "The request could not be delivered (HttpRequestException)." : null,
         CreatedAt = createdAt,
     };

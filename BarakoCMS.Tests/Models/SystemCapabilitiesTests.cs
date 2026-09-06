@@ -127,6 +127,9 @@ public class SystemCapabilitiesTests
         admin.Should().NotContain(SystemCapabilities.EraseContent,
             "DELETE /api/contents/{id}/erase was Roles(\"SuperAdmin\") and it destroys content and "
           + "its history irrecoverably, so Admin must not acquire it from the migration");
+        admin.Should().NotContain(SystemCapabilities.ViewWebhookResponseBodies,
+            "the capability is a new, narrower carve-out of ViewWorkflowRuns (#607), not a preserved "
+          + "gate, and Admin picking it up automatically would be exactly the widening it exists to stop");
     }
 
     /// <summary>
@@ -144,6 +147,9 @@ public class SystemCapabilitiesTests
             SystemCapabilities.ManageUsers,
             SystemCapabilities.ManageEmailSettings,
             SystemCapabilities.EraseContent,
+            // #607: a new, narrower carve-out of ViewWorkflowRuns, not a preserved gate, so Admin does
+            // not pick it up automatically.
+            SystemCapabilities.ViewWebhookResponseBodies,
         ];
 
         var admin = SystemCapabilities.DefaultsFor("Admin");
