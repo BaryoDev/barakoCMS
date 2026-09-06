@@ -164,7 +164,8 @@ public class WebhookDeliveryTests
         row.WorkflowId.Should().Be(workflowId);
         row.Event.Should().Be("Published");
         row.Attempt.Should().Be(1);
-        row.Url.Should().Be(listener.Url, "loopback with no query, so redaction leaves it whole");
+        row.Url.Should().Be(new Uri(listener.Url).GetLeftPart(UriPartial.Authority),
+            "redaction keeps only scheme, host and port, so the loopback URL loses its trailing path");
         row.ResponseStatus.Should().Be(200);
         row.ResponseBody.Should().Be("received");
         row.Error.Should().BeNull();
@@ -223,7 +224,8 @@ public class WebhookDeliveryTests
         sent.Delivery.ResponseStatus.Should().BeNull("nothing answered");
         sent.Delivery.ResponseBody.Should().BeNull();
         sent.Delivery.Error.Should().Contain("HttpRequestException");
-        sent.Delivery.Url.Should().Be(closed);
+        sent.Delivery.Url.Should().Be(new Uri(closed).GetLeftPart(UriPartial.Authority),
+            "redaction keeps only scheme, host and port, so the /hook path does not survive");
     }
 
     [Fact]
