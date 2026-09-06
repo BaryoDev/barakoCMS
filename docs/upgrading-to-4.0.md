@@ -198,3 +198,17 @@ To keep the old behaviour, set both of these. It will not start with only the fi
 Auth__RequireEmailVerification=false
 Auth__AcknowledgeUnverifiedRegistration=true
 ```
+
+**A workflow action's `Secret` parameter is now encrypted regardless of action type.** Only a
+Webhook action's `Secret` was protected before; a custom action reusing that parameter name was
+shown as protected (`secretSet` in the response) while it was actually stored in clear. It is now
+encrypted the same way for every action type.
+
+**A `Secret` saved before it was ever encrypted now refuses to send, and says to recreate the
+workflow.** This covers a Webhook action created before #524, or a custom action created before
+this change, whose `Secret` was written straight into the store. It cannot be decrypted, because it
+was never encrypted, and there is no endpoint that edits a saved workflow's parameters, so the only
+fix is to create a new workflow with the secret entered again. The failure row says exactly that,
+distinct from the message a rotated `Secrets:Key` produces, which asks you to re-enter the secret
+instead. Check any workflow using a `Secret` parameter after upgrading; one that predates encryption
+stops delivering rather than sending unprotected.
