@@ -335,9 +335,10 @@ public class WorkflowRunTests
     [Fact]
     public async Task A_thrown_action_records_only_the_exception_type()
     {
-        var host = _factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
-            services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, ThrowingRunnerAction>()));
-        var store = host.Services.GetRequiredService<IDocumentStore>();
+        // ThrowingRunnerAction is registered on the shared fixture, not here. Two hosted runners
+        // poll the same database and either can claim this attempt first, so registering it on one
+        // host only made the assertion depend on which runner won.
+        var store = _factory.Services.GetRequiredService<IDocumentStore>();
         var contentId = Guid.NewGuid();
         var run = new WorkflowRun
         {
@@ -376,7 +377,7 @@ public class WorkflowRunTests
         // Other workflow runs may be older than this one in the shared database, and the hosted
         // runner can claim the run before this test's runner. Drain with the same host so the
         // registered throwing action is available to whichever pass reaches this run.
-        await DrainRunnerAsync(host.Services);
+        await DrainRunnerAsync();
 
         WorkflowRun? recorded = null;
         for (var i = 0; i < 100; i++)
@@ -462,18 +463,6 @@ public class WorkflowRunTests
     /// out that a slow suite does not walk into it.
     /// </summary>
     private static DateTimeOffset ParkedUntil => DateTimeOffset.UtcNow.AddHours(1);
-
-    private sealed class ThrowingRunnerAction : barakoCMS.Features.Workflows.IWorkflowAction
-    {
-        public string Type => "ThrowingRunner";
-
-        public Task ExecuteAsync(Dictionary<string, string> parameters, Content content, CancellationToken ct) =>
-            throw new InvalidOperationException("provider rejected sk_live_1234567890");
-
-        public Task<barakoCMS.Features.Workflows.WorkflowActionResult> RunAsync(
-            Dictionary<string, string> parameters, Content content, CancellationToken ct) =>
-            throw new InvalidOperationException("provider rejected sk_live_1234567890");
-    }
 
     private async Task<Guid> SeedRunAsync(
         int actions, AttemptStatus status = AttemptStatus.Pending, int attempts = 0)
