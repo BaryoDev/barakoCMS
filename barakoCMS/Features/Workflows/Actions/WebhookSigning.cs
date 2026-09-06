@@ -62,16 +62,19 @@ internal static class WebhookSigning
         return "sha256=" + Convert.ToHexStringLower(digest);
     }
 
-    /// <summary>Encrypts the secret on every webhook action that carries one, in place.</summary>
+    /// <summary>Encrypts the Secret parameter on every action that carries one, in place.</summary>
     /// <remarks>
-    /// Only the Webhook action, because it is the only one that knows to decrypt. A custom action
-    /// with a parameter of the same name would otherwise be handed ciphertext it cannot use.
+    /// Every action type, not only Webhook (issue #526). <see cref="barakoCMS.Features.Workflows.WorkflowActionResponse"/>
+    /// already hides the Secret parameter and reports secretSet the same way regardless of type, so a
+    /// custom action reusing the name got that same promise with none of the protection: it was
+    /// stored in clear and shown as protected. Unprotecting it is each action's own job. Webhook does
+    /// it in <see cref="WebhookAction"/>; a custom action that wants to read its own Secret takes an
+    /// <see cref="ISecretProtector"/> the same way.
     /// </remarks>
     public static void ProtectSecrets(WorkflowDefinition workflow, ISecretProtector protector)
     {
         foreach (var action in workflow.Actions)
         {
-            if (!string.Equals(action.Type, "Webhook", StringComparison.Ordinal)) continue;
             if (!action.Parameters.TryGetValue(SecretParameter, out var secret)) continue;
 
             var trimmed = secret?.Trim() ?? string.Empty;
@@ -87,6 +90,19 @@ internal static class WebhookSigning
 
     public static bool HasSecret(IReadOnlyDictionary<string, string> parameters) =>
         parameters.TryGetValue(SecretParameter, out var value) && !string.IsNullOrWhiteSpace(value);
+
+    /// <summary>
+    /// Whether a stored Secret value is shaped like something <see cref="ProtectSecrets"/> produced,
+    /// as opposed to plaintext saved before this action's secret was protected.
+    /// </summary>
+    /// <remarks>
+    /// A Webhook action saved before #524 (or a custom action saved before #526) can hold a Secret
+    /// parameter that was never encrypted. <see cref="ISecretProtector.Unprotect"/> returns null both
+    /// for that case and for one that is shaped right but will not decrypt under the current key, and
+    /// the two need different messages: an operator retyping a rotated secret is not the same fix as
+    /// recreating a workflow that predates encryption.
+    /// </remarks>
+    public static bool LooksProtected(string storedValue) => AesGcmEnvelope.IsWellFormed(storedValue);
 
     /// <summary>A copy of the parameters with the secret left out, for anything that is stored or shown.</summary>
     public static Dictionary<string, string> WithoutSecret(IReadOnlyDictionary<string, string> parameters)

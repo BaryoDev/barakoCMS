@@ -56,4 +56,29 @@ internal static class AesGcmEnvelope
         aes.Decrypt(nonce, cipher, tag, plain);
         return Encoding.UTF8.GetString(plain);
     }
+
+    /// <summary>
+    /// Whether a value is shaped like this format's envelope: base64 of at least nonce+tag length.
+    /// Does not attempt to decrypt it, so it says nothing about whether any particular key can read
+    /// it, only whether the value could ever have been one of ours.
+    /// </summary>
+    /// <remarks>
+    /// A value that fails this check was never protected, which is a different situation from one
+    /// that is shaped right but will not decrypt under the current key: the first is data that
+    /// predates encryption (or bypassed it), the second is a rotated key. A caller decrypting a
+    /// secret needs to tell those apart to say the right thing back to an operator.
+    /// </remarks>
+    internal static bool IsWellFormed(string value)
+    {
+        if (string.IsNullOrEmpty(value)) return false;
+
+        try
+        {
+            return Convert.FromBase64String(value).Length >= NonceLen + TagLen;
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+    }
 }
