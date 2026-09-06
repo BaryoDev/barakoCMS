@@ -207,6 +207,24 @@ public static class SystemCapabilities
     /// </remarks>
     public const string ViewWorkflowRuns = "view_workflow_runs";
 
+    /// <summary>Read the response body a webhook delivery's provider sent back.</summary>
+    /// <remarks>
+    /// Split from <see cref="ViewWorkflowRuns"/> rather than folded into it. A webhook delivery reads
+    /// with the run list for everything else, because a delivery is a run's action seen from the
+    /// wire, but the response body is a materially different disclosure: <c>Features/WorkflowRuns/Endpoints.cs</c>
+    /// and <c>Infrastructure/Connectors/ConnectorSender.cs</c> both refuse to carry a response body
+    /// for the same reason, that a 401 from an OAuth provider frequently echoes the credential that
+    /// was sent, and the delivery log was the one place that reasoning had not reached. "Did the
+    /// delivery fail, and with what status" is the ordinary support question and
+    /// <see cref="ViewWorkflowRuns"/> alone answers it; only the body itself can carry a credential,
+    /// so the gate is on the field rather than the whole route.
+    ///
+    /// Not in Admin's defaults. This is a new grant on a route Admin already reaches, not one Admin
+    /// held before the split, and handing it over automatically would be the same widening #443
+    /// warns against for <see cref="EraseContent"/>. See issue #607.
+    /// </remarks>
+    public const string ViewWebhookResponseBodies = "view_webhook_response_bodies";
+
     /// <summary>Queue a failed action of a workflow run to be attempted again.</summary>
     /// <remarks>
     /// Split from <see cref="ViewWorkflowRuns"/> because retrying is not reading. The runner picks
@@ -256,7 +274,7 @@ public static class SystemCapabilities
         ManageApiKeys, ViewAuditLog, ManageSettings, ManageEmailSettings, ManageContentTypes, ManagePublicDelivery,
         ViewMonitoring, ManageRedirects, ManageQueries, ManageRequests, ViewConnectors, ManageConnectors,
         ManageWorkflows, ViewWorkflowRuns, RetryWorkflowActions, RollbackContent, EraseContent, ViewModules,
-        ViewJobs,
+        ViewJobs, ViewWebhookResponseBodies,
     };
 
     public static bool IsKnown(string capability) =>
@@ -274,7 +292,10 @@ public static class SystemCapabilities
         ManageSettings, ManageContentTypes, ManagePublicDelivery,
         // Every gate migrated below named Admin, so all of these preserve access rather than
         // granting it. EraseContent is the one exception in the whole of #443 and is absent on
-        // purpose: DELETE /api/contents/{id}/erase was Roles("SuperAdmin").
+        // purpose: DELETE /api/contents/{id}/erase was Roles("SuperAdmin"). ViewWebhookResponseBodies
+        // (#607) is absent for the same reason as EraseContent, not #443: it is a brand new, narrower
+        // gate carved out of ViewWorkflowRuns, and Admin picking it up here would be exactly the
+        // widening a narrower gate exists to stop.
         ViewMonitoring, ManageRedirects, ManageQueries, ManageRequests, ViewConnectors,
         ManageConnectors, ManageWorkflows, ViewWorkflowRuns, RetryWorkflowActions, RollbackContent,
         // Modules: GET /api/modules was Roles("SuperAdmin", "Admin"), so Admin read it already.

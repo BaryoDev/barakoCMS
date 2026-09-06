@@ -12,6 +12,14 @@ namespace barakoCMS.Models;
 /// URL routinely carries a token in its query and this row is served over the API. The signature
 /// header is deliberately absent from <see cref="RequestHeaders"/>: a signature over a known body is
 /// a hash of the secret, and a table of them is an offline guessing target.
+///
+/// <see cref="ResponseBody"/> is the one field here that answers to a narrower reader than the rest
+/// of the row: a 401 from an OAuth provider frequently echoes the credential that was sent, which is
+/// why <c>Features/WorkflowRuns/Endpoints.cs</c> and <c>Infrastructure/Connectors/ConnectorSender.cs</c>
+/// carry no response body at all. This row keeps it, because "what did they say" is close to the
+/// only way to debug a webhook a provider is rejecting, but reading it needs
+/// <c>view_webhook_response_bodies</c> on top of the capability that reads the rest of the row, and
+/// it does not outlive the debugging window: see <see cref="ResponseBodyClearedAt"/> and issue #607.
 /// </remarks>
 public class WebhookDelivery
 {
@@ -39,6 +47,14 @@ public class WebhookDelivery
 
     /// <summary>The first <see cref="ResponseBodyLimit"/> bytes of what came back, as UTF-8.</summary>
     public string? ResponseBody { get; set; }
+
+    /// <summary>
+    /// When the retention sweep cleared <see cref="ResponseBody"/> for being past its window. Null on
+    /// a row whose body was never captured in the first place (no response came back, or it has not
+    /// been cleared yet), which is what tells "the debugging window closed" apart from "there was
+    /// nothing to keep": both leave <see cref="ResponseBody"/> null, and only one of them sets this.
+    /// </summary>
+    public DateTimeOffset? ResponseBodyClearedAt { get; set; }
 
     public long DurationMs { get; set; }
 

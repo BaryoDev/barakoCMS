@@ -1,4 +1,5 @@
 using barakoCMS.Infrastructure.Auth;
+using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
@@ -15,12 +16,18 @@ internal sealed class WebhookDeliveryResponse
     public Dictionary<string, string> RequestHeaders { get; init; } = new();
     public int? ResponseStatus { get; init; }
     public string? ResponseBody { get; init; }
+    public DateTimeOffset? ResponseBodyClearedAt { get; init; }
     public long DurationMs { get; init; }
     public string? Error { get; init; }
     public int Attempt { get; init; }
     public DateTimeOffset CreatedAt { get; init; }
 
-    public static WebhookDeliveryResponse From(WebhookDelivery d) => new()
+    /// <summary>
+    /// Builds the response for one row. <paramref name="canReadResponseBody"/> is resolved once per
+    /// request from the caller's capabilities, not per row: withholding a body a caller is not
+    /// entitled to is not a per-row decision.
+    /// </summary>
+    public static WebhookDeliveryResponse From(WebhookDelivery d, bool canReadResponseBody) => new()
     {
         Id = d.Id,
         WorkflowId = d.WorkflowId,
@@ -29,7 +36,10 @@ internal sealed class WebhookDeliveryResponse
         Event = d.Event,
         RequestHeaders = d.RequestHeaders,
         ResponseStatus = d.ResponseStatus,
-        ResponseBody = d.ResponseBody,
+        ResponseBody = canReadResponseBody ? d.ResponseBody : null,
+        // Shown regardless of the capability: it says a body existed and expired, never what it
+        // said, and it is what tells that apart from a body that was never captured.
+        ResponseBodyClearedAt = d.ResponseBodyClearedAt,
         DurationMs = d.DurationMs,
         Error = d.Error,
         Attempt = d.Attempt,
@@ -52,14 +62,25 @@ internal sealed class ListDeliveriesRequest : ListRequest
 /// Gated on the capability that reads workflow runs rather than one of its own. A delivery row is
 /// a run's action seen from the wire, and "did it fire?" is the same question as "did the run
 /// succeed?" asked by the same person.
+///
+/// <see cref="WebhookDeliveryResponse.ResponseBody"/> asks for more: a provider's response can echo
+/// a credential (see <c>Models/WebhookDelivery.cs</c>), so reading it also needs
+/// <see cref="SystemCapabilities.ViewWebhookResponseBodies"/>. A caller holding only
+/// <see cref="SystemCapabilities.ViewWorkflowRuns"/> still gets every row, with the status, the
+/// error and everything else the row carries; only the body itself is withheld. See issue #607.
 /// </remarks>
 internal sealed class ListDeliveriesEndpoint : Endpoint<ListDeliveriesRequest, PaginatedResponse<WebhookDeliveryResponse>>
 {
     private static readonly string[] StatusClasses = ["2xx", "3xx", "4xx", "5xx", "failed"];
 
     private readonly IQuerySession _session;
+    private readonly IPermissionResolver _permissionResolver;
 
-    public ListDeliveriesEndpoint(IQuerySession session) => _session = session;
+    public ListDeliveriesEndpoint(IQuerySession session, IPermissionResolver permissionResolver)
+    {
+        _session = session;
+        _permissionResolver = permissionResolver;
+    }
 
     public override void Configure()
     {
@@ -96,9 +117,12 @@ internal sealed class ListDeliveriesEndpoint : Endpoint<ListDeliveriesRequest, P
         // A row can hold a credential a provider echoed in a 401 body, so no cache keeps a page.
         HttpContext.Response.Headers.CacheControl = "no-store";
 
+        var canReadResponseBody = Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId)
+            && await _permissionResolver.HasCapabilityAsync(userId, SystemCapabilities.ViewWebhookResponseBodies, ct);
+
         await Send.ResponseAsync(new PaginatedResponse<WebhookDeliveryResponse>
         {
-            Items = page.Items.Select(WebhookDeliveryResponse.From).ToList(),
+            Items = page.Items.Select(d => WebhookDeliveryResponse.From(d, canReadResponseBody)).ToList(),
             Page = page.Page,
             PageSize = page.PageSize,
             TotalItems = page.TotalItems,
