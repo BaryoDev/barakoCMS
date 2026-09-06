@@ -69,14 +69,18 @@ public class WorkflowRunReviewFixesTests
     /// The error text is persisted on the run and returned by the workflow-run API, so an unredacted
     /// URL puts a live credential in the database, in an API response and in the logs, readable by
     /// everyone who can view runs rather than only by whoever configured it. Userinfo and the query
-    /// string are the two places a webhook URL routinely carries one.
+    /// string are two places a webhook URL routinely carries one, but the path is where the three
+    /// most common providers put theirs: Discord and Slack both put the secret in the path, and
+    /// keeping the path used to leave it there. Only the host and port are safe to keep.
     /// </remarks>
     [Theory]
-    [InlineData("https://user:s3cret@hooks.example.com/endpoint", "https://hooks.example.com/endpoint")]
-    [InlineData("https://hooks.example.com/endpoint?key=s3cret", "https://hooks.example.com/endpoint")]
-    [InlineData("https://user:s3cret@hooks.example.com/endpoint?key=other", "https://hooks.example.com/endpoint")]
-    [InlineData("https://hooks.example.com:8443/a/b", "https://hooks.example.com:8443/a/b")]
-    public void A_webhook_url_keeps_its_host_and_path_and_loses_its_secrets(string url, string expected)
+    [InlineData("https://user:s3cret@hooks.example.com/endpoint", "https://hooks.example.com")]
+    [InlineData("https://hooks.example.com/endpoint?key=s3cret", "https://hooks.example.com")]
+    [InlineData("https://user:s3cret@hooks.example.com/endpoint?key=other", "https://hooks.example.com")]
+    [InlineData("https://hooks.example.com:8443/a/b", "https://hooks.example.com:8443")]
+    [InlineData("https://discord.com/api/webhooks/123456789/abcDEF-token_s3cret", "https://discord.com")]
+    [InlineData("https://hooks.slack.com/services/T000/B000/s3cretSlackToken", "https://hooks.slack.com")]
+    public void A_webhook_url_keeps_only_its_host_and_loses_its_secrets(string url, string expected)
     {
         var redacted = WebhookAction.Redact(url);
 

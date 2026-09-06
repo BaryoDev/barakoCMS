@@ -380,17 +380,24 @@ internal class WebhookAction : IWorkflowAction
     /// The part of a webhook URL that is safe to write down.
     /// </summary>
     /// <remarks>
-    /// Scheme, host, port and path. The userinfo and the query string are dropped, because both are
-    /// places a webhook URL routinely carries a secret: <c>https://user:token@host/hook</c> and
-    /// <c>https://host/hook?key=...</c> are how most providers authenticate one.
+    /// Scheme, host and port only. The userinfo, path and query string are all dropped, because a
+    /// webhook URL routinely carries a secret in any of them, and the path is where the three most
+    /// common webhook providers put theirs: a Discord URL is
+    /// <c>https://discord.com/api/webhooks/{id}/{token}</c>, Slack's is
+    /// <c>https://hooks.slack.com/services/{a}/{b}/{secret}</c>, and Teams' incoming webhook key is
+    /// likewise in the path. Keeping the path on the theory that userinfo and query are "how most
+    /// providers authenticate" was true of some providers and not of these three, and is the gap
+    /// this method used to have.
     ///
     /// This matters more than a log line usually would. The error text is persisted on the run and
     /// returned by the workflow-run API, so an unredacted URL puts a live credential in the database,
     /// in the API response, and in whatever aggregates the logs, readable by everybody who can view
     /// runs rather than only by the person who configured it.
     ///
-    /// The host and path are kept deliberately. "A webhook failed" with nothing else is not
-    /// diagnosable, and the host is what an operator needs to tell one integration from another.
+    /// The host is kept deliberately. "A webhook failed" with nothing else is not diagnosable, but
+    /// the operator already knows which webhook they configured, and the connector or definition
+    /// name travels in the same log line or failure message, so the host is enough to tell one
+    /// integration from another without keeping a path that might be the credential itself.
     /// </remarks>
     internal static string Redact(string url)
     {
@@ -401,12 +408,12 @@ internal class WebhookAction : IWorkflowAction
             return "(the configured URL could not be parsed)";
         }
 
-        // UserName and Password have to be cleared here. The query does not: GetLeftPart(Path) stops
-        // before it, which is why this returns scheme, host, port and path and nothing after. Setting
-        // Query as well was in the first version of this and was dead, and a mutation that put the
-        // query back changed no test, which is how it was found.
+        // GetLeftPart(Authority) stops before the path, so userinfo, path and query are all gone in
+        // one call. UserName and Password still have to be cleared on the builder first: an
+        // unbuilt UriBuilder around a URL with credentials in it renders them back into the
+        // authority string otherwise.
         var builder = new UriBuilder(parsed) { UserName = string.Empty, Password = string.Empty };
 
-        return builder.Uri.GetLeftPart(UriPartial.Path);
+        return builder.Uri.GetLeftPart(UriPartial.Authority);
     }
 }
