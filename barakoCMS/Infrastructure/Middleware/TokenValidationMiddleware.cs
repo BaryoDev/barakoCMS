@@ -1,5 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using barakoCMS.Infrastructure.Services;
+using barakoCMS.Infrastructure.Logging;
 
 namespace barakoCMS.Infrastructure.Middleware;
 
@@ -39,7 +40,7 @@ public class TokenValidationMiddleware
                 {
                     _logger.LogWarning(
                         "Revoked token attempted to access {Path}. JTI: {Jti}",
-                        context.Request.Path, jti);
+                        LogSafe.Value(context.Request.Path), jti);
 
                     context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                     await context.Response.WriteAsJsonAsync(new
