@@ -93,7 +93,13 @@ internal class FeedEndpoint : EndpointWithoutRequest
             sb.Append($"      <link>{Esc(link)}</link>\n");
             sb.Append($"      <guid isPermaLink=\"false\">{Esc(pub.Id.ToString())}</guid>\n");
             sb.Append($"      <pubDate>{date.ToString("R", CultureInfo.InvariantCulture)}</pubDate>\n");
-            if (description.Length > 0) sb.Append($"      <description><![CDATA[{description.Replace("]]>", "]]&gt;")}]]></description>\n");
+            // Entity-encode rather than wrap in CDATA. A CDATA block passes the field's HTML through
+            // verbatim, and many readers render a feed description as HTML, so a Body of
+            // <img src=x onerror=...> in authored content becomes stored XSS in every subscriber's
+            // reader. Encoding it the same way the title is means the text shows as written and no
+            // markup executes. A feed that genuinely needs rich HTML should sanitise to an allowlist,
+            // not trust arbitrary content.
+            if (description.Length > 0) sb.Append($"      <description>{Esc(description)}</description>\n");
             sb.Append("    </item>\n");
         }
 

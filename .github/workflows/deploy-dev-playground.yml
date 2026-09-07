@@ -98,6 +98,14 @@ jobs:
           SMOKE_WRITE: "1"
         run: bash scripts/smoke-test.sh https://dev-playground.baryo.dev/barakocms-api
 
+      # Confirms the deployed image still carries the hardening the suite asserts in-process:
+      # security headers, Swagger closed, config paths unserved, anonymous callers refused, and a
+      # forged alg:none token rejected. The deep authorization properties (no Admin->SuperAdmin
+      # self-grant, no cross-tenant audit read, the capability matrix) are covered by the
+      # integration tests in the verify job.
+      - name: Security smoke test
+        run: bash scripts/security-smoke.sh https://dev-playground.baryo.dev/barakocms-api
+
       - name: Summary
         if: always()
         run: |

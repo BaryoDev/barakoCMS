@@ -240,10 +240,9 @@ public static class ServiceCollectionExtensions
         {
             jwtKey = Environment.GetEnvironmentVariable("JWT__Key");
         }
-        if (string.IsNullOrWhiteSpace(jwtKey) || jwtKey.Length < 32)
-        {
-            throw new InvalidOperationException("JWT:Key must be configured and at least 32 characters (256 bits) for security.");
-        }
+        // Fail fast on a missing, too-short, or placeholder key. See JwtKeyGuard for why a length
+        // check alone is not enough (the shipped k8s manifest carries a length-valid placeholder).
+        jwtKey = barakoCMS.Infrastructure.Security.JwtKeyGuard.Validate(jwtKey);
 
         services.AddAuthenticationJwtBearer(
             s => s.SigningKey = jwtKey,

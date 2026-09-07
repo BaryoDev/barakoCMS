@@ -55,7 +55,12 @@ internal class AuditEventDto
 internal class Endpoint : Endpoint<ListRequest, PaginatedResponse<AuditEventDto>>
 {
     private readonly IQuerySession _session;
-    public Endpoint(IQuerySession session) => _session = session;
+    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
+    public Endpoint(IQuerySession session, barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
+    {
+        _session = session;
+        _tenant = tenant;
+    }
 
     public override void Configure()
     {
@@ -67,14 +72,30 @@ internal class Endpoint : Endpoint<ListRequest, PaginatedResponse<AuditEventDto>
     {
         var query = _session.Query<AuditEvent>().AsQueryable();
 
+        // AuditEvent is SingleTenanted (one global table), so the conjoined session provides no
+        // tenant isolation here; the tenant boundary is the caller's to prove, not the session's.
+        // A tenant admin sees only their own tenant's trail. Only a SuperAdmin, whose reach is
+        // global, may read across tenants and narrow with ?tenant=. Without this, any tenant admin
+        // reads every tenant's audit log by leaving ?tenant unset.
+        Guid.TryParse(User.FindFirst("UserId")?.Value, out var callerId);
+        var caller = await _session.LoadAsync<User>(callerId, ct);
+        var isSuperAdmin = caller?.RoleIds.Contains(SystemRoles.SuperAdminRoleId) == true;
+        if (isSuperAdmin)
+        {
+            if (!string.IsNullOrWhiteSpace(req.Tenant))
+                query = query.Where(e => e.TenantSlug == req.Tenant);
+        }
+        else
+        {
+            query = query.Where(e => e.TenantSlug == _tenant.Slug);
+        }
+
         if (req.ActorUserId is Guid actorId)
             query = query.Where(e => e.ActorUserId == actorId);
         if (!string.IsNullOrWhiteSpace(req.Action))
             query = query.Where(e => e.Action == req.Action);
         if (req.From is { } from) { var bound = AsUtc(from); query = query.Where(e => e.CreatedAt >= bound); }
         if (req.To is { } to) { var bound = AsUtc(to); query = query.Where(e => e.CreatedAt <= bound); }
-        if (!string.IsNullOrWhiteSpace(req.Tenant))
-            query = query.Where(e => e.TenantSlug == req.Tenant);
 
         var total = await query.CountAsync(ct);
         var items = await query
