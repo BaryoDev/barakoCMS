@@ -52,8 +52,13 @@ public class WorkflowToolsApiTests : IAsyncLifetime
         // Named, not counted. A count tells you a number changed and not which action appeared or
         // disappeared, so bumping it is the natural response and that is how an action goes missing
         // from the picker without anybody reading the diff. This list is the declaration.
+        // ThrowingRunner is not a product action. IntegrationTestFixture registers it so that both
+        // hosted runners can execute it, which is what makes the redaction test in WorkflowRunTests
+        // independent of which runner claims an attempt first. It is offered here because in this
+        // fixture it genuinely is registered, and naming it keeps the assertion exact: removing a
+        // real action still fails this test.
         actions!.Select(a => a.Type).Should().BeEquivalentTo(
-            ["Email", "SMS", "Webhook", "CreateTask", "UpdateField", "Conditional", "Request"],
+            ["Email", "SMS", "Webhook", "CreateTask", "UpdateField", "Conditional", "Request", "ThrowingRunner"],
             "every registered action is offered to the workflow builder, and adding one is a line here");
     }
 
