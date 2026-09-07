@@ -49,6 +49,24 @@ internal class Endpoint : Endpoint<Request, Response>
             return;
         }
 
+        // Granting SuperAdmin is itself a SuperAdmin act. This endpoint is reachable with only
+        // manage_user_membership (the Admin role holds it, not manage_roles), so without this
+        // check an Admin assigns itself SuperAdmin and steps outside the whole capability model.
+        // The per-tenant sibling refuses SuperAdmin outright (Members.IsAssignable); the platform
+        // surface allows it, but only for a caller who already is SuperAdmin. Nothing below
+        // SuperAdmin can mint a comparably privileged custom role, because manage_roles is
+        // SuperAdmin-only, so guarding this one role id closes the escalation.
+        if (req.RoleId == SystemRoles.SuperAdminRoleId)
+        {
+            Guid.TryParse(User.FindFirst("UserId")?.Value, out var callerId);
+            var caller = await _session.LoadAsync<User>(callerId, ct);
+            if (caller?.RoleIds.Contains(SystemRoles.SuperAdminRoleId) != true)
+            {
+                await Send.ForbiddenAsync(ct);
+                return;
+            }
+        }
+
         if (!user.RoleIds.Contains(req.RoleId))
         {
             user.RoleIds.Add(req.RoleId);
