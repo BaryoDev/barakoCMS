@@ -85,15 +85,15 @@
     <!-- Transitive via Testcontainers. Pinned ahead of what it asks for because 2025.1.0 carries
          GHSA-q939-rpr3-3284 (High). Transitive pinning is on, so this is the whole fix. -->
     <PackageVersion Include="SSH.NET" Version="2026.0.0" />
-    <PackageVersion Include="Testcontainers.Minio" Version="4.14.0" />
-    <PackageVersion Include="Testcontainers.PostgreSql" Version="4.14.0" />
+    <PackageVersion Include="Testcontainers.Minio" Version="4.15.0" />
+    <PackageVersion Include="Testcontainers.PostgreSql" Version="4.15.0" />
     <PackageVersion Include="xunit.v3" Version="4.0.0" />
     <!-- The core assembly on its own, for BarakoCMS.Testing. It implements IAsyncLifetime so a
          module's tests can use it as a class fixture, and this package carries that type without
          the MSBuild targets that would turn a library into a test project. Same version as
          xunit.v3, which depends on it. -->
     <PackageVersion Include="xunit.v3.extensibility.core" Version="4.0.0" />
-    <PackageVersion Include="Microsoft.Testing.Extensions.TrxReport" Version="2.3.3" />
+    <PackageVersion Include="Microsoft.Testing.Extensions.TrxReport" Version="2.4.0" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="4.0.0" />
   </ItemGroup>
 
