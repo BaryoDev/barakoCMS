@@ -149,54 +149,68 @@ Gaps before features. The reason is not hygiene: the first thing the positioning
 Deploy-equivalent that beats a €2,800/yr product, and that module currently has no tests. You cannot
 headline a claim you have not tested.
 
-### 3.22.0 — 29 Aug — Nothing ships untested
+### Shipped: 3.22.0 and 3.23.0
 
-Six of thirteen shipped packages have no test project reference at all, so they cannot be tested
-without a csproj change. Two of them, `ExternalAuth` and `DeviceTrust`, are where a defect is a
-breach rather than a bug. `Portability` is the Deploy-equivalent the positioning rests on.
+3.22.0 closed the gap where six of thirteen shipped packages had no test project reference at all.
+3.23.0 covered authorisation where an incident had already happened and nothing else had been
+proven.
 
-Carries: #200, #222, #223, #217, #211, #155, #147, #130.
+The weekly train stopped there. What was planned for 3.24.0 through 3.27.0, the CLI, starter
+templates, an MCP server and a typed .NET client, was not cancelled; it moved into the numbered
+releases below, where it sits against the rest of the work rather than against a date.
 
-### 3.23.0 — 5 Sep — Authorisation is tested, not assumed
+### 4.0.0, the contract
 
-Authorisation is covered thoroughly where an incident already happened and absent everywhere else.
-Cross-tenant isolation is proven in two halves that never meet.
+Everything in this release is a one-way door: a choice that cannot be made later without breaking
+somebody who has already upgraded. That is the whole selection rule, and it is why the milestone
+holds defects and contract decisions rather than features.
 
-Carries: #231 (negative-auth on UserGroups, user assignment, workflow tools), #232 (HTTP-level
-cross-tenant leak), #233 (two tests that cannot fail).
+The door that defined it: content now has optimistic concurrency, an `ETag` on read and `If-Match`
+on write. Moving from last-write-wins to a refusal is a breaking change, and it costs nothing while
+there are no 4.0 clients. `DECISIONS.md` D16 records why, and why the flag that preserves the 3.x
+upgrade path defaults off until 5.0.
 
-### 3.24.0 — 12 Sep — The CLI
+Tagging it also publishes `BarakoCMS.Templates` and `BarakoCMS.Testing`, which is what finally lets
+somebody outside this repository build a module at all.
 
-The missing word in the pitch. `barako new`, `barako up`, scaffold a content type, run migrations,
-seed. Supabase's own docs put time-to-running at under thirty minutes and a large part of why teams
-choose it is exactly that number.
+### 4.0.1, what the tag makes testable
 
-Also folds in the two cheap event-sourcing one-way doors while they are still cheap: #228 (events
-carry `OccurredAt`) and #229 (no event type in any API response).
+The upgrade harness needs a published 4.0.0 image to stand up, so the work that proves an upgrade
+path can only run once 4.0.0 exists. Hygiene and documentation that missed the tag land here too.
 
-### 3.25.0 — 19 Sep — Set it up properly
+### 4.1.0, the workflow engine grows a spine
 
-The half of the pitch that says "properly". A team adopting this needs a starting point and a
-written path, not an empty database.
+An action cannot produce a value today, so a workflow is a list of independent side effects rather
+than a chain. Giving actions outputs, a per-action failure policy and a shared condition evaluator
+is the change that turns it into something a business process can be built on.
 
-Carries: #188 (starter templates), #189 (documented delivery flow for a client project).
+Also here: the delivery cache by tag rather than by a sixty second window, per-key rate limits, and
+the module contract's pipeline hook.
 
-### 3.26.0 — 26 Sep — Agents can drive it
+### 5.0.0, a system of record rather than a content store
 
-MCP server over the content API, plus #185 (report which modules an instance is running) so an agent
-can discover what it is looking at rather than guess.
+The primitives every transactional system needs and none of which exist: a header with its lines
+written in one transaction, a reservation that decrements under a floor, computed fields, numbering
+with the gapless cost made explicit, and money that carries its currency.
 
-Two shapes worth copying: Strapi generates tools from the content schema, and Directus routes MCP
-through its existing permission system rather than inventing an agent-specific one. The MCP spec
-itself makes rate limiting and input validation a MUST, and says clients SHOULD log tool use for
-audit; for a product claiming audit-grade, that is a floor, not a stretch goal.
+Then the surfaces those make possible: the CLI, an MCP server, and a portal generated from the
+definitions rather than written per project.
 
-### 3.27.0 — 3 Oct — What the app consumes
+### barakoBrew ships alongside
 
-A typed .NET client, so a MAUI or Blazor consumer does not hand-write one.
+The console lives in `BaryoDev/barakoBrew` and versions on its own scale, because it is a separate
+artifact with a separate release. The pairing is fixed:
 
-Carries: #183 (pick and pin a generator, prove one slice), #186 (the client itself), #187 (notice
-when the generated client stops matching the API).
+| barakoCMS | barakoBrew |
+| --- | --- |
+| 4.0.0 | 1.0.0 |
+| 4.1.0 | 1.1.0 |
+| 5.0.0 | 2.0.0 |
+
+So barakoBrew 1.0.0 is the console that goes with this release, and its milestone carries what a
+first release actually needs: continuous integration, a licence, a publish pipeline, and the
+`If-Match` handling that makes the concurrency above reach an editor.
+
 
 ## Standing rules for every release
 
