@@ -25,7 +25,13 @@ import sys
 
 # Optional PNG chunks that carry provenance or free text. Ancillary by spec, so
 # a decoder is required to skip them and dropping them cannot change the image.
-PNG_DROP = {b"caBX", b"jUMB", b"jumb", b"iTXt", b"tEXt", b"zTXt", b"eXIf"}
+#
+# iCCP is here because a macOS screen capture embeds the display's own colour
+# profile, and that profile names an Apple build identifier for the machine that
+# took it. Every asset in this repository is plain sRGB artwork or a UI
+# screenshot, so none of them need embedded colour management. A project that
+# ships colour-critical images should take iCCP back out of this set.
+PNG_DROP = {b"caBX", b"jUMB", b"jumb", b"iTXt", b"tEXt", b"zTXt", b"eXIf", b"iCCP"}
 PNG_SIG = b"\x89PNG\r\n\x1a\n"
 
 # Substrings that mean a file still carries an attribution stamp.
