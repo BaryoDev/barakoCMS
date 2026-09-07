@@ -4,10 +4,8 @@ authors:
 - family-names: "Robles"
   given-names: "Arnel"
 title: "BarakoCMS"
-version: 1.0.3
-date-released: 2024-01-01
 url: "https://github.com/baryodev/barakoCMS"
-license: Apache-2.0
+license: MPL-2.0
 keywords:
   - cms
   - headless-cms

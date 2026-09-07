@@ -130,6 +130,47 @@ for line in sys.stdin:
   fi
 fi
 
+echo "== top-level markdown allowlist =="
+# A pull request body written to a file and left in the repository root looks exactly like this:
+# body517.md and body518.md, committed by accident in fd746ac (#636). New top-level *.md files
+# must be on this list. The list is the root's current tracked *.md files; keep it in sync when
+# one is deliberately added.
+allowed_root_md=(
+  AGENTS.md
+  AI_DEVELOPMENT_LIFECYCLE.md
+  CHANGELOG.md
+  CLA.md
+  CLAUDE.md
+  CODE_OF_CONDUCT.md
+  CODING_STANDARDS.md
+  CONTRIBUTING.md
+  DECISIONS.md
+  DEVELOPMENT_STANDARDS.md
+  EVENT-SOURCING-PER-CONTENT-TYPE.md
+  MODULES.md
+  README.md
+  ROADMAP.md
+  SECURITY.md
+)
+
+is_allowed_root_md() {
+  local name="$1" allowed
+  for allowed in "${allowed_root_md[@]}"; do
+    [ "$name" = "$allowed" ] && return 0
+  done
+  return 1
+}
+
+# Added (not modified, not deleted) top-level markdown files: committed ones via git diff's status
+# against the merge base, plus untracked ones, same two sources the scans above use.
+added_root_md=$( { git diff --name-status "$merge_base" -- . | awk '$1 == "A" { print $2 }'; \
+  git ls-files --others --exclude-standard; } | sort -u | grep -E '^[^/]+\.md$' || true)
+
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  is_allowed_root_md "$f" || fail "new top-level markdown file '$f' is not on the allowlist in scripts/preflight.sh; write a pull request body outside the repository instead of committing it here, or add '$f' to allowed_root_md if it genuinely belongs in the root"
+done <<< "$added_root_md"
+
 echo "== workflow duplicate-key parse =="
 changed_workflows=$( { git diff --name-only "$merge_base" -- '.github/workflows/*.yml' '.github/workflows/*.yaml'; \
   git ls-files --others --exclude-standard -- '.github/workflows/*.yml' '.github/workflows/*.yaml'; } | sort -u)
