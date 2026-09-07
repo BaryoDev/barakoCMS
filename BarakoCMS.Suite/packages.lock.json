@@ -118,10 +118,10 @@
       },
       "JasperFx.Events": {
         "type": "Transitive",
-        "resolved": "2.66.0",
-        "contentHash": "WXOzlm9GVG/QXoTJg0yn37mZv4BX37j1Twa+Pybl0i91Aza6IU2llZne9kckH7olnvk6TFmVhtgGi97GMQbGcQ==",
+        "resolved": "2.56.0",
+        "contentHash": "RQw7VpWPjKeF7BmRHr0ergsPtDuOAWDm1Cb7GDY8QwybnmVK+GGf/HmTB4uV5xPmMeZdXGX7aII/j80WuYFIEQ==",
         "dependencies": {
-          "JasperFx": "2.66.0"
+          "JasperFx": "2.56.0"
         }
       },
       "Microsoft.AspNetCore.Authentication.JwtBearer": {
@@ -643,31 +643,31 @@
       },
       "Weasel.Core": {
         "type": "Transitive",
-        "resolved": "9.31.0",
-        "contentHash": "FJu5pY7qGspwzM3chsETqxDtKwfiKYk0/xnstnSJKjKHTdswvg1mwCh/gSLN7xMgriNOYaQmekBuRUL4DTxHZg==",
+        "resolved": "9.27.0",
+        "contentHash": "IM9O3x/1MaocEv+WNH47CFAoczA4wTN0MnUcSrdPIqTjBd6BD5/fH/VwrxResj1gP7euObJcAw2wd7YUp8cIDw==",
         "dependencies": {
           "JasperFx": "2.46.0"
         }
       },
       "Weasel.Postgresql": {
         "type": "Transitive",
-        "resolved": "9.31.0",
-        "contentHash": "sJ+5ITFmNQokUwhJi03qjCUX2EGDozQs3zQfkFTVMTPlAEyBSzG4MIe6HgO63G7XLf2dKCoJFlNgPjuyEKYvWQ==",
+        "resolved": "9.27.0",
+        "contentHash": "J9GNOfs6Znl2gj5MRpU1Khd61DDVY8jh5XNPfezMrPD/3OeZpHb1z5Q1EINlEAJz1nuPnmEZT2yuYr4TpGbejg==",
         "dependencies": {
           "DistributedLock.Postgres": "1.3.0",
           "JasperFx.Events": "2.46.0",
           "Npgsql": "9.0.4",
           "Npgsql.NetTopologySuite": "9.0.4",
-          "Weasel.Core": "9.31.0"
+          "Weasel.Core": "9.27.0"
         }
       },
       "Weasel.Storage": {
         "type": "Transitive",
-        "resolved": "9.31.0",
-        "contentHash": "G03QSvLeJolGYkqlqzTMB75KmZh8ojGHzAwgHoSIuM/tK7yP3+l+ZiJ554FjRWOJXUJpJA+KFKg0grmcAA+TeQ==",
+        "resolved": "9.27.0",
+        "contentHash": "0n8CDUo6+XINLKMK9ZAXTR2RNmM9zu9kas6fteQf/odKAqSwkmxOI8yQ04Fc+R4I99uvyFWJVCMldcgHAnfEdQ==",
         "dependencies": {
           "JasperFx.Events": "2.46.0",
-          "Weasel.Core": "9.31.0"
+          "Weasel.Core": "9.27.0"
         }
       },
       "YamlDotNet": {
@@ -688,9 +688,9 @@
           "FastEndpoints.Security": "[8.3.0, )",
           "FastEndpoints.Swagger": "[8.3.0, )",
           "IdentityModel": "[7.0.0, )",
-          "JasperFx": "[2.66.0, )",
+          "JasperFx": "[2.56.0, )",
           "KubernetesClient": "[18.0.13, )",
-          "Marten": "[9.32.1, )",
+          "Marten": "[9.30.0, )",
           "Microsoft.Extensions.DependencyModel": "[10.0.11, )",
           "Microsoft.Extensions.Http.Resilience": "[10.9.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.22.0, )",
@@ -919,9 +919,9 @@
       },
       "JasperFx": {
         "type": "CentralTransitive",
-        "requested": "[2.66.0, )",
-        "resolved": "2.66.0",
-        "contentHash": "yZjb/xnjitJWuP445T/Tu7tiBe4rJIBkKmOf66g0je/pDBAlrgwtMQ+QzSOpBpb8hFsL9ez5eQ93pq1oFJmAvA==",
+        "requested": "[2.56.0, )",
+        "resolved": "2.56.0",
+        "contentHash": "8K6sde1bHC3Weg3tFLr+imJ9PJ3Sjs+fQlYIxpxA03uf1/MjXFehYTyPWNqBWuf5D377g48Ex2pHgsDq11U8Wg==",
         "dependencies": {
           "FastExpressionCompiler": "5.4.1",
           "ImTools": "4.0.0",
@@ -951,15 +951,15 @@
       },
       "Marten": {
         "type": "CentralTransitive",
-        "requested": "[9.32.1, )",
-        "resolved": "9.32.1",
-        "contentHash": "V/+lV0CAVQt+cfdbsxC6lkNFFKGrci+pGPAhlxw8xvHYsY5PXz6J+aPFB6GYJiHNL8uRit+r2DL6sRYeJL48xg==",
+        "requested": "[9.30.0, )",
+        "resolved": "9.30.0",
+        "contentHash": "gXz6k10iClFpKgJBLAzOdFgX+mFyYsSPG6iXBDW3jM/Dr+V8jtqrFGU+tVHUe7w8NRFEz5o0KiWaVNtp7rNpCg==",
         "dependencies": {
-          "JasperFx": "2.66.0",
-          "JasperFx.Events": "2.66.0",
+          "JasperFx": "2.56.0",
+          "JasperFx.Events": "2.56.0",
           "Microsoft.IO.RecyclableMemoryStream": "3.0.1",
-          "Weasel.Postgresql": "9.31.0",
-          "Weasel.Storage": "9.31.0"
+          "Weasel.Postgresql": "9.27.0",
+          "Weasel.Storage": "9.27.0"
         }
       },
       "Microsoft.Extensions.DependencyModel": {
