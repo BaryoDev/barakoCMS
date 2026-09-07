@@ -1144,6 +1144,18 @@ public static class ServiceCollectionExtensions
             await next();
         });
 
+        // The HTTP contract version, on every response including a 401, so a console can read it
+        // before it ever signs in and again mid-session after a rolling upgrade moves it. See
+        // barakoCMS.Features.Monitoring.Meta.ApiContract and CLAUDE.md section 6.
+        app.Use(async (context, next) =>
+        {
+            context.Response.Headers.Append(
+                barakoCMS.Features.Monitoring.Meta.ApiContract.HeaderName,
+                barakoCMS.Features.Monitoring.Meta.ApiContract.Version.ToString());
+
+            await next();
+        });
+
         // The Prometheus endpoint is mapped by the host (barakoCMS/Program.cs) and publishes route
         // names, per-endpoint traffic and process internals. It is guarded here, before endpoint
         // routing can execute it, rather than at the mapping. A scraper cannot sign in, so the
