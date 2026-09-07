@@ -1,6 +1,11 @@
-<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="BarakoCMS.Files.S3">
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="BarakoCMS.Files.S3">
   <title>BarakoCMS.Files.S3</title>
-  <rect x="2" y="2" width="124" height="124" rx="28" fill="#0277BD"/>
-  <path d="M44 84 A18 18 0 0 1 43 48 A26 26 0 0 1 88 50 A16 16 0 0 1 86 84 Z" fill="#FFFFFF"/>
-  <path d="M64 78 V56 M55 64 L64 55 L73 64" fill="none" stroke="#FFC53D" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <defs><linearGradient id="beanLt" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFFFFF"></stop><stop offset="1" stop-color="#DED8FB"></stop></linearGradient></defs>
+  <rect x="0" y="0" width="128" height="128" rx="30" fill="#0277BD"></rect>
+  <svg x="18" y="18" width="60" height="60" viewBox="0 0 32 32" overflow="visible"><g fill="#FFFFFF"><path d="M 6 4 L 6 28 L 26 28 L 26 4 Z M 8 6 L 24 6 L 24 11 L 8 11 Z M 8 13 L 24 13 L 24 19 L 8 19 Z M 8 21 L 24 21 L 24 26 L 8 26 Z"></path></g></svg>
+  <g transform="translate(70,68) scale(0.44)"><g transform="rotate(-32 64 64)">
+    <ellipse cx="64" cy="64" rx="33" ry="50" fill="#0277BD" stroke="#0277BD" stroke-width="20"></ellipse>
+    <ellipse cx="64" cy="64" rx="33" ry="50" fill="url(#beanLt)"></ellipse>
+    <path d="M64 17 C 51 41, 77 55, 64 64 C 51 73, 77 87, 64 111" fill="none" stroke="#1B1350" stroke-width="8" stroke-linecap="round"></path>
+  </g></g>
 </svg>

@@ -1,12 +1,11 @@
-<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="BarakoCMS.AI">
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="BarakoCMS.AI">
   <title>BarakoCMS.AI</title>
-  <rect x="2" y="2" width="124" height="124" rx="28" fill="#6A2C8F"/>
-  <g fill="#FFFFFF">
-    <rect x="52" y="30" width="8" height="14" rx="4"/><rect x="68" y="30" width="8" height="14" rx="4"/>
-    <rect x="52" y="84" width="8" height="14" rx="4"/><rect x="68" y="84" width="8" height="14" rx="4"/>
-    <rect x="30" y="52" width="14" height="8" rx="4"/><rect x="30" y="68" width="14" height="8" rx="4"/>
-    <rect x="84" y="52" width="14" height="8" rx="4"/><rect x="84" y="68" width="14" height="8" rx="4"/>
-  </g>
-  <rect x="40" y="40" width="48" height="48" rx="12" fill="#FFFFFF"/>
-  <rect x="54" y="54" width="20" height="20" rx="6" fill="#FFC53D"/>
+  <defs><linearGradient id="beanLt" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFFFFF"></stop><stop offset="1" stop-color="#DED8FB"></stop></linearGradient></defs>
+  <rect x="0" y="0" width="128" height="128" rx="30" fill="#6A2C8F"></rect>
+  <svg x="18" y="18" width="60" height="60" viewBox="0 0 32 32" overflow="visible"><g fill="#FFFFFF"><circle cx="8" cy="8" r="1.5"></circle><circle cx="16" cy="8" r="1.5"></circle><circle cx="24" cy="8" r="2.6"></circle><circle cx="8" cy="16" r="1.5"></circle><circle cx="16" cy="16" r="3.6"></circle><circle cx="24" cy="16" r="1.5"></circle><circle cx="8" cy="24" r="2.6"></circle><circle cx="16" cy="24" r="1.5"></circle><circle cx="24" cy="24" r="1.5"></circle></g></svg>
+  <g transform="translate(70,68) scale(0.44)"><g transform="rotate(-32 64 64)">
+    <ellipse cx="64" cy="64" rx="33" ry="50" fill="#6A2C8F" stroke="#6A2C8F" stroke-width="20"></ellipse>
+    <ellipse cx="64" cy="64" rx="33" ry="50" fill="url(#beanLt)"></ellipse>
+    <path d="M64 17 C 51 41, 77 55, 64 64 C 51 73, 77 87, 64 111" fill="none" stroke="#1B1350" stroke-width="8" stroke-linecap="round"></path>
+  </g></g>
 </svg>

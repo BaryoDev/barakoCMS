@@ -1,6 +1,11 @@
-<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="BarakoCMS.Import">
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="BarakoCMS.Import">
   <title>BarakoCMS.Import</title>
-  <rect x="2" y="2" width="124" height="124" rx="28" fill="#2B5B8A"/>
-  <path d="M64 28 V66 M50 52 L64 68 L78 52" fill="none" stroke="#FFC53D" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M32 74 V92 C32 96 35 99 39 99 H89 C93 99 96 96 96 92 V74" fill="none" stroke="#FFFFFF" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+  <defs><linearGradient id="beanLt" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFFFFF"></stop><stop offset="1" stop-color="#DED8FB"></stop></linearGradient></defs>
+  <rect x="0" y="0" width="128" height="128" rx="30" fill="#2B5B8A"></rect>
+  <svg x="18" y="18" width="60" height="60" viewBox="0 0 32 32" overflow="visible"><g fill="#FFFFFF"><path d="M 5 5 L 5 27 L 27 27 L 27 5 Z M 7 7 L 12 7 L 12 12 L 7 12 Z M 14 7 L 18 7 L 18 12 L 14 12 Z M 20 7 L 25 7 L 25 12 L 20 12 Z M 7 14 L 12 14 L 12 18 L 7 18 Z M 14 14 L 18 14 L 18 18 L 14 18 Z M 20 14 L 25 14 L 25 18 L 20 18 Z M 7 20 L 12 20 L 12 25 L 7 25 Z M 14 20 L 18 20 L 18 25 L 14 25 Z M 20 20 L 25 20 L 25 25 L 20 25 Z"></path></g></svg>
+  <g transform="translate(70,68) scale(0.44)"><g transform="rotate(-32 64 64)">
+    <ellipse cx="64" cy="64" rx="33" ry="50" fill="#2B5B8A" stroke="#2B5B8A" stroke-width="20"></ellipse>
+    <ellipse cx="64" cy="64" rx="33" ry="50" fill="url(#beanLt)"></ellipse>
+    <path d="M64 17 C 51 41, 77 55, 64 64 C 51 73, 77 87, 64 111" fill="none" stroke="#1B1350" stroke-width="8" stroke-linecap="round"></path>
+  </g></g>
 </svg>

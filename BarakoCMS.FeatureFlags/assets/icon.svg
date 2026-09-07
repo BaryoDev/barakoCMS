@@ -1,8 +1,11 @@
-<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="BarakoCMS.FeatureFlags">
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="BarakoCMS.FeatureFlags">
   <title>BarakoCMS.FeatureFlags</title>
-  <rect x="2" y="2" width="124" height="124" rx="28" fill="#7B1FA2"/>
-  <rect x="30" y="38" width="68" height="26" rx="13" fill="#FFFFFF"/>
-  <circle cx="83" cy="51" r="9" fill="#FFC53D"/>
-  <rect x="30" y="72" width="68" height="26" rx="13" fill="#FFFFFF"/>
-  <circle cx="45" cy="85" r="9" fill="#7B1FA2"/>
+  <defs><linearGradient id="beanLt" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFFFFF"></stop><stop offset="1" stop-color="#DED8FB"></stop></linearGradient></defs>
+  <rect x="0" y="0" width="128" height="128" rx="30" fill="#7B1FA2"></rect>
+  <svg x="18" y="18" width="60" height="60" viewBox="0 0 32 32" overflow="visible"><g fill="#FFFFFF"><path d="M 7 3 C 6.448 3 6 3.448 6 4 L 6 29 L 8 29 L 8 18 L 24 18 C 24.828 18 25.316 17.07 24.832 16.4 L 21.236 11.5 L 24.832 6.6 C 25.316 5.93 24.828 5 24 5 L 8 5 L 8 4 C 8 3.448 7.552 3 7 3 Z"></path></g></svg>
+  <g transform="translate(70,68) scale(0.44)"><g transform="rotate(-32 64 64)">
+    <ellipse cx="64" cy="64" rx="33" ry="50" fill="#7B1FA2" stroke="#7B1FA2" stroke-width="20"></ellipse>
+    <ellipse cx="64" cy="64" rx="33" ry="50" fill="url(#beanLt)"></ellipse>
+    <path d="M64 17 C 51 41, 77 55, 64 64 C 51 73, 77 87, 64 111" fill="none" stroke="#1B1350" stroke-width="8" stroke-linecap="round"></path>
+  </g></g>
 </svg>

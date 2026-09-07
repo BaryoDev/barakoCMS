@@ -1,12 +1,11 @@
-<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="BarakoCMS.Accounting">
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="BarakoCMS.Accounting">
   <title>BarakoCMS.Accounting</title>
-  <rect x="2" y="2" width="124" height="124" rx="28" fill="#7A5230"/>
-  <g fill="#FFFFFF">
-    <rect x="60" y="30" width="8" height="66" rx="4"/>
-    <rect x="34" y="40" width="60" height="8" rx="4"/>
-    <rect x="44" y="94" width="40" height="9" rx="4"/>
-    <circle cx="64" cy="32" r="7"/>
-  </g>
-  <path d="M34 44 L22 68 H46 Z" fill="#FFC53D"/>
-  <path d="M94 44 L82 68 H106 Z" fill="#FFC53D"/>
+  <defs><linearGradient id="beanLt" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFFFFF"></stop><stop offset="1" stop-color="#DED8FB"></stop></linearGradient></defs>
+  <rect x="0" y="0" width="128" height="128" rx="30" fill="#7A5230"></rect>
+  <svg x="18" y="18" width="60" height="60" viewBox="0 0 32 32" overflow="visible"><g fill="#FFFFFF"><path d="M 16 5 C 10.477 5 6 6.79 6 9 C 6 11.21 10.477 13 16 13 C 21.523 13 26 11.21 26 9 C 26 6.79 21.523 5 16 5 Z M 6 12 L 6 15 C 6 17.21 10.477 19 16 19 C 21.523 19 26 17.21 26 15 L 26 12 C 26 14.21 21.523 16 16 16 C 10.477 16 6 14.21 6 12 Z M 6 18 L 6 21 C 6 23.21 10.477 25 16 25 C 21.523 25 26 23.21 26 21 L 26 18 C 26 20.21 21.523 22 16 22 C 10.477 22 6 20.21 6 18 Z"></path></g></svg>
+  <g transform="translate(70,68) scale(0.44)"><g transform="rotate(-32 64 64)">
+    <ellipse cx="64" cy="64" rx="33" ry="50" fill="#7A5230" stroke="#7A5230" stroke-width="20"></ellipse>
+    <ellipse cx="64" cy="64" rx="33" ry="50" fill="url(#beanLt)"></ellipse>
+    <path d="M64 17 C 51 41, 77 55, 64 64 C 51 73, 77 87, 64 111" fill="none" stroke="#1B1350" stroke-width="8" stroke-linecap="round"></path>
+  </g></g>
 </svg>
