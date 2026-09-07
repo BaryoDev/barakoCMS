@@ -43,6 +43,8 @@ services:
       JWT__Key: ${JWT_KEY:?set a 32+ char JWT_KEY in .env}
       InitialAdmin__Username: ${ADMIN_USERNAME:-admin}
       InitialAdmin__Password: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}
+      # Defaults to :3000, where BaryoDev/barakoBrew's own quickstart serves the console if you
+      # run it alongside this one. This file does not start a console itself; see .env.example.
       CORS__AllowedOrigins: ${ALLOWED_ORIGINS:-http://localhost:3000}
       # Sample AttendanceRecord content type, records and email workflow. Off by default:
       # that workflow is stored active and mails whatever address a record's Email field

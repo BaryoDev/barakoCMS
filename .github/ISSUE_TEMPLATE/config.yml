@@ -4,8 +4,10 @@ contact_links:
     url: https://github.com/BaryoDev/barakoCMS/security/advisories/new
     about: Report privately. Please do not open a public issue for anything exploitable.
   - name: A bug in the console (barakoBrew)
-    url: https://github.com/BaryoDev/barakoBrew/issues/new/choose
-    about: The console lives in its own repository. Anything you saw on a screen goes there.
+    url: https://github.com/BaryoDev/barakoBrew/issues/new
+    about: The console lives in its own repository (BaryoDev/barakoBrew). It has no issue
+      templates yet, so this opens a plain form there. Say what you saw, the console version
+      shown on screen, and whether the same action works against the API directly.
   - name: Chat on Discord
     url: https://discord.gg/7GYKzDx7Z2
     about: Ask a quick question, say hello, or talk through an idea before opening an issue.
