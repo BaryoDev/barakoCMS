@@ -1,0 +1,14 @@
+name: barakoCMS CodeQL config
+
+# The workflow's `paths-ignore` only decides whether the workflow TRIGGERS. It does not narrow what
+# the analysis reads, so a change anywhere still scanned every file, including the design prototypes
+# under docs/. Those are throwaway HTML and JavaScript mockups that ship in no package and run on no
+# server, and a finding in one is noise that buries a real finding in the same list. One such alert
+# (js/missing-origin-check in docs/design/barakobrew-2026/prototypes/support.js) sat open from
+# 1 September, and because JavaScript is no longer among the analysed languages, no later run could
+# ever mark it fixed.
+#
+# This file narrows the analysis itself, so the exclusion holds whichever languages are enabled.
+paths-ignore:
+  - docs/**
+  - "**/*.md"

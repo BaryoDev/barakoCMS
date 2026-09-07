@@ -4,6 +4,7 @@ using barakoCMS.Models;
 using FastEndpoints.Security;
 using Marten;
 using Microsoft.IdentityModel.JsonWebTokens;
+using barakoCMS.Infrastructure.Logging;
 
 namespace barakoCMS.Infrastructure.Auth;
 
@@ -38,7 +39,7 @@ public sealed class TokenIssuer : ITokenIssuer
             // they have no membership for, which is worth seeing in the logs.
             _logger.LogWarning(
                 "Refused to issue a token for tenant {Tenant} to user {UserId} ({Username}): {Reason}",
-                slug, user.Id, user.Username, denial);
+                LogSafe.Value(slug), user.Id, LogSafe.Value(user.Username), denial);
             return TokenIssueResult.Denied(denial);
         }
 

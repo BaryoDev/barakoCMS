@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using barakoCMS.Infrastructure.Services;
+using barakoCMS.Infrastructure.Logging;
 
 namespace barakoCMS.Infrastructure.Middleware;
 
@@ -34,8 +35,8 @@ public class RequestResponseLoggingMiddleware
             var level = statusCode >= 500 ? LogLevel.Error : statusCode >= 400 ? LogLevel.Warning : LogLevel.Information;
 
             _logger.Log(level, "HTTP {Method} {Path} responded {StatusCode} in {Elapsed:0.0000}ms",
-                context.Request.Method,
-                context.Request.Path,
+                LogSafe.Value(context.Request.Method),
+                LogSafe.Value(context.Request.Path),
                 statusCode,
                 sw.Elapsed.TotalMilliseconds);
         }
@@ -44,8 +45,8 @@ public class RequestResponseLoggingMiddleware
             sw.Stop();
             _metrics.TrackRequest(500, sw.Elapsed.TotalMilliseconds);
             _logger.LogError(ex, "HTTP {Method} {Path} failed in {Elapsed:0.0000}ms",
-                context.Request.Method,
-                context.Request.Path,
+                LogSafe.Value(context.Request.Method),
+                LogSafe.Value(context.Request.Path),
                 sw.Elapsed.TotalMilliseconds);
 
             throw; // Re-throw so upstream error handlers catch it

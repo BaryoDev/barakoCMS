@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using barakoCMS.Infrastructure.Logging;
 
 namespace barakoCMS.Infrastructure.Multitenancy;
 
@@ -50,7 +51,7 @@ public class TenantAccessMiddleware
             {
                 _logger.LogWarning(
                     "Tenant access denied: token tenant '{TokenTenant}' does not match resolved tenant '{ResolvedTenant}' for {Method} {Path}.",
-                    tokenTenant, tenant.Slug, context.Request.Method, path.Value);
+                    LogSafe.Value(tokenTenant), tenant.Slug, LogSafe.Value(context.Request.Method), LogSafe.Value(path.Value));
 
                 context.Response.StatusCode = StatusCodes.Status403Forbidden;
                 await context.Response.WriteAsync("This session is not valid for this tenant.");

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using barakoCMS.Infrastructure.Logging;
 
 namespace barakoCMS.Infrastructure.Middleware;
 
@@ -34,8 +35,8 @@ public class PerformanceMiddleware
             {
                 _logger.LogWarning(
                     "Slow request: {Method} {Path} took {ElapsedMs}ms (Status: {StatusCode})",
-                    context.Request.Method,
-                    context.Request.Path,
+                    LogSafe.Value(context.Request.Method),
+                    LogSafe.Value(context.Request.Path),
                     sw.ElapsedMilliseconds,
                     context.Response.StatusCode);
             }
@@ -43,8 +44,8 @@ public class PerformanceMiddleware
             {
                 _logger.LogDebug(
                     "Request: {Method} {Path} took {ElapsedMs}ms",
-                    context.Request.Method,
-                    context.Request.Path,
+                    LogSafe.Value(context.Request.Method),
+                    LogSafe.Value(context.Request.Path),
                     sw.ElapsedMilliseconds);
             }
         }
