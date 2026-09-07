@@ -55,6 +55,32 @@ for csproj in BarakoCMS.*/BarakoCMS.*.csproj; do
   # bump on every module at once.
   changes=$(git log --format=%h "$version_commit"..HEAD -- "$module" ':!*.csproj' ':!*/packages.lock.json' | wc -l | tr -d ' ')
 
+  # The harm this check exists to prevent is --skip-duplicate silently dropping the push, and that
+  # can only happen to a version already on NuGet. When the declared version is not published, the
+  # release pushes it fresh and carries every change with it, so there is nothing to skip. Without
+  # this, the first release of any version fails as soon as a module is touched after its version
+  # was set, which is the whole pre-release window.
+  #
+  # The three answers are treated differently on purpose. 404 means the package has never been
+  # published, which is the safest case, not an error. 200 lets us ask whether this version is in
+  # the list. Anything else (no network, 5xx) is unknown, and unknown enforces the check: a gate
+  # that passes because it could not ask is the one outcome worth avoiding.
+  if [ "$changes" -gt 0 ]; then
+    package=$(sed -n 's/.*<PackageId>\(.*\)<\/PackageId>.*/\1/p' "$csproj" | head -1)
+    [ -z "$package" ] && package="$module"
+    body=$(mktemp)
+    status=$(curl -s --max-time 20 -o "$body" -w '%{http_code}' \
+      "https://api.nuget.org/v3-flatcontainer/$(echo "$package" | tr 'A-Z' 'a-z')/index.json" 2>/dev/null || echo 000)
+    if [ "$status" = "404" ]; then
+      echo "::notice::$module: $package has never been published, so $version publishes fresh and nothing is skipped."
+      changes=0
+    elif [ "$status" = "200" ] && ! grep -q "\"$version\"" "$body"; then
+      echo "::notice::$module: $version is not on NuGet yet, so the release publishes it fresh and nothing is skipped."
+      changes=0
+    fi
+    rm -f "$body"
+  fi
+
   if [ "$changes" -gt 0 ]; then
     failed=1
     echo "::error::$module is at $version but has $changes commit(s) of source changes since that version was set. Bump <Version> in $csproj, or those changes will be skipped at publish time (--skip-duplicate)."

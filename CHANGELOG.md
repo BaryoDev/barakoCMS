@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-09-07
+
 ### Breaking
 
 - **No endpoint returns a stored document as its wire contract.** `Role`, `UserGroup`, `Tenant`,
@@ -416,6 +418,617 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   anyone choosing it. Saying it explicitly means changing the environment no longer changes what is
   published as a side effect (#271).
 
+- **A width parameter on the file downloads.** `GET /api/public/files/{id}?w=640` and
+  `GET /api/files/{id}?w=640` answer with a resized copy of a PNG, JPEG or WebP, made on the first
+  request that asks for it and kept as a derived `StoredFile` row pointing at its parent. Every
+  consumer was downloading a full-size upload and resizing it client side, or the editor was being
+  asked to upload three sizes.
+
+  The cap is the part worth reading. `?w=` above `Files:Images:MaxWidth` (default 2048) is refused
+  with a 400, and requests inside it are snapped onto a ladder of seven widths rather than honoured
+  literally. Honouring an arbitrary width on an anonymous route means anyone can walk `?w=1` through
+  `?w=2048` on one public image and leave two thousand stored blobs behind, which is a cap on the
+  cost of a request and no cap at all on what the cache costs. Dimensions are read from the image
+  header before any pixel is decoded, so a ten megabyte PNG that decodes to tens of gigabytes is
+  served at full size rather than resized.
+
+  A variant is reachable exactly when its original is. The access check runs on the original before
+  a resize is considered, so a private file with a `?w=` on the public route is a 404 that did no
+  work, and a cached variant is not addressable by its own id on either route, including for an
+  admin. That is deliberate: an addressable variant would need access rules of its own, and a second
+  copy of an access rule is one that can drift out of step with the file it came from.
+
+  Anything that is not a resizable image is served unchanged with the parameter still on the URL, so
+  a frontend that appends `?w=` to every asset does not break on the one that is a PDF. Setting
+  `Files:Images:MaxWidth` to `0` turns the whole thing off. `docs/image-variants.md` has the rest.
+
+  The variant is stored with its parent's public flag, and on a store with ACLs that is an access
+  control rather than bookkeeping: S3 turns a public put into a `PublicRead` object with a URL that
+  is then persisted on the row and redirected to. So a variant of a private file stored public would
+  be a private file anonymously fetchable at the bucket, whatever the API answered.
+
+  Concurrent decodes are bounded by processor count. The pixel limit bounds one decode and the rate
+  limiter caps one address, so N simultaneous misses on the same uncached width were N simultaneous
+  bitmaps in memory. Work queues now instead.
+
+  A file the resizer cannot handle is served unchanged at any width, including one above the cap. It
+  used to be a 400 there, which broke the promise that a frontend can put `?w=` on every asset URL.
+- **A server-sent event stream of content changes.** `GET /api/public/events` streams
+  `content.published`, `content.updated` and `content.unpublished` for the tenant, filterable with
+  `?type=`. Every payload is produced by the same projection the REST reads use, so a Sensitive
+  field is masked in the stream for the same reason it is masked on `GET /api/public/{type}/{slug}`,
+  and a subscriber on one tenant never receives another tenant's change. Off by default:
+  `Delivery:Events:Enabled` turns it on, `Delivery:Events:MaxConnections` (100) caps open streams
+  per instance, and a keepalive goes out every 15 seconds. Fan-out is in process, so with several
+  API instances each streams only the writes it handled; `docs/delivery-api.md` says so. Closes #105.
+- **A job queue whose enqueue shares the request's transaction.** `QueueJobAsync` stages the job in
+  the request's scoped Marten session, so a request that throws or fails to commit leaves no job
+  and a request that commits leaves one in its tenant. The queue owns retry: a record carries the
+  attempt count, the next attempt time and the last error, waits with exponential backoff
+  (`Jobs:BackoffBaseSeconds`, capped by `Jobs:BackoffMaxSeconds`) and is dead-lettered after
+  `Jobs:MaxAttempts`. A claim holds for `Jobs:LeaseSeconds`, which is also the handler's execution
+  limit. `GET /api/jobs` lists a tenant's jobs behind the new `view_jobs` capability,
+  which Admin holds by default. Nothing migrates onto the queue yet; one logging command proves it
+  runs. See `docs/background-jobs.md`.
+- **Content type blueprints: a site starts from a named set of types instead of an empty schema.**
+  `GET /api/content-types/blueprints` lists them and `POST /api/content-types/blueprints/{name}`
+  creates every type one declares in the caller's tenant. Four are built in: `blog` (post, category,
+  author, page), `events` (event, venue, speaker, with a geopoint location), `portfolio` (project,
+  client) and `docs` (article, section). Every addressable type has a slug field, and fields that are
+  for the team rather than the public are marked Sensitive or Hidden.
+
+  Applying is additive and all or nothing: a type that already exists refuses the whole blueprint
+  with a 409 naming the clash, and types the blueprint does not mention are left alone. Gated on
+  `manage_content_types`, like the create it stands in for.
+
+  Set `Blueprints:Path` to a directory and its `*.json` files are listed alongside the built-ins.
+  Each file is validated when listed, with the same validator the create endpoint runs, and a broken
+  file shows its errors in the list rather than failing at apply time.
+- **A content type can opt into the SEO fields every client site needs.**
+  `POST /api/content-types/{name}/seo-fields` adds meta title, meta description, canonical URL,
+  social image and a no-index flag. Ordinary fields marked Public, so delivery, validation and
+  scrubbing already handle them, and all five optional so opting in does not invalidate existing
+  entries. Additive and idempotent: a field the type already has is left exactly as it was.
+
+  Public delivery now carries a resolved `seo` block, omitted entirely for a type that has not opted
+  in. **An unset meta title falls back to the entry's own title** rather than emitting an empty tag,
+  using the same field names the admin uses to label an entry. An empty title tag is worse than none:
+  a search engine shown one indexes the page with nothing to display.
+
+  An entry marked no-index is left out of the sitemap, because listing a page and then telling the
+  crawler to go away when it arrives is a contradiction Search Console reports as an error. Title and
+  description lengths are guidance rather than validation, since search engines truncate on pixel
+  width and a hard limit would be wrong in both directions.
+- **URL redirects, so a rebuild does not break every existing link.**
+  `GET/POST /api/redirects` and `DELETE /api/redirects/{id}` manage them, `POST /api/redirects/import`
+  takes a CSV for a migration, and `GET /api/public/redirects/resolve?path=` is the anonymous lookup a
+  frontend makes on its 404 path. One indexed equality comparison, no wildcards, cached for five
+  minutes, because that path is when a site can least afford anything else.
+
+  Loops are refused when a rule is saved rather than when a visitor hits one: a path redirecting to
+  itself, a rule closing a circle with rules already stored, and a chain longer than ten hops even
+  when it terminates. An import checks each line against the stored rules and against the lines above
+  it in the same file, which is the loop no single line creates and nobody can find afterwards. A bad
+  line is rejected by number and the rest still import.
+
+  `permanent` defaults to false, so a redirect is a 302 unless asked otherwise. A browser caches a 301
+  indefinitely, so one entered by mistake is not fixed by deleting the rule.
+- **Alt text, a caption and a where-used list on files, for a media library.** `PATCH /api/files/{id}`
+  stores `alt` and `caption` with a file, `GET /api/files/{id}/meta` and the new `GET /api/files` list
+  return them, and `GET /api/public/files/{id}/meta` hands them to a frontend for a public file only,
+  404 otherwise like the bytes next door. The list takes `?q=` for a name substring and
+  `?contentType=image/` for a type prefix, is paginated, and leaves out cached resizes.
+
+  `GET /api/files/{id}/usage` lists the entries whose data references the file, matched by the id and
+  by the storage key so a bare id, a download URL with or without `?w=`, and an object store's public
+  URL are all found. `DELETE /api/files/{id}` is new and refuses with a 409 naming the first ten
+  usages while any entry references the file; `?force=true` deletes anyway, along with the cached
+  resizes and every blob behind them. A usage row's title goes through the same read permission
+  and sensitivity checks as `GET /api/contents`, so a file used by a Sensitive entry still blocks a
+  delete without telling the editor what the entry says. All of it is gated on the module's
+  `upload_files` capability. The console half (grid, picker) is barakoBrew's.
+- **The seven modules that shipped with no tests have them.** `ExternalAuth`, `DeviceTrust`,
+  `Portability`, `FeatureFlags`, `Email.Resend`, `Import` and `Analytics.Umami` were built, packed and
+  pushed to NuGet on every release with no assertion anywhere covering them, and two of the seven are
+  authentication surface. 52 tests, each one checked by breaking the thing it covers and watching it
+  go red.
+
+  What is pinned is the behaviour that would hurt if it broke rather than a coverage number. An
+  account with MFA enrolled gets a challenge from a social sign-in and never a token, which is the
+  bypass 0.1.5 shipped. An OAuth callback with a missing or mismatched `state` mints nothing, and one
+  that matches its own state signs a verified account in. A device-bound token is refused from any
+  other device, a token with no `did` claim is deliberately left alone, revoking a device kills its
+  refresh tokens and nobody else's, and nobody can revoke a device they do not own. An exported bundle
+  imports into a clean tenant with its schema and content intact, twice over without duplicating the
+  type, into the calling tenant only. A percentage rollout gives the same person the same answer every
+  time. The Resend API key travels as a bearer header and appears in no URL, body or exception. A bad
+  row stops an all-or-nothing import before anything is written. The Umami account never reaches the
+  browser, and data requests to Umami carry the exchanged token rather than the credential.
+
+  `BarakoCMS.Tests` now references `DeviceTrust`, `Import` and `Analytics.Umami` as well, so all seven
+  are reachable from a test at all, which four of them were not.
+- **A provider outage during registration is now pinned as invisible from outside.**
+  `POST /api/auth/register` answers one sentence whatever happens, so that an address somebody else
+  already registered cannot be told apart from a free one. A send that escaped as a 500 would have
+  put that difference back without anyone editing the message. Three tests cover it: the answer is
+  byte for byte the same with the provider down as with it up, the failure reason never reaches the
+  response, and a sign-in code request answers the same thing for a registered address, an unknown
+  address, and a registered address during an outage.
+- **`BarakoCMS.Email.Smtp`, an SMTP email provider.** Email no longer means signing up for one
+  particular SaaS: any relay works, which is what a self-hoster already has from their host, from
+  Google Workspace, from SES or from a corporate mail server. MailKit does the sending, not the
+  `System.Net.Mail.SmtpClient` Microsoft tells you not to use in new code.
+
+  The module reads its own `Modules:Email.Smtp` section (host, port, user, password, from, TLS
+  mode), because the existing settings surface resolves an API key and a from address and SMTP
+  needs neither shape. A from address typed into the admin still wins, since that field is not
+  provider-specific.
+
+  With no host configured it registers nothing at all, so adding the package to an existing
+  deployment and configuring nothing leaves whatever was sending before still sending. The TLS
+  default will not fall back to plaintext: unset means implicit TLS on port 465 and STARTTLS
+  everywhere else, and a relay that does not offer STARTTLS fails the send rather than getting the
+  password in the clear. A failed send names the relay and quotes its reason, with the password
+  redacted out of it, because a relay that echoes the credentials it just rejected would otherwise
+  put them in an admin screen and a support ticket.
+- **A screen for importing a spreadsheet.** The Import module had two endpoints and no interface, so
+  turning an .xlsx or CSV into entries meant calling the API by hand. Settings now has one:
+  choose a file, say which row holds the headings, match each column to a field on the target content
+  type, and import.
+
+  Entries are created as drafts, so nothing an import gets wrong is published. Every row is attempted
+  and the refusals are reported by their position in the sheet, rather than the first bad row ending
+  the run and leaving an editor to work out how much of it landed. A column matched to nothing is
+  left out rather than sent blank: a sheet usually carries a column nobody wants, and sending it
+  would either fail validation or invent a field the type never declared.
+- **Devices and Export/import have admin screens.**
+  Both modules shipped a backend with no interface, so their features existed only for whoever was
+  willing to call the API by hand. `Settings > Devices` lists the browsers and apps signed in to your
+  own account and revokes one, with the confirmation saying something different when it is the device
+  you are sitting at. `Settings > Export and import` downloads every content type and entry as one
+  JSON file, and takes one back in, with a preview that runs the import as a dry run first. The
+  preview names the entries whose content type is in neither the bundle nor the CMS: those import
+  successfully and then never appear in public search, so a plain success message would be true and
+  misleading.
+- **A `geopoint` field type and a proximity filter on delivery.** A field can now hold
+  `{ "lat": number, "lng": number }`, validated as a real coordinate pair rather than free text, and
+  `GET /api/public/{type}?filter[Location][near]=lat,lng,radiusKm` returns the entries within the
+  radius. Each item then carries `distanceKm`, and `sort=distance` orders by it. No PostGIS: the
+  query is a bounding box then the haversine, both in SQL over the stored JSONB, and it sits in the
+  same chain as every other filter so a Draft inside the radius stays invisible. The radius is
+  capped by `Delivery:MaxRadiusKm` (default 1000) so the prefilter always applies. Distances are
+  great-circle, right for "within 10 km" and not for geodesy. The console's map editor is
+  barakoBrew's side.
+- **`CODING_STANDARDS.md`**, a signpost to `CLAUDE.md`, which is the coding standard and was
+  effectively invisible under a filename no human contributor has a reason to open. `CONTRIBUTING.md`
+  and the pull request template now point at it too. The standard itself gains the rules two
+  contributor pull requests showed were missing: developer-machine files stay out of the repository,
+  a config default preserves existing behaviour, a list endpoint is bounded, prefer an existing
+  pattern over a new one, and an assertion over a collection has to assert the collection is not
+  empty first. Closes #145.
+- **Swagger shows `/api/public/students`, not just `/api/public/{type}`.** A content type is created
+  by a user at runtime, so nothing built at compile time can ever name it. The generated OpenAPI
+  document is now merged with a projection of the content types on its way out, adding the list,
+  search and slug paths for every type marked `IsPubliclyDeliverable` along with a schema built from
+  its fields. No route is added and no delivery code changes: `/api/public/{type}` keeps matching
+  exactly as it did, and it is still in the document.
+
+  A schema is disclosure, so this is an allowlist and it emits exactly what the anonymous delivery
+  endpoint would return. A type that is not publicly deliverable does not appear, not even by name.
+  A field whose sensitivity is not `Public` is absent from the schema, because a field name is itself
+  information: naming `guardianContactNumber` tells a reader what to probe for even when every value
+  comes back masked. `ValidationRules` and `DefaultValue` are never published. The document does not
+  vary by caller, so a cached copy cannot show one caller what another may see, and it is cached per
+  tenant and invalidated when a content type is created or its delivery is switched. Closes #159.
+- **A field's sensitivity was fixed at the moment the content type was created.** There was no
+  update path at all, so a field marked Public by mistake stayed readable, and a field that should
+  never have been masked stayed masked, until somebody edited the database by hand. `PUT
+  /api/content-types/{name}/fields/{field}/sensitivity` changes one field's level, admin only, and
+  rebuilds the derived search text for every existing entry of the type so that raising a field
+  stops its value being matched by anonymous search and not only stops it being returned. Lowering
+  is a disclosure of data written under the old level, so it is refused unless the request sets
+  `acknowledgeDisclosure`, and it is recorded under its own audit action. Raising stops the value
+  being served and does not remove it from storage, backups or the event stream.
+- **Modules are found by reference and chosen by configuration.** `AddBarakoCMS` now discovers
+  every `IBarakoModule` in the application's dependency context, so `dotnet add package` plus a
+  restart is the whole install and `BarakoCMS.Suite/Program.cs` names no modules at all. Only
+  libraries that reach `BarakoCMS` through their dependencies are loaded, only public top-level types with a parameterless
+  constructor count, discovered modules are ordered by type name, and a type the host already added
+  is skipped. `modules.Discover = false` on the builder, or `BarakoCMS:Modules:Discover=false` in
+  configuration, keeps the explicit list only. A host that references a module package without
+  adding it now runs that module; turn discovery off to keep the old explicit-only behaviour.
+
+  `BarakoCMS:Modules:Enabled`, an array or a comma-separated string
+  (`BarakoCMS__Modules__Enabled=Accounting,Files`), decides which of the modules found run. Unset
+  runs all of them and logs one warning saying how to set it, so an existing deployment changes
+  nothing on upgrade; an empty string is core only; a name that matches nothing refuses startup and
+  lists the names available. Disabling a module leaves its data in place. `GET /api/modules` now
+  lists every module seen with an `enabled` field, so "installed but off" and "not installed" can
+  be told apart. Fixes #170 and #172.
+- **A module author starts from a template and tests on a packable host.** `dotnet new install
+  BarakoCMS.Templates` then `dotnet new barakocms-module -n Acme.Notes` produces a module that builds,
+  registers and passes its own tests: one endpoint gated on a capability the module declares and
+  grants to Admin at seed, one document type, options bound from `Modules:Notes`, a README in the
+  house structure, an icon placeholder, packaging metadata inherited from a shared props file with
+  the `barakocms-module` tag, and a test project. The tests run on `BarakoCMS.Testing`, a new
+  package holding `BarakoTestHost`: the real host over a Testcontainers PostgreSQL with the modules
+  you name registered, the system roles and the admin seeded, every module's seeder run, a client
+  signed in as the admin, a client for a named role, a tenant helper and a Marten session. Both
+  packages are proved from outside the solution by `scripts/check-module-template.sh`, which CI runs
+  and the release runs against the artifact it is about to publish. `MODULES.md` gains the section a
+  third party needs: what the host checks at startup and what it does not, that a module is trusted
+  in-process code, and how to name, version and describe a published one. Fixes #174.
+- **`GET /api/modules` reports which modules an instance actually booted with.** Read straight off
+  the container: `AddBarakoCMS` registers each opted-in module as a singleton, so the answer is what
+  the host runs rather than a list somebody maintains beside it. Two fields per module, the
+  registered name and the declared contract version, and nothing else. A module knows its
+  configuration section and its assembly paths, and none of that is a fact about the module.
+
+  Ordered by name, always. An instance running core alone answers with an empty list rather than a
+  404: a 404 is what a route that never shipped looks like, and telling those apart is the reason a
+  client asks at all. Admin and SuperAdmin only.
+
+  Every first-party module currently reports contract version zero, since none of them override the
+  property. So this confirms a module was picked up, and does not yet say which contract version it
+  thinks it is talking to.
+- **`docs/delivering-a-client-project.md`, the path from a clean machine to a handed-over client
+  site.** Everything else documented here answers what barakoCMS can do; this answers what you do,
+  in what order, and with which endpoints and config keys. It sequences standing an instance up,
+  creating the tenant, modelling content inside it, adding the client's people, giving them a role,
+  pointing a frontend at the delivery API, deploying and handing over. The step order matters:
+  content types are tenant-scoped, so modelling before the tenant exists leaves the model on
+  `default` where the client's tenant cannot see it, and moving it then needs the Portability
+  bundle. Tenant member management (#184) shipping is what made the onboarding step writable.
+- **It names what is not solved, because a delivery document that overstates is worse than none.**
+  Two administrative surfaces reach past the tenant and are both open to the seeded `Admin` role, so
+  the document says not to give that role to a client's staff: `GET /api/audit` treats `?tenant=` as
+  a caller-chosen filter rather than a boundary, and `POST /api/users/{userId}/roles` writes the
+  global `User.RoleIds` and, unlike `POST /api/tenants/members`, does not refuse the SuperAdmin role
+  id. It also records that `Tenant.Domains` and `Tenant.Branding` are returned by the API and
+  writable only in the database, that an invited member cannot set their own password because
+  `POST /api/me/password` verifies a current one they do not have, and that the switch-tenant
+  request field is spelled `club`.
+- **`docs/multi-tenancy.md`** is in the repository, rewritten against the code. It was gitignored and
+  described a design that had since shipped, in several places the opposite way round from how it was
+  actually built: roles, refresh tokens, OTP codes and trusted devices are global rather than
+  tenant-scoped, the `X-Tenant` header is accepted from any caller by design, the membership check
+  runs when a token is issued rather than in middleware, and `User.RoleIds` was kept and unioned with
+  membership roles rather than moved. Closes #211.
+- **A test refuses to let an event type reach an API response.** The event stream is internal and
+  history goes out as a projected, versioned view, and until now that held by luck: the history
+  endpoint projects to a DTO because whoever wrote it projected out of ordinary API hygiene. The
+  moment one response carries an event type the record's shape is public API and reshaping it behind
+  an upcaster is a wire break. `EventSurfaceTests` takes the response types off the endpoints
+  themselves rather than from a list, so a response added later is covered, and follows property
+  types, constructor parameters, public fields, array elements and generic arguments, because a
+  `List<ContentCreated>` is the same leak one level down. It found no existing violation. The rule is
+  DECISIONS.md D4.
+- **A content type had no way to say its entries are event sourced, so the choice could only be made
+  for all of them or none.** A type can now be created with `eventSourced: true`, which makes its
+  event stream the source of truth instead of its `Content` document. It defaults to false, which is
+  what every type has always been: the document is the record, events are still appended for
+  history, audit and workflows, and nothing changes for a deployment that does not ask for this. The
+  decision is recorded against the type NAME rather than on the definition, so deleting a type and
+  creating it again inherits the original answer instead of arriving at the opposite one, and there
+  is no code path that changes or deletes it in either direction. Two rules come with it. An
+  event-sourced type may not hold non-Public fields, refused at creation and at any later attempt to
+  raise one, because erasing a value out of an append-only stream is not something this server can
+  do. And an event-sourced type has to be chosen before its first entry, because a stream written
+  under the old rules is not a history the stream can claim to be the source of truth for. New table
+  `mt_doc_content_type_sourcing_policies`, in `migrations/4.0.0/3.x-to-4.0.sql`, empty on arrival.
+- **Connectors had a backend and no interface, so a third party's credentials could only be entered
+  with curl.** There is a screen now at Settings, Connectors: the list, add, edit, delete, and the
+  test button, gated to SuperAdmin and Admin the way the endpoints are.
+- **A credential is write only on the screen because it is write only in the API.** No endpoint
+  returns a stored value, so the box starts blank every time and blank means "keep what is stored".
+  Deleting a credential is a separate checkbox rather than an empty box, which is what
+  `SaveConnectorRequest` already encodes: an absent key changes nothing, an empty value deletes.
+  The alternative, showing asterisks and posting them back, would overwrite the token with asterisks
+  the first time somebody corrected a base URL. The only values this screen ever sends are ones
+  typed into it in that session.
+- **The list answers the question an operator came with: did the last probe work.** `LastTestResult`
+  is prose the server wrote ("HTTP 200 in 34 ms"), not a boolean, so the screen reads the status out
+  of it and calls 200 to 299 a success, matching `IsSuccessStatusCode`, which is what the server
+  used to decide it. A 302 to a login page counts as failing, which is what `ProbePath` exists to
+  fix. It also names the gap before a probe is run, and says which gaps `ConnectorSender` really
+  refuses on: no stored credential is one, and so is a missing `HeaderName` on an API key connector.
+  A missing `Username` on a Basic connector is not. The sender defaults it to empty and sends
+  `base64(":password")`, so the screen says that instead of promising a refusal that never happens.
+- **The slug is typed, not rewritten under the operator's cursor.** It is derived from the name
+  until the operator edits it, and after that the box keeps exactly what they typed. The save is
+  gated on `^[a-z0-9][a-z0-9-]{0,62}$`, which is `ConnectorRules.IsSlug`, and the form says so when
+  the slug would be refused. That matters more here than on most forms, because
+  `UpdateConnectorEndpoint` overwrites the slug on a PUT with the stored one, so a slug entered
+  wrong can only be fixed by deleting the connector and entering the credential again.
+- **Deleting asks first, and says what goes with it.** The credentials go in the same transaction
+  and any request definition naming that slug stops working, so the confirmation names the slug
+  rather than asking a generic "are you sure".
+- **The queries screen.** `/api/queries` had no interface, so a saved query could only be created by
+  hand against the API. The admin now lists, builds, previews and deletes them under Queries.
+
+  The form offers exactly the shape the model accepts and no more: a content type, up to ten typed
+  filters, a sort, a limit and an explicit field projection. There is nowhere to type an expression,
+  because there is nowhere in the model to put one. Only fields the content type marks Public are
+  offered to filter on, sort by or return, which is the same allowlist the runner enforces and for
+  the same reason: filtering on a field the rows cannot show is a way to read that field without
+  ever printing it.
+
+  The preview is the part that makes it useful. Pressing it saves any pending edits and then runs the
+  stored definition, and the rows come back as a table of the projected fields in the order the
+  projection names them. That is what a workflow action carrying the query would send. A run the
+  server refuses shows the server's own reason, so a field raised to Sensitive after the query was
+  written surfaces here rather than in a payload.
+- **A screen for outbound requests.** The request endpoints had no interface, so composing an
+  outbound call meant POSTing JSON by hand. Settings now has one: the list, an editor for the
+  connector, method, path, headers, body template and success rule, and the dry run.
+
+  The dry run leads the screen, because it is how an operator finds out what a template produces
+  while they can still change it. It composes the call against a real entry and renders exactly what
+  came back: the finished URL, every header and the body, laid out when it is JSON and left as
+  composed when it will not parse, since that is the case worth seeing. A refusal shows the reason
+  instead, which is what happens when a template names a field that is not Public, or reads a named
+  query, which the composer cannot do yet.
+
+  Nothing on the screen sends anything, and it says so where a verdict could be misread: the result
+  panel is headed "Dry run. Nothing was sent.", the verdict reads "Would be sent" rather than "Sent",
+  and the button says compose rather than send. Header blocks are pasted as "Name: value" lines and
+  a line the parser cannot read is refused rather than dropped, because a dropped line is a header
+  the operator believes they set.
+- **A screen for workflow runs.** The run endpoints have been there since the outbox split and had
+  no interface, so the only way to find out whether a workflow actually fired was to query Postgres.
+  `/workflow-runs` lists every run newest first, filtered by status, with the status carried by a
+  tinted badge rather than a word in a column, and opening one shows its actions in execution order
+  with the attempt count, how long each took, the response status and the error when there is one.
+
+  A retry button appears on a failed action and on an unknown one, and nowhere else. Unknown is a
+  timeout, where the request may well have arrived and only the response was lost, so retrying it is
+  a decision to accept possible duplicate delivery and a person has to make it. Succeeded, Running,
+  Pending and Skipped get no button at all: `POST .../retry` refuses a succeeded action with a 409
+  because sending it twice is the hazard the idempotency key exists for, and offering a control that
+  can only answer 409 teaches an operator to distrust the screen.
+
+  Pressing retry refetches the run rather than rendering what the endpoint returned. The response is
+  the run as it stood at the moment of the write, and the runner can claim the attempt a tick later,
+  so painting that body on screen would show a Pending action that is already Running.
+- **Connectors: one place to hold a third party's credentials, encrypted and write only.** Calling
+  Jira or Twilio or a plain REST API meant a module with its own config keys and its own code. A
+  connector is configuration instead: a base URL, an auth mode, non-secret settings, and credentials
+  an admin enters through `POST /api/connectors`. There is a test button, because a credentials
+  screen that cannot tell you whether it worked moves the failure to the first real workflow run.
+- **A secret is not on the connector document, which is the design rather than an omission.**
+  Credentials live in a separate `ConnectorSecret`, encrypted with AES-GCM, and the read path never
+  joins them, so a bug that returns a connector over the API cannot leak a token: there is nothing in
+  the object to leak. The response carries the *names* of the secrets held, which is what a screen
+  needs to say one is set without handling it. Nothing reads a secret back out, from any endpoint.
+- **`Connectors:Key` is its own key, with no fallback**, unlike `Mfa:Key` which falls back to the JWT
+  signing key. `SECURITY.md` records that coupling as a lesson, and this enforces it: a key that
+  matches `JWT:Key`, `Mfa:Key` or `Secrets:Key` is refused before the host is built, as is one
+  shorter than 32 characters. Rotating an encryption key makes everything under it unreadable, so it
+  has to be one decision at a time rather than one that retires every integration and every enrolled
+  second factor together. An absent key is not a startup error, it means the feature is off, and the
+  endpoints say so naming the setting rather than storing a credential in the clear.
+- **The address guard runs when the socket opens, not when the URL is saved.** A base URL is checked
+  on save as an early refusal, but the check that counts is the one in the `ExternalApi` client's
+  connect callback, which resolves once and dials an address that answer survived, with redirects
+  off. A name that resolves publicly at save time and privately later is the case that matters, and
+  it is the only one a save-time check cannot see.
+- **A test result carries the status code and the round trip, never a response body.** A 401 from an
+  OAuth provider frequently contains the credential that was sent, so quoting the response is how a
+  token reaches a log aggregator, an error tracker and a support ticket in one step.
+- **The unique slug is scoped per tenant.** Marten does not infer that from a document being
+  multi-tenanted, so without `TenancyScope.PerTenant` the index is global and the first tenant to
+  name a connector "company-jira" stops every other tenant using that name, refused with a 409 about
+  something they cannot see. Found by the 3.x upgrade check, which compares the shipped migration
+  against the schema Marten expects.
+- **Conjoined multi-tenant, role gated and audited.** A connector belongs to the tenant that added
+  it. Configuring one is SuperAdmin or Admin, because it is credential management rather than content
+  editing. Creating, updating, testing and deleting are audit events recording the slug, the base URL
+  and the names of the secrets held, never a value. Deleting a connector removes its credentials in
+  the same transaction, so nothing decryptable is left belonging to something nobody can see.
+- **Requests: what to send through a connector, held as configuration.** A connector says where and
+  who; a request says what. Together they replace the C# somebody would otherwise write per
+  integration. A definition names a connector, a method, a path template, header templates and a body
+  template using the same `{{...}}` variables workflow actions already use, and a workflow fires it
+  with one parameter: `{ "Type": "Request", "Parameters": { "Request": "post-to-facebook" } }`.
+- **A field the schema marks Sensitive or Hidden cannot leave, even when a template names it.**
+  Refused rather than redacted: the operator wrote `{{SSN}}` on purpose, and a request that silently
+  posts three asterisks where they expected a value looks like it worked. The message names the field
+  and its level, while they still have the template open.
+- **A value cannot rewrite the request around it.** Each hole is escaped for where it lands, so a
+  title of `","admin":true,"x":"` becomes a title rather than an extra field, and one containing a
+  slash cannot address a different endpoint from the path. That is injection in a different costume,
+  and it is why substitution is not delegated to `ITemplateVariableExtractor.ResolveVariables`, which
+  returns a finished string with no point at which one value can be escaped for its context. The
+  composed body is parsed before sending, so a malformed template is a refusal here rather than a 400
+  from a provider describing their own parser.
+- **Success is a rule, not a status code.** Several providers answer 200 with an error in the body, so
+  `TwoHundredAndJsonPathAbsent` fails the call when a named path is present. Choosing that rule
+  without a path is refused, because it would otherwise behave exactly like the plain 2xx rule and
+  appear to be in force while changing nothing.
+- **`POST /api/requests/{slug}/dry-run/{contentId}` composes everything and returns the exact method,
+  URL, headers and body without sending.** No credential appears in it, and not because it is
+  redacted: the connector's secrets are attached by the sender afterwards, so the dry run never held
+  one. `{{PublicUrl}}` is new and resolves from `App:BaseUrl` rather than a request host, because this
+  composes inside a workflow where there is no request.
+- **The method is an allowlist.** `TRACE` against some proxies echoes request headers, including the
+  Authorization header the sender attaches, which would be a way to read a credential back out of a
+  connector built specifically never to return one.
+- **`{{query.*}}` resolves a named query (#328, #573).** A request definition names a query in
+  `QuerySlug`; `{{query.rows}}` and `{{query.SomeField}}` compose from what it returns, and a hole
+  naming a query that does not exist, or a field the query does not select, is refused rather than
+  sent as a literal. Posting the text `{{query.rows}}` to a third party looks like a delivery and
+  is a defect.
+- **Queries: fetch the rows a payload needs beyond the entry that triggered it.** "Email all
+  subscribers" starts from one blog post, and the recipient list is not on it. A query names a
+  content type, typed filters, a sort, a limit and the fields that leave, and an operator builds one
+  without writing code.
+- **Not a query language, on purpose.** No SQL, no expression strings, no caller-supplied predicates.
+  The moment it accepts an expression it is an injection surface and an unbounded-cost surface at
+  once, and the person editing it is configuring a marketing workflow. It is built on the same
+  foundation as the anonymous delivery filters, which bind the field name as well as the value so
+  neither reaches the SQL text. Joining two content types or filtering on something computed are the
+  obvious next asks, and the answer to both is a reporting feature rather than growing this one.
+- **A field that is not Public can be neither filtered on, sorted by, nor returned.** Filtering on a
+  field the result cannot show is an oracle: a workflow author could binary-search a Sensitive salary
+  by watching how many rows come back, without the value ever appearing in a payload. The refusal
+  reads the same as for a field that does not exist, because saying which would let somebody
+  enumerate a type's Sensitive fields from here.
+- **Validated when it runs, not only when it is saved.** A field that was Public when the query was
+  written can be raised to Sensitive afterwards, and a save-time check cannot see that: the query
+  would go on feeding it into third-party payloads with nothing saying so.
+- **The projection is an allowlist and cannot be empty.** Only the named fields leave, even the
+  Public ones, so a schema change that adds a personal-data field next year does not silently start
+  including it. A query with no projection is refused rather than defaulting to everything.
+- **The limit has a ceiling of 1000, applied when it runs as well as when it is saved.** A query with
+  no bound inside a workflow action is an accidental way to email everyone twice, and the ceiling is
+  what stands between a misconfiguration and that, so it does not rely on the save path having run.
+- **`POST /api/queries/{slug}/preview` runs one and shows the rows**, so an operator can see what a
+  payload would carry before anything is sent.
+- **A type that is not event-sourced can stop writing its changes to history.**
+  `EventSourcing:DocumentTypesAppend`, true by omission, which is what every deployment before 4.0
+  did. Set it false and a document-sourced type writes only its current version. That is what issue
+  #331 asked for, and it is a setting rather than the new behaviour because it takes three things
+  away with it: `GET /api/contents/{id}/history` returns nothing for those types, the rollback
+  endpoint has nothing to roll back to, and workflows on those types stop firing, since a workflow is
+  triggered by reading a committed history entry. An event-sourced type is not affected, because for
+  it the history is the record. `docs/event-sourced-content-types.md` says all of that in those
+  words.
+- **A content type can declare its own states and the named moves between them.** `ContentStatus` is
+  Draft, Published, Archived, in the core, for every type, which is right for a blog post and wrong
+  for an invoice. A type may now carry a `Lifecycle` with its own states, an initial state and named
+  transitions, and `PUT /api/contents/{id}/status` takes a transition name for such a type instead of
+  a status. A transition out of the wrong state is refused server side, and an incoherent lifecycle
+  is refused at declaration rather than left to strand entries later. `Lifecycle:EnforceTransitions`
+  defaults to on and can be turned off for a deployment whose existing entries predate its rules,
+  which logs the violation rather than passing over it. A type that declares no lifecycle behaves
+  exactly as it did, which is every type that exists today, and `ContentStatus` is untouched by a
+  transition because it is what public delivery reads.
+- **A workflow can trigger on a named transition, so an approval routes and an edit does not.**
+  `TriggerEvent` was Created, Updated, Deleted or Published, and "when an invoice becomes Approved"
+  is none of them. Routing on Updated fires on every save, so the supplier was sent the invoice on
+  every edit before approval and again after, which is the feature not existing rather than a rough
+  edge. A trigger may now be `transition:Approve`, naming a transition on the triggering type's own
+  lifecycle. It keys on the transition name and not the state it lands in, because "status is now
+  Approved" also describes an administrator correcting a mistake, and a supplier notification is the
+  thing that most needs to not fire on that. A transition is not folded into Updated, so existing
+  Created and Updated workflows are unaffected.
+- **A workflow naming a transition its content type does not declare is refused when saved**, with a
+  message naming what was asked for and what the type declares. Stored and never fired was the other
+  option, and a workflow that never fires looks identical to one that fires and fails. A trigger
+  naming a content type that does not exist is refused for the same reason, rather than passed over
+  because there was nothing to check against. The trigger is stored spelled as the type declares it,
+  since the engine matches it with an equality query and `transition:approve` against a transition
+  named `Approve` would otherwise save and then never fire.
+- **A content type's lifecycle is now on the API response.** `GET /api/content-types` did not return
+  it, so nothing outside the database could discover a type's transitions, and a transition is what
+  both a permission and a workflow trigger name. The admin workflow builder offers the selected
+  type's transitions as triggers because of this.
+- **Email is configured in the admin, not in the deployment.** Provider credentials came from
+  `IConfiguration`, so somebody had to edit appsettings or an environment variable, which a process
+  owner standing up their own instance cannot do. A SuperAdmin sets them at Settings, Email, and they
+  take effect on the next send with no restart. There is a test send, because a configuration screen
+  that cannot tell you whether it worked moves the failure to the first real invoice. It goes to the
+  caller's own address and nowhere else, and it refuses with the provider's own reason rather than
+  reporting a send that went nowhere, including when no provider module is registered and the mock
+  would have silently swallowed it.
+- **The stored key is encrypted at rest and never returned.** AES-GCM through a new
+  `ISecretProtector`, so a database dump does not hand over a working sending credential. The
+  response says whether a key is set and where it came from, and has no field that could carry the
+  key itself, so the admin form cannot prefill it into a browser cache or a screen share. The
+  consequence worth knowing: there is no way to read the key back, from the API or the admin.
+  `Secrets:Key` is its own key, separate from `Mfa:Key`, so rotating one does not retire the other,
+  and rotating either makes what it encrypted unreadable. See `docs/configuring-email.md`.
+- **Stored settings beat configured ones, per field.** An operator will otherwise set one and watch
+  the other win. Configuration remains how a deployment with no database row yet is seeded, and a
+  stored From address does not switch off a configured API key, because that cliff would stop email
+  working the moment somebody filled in one box.
+- **`POST /api/settings` refuses a key that looks like a credential.** Everything in that store is
+  held in plaintext and returned in full by `GET /api/settings`, which is right for a feature flag
+  and wrong for an API key, and a box labelled Value next to a key called `Resend:ApiKey` was going
+  to collect one. The refusal names the endpoint that encrypts.
+- **Changing email settings is audited** as `settings.email.changed`, recording which fields changed
+  and never their values. It sits at SuperAdmin rather than Admin: redirecting where the system's
+  mail comes from redirects every password reset and every verification token in the deployment.
+- **The entries list can be searched and filtered by status, and every row shows its version.**
+  `GET /api/contents` takes `search` and `status`, and `ContentResponse` carries `Version`. Search
+  matches any string value in an entry's data, not the derived `SearchText` the anonymous delivery
+  search uses: that one holds only the values of fields the type declares Public, so an admin
+  searching a reference number kept in a Sensitive field would get an empty page with no way to tell
+  that from the entry not existing. Matching more than the caller may read is safe, because the
+  per-item permission check and the sensitivity scrub both still run on whatever comes back. The
+  version is read in one batched query for the page rather than one call per row.
+- **Workflow runs are swept, and failures outlive successes.**
+  Every firing leaves a run behind and nothing removed them. `Workflows:Retention:Succeeded` (7 days)
+  and `Workflows:Retention:Failed` (90 days) are the two windows, because a successful run answers
+  "did that go out" for a while and a failed one is interesting until somebody deals with it.
+  `PartiallyFailed` is kept on the failure window, since it holds an action nobody has handled.
+
+  A `Pending` or `Running` run is never removed, whatever its age. That is a rule rather than a
+  consequence of the window: a run whose provider has been unreachable for a fortnight may still be
+  an email that somebody is waiting for. Zero or less on either setting keeps that class forever, which is
+  the safer of the two readings "0 days" has.
+
+  The sweep takes an advisory lock so one instance does it, and deletes in bounded batches.
+  `docs/workflow-runs.md` covers the settings and says plainly that this is not an audit trail.
+- **A misspelled capability on a role was accepted and granted nothing, and nothing said so.**
+  `POST /api/roles` and `PUT /api/roles/{id}` stored `systemCapabilities` verbatim, and no endpoint
+  listed the names a role could hold, so after #443 an operator had no way to find the right spelling
+  of `manage_analytics_websites` short of reading the source.
+
+  `GET /api/capabilities` lists every name this instance understands: core's set plus every name a
+  registered module's endpoints ask for, read off the routing table rather than off a list a module
+  maintains, so a module you have not installed contributes nothing and a module needs no new contract
+  member to be listed. Each entry carries its source (`core` or the module's name), and `*` carries a
+  note saying it satisfies everything. Gated on `manage_roles`, the same as reading roles.
+
+  A role write now checks its names against that list. By default the role still saves, the unknown
+  names are logged and come back in the response as `unknownCapabilities`, so a console can show them
+  and a module installed later that declares the name starts working without a re-edit. Set
+  `Roles:RefuseUnknownCapabilities=true` and the write is refused with a 400 naming each unknown name
+  and pointing at `GET /api/capabilities`. `*` is known both ways. See `docs/access-control.md`.
+- **The schema a module wants is checked before it runs.** On boot, before the schema is applied
+  and before anything seeds, the host asks Marten for the migration it would apply, attributes every
+  object in it to a module by the assembly its document type ships in (or to core), and logs one
+  line per module saying which objects are new and which existing ones would change. When the store
+  is `AutoCreate.CreateOnly` and a module wants a change to an existing object, startup stops with a
+  message naming the module, the object, the policy that refuses it and what would allow it, instead
+  of Marten's error several layers down. A change to a core object is attributed to every enabled
+  module that overrides the deprecated `ConfigureMarten`, the only hook that can reach one.
+  `BarakoCMS:Modules:SchemaPreflight` switches it: unset is on for a `CreateOnly` store and off
+  otherwise, `false` keeps the old behaviour. `GET /api/modules` gains `schemaState` (`ready`,
+  `needs-migration`, `unknown`) and `schemaChanges` per module from the same check. Fixes #519.
+- **A page that walks the invoice approval scenario end to end against the API.** A lifecycle per
+  type, a permission on a transition, a workflow that fires on one and email from settings were each
+  on master and tested, and nothing in `docs/` mentioned any of them. `docs/approval-by-configuration.md`
+  declares the invoice type, gives one role create and another the approve transition, shows the
+  raiser refused on approve and on their own submit (and the `Lifecycle:AllowSelfTransition` switch),
+  attaches an email workflow to the approve transition and sets the sender from settings, one curl
+  per step with the status code each answers. `docs/access-control.md` links to it from the
+  permissions section. Until the next release the page needs
+  `BARAKO_TAG=master` in the quickstart's `.env`, since `:latest` predates lifecycles.
+- **The HTTP surface is a public contract now, and it has a version.** `CLAUDE.md` section 6 used
+  to exclude everything under `Features/*` on the grounds that nothing compiled against it. That
+  stopped being true once barakoBrew moved to its own repository and its own release cadence: it
+  reads the JSON over HTTP without ever compiling against the classes that produce it. Section 6
+  now says what counts as a breaking change to that JSON (a removed or renamed field, a changed
+  type, a changed status code, tightened validation) and what does not (an added optional field).
+  The `Endpoint`, `Request` and `Response` types stay `internal`; only the wire shape is promised.
+
+  `GET /api/meta` reports `ApiContractVersion` alongside the existing `Version`, and every response,
+  including a 401, carries it on the `X-Api-Contract-Version` header, so a console can tell whether
+  it fits before signing in and again mid-session after a rolling upgrade. The API does not declare
+  a minimum supported console version; the console is the side that breaks, so it carries the range
+  it works with. Closes #630, closes #637.
+- **Every webhook delivery is logged.** "Did it fire?" was answered only by the application log.
+  A `WebhookDelivery` row is written for every attempt, sent or refused: workflow, run, redacted
+  URL, event, request headers minus the signature, response status, the first 4 KB of the response
+  body, duration, the error when nothing answered, and the attempt number. `GET
+  /api/webhook-deliveries` lists them, filtered by workflow and by status class, gated on
+  `view_workflow_runs`. `Webhooks:DeliveryLogRetentionDays` (30) sweeps them hourly; zero or less
+  keeps them. Retry stays with the runner until the job queue (#106) takes it. A `Webhook` with a
+  `Secret` must use `https`, refused at create and at delivery; `Webhooks:AllowInsecureSignedUrls`
+  (false) lets a lab sign over `http`. `docs/webhooks.md` covers all of it.
+
 ### Changed
 
 - **Every module version moves to the core's number.** The modules had drifted onto their own 0.x
@@ -438,6 +1051,440 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   publishing in general. Because an environment with no protection rules approves everything in
   silence, and naming one that does not exist creates it that way, the version gate now refuses to
   start a release unless that environment has a required reviewer (#203).
+
+- **Delivery API: the routes under `/api/public` now have a written stability and deprecation
+  policy, and no version segment.** #107 asked for URL versioning after 3.20.0 changed behaviour
+  for every site in a minor release. The conclusion is that a second code path is the wrong cost for
+  a project this size and would not have prevented 3.20.0 anyway. `docs/delivery-api.md` now says
+  what counts as breaking, that a break lands only in a major, that it is announced under a Delivery
+  API lead in this changelog at least one minor ahead, and that the old behaviour keeps working until
+  then, a security fix being the one exception. D14 in `DECISIONS.md` records the alternative rejected and what would reopen it.
+- **The admin mark is the coffee bean.**
+  It was a mug glyph in a filled purple tile, while the sign-in page had been drawing the bean since
+  the Signal design landed, so the two front doors of the same product did not look like the same
+  product. `BrandMark` now renders the same component the sign-in page uses, at the footprint the
+  tile had.
+- **Comments that contradicted the code they sat above.** `RevokeAllUserTokensAsync` said a full
+  implementation would query and revoke the user's refresh tokens, on top of code that does exactly
+  that, and logged a warning on every call for a feature working as designed. Eight comments in all,
+  including a registration handler recommending BCrypt one line above the call to BCrypt, an
+  unresolved "or should we fail?" left in the content validator, and a Kubernetes monitor describing
+  namespace handling it does not do. No behaviour changes. Closes #128.
+- **NuGet lock files are committed and restores run in locked mode.**
+  Every project now writes `packages.lock.json` (`RestorePackagesWithLockFile` in
+  `Directory.Build.props`) and the files are committed. CI, the release workflow, both Dockerfiles
+  and the upgrade, restore and smoke scripts restore with locked mode on, so a version bump that
+  does not carry its lock file diff fails with NU1004 instead of being quietly regenerated. A
+  transitive bump is now a reviewable diff, and GitHub attributes the dependency graph to this
+  repository. The README gains a "What it runs on" section with the pinned versions, and names
+  Umami and Caddy as deployed alongside rather than referenced.
+- **Every OpenAPI operation is tagged from the namespace its endpoint lives in.** FastEndpoints tags
+  by path segment and every route here starts `/api/`, so all but three operations carried one tag,
+  `Api`. Generators group methods by tag, so a generated client was one class with every method on
+  it. The tag now comes from the endpoint's namespace (`barakoCMS.Features.Content.Create` becomes
+  `Content`, `BarakoCMS.Analytics.Umami.Features` becomes `Analytics.Umami`), so a new endpoint is
+  grouped correctly by existing where it belongs. No endpoint file changed. The three endpoints that
+  set their own tag keep it, and a test asserts no operation carries `Api` and pins the tag set, so a
+  namespace rename cannot silently rename a consumer's method group. Closes #181.
+- **The release refuses to run if a test project is not covered.** `release.yml` names one test project
+  by path. That is correct while there is one and a silent hole the moment somebody adds a second: the
+  new suite would sit in the repo, never run, and the packages would publish anyway. The workflow now
+  enumerates `*.Tests.csproj` and fails if what it finds is not what it runs. The suite-actually-ran
+  floor moves from 500 to 900.
+- **A content event says when the change happened, so a rebuild reproduces the timestamps exactly.**
+  Two clocks answered that question and they were not the same: the writer stamped `DateTime.UtcNow`
+  as it applied an event to the document, while Marten stamped the transaction time on commit. A
+  replay could only see the second, so a rebuilt document's `CreatedAt` and `UpdatedAt` differed from
+  the original by the write latency. For an audit trail that is not acceptable.
+
+  Every content event carries `OccurredAt` now, set once by the writer, and both the live write and
+  the rebuild read that same value. Domain time drives the projection; storage time still drives
+  ordering, which is what matters on a multi-instance deployment where application clocks skew and
+  the database clock does not.
+
+  Additive. The previous constructors are kept and obsolete, so code that has not moved across still
+  compiles and behaves as it did, stamping the clock at construction. An event written before 4.0
+  carries no such field and falls back to the commit time, exactly as a rebuild did for everything
+  until now, rather than rebuilding the document at year one.
+- **Workflow actions no longer run inside the projection.** `WorkflowProjection` runs in Marten's
+  async daemon, which processes a shard sequentially, so an action that posted to Facebook, emailed a
+  list and then tweeted held that shard for the duration of three third-party calls: one slow
+  provider stalled workflow processing for every tenant and a hanging one stopped it. The projection
+  now writes a `WorkflowRun` with an attempt per action and returns, and a background runner does the
+  I/O. It is the outbox pattern, and the event stream was already half of it.
+- **Every attempt is recorded, so a configured integration that stops working is visible.**
+  `GET /api/workflow-runs`, `GET /api/workflow-runs/{id}` and
+  `POST /api/workflow-runs/{id}/actions/{ordinal}/retry`. The stored outcome carries the status code,
+  a truncated reason and the timing, and the response shape has nowhere to put a response body or a
+  resolved parameter: a 401 from an OAuth provider frequently contains the credential that was sent.
+- **A timeout is `Unknown`, not `Failed`, and is never retried automatically.** The request may have
+  arrived and the response been lost, so retrying it is how a customer gets two invoices. An operator
+  can retry one by hand, having decided, and the audit entry records that they did.
+- **Retrying an action that already succeeded is refused.** The reason a run records each action
+  separately is so that retrying a failed third does not re-send the first two. A manual retry does
+  not reset the attempt count either, because an action that keeps failing should still stop.
+- **Two nodes cannot execute the same attempt.** Attempts are leased with an expiry rather than
+  locked: a lock serialises every node onto one attempt at a time, while a lease lets them work in
+  parallel and releases the work of a node that died without anything having to notice. Optimistic
+  concurrency on the run is what refuses the second claim.
+- **A partly successful run says so.** `PartiallyFailed` is a real status rather than a rounding of
+  `Failed`: three independent actions where the mail server was down is not the same as three that
+  all failed, and it is exactly what somebody deciding whether to retry needs to know. A later action
+  still runs when an earlier one fails, since the actions are usually independent.
+- **Retries are bounded and jittered.** Five attempts, exponential backoff capped at ten minutes,
+  then it stops. A run that retries forever is a self-inflicted denial of service against a third
+  party who answers by banning the account, which takes down every other integration pointed at them.
+- **A projection rebuild no longer re-fires everything.** A run is not queued twice for the same
+  workflow, content and event sequence, so replaying the stream records what already happened instead
+  of re-sending every email and webhook this instance has ever sent.
+- **A permanent failure is not retried.** `WorkflowActionResult.PermanentFailure` is new, for the
+  cases that are the same on the fifth attempt as the first: a malformed webhook URL, a missing
+  required parameter, an action type the host was not built with. They go straight to `Failed`
+  instead of spending the attempt budget, so the operator is told now rather than after ten minutes
+  of backoff, and a third party is not sent five copies of somebody's typo. `Failure` still means
+  retryable, so an existing action behaves exactly as it did.
+- **`GET /api/workflows/{id}/debug` now shows dry runs only.** Real runs record against
+  `WorkflowRun` and are served by `/api/workflow-runs`, which has per-action status, the reason and a
+  retry. A dry run is genuinely a different thing from a run, so the older record keeps that job
+  rather than being deleted.
+- **The event-sourced flag was recorded and nothing read it, which is a setting that does nothing.**
+  `IContentWriter` now branches on it, in one place rather than in the six slices that write content.
+  For an event-sourced type the document is produced by folding the stream, so a value that reached
+  it by any route other than an event does not survive the next write, and the whole read model can
+  be discarded and rebuilt from the streams through `POST /api/content-types/{name}/rebuild`. That
+  rebuild is refused for a type that is not event-sourced, whose document is the record and whose
+  stream is an audit trail. Concurrency differs by type, deliberately: an update to an event-sourced
+  entry has to say which version it was read at and gets 409 if it cannot or if the stream has moved,
+  while every other type keeps the last-write-wins behaviour it has today. `IContentWriter` gains
+  `CreateAsync` and `AppendAsync`, since reading a type's policy needs an await; `Create` and
+  `Append` still work, still take the document path, and are obsolete from 5.0.
+- **Changelog entries are one file per change.** Every pull request used to edit `CHANGELOG.md`
+  directly, so every branch conflicted on that one file after every merge, and resolving it by hand
+  put conflict markers on master once and duplicated three entries once, both invisible to every
+  other check because nothing reads Markdown. Add a file to `changelog.d/` instead; the release
+  folds them in. Two branches adding two files do not conflict.
+- **Verified #394 rather than assuming it.** `docker manifest inspect` on `barako-cms:3.21.0`,
+  `barako-cms-decaf:3.21.0` and `barako-admin:3.21.0` confirms all three are `linux/amd64` only.
+  `release.yml`'s platform gate already checks the pushed manifest (not the build config), runs for
+  both images this repo builds, blocks `tag-release` on failure, and CI already proves it fails on
+  `3.21.0` and passes on `latest` (#510). No workflow hole found. `docs/deploy-in-production.md` now
+  also names `barako-admin`, which has the same amd64-only versioned tag but is built and released
+  by BaryoDev/barakoBrew, outside this gate.
+- **The image platform gate had never been seen to fail.** The release workflow refused to publish
+  an image that did not serve both `linux/amd64` and `linux/arm64`, but the check had only ever
+  passed, and 3.21.0 (amd64 only) predates it. The assertion is now `scripts/check-image-platforms.sh`,
+  which `release.yml` calls, and CI runs it against `barako-cms:3.21.0` and passes only when the
+  script refuses that tag for being amd64 only, then against `latest` and passes only when it
+  accepts it. The versioned tags themselves stay amd64 only until the next release publishes
+  through the gate.
+- **The admin wears the Signal theme.** Bootswatch Yeti is gone: square corners, 300-weight Open Sans
+  headings and `#008cba` blue on white read as a template rather than a tool, which is what prompted
+  the redesign. Signal is indigo `#5A46D6` on a `#FAFAFC` page with white panels, 14px cards and 11px
+  controls, Sora for display and Manrope for body. The rule that does most of the work is
+  typographic: every machine-produced value is JetBrains Mono with `tabular-nums`, and human prose is
+  not. Counts, versions, slugs, timestamps, durations, ids and API paths line up in a column.
+- **Dark mode is pinned off rather than half-converted.** A Signal dark palette has not been drawn,
+  and an inversion is not a substitute, so `next-themes` is forced to light and the two toggles that
+  set a theme nobody drew were removed. The `.dark` block stays in `globals.css` as the starting
+  point. Restoring it means drawing it, which is the open question on #407.
+- **A third contrast remediation, of the same shape as the two already recorded there.** The
+  handoff's `faint` at `#6E7387` is 4.25:1 on the `#F2F3F9` sunken tint, and a table column head is
+  exactly where that lands. It ships four points darker in lightness at `#696E81`, same hue and
+  saturation: 4.57 on the tint, 4.86 on the page, 5.06 on white. Every other pair in the token set
+  was measured too, and the axe gate passes on all twelve of its cases.
+- **The admin sidebar is a rail.** 248px wide with 16px of padding, sitting on the page background
+  rather than in a panel of its own, so the content beside it is inset on three sides and reads as a
+  card. The four everyday destinations (Overview, Entries, Content types, Workflows) are one
+  unlabelled group at the top; Access, Modules and System follow it, smaller, under uppercase mono
+  headings. The active item is a white card lifted off the background with an accent icon, not a
+  tint. Role filtering is unchanged: a non-SuperAdmin still does not see Tenants.
+- **Counts and badges, from the API or not at all.** Entries, Content types and Workflows carry a
+  right-aligned mono count, and Errors carries a red pill of unresolved client errors. Each is one
+  request for a single row, read from the pagination envelope's total, cached for a minute, and
+  fetched only when role filtering left that destination on screen. A response with no total renders
+  nothing rather than a zero. Email events shows bounces in the last 24 hours, counted from
+  `/api/email-events`, which has no read state to make an unread count out of.
+- **Two numbers the design draws are deliberately missing.** "Modules, 5 installed" and the
+  "Add a module" row both need #185, which would give the admin a module list and somewhere for that
+  row to go. There is no `/api/meta/modules`, so the group heading is plain "Modules" and the row is
+  not there. A count with nothing behind it would be worse than no count.
+- **Search moved into the rail.** The command menu is unchanged; its trigger is now a 40px field at
+  the top of the rail with the `⌘K` hint, and it is no longer duplicated in the header.
+- **Collapsing the rail hides it rather than shrinking it to icons.** The design draws no collapsed
+  state and no icon rail, so the affordance stays (the header toggle, and Ctrl or Cmd + B) but what
+  it does is slide the rail out. On a phone it is still a sheet.
+- **The entries table wears Signal.** A live count pill reading the server's own `totalItems`, a
+  tinted column head in 10.5px uppercase, the entry title at 700, and type and timestamp in mono
+  with `tabular-nums` so machine-produced values line up in a column.
+- **A `Private` pill on entries whose content type is not publicly deliverable.** Joined from
+  `useSchemas()` on `isPubliclyDeliverable`, and only when the schema list positively answers
+  `false`. An unknown type and an absent flag both mean the server did not say, and a lock icon is a
+  claim about who can read an entry, so it is left off rather than guessed.
+- **The entry title is a link, so the row is reachable from the keyboard.** It was a `tr` with a
+  click handler and nothing focusable inside it.
+- **Search and the status segmented control from the design are not shipped, because the API cannot
+  answer them.** `GET /api/contents` takes page, pageSize, sortOrder and contentType. There is no
+  search parameter, no status parameter, and no version on `ContentListItem`. Filtering the twenty
+  rows a page happens to hold and labelling the result with the server's total is a control that
+  lies about what it searched, so the three controls are absent and #410 records what the endpoint
+  would need.
+- **Status badges no longer render white on white.** The tone classes built the background from an
+  alpha wash and took the text colour from `--warning-foreground`, which is white because it exists
+  for white-on-solid buttons, so a warning badge was white text on a 10% wash of white. They now use
+  the measured Signal tint pairs: 4.73:1 success, 5.35 warning, 6.27 danger, 7.89 accent, 7.37 muted.
+  Nothing caught it because the axe case for the content list stubs an empty page, so no badge had
+  ever rendered under the gate.
+- **The sign-in page wears Signal, and every button on it now does something.** A centred 340px
+  column on the page tint with the bean bleeding off the corner, a white 16px-radius card, and the
+  real lockout policy stated underneath: five failed attempts locks for 15 minutes, a new device
+  asks for an emailed code.
+- **"Email me a sign-in code" is wired.** `POST /api/auth/otp/request` has existed the whole time and
+  the admin never called it, so the emailed-code route back into an account was reachable only by
+  failing a device check first. It opens a field for the email address rather than reusing the
+  username box, because that endpoint and its verify half both look the account up by email. It
+  repeats the server's own wording, which is the same whether or not the address is registered, so
+  the screen cannot become an account-enumeration oracle the endpoint deliberately is not.
+- **Social sign-in renders from `GET /api/auth/providers` instead of a hardcoded button.**
+  BarakoCMS.ExternalAuth is optional and a provider with no client id is off even when it is
+  installed, so a fixed "Continue with GitHub" is a dead control on the default deployment. A 404,
+  a 500 and an unreachable API all mean the same thing here and all render nothing. Google, LinkedIn
+  and Facebook come along, since the module ships all four.
+- **The "Forgot?" link in the design is not shipped.** `Features/Auth/` holds Login, Logout, Mfa,
+  Otp, Refresh and Register, and a repo-wide search for `forgot-password`, `reset-password` and
+  `ForgotPassword` returns nothing. Shipping the link means shipping password reset, which has its
+  own threat model and belongs with #268 and #271. The emailed code is the route back in that exists.
+- **`Scheduled` is a real content status.**
+  A draft with a publish time on it was a draft, and every screen that wanted the distinction worked
+  it out again from `ScheduledPublishAt`. `ContentStatus` gains a fourth member, appended so no
+  existing row changes meaning, and arming a publish time appends a `ContentStatusChanged` next to
+  the `ContentScheduled` so the move is in the history and visible to workflows. A published entry
+  carrying a future unpublish time stays Published, because it is published. The migration moves
+  existing drafts that carry a publish time, and the rollback moves them back. Entries scheduled
+  before the upgrade have no status-change entry behind them, so replaying one gives Draft with the
+  date still armed, which the sweeper handles. See DECISIONS.md D12.
+
+- **The entries list stopped issuing two queries per row.**
+  `PermissionResolver` read the caller's roles once per permission check, and the entries list checks
+  every entry it loaded, so a tenant with fifty thousand of them issued a hundred thousand queries to
+  return a page of twenty. The decision cache above it does not help, because its key includes the
+  item id, so a first pass over a list misses on every row. The roles are read once per request now.
+  The content type, status and search filters are also pushed into the database query, which is safe
+  where a permission filter would not be: they can only remove rows, never grant one.
+- **The content-type endpoints ask for a capability instead of a role name.** `/api/content-types`
+  (and its `/api/schemas` alias) and the rebuild require `manage_content_types`; setting public
+  delivery and setting a field's sensitivity require `manage_public_delivery`. A role created at
+  runtime can be granted either.
+
+  Two names, though both gates were the same role pair and one name would have covered them with no
+  seeded role noticing. Designing a schema and deciding what an anonymous caller can read are
+  different jobs: sensitivity decides whether a value is scrubbed on the way out, public delivery
+  decides whether the route answers at all. A role that models content without also choosing what
+  leaves the building is an ordinary thing to want, and one name makes it unexpressible.
+
+  Admin holds both by default, because Admin reached all five routes already. Nothing is narrowed,
+  and `Auth:LegacyRoleFallback` still honours the old role names while it is on.
+- **The last two core routes on a role name ask for a capability, and the count is pinned at zero.**
+  `GET /api/modules` asks for `view_modules`, named for reading because it answers with two fields
+  per module and manages nothing. `POST /api/content-types/{name}/seo-fields` asks for
+  `manage_content_types`, since adding fields to a content type is exactly what that capability is,
+  rather than inventing a name for one endpoint. Admin holds both by default, matching what it
+  reached before.
+
+  Both were added while #443 was in progress, in #185 and #111, and nothing noticed. `RoleGateTests`
+  now asserts that no core route gates on a role name, counting a route that carries both a
+  capability and a role list, so the next one fails the suite instead of waiting for a reader.
+- **Every module endpoint asks for a capability instead of a role name.** Accounting, AI, Analytics,
+  Diagnostics, Email, Feature flags, Files, Portability and PWA: 23 routes, twelve capability names.
+  No endpoint in core or in a first-party module gates on a role name any more, which is what issue
+  #443 set out to do.
+
+  A module declares its own names, because core does not reference a module and a third-party one is
+  not in this repository at all. Each module grants them at seed time to the roles its old gate
+  listed, so turning `Auth:LegacyRoleFallback` off does not take a module away from the Admin role.
+  Additive and idempotent, and a role the host never seeded is skipped rather than invented.
+
+  Three gates that were one role list become two capabilities. Accounting separates reading the books
+  from writing to them, so an auditor can read a ledger without posting to it. Analytics separates
+  reading the numbers from creating a website in the upstream Umami account. Portability separates
+  export from import, because reading a whole tenant out and writing a whole tenant in are opposite
+  risks that one name could not tell apart.
+
+  A `Accountant` role reached the whole accounting module by its name alone. It now reaches what it
+  is granted, which after seeding is the same thing, and which an operator can now see and change.
+- **The last of the core endpoints ask for a capability instead of a role name.** Monitoring,
+  redirects, saved queries, request definitions, connectors, workflows, workflow runs, the content
+  rollback and the content erasure are all gated on a capability now, so a role created at runtime
+  can be granted any of them without a code change. Eleven names: `view_monitoring`,
+  `manage_redirects`, `manage_queries`, `manage_requests`, `view_connectors`, `manage_connectors`,
+  `manage_workflows`, `view_workflow_runs`, `retry_workflow_actions`, `rollback_content` and
+  `erase_content`.
+
+  Three areas are split rather than given one name each. Connectors split read from write, because a
+  connector is the only document in core holding a third party's credentials: the reads return the
+  configuration and the names of the secrets, the writes take secret values, and the probe spends
+  them against the configured base URL. Workflow runs split reading from retrying, because a retry
+  queues a real attempt and the mail is actually sent, while "did the notification go out" needs the
+  run list and nothing else. The rollback and the erasure are separate because their old gates
+  differed, `Roles("SuperAdmin", "Admin")` against `Roles("SuperAdmin")`, and one name would have had
+  to widen one of them.
+
+  Queries and requests are deliberately one name each, preview and dry run included. The dry run
+  composes a call without making it and holds no credential; the preview shows the author rows a
+  saved query would have sent to a third party anyway, bounded to fields whose sensitivity is
+  `Public`.
+
+  Admin's defaults gain everything migrated here except `erase_content`, which was
+  `Roles("SuperAdmin")` and destroys content and its history irrecoverably. Nothing is narrowed, and
+  `Auth:LegacyRoleFallback` still honours the old role names while it is on.
+
+  Two core routes stay on role names on purpose, `GET /api/modules` and
+  `POST /api/content-types/{name}/seo-fields`, and `RoleGateTests` pins that list so it cannot drift.
+- **The settings endpoints ask for a capability instead of a role name.** `GET`/`POST /api/settings`
+  and `GET /api/settings/email` now require `manage_settings`; `PUT /api/settings/email` and
+  `POST /api/settings/email/test` require `manage_email_settings`. A role created at runtime can be
+  granted either, which is the whole point: a name granted nothing before and still does not.
+
+  Two names rather than one, because the gates being replaced were not the same. Reading settings was
+  Admin and SuperAdmin; changing where the deployment's mail comes from was SuperAdmin alone, since
+  that redirects every password reset and every verification token in the deployment. One
+  `manage_settings` covering both would have handed that to every Admin, which is a widening nobody
+  asked for. The seeded Admin role gains `manage_settings` and not the other.
+
+  `Auth:LegacyRoleFallback` still honours the old role names while it is on, so nothing changes for
+  an existing deployment until it is turned off.
+- **The entries list stopped loading a whole collection to return a page.**
+  Permission conditions compile to a SQL predicate where they can, so `GET /api/contents` for a named
+  content type pages and counts in the database. A tenant with fifty thousand entries used to
+  deserialise all of them to return twenty. Nothing moved into the database except the filtering: the
+  predicate is built from the same rules the resolver reads, and the per-item check still runs over
+  the page that comes back, which is what would notice the two disagreeing.
+
+  Where a rule cannot be compiled faithfully the compiler declines and the endpoint behaves exactly
+  as it did before. It declines `$status` (the evaluator compares the enum name while Marten stores a
+  number), any expected value that is not a string or list of strings, and unknown operators.
+  `IPermissionResolver.ReadPredicateAsync` has a default returning "no predicate", so a module with
+  its own resolver compiles and behaves unchanged.
+- **The README no longer implies Postgres enforces tenant isolation.**
+  It said a database per tenant buys "isolation that row-level scoping plus a token check already
+  gives". That scoping is a `tenant_id` filter the application adds, not row-level security, and
+  `docs/multi-tenancy.md` says in as many words that row-level security is not implemented and a
+  slipped filter has nothing underneath it. The two now agree, in the file people read first: what is
+  enforced, what is not, and that database-per-tenant remains the escape hatch for anyone who needs
+  isolation a bug cannot cross.
+- **The client-layer decision is in `DECISIONS.md`, where anybody can read it.** Six issues cited a
+  design document that `.gitignore` excludes, so it existed on one machine and in no commit. Two of
+  those issues carry `help wanted`, which meant pointing a contributor at a file they cannot open.
+  D13 records what was decided (a hand-written base plus generated slices, one per tag, and a
+  configured invocation of an existing generator rather than one of our own), what it rules out, and
+  what is still open. The working notes stay ignored: they are notes.
+- **A role name no longer opens a gate on its own.** `Auth:LegacyRoleFallback` was `true` through
+  3.x, so the capability gates also honoured the role names they replaced and an upgrade kept working
+  while roles had no capabilities yet. From 4.0 it defaults to `false`.
+
+  Nothing to do on a deployment that runs the seeder: every core and module endpoint gates on a
+  capability now, and the seeder adds the capabilities a system role is missing rather than only
+  filling an empty list, so those roles reach what they always did. A deployment that curates its
+  roles by hand, or is mid-upgrade, sets `Auth__LegacyRoleFallback=true` and nothing changes for it.
+  The flag is still there and still supported; only the default moved.
+
+  This is a behaviour change on upgrade, and it is the one 4.0 makes deliberately: a role somebody
+  creates can be granted administrative access, and a role called `Editor` gains nothing from being
+  called that.
+- **barakoCMS is the API only.** The console under `admin/` now lives at
+  [BaryoDev/barakoBrew](https://github.com/BaryoDev/barakoBrew) and still publishes
+  `ghcr.io/baryodev/barako-admin`; the marketing site under `site/` has its own repository. Gone
+  with them: the Admin UI, Site and "Admin against the real API" CI jobs, the admin image in the
+  release and its SBOM, the admin-only playground deploy, the admin and site Dependabot entries,
+  the admin service in every compose file and the quickstart, the `DOMAIN_ADMIN` Caddy route,
+  `scripts/smoke-check.sh` and `assets/admin`. The API's own surface is Swagger, and the quickstart
+  now passes `SWAGGER_ENABLED` through. Nothing in the packages or the API changed (#505).
+- **Events stream: a per-client connection cap under the instance cap.** `Delivery:Events:MaxConnections`
+  counted every stream on the instance and nothing keyed on the caller, so one anonymous client could
+  hold every slot and every other tenant on the instance got 503 from `GET /api/public/events`.
+  `Delivery:Events:MaxConnectionsPerClient` (5) caps open streams per client address, resolved the
+  way the rate limiter resolves it (the socket peer, or the forwarded client when `ForwardedHeaders`
+  names the proxy). The next stream from that address gets 503 with a body naming the per-client
+  limit while another address still connects, and the slot comes back when the stream closes. Zero
+  turns the per-client cap off. Closes #520.
+- **Module READMEs teach the package reference as the install.** Each `BarakoCMS.*` README and
+  `docs/delivering-a-client-project.md` and `docs/configuring-email.md` now say that `dotnet add package` plus a restart installs a
+  module and `BarakoCMS:Modules:Enabled` decides whether it runs, with `modules.Add(...)` shown once
+  as the override. Every module gets a patch bump so the README on nuget.org changes too. #521
+- **Inbound idempotency is documented.** `IdempotencyFilter` has honoured an `Idempotency-Key`
+  header on `POST`, `PUT` and `PATCH` since before this entry, but the only header named
+  `Idempotency-Key` anywhere in `docs/` was the outbound one on webhook deliveries, a different
+  thing entirely. Nobody sending the header meant the protection sat unused. `docs/idempotency.md`
+  now covers the header name, the verbs it applies to, the exact 409 a replay gets, how long a
+  completed key is remembered (indefinitely; a failed one is released immediately), and what happens
+  when two requests race on the same key. Linked from the README's documentation list.
+
+  `IdempotencyTests` now also posts to `/api/contents` twice with the same key and checks that only
+  one entry landed, not only that the second call's status code was 409.
+- **The free-module promise now names the publisher rather than the repository.** It read "every
+  module in this repository is free, forever", which scoped a promise about what BaryoDev publishes
+  to one git repository, and modules already live outside it. It now covers every module BaryoDev
+  publishes under the `barakocms-module` tag, wherever it lives. The roadmap also says plainly that
+  other vendors may charge for their own modules, that core is gaining a licensing primitive so they
+  can, and that a paid third-party module in the module list is the ecosystem working rather than
+  the promise bending. `README.md` said there was no support contract while `ROADMAP.md` said
+  BaryoDev sells support; the software carries no SLA, and hosting and support are a separate
+  commercial relationship.
+- **New icons for the fourteen module packages.** Each keeps the ground colour it already had, with a
+  white glyph and the bean device in the lower right, so a package stays recognisable in a NuGet
+  search result while the set reads as a family. `BarakoCMS.Templates` and `BarakoCMS.Testing` are
+  tooling rather than feature modules and keep the icons they had. `Directory.Build.props` already
+  packs each project's `assets/icon.png` as its `PackageIcon`, so no packaging wiring changed.
+- **`POST /api/import/analyze` asks for a capability.** It had no gate at all, so any authenticated
+  caller could hand the server a spreadsheet to parse, and parsing is the expensive half. It now
+  requires `analyze_spreadsheets`, which the module grants to Admin at seed time.
+
+  One name covering the preview only. The bulk create next door is authorized on the target content
+  type's own create permission, which is the right question for a write because it depends on what is
+  being written. The preview has no target yet, since the mapping that names one is built from the
+  preview it is about to return, so it asks the narrower question of whether you may use the import
+  tool at all.
+- **CI runs on the merge queue.** `ci.yml` gains a `merge_group` trigger, without path filters,
+  because the queue is the last gate before master and a required check only counts when it reports
+  on that event. Without it the queue waits forever for checks that never start.
+- **Every published package is now versioned 4.0.0.** Module versions had drifted apart, from
+  `BarakoCMS.DeviceTrust` at 4.0.1 to `BarakoCMS.Files` at 4.4.2, so a reader had no way to tell
+  which module versions belong together. They are now set to a single number and move together from
+  here. `BarakoCMS.Suite` and `BarakoCMS.Tests` are not packable and have no version of their own.
+- **Three decisions recorded before the 4.0 tag, in `DECISIONS.md`.** D16 extends expected-version
+  concurrency to document types, because moving from last-write-wins to a 409 is a breaking change
+  and 4.0 is the last moment it costs nothing; `Content:Concurrency:Require` keeps the 3.x upgrade
+  path working and flips in 5.0. D17 settles that a money value stays a plain number, with currency,
+  scale and rounding declared on the field definition, so the stored shape and the delivery contract
+  do not change. D18 states what module authors are promised: a replacement for `ConfigureMarten`
+  before 5.0 removes it, a default implementation and a deprecation window for every added member,
+  and `IWorkflowAction` documented as the extension point it already is.
+- **`scripts/preflight.sh`, `scripts/sync-master.sh` and `scripts/needs-review.sh` replace the
+  manual PR checklist.** Preflight does a locked-mode restore first, before any build, then builds
+  with `--no-restore`, runs the named test classes and fails if a class matches zero tests, then
+  checks changelog fragments, module versions, and dashes/banned words and workflow YAML for
+  duplicate keys, both scans covering untracked files too, failing on the first problem with a
+  one-line reason. Sync-master merges `origin/master`, regenerates lock files when a `.csproj` or
+  `Directory.Packages.props` changed in the merge, and exits 1 naming either the conflicting files
+  or a dirty working tree, whichever blocked it. Needs-review is advisory only: it always exits 0
+  and prints one line per rule the diff against `origin/master` fires, for a reviewer to read.
+- **The roadmap describes numbered releases instead of a weekly train.** It carried six dated
+  sections from 3.22.0 to 3.27.0, two of which shipped and four of which were superseded by the 4.0
+  work. The CLI, starter templates, the MCP server and the typed client were not cancelled, they
+  moved into 4.1.0 and 5.0.0 where they sit against the rest of the work rather than against a date
+  that would have passed a few days after the tag. The file also now states the pairing with the
+  console: barakoBrew 1.0.0 goes with barakoCMS 4.0.0, 1.1.0 with 4.1.0, 2.0.0 with 5.0.0.
+- **The 3.x support window is anchored to the 4.0 tag, not to a date.** SECURITY.md said "30 August
+  2027, 12 months after 4.0", worked out from a 4.0 that was expected in August 2026 and has not
+  shipped. The same document says the policy is "a rule rather than a date, so it does not go stale
+  in this table", and that row was the one place it did. It now reads "4.0 ships, plus 12 months",
+  and says plainly that until 4.0 is tagged, 3.x is the current line and is actively supported.
+- **Image assets ship without embedded provenance metadata.** Design tools stamp C2PA content
+  credentials into what they export, naming the tool that produced the file, and
+  `Directory.Build.props` packs `assets/icon.png` into every module package, so an unstripped export
+  would have carried that stamp to nuget.org. `scripts/strip-asset-provenance.py` removes it by
+  filtering the optional PNG chunks and the SVG `<metadata>` element, which leaves the image data
+  byte for byte identical rather than re-encoding it. `scripts/preflight.sh` now fails if any asset
+  still carries a stamp.
 
 ### Removed
 
@@ -833,6 +1880,253 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the same projection the public read path uses, and a document that is itself Sensitive or Hidden
   contributes no data at all. A content type with no definition sends no data rather than all of it.
 
+- **The redirects index in the 3.x upgrade script is named the way Marten names it.** It was
+  `mt_doc_url_redirects_uidx_frompath`; Marten derives `mt_doc_url_redirects_uidx_from_path` from the
+  property name. An upgraded database ended up with a unique index that behaved identically and had
+  the wrong name, so every start-up schema assertion wanted to drop and recreate it.
+- **An unmapped content event no longer puts its class name in the history response.** The mapper
+  fell back to `@event.GetType().Name` for an event it did not recognise, so adding an event and
+  forgetting the switch would have published its CLR type name, which is the leak #229 forbids. No
+  reflection guard can catch it, because by the time it reaches the wire it is a string. It reports
+  `Unknown` now, the entry still appears so the count keeps matching the stream, and a behavioural
+  test pins it.
+- **`DATABASE_URL` keeps its own `sslmode`, and defaults to Require rather than Disable.** The URL was
+  parsed and then `SSL Mode=Disable` was appended regardless, so a managed Postgres that requires TLS
+  refused every connection, and one that merely allows it got an unencrypted link nobody asked for. An
+  `sslmode` the URL names is honoured, an unrecognised one is refused by name rather than ignored, and
+  credentials and the database name are percent-decoded.
+- **The connection string is built rather than interpolated.** Decoding the credentials makes a case
+  reachable that was not before: a semicolon is legal in a Postgres password, percent-encoding it is
+  how a URL expresses one, and decoded into an interpolated string it ends the `Password` key, so
+  everything after it is read as another setting. That surfaces as an unknown keyword rather than as a
+  bad password, which is a long afternoon. `NpgsqlConnectionStringBuilder` quotes it.
+- **A URL with no port gets 5432** rather than `Port=-1`, which is what `Uri.Port` returns when none
+  was given.
+
+The Development decision is taken as an argument rather than read from
+`ASPNETCORE_ENVIRONMENT` at the point of use, so the unit tests assert both halves without
+depending on which test collection started first.
+- **The workflow tests no longer fight the hosted runner.** The runner polls every five seconds and
+  claims any Pending attempt that is due, plus any Running one whose lease has expired, which
+  includes one that a test seeded and is about to assert on.
+  Seeded runs are now parked out of its reach (a future next-attempt time, or a live lease held by
+  another node) rather than the runner being taken out of the test host, which is what broke every
+  workflow-firing test: those poll for the hosted runner to do the work. A test drives one drain
+  directly and asserts the seeded runs are untouched, so the parking fails loudly if it stops
+  working instead of showing up as a flake in a full suite.
+
+  The other side of keeping the runner in the host: a test that drives it can no longer treat "this
+  pass claimed nothing" as "the work is finished", because the hosted runner may have claimed the
+  attempt first and still be executing it. `WorkflowTenantIsolationTests` waits for the outcome with
+  a deadline instead, which is the difference between a test that is slow when something is wrong and
+  one that fails at 201ms with the work still in flight.
+- **The background scheduler no longer runs inside the test host.** `ScheduledContentService` waits
+  thirty seconds after startup and then sweeps every minute, so a class run in isolation finished
+  before it ever fired and a six minute suite got six sweeps, any of which could publish a test's
+  draft between its arrange and its act. That is why the sweep-versus-editor concurrency test failed
+  only in CI and passed every time locally. Every scheduling test drives `SweepTenantAsync` directly,
+  so removing the timer takes nothing away, and the fixture throws if the registration ever stops
+  matching rather than quietly restoring it. The delivery test that had been weakened to work around
+  the same sweeper asserts on the scheduled item again.
+- **The admin no longer offers Editor a screen the API refuses.** `GET /api/content-types` stopped
+  granting `Editor` when #373 landed, but the sidebar kept listing it, so the link rendered and the
+  API answered 403. The test that should have caught it asserted the stale behaviour in its own name,
+  "gives Editor the content types screen the API lets them reach", which is how it survived the
+  server-side fix. It now asserts the general rule instead: a role the server has never heard of
+  reaches no gated destination.
+- **`POST /api/content-types` no longer excludes SuperAdmin.** It gated on `Roles("Admin")` alone,
+  the only gate in the codebase that left SuperAdmin out, so a principal holding only that role could
+  read content types, toggle public delivery and change a field's sensitivity but could not create the
+  type those settings belong to. A structural test now asserts that any role gate naming `Admin` also
+  names `SuperAdmin`, because nothing had ever presented a SuperAdmin-only principal to a gate: the
+  seeded admin holds both roles, so the omission was invisible to the suite.
+- **A permission decision no longer outlives the item state it was based on.** A per-item decision
+  was cached for five minutes keyed on the item's id, and nothing on the content write path
+  invalidated it. Decisions can depend on the item's contents (a rule can test status, last modified
+  by, created by or any data field), and status and last modified by both change on an ordinary
+  write. A rule granting update only while an entry is a draft kept granting for up to five minutes
+  after it was published.
+
+  It failed open, which is the direction that matters: a stale denial is an inconvenience, a stale
+  grant is an authorisation check that has stopped checking.
+
+  Item decisions are now answered fresh, every time. Keying on the item's version would also close
+  it, but the version is not on the document (the document is the fold, the version belongs to the
+  stream), so reading it costs a query per check. There is little to give up: the key included the
+  item id, so a list was a cache miss on every row already, and what makes a list cheap is the role
+  memoisation on the resolver, which is untouched. The type-level decision, which has no item state
+  in it, is still cached.
+- **`GET /api/audit` compares `from` and `to` in UTC.** `CreatedAt` is stored in UTC, but the two
+  query values were compared straight against it with whatever `Kind` the model binder gave them.
+  A caller filtering in a non-UTC zone had their window shifted by the offset, silently missing
+  rows at both edges. Fixed the same way as the Forms module's submissions list (`AsUtc`): a value
+  with an offset is converted from local to UTC, a value already tagged UTC passes through, and a
+  bare value with no zone is taken as UTC, which is what `ListRequest.From` and `ListRequest.To`
+  already documented.
+- **The redirects resolve endpoint's output cache now actually caches.** It called
+  `Options(x => x.CacheOutput(...))`, but nothing registered `AddOutputCache`/`UseOutputCache`, so
+  the policy was metadata nobody read and every resolve hit Postgres. Output caching is registered
+  now, placed after authentication and authorization so it never serves a response to a caller who
+  should not see it, and the cache key is varied by tenant so one tenant's cached answer cannot be
+  served to another.
+- **Public delivery responses now carry `Vary: X-Tenant`.** `TenantResolutionMiddleware` resolves
+  the tenant from the `X-Tenant` header before it looks at Host, and the response is built entirely
+  from that tenant's content, but `Cache-Control: public, max-age=60` went out with no `Vary`. A
+  shared cache keyed on the URL alone could serve one tenant's response to another, on any
+  deployment where more than one tenant is reachable through the same hostname and path (header- or
+  path-routed multi-tenancy; hostname-per-tenant was already safe, since Host is part of the URL).
+  `PublicDelivery.SetCache` sets `Vary` now, which covers the list, search, slug, feed and sitemap
+  routes in one place. `Vary` is necessary but not sufficient: `docs/deploy-in-production.md` now
+  says which deployment shapes are safe to put a shared cache or CDN in front of, and what the CDN
+  itself has to be configured to do on the ones that are not.
+- **Content now catches a concurrent write instead of silently losing it.** Two editors saving the
+  same entry used to leave one edit gone with no error, and the history recorded the surviving write
+  as though the other never happened. `Content` gets Marten's own optimistic concurrency, `GET
+  /api/contents/{id}` returns the entry's version as an `ETag`, and `PUT` accepts it back as
+  `If-Match`, answering 412 when it does not match. Two writers racing with no version sent at all
+  now also get one success and one 412, rather than a second write nobody could see coming.
+  `Content:Concurrency:Require` (default `false` in 4.x) decides whether a write that sends no
+  version is refused instead; a 3.x client upgrading in place sends none, so the default keeps that
+  path working. Same shape as `Lifecycle:EnforceTransitions`. Event-sourced content types are
+  unaffected: they already refuse a stale or missing version on the stream (D3).
+- **`SmsAction` and `EmailAction` no longer report success when nothing was sent.** Both actions
+  implemented only the obsolete `ExecuteAsync`, so the default `RunAsync` always returned
+  `WorkflowActionResult.Success()` after calling it, whatever the underlying provider did. On a
+  stock install the default `ISmsService` and `IEmailService` are mock providers that log and
+  return without sending anything or throwing, so a workflow with an SMS or Email action recorded
+  success for a message nobody received.
+
+  Both actions now implement `RunAsync` directly. A send against the mock provider returns
+  `PermanentFailure`, since retrying will not change anything until a real provider is registered;
+  a provider throwing is caught and returned as a retryable `Failure` naming the exception type,
+  never the exception message, which routinely names the recipient. The error text stored on the
+  run record never carries a phone number, email address or provider credential.
+- **A `Request` action now carries the workflow run's idempotency key through to the connector.**
+  `WorkflowRunner` has always put a stable key on every action's parameters, and `WebhookAction` has
+  always sent it as `Idempotency-Key`, but `RequestAction` dropped it: neither it nor
+  `RequestComposer` mentioned idempotency at all, so a retried call to a connector, the path an
+  operator actually configures to reach a payment or accounting provider, carried no protection
+  against being applied twice.
+
+  The header name is a connector setting (`Settings["IdempotencyHeader"]`), not a request setting,
+  because the spelling a provider wants is a property of the provider, and every request definition
+  against the same connector should agree on it without repeating the choice. Unset defaults to
+  `Idempotency-Key`. The literal value `off` switches it off, for a provider that rejects an unknown
+  header; an empty setting falls back to the default rather than silently disabling the protection,
+  so turning it off has to be spelled out.
+
+  The key is sent unchanged, the same value `WebhookAction` sends, and goes through the same
+  control-character check every templated header already passes. An action invoked outside the
+  runner (a dry run, a test) has no key to send, and composes without the header rather than being
+  refused.
+- **`UpdateFieldAction` no longer applies its change twice when an attempt is reclaimed.** The
+  action wrote content in its own transaction, separate from the write that records the attempt's
+  outcome. When a node ran past its lease, another node reclaimed the attempt and the first node's
+  outcome was discarded on purpose (see the comment in `WorkflowRunner.TryRunAsync`), trusting the
+  idempotency key to absorb the duplicate call downstream. An in-process field update has no
+  downstream: the content change had already committed, the outcome was dropped, and the second
+  node applied the change again with no record that it had run twice.
+
+  The write now reloads the target immediately before deciding anything, and checks a marker on the
+  content itself, keyed by the run's `IdempotencyKey` and the attempt number the runner injects.
+  Two executions of the same attempt (a reclaim) find the mark already there and write nothing a
+  second time; a genuine retry after a real failure carries the next attempt number, finds no
+  matching mark, and still applies. The write goes through `IContentWriter.AppendOptimisticAsync`
+  rather than a plain `Store`, so it does not depend on last-write-wins either.
+- **`ConditionalAction` no longer reports success when one of its child actions fails.** Each child
+  ran inline and its result was logged as a warning and dropped, so a conditional whose branch
+  failed to send anything still reported `Success()`. The run record said the workflow did
+  something it did not do.
+
+  A failing child now feeds into the conditional's own result. If nothing in the branch has
+  succeeded yet, the failure is retryable, since retrying only re-runs children that never had an
+  effect. The moment one child has succeeded alongside a failing one, the conditional reports a
+  non-retryable failure instead: children still run with no attempt record and no idempotency key
+  of their own (that reshape is 4.1), so a retry re-runs every child from the top, and offering one
+  here would resend whatever the earlier child already sent. The aggregated error names which
+  child action types failed, never the child's own error text, which can carry what it was sending.
+- **A request definition can now use a query.** #328 closed a feature that refused itself: every
+  `{{query.*}}` hole in a request's path, headers or body was refused with "queries are not
+  implemented yet (#328)", whatever `RequestDefinition.QuerySlug` named, because nothing on the
+  request path called `IQueryRunner`. A query could be defined, previewed and run through the API,
+  and a request definition still could not use one.
+
+  `{{query.rows}}` now composes to a JSON array of the named query's rows, one object per row,
+  holding exactly the fields the query selects, bounded by its own `Limit` (itself capped at
+  `QueryDefinition.MaxLimit`, 1000). It is inserted unescaped in a JSON body, since it is already
+  valid JSON: quoting it would hand the recipient a string full of JSON instead of an array.
+  `{{query.SomeField}}` composes to that field from the first row.
+
+  The refusal is unchanged for a hole naming a query that does not exist or a field the query does
+  not select: posting the literal text `{{query.rows}}` to a third party is worse than not running,
+  and that has not stopped being true. A single field naming a query that matched no rows is
+  refused too, rather than composing empty: "the query matched nothing" and "the field is
+  genuinely empty" must not produce the identical value with nothing in the sent request to tell
+  them apart afterwards. `{{query.rows}}` does not need this; an empty array is still a real
+  answer to how many rows matched.
+
+  A query is resolved through the same tenant-scoped session as everything else a request composes
+  against, so a request never sees another tenant's query even when both hold the identical slug.
+- **`migrations/4.0.0/rollback-to-3.x.sql` parses.** The `DROP FUNCTION` for
+  `mt_quick_append_events` carried `DEFAULT NULL::integer` over from the function's own definition,
+  which `DROP FUNCTION` does not accept in its argument list. Applied with `--single-transaction`
+  as the docs say, this meant nothing before the failing line landed either: the documented rollback
+  did nothing at all. `scripts/upgrade-check.sh` now applies the rollback after the forward migration
+  and boots 3.21.0 again against the result, so a future break here fails CI instead of an operator
+  mid-incident.
+- **CITATIONS.cff said Apache-2.0 and carried a stale version.** The project has been MPL-2.0 since 3.1.1. `license` now reads MPL-2.0, and the stale `version`/`date-released` fields are removed rather than left to go wrong again on every release.
+- **Two pull request scratch files, body517.md and body518.md, were committed in the repository root.** Both are deleted. `scripts/preflight.sh` now refuses a diff that adds a top-level Markdown file not on a known list, so the next one fails before it merges.
+- **Two places pointed at the console as though this repository still owned it.** The issue
+  template's console redirect went to `barakoBrew/issues/new/choose`, which offers no chooser
+  because that repository has no templates yet (barakoBrew#29); it now points at the plain form
+  and says so. The README and `docs/deploy-in-production.md` said `barako-admin` is "still
+  published" or "built and released by" barakoBrew's own workflow; nothing has published it since
+  the split (barakoBrew#23), so the wording now says where the image comes from without claiming a
+  pipeline that does not exist, and names the amd64-only `3.21.0` tag as the last one built, with no
+  `4.0` tag coming from here. `quickstart/.env.example` and `quickstart/docker-compose.yml` now say
+  why `ALLOWED_ORIGINS` defaults to port 3000 when this repository's quickstart starts no console on
+  it (#632, #633).
+- **Logging out threw, and revocations were never cached.** `AddMemoryCache` sets a `SizeLimit`, and
+  an entry stored without a `Size` raises `InvalidOperationException`. `TokenRevocationService` set
+  both of its cache entries without one, so `POST /api/auth/logout` failed outright and every
+  revocation check fell through to a database query on every authenticated request. There were no
+  logout tests, which is why it survived. Found while building the session epoch, whose own cache
+  write threw the same way and was invisible because the middleware catches and serves.
+- **A capability added after a deployment upgraded now reaches its seeded roles.** The backfill
+  filled only an empty capability list, so a deployment that upgraded once had an Admin whose list
+  was not empty, and every area migrated afterwards never arrived. Nothing broke while
+  `Auth:LegacyRoleFallback` was on, since the gate still honours the role names it replaced. Turning
+  the fallback off, which is the point of the migration, is where that Admin would have silently lost
+  every area migrated after its own upgrade.
+
+  The defaults are unioned in on each seed instead. The cost, stated rather than hidden: a default an
+  operator has deliberately removed from a seeded system role comes back on the next restart, because
+  nothing records that the removal was deliberate. Removing one for good means not running the
+  seeder. A role you created is untouched either way, since the defaults are keyed on the names the
+  seeder creates.
+- **The health canary pins the shape of the `/health` body instead of asserting the app is healthy.**
+  It exists so a dashboard or a kubelet parsing that body sees what it always saw, and its own
+  comment already said the assertion was about the shape rather than about when seeding ends. It
+  asserted the status word was `Healthy` anyway, which made it depend on the startup seed finishing
+  inside a fixed window on a shared CI runner. It now accepts any of the three status words and
+  still fails on a new field, a renamed property or added whitespace, which is what it is for. No
+  production code changed.
+- **`POST /api/import/analyze` refuses a spreadsheet it will not parse, before decompressing it.**
+  The parser reads a whole sheet into memory before the 500-row preview cap can apply, so the cost of
+  a request followed the expanded size rather than the uploaded size. An xlsx is a zip, and repetitive
+  sheet XML compresses roughly fifteen to one, so the 10 MB request body limit did not bound the work.
+
+  Measured: a 3.2 MB upload, well inside the body limit, expanded to 46 MB of sheet XML and took 98
+  seconds and 968 MB to answer, returning a preview of 500 rows. The same file is now refused in 0.15
+  seconds and 20 MB. The global rate limit of 100 requests a minute per address does not bound
+  something that costs what the first figure costs.
+
+  The limit is on the expanded size the archive declares, read from the zip's central directory
+  without decompressing anything. Default 8 MB, configurable as `Import:MaxExpandedBytes`, and a
+  refusal names the setting so an operator with a genuinely large file knows what to change. A CSV is
+  not an archive and is unaffected: its expanded size is its uploaded size, which the body limit
+  already bounds.
+
 ### Security
 
 - **A pre-release hardening sweep closed the low-severity findings from the bug hunt.** The
@@ -845,6 +2139,253 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   withholding anything the caller had not already proved. A test now pins that the address never
   appears on the failure path, which is the boundary that reasoning rests on. The second,
   `BARAKO_BACKUP_DIR`, needed no work because `BackupService` was deleted earlier in this release.
+
+- **Uploads can be scanned for malware before they are stored.**
+  Set `Files:Scanner:Address` to a clamd daemon and every upload is scanned before the bytes reach
+  storage. Off by default, which is what every deployment does today. An infected file is refused
+  with 422 and the signature name; a scanner that cannot be reached refuses the upload with 503,
+  because an outage is not evidence that a file is safe, and that choice is documented rather than
+  accidental. Neither outcome stores the file: what is kept is an audit entry naming the file, its
+  size, who sent it and what the scanner found, in the hash-chained log that already has a screen.
+  `docs/scanning-uploads.md` covers the container, the memory it needs, and how to check it works
+  with the EICAR test file.
+- **48 core endpoints declared a role gate and 41 of them had no test that the gate refuses anyone.**
+  Only three had the full treatment, so deleting an endpoint or widening its roles was invisible to
+  the suite. Every endpoint that calls `Roles(...)` in `Configure()` now gets the three cases
+  `WorkflowMetadataAuthTests` established: anonymous refused with 401, a signed-in caller holding the
+  wrong role refused with 403, and an admin still served. The route inventory those tests run over is
+  compared against the gates the running host actually declares, so adding a gated endpoint without
+  refusal coverage, or dropping a gate from one that had it, fails the suite by name instead of
+  quietly reducing coverage. Closes #231.
+- **Registration accepted any email address and created a live account against it.** Nothing proved
+  the registrant could read the mailbox, so anyone could take an address they did not own. That also
+  reopened external sign-in from the other side: `SocialSignIn` matches a provider's verified email
+  to a local account by address alone, so a squatted address handed its real owner's Google sign-in
+  to whoever registered it first. `POST /api/auth/register` now records a pending registration and
+  emails a single-use token (24 hours) instead of creating a user, and the account appears at the
+  new `POST /api/auth/register/verify` when the token comes back. No user document ever holds an
+  address nobody proved. Registering an address that already exists answers exactly as a new one
+  does, byte for byte, and tells the mailbox owner rather than the caller. Set
+  `Auth:RequireEmailVerification` to false to keep the old behaviour; a deployment that does must
+  also set `Auth:AcknowledgeUnverifiedRegistration`, or it refuses to start.
+- **Administrative endpoints gate on a capability the caller's roles carry, not on a role name in
+  C#.** Roles are runtime data and the gates were literals, so the two could never be reconciled: a
+  role created through `POST /api/roles` could not be granted access to anything without a release,
+  and a role someone named `Editor` picked up whatever `Editor` was written into. `Role.SystemCapabilities`
+  existed for exactly this and nothing read it, which is a security control that looks present and
+  does nothing. `Definition.RequireCapability(...)` replaces `Roles(...)` on `Features/Roles/*`,
+  `Features/Tenants/*` and `Features/Tenants/Members/*`, with `manage_roles`, `manage_tenants` and
+  `manage_tenant_members` as the first three names in the vocabulary. Everything else still gates on
+  `Roles(...)` and keeps working, including third-party modules, which compile unchanged.
+- **Revoking a capability takes effect on the next request.** Capabilities are resolved per request
+  from the caller's roles rather than stamped into the token, so there is no window where a token
+  issued before the change still carries the old answer. Putting them in the token would have meant
+  up to 15 minutes of stale access with nothing to say so, which is the case that matters: someone
+  removing an administrator's access during an incident. `CachedPermissionResolver` absorbs the
+  lookup and already evicts on the role and membership changes that can alter it.
+- **Nothing to do on upgrade.** The seeder backfills the four system roles with the capabilities
+  matching what they could already reach, and leaves alone any list an operator has curated. Access
+  does not depend on that having run: the gate also honours the role names it replaced, so a host
+  that never calls the seeder is unaffected. Set `Auth:LegacyRoleFallback=false` (env
+  `Auth__LegacyRoleFallback`) to turn the names off once your roles carry capabilities. Admin was
+  never in the `Roles("SuperAdmin")` gate on roles and tenants and does not acquire it here.
+- **`RoleGateTests` reads capability gates too.** Its structural half compares the live routing table
+  against its inventory, and it only knew about `Roles(...)`, so migrating an endpoint would have
+  dropped it out of scope and quietly taken its 401/403/served coverage with it. A second structural
+  test refuses a capability that the vocabulary does not declare, so a typo cannot ship as an
+  endpoint nobody can reach. Closes #272.
+- **Approving is a different right from editing.** A status change checked the Update permission, so
+  whoever could edit an invoice could also approve it and separation of duties could not be expressed
+  at all. `ContentTypePermission` carries a rule per named transition now, and a transition that a
+  role does not declare is refused rather than falling back to Update, because that fallback is the
+  defect wearing the fix's clothes: it grants approval to everyone with edit rights. A transition
+  does not require Update either, so a manager can approve an amount they may not change. The person
+  who raised a record cannot move it on unless `Lifecycle:AllowSelfTransition:{Name}` says so, and
+  that applies to an administrator too, because a separation of duties an administrator can ignore is
+  not one.
+- **A transition path now requires read on the content type.** Dropping the shared Update check left
+  the refusals below it naming the type's declared transitions and the entry's lifecycle state, which
+  any authenticated token could read off a 400 and a 409. Read is the floor rather than Update,
+  because requiring Update is the coupling this change exists to remove. The permission check also
+  runs before the state check, so a caller who can never perform a transition is told that rather
+  than to come back later.
+- **A transition rule saved in a different casing than the lifecycle declares now matches.**
+  `Transitions` is built with `StringComparer.OrdinalIgnoreCase` and that comparer does not survive
+  persistence: System.Text.Json constructs a fresh dictionary with the default comparer when Marten
+  deserialises the role, so a rule stored as `approve` stopped matching a transition named `Approve`
+  once the document was reloaded, and the symptom was a 403 on a permission the admin UI showed as
+  granted. The resolver compares the key itself rather than trusting the comparer.
+- **The guard that keeps event types off API responses covered the core and was blind to the
+  modules.** It read response types out of the core assembly, so every module endpoint, which lives
+  under its own root in its own assembly, was outside it, and a guard covering part of the surface
+  reads as covering all of it. The rule is now checked against the live routing table of a running
+  host: 13 assemblies, 93 response types and 191 types reached through them, with floors asserted on
+  all three so a discovery path that stops finding modules fails instead of passing on a smaller set.
+  Reading the routing table rather than reflecting over assemblies means no module project has to
+  grant `InternalsVisibleTo`, and what gets checked is what the host actually serves. Proven by
+  putting a `ContentCreated` on a module response and watching it go red by name. No module violated
+  the rule: Accounting, Portability and Import reference `barakoCMS.Events` and all three construct
+  events in order to write them, which is the correct use. The rule is DECISIONS.md D4. Closes #426.
+- **Turning public delivery on or off for a content type is audited.** The switch serves every
+  published entry of a type to anonymous callers at once and recorded nothing, which made it the
+  larger half of a pair whose smaller half, a field sensitivity change, was already audited. Both
+  directions are recorded, with the actor and the number of published entries the change affects,
+  because "public delivery enabled" and "public delivery enabled, 4,000 entries now anonymous" are
+  different sentences to whoever reads the trail later. Drafts are not counted: they stay invisible
+  to anonymous callers whatever the setting says, and a number that overstates is one nobody trusts
+  the second time. A request that changes nothing records nothing.
+- **`PublicDelivery:RequireAcknowledgement` makes enabling it a two-step decision**, refusing the
+  request unless it carries `acknowledgeExposure` and naming the count in the refusal. Off by
+  default, which is what this endpoint has always done: it is the documented way back from the
+  4.0 change that stopped delivering every existing type, and a default that refuses until clients
+  are updated would turn the recovery path into a second outage. Disabling never needs it, because
+  asking somebody to confirm the safe direction trains them to confirm without reading.
+- **`Features/Users/*` and `Features/UserGroups/*` gate on capabilities, not role names.** The
+  thirteen routes there still matched `SuperAdmin` or `Admin` by name, so a role created at
+  runtime could reach none of them. They now ask for a capability the caller's roles carry, using
+  the mechanism from #272. It is three names rather than one because the old gates were not
+  uniform: `GET /api/users` and the password reset were `Roles("SuperAdmin")` while assigning
+  roles and groups was `Roles("SuperAdmin", "Admin")`, and a single `manage_users` would have had
+  to pick one of those. So `manage_users` is the narrow set (list accounts, reset a password),
+  `manage_user_membership` is a user's roles and groups, and `manage_user_groups` is the groups
+  themselves. The seeded Admin role is backfilled with the second and third and not the first,
+  which is asserted through the gate: a role holding exactly Admin's defaults reaches every route
+  Admin reached before and neither of the two it did not. The legacy role names still open each
+  migrated gate they used to, under `Auth:LegacyRoleFallback`, so nothing changes on upgrade.
+  Step 1 of #443.
+- **API keys and the audit log follow.** `POST`, `GET` and `DELETE /api/api-keys` now require
+  `manage_api_keys`, and `GET /api/audit` requires `view_audit_log`. Both areas gated on the same
+  `SuperAdmin, Admin` pair, so a single name would have covered them; they are split because a role
+  that should read the audit trail without being able to mint credentials is the ordinary auditor
+  case, and one name makes that unexpressible. Admin's defaults gain both, matching what it already
+  reached. Step 2 of #443.
+- **Postgres can enforce tenant isolation as a second boundary.**
+  `Tenancy:DatabaseEnforcement`, off by default. On, Marten puts a row level security policy on every
+  conjoined document table, so one tenant's session cannot read or write another's even if the
+  application's own filter is missed. `mt_events` and `mt_streams` are outside Marten's support and
+  stay application-filtered.
+
+  Turning it on is not a settings change. A Postgres superuser bypasses row level security entirely
+  and every deployment here connects as one, so the policies alone would be applied and inert.
+  `migrations/tenancy/001-app-role.sql` creates a `NOSUPERUSER` role and transfers ownership, and the
+  application **refuses to start** if enforcement is on while it is still connecting as a superuser,
+  rather than running while appearing to be protected.
+
+  It does not catch a session opened with no tenant at all. Marten represents that as the default
+  tenant, so such a session sees the default partition exactly as it does today.
+  `docs/tenancy-at-the-database.md` covers the setup, the connection-footprint cost and the
+  PgBouncer constraint.
+- **A rollback now needs the update permission, not just the role on the route.**
+  `POST /api/contents/{id}/rollback/{versionId}` gated on `Roles("SuperAdmin", "Admin")` and ran
+  sensitivity, validation and lifecycle hooks, which is why the comment there claimed parity with an
+  update. An update runs a fourth gate it did not: `CanPerformActionAsync(..., "update", ...)`. So an
+  Admin whose role granted no `update` on a content type could still rewrite an entry of that type by
+  restoring an old version, while being refused the history that lists what there is to restore. A
+  write they could perform over a read they could not.
+  Authorisation also runs before the event stream is read, so a caller who may not write cannot tell
+  a real version from an invented one by comparing the status codes, and the server no longer reads
+  every event in the stream on the way to refusing them.
+- **`DATABASE_URL` no longer turns on Npgsql error detail outside Development.** It was set
+  unconditionally, and Npgsql puts parameter values into exception messages when it is on, so a failed
+  write copied the row's personal data into the log store, which has its own retention policy and its
+  own access list. This is the production path: managed providers set `DATABASE_URL`, while a local
+  stack sets `ConnectionStrings__DefaultConnection` and never reaches it. The last of the four defects
+  #284 named.
+- **A Secret parameter is now protected on every workflow action type, not only Webhook.**
+  `WorkflowActionResponse` already hid the `Secret` parameter and reported `secretSet` regardless of
+  action type, so a custom action reusing that parameter name was shown as protected while it was
+  actually stored in clear. `ProtectSecrets` now encrypts `Secret` for every action, the same way it
+  already did for Webhook, closing that gap.
+- **A stored secret that predates encryption now refuses with a message that says what to do about
+  it.** A Webhook action carrying a plaintext `Secret` from before it was ever protected already
+  refused to send rather than sign or deliver anything with it. The failure used to read the same as
+  a rotated `Secrets:Key`: "could not be decrypted, enter it again". That is the wrong instruction
+  here, because entering the same secret again produces the same unprotected value; the fix is to
+  recreate the workflow. The two cases are now told apart and the row says which one applies.
+- **`DELETE /api/files/{id}` now requires being the uploader or an admin, matching the download route.**
+  A holder of `upload_files` could delete any file in the tenant, including one uploaded by another
+  account, while the download route already refused that same account with a 404. Delete could
+  destroy a file it could not read. The two gates now agree: `upload_files` still opens list,
+  describe and edit for every file in the tenant, but delete and download both also need the
+  uploader, or an account holding Admin or SuperAdmin. `docs/access-control.md` covers the split.
+  A bespoke role holding only `upload_files` and used to tidy up orphaned uploads, a departed
+  employee's files for instance, can no longer delete somebody else's upload after this upgrade,
+  and needs an Admin or SuperAdmin account for that instead.
+- **A composed request header carrying a line break is now refused, closing a pre-existing
+  injection.** Any value substituted into a request definition's header template reached
+  `Escaping.None` with nothing stripping or refusing a carriage return or newline, then reached
+  `ConnectorSender`'s `TryAddWithoutValidation` unchecked. A content field of
+  `"safe\r\nX-Injected: evil"` composed verbatim and sent as two headers, which is a way to forge a
+  header on an outbound call made with the connector's own credentials attached, for anyone who can
+  write a content field a request template names. Wiring queries into requests widened what reaches
+  the same sink, so the fix covers both: any value landing in a header, from content or from a
+  query, is checked.
+
+  Refused rather than stripped, naming the header and never the value: stripping the control
+  character would send a request the operator did not write, silently, the same reason a Sensitive
+  field is refused rather than masked.
+- **Workflow action failures no longer persist exception messages.** Failed actions retain the exception type in their run record while the full exception remains available in server logs, preventing provider error bodies from exposing credentials through the API or admin UI.
+- **A webhook URL redacted for a run record or failure message kept its path, and that is where
+  Discord, Slack and Teams put the secret.** `WebhookAction.Redact` kept scheme, host, port and
+  path, dropping only userinfo and the query string, on the reasoning that those two are where
+  most providers put a credential. Discord (`/api/webhooks/{id}/{token}`) and Slack
+  (`/services/{a}/{b}/{secret}`) put theirs in the path instead, so a webhook that answered 500
+  once wrote a replayable secret into a run record or a `WebhookDelivery`, readable by anyone
+  holding `ViewWorkflowRuns`. Redaction now keeps only the scheme, host and port; the path is
+  always dropped. Run and webhook-delivery records written from now on will show a shorter URL
+  than before; that is the fix, not a regression.
+- **A webhook delivery's response body needed only `view_workflow_runs`, the same capability that
+  reads every workflow run.** Two other places in this codebase refuse to carry a response body at
+  all, because a 401 from an OAuth provider frequently echoes the credential that was sent; the
+  delivery log was the one place that reasoning had not reached. `GET /api/webhook-deliveries` now
+  needs a second capability, `view_webhook_response_bodies`, to read the `responseBody` field.
+  Nothing else on the row is gated further: a caller holding only `view_workflow_runs` still sees
+  every delivery, its status, its error and everything else, with `responseBody: null`.
+  `docs/access-control.md` covers the split.
+  **A holder of `view_workflow_runs` who is not also granted `view_webhook_response_bodies` loses
+  the ability to read a delivery's response body on upgrade.** Admin's defaults do not include the
+  new capability, since Admin never held this access before the split; only SuperAdmin (via `*`)
+  and a role an operator grants it to explicitly can read a body. Grant `view_webhook_response_bodies`
+  to whichever role should keep debugging webhooks.
+- **The response body now expires on its own.** `Webhooks:ResponseBodyRetentionHours` (default 24)
+  clears `responseBody` on rows older than the window, on the same hourly sweep that already prunes
+  the delivery log at `Webhooks:DeliveryLogRetentionDays` (default 30, unchanged). The row survives;
+  only the body is cleared, and `responseBodyClearedAt` is stamped so a cleared body reads
+  differently from one that was empty to begin with (nothing answered, or the body has not expired
+  yet). `docs/webhooks.md` covers both windows.
+- **An access token issued before a security event is now refused.** Revoking refresh tokens stopped
+  a session being renewed and did nothing to an access token already issued, which stays valid for up
+  to fifteen minutes, so a password change, an administrator reset or enabling MFA all left a stolen
+  session working for the rest of that window. `User.TokensValidFrom` is bumped by
+  `RevokeRefreshTokens.ForUserAsync`, so it moves wherever sessions are already being invalidated
+  rather than at three call sites that have to remember, and `TokenValidationMiddleware` refuses a
+  token issued before it. Cached for thirty seconds, which is what the remaining exposure is across
+  instances; on the instance that made the change it is zero. `TokenIssuer` now sets `iat`
+  explicitly, because the check has nothing to compare against without it. Closes #82.
+- **Webhook deliveries are signed.** A receiver could not tell a genuine delivery from anyone who
+  learned the URL. A `Webhook` action takes an optional `Secret`, stored encrypted with
+  `ISecretProtector` and never returned by any read (`secretSet` stands in for it). Every delivery
+  carries `X-Barako-Delivery`, `X-Barako-Timestamp` and, with a secret, `X-Barako-Signature`:
+  `sha256=` over HMAC-SHA256 of `"<timestamp>.<body>"`, so a replay is detectable. Without a secret
+  the delivery goes out unsigned as before. A secret that can no longer be decrypted after a key
+  rotation refuses to send rather than sending unsigned.
+- **Any tenant admin could read every tenant's audit log.** The audit trail is one global table, so
+  the tenant-scoped session gave `GET /api/audit` no isolation and the `?tenant=` filter was
+  caller-chosen. A tenant admin now sees only their own tenant's entries; reading across tenants is
+  a SuperAdmin action.
+- **The RSS feed passed authored HTML through unescaped.** A feed item's description wrapped the
+  field value in a CDATA block, and many readers render a description as HTML, so a Body of
+  `<img src=x onerror=...>` became stored XSS in every subscriber's reader. The description is now
+  entity-encoded like the title, so authored markup shows as text and never executes.
+- **A deployment could boot on the placeholder JWT signing key.** The startup check enforced only a
+  minimum length, and the key shipped in `k8s/02-secret.yaml` is a length-valid placeholder, so an
+  operator applying the manifests unedited ran a signing key that is public in the repository and
+  anyone could forge tokens. Startup now rejects the shipped placeholder as well as a short one.
+- **An Admin could grant itself the SuperAdmin role.** `POST /api/users/{id}/roles` is reachable
+  with `manage_user_membership`, which the Admin role holds, and it assigned any role including
+  SuperAdmin with no check, so an Admin stepped outside the capability model entirely. Granting
+  SuperAdmin now requires the caller to already be SuperAdmin, matching the guard the per-tenant
+  membership endpoint already had.
 
 ## [3.21.0] - 2026-08-23
 

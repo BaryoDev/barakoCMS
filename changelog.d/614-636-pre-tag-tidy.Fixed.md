@@ -1,2 +1,0 @@
-- **CITATIONS.cff said Apache-2.0 and carried a stale version.** The project has been MPL-2.0 since 3.1.1. `license` now reads MPL-2.0, and the stale `version`/`date-released` fields are removed rather than left to go wrong again on every release.
-- **Two pull request scratch files, body517.md and body518.md, were committed in the repository root.** Both are deleted. `scripts/preflight.sh` now refuses a diff that adds a top-level Markdown file not on a known list, so the next one fails before it merges.
