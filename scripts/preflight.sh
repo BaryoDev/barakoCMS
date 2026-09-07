@@ -231,4 +231,13 @@ PY
   esac
 fi
 
+# Image assets must carry no embedded provenance metadata. Design tools stamp C2PA content
+# credentials into what they export, naming the tool that made the file, and Directory.Build.props
+# packs assets/icon.png into every module package, so an unstripped export ships that stamp to
+# nuget.org. We do not publish tool attribution. The stripper removes it without re-encoding.
+if command -v python3 >/dev/null 2>&1; then
+  python3 "$(dirname "$0")/strip-asset-provenance.py" "$(dirname "$0")/.." --check \
+    || fail "image assets carry provenance metadata; run scripts/strip-asset-provenance.py"
+fi
+
 echo "preflight: all checks passed"
