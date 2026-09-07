@@ -212,6 +212,14 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             services.AddHttpClient<BarakoCMS.Analytics.Umami.IUmamiClient, BarakoCMS.Analytics.Umami.UmamiClient>()
                 .ConfigurePrimaryHttpMessageHandler(() => new UmamiStubHandler());
 
+            // The throwing action WorkflowRunTests uses, registered on the shared fixture rather
+            // than only on the host that test builds. Two hosted runners poll the same database,
+            // this one and the derived host's, and either can claim an attempt first. Registered on
+            // only one of them, the test passes or fails on which runner won the race: the fixture's
+            // records "No handler is registered for action type" instead of the exception the test
+            // is about. Registered on both, the race stops mattering.
+            services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.ThrowingRunnerAction>();
+
             // Email transport, replacing the Resend provider the module above registered. Resend
             // throws on every call here because no API key is configured, so any flow that emails
             // something has been running against a transport that always fails. Registration needs
