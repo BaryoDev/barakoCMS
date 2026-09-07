@@ -176,13 +176,18 @@ backup, so do it once before you have data worth keeping.
   carry both architectures while the other does not. That is the same check the release workflow runs on every tag it publishes, and CI proves it
   fails on `3.21.0`. Tracked as #394.
 
-  `barako-admin` has the same problem today (`3.21.0` is amd64 only). It is built and released by
-  [BaryoDev/barakoBrew](https://github.com/BaryoDev/barakoBrew)'s own workflow, not this
-  repository's, so the gate above does not cover it and this repo cannot fix it.
+  `barako-admin` has the same problem today (`3.21.0` is amd64 only), and worse: nothing publishes
+  it right now. The workflow that built it lived in this repository and was removed when the console
+  split out; none has been re-created in
+  [BaryoDev/barakoBrew](https://github.com/BaryoDev/barakoBrew) yet (barakoBrew#23). So `3.21.0` is
+  the last tag anyone built, this repository has no way to fix it, and there is no `4.0` tag of
+  `barako-admin` and there will not be one from here. Once barakoBrew#23 lands, publishing is that
+  repository's workflow to run.
 
   The next release published through the gate (4.0.0) fixes `barako-cms` and `barako-cms-decaf`:
   both platforms are built and the release workflow refuses to publish either image's versioned
   tag or `:latest` unless `docker manifest inspect` shows both. Until then, check before you pin.
+  That gate is specific to this repository's own images and does not extend to `barako-admin`.
 
 - **The first nightly-backup container logs a failure** (#395). `db-backup` starts as soon as Postgres is
   healthy and takes a proof backup immediately, which on a fresh stack races the API's schema

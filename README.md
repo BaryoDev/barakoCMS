@@ -20,7 +20,7 @@ modules** you compose per project, and it's **multi-tenant** out of the box.
 
 This repository is the API, and its own surface is Swagger (`/swagger`, on when `Swagger:Enabled`
 is true). The console that sits on top of it is **barakoBrew**, in its own repository at
-[BaryoDev/barakoBrew](https://github.com/BaryoDev/barakoBrew), still published as
+[BaryoDev/barakoBrew](https://github.com/BaryoDev/barakoBrew), published from that repository as
 `ghcr.io/baryodev/barako-admin`. This repository has no front end.
 
 > The name **Barako** comes from *kapeng barako*, a bold Philippine coffee varietal, hence the
