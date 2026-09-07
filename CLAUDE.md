@@ -163,8 +163,10 @@ Test classes are `{Subject}Tests`. Test methods read as sentences describing the
 
 ### What section 6 covers
 
-The rule below applies to the package's public surface, and the surface is the boundary rather than
-the accident of what happens to be marked `public`. In scope:
+The rule below applies to two surfaces, and each is a public contract for a different reason.
+
+**The package surface** is the boundary rather than the accident of what happens to be marked
+`public`. In scope:
 
 - `Modules/*` and `Core/Interfaces/*`, the module contract
 - `Models/*` and `Events/*`, the documents and events a consumer stores and reads
@@ -173,23 +175,46 @@ the accident of what happens to be marked `public`. In scope:
 - `AddBarakoCMS` and `UseBarakoCMS`, the entry points
 - `DataSeeder`, which a host assembling its own startup calls
 
-Out of scope, and `internal` so that stays true: everything under `Features/*`. The endpoints, their
-`Request` and `Response` records, and their validators are how this host implements the API, not
-something another assembly compiles against. FastEndpoints discovers internal endpoint classes, and
-`InternalsVisibleTo` covers the tests.
+If a type outside that list needs to be public, that is a deliberate addition to the package
+contract. Say so in the pull request.
 
-If a type outside that list needs to be public, that is a deliberate addition to the contract. Say
-so in the pull request.
+**The HTTP surface** is everything under `Features/*`: the routes, the JSON each endpoint accepts
+and returns, and the status codes it answers with. It used to be out of scope, on the grounds that
+nothing compiled against those types and the only consumer shipped from the same commit as the API.
+barakoBrew now lives in its own repository on its own release cadence. It still does not compile
+against `Features/*`, it calls it over HTTP, so that original reasoning still holds for the C#
+types themselves. It does not hold for the JSON those types produce: a console on a different
+release schedule reads that shape without ever seeing the class that built it, and a renamed field
+breaks it exactly as a changed signature would break a module.
+
+So the `Endpoint`, `Request` and `Response` types under `Features/*` stay `internal`. That has not
+changed: nothing outside this repository builds against those classes, `InternalsVisibleTo` still
+only needs to cover the tests, and FastEndpoints still discovers `internal` endpoint classes
+without help. What changed is which of the two things "is this a contract" was standing in for.
+The compile-time answer is still no. The wire-shape answer is now yes, and `internal` was never a
+statement about the wire shape, only about who may reference the class in C#.
+
+### What counts as a breaking change
+
+**To the package surface:** removing or changing the signature of a public member.
+
+**To the HTTP surface:** removing a response field, renaming one, changing a field's type, changing
+a status code, or tightening request validation so a request the API used to accept is now
+rejected. Adding an optional field, to a request or a response, is not breaking either surface.
 
 ### The rule
 
-Within a major version, do not remove or change the signature of a public member. Instead:
+Within a major version, do not make a breaking change to the package surface. Instead:
 
 - add a new overload, mark the old one `[Obsolete]`, and have the old one call the new one;
 - add interface members with a default implementation so existing implementors still compile;
 - give every `[Obsolete]` a removal version at least one full major away.
 
-Unavoidable breaks get called out explicitly in the pull request.
+The HTTP surface has no `[Obsolete]` to reach for, and it does not share the package surface's
+major-version boundary: `barakoCMS.Features.Monitoring.Meta.ApiContract.Version` tracks it
+independently, the same way a module-contract change is independent of the CMS version. A breaking
+HTTP change can land in any release, but it moves `ApiContract.Version` and gets called out
+explicitly in the pull request, the same as an unavoidable break to the package surface.
 
 ## 7. Comments
 

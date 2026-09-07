@@ -30,6 +30,7 @@ internal class Endpoint : EndpointWithoutRequest<MetaResponse>
             new MetaResponse
             {
                 Version = ReadVersion(),
+                ApiContractVersion = ApiContract.Version,
                 SwaggerEnabled = _configuration.GetValue(
                     "Swagger:Enabled",
                     Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development"),

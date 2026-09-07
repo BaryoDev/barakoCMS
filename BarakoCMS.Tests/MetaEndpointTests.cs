@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using barakoCMS.Features.Monitoring.Meta;
 using FluentAssertions;
 using Xunit;
 
@@ -16,7 +17,7 @@ public class MetaEndpointTests
         _factory = factory;
     }
 
-    private sealed record Meta(string Version, bool SwaggerEnabled);
+    private sealed record Meta(string Version, int ApiContractVersion, bool SwaggerEnabled);
 
     [Fact]
     public async Task An_anonymous_caller_is_refused()
@@ -63,5 +64,28 @@ public class MetaEndpointTests
         var response = await client.GetAsync("/api/meta");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    // Pinned to the literal, not just to ApiContract.Version, so bumping the constant without
+    // meaning to (or forgetting to touch the endpoint when the constant does move) turns this red
+    // instead of passing silently. A test that only compared Response.ApiContractVersion against
+    // ApiContract.Version would still pass if both drifted from what a shipped console expects.
+    [Fact]
+    public async Task The_meta_endpoint_reports_the_current_api_contract_version()
+    {
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", _factory.CreateToken(new[] { "Admin" }));
+
+        var response = await client.GetAsync("/api/meta");
+
+        var meta = await response.Content.ReadFromJsonAsync<Meta>();
+        meta.Should().NotBeNull();
+        meta!.ApiContractVersion.Should().Be(1,
+            "this is the number a console compares itself against; bumping it is a deliberate "
+          + "decision under CLAUDE.md section 6 and this assertion has to be updated by hand when "
+          + "it happens, not carried along automatically");
+        meta.ApiContractVersion.Should().Be(ApiContract.Version,
+            "and it has to be the same constant the header below reports, not a second copy");
     }
 }
