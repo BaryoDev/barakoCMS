@@ -36,13 +36,20 @@ team and not the public are marked `Sensitive` (masked on the way out) or `Hidde
 
 | Blueprint | Types | Notes |
 | :--- | :--- | :--- |
-| `blog` | `post`, `category`, `author`, `page` | Post has body richtext, excerpt, cover image URL, published date, author and category references, tags. Author email is Sensitive. Page can nest under a parent page. |
+| `blog` | `post`, `category`, `author`, `page` | Post has a markdown body, excerpt, cover image URL, published date, author and category references, tags. Author email is Sensitive. Page can nest under a parent page. |
 | `events` | `event`, `venue`, `speaker` | Event has starts and ends, a venue reference and a `geopoint` location, so `filter[Location][near]` works on delivery. Venue contact details are Sensitive. |
 | `portfolio` | `project`, `client` | Project has a client reference, a gallery array, a live URL and a testimonial. Client contact name and email are Sensitive, internal notes are Hidden. |
 | `docs` | `article`, `section` | Article has a markdown body, a required section reference and an order within it. Section can nest under a parent section. |
 
 The blueprints carry no SEO fields. Run `POST /api/content-types/{name}/seo-fields` on the types a
 frontend renders as pages; see [seo-fields.md](seo-fields.md).
+
+Every body field above is `markdown`, deliberately. The `richtext` type is still valid and is still
+accepted, and neither type is sanitised: both store and return the string that was saved. The
+difference is what a consumer does with it. Markdown is normally rendered by something that drops
+raw HTML, which makes an untrusted body harmless. Richtext exists to be rendered as HTML, so a
+blueprint that chose it would hand anyone who can edit content a script tag on every page that shows
+it. Choose `richtext` only where the deployment sanitises on its own side.
 
 There is no media content type in the core, so an image is a `url` field. If a deployment models
 media as content, a custom blueprint can reference it instead.

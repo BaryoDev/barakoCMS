@@ -11,15 +11,14 @@
         { "name": "Title", "displayName": "Title", "type": "string", "isRequired": true },
         { "name": "Slug", "displayName": "Slug", "type": "slug", "isRequired": true },
         { "name": "Excerpt", "displayName": "Excerpt", "type": "text" },
-        { "name": "Body", "displayName": "Body", "type": "richtext", "isRequired": true },
+        { "name": "Body", "displayName": "Body", "type": "markdown", "isRequired": true },
         { "name": "CoverImage", "displayName": "Cover image", "type": "url" },
         { "name": "CoverImageAlt", "displayName": "Cover image alt text", "type": "string" },
         { "name": "PublishedAt", "displayName": "Published at", "type": "datetime" },
         { "name": "Author", "displayName": "Author", "type": "reference", "referenceType": "author" },
         { "name": "Category", "displayName": "Category", "type": "reference", "referenceType": "category" },
         { "name": "Tags", "displayName": "Tags", "type": "array" },
-        { "name": "Featured", "displayName": "Featured", "type": "bool" },
-        { "name": "ReadingTimeMinutes", "displayName": "Reading time (minutes)", "type": "int" }
+        { "name": "Featured", "displayName": "Featured", "type": "bool" }
       ]
     },
     {
@@ -42,7 +41,7 @@
       "fields": [
         { "name": "Name", "displayName": "Name", "type": "string", "isRequired": true },
         { "name": "Slug", "displayName": "Slug", "type": "slug", "isRequired": true },
-        { "name": "Bio", "displayName": "Bio", "type": "richtext" },
+        { "name": "Bio", "displayName": "Bio", "type": "markdown" },
         { "name": "Photo", "displayName": "Photo", "type": "url" },
         { "name": "Website", "displayName": "Website", "type": "url" },
         { "name": "Email", "displayName": "Email", "type": "email", "sensitivity": "Sensitive" }
@@ -57,7 +56,7 @@
         { "name": "Title", "displayName": "Title", "type": "string", "isRequired": true },
         { "name": "Slug", "displayName": "Slug", "type": "slug", "isRequired": true },
         { "name": "Summary", "displayName": "Summary", "type": "text" },
-        { "name": "Body", "displayName": "Body", "type": "richtext", "isRequired": true },
+        { "name": "Body", "displayName": "Body", "type": "markdown", "isRequired": true },
         { "name": "ParentPage", "displayName": "Parent page", "type": "reference", "referenceType": "page" },
         { "name": "ShowInNavigation", "displayName": "Show in navigation", "type": "bool" },
         { "name": "NavigationOrder", "displayName": "Navigation order", "type": "int" }

@@ -63,6 +63,14 @@ public static class FieldTypeRegistry
         new("url",      "url",      v => AsString(v) is { } s && IsAbsoluteUrl(s)),
         new("slug",     "slug",     v => AsString(v) is { } s && SlugRegex.IsMatch(s)),
         new("uuid",     "text",     v => AsString(v) is { } s && Guid.TryParse(s, out _)),
+        // Neither of these is sanitised. Both store and return whatever string was saved, so the
+        // author of an entry decides what a consumer renders.
+        //
+        // That is survivable for markdown, because a renderer that drops raw HTML is the ordinary
+        // way to render it and makes an untrusted body harmless. It is not survivable for richtext,
+        // whose only use is to be rendered as HTML, so anyone who can edit content can put script on
+        // every page that shows it. The shipped blueprints therefore offer markdown; richtext stays
+        // valid for a deployment that sanitises on its own side and knows it is doing so. See #669.
         new("richtext", "richtext", IsString),
         new("markdown", "markdown", IsString),
         new("time",     "time",     v => AsString(v) is { } s && IsTime(s)),

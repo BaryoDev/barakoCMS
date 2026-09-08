@@ -11,7 +11,7 @@
         { "name": "Title", "displayName": "Title", "type": "string", "isRequired": true },
         { "name": "Slug", "displayName": "Slug", "type": "slug", "isRequired": true },
         { "name": "Summary", "displayName": "Summary", "type": "text" },
-        { "name": "Description", "displayName": "Description", "type": "richtext" },
+        { "name": "Description", "displayName": "Description", "type": "markdown" },
         { "name": "StartsAt", "displayName": "Starts at", "type": "datetime", "isRequired": true },
         { "name": "EndsAt", "displayName": "Ends at", "type": "datetime" },
         { "name": "Timezone", "displayName": "Timezone", "type": "string" },
@@ -58,7 +58,7 @@
         { "name": "Slug", "displayName": "Slug", "type": "slug", "isRequired": true },
         { "name": "JobTitle", "displayName": "Job title", "type": "string" },
         { "name": "Organisation", "displayName": "Organisation", "type": "string" },
-        { "name": "Bio", "displayName": "Bio", "type": "richtext" },
+        { "name": "Bio", "displayName": "Bio", "type": "markdown" },
         { "name": "Photo", "displayName": "Photo", "type": "url" },
         { "name": "Website", "displayName": "Website", "type": "url" },
         { "name": "Email", "displayName": "Email", "type": "email", "sensitivity": "Sensitive" }
