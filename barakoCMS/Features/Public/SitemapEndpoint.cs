@@ -42,11 +42,17 @@ internal class SitemapEndpoint : EndpointWithoutRequest
             .Take(50000)
             .ToListAsync(ct);
 
-        var siteUrl = _config["Feeds:SiteUrl"]?.TrimEnd('/');
-        if (string.IsNullOrWhiteSpace(siteUrl)
-            || !Uri.TryCreate(siteUrl, UriKind.Absolute, out _))
+        // Resolved the same way the feed resolves it, because they answer the same question. This
+        // read Feeds:SiteUrl on its own and returned a bare 500, so a deployment that set
+        // App:BaseUrl got a working feed and a sitemap that failed with nothing to act on. See #670.
+        var siteUrl = barakoCMS.Infrastructure.Security.CanonicalHost.BaseUrl(
+            _config, HttpContext.Request, "Feeds:SiteUrl");
+
+        if (siteUrl is null)
         {
-            await Send.ErrorsAsync(500, ct);
+            await Send.StringAsync(
+                barakoCMS.Infrastructure.Security.CanonicalHost.NotConfigured("Feeds:SiteUrl"),
+                503, "text/plain; charset=utf-8", ct);
             return;
         }
 
