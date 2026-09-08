@@ -111,6 +111,7 @@ DROP TABLE IF EXISTS public.mt_doc_query_definitions;
 -- Workflow runs. 3.x executes workflow actions inline inside the projection and has nowhere to put
 -- these, so dropping the table loses the record of what ran and any work still queued. Anything
 -- Pending or Running when you roll back simply never happens: drain the queue first if that matters.
+DROP TABLE IF EXISTS public.mt_doc_jobs;
 DROP TABLE IF EXISTS public.mt_doc_workflow_runs;
 
 -- Webhook deliveries. 3.x has no such table and nothing references it. What is lost is the record

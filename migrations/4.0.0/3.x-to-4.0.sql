@@ -54,6 +54,11 @@
 --                         New table. The email provider credentials an operator entered in the
 --                         admin, with the API key encrypted (#343). One row at most. Nothing
 --                         existing reads or writes it, so creating it moves no data.
+--   mt_doc_jobs           New table. The background job queue (#106): slow work such as email and
+--                         webhook delivery, queued instead of run inside the request. Conjoined
+--                         multi-tenant. Empty on arrival. Missing from the first version of this
+--                         file, because the queue landed after it was generated and it was not
+--                         regenerated; see #683.
 --   mt_doc_contenttypedefinition
 --                         Adds the unique index on a content type's name, per tenant. Uniqueness
 --                         used to be a read before the write with nothing behind it, so two
@@ -392,6 +397,42 @@ CREATE TABLE IF NOT EXISTS public.mt_doc_email_settings (
     mt_dotnet_type      varchar                     NULL,
     CONSTRAINT pkey_mt_doc_email_settings_id PRIMARY KEY (id)
 );
+
+-- ---------------------------------------------------------------------------
+-- Background job queue (#106).
+--
+-- New table. 4.0 queues slow work (email, webhook delivery) instead of doing it
+-- inside the request. Conjoined like the workflow tables: a job belongs to the
+-- tenant of the request that queued it, so tenant_id is on the primary key.
+--
+-- This was missing from the first version of this file, because the queue landed
+-- after the migration was generated and it was not regenerated. Nothing broke on
+-- a deployment, because the host creates a missing object at startup under
+-- AutoCreate.CreateOnly, but the upgrade gate then asserts a schema the migration
+-- did not finish, and it noticed only sometimes. See #683.
+--
+-- Empty on arrival. No 3.x row moves into it and nothing reads it until 4.0 runs.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.mt_doc_jobs (
+    id                  uuid                        NOT NULL,
+    data                jsonb                       NOT NULL,
+    mt_last_modified    timestamp with time zone    NULL DEFAULT (transaction_timestamp()),
+    mt_version          uuid                        NOT NULL DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
+    mt_dotnet_type      varchar                     NULL,
+    tenant_id           varchar                     NOT NULL DEFAULT '*DEFAULT*',
+    CONSTRAINT pkey_mt_doc_jobs_tenant_id_id PRIMARY KEY (tenant_id, id)
+);
+
+CREATE INDEX IF NOT EXISTS mt_doc_jobs_idx_queue_id
+    ON public.mt_doc_jobs USING btree ((data ->> 'QueueID'));
+
+-- Cast to integer for the same reason mt_doc_workflow_runs_idx_status does: Marten's serializer
+-- stores an enum as a number, and the string converter is the HTTP serializer only.
+CREATE INDEX IF NOT EXISTS mt_doc_jobs_idx_state
+    ON public.mt_doc_jobs USING btree ((CAST(data ->> 'State' as integer)));
+
+CREATE INDEX IF NOT EXISTS mt_doc_jobs_idx_execute_after
+    ON public.mt_doc_jobs USING btree ((public.mt_immutable_timestamp(data ->> 'ExecuteAfter')));
 
 -- ---------------------------------------------------------------------------
 -- Content type sourcing policies (#230).
