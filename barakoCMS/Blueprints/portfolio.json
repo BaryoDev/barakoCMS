@@ -11,7 +11,7 @@
         { "name": "Title", "displayName": "Title", "type": "string", "isRequired": true },
         { "name": "Slug", "displayName": "Slug", "type": "slug", "isRequired": true },
         { "name": "Summary", "displayName": "Summary", "type": "text" },
-        { "name": "Description", "displayName": "Description", "type": "richtext" },
+        { "name": "Description", "displayName": "Description", "type": "markdown" },
         { "name": "Client", "displayName": "Client", "type": "reference", "referenceType": "client" },
         { "name": "Services", "displayName": "Services", "type": "array" },
         { "name": "Technologies", "displayName": "Technologies", "type": "array" },

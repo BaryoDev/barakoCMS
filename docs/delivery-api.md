@@ -238,6 +238,18 @@ title or name hit outranks a body hit.
 
 A 400 carries the reason, including the fields that would have been accepted.
 
+## What a field value is, and is not
+
+Delivery returns the value that was saved. Nothing here escapes, strips or rewrites it, including
+for the `richtext` and `markdown` types, which are both stored and returned as the string somebody
+typed. Whoever can edit an entry decides what a consumer renders.
+
+So the consumer owns the escaping. Render markdown through something that drops raw HTML, and never
+put a `richtext` value into `innerHTML` without sanitising it first. This is why the shipped
+blueprints use `markdown` for every body field: the ordinary way to render markdown is already safe,
+and the only way to render richtext is not. The feed and the sitemap are the exceptions, and only
+because they build a document rather than hand you a field, so they escape what they put in it.
+
 ## Change events
 
 `GET /api/public/events` is a [server-sent event](https://html.spec.whatwg.org/multipage/server-sent-events.html)
