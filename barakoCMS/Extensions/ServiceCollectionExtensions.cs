@@ -1471,11 +1471,21 @@ public static class ServiceCollectionExtensions
             store,
             host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Tenancy"));
 
-        // Before the apply, so a module that wants a change CreateOnly will not make is refused by
-        // name here rather than by Marten a line later.
-        await host.Services.PreflightModuleSchemaAsync();
+        // One host at a time from here on, because two hosts creating the same object at once fail
+        // on 42P07 and take the whole DDL batch with them. See SchemaApplyLock and issue #609.
+        //
+        // The preflight is inside the lock, not before it. It computes the migration by comparing the
+        // model against the live database, so run outside, it can describe a database another host is
+        // halfway through changing and refuse to start over a difference that no longer exists by the
+        // time it looks.
+        await barakoCMS.Infrastructure.Services.SchemaApplyLock.RunAsync(store, async () =>
+        {
+            // Before the apply, so a module that wants a change CreateOnly will not make is refused by
+            // name here rather than by Marten a line later.
+            await host.Services.PreflightModuleSchemaAsync();
 
-        await store.Storage.ApplyAllConfiguredChangesToDatabaseAsync();
+            await store.Storage.ApplyAllConfiguredChangesToDatabaseAsync();
+        });
     }
 
     /// <summary>
