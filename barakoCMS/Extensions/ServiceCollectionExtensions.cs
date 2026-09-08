@@ -293,8 +293,34 @@ public static class ServiceCollectionExtensions
         services.AddHsts(options =>
             barakoCMS.Infrastructure.Security.HstsPolicy.Configure(options, configuration));
 
+        // Named once so the two branches below cannot drift apart, which is the other way this
+        // fails silently: a deployment with CORS:AllowedOrigins set behaves differently from one
+        // without, and only one of them is what anybody runs in production.
+        string[] BrowserReadableHeaders =
+        [
+            "ETag",
+            barakoCMS.Features.Monitoring.Meta.ApiContract.HeaderName,
+        ];
+
         services.AddCors(options =>
         {
+            // Response headers a browser is allowed to read cross-origin.
+            //
+            // AllowAnyHeader() below governs which *request* headers a preflight permits, which is a
+            // different list, and conflating the two is how this went wrong. Without an explicit
+            // Access-Control-Expose-Headers, JavaScript sees only the seven CORS-safelisted response
+            // headers, and everything else is simply absent: no error, no warning, no CORS message.
+            // curl shows them because curl does not enforce CORS. See #680.
+            //
+            //   ETag                     #565 gave Content optimistic concurrency. GET returns it and
+            //                            PUT takes it back as If-Match, so a client that cannot read
+            //                            it cannot participate, and two editors overwrite each other.
+            //   X-Api-Contract-Version   ApiContract documents this as the header a caller reads to
+            //                            decide whether it can drive this API at all.
+            //
+            // Retry-After is deliberately not here. The one place it is set is the SSE stream, and a
+            // browser EventSource does not surface response headers to script at all, so exposing it
+            // would buy nothing.
             options.AddPolicy("SecurePolicy", builder =>
             {
                 // Get allowed origins from configuration (comma-separated list)
@@ -308,6 +334,7 @@ public static class ServiceCollectionExtensions
                     builder.WithOrigins(allowedOrigins)
                            .AllowAnyMethod()
                            .AllowAnyHeader()
+                           .WithExposedHeaders(BrowserReadableHeaders)
                            .AllowCredentials();
                 }
                 else
@@ -316,6 +343,7 @@ public static class ServiceCollectionExtensions
                     builder.WithOrigins("http://localhost:3000", "http://localhost:3001", "https://localhost:7049")
                            .AllowAnyMethod()
                            .AllowAnyHeader()
+                           .WithExposedHeaders(BrowserReadableHeaders)
                            .AllowCredentials();
                 }
             });
