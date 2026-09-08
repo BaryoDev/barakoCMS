@@ -22,9 +22,15 @@ jobs:
     steps:
       # Full history: the module-version check walks each .csproj's history to find when its
       # current <Version> was set. The default shallow clone would make it silently find nothing.
+      #
+      # Tags too, and asked for by name rather than assumed from fetch-depth. That check measures
+      # from the release tag now, and a missing tag does not fail it, it quietly falls back to the
+      # older reference and reports published changes as unpublished ones. That is the failure this
+      # is meant to prevent, so the fetch says what it needs instead of relying on a default.
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          fetch-tags: true
 
       # Catches a module whose code changed without its <Version> moving. Releases push with
       # --skip-duplicate, so such a module is skipped and its changes never ship — that has

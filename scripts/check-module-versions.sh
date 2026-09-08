@@ -7,8 +7,18 @@
 # fix sitting in source while every consumer still had the bypass. Neither was noticed at release
 # time, because nothing looked.
 #
-# The check: for each module, find the commit that last set the version currently in its .csproj,
-# then look for later commits touching that module's code. Any, and the version needs bumping.
+# The check: for each module, find where its declared version was released, then look for later
+# commits touching that module's code. Any, and the version needs bumping.
+#
+# "Where it was released" is the tag v<version> when that exists, not the commit that set the number
+# in the .csproj. Those are different commits and the gap between them is the rest of the release,
+# which is published. Comparing against the version-setting commit reported every one of those as a
+# change that would be skipped, which is backwards: they are in the package. It fired on clean master
+# after 4.0.0 (#645 set the version, the release commit then touched the module) and blocked every
+# pull request until somebody bumped a module for no reason. See #675.
+#
+# With no such tag the version has not been released under this scheme, so it falls back to the
+# version-setting commit and the NuGet check below decides.
 #
 # Run locally with: bash scripts/check-module-versions.sh
 
@@ -48,12 +58,25 @@ for csproj in BarakoCMS.*/BarakoCMS.*.csproj; do
     continue
   fi
 
+  # What --skip-duplicate can drop is a change that is not in the published package, and the
+  # published package is whatever the release built, which the tag names. The commit that set the
+  # number in the .csproj is earlier than that, usually by the rest of the release, so measuring from
+  # it counts published changes as unpublished ones.
+  #
+  # No tag means this version was never released under this scheme. Fall back to the version-setting
+  # commit, which is the older, stricter reference, and let the NuGet check below decide.
+  if git rev-parse -q --verify "refs/tags/v$version^{commit}" >/dev/null; then
+    reference="v$version"
+  else
+    reference="$version_commit"
+  fi
+
   # Code changes after that point. Exclude the .csproj itself: editing dependencies or metadata
   # there is not a reason to republish on its own, and including it makes every bump self-trigger.
   # packages.lock.json is excluded for the same reason: it follows Directory.Packages.props, which
   # already sits outside every module directory, so a dependency bump keeps not forcing a version
   # bump on every module at once.
-  changes=$(git log --format=%h "$version_commit"..HEAD -- "$module" ':!*.csproj' ':!*/packages.lock.json' | wc -l | tr -d ' ')
+  changes=$(git log --format=%h "$reference"..HEAD -- "$module" ':!*.csproj' ':!*/packages.lock.json' | wc -l | tr -d ' ')
 
   # The harm this check exists to prevent is --skip-duplicate silently dropping the push, and that
   # can only happen to a version already on NuGet. When the declared version is not published, the
@@ -83,8 +106,8 @@ for csproj in BarakoCMS.*/BarakoCMS.*.csproj; do
 
   if [ "$changes" -gt 0 ]; then
     failed=1
-    echo "::error::$module is at $version but has $changes commit(s) of source changes since that version was set. Bump <Version> in $csproj, or those changes will be skipped at publish time (--skip-duplicate)."
-    git log --oneline "$version_commit"..HEAD -- "$module" ':!*.csproj' ':!*/packages.lock.json' | sed 's/^/    /'
+    echo "::error::$module is at $version but has $changes commit(s) of source changes since $reference. Bump <Version> in $csproj, or those changes will be skipped at publish time (--skip-duplicate)."
+    git log --oneline "$reference"..HEAD -- "$module" ':!*.csproj' ':!*/packages.lock.json' | sed 's/^/    /'
   fi
 done
 
