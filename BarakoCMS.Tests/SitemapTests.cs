@@ -272,4 +272,77 @@ public class SitemapTests
         xml.Should().Contain("<lastmod>2026-06-15</lastmod>");
         xml.Should().NotContain("<lastmod>2020-01-01</lastmod>");
     }
+
+    /// <summary>
+    /// A deployment that names its public URL once, in App:BaseUrl, gets a sitemap (#670).
+    /// </summary>
+    /// <remarks>
+    /// The endpoint read Feeds:SiteUrl on its own and answered a bare 500 without it, while the feed
+    /// next to it fell back to App:BaseUrl and served. One setting, two answers, and the 500 carried
+    /// no body naming what to set. Both now resolve through CanonicalHost.
+    /// </remarks>
+    [Fact]
+    public async Task An_application_base_url_is_enough_to_serve_the_sitemap()
+    {
+        var type = $"sitemap_appbase_{Guid.NewGuid():N}";
+        await SeedOneAsync(type, "app-base-post");
+
+        var client = _factory.WithSettings(new Dictionary<string, string?>
+        {
+            { "Feeds:SiteUrl", null },
+            { "App:BaseUrl", "https://www.example.com" },
+        }).CreateClient();
+
+        var response = await client.GetAsync("/api/public/sitemap.xml");
+        var xml = await response.Content.ReadAsStringAsync();
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        xml.Should().Contain($"https://www.example.com/{type}/app-base-post");
+    }
+
+    /// <summary>
+    /// With no URL configured at all the refusal says which setting fixes it, and never builds a
+    /// link from the caller's Host header.
+    /// </summary>
+    [Fact]
+    public async Task With_nothing_configured_the_refusal_names_the_setting()
+    {
+        var type = $"sitemap_unconfigured_{Guid.NewGuid():N}";
+        await SeedOneAsync(type, "unconfigured-post");
+
+        // Feeds:SiteUrl removed, App:BaseUrl never set, AllowedHosts still "*": the shipped default.
+        var client = _factory.WithSetting("Feeds:SiteUrl", null).CreateClient();
+
+        var request = new HttpRequestMessage(HttpMethod.Get, "/api/public/sitemap.xml")
+        {
+            Headers = { Host = "attacker-example.net" },
+        };
+
+        var response = await client.SendAsync(request);
+        var body = await response.Content.ReadAsStringAsync();
+
+        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        body.Should().Contain("Feeds:SiteUrl", "the refusal names the setting that fixes it");
+        body.Should().NotContain("attacker-example.net", "the caller does not get to choose the origin");
+    }
+
+    private async Task SeedOneAsync(string type, string slug)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+
+        session.Store(new ContentTypeBuilder()
+            .Named(type)
+            .PubliclyDeliverable()
+            .WithTitleAndSlug()
+            .Build());
+
+        session.Store(new ContentBuilder()
+            .OfType(type)
+            .WithTitleAndSlug("A Post", slug)
+            .Published()
+            .Build());
+
+        await session.SaveChangesAsync();
+    }
 }
