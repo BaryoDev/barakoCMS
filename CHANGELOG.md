@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.1] - 2026-09-09
+
+The first patch on 4.0, and most of it is the 4.0 release path itself: the schema race between two
+starting hosts, the jobs table the upgrade migration never created, and the CORS exposure without
+which no browser can read the `ETag` or the contract version 4.0 added. Two security fixes ride
+along, both found by the post-release sweep rather than reported.
+
+Upgrading from 4.0.0 needs nothing. The 3.x migration file changed, so anyone still on 3.x should
+take this version's copy of `migrations/4.0.0/3.x-to-4.0.sql` rather than 4.0.0's.
+
+### Fixed
+
+- **Two instances starting against the same database could fail on `42P07`.** Marten asks the database what exists and then issues the DDL, and those two steps are not atomic, so two hosts starting together both saw an object missing, both created it, and the loser's whole batch failed. Marten guards its own `ApplyAllDatabaseChangesOnStartup` with an advisory lock; this application replaced that call to get the schema in before the seeders, and the lock came off with it. Schema apply and the module preflight now run under a Postgres advisory lock, so a second host waits and then finds the work done.
+- **A deployment that set `App:BaseUrl` got a working feed and a sitemap that failed.** `GET /api/public/sitemap.xml` read `Feeds:SiteUrl` on its own and answered a bare 500 without it, while the feed beside it resolves through `CanonicalHost` and falls back to `App:BaseUrl`. The sitemap resolves the same way now, and refuses with a message naming the setting instead of an empty 500.
+- **The module version gate failed on clean master and blocked every pull request.** It measured a module's changes from the commit that set the version in its `.csproj`, not from where that version was released. Those are different commits, and everything between them is in the published package, so the release commit that touched `BarakoCMS.Templates` after #645 set its version was reported as a change that would be skipped at publish. It would not: 4.0.0 was built from it. The gate measures from the `v<version>` tag now, falls back to the old reference when no such tag exists, and CI asks for tags by name so a missing one cannot silently reinstate the old behaviour.
+- **A browser could not read the `ETag` the concurrency work emits, so nothing could send it back.** #565 gave `Content` optimistic concurrency through `ETag` and `If-Match`, and the header was correct on the wire, but CORS never sent `Access-Control-Expose-Headers`. Script sees only the seven safelisted response headers cross-origin, so `response.headers.etag` was `undefined` in the console and two editors still overwrote each other. `AllowAnyHeader()` governs request headers, which is a different list, and the two are easy to conflate. `ETag` and `X-Api-Contract-Version` are exposed now, on both branches of the policy.
+- **The 3.x to 4.0 migration never created the background job queue's table.** `mt_doc_jobs` and its three indexes were missing from `migrations/4.0.0/3.x-to-4.0.sql`, because the queue (#106) landed after that file was generated and it was not regenerated. No deployment broke, because the host creates a missing object at startup under `AutoCreate.CreateOnly`, but the upgrade gate asserts that the migration alone brings the schema up to date, and it did not. The table and its indexes are in the migration now, and the rollback drops them.
+- **The changelog assembler filed every entry under the release that had just shipped.** It looked
+  for its `### Fixed` heading with an unscoped search, and a release empties Unreleased, headings
+  included, so the first match in the file belonged to the previous version. Assembling 4.0.1's
+  fragments wrote them into 4.0.0's notes and printed "Assembled 5 into Fixed", which is the shape of
+  failure this repository keeps meeting: a gate that says it worked. Searches are scoped to the
+  Unreleased section now, a missing heading is created in section order, and
+  `scripts/test-changelog-assemble.sh` pins all of it against a fixture in CI.
+
+### Security
+
+- **The shipped `blog` blueprint steered every new site into an unsanitised HTML field.** Neither `richtext` nor `markdown` is sanitised: both store and return the string that was saved. That is survivable for markdown, whose ordinary renderer drops raw HTML, and not for richtext, which exists to become HTML, so anyone who could edit content had a script tag on every page that showed it. Every body and bio field in the shipped blueprints is `markdown` now, `richtext` stays valid for a deployment that sanitises on its own side, and the contract is written down on the field type, in `docs/blueprints.md` and in `docs/delivery-api.md`. The `blog` blueprint also stored a `ReadingTimeMinutes` that drifted from the body beside it; it is gone, and reading time is computed at render.
+- **A workflow action's credential was only redacted when it was called "Secret".** Action
+  parameters are free-form, so a credential arrives under whatever name the third party uses, and
+  anything called `Password`, `Token`, `ApiKey` or the like was stored on the run record verbatim and
+  served to anyone who can read workflow runs. Redaction now matches credential-bearing names
+  case-insensitively, and errs towards hiding: a parameter named `TokenUrl` is hidden too, which
+  costs a lookup rather than a credential.
+- **A caller could forge a log line.** The request path is URL-decoded before anything reads it, so
+  a request for a path containing an encoded newline arrived with a real one, and against a
+  one-line-per-entry sink that became a second, attacker-written entry. Control characters in the
+  values the middleware logs are replaced with a space and the value is capped.
+
 ## [4.0.0] - 2026-09-07
 
 ### Breaking
@@ -93,8 +132,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`/api/pwa/installs` no longer silently caps at 1000 rows.** The envelope is the bound now.
 
-  Three modules ship the envelope change and are versioned for it: Accounting `0.6.0`, DeviceTrust
-  `0.4.0`, Pwa `0.4.0`.
+  Three modules ship the envelope change: Accounting, DeviceTrust and Pwa. Every module published
+  `4.0.0` alongside the core rather than continuing its own 0.x line, so the suite carries one number.
 
 - **Every error the core returns is now ProblemDetails.** Four shapes shipped from an API configured
   for RFC7807: ProblemDetails, a hand-rolled `{message}` with the field errors flattened into one
@@ -153,7 +192,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   public page has to publish those flags deliberately: `POST /api/feature-flags/admin` with
   `"isPublic": true`. `FeatureFlagService.EvaluateAllAsync` takes a `FlagAudience`; the overload
   without one returns the public subset, so a caller that has not thought about who is asking cannot
-  leak a key by omission. FeatureFlags `0.4.0`.
+  leak a key by omission. FeatureFlags `4.0.0`.
 
 - **Audit IPs and rate-limit buckets no longer come from a client-supplied `X-Forwarded-For`.**
   `DeviceContext` read that header directly and returned its first hop, so any caller could write its
@@ -1823,7 +1862,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   careful branch was the one nobody reached. Facebook exposes no verification flag at all and is now
   refused unless `Facebook:TrustUnverifiedEmail` is set, which is an operator's explicit decision.
   `IssueAsync` takes the flag as a required argument, so the next provider cannot omit it quietly.
-  ExternalAuth `0.4.0`.
+  ExternalAuth `4.0.0`.
 
   The module had no test project reference and therefore no tests, which is why none of this was
   caught (#120). It has both now.
@@ -1836,7 +1875,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Any authenticated account could read any file in the tenant, and upload without a role.** Both
   Files endpoints had authentication and neither had authorization. Download is now the uploader or an
   admin, refusing with 404 rather than 403 so a leaked id cannot be used to probe for others. Upload
-  now carries the same role gate as every other write in the module set. Files `0.4.0`.
+  now carries the same role gate as every other write in the module set. Files `4.0.0`.
 
 - **The seeder no longer writes anything shaped like a Social Security number.** The demo
   `AttendanceRecord` rows carried `123-45-6789`, `987-65-4321` and `456-78-9012`. The first is a
