@@ -711,3 +711,106 @@ module assembly was compiled against, and `GET /api/modules` should report the s
 
 **Wrong if:** modules stop being a supported extension point and become an internal implementation
 detail, in which case none of this is owed to anybody.
+
+
+---
+
+## D19. Durable execution stays ours, and a workflow definition stays data
+
+**Decided:** 9 Sept 2026. **Status:** accepted.
+
+barakoCMS does not adopt Temporal, in core or as a module BaryoDev publishes. The workflow runner and
+the job queue stay the durable execution substrate, and `WorkflowDefinition` stays a document rather
+than becoming code.
+
+Temporal was evaluated properly rather than dismissed. It would have supplied durable timers,
+suspend and resume, values flowing between steps, and determinism replay. Priced against what is
+already here, that list does not survive.
+
+**We already have the substrate.** `WorkflowRun` carries a lease, optimistic concurrency, exponential
+backoff with jitter, a stable idempotency key, an `Unknown` state for a timeout whose outcome nobody
+knows, and `TriggeringEventSequence` so a retry can tell it has been overtaken. `JobRecord` carries
+attempts, a next-attempt time, a dead-letter state and a durable `ExecuteAfter`. Long timers are not a
+gap: `ExecuteAfter` in the future is one, and `ScheduledContentService` already sweeps every tenant
+every minute. The 600 second cap in `WorkflowRetryPolicy.Backoff` bounds a retry, not a wait.
+
+**A definition is data, and Temporal's model is code.** A Temporal workflow is a C# method, which is
+what makes its output binding and its versioning work. `WorkflowDefinition` is a document an operator
+edits in barakoBrew: a list of `WorkflowAction`, each a type and a string dictionary. Running that on
+Temporal means writing an interpreter workflow that walks the definition and dispatches activities, so
+the DSL, the output binding and the condition evaluator are ours to build either way. Temporal would
+have supplied only the layer we already have.
+
+Determinism replay follows from the same difference. It exists because code can change under a running
+instance. A definition cannot, because `WorkflowRunQueue` copies the parameters into the run when it is
+queued. Adopting Temporal would have imported the problem and then solved it.
+
+**It breaks D15.** An enqueue rides the caller's `IDocumentSession` and commits with it, proven both
+directions by `TransactionalEnqueueTests`. Starting a Temporal workflow is an RPC to another process
+and cannot join that transaction. Keeping the property means an outbox in front of Temporal, which
+means keeping `JobRecord`. Temporal does not let us delete anything.
+
+**The footprint contradicts the claim.** The deployment story is an app and Postgres. Self-hosted
+Temporal adds a server, two more databases with their own schema tooling and their own vacuum tuning,
+and a UI. The positioning in `ROADMAP.md` is that there is nothing to procure and nothing to stand up,
+and Temporal Cloud is metered, which is the shape of thing the licence table there uses to
+differentiate. Licensing is not the obstacle; MIT sits fine under MPL-2.0. The footprint is.
+
+**What is given up, honestly.** Temporal's dispatch would structurally fix the rolling-deploy
+duplication in #239, where an old node does not participate in the new locking because it is already
+running. That is a real loss. It is bounded by deploy duration, it is written down, and it has cheaper
+fixes than a server cluster.
+
+**The seam stays open, and core builds it.** This is a decision about what BaryoDev ships, not about
+what anyone may build. `IWorkflowAction` already covers extension by adding steps, and a third party
+who wants Temporal today writes an action that starts a Temporal workflow and hands off. What that
+does not cover is Temporal driving a whole run, because `WorkflowRunner` is internal with no
+replacement.
+
+Core adds that seam rather than leaving it closed, and it is routing rather than replacement. A
+`WorkflowDefinition` names which executor runs it, defaulting to the built-in one, so a Temporal module
+claims only the workflows an operator points at it and every other workflow is untouched. Wholesale
+replacement of the runner is deliberately not offered: it would make one module's choice global, which
+is not what a module is, and it would put the failure mode of every workflow in a package core does
+not ship.
+
+**The interface is the smaller half of that contract.** A replacement executor must keep the
+`WorkflowRun` document current, because that document is what `/api/workflow-runs` serves and what
+barakoBrew reads, and section 6 now treats that JSON as contract. So what an executor is really
+promising is the invariants: attempts advance in order, an outcome is written only by the holder of the
+lease, a timeout records `Unknown` rather than a failure, and the idempotency key stays stable across
+retries of one action. Those are stated with the interface, not left to be inferred from the built-in
+implementation.
+
+**It stays internal until a second implementation proves it.** A seam designed against one caller is a
+guess, and section 6 freezes a public member for the rest of the major. There are no modules outside
+this repository yet, which is D18's argument for settling module questions now and is equally the
+argument for not publishing this one early. It ships internal with the routing in place, and it becomes
+public in 5.0 once something other than `WorkflowRunner` has been built against it.
+
+**The boundary that keeps this true.** A workflow definition is a bounded, acyclic list of actions with
+conditions. If a process needs a loop, recursion, or a nested sub-workflow, it is code, and it belongs
+in an `IWorkflowAction` that a developer writes and tests.
+
+That line is the whole risk of this decision. Building durable execution ourselves is not where this
+goes wrong; that part is built and the reasoning is recorded next to each piece of it. It goes wrong if
+the definition schema grows conditionals, then loops, then an expression language, until it is an
+interpreter nobody can test and every author reads the source to understand. 4.1.0 gives actions
+outputs and a shared condition evaluator, and that is the release where the pressure starts.
+
+**Rules out:** a first-party Temporal module; a second durable execution engine shipped in core
+alongside the runner and the queue; wholesale replacement of the runner by a module, as opposed to
+per-definition routing; a workflow definition that can express iteration or recursion; treating
+Temporal Cloud as a supported deployment target for anything BaryoDev ships.
+
+**Why.** Of the four things Temporal offered, one is already built, one is a feature slice on top of
+what exists, one Temporal does not actually solve for a data-defined workflow, and one is a problem
+only its own programming model creates. What is left is operator tooling we have a better-targeted
+version of, and scale we do not have. Against that, a second server, two more databases and a broken
+transactional enqueue is not a trade.
+
+**Wrong if:** workflow definitions stop being documents and become code that developers write, compile
+and deploy. Then output binding, versioning and determinism replay all become real problems rather than
+avoided ones, and the calculus inverts completely. Also wrong if a single deployment ever needs
+concurrent runs at a volume where a Postgres-polling runner cannot keep up, which is a different
+argument from any made here and should be made with numbers.
