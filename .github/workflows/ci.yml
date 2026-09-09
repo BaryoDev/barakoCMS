@@ -47,6 +47,12 @@ jobs:
       - name: Check changelog fragments
         run: bash scripts/changelog-assemble.sh --check
 
+      # Where assembly puts an entry, proven against a fixture. The assembler searched for its
+      # section heading unscoped, so after a release emptied Unreleased it filed every fragment under
+      # the version that had just shipped and reported success.
+      - name: Prove the changelog assembler files entries under Unreleased
+        run: bash scripts/test-changelog-assemble.sh
+
       # A directory Dependabot does not watch produces no error and no pull request, which is how a
       # front-end folder drifted unwatched for months (#153). This fails the build instead of saying
       # nothing. There is no npm lockfile in this repository today, so the check passes by finding

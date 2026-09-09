@@ -12,8 +12,10 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-DIR=changelog.d
-FILE=CHANGELOG.md
+# Overridable so the fixture test can point the whole script at a throwaway copy. A script that can
+# only be exercised by editing the real CHANGELOG.md is one nobody tests.
+DIR=${CHANGELOG_DIR:-changelog.d}
+FILE=${CHANGELOG_FILE:-CHANGELOG.md}
 CHECK=0
 [ "${1:-}" = "--check" ] && CHECK=1
 
@@ -70,19 +72,42 @@ for section in $SECTIONS; do
 
     body=$(cat ${matching[@]+"${matching[@]}"})
 
-    # Inserted at the end of the section, before the next heading, so ordering within a release
-    # follows the order things were merged rather than the order of a directory listing.
-    python3 - "$FILE" "$section" "$body" <<'PY'
+    python3 - "$FILE" "$section" "$body" "$SECTIONS" <<'PY'
 import sys
-path, section, body = sys.argv[1], sys.argv[2], sys.argv[3]
+path, section, body, sections = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4].split()
 s = open(path, encoding='utf-8').read()
+
+# Every search is scoped to the Unreleased section. An unscoped `s.index("### Fixed")` finds the
+# first such heading in the file, which after a release is the one belonging to the version that
+# just shipped, so the entries land under an old release and the script still says it worked.
+marker = "\n## [Unreleased]\n"
+if marker not in s:
+    raise SystemExit(f"{path} has no '## [Unreleased]' heading")
+start = s.index(marker) + len(marker)
+nxt = s.find("\n## ", start)
+end = nxt if nxt != -1 else len(s)
+unreleased = s[start:end]
+
 heading = f"\n### {section}\n"
-if heading not in s:
-    raise SystemExit(f"{path} has no '### {section}' heading in the unreleased section")
-start = s.index(heading) + len(heading)
-candidates = [x for x in (s.find("\n### ", start), s.find("\n## ", start)) if x != -1]
-cut = min(candidates) if candidates else len(s)
-s = s[:cut].rstrip('\n') + '\n\n' + body.rstrip('\n') + '\n' + s[cut:]
+if heading in unreleased:
+    # Appended at the end of the existing subsection, so ordering within a release follows the
+    # order things were merged rather than the order of a directory listing.
+    at = unreleased.index(heading) + len(heading)
+    nxt_sub = unreleased.find("\n### ", at)
+    cut = nxt_sub if nxt_sub != -1 else len(unreleased)
+    unreleased = unreleased[:cut].rstrip('\n') + '\n\n' + body.rstrip('\n') + '\n' + unreleased[cut:]
+else:
+    # A release empties Unreleased, headings included, so the first fragment of the next cycle has
+    # to create its own. Placed in SECTIONS order, so Unreleased reads like every released section.
+    later = [f"\n### {x}\n" for x in sections[sections.index(section) + 1:]]
+    present = [unreleased.index(h) for h in later if h in unreleased]
+    at = min(present) if present else len(unreleased.rstrip('\n'))
+    block = f"\n### {section}\n\n" + body.rstrip('\n') + '\n'
+    unreleased = unreleased[:at].rstrip('\n') + '\n' + block + unreleased[at:]
+
+# One blank line between the Unreleased heading and its first subsection, and one before the next
+# release heading, whatever the slice looked like going in.
+s = s[:start] + '\n' + unreleased.strip('\n') + '\n' + s[end:]
 open(path, 'w', encoding='utf-8').write(s)
 PY
 
