@@ -17,6 +17,14 @@ along, both found by the post-release sweep rather than reported.
 Upgrading from 4.0.0 needs nothing. The 3.x migration file changed, so anyone still on 3.x should
 take this version's copy of `migrations/4.0.0/3.x-to-4.0.sql` rather than 4.0.0's.
 
+### Changed
+
+- **The module template points a new module at 4.0.1.** `dotnet new barakocms-module` defaulted to the
+  core version it shipped beside, and that default has to move with the release or every module
+  generated after today compiles against the previous one. `BarakoCMS.Templates` ships `4.0.1` for it.
+  `TestingVersion` stays at `4.0.0`, because `BarakoCMS.Testing` did not change and is not being
+  republished.
+
 ### Fixed
 
 - **Two instances starting against the same database could fail on `42P07`.** Marten asks the database what exists and then issues the DDL, and those two steps are not atomic, so two hosts starting together both saw an object missing, both created it, and the loser's whole batch failed. Marten guards its own `ApplyAllDatabaseChangesOnStartup` with an advisory lock; this application replaced that call to get the schema in before the seeders, and the lock came off with it. Schema apply and the module preflight now run under a Postgres advisory lock, so a second host waits and then finds the work done.
