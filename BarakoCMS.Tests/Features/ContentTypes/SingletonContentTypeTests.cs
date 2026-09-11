@@ -82,6 +82,21 @@ public class SingletonContentTypeTests
         return (await session.Query<Content>().Where(c => c.ContentType == type).ToListAsync(Ct)).ToList();
     }
 
+    /// <summary>
+    /// Entries of the type however the caller spelled it. <see cref="EntriesAsync"/> matches the
+    /// stored name exactly, so it counts none of the rows a mis-cased create would leave behind, and
+    /// counting none of them is what a test of the case hole must not do.
+    /// </summary>
+    private async Task<List<Content>> EntriesInAnyCaseAsync(string type)
+    {
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+        var lowered = type.ToLower();
+        return (await session.Query<Content>()
+            .Where(c => c.ContentType.ToLower() == lowered)
+            .ToListAsync(Ct)).ToList();
+    }
+
     /// <summary>Walks the paged list, because that is the only route a console reads a type from.</summary>
     private static async Task<JsonElement?> DescribedAsync(HttpClient client, string name)
     {
@@ -151,6 +166,38 @@ public class SingletonContentTypeTests
     }
 
     /// <summary>
+    /// The same refusal when the type name is shouted. A cap that only matches the stored spelling is
+    /// walked past by holding down shift, and the entry that gets through is a real second row.
+    /// </summary>
+    /// <remarks>
+    /// This is not hypothetical politeness about casing. Content type names are normalised to a
+    /// lowercase slug on the way in, but <c>POST /api/contents</c> stores <c>contentType</c> as the
+    /// caller typed it, and the schema lookup in the validator matches exactly: a shouted name used
+    /// to find no schema at all, return valid, and land the row.
+    /// </remarks>
+    [Fact]
+    public async Task A_second_entry_of_a_singleton_type_is_refused_when_the_name_is_cased_differently()
+    {
+        var client = await AdminAsync();
+        var type = await TypeAsync(client, singleton: true);
+
+        (await CreateEntryAsync(client, type, "+63 2 8123 4567")).IsSuccessStatusCode
+            .Should().BeTrue("the first entry has to land, or the second proves nothing");
+
+        var shouted = type.ToUpperInvariant();
+        shouted.Should().NotBe(type, "the test needs a spelling that differs from the stored one");
+
+        var second = await CreateEntryAsync(client, shouted, "+63 2 8999 0000");
+
+        second.StatusCode.Should().Be(HttpStatusCode.BadRequest,
+            "got {0}: {1}", second.StatusCode, await second.Content.ReadAsStringAsync(Ct));
+
+        var entries = await EntriesInAnyCaseAsync(type);
+        entries.Should().HaveCount(1, "a row stored under the shouted name is still a second entry");
+        entries[0].ContentType.Should().Be(type);
+    }
+
+    /// <summary>
     /// The control. A cap that refused the second entry of every type would pass the test above, and
     /// would also break every content type in every existing deployment.
     /// </summary>
@@ -201,6 +248,141 @@ public class SingletonContentTypeTests
         entries.Should().HaveCount(1, "an update is an edit of the one entry, not a second one");
         entries[0].Data["Phone"].ToString().Should().Be("+63 2 8555 1111",
             "a 200 on a write that changed nothing would pass the count assertion above");
+    }
+
+    /// <summary>
+    /// The other update path. A rollback rewrites the one entry, so it is not a second entry either.
+    /// </summary>
+    /// <remarks>
+    /// Here because the suites that cover the rollback endpoint all use ordinary types, and a
+    /// rollback of an ordinary type passes whether or not the endpoint tells the validator which
+    /// entry is being changed. Removing <c>existing: content</c> from RollbackEndpoint leaves those
+    /// green and makes this one fail with a 400, which is the whole reason it exists.
+    /// </remarks>
+    [Fact]
+    public async Task The_only_entry_of_a_singleton_type_can_still_be_rolled_back()
+    {
+        var client = await AdminAsync();
+        var type = await TypeAsync(client, singleton: true);
+
+        var created = await CreateEntryAsync(client, type, "+63 2 8123 4567");
+        created.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", created.StatusCode,
+            await created.Content.ReadAsStringAsync(Ct));
+
+        using var createdBody = JsonDocument.Parse(await created.Content.ReadAsStringAsync(Ct));
+        var id = createdBody.RootElement.GetProperty("id").GetGuid();
+
+        var updated = await client.PutAsJsonAsync($"/api/contents/{id}", new
+        {
+            data = new Dictionary<string, object> { ["Phone"] = "+63 2 8555 1111" },
+        }, Ct);
+        updated.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", updated.StatusCode,
+            await updated.Content.ReadAsStringAsync(Ct));
+
+        var history = await client.GetAsync($"/api/contents/{id}/history", Ct);
+        history.IsSuccessStatusCode.Should().BeTrue("got {0}", history.StatusCode);
+
+        using var historyBody = JsonDocument.Parse(await history.Content.ReadAsStringAsync(Ct));
+        var firstVersions = historyBody.RootElement.GetProperty("items").EnumerateArray()
+            .Where(v => v.GetProperty("data").GetProperty("Phone").GetString() == "+63 2 8123 4567")
+            .Select(v => v.GetProperty("versionId").GetGuid())
+            .ToList();
+
+        firstVersions.Should().HaveCount(1, "the version being restored has to be in the history");
+
+        var rolledBack = await client.PostAsJsonAsync(
+            $"/api/contents/{id}/rollback/{firstVersions[0]}", new { }, Ct);
+
+        rolledBack.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", rolledBack.StatusCode,
+            await rolledBack.Content.ReadAsStringAsync(Ct));
+
+        var entries = await EntriesAsync(type);
+        entries.Should().HaveCount(1, "a rollback rewrites the entry, it does not add one");
+        entries[0].Data["Phone"].ToString().Should().Be("+63 2 8123 4567",
+            "a 200 on a rollback that restored nothing would pass the count assertion above");
+    }
+
+    /// <summary>
+    /// Archiving the one entry does not free the slot. Decided this way rather than the other.
+    /// </summary>
+    /// <remarks>
+    /// The cap counts entries of every status on purpose. A console or a site reading the first item
+    /// of the list cannot tell an archived row from a live one, so letting an archive free the slot
+    /// puts two rows under the type and brings back exactly the ambiguity the flag removes. The way
+    /// out is erasing the entry, which needs SuperAdmin and the erase_content capability, and that
+    /// cost is the point: a singleton's one entry is the site's own values, not a draft.
+    /// </remarks>
+    [Fact]
+    public async Task Archiving_the_only_entry_of_a_singleton_type_does_not_free_the_slot()
+    {
+        var client = await AdminAsync();
+        var type = await TypeAsync(client, singleton: true);
+
+        var created = await CreateEntryAsync(client, type, "+63 2 8123 4567");
+        created.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", created.StatusCode,
+            await created.Content.ReadAsStringAsync(Ct));
+
+        using var createdBody = JsonDocument.Parse(await created.Content.ReadAsStringAsync(Ct));
+        var id = createdBody.RootElement.GetProperty("id").GetGuid();
+
+        var archived = await client.PutAsJsonAsync(
+            $"/api/contents/{id}/status", new { id, newStatus = "Archived" }, Ct);
+        archived.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", archived.StatusCode,
+            await archived.Content.ReadAsStringAsync(Ct));
+
+        var second = await CreateEntryAsync(client, type, "+63 2 8999 0000");
+
+        second.StatusCode.Should().Be(HttpStatusCode.BadRequest,
+            "got {0}: {1}", second.StatusCode, await second.Content.ReadAsStringAsync(Ct));
+
+        var entries = await EntriesAsync(type);
+        entries.Should().HaveCount(1);
+        entries[0].Status.Should().Be(ContentStatus.Archived,
+            "the archived entry is the one still holding the slot, so the status change did happen");
+    }
+
+    /// <summary>
+    /// The two-argument ValidateAsync is obsolete and still has to be there, and still has to mean
+    /// create.
+    /// </summary>
+    /// <remarks>
+    /// BarakoCMS.Import 4.0.0 is on nuget.org and its IL names that member. A host that upgrades the
+    /// core package while keeping that module resolves it at runtime with nothing at compile time to
+    /// warn them, so dropping it is a MissingMethodException on POST /api/import/content. Called
+    /// through reflection rather than with a cast, because the compiler would happily bind a
+    /// two-argument call to the three-argument overload's default and this test would then prove
+    /// nothing about the member that ships.
+    /// </remarks>
+    [Fact]
+    public async Task The_obsolete_two_argument_validate_is_still_on_the_interface_and_still_caps()
+    {
+        var client = await AdminAsync();
+        var type = await TypeAsync(client, singleton: true);
+
+        (await CreateEntryAsync(client, type, "+63 2 8123 4567")).IsSuccessStatusCode
+            .Should().BeTrue("the cap needs an entry to refuse the next one against");
+
+        var method = typeof(barakoCMS.Infrastructure.Services.IContentValidatorService).GetMethod(
+            "ValidateAsync", [typeof(string), typeof(Dictionary<string, object>)]);
+
+        method.Should().NotBeNull(
+            "BarakoCMS.Import 4.0.0 calls ValidateAsync(string, Dictionary<string, object>) and is "
+            + "already published, so the member cannot leave until a major that drops support for it");
+        method!.ReturnType.Should().Be(typeof(Task<(bool IsValid, List<string> Errors)>),
+            "a changed return type is the same binary break as a removed method");
+
+        using var scope = _fixture.Services.CreateScope();
+        var validator = scope.ServiceProvider
+            .GetRequiredService<barakoCMS.Infrastructure.Services.IContentValidatorService>();
+
+        var call = (Task<(bool IsValid, List<string> Errors)>)method.Invoke(
+            validator, [type, new Dictionary<string, object> { ["Phone"] = "+63 2 8999 0000" }])!;
+
+        var (isValid, errors) = await call;
+
+        isValid.Should().BeFalse("the old overload always meant create, and a create is capped");
+        errors.Should().HaveCount(1);
+        errors[0].Should().Contain("single entry");
     }
 
     /// <summary>

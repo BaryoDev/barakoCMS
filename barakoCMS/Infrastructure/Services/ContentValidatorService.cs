@@ -8,6 +8,8 @@ namespace barakoCMS.Infrastructure.Services;
 public interface IContentValidatorService
 {
     /// <summary>Checks a data bag against its content type's schema.</summary>
+    /// <param name="contentType">The type name as the caller spelled it.</param>
+    /// <param name="data">The field values being written.</param>
     /// <param name="existing">
     /// The entry being changed, or null when one is being created. Only the singleton cap reads it,
     /// and null is the answer that enforces the cap, so a create path that passes nothing still gets
@@ -17,6 +19,21 @@ public interface IContentValidatorService
         string contentType,
         Dictionary<string, object> data,
         Models.Content? existing = null);
+
+    /// <summary>Checks a data bag against its content type's schema, as a create.</summary>
+    /// <remarks>
+    /// Kept because BarakoCMS.Import 4.0.0 is published and its compiled call site names this
+    /// member: dropping it means a host that upgrades the core package while keeping that module
+    /// gets a MissingMethodException on POST /api/import/content, with nothing at compile time to
+    /// warn them. A default implementation rather than a second method on the class, so an
+    /// implementor written against the three-argument overload does not have to write this one.
+    /// </remarks>
+    [Obsolete("Use the overload taking existing, so an update of a singleton type's only entry is "
+        + "not read as a second entry. Removal planned for barakoCMS 5.0.")]
+    Task<(bool IsValid, List<string> Errors)> ValidateAsync(
+        string contentType,
+        Dictionary<string, object> data)
+        => ValidateAsync(contentType, data, existing: null);
 }
 
 public class ContentValidatorService : IContentValidatorService
@@ -39,34 +56,53 @@ public class ContentValidatorService : IContentValidatorService
         var schema = await _session.Query<ContentTypeDefinition>()
             .FirstOrDefaultAsync(x => x.Name == contentType);
 
+        // 2. The singleton cap. Creating only: an update is not a second entry, and refusing it
+        // would make the flag unusable, since the one entry a singleton type is for could never be
+        // edited.
+        //
+        // The definition is resolved again here, case-insensitively, instead of reusing the exact
+        // match above. That lookup stays exact on purpose: a mis-cased name finds no schema and the
+        // entry is accepted unvalidated, and loosening it would start refusing requests this API
+        // takes today, which is an HTTP-surface break under CLAUDE.md section 6. The cap still has
+        // to see the type, because an entry created as SETTINGS is a second entry of settings, and a
+        // cap a caller can walk past by holding down shift is not a cap. Case-insensitive for the
+        // reason every other name comparison here is: names have only been normalised since 4.0, so
+        // a type or an entry written by a 3.x import carries whatever the caller typed.
+        if (existing is null)
+        {
+            var lowered = contentType.ToLower();
+
+            var definition = schema ?? await _session.Query<ContentTypeDefinition>()
+                .FirstOrDefaultAsync(x => x.Name.ToLower() == lowered);
+
+            if (definition?.IsSingleton == true)
+            {
+                var typeName = definition.Name.ToLower();
+
+                // Every status counts, drafts and archived entries included. The cap exists so the
+                // type holds one row, and a reader that takes the first item of the list cannot tell
+                // an archived row from a live one. Freeing the slot means erasing the entry, which
+                // needs SuperAdmin and the EraseContent capability.
+                var taken = await _session.Query<Models.Content>()
+                    .AnyAsync(c => c.ContentType.ToLower() == typeName);
+
+                if (taken)
+                {
+                    errors.Add(
+                        $"'{definition.DisplayName}' holds a single entry and already has one. "
+                      + "Edit that entry rather than creating another.");
+
+                    // No point reporting field errors on a request that cannot be created either way.
+                    return (false, errors);
+                }
+            }
+        }
+
         if (schema == null)
         {
             // No content type definition, so there is no schema to check against and the entry is
             // accepted as-is. Validation is opt-in: defining a type is what turns it on.
             return (true, errors);
-        }
-
-        // 2. The singleton cap. Creating only: an update is not a second entry, and refusing it
-        // would make the flag unusable, since the one entry a singleton type is for could never be
-        // edited. Counting case-insensitively for the same reason the create endpoint does: names
-        // have only been normalised since 4.0, so an entry written by a 3.x import carries whatever
-        // the caller typed and matching exactly would count none of them.
-        if (schema.IsSingleton && existing is null)
-        {
-            var typeName = schema.Name.ToLower();
-
-            var taken = await _session.Query<Models.Content>()
-                .AnyAsync(c => c.ContentType.ToLower() == typeName);
-
-            if (taken)
-            {
-                errors.Add(
-                    $"'{schema.DisplayName}' holds a single entry and already has one. "
-                  + "Edit that entry rather than creating another.");
-
-                // No point reporting field errors on a request that cannot be created either way.
-                return (false, errors);
-            }
         }
 
         // 3. Validate Fields

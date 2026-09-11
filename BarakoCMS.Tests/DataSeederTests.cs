@@ -274,7 +274,7 @@ public class DataSeederTests
 
         foreach (var record in DataSeeder.SampleAttendanceRecords())
         {
-            var (isValid, errors) = await validator.ValidateAsync("AttendanceRecord", record.Data);
+            var (isValid, errors) = await validator.ValidateAsync("AttendanceRecord", record.Data, existing: null);
             isValid.Should().BeTrue("the seeded demo data must satisfy the seeded schema, got: {0}",
                 string.Join("; ", errors));
         }

@@ -272,6 +272,44 @@ public class BulkCreateTests
         (await CountAsync(type)).Should().Be(0, "the default import is all or nothing");
     }
 
+    /// <summary>
+    /// And not by shouting the type name either. The definition lookup behind the batch cap is
+    /// case-insensitive, like every other name lookup in the codebase.
+    /// </summary>
+    /// <remarks>
+    /// An exact match here found no definition for a mis-cased name, which left the batch cap off and
+    /// the public-field set empty. Both rows would have landed.
+    /// </remarks>
+    [Fact]
+    public async Task Two_rows_of_a_singleton_type_cannot_be_imported_by_shouting_the_type_name()
+    {
+        var type = await SingletonContentTypeAsync();
+        var client = await ClientAsync("SuperAdmin");
+
+        var response = await client.PostAsJsonAsync("/api/import/content", new
+        {
+            contentType = type.ToUpperInvariant(),
+            records = new[]
+            {
+                new Dictionary<string, object> { ["Title"] = "First" },
+                new Dictionary<string, object> { ["Title"] = "Second" },
+            },
+        }, TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, "got {0}",
+            await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+
+        using var report = JsonDocument.Parse(
+            await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        report.RootElement.GetProperty("errors").EnumerateArray()
+            .Select(e => e.GetProperty("row").GetInt32())
+            .Should().BeEquivalentTo([1], "the first row is the one that may be created");
+
+        (await CountAsync(type)).Should().Be(0, "the default import is all or nothing");
+        (await CountAsync(type.ToUpperInvariant())).Should().Be(0,
+            "and nothing landed under the shouted spelling either");
+    }
+
     /// <summary>The control: one row of a singleton type is a normal import.</summary>
     [Fact]
     public async Task One_row_of_a_singleton_type_is_imported()

@@ -245,6 +245,12 @@ that grows a second row the first time somebody clicks New. Editing the entry th
 affected. It is on the create body and on the type as the API reports it, so a console can show one
 edit screen instead of a list; there is no endpoint to change it afterwards.
 
+Two things the cap does not do. It counts entries of every status, so archiving the one entry does
+not free the slot; that takes `DELETE /api/contents/{id}/erase`, which needs SuperAdmin and the
+`erase_content` capability. And a Portability bundle import is not capped: an import validates
+nothing by design and it runs during a restore, where dropping rows the bundle holds would lose
+content. A bundle with two entries of a singleton type lands both.
+
 **A slug field is what makes `/api/public/{type}/{slug}` exist.** A field of type `slug`, or failing
 that a field named `slug`. Without one that route is 404.
 

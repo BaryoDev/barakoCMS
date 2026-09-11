@@ -85,15 +85,20 @@ public class Endpoint : Endpoint<Request, Response>
             return;
         }
 
+        // Lowered on both sides, like the duplicate-name check in the content type create endpoint. A
+        // type stored before names were normalised carries whatever the caller typed, and an exact
+        // match finds no definition at all: the batch cap below would be off and the public-field set
+        // would come out empty.
+        var lowered = req.ContentType.ToLower();
         var definition = await _session.Query<ContentTypeDefinition>()
-            .FirstOrDefaultAsync(d => d.Name == req.ContentType, ct);
+            .FirstOrDefaultAsync(d => d.Name.ToLower() == lowered, ct);
 
         // Validate every record first so an all-or-nothing import can reject before writing anything.
         var errors = new List<Response.RowError>();
         var valid = new List<(int Row, Dictionary<string, object> Data)>();
         for (var i = 0; i < req.Records.Count; i++)
         {
-            var (isValid, msgs) = await _validator.ValidateAsync(req.ContentType, req.Records[i]);
+            var (isValid, msgs) = await _validator.ValidateAsync(req.ContentType, req.Records[i], existing: null);
             if (isValid) valid.Add((i, req.Records[i]));
             else errors.Add(new Response.RowError { Row = i, Messages = msgs });
         }
