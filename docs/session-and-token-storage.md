@@ -80,9 +80,9 @@ smaller target than one that keeps it in storage for a week.
 The cookie is `SameSite=Lax`, which means the browser sends it when the admin and the API are the
 same site.
 
-- **Same origin, or same site with different paths.** Works with no configuration. The bundled
-  playground serves the admin at `/barakocms` and the API at `/barakocms-api`, which is why it works
-  there.
+- **Same origin, or same site with different paths.** Works with no configuration. One host
+  serving the console at `/admin` and the API at `/api` needs nothing set: same origin, so the
+  cookie is sent.
 - **Different port, same host**, for example the admin on `:3000` and the API on `:5005` in local
   development. These are different origins but the same site, and `SameSite=Lax` is about the site,
   so the cookie is sent. It needs credentialed CORS to be useful, which the API already configures

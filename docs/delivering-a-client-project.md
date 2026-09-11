@@ -671,8 +671,7 @@ Until those two surfaces are scoped, a client-facing role must carry no system c
 ### Things about operating it
 
 - **The TLS path is not covered by CI** (#308). CI resolves every compose file and asserts the
-  production one builds nothing, and the same images run on the playground, but certificate issuance
-  on a real VM is verified by hand.
+  production one builds nothing, but certificate issuance on a real VM is verified by hand.
 - **Versioned image tags are amd64 only** (#394).
 - **No CLI** (#169, #345). Everything in this document is barakoBrew or curl. There is no
   reviewable file that configures an instance, which is what would make step 3 through step 5

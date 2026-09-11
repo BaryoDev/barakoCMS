@@ -201,6 +201,6 @@ backup, so do it once before you have data worth keeping.
   is public. Tracked as #283.
 
 - **TLS on a real VM is not covered by CI.** CI resolves every compose file and asserts the
-  production one builds nothing, and the same images are exercised by the playground deploy, but the
-  certificate issuance path is verified by hand. Tracked as #308.
+  production one builds nothing, but the certificate issuance path is verified by hand.
+  Tracked as #308.
 
