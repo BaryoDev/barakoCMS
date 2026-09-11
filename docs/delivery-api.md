@@ -335,6 +335,35 @@ limitation until a shared bus exists between instances; a single-instance deploy
 everything. Content types running with `EventSourcing:DocumentTypesAppend` off write no events,
 so nothing about them is streamed, the same way nothing about them fires a workflow.
 
+## Serving public content from a module
+
+A module that adds its own anonymous route resolves `IPublicContentProjector` from
+`barakoCMS.Core.Interfaces` and hands it a `Content` plus its `ContentTypeDefinition`. It gets back a
+`PublicContentProjection`, which serialises to the same JSON as `/api/public/{type}/{slug}`, or null
+when the entry must not be served at all.
+
+```csharp
+var def = await session.Query<ContentTypeDefinition>()
+    .FirstOrDefaultAsync(d => d.Name == type, ct);
+
+if (!projector.IsDeliverable(def)) { await Send.NotFoundAsync(ct); return; }
+
+var projected = projector.Project(entry, def);
+if (projected is null) { await Send.NotFoundAsync(ct); return; }
+
+await Send.OkAsync(projected, ct);
+```
+
+Use it rather than filtering in the module. Four checks stand between a stored document and a public
+response (published status, document sensitivity, the type's delivery opt-in, and the field
+allowlist), each fails open in a different direction, and a second copy of them looks right until it
+delivers a draft. The core routes above call the same code, so there is one copy of the four and a
+module holds none of it.
+
+Nothing in the interface queries. The module loads the entry and the definition from its own session,
+which keeps tenant scoping where it already is. `SlugField` is there because a module addressing
+entries by slug has to query the field delivery reads the slug back from.
+
 ## Stability and deprecation
 
 There is no version segment in the URL and none is planned. The delivery API, meaning every route
