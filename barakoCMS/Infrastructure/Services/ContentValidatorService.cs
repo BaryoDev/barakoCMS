@@ -16,6 +16,12 @@ public interface IContentValidatorService
     /// and null is the answer that enforces the cap, so a create path that passes nothing still gets
     /// the check.
     /// </param>
+    /// <remarks>
+    /// Anything implementing or decorating this interface wants to override this member rather than
+    /// only the obsolete two-argument one. Inheriting that default passes null, and null is read as a
+    /// create: the singleton cap then refuses an update of the one entry as a second entry, and the
+    /// slug check refuses an entry its own stored slug on the next edit.
+    /// </remarks>
     Task<(bool IsValid, List<string> Errors)> ValidateAsync(
         string contentType,
         Dictionary<string, object> data,
@@ -146,12 +152,19 @@ public class ContentValidatorService : IContentValidatorService
             }
         }
 
-        // The entry's own stored slug is not a collision with itself, so the entry being
-        // changed is excluded. `existing` is that entry, which is why no second parameter
-        // carrying its id is needed: every caller that has the id has the entry.
-        var slugError = await ValidateSlugUniquenessAsync(schema, contentType, data, existing?.Id);
-        if (slugError is not null)
-            errors.Add(slugError);
+        // Only when everything else passed. This one costs a query the slug route's own comment
+        // explains cannot use an index, and a request already answering 400 does not need a second
+        // reason to; on a bulk import it is one such query per row.
+        //
+        // The entry's own stored slug is not a collision with itself, so the entry being changed is
+        // excluded. `existing` is that entry, which is why no second parameter carrying its id is
+        // needed: every caller that has the id has the entry.
+        if (errors.Count == 0)
+        {
+            var slugError = await ValidateSlugUniquenessAsync(schema, contentType, data, existing?.Id);
+            if (slugError is not null)
+                errors.Add(slugError);
+        }
 
         return (errors.Count == 0, errors);
     }

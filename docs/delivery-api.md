@@ -51,6 +51,11 @@ because a draft allowed to hold a taken slug only fails at the moment somebody p
 scheduler publishes on a timer with nobody to tell. Matching is case-insensitive, the same way this
 route matches. Reusing the slug of a retired entry means changing or clearing it on that entry first.
 
+Content stored before that rule existed is not rewritten, so a database can still hold two entries
+on one slug. The route resolves those oldest first, with the entry id as the tiebreak, so the URL
+answers with the same entry on every request until the duplicate is cleaned up. It used to answer
+with whichever row the database returned first.
+
 ## Pagination
 
 `GET /api/public/{type}` takes `page` and `pageSize`.
