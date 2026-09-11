@@ -862,3 +862,42 @@ project.
 **What this rules out.** Brew plugins. Business rules in the renderer. A console screen that only
 one deployment can use. Modules written for something a workflow already does.
 
+## D21. It runs wherever containers run, and BaryoVM is one option rather than the path
+
+**Decided:** 11 Sept 2026. **Status:** accepted.
+
+barakoCMS is a container and a Postgres database. That is the whole hosting requirement, and every
+claim about where this runs follows from it: a VM, Azure App Service with Database for PostgreSQL,
+AWS Fargate or App Runner with RDS, Cloud Run with Cloud SQL, or Kubernetes with the manifests in
+`k8s/`. Images are published multi-arch and pull anonymously.
+
+**Ownership and management are separate decisions.** The industry sells them bundled, so people
+assume that owning your software means running your own servers. It does not. A deployment can be
+entirely managed, patched by a cloud provider, with point-in-time restore, and still not meter
+anybody per seat, per record, per environment or per space. What this project refuses is the
+metering, not the convenience.
+
+**Scaling out is already safe, and that is worth saying out loud.** `SchemaApplyLock` takes a
+blocking Postgres advisory lock, so several instances starting at once serialise rather than race.
+Projections take a per-projection advisory lock, so exactly one process runs each. `/health` answers
+a platform probe. Anyone with operational experience asks about concurrent startup first, and the
+answer has been good for a while without being written down.
+
+**BaryoVM is one deployment option, not a requirement.** It deploys over SSH to a machine you own,
+which makes it the cheapest path and the wrong tool for App Service. On a managed platform the
+cloud's own pipeline ships the container, and that is normal. Implying otherwise would make the
+whole stack look like it runs one way, which is the opposite of what is true. An agency on Azure
+uses barakoCMS, barakoBrew and barakoPress, and Azure does the shipping.
+
+**Multi-tenancy is what makes the economics compound.** One deployment serves many tenants, so an
+agency's tenth client costs close to nothing. A hosted platform charges for the tenth the same way
+it charged for the first. That is the argument, rather than the monthly total.
+
+**What this commits us to.** Documenting the managed path, not only the VM one (#727). Durable file
+storage on every target we claim, which today means Azure has a gap because Blob Storage is not S3
+compatible (#728). And not claiming a platform works until somebody has run it there.
+
+**What it rules out.** Positioning this as a self-hosting product. That is a smaller market and a
+weaker argument, and it is not even accurate. The position is that you own the software and choose
+how much of the operating you want to do.
+
