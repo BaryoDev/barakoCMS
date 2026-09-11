@@ -124,6 +124,43 @@ public class PublicContentProjectorTests
         Projector.Project(Entry(), null).Should().BeNull();
     }
 
+    /// <summary>
+    /// The pairing check. The core routes cannot reach this, because each one looks the definition up
+    /// by the route's type and queries content by the same type, but the interface hands the pairing to
+    /// a module and a wrong pair applies another type's field allowlist.
+    /// </summary>
+    [Fact]
+    public void An_entry_projected_against_another_types_definition_is_not_projected()
+    {
+        var foreign = Definition();
+        foreign.Name = "page";
+        foreign.DisplayName = "Page";
+        foreign.Fields.Single(f => f.Name == "Secret").Sensitivity = SensitivityLevel.Public;
+
+        var entry = Entry();
+
+        Projector.Project(entry, foreign).Should().BeNull(
+            "the entry's own type is post, and post marks Secret Sensitive");
+
+        /* Guards the assertion above: the same definition does project an entry of its own type, so
+         * the null is the pairing check and not a deliverable definition that projects nothing. */
+        var ownEntry = Entry();
+        ownEntry.ContentType = "page";
+        var ownProjection = Projector.Project(ownEntry, foreign);
+        ownProjection.Should().NotBeNull();
+        ownProjection!.Data.Should().ContainKey("Secret", "page marks it Public");
+    }
+
+    [Fact]
+    public void The_pairing_check_ignores_the_case_of_the_type_name()
+    {
+        var entry = Entry();
+        entry.ContentType = "POST";
+
+        Projector.Project(entry, Definition()).Should().NotBeNull(
+            "type names are matched case-insensitively everywhere else in delivery");
+    }
+
     [Fact]
     public void A_type_that_has_not_opted_into_delivery_is_not_deliverable()
     {
@@ -140,6 +177,9 @@ public class PublicContentProjectorTests
         var noSlug = Definition();
         noSlug.Fields.RemoveAll(f => f.Name == "Slug");
         Projector.SlugField(noSlug).Should().BeNull("the type is not slug-addressable");
+
+        Projector.SlugField(null).Should().BeNull(
+            "an unfound definition can be passed straight in, as for the other two members");
     }
 
     [Fact]

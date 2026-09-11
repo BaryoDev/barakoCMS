@@ -19,17 +19,30 @@ internal sealed class PublicContentProjector : IPublicContentProjector
     public bool IsDeliverable(ContentTypeDefinition? definition) =>
         PublicDelivery.IsDeliverable(definition);
 
-    public string? SlugField(ContentTypeDefinition definition) =>
-        PublicDelivery.SlugField(definition);
+    public string? SlugField(ContentTypeDefinition? definition) =>
+        definition is null ? null : PublicDelivery.SlugField(definition);
 
     public PublicContentProjection? Project(Content content, ContentTypeDefinition? definition)
     {
         ArgumentNullException.ThrowIfNull(content);
 
-        var slugField = definition is null ? null : PublicDelivery.SlugField(definition);
-        var projected = PublicDelivery.ToPublic(content, definition, slugField);
-        if (projected is null)
+        /* The pair has to match, and a mismatch is refused rather than trusted. The schema is what
+         * names the Public fields, so another type's definition applies another type's allowlist, and
+         * the result still reads as authentic because ContentType comes off the entry. The core routes
+         * cannot get here: each resolves the definition by the route's type and queries content by the
+         * same type, which held the invariant by construction. This interface hands the pairing to a
+         * caller, so the invariant needs stating. */
+        if (definition is null
+            || !string.Equals(content.ContentType, definition.Name, StringComparison.OrdinalIgnoreCase))
+        {
             return null;
+        }
+
+        var projected = PublicDelivery.ToPublic(content, definition, PublicDelivery.SlugField(definition));
+        if (projected is null)
+        {
+            return null;
+        }
 
         return new PublicContentProjection(
             projected.Id,

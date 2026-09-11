@@ -25,6 +25,13 @@ public sealed record PublicSeoMetadata(
 /// A module serialising this produces what a frontend already reads from the core route, so a
 /// client site can point at a module's route without a second parser.
 /// </remarks>
+/// <param name="Id">The entry's id.</param>
+/// <param name="ContentType">The name of the entry's content type.</param>
+/// <param name="Slug">The entry's slug, or null when the type is not slug-addressable.</param>
+/// <param name="Data">Only the fields the content type marks Public.</param>
+/// <param name="CreatedAt">When the entry was created.</param>
+/// <param name="UpdatedAt">When the entry was last updated.</param>
+/// <param name="Seo">The resolved SEO metadata, or null when the content type has not opted in.</param>
 public sealed record PublicContentProjection(
     Guid Id,
     string ContentType,
@@ -32,8 +39,6 @@ public sealed record PublicContentProjection(
     IReadOnlyDictionary<string, object> Data,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
-
-    /// <summary>The resolved SEO metadata, or null when the content type has not opted in.</summary>
     PublicSeoMetadata? Seo = null);
 
 /// <summary>
@@ -70,17 +75,25 @@ public interface IPublicContentProjector
     /// </summary>
     /// <remarks>
     /// A field of type "slug", else a field named "slug", case-insensitively. Exposed because a
-    /// module addressing entries by slug has to query the same field delivery reads back.
+    /// module addressing entries by slug has to query the same field delivery reads back. Null in
+    /// gives null out, so the result of a FirstOrDefaultAsync can be passed straight in, the same as
+    /// for the other two members.
     /// </remarks>
-    string? SlugField(ContentTypeDefinition definition);
+    string? SlugField(ContentTypeDefinition? definition);
 
     /// <summary>
     /// The entry as it may be served, or null when it may not be served at all.
     /// </summary>
+    /// <remarks>
+    /// The definition has to be the entry's own content type, and a pair that does not match projects
+    /// to null. It is the schema that says which fields are Public, so another type's schema applies
+    /// another type's allowlist, and an entry whose real type marks a field Sensitive would be served
+    /// with that field in it.
+    /// </remarks>
     /// <param name="content">The document, loaded by the caller.</param>
     /// <param name="definition">
-    /// Its content type. Null projects to null: with no schema saying which fields are Public,
-    /// nothing is delivered.
+    /// Its content type, matched by name case-insensitively. Null projects to null: with no schema
+    /// saying which fields are Public, nothing is delivered.
     /// </param>
     PublicContentProjection? Project(Content content, ContentTypeDefinition? definition);
 }
