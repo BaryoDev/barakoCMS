@@ -25,6 +25,23 @@ public class ContentTypeDefinition
     /// </remarks>
     public bool IsPubliclyDeliverable { get; set; }
 
+    /// <summary>
+    /// Whether this type holds exactly one entry, so it can model a site's own values: address,
+    /// phone, opening hours, footer text.
+    /// </summary>
+    /// <remarks>
+    /// Off by default, so no type that exists today changes. Enforced on create, in
+    /// <c>ContentValidatorService</c>: a second entry is refused. Editing the entry that is already
+    /// there is not creating one and stays allowed, which is what makes the flag usable at all, and
+    /// it also means turning this on for a type that somehow has two entries does not make either of
+    /// them read only.
+    ///
+    /// The tenant profile is not a substitute. Its shape is fixed and <c>Branding</c> is not writable
+    /// through the API, so a client's emergency number has nowhere to go. <c>SystemSetting</c> is
+    /// deployment level with fixed categories, neither per tenant nor public.
+    /// </remarks>
+    public bool IsSingleton { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 

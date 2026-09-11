@@ -7,7 +7,16 @@ namespace barakoCMS.Infrastructure.Services;
 
 public interface IContentValidatorService
 {
-    Task<(bool IsValid, List<string> Errors)> ValidateAsync(string contentType, Dictionary<string, object> data);
+    /// <summary>Checks a data bag against its content type's schema.</summary>
+    /// <param name="existing">
+    /// The entry being changed, or null when one is being created. Only the singleton cap reads it,
+    /// and null is the answer that enforces the cap, so a create path that passes nothing still gets
+    /// the check.
+    /// </param>
+    Task<(bool IsValid, List<string> Errors)> ValidateAsync(
+        string contentType,
+        Dictionary<string, object> data,
+        Models.Content? existing = null);
 }
 
 public class ContentValidatorService : IContentValidatorService
@@ -19,7 +28,10 @@ public class ContentValidatorService : IContentValidatorService
         _session = session;
     }
 
-    public async Task<(bool IsValid, List<string> Errors)> ValidateAsync(string contentType, Dictionary<string, object> data)
+    public async Task<(bool IsValid, List<string> Errors)> ValidateAsync(
+        string contentType,
+        Dictionary<string, object> data,
+        Models.Content? existing = null)
     {
         var errors = new List<string>();
         
@@ -34,7 +46,30 @@ public class ContentValidatorService : IContentValidatorService
             return (true, errors);
         }
 
-        // 2. Validate Fields
+        // 2. The singleton cap. Creating only: an update is not a second entry, and refusing it
+        // would make the flag unusable, since the one entry a singleton type is for could never be
+        // edited. Counting case-insensitively for the same reason the create endpoint does: names
+        // have only been normalised since 4.0, so an entry written by a 3.x import carries whatever
+        // the caller typed and matching exactly would count none of them.
+        if (schema.IsSingleton && existing is null)
+        {
+            var typeName = schema.Name.ToLower();
+
+            var taken = await _session.Query<Models.Content>()
+                .AnyAsync(c => c.ContentType.ToLower() == typeName);
+
+            if (taken)
+            {
+                errors.Add(
+                    $"'{schema.DisplayName}' holds a single entry and already has one. "
+                  + "Edit that entry rather than creating another.");
+
+                // No point reporting field errors on a request that cannot be created either way.
+                return (false, errors);
+            }
+        }
+
+        // 3. Validate Fields
         foreach (var field in schema.Fields)
         {
             var keyDetails = data.FirstOrDefault(k => k.Key.Equals(field.Name, StringComparison.OrdinalIgnoreCase));

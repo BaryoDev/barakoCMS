@@ -85,6 +85,9 @@ public class Endpoint : Endpoint<Request, Response>
             return;
         }
 
+        var definition = await _session.Query<ContentTypeDefinition>()
+            .FirstOrDefaultAsync(d => d.Name == req.ContentType, ct);
+
         // Validate every record first so an all-or-nothing import can reject before writing anything.
         var errors = new List<Response.RowError>();
         var valid = new List<(int Row, Dictionary<string, object> Data)>();
@@ -95,15 +98,30 @@ public class Endpoint : Endpoint<Request, Response>
             else errors.Add(new Response.RowError { Row = i, Messages = msgs });
         }
 
+        // The validator caps a singleton type by counting what is in the database, and inside one
+        // batch there is nothing in the database yet: every record passes the count and the whole
+        // batch lands. The cap has to be applied to the batch as well, so the rule holds on the one
+        // path that can create many entries in a single request.
+        if (definition?.IsSingleton == true && valid.Count > 1)
+        {
+            foreach (var (row, _) in valid.Skip(1))
+            {
+                errors.Add(new Response.RowError
+                {
+                    Row = row,
+                    Messages = [$"'{definition.DisplayName}' holds a single entry, so only one record of it can be imported."],
+                });
+            }
+
+            valid = valid.Take(1).ToList();
+        }
+
         if (errors.Count > 0 && !req.ContinueOnError)
         {
             // Surface the row-level errors without creating anything.
             await Send.ResponseAsync(new Response { Created = 0, Failed = errors.Count, Errors = errors }, 400, ct);
             return;
         }
-
-        var definition = await _session.Query<ContentTypeDefinition>()
-            .FirstOrDefaultAsync(d => d.Name == req.ContentType, ct);
 
         var publicFields = definition?.Fields
             .Where(f => f.Sensitivity == SensitivityLevel.Public)

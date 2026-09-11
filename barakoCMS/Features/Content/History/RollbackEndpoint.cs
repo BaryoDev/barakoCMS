@@ -135,7 +135,7 @@ internal class RollbackEndpoint : Endpoint<RollbackRequest, RollbackResponse>
             .ApplyWriteAsync(content.ContentType, data, content.Data, HttpContext, ct);
 
         var validationResult = await Resolve<barakoCMS.Infrastructure.Services.IContentValidatorService>()
-            .ValidateAsync(content.ContentType, data);
+            .ValidateAsync(content.ContentType, data, existing: content);
         if (!validationResult.IsValid)
         {
             foreach (var error in validationResult.Errors)

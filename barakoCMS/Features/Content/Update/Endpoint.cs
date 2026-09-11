@@ -77,7 +77,8 @@ internal class Endpoint : Endpoint<Request, Response>
             .ApplyWriteAsync(existingContent.ContentType, req.Data, existingContent.Data, HttpContext, ct);
 
         // DYNAMIC VALIDATION - Validate data against ContentType schema
-        var validationResult = await _validator.ValidateAsync(existingContent.ContentType, req.Data);
+        var validationResult = await _validator.ValidateAsync(
+            existingContent.ContentType, req.Data, existing: existingContent);
         if (!validationResult.IsValid)
         {
             foreach (var error in validationResult.Errors)
