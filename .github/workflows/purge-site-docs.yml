@@ -1,0 +1,81 @@
+# Tell barakocms.com that something it renders from this repository has changed.
+#
+# The site reads its docs, its changelog and its contributor list straight out of this repository
+# over HTTP, cached under one tag. Without this it would keep serving the copy it cached, for as
+# long as the cache lives, and a typo fix here would need a redeploy over there.
+#
+# This holds an HMAC secret and nothing else. It gets no SSH key and no access to the server: the
+# most a leak of SITE_REVALIDATE_SECRET buys an attacker is the ability to make the site re-render
+# pages it was going to re-render anyway.
+#
+# It is deliberately not a required check and never fails the push. A purge that does not land
+# means the site is briefly stale, which is not a reason to turn a documentation commit red.
+
+name: purge site docs
+
+on:
+  push:
+    branches: [master]
+    paths:
+      # Exactly what lib/docs-manifest.ts, the changelog reader and the contributor list read.
+      - "docs/**"
+      - "quickstart/**"
+      - "MODULES.md"
+      - "EVENT-SOURCING-PER-CONTENT-TYPE.md"
+      - "CHANGELOG.md"
+      - ".all-contributorsrc"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: purge-site-docs
+  cancel-in-progress: true
+
+jobs:
+  purge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Purge
+        env:
+          SECRET: ${{ secrets.SITE_REVALIDATE_SECRET }}
+          URL: ${{ vars.SITE_REVALIDATE_URL || 'https://barakocms.com/api/revalidate/' }}
+        run: |
+          if [ -z "$SECRET" ]; then
+            {
+              echo "### Nothing purged"
+              echo
+              echo "SITE_REVALIDATE_SECRET is not set, so the site was not told about this change."
+              echo "Add it under Settings > Secrets and variables > Actions to switch this on."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # The recipe is docs/webhooks.md: sha256= plus the hex HMAC-SHA256 of "<timestamp>.<body>".
+          # The body is signed as raw bytes, so it is written once and reused rather than rebuilt.
+          ts=$(date +%s)
+          body="{\"source\":\"github\",\"repo\":\"$GITHUB_REPOSITORY\",\"sha\":\"$GITHUB_SHA\"}"
+          sig=$(printf '%s.%s' "$ts" "$body" | openssl dgst -sha256 -hmac "$SECRET" -hex | awk '{print $NF}')
+
+          code=$(curl -sS -o response.txt -w '%{http_code}' --max-time 20 -X POST "$URL" \
+            -H 'content-type: application/json' \
+            -H "X-Barako-Timestamp: $ts" \
+            -H "X-Barako-Signature: sha256=$sig" \
+            -H "X-Barako-Delivery: gh-${GITHUB_SHA:0:12}" \
+            --data-binary "$body")
+
+          echo "purge -> $code"
+          cat response.txt
+
+          if [ "$code" = "200" ]; then
+            echo "### Site cache purged" >> "$GITHUB_STEP_SUMMARY"
+          else
+            # Loud in the log, green on the commit. See the note at the top of this file.
+            echo "::warning::the site returned $code, so it may serve stale docs until the cache expires"
+            {
+              echo "### Purge did not land"
+              echo
+              echo "The site returned \`$code\`. It will serve the cached copy until the next purge."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
