@@ -814,3 +814,51 @@ and deploy. Then output binding, versioning and determinism replay all become re
 avoided ones, and the calculus inverts completely. Also wrong if a single deployment ever needs
 concurrent runs at a volume where a Postgres-polling runner cannot keep up, which is a different
 argument from any made here and should be made with numbers.
+
+## D20. Where a developer extends, and where they do not
+
+**Decided:** 11 Sept 2026. **Status:** accepted.
+
+Four products, and each is extended in exactly one way. barakoCMS by modules. barakoPress by
+widgets. BaryoVM by release manifests. barakoBrew by nothing.
+
+**barakoCMS owns the model and the rules.** Content types, permissions, workflows, connectors and
+the API. A module adds server behaviour the shape cannot express: a lifecycle hook for an
+invariant, an endpoint, a document of its own. The rules live here because this is the only place
+they can be enforced. A rule in a renderer is a suggestion.
+
+**barakoBrew presents that model and owns none of it.** It is a client of the API exactly as the
+renderer is, and calling it the backend is the mistake this record exists to prevent: logic put
+there is logic the API cannot enforce and the renderer cannot reach.
+
+**barakoBrew has no plugin model, and that is deliberate.** One console serves every deployment, so
+it cannot load a third party's code without becoming a different console per site. It adapts by
+reading data instead: content type definitions, field types, and the block schemas a site
+publishes. First-party screens for first-party modules are built into brew and detected by
+presence, so one release runs against an API with the module and without it. A third-party module
+gets generic CRUD over its content types, which is usually enough, and where it is not the answer
+is the next paragraph.
+
+**barakoPress owns the public surface and is extended by widgets.** A widget is a component in the
+renderer's registry, optionally backed by a module for its server side. This is where
+site-specific interface belongs, including the kind that looks like an application: an operations
+dashboard for one client's event is a widget on a page gated by role, not a screen in the console
+every other client also sees. The component is hand written; the routing, the session, the
+permissions, the deployment and the data access are not.
+
+**The ladder.** Most work never reaches the bottom rung, and saying so is more honest than a
+percentage.
+
+1. No code. A blueprint and a renderer config.
+2. No code. A workflow and a connector, which is how an integration is described rather than
+   written.
+3. A widget, when a page needs interface nobody else needs.
+4. A module, when the server needs a rule, an endpoint or storage nobody else needs.
+
+A module is the last resort rather than the first move. If a job reaches rung four for something
+every client would want, that is a signal the capability belongs in a product rather than in a
+project.
+
+**What this rules out.** Brew plugins. Business rules in the renderer. A console screen that only
+one deployment can use. Modules written for something a workflow already does.
+
