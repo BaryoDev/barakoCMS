@@ -148,7 +148,7 @@ internal class RollbackEndpoint : Endpoint<RollbackRequest, RollbackResponse>
         }
 
         var hookErrors = await Resolve<barakoCMS.Infrastructure.Services.IContentLifecycleRunner>()
-            .RunBeforeSaveAsync(content.ContentType, data, content.Data, userId, ct);
+            .RunBeforeSaveAsync(content.ContentType, content.Id, data, content.Data, userId, ct);
         if (hookErrors.Count > 0)
         {
             foreach (var error in hookErrors)

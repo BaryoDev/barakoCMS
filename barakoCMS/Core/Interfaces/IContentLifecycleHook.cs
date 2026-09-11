@@ -16,6 +16,13 @@ public sealed class ContentLifecycleContext
     public IReadOnlyDictionary<string, object>? Existing { get; init; }
 
     /// <summary>
+    /// The id of the entry being written; null on create, because the id does not exist until the
+    /// write is accepted. A rule about the entry's own identity needs this: a parent reference cannot
+    /// be checked for self-reference, nor its ancestor chain walked for a cycle, from the data alone.
+    /// </summary>
+    public Guid? EntryId { get; init; }
+
+    /// <summary>
     /// The request's Marten session — the same scoped instance the endpoint will commit. Rules use it
     /// to read other documents ("does this account exist?"), and anything a hook stores through it
     /// commits atomically with the content write, which is what lets a hook safely allocate a
