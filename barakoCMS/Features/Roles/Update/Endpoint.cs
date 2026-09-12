@@ -51,6 +51,14 @@ internal class Endpoint : Endpoint<Request, Response>
             return;
         }
 
+        // A seeded role keeps its own name; anything else taking a reserved one is the escalation
+        // path SystemRoles.Reserved describes, so it is refused after the load, when the id is known.
+        if (SystemRoles.IsReservedName(req.Name) && !SystemRoles.Contains(role.Id))
+        {
+            AddError(r => r.Name, SystemRoles.ReservedNameMessage(req.Name));
+            ThrowIfAnyErrors();
+        }
+
         // Update role properties
         role.Name = req.Name;
         role.Description = req.Description;

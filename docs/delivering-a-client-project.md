@@ -104,15 +104,16 @@ to have a type by that name.
 
 Two more naming rules that are not cosmetic:
 
-- Do not hand a client's staff the seeded `Admin` role. The capability gate honours the role names it
-  replaced while `Auth:LegacyRoleFallback` is true, which is the default, so a caller holding a role
-  called `Admin` opens every gate that lists `Admin` as a fallback, whatever capabilities you did or
-  did not give it. You cannot create a second role with one of those names anyway: role names are
-  unique and the seeder has already taken `Admin`, `SuperAdmin`, `HR` and `User`. The risk is
-  assigning the existing one, not minting a new one.
-- Once your roles carry capabilities, set `Auth:LegacyRoleFallback=false` (env
-  `Auth__LegacyRoleFallback`) and the names stop meaning anything on their own.
-  [access-control.md](access-control.md) has the migration table.
+- Do not hand a client's staff the seeded `Admin` role. Not because of the role name, which means
+  nothing on its own in 4.0: `Auth:LegacyRoleFallback` defaults to **false**, so a gate listing
+  `Admin` as a fallback does not open for a caller merely named that. The reason is that the seeded
+  `Admin` role carries twenty system capabilities outright, and those are what open the gates.
+- A deployment mid-upgrade, whose roles have no capabilities yet, sets
+  `Auth:LegacyRoleFallback=true` (env `Auth__LegacyRoleFallback`) to get the 3.x behaviour back
+  while it migrates, then turns it off again. [access-control.md](access-control.md) has the
+  migration table.
+- You cannot create a second role with a seeded name. `SuperAdmin`, `Admin`, `HR` and `User` are
+  reserved and both role create and role update refuse them.
 
 ## 3. Create the tenant
 
@@ -487,9 +488,10 @@ docker compose -f docker-compose.prod.yml config   # resolves every variable, ex
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-The required variables are `DOMAIN_API`, `DOMAIN_ADMIN`, `ACME_EMAIL`, `FRONTEND_ORIGINS`,
-`BARAKO_TAG`, `DB_PASSWORD`, `JWT_KEY` and `ADMIN_PASSWORD`. Both DNS records must resolve before you
-start the stack, because Caddy requests certificates on first boot.
+The required variables are `DOMAIN_API`, `ACME_EMAIL`, `FRONTEND_ORIGINS`, `BARAKO_TAG`,
+`DB_PASSWORD`, `JWT_KEY` and `ADMIN_PASSWORD`. The `DOMAIN_API` record must resolve before you start
+the stack, because Caddy requests a certificate on first boot. The console moved to its own
+repository, so there is no second domain to point here any more.
 
 Delivery-specific things to get right at this point:
 
@@ -634,19 +636,15 @@ today.
 Both are reachable by the seeded `Admin` role, which is why section 5 says not to give it to a
 client's staff.
 
-**`GET /api/audit` is not scoped to the caller's tenant.** `?tenant=` is a filter the caller chooses,
-not a boundary the server applies. A caller holding `view_audit_log`, which `Admin` holds by default,
-reads every tenant's audit events on a shared deployment.
-
 **`POST /api/users/{userId}/roles` writes a global role.** `User.RoleIds` is global, and effective
 roles are the union of that and the caller's membership roles in the current tenant, so a role
 assigned there applies in every tenant. It is gated on `manage_user_membership`, which `Admin` holds
-by default, and unlike `POST /api/tenants/members` it does not refuse the SuperAdmin role id. The
-system role ids are deterministic and in the source.
+by default. It does refuse the SuperAdmin role id to a caller who does not already hold SuperAdmin.
 
 The tenant-scoped way to grant a role is `POST /api/tenants/members` and
-`PUT /api/tenants/members/{userId}`, which write only `Membership.RoleIds` and refuse SuperAdmin.
-Until those two surfaces are scoped, a client-facing role must carry no system capabilities at all.
+`PUT /api/tenants/members/{userId}`, which write only `Membership.RoleIds`. Prefer those on a shared
+deployment: a role granted globally follows the user into every tenant they belong to, which is
+rarely what a client-facing role is meant to do.
 
 ### Things a client site usually wants that do not exist
 

@@ -32,6 +32,9 @@ internal class Endpoint : Endpoint<Request, Response>
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
+        if (SystemRoles.IsReservedName(req.Name))
+            AddError(r => r.Name, SystemRoles.ReservedNameMessage(req.Name));
+
         var unknown = _vocabulary.Unknown(req.SystemCapabilities);
         if (_configuration.GetValue(CapabilityVocabulary.RefuseUnknownKey, false))
         {
