@@ -158,6 +158,12 @@ Test classes are `{Subject}Tests`. Test methods read as sentences describing the
   line per rule the diff against `origin/master` fires (auth/permission surface, dynamic SQL,
   secrets, background/concurrency primitives, destructive deletes, infra/supply-chain files, a
   weakened test assertion) so a reviewer knows what to look at closely.
+- **A pull request that is red only because its base is old fixes itself.** When master moves,
+  `.github/workflows/refresh-stale-prs.yml` updates the branch of every open pull request that is
+  behind it *and* failing, then lets CI run again. It never merges and never retries a job: a retry
+  hides a flake, where rebuilding on a newer base rules out one specific cause and leaves a real
+  failure visible. Green-but-behind is left alone, since the merge queue builds against master
+  anyway. Label a pull request `no-self-heal` to keep it on its current base.
 
 ## 6. Public API stability
 
