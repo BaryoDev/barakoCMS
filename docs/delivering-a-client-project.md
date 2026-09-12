@@ -384,13 +384,17 @@ masking is separate again and lives on the content type's schema.
 Then assign that role through the membership, not through the user:
 `POST /api/tenants/members` on the way in, `PUT /api/tenants/members/{userId}` afterwards.
 
-Know what a custom role still cannot reach. Only the surfaces listed in
-[access-control.md](access-control.md)'s migration table gate on a capability. Everything else is
-still a `Roles(...)` gate on the seeded names, so a role called `Acme Editor` cannot create a content
-type, toggle public delivery, change a field's sensitivity, or export a Portability bundle, whatever
-capabilities you put on it. Those stay yours until #443 finishes the migration. Content itself is
-different: the content endpoints go through the permission resolver, so a custom role reads, writes
-and publishes entries exactly as its permissions say.
+Know what a custom role can reach. Since #443 closed, no core or module endpoint gates on a role
+name: every one takes a capability. So a role called `Acme Editor` granted `manage_content_types`
+creates content types, granted `manage_public_delivery` toggles public delivery and changes field
+sensitivity, and granted `export_content` exports a Portability bundle. Decide those grants
+deliberately rather than assuming a name keeps them out.
+
+What keeps the deployment yours is `manage_roles`, which only SuperAdmin holds by default and is
+absent from `SystemCapabilities.AdminDefaults`. Grant it to a client-facing role and that role can
+grant itself anything else. Content itself is different: the content endpoints go through the
+permission resolver, so a custom role reads, writes and publishes entries exactly as its permissions
+say.
 
 ## 6. Point a frontend at the delivery API
 
@@ -648,20 +652,20 @@ rarely what a client-facing role is meant to do.
 
 ### Things a client site usually wants that do not exist
 
-- **No SEO fields** (#111). Title, description and canonical URL are fields you model yourself on
-  every content type.
-- **No URL redirects** (#112). Rebuilding a site breaks its old links, and nothing in barakoCMS
-  catches them.
-- **No media library the client can use** (#113). The Files module stores and serves bytes and has no
-  admin screen at all: no browsing, no picking, no image variants (#100). Uploading is gated on the
-  seeded `Admin` and `SuperAdmin` role names, so a client editor cannot add an image without a role
-  that reaches further than their content.
+Shorter than it was. SEO fields (#111), URL redirects (#112), content-type blueprints (#109),
+webhook deliveries (#95), the event stream (#96) and image variants (#100) have all shipped since
+this list was written. See [seo-fields.md](seo-fields.md), [url-redirects.md](url-redirects.md),
+[blueprints.md](blueprints.md), [webhooks.md](webhooks.md), [delivery-api.md](delivery-api.md) and
+[image-variants.md](image-variants.md).
+
 - **No form submissions module** (#110). A contact form has nowhere to go.
-- **No content-type blueprints** (#109). A new client starts from an empty schema or from a JSON file
-  you keep yourself. The Portability bundle in step 4 is the workaround, not the feature.
 - **No starter frontend templates** (#188). `examples/blog-starter` is a worked example, not a
   template you clone.
 - **No localization** (#98). One entry is one language.
+- **No media library screen the client can use.** The Files module stores and serves bytes, and the
+  image variants behind it shipped (#100), but there is still no browsing or picking screen in the
+  console. Uploading takes the `upload_files` capability, so a client editor can be granted it
+  without a role that reaches further than their content.
 
 ### Things about the delivery path itself
 
@@ -673,8 +677,9 @@ rarely what a client-facing role is meant to do.
   least one minor ahead;
   [delivery-api.md](delivery-api.md) has the rule. It still reaches every client site at once when
   the major ships.
-- **No webhooks and no realtime** (#95, #96). A frontend that caches has to poll or rebuild on a
-  schedule.
+- **Realtime is off unless you turn it on.** Webhooks (#95) and the SSE stream (#96) both shipped,
+  but `Delivery:Events:Enabled` defaults to false and the route answers 404 while it is off, so a
+  frontend that caches polls or rebuilds on a schedule until an operator enables it.
 - **No preview screen in the admin.** `POST /api/preview` exists and there is deliberately no button
   for it, so preview links are minted by the frontend's own code.
   [delivery-api.md](delivery-api.md) records that as deferred rather than overlooked.
