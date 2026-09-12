@@ -7,6 +7,127 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.1.0] - 2026-09-12
+
+### Breaking
+
+- **A write carrying a slug another entry of the type already holds is now refused with 400.** That
+  tightens request validation on `POST /api/contents`, `PUT /api/contents/{id}`, the rollback route
+  and bulk import, so `X-Api-Contract-Version` moves to 2. The barakoBrew console refuses to start
+  against a contract version it does not speak, so it has to be upgraded in lockstep with this
+  release, not after it. A deployment that already holds duplicate slugs is not rewritten: it keeps
+  serving them, the slug route now answers with the oldest of them every time rather than whichever
+  one Postgres handed back first, and the next edit of one of the colliding entries is refused until
+  the slug on it is changed. One caveat on bulk import: a row colliding with a stored entry is
+  refused, but two rows of the same batch carrying the same slug as each other are still both
+  accepted.
+- **A role named `SuperAdmin`, `Admin`, `HR` or `User` is now refused with 400.** That tightens
+  request validation on `POST /api/roles` and `PUT /api/roles/{id}`, so `X-Api-Contract-Version`
+  moves to 3. A seeded role keeps its own name, so renaming one to what it already is still works.
+  The names were not previously reserved by anything, so an existing custom role holding one keeps
+  working and keeps serving; the next edit of it through the role endpoint is refused until its name
+  is changed. The barakoBrew console refuses to start against a contract version it does not speak,
+  so it has to be upgraded in lockstep with this release. See the Security entry for why the names
+  had to become unavailable rather than just unprivileged.
+
+### Added
+
+- **A client site's own values had nowhere to live.** Address, phone, an emergency number, opening
+  hours and footer text are content, but a content type holds any number of entries, so nothing
+  stopped an editor creating a second set of them. `ContentTypeDefinition` gains `IsSingleton`,
+  default false, settable on `POST /api/content-types` and reported back on the type. A second entry
+  of a type that sets it is refused, whatever case the type name is spelled in, including two rows of
+  one bulk import. Editing the entry that is already there still works, which is the point of the
+  flag. The cap counts entries of every status, so archiving the one entry does not free the slot,
+  and a Portability bundle import is not capped.
+- **A module could not serve public content without copying four security checks.** The projection
+  behind `/api/public` was internal to the delivery slice, so a module adding its own anonymous route
+  had to re-implement published status, document sensitivity, the content type's delivery opt-in and
+  the field allowlist. `IPublicContentProjector` in `Core/Interfaces` now exposes it: hand it a
+  `Content` and its definition, get back the same shape `/api/public/{type}/{slug}` returns, or null
+  when the entry must not be served. The core routes call the same code, so there is one copy of the
+  checks. `Project` also refuses a definition that is not the entry's own content type, since another
+  type's schema would apply another type's field allowlist. See `docs/delivery-api.md`.
+- **A content lifecycle hook could not tell which entry it was guarding.** `ContentLifecycleContext`
+  carried the content type, the data and the stored version, but not the id, so a rule about the
+  entry's own identity had nothing to start from: it could not refuse an entry that names itself as
+  its own parent, nor walk the ancestor chain looking for a cycle. The context now carries
+  `EntryId`, the entry's id on update and null on create, and every caller of
+  `IContentLifecycleRunner.RunBeforeSaveAsync` passes it.
+- **A content type's fields were fixed the moment it was created.** `POST /api/content-types/{name}/fields`
+  adds one to a type that already exists. The only route to a new field was the SEO endpoint, which
+  performs the same mutation for one hardcoded set, so a client asking for one more field on a type
+  already holding their content had no answer that did not involve recreating the type. It refuses a
+  name the type already has rather than overwriting it, refuses a required field with no default on a
+  type that already has entries, and puts the merged field list through the same validator
+  `POST /api/content-types` uses. Additive, so the API contract version does not move.
+- **Where each product is extended was folklore, and got re-argued twice in one day.** D20 records it:
+  barakoCMS by modules, barakoPress by widgets, BaryoVM by release manifests, and barakoBrew by
+  nothing. It also records why the console deliberately has no plugin model, since one console serves
+  every deployment and cannot load a third party's code without becoming a different console per
+  site, and the ladder a developer climbs, where a module is the last resort rather than the first
+  move.
+- **Owning the software was being confused with running the servers.** D21 records that barakoCMS is a
+  container and a Postgres database, so it runs on a VM, on App Service, on Fargate, on Cloud Run or
+  on the Kubernetes manifests already in `k8s/`, and that BaryoVM is one deployment option rather than
+  the path. It also writes down something nobody had: scaling out is already safe, because
+  `SchemaApplyLock` takes a blocking advisory lock and projections are leased per projection, so
+  several instances starting at once serialise rather than race.
+
+### Changed
+
+- **A pull request red only because its base is old now fixes itself.** When master moves, any open pull request that is behind it and failing gets its branch updated and CI runs again. `minio/minio` being removed from Docker Hub failed the integration suite on every branch at once, and after the fix landed two pull requests stayed red for a reason that was already fixed until somebody worked that out. Nothing is merged and no job is retried: a retry hides a flake, where rebuilding on a newer base rules out one cause and leaves a real failure visible. Green-but-behind is left alone, and the `no-self-heal` label opts a branch out.
+- **`Sensitivity:Mode=All` is now refused at startup instead of running inert.** It was declared but
+  never implemented: scrubbing branches on `Off` and nothing else, so `All` behaved exactly as
+  `SensitiveOnly` while accepting the setting and starting cleanly. An operator who sets it has
+  decided they need strict lockdown, which is the one case where getting `SensitiveOnly` silently is
+  worst. Refused the same way `Erasure:Mode=CryptoShred` is, and for the same reason. Use
+  `SensitiveOnly`, which is the default.
+
+### Fixed
+
+- **The public slug route could serve either of two entries sharing a slug.** It resolved with an
+  unordered `FirstOrDefaultAsync`, so on a deployment that already holds duplicates the same URL
+  answered with either page and could change its mind between requests. It resolves oldest first now,
+  with the entry id as the tiebreak, so the answer is at least stable while the duplicates are
+  cleaned up.
+- **Two entries of one content type could share a slug.** Nothing checked, and the public slug route
+  resolves with `FirstOrDefaultAsync`, so the same URL could serve either entry and change its mind
+  between requests. A create, an update and a version rollback now refuse a slug another entry of the
+  type already holds, in any status, matched case-insensitively the way the route matches it.
+- **The Caddyfile registered the literal string `${ACME_EMAIL}` as its Let's Encrypt contact.** Caddy
+  reads a config-time placeholder as `{$VAR}`, which line 6 of the same file already used correctly.
+  Compose does not template a bind-mounted file, and nothing in the tests or CI parses the Caddyfile,
+  so every deployment following `deploy-in-production.md` had no real ACME contact address.
+- **Six documentation claims that were checkably false.** The 4.0 rollback guide said it restores two
+  columns; it drops nine tables, and the email provider key and connector credentials in them cannot
+  be read back first because nothing decrypts them for display. It also called the migration safe to
+  re-run when four statements carry no guard. `compliance-posture` claimed a CycloneDX SBOM per
+  package and per image attached to each release; there is one solution-wide SBOM kept as a 90-day
+  workflow artifact. `delivering-a-client-project` had `Auth:LegacyRoleFallback` defaulting to true
+  when 4.0 defaults it false, still described the cross-tenant audit read that
+  `Features/Audit/List` closed, and listed `DOMAIN_ADMIN` as required after the console moved out.
+  `SECURITY.md` still said 4.0 had not shipped.
+- **Every CI run started failing because an upstream image disappeared.** MinIO archived the project
+  and the `minio/minio` repository on Docker Hub now answers "pull access denied ... repository does
+  not exist" to an anonymous pull, so `S3FileStorageTests` could not start its container and every
+  merge queue run failed with it. The same tag is still served from quay.io, where MinIO published in
+  parallel, so `BarakoCMS.Tests/S3FileStorageTests.cs` pulls from there instead. A registry change,
+  not a version change.
+
+### Security
+
+- **A caller holding `manage_roles` could grant itself a full authorisation bypass.**
+  `PermissionResolver` granted every capability to any role whose `Name` was `SuperAdmin`, and role
+  create put no guard on the name a caller supplied, so `POST /api/roles {"name":"SuperAdmin"}`
+  followed by assigning it bypassed every capability gate, `erase_content` included, which is
+  deliberately withheld from Admin. The resolver now identifies the seeded role by its id, which
+  `SystemRoles` already documents as the key. That alone was not enough: `TokenIssuer` puts role
+  *names* into the JWT and `SensitivityService` reads one back with `IsInRole("SuperAdmin")` to skip
+  field scrubbing, and a claim carries no id, so the same fake role also switched off sensitivity
+  masking for its holder. Reserving the four seeded names on both role write paths closes that
+  second route, which is the only point both paths pass through.
+
 ## [4.0.1] - 2026-09-09
 
 The first patch on 4.0, and most of it is the 4.0 release path itself: the schema race between two
