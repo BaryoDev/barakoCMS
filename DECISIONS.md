@@ -814,3 +814,90 @@ and deploy. Then output binding, versioning and determinism replay all become re
 avoided ones, and the calculus inverts completely. Also wrong if a single deployment ever needs
 concurrent runs at a volume where a Postgres-polling runner cannot keep up, which is a different
 argument from any made here and should be made with numbers.
+
+## D20. Where a developer extends, and where they do not
+
+**Decided:** 11 Sept 2026. **Status:** accepted.
+
+Four products, and each is extended in exactly one way. barakoCMS by modules. barakoPress by
+widgets. BaryoVM by release manifests. barakoBrew by nothing.
+
+**barakoCMS owns the model and the rules.** Content types, permissions, workflows, connectors and
+the API. A module adds server behaviour the shape cannot express: a lifecycle hook for an
+invariant, an endpoint, a document of its own. The rules live here because this is the only place
+they can be enforced. A rule in a renderer is a suggestion.
+
+**barakoBrew presents that model and owns none of it.** It is a client of the API exactly as the
+renderer is, and calling it the backend is the mistake this record exists to prevent: logic put
+there is logic the API cannot enforce and the renderer cannot reach.
+
+**barakoBrew has no plugin model, and that is deliberate.** One console serves every deployment, so
+it cannot load a third party's code without becoming a different console per site. It adapts by
+reading data instead: content type definitions, field types, and the block schemas a site
+publishes. First-party screens for first-party modules are built into brew and detected by
+presence, so one release runs against an API with the module and without it. A third-party module
+gets generic CRUD over its content types, which is usually enough, and where it is not the answer
+is the next paragraph.
+
+**barakoPress owns the public surface and is extended by widgets.** A widget is a component in the
+renderer's registry, optionally backed by a module for its server side. This is where
+site-specific interface belongs, including the kind that looks like an application: an operations
+dashboard for one client's event is a widget on a page gated by role, not a screen in the console
+every other client also sees. The component is hand written; the routing, the session, the
+permissions, the deployment and the data access are not.
+
+**The ladder.** Most work never reaches the bottom rung, and saying so is more honest than a
+percentage.
+
+1. No code. A blueprint and a renderer config.
+2. No code. A workflow and a connector, which is how an integration is described rather than
+   written.
+3. A widget, when a page needs interface nobody else needs.
+4. A module, when the server needs a rule, an endpoint or storage nobody else needs.
+
+A module is the last resort rather than the first move. If a job reaches rung four for something
+every client would want, that is a signal the capability belongs in a product rather than in a
+project.
+
+**What this rules out.** Brew plugins. Business rules in the renderer. A console screen that only
+one deployment can use. Modules written for something a workflow already does.
+
+## D21. It runs wherever containers run, and BaryoVM is one option rather than the path
+
+**Decided:** 11 Sept 2026. **Status:** accepted.
+
+barakoCMS is a container and a Postgres database. That is the whole hosting requirement, and every
+claim about where this runs follows from it: a VM, Azure App Service with Database for PostgreSQL,
+AWS Fargate or App Runner with RDS, Cloud Run with Cloud SQL, or Kubernetes with the manifests in
+`k8s/`. Images are published multi-arch and pull anonymously.
+
+**Ownership and management are separate decisions.** The industry sells them bundled, so people
+assume that owning your software means running your own servers. It does not. A deployment can be
+entirely managed, patched by a cloud provider, with point-in-time restore, and still not meter
+anybody per seat, per record, per environment or per space. What this project refuses is the
+metering, not the convenience.
+
+**Scaling out is already safe, and that is worth saying out loud.** `SchemaApplyLock` takes a
+blocking Postgres advisory lock, so several instances starting at once serialise rather than race.
+Projections take a per-projection advisory lock, so exactly one process runs each. `/health` answers
+a platform probe. Anyone with operational experience asks about concurrent startup first, and the
+answer has been good for a while without being written down.
+
+**BaryoVM is one deployment option, not a requirement.** It deploys over SSH to a machine you own,
+which makes it the cheapest path and the wrong tool for App Service. On a managed platform the
+cloud's own pipeline ships the container, and that is normal. Implying otherwise would make the
+whole stack look like it runs one way, which is the opposite of what is true. An agency on Azure
+uses barakoCMS, barakoBrew and barakoPress, and Azure does the shipping.
+
+**Multi-tenancy is what makes the economics compound.** One deployment serves many tenants, so an
+agency's tenth client costs close to nothing. A hosted platform charges for the tenth the same way
+it charged for the first. That is the argument, rather than the monthly total.
+
+**What this commits us to.** Documenting the managed path, not only the VM one (#727). Durable file
+storage on every target we claim, which today means Azure has a gap because Blob Storage is not S3
+compatible (#728). And not claiming a platform works until somebody has run it there.
+
+**What it rules out.** Positioning this as a self-hosting product. That is a smaller market and a
+weaker argument, and it is not even accurate. The position is that you own the software and choose
+how much of the operating you want to do.
+
