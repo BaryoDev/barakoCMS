@@ -38,7 +38,7 @@
     "BarakoCMSVersion": {
       "type": "parameter",
       "datatype": "string",
-      "defaultValue": "4.0.1",
+      "defaultValue": "4.1.0",
       "replaces": "BARAKOCMS_VERSION",
       "description": "The BarakoCMS package version the module compiles against."
     },
