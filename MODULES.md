@@ -265,8 +265,9 @@ once your seed returns.
 - **You cannot see another module's seed data**, committed or not, and it cannot see yours. If your
   module needs data another module seeds, `DependsOn` will run that module first, but the sessions are
   isolated so you still cannot read what it wrote. `DependsOn` orders execution; it does not share data.
-- **Throwing fails your seed and nobody else's.** It is logged against your module name and rethrown
-  to the host once every module has had its turn. A module that fails leaves the others intact.
+- **Throwing fails your seed and nobody else's.** It is logged against your module name; the other
+  seeders still run and their committed work stays intact. Once every module has had its turn,
+  failures are thrown together as an `AggregateException`, failing startup unless the host catches it.
 - **Seeds must be idempotent.** They run on every start.
 
 Modules previously shared one session committed once at the end, so one failure discarded every
@@ -397,8 +398,9 @@ Checked, in this order, before any request is served:
    startup and lists the names available.
 5. **Schema ownership.** `ConfigureSchema` throws on a document type from an assembly the module
    did not declare in `SchemaAssemblies`.
-6. **Seeding.** Each seeder runs in its own session; one throwing is logged against the module and
-   does not stop the others.
+6. **Seeding.** Each seeder runs in its own session and transaction; one throwing is logged against
+   the module and does not stop the others. After all seeders run, any failures are thrown together
+   as an `AggregateException`, failing startup unless the host catches it.
 
 Not checked, and worth knowing:
 
