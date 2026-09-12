@@ -81,7 +81,7 @@ public class MetaEndpointTests
 
         var meta = await response.Content.ReadFromJsonAsync<Meta>();
         meta.Should().NotBeNull();
-        meta!.ApiContractVersion.Should().Be(2,
+        meta!.ApiContractVersion.Should().Be(3,
             "this is the number a console compares itself against; bumping it is a deliberate "
           + "decision under CLAUDE.md section 6 and this assertion has to be updated by hand when "
           + "it happens, not carried along automatically");
