@@ -64,6 +64,7 @@ public class RoleGateTests
         new("GET", "/api/schemas", "/api/schemas"),
         new("PUT", "/api/content-types/{name}/public-delivery", "/api/content-types/no-such-type/public-delivery"),
         new("PUT", "/api/content-types/{name}/fields/{field}/sensitivity", "/api/content-types/no-such-type/fields/no-such-field/sensitivity"),
+        new("POST", "/api/content-types/{name}/fields", "/api/content-types/no-such-type/fields"),
         new("POST", "/api/content-types/{name}/rebuild", "/api/content-types/no-such-type/rebuild"),
         new("GET", "/api/content-types/blueprints", "/api/content-types/blueprints"),
         new("POST", "/api/content-types/blueprints/{name}", "/api/content-types/blueprints/no-such-blueprint"),
