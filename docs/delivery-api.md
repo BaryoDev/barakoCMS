@@ -335,6 +335,57 @@ limitation until a shared bus exists between instances; a single-instance deploy
 everything. Content types running with `EventSourcing:DocumentTypesAppend` off write no events,
 so nothing about them is streamed, the same way nothing about them fires a workflow.
 
+## Serving public content from a module
+
+A module that adds its own anonymous route resolves `IPublicContentProjector` from
+`barakoCMS.Core.Interfaces` and hands it a `Content` plus its `ContentTypeDefinition`. It gets back a
+`PublicContentProjection`, which serialises to the same JSON as `/api/public/{type}/{slug}`, or null
+when the entry must not be served at all.
+
+```csharp
+var def = await session.Query<ContentTypeDefinition>()
+    .FirstOrDefaultAsync(d => d.Name == type, ct);
+
+if (!projector.IsDeliverable(def)) { await Send.NotFoundAsync(ct); return; }
+
+var projected = projector.Project(entry, def);
+if (projected is null) { await Send.NotFoundAsync(ct); return; }
+
+HttpContext.Response.Headers.CacheControl = "public, max-age=60";
+HttpContext.Response.Headers.Vary = "X-Tenant";
+
+await Send.OkAsync(projected, ct);
+```
+
+Use it rather than filtering in the module. Four checks stand between a stored document and a public
+response (published status, document sensitivity, the type's delivery opt-in, and the field
+allowlist), each fails open in a different direction, and a second copy of them looks right until it
+delivers a draft. The core routes above call the same code, so there is one copy of the four and a
+module holds none of it.
+
+The definition has to be the entry's own content type. `Project` checks it and returns null on a
+mismatch, because the schema is what names the Public fields, so another type's definition would
+apply another type's allowlist and the response would still read as authentic. Load the definition and
+the entry under the same type name, as the example does, and never take the type from one place and
+the entry from another.
+
+Nothing in the interface queries. The module loads the entry and the definition from its own session,
+which keeps tenant scoping where it already is. `SlugField` is there because a module addressing
+entries by slug has to query the field delivery reads the slug back from. All three members take a
+null definition, so the result of a `FirstOrDefaultAsync` can go straight in.
+
+### The cache headers a module route owes its callers
+
+The two lines above are the contract the core public routes set, and a module route has to set them
+itself: `SetCache` is internal to the delivery slice. The `Cache-Control` window is short on purpose,
+long enough for a CDN to absorb a burst and short enough that a publish shows up quickly.
+
+`Vary: X-Tenant` is not optional in a multi-tenant deployment. `TenantResolutionMiddleware` reads
+that header before it reads `Host`, and the response is built entirely from the resolved tenant, so a
+shared cache keyed on the URL alone in front of a header-routed deployment will serve one tenant's
+public response to another. See `docs/multi-tenancy.md` for how the front end sets the header, and
+`docs/deploy-in-production.md` for the caches that honour `Vary` only when configured to.
+
 ## Stability and deprecation
 
 There is no version segment in the URL and none is planned. The delivery API, meaning every route
