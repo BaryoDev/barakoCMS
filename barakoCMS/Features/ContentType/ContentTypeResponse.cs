@@ -30,6 +30,13 @@ internal sealed class ContentTypeResponse
 
     public bool IsPubliclyDeliverable { get; init; }
 
+    /// <summary>Whether this type holds exactly one entry.</summary>
+    /// <remarks>
+    /// On the response because the console cannot work it out from anywhere else, and it is what
+    /// decides whether the type is shown as a list or as one edit screen.
+    /// </remarks>
+    public bool IsSingleton { get; init; }
+
     /// <summary>
     /// Whether the stream is the source of truth for entries of this type, and permanent either way.
     /// </summary>
@@ -52,6 +59,7 @@ internal sealed class ContentTypeResponse
         Fields = d.Fields,
         Lifecycle = d.Lifecycle,
         IsPubliclyDeliverable = d.IsPubliclyDeliverable,
+        IsSingleton = d.IsSingleton,
         EventSourced = eventSourced,
         CreatedAt = d.CreatedAt,
         UpdatedAt = d.UpdatedAt,

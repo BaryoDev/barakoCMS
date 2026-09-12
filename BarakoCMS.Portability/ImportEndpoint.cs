@@ -63,6 +63,7 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
                 // exported type to not-deliverable, so a round trip through export/import took the
                 // content off the public API with the import still reporting success.
                 match.IsPubliclyDeliverable = type.IsPubliclyDeliverable;
+                match.IsSingleton = type.IsSingleton;
                 match.UpdatedAt = DateTimeOffset.UtcNow;
 
                 if (!req.DryRun)
@@ -85,6 +86,7 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
                     Description = type.Description,
                     Fields = type.Fields,
                     IsPubliclyDeliverable = type.IsPubliclyDeliverable,
+                    IsSingleton = type.IsSingleton,
                     CreatedAt = DateTimeOffset.UtcNow,
                     UpdatedAt = DateTimeOffset.UtcNow,
                 };

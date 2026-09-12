@@ -48,6 +48,26 @@ public class BulkCreateTests
         return name;
     }
 
+    private async Task<string> SingletonContentTypeAsync()
+    {
+        var name = $"single{Guid.NewGuid():n}"[..12];
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        session.Store(new ContentTypeDefinition
+        {
+            Id = Guid.NewGuid(),
+            Name = name,
+            DisplayName = name,
+            IsSingleton = true,
+            Fields =
+            [
+                new FieldDefinition { Name = "Title", DisplayName = "Title", Type = "string", IsRequired = true },
+            ],
+        });
+        await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        return name;
+    }
+
     private async Task<HttpClient> ClientAsync(string role)
     {
         var userId = Guid.NewGuid();
@@ -214,6 +234,99 @@ public class BulkCreateTests
             + "than writing one");
 
         (await CountAsync(type)).Should().Be(0);
+    }
+
+    /// <summary>
+    /// A singleton type cannot be filled by importing two rows of it at once.
+    /// </summary>
+    /// <remarks>
+    /// The per-record check counts what is in the database, and within one batch the database still
+    /// holds nothing, so every row of a batch passes a check made one row at a time. This is the only
+    /// route that creates many entries in a single request, which makes it the one place the cap has
+    /// to be applied to the batch itself.
+    /// </remarks>
+    [Fact]
+    public async Task Two_rows_of_a_singleton_type_cannot_be_imported_in_one_batch()
+    {
+        var type = await SingletonContentTypeAsync();
+        var client = await ClientAsync("SuperAdmin");
+
+        var response = await client.PostAsJsonAsync("/api/import/content", new
+        {
+            contentType = type,
+            records = new[]
+            {
+                new Dictionary<string, object> { ["Title"] = "First" },
+                new Dictionary<string, object> { ["Title"] = "Second" },
+            },
+        }, TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        using var report = JsonDocument.Parse(
+            await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        report.RootElement.GetProperty("errors").EnumerateArray()
+            .Select(e => e.GetProperty("row").GetInt32())
+            .Should().BeEquivalentTo([1], "the first row is the one that may be created");
+
+        (await CountAsync(type)).Should().Be(0, "the default import is all or nothing");
+    }
+
+    /// <summary>
+    /// And not by shouting the type name either. The definition lookup behind the batch cap is
+    /// case-insensitive, like every other name lookup in the codebase.
+    /// </summary>
+    /// <remarks>
+    /// An exact match here found no definition for a mis-cased name, which left the batch cap off and
+    /// the public-field set empty. Both rows would have landed.
+    /// </remarks>
+    [Fact]
+    public async Task Two_rows_of_a_singleton_type_cannot_be_imported_by_shouting_the_type_name()
+    {
+        var type = await SingletonContentTypeAsync();
+        var client = await ClientAsync("SuperAdmin");
+
+        var response = await client.PostAsJsonAsync("/api/import/content", new
+        {
+            contentType = type.ToUpperInvariant(),
+            records = new[]
+            {
+                new Dictionary<string, object> { ["Title"] = "First" },
+                new Dictionary<string, object> { ["Title"] = "Second" },
+            },
+        }, TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, "got {0}",
+            await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+
+        using var report = JsonDocument.Parse(
+            await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        report.RootElement.GetProperty("errors").EnumerateArray()
+            .Select(e => e.GetProperty("row").GetInt32())
+            .Should().BeEquivalentTo([1], "the first row is the one that may be created");
+
+        (await CountAsync(type)).Should().Be(0, "the default import is all or nothing");
+        (await CountAsync(type.ToUpperInvariant())).Should().Be(0,
+            "and nothing landed under the shouted spelling either");
+    }
+
+    /// <summary>The control: one row of a singleton type is a normal import.</summary>
+    [Fact]
+    public async Task One_row_of_a_singleton_type_is_imported()
+    {
+        var type = await SingletonContentTypeAsync();
+        var client = await ClientAsync("SuperAdmin");
+
+        var response = await client.PostAsJsonAsync("/api/import/content", new
+        {
+            contentType = type,
+            records = new[] { new Dictionary<string, object> { ["Title"] = "Only" } },
+        }, TestContext.Current.CancellationToken);
+
+        response.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", response.StatusCode,
+            await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+
+        (await CountAsync(type)).Should().Be(1);
     }
 
     /// <summary>

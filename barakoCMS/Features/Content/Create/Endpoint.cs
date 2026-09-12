@@ -59,7 +59,7 @@ internal class Endpoint : Endpoint<Request, Response>
             .ApplyWriteAsync(req.ContentType, req.Data, existing: null, HttpContext, ct);
 
         // DYNAMIC VALIDATION
-        var validationResult = await _validator.ValidateAsync(req.ContentType, req.Data);
+        var validationResult = await _validator.ValidateAsync(req.ContentType, req.Data, existing: null);
         if (!validationResult.IsValid)
         {
             // One entry per failure rather than one flattened string, so a client can show the

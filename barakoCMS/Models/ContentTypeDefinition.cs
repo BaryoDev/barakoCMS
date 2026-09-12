@@ -25,6 +25,33 @@ public class ContentTypeDefinition
     /// </remarks>
     public bool IsPubliclyDeliverable { get; set; }
 
+    /// <summary>
+    /// Whether this type holds exactly one entry, so it can model a site's own values: address,
+    /// phone, opening hours, footer text.
+    /// </summary>
+    /// <remarks>
+    /// Off by default, so no type that exists today changes. Enforced on create, in
+    /// <c>ContentValidatorService</c>: a second entry is refused. Editing the entry that is already
+    /// there is not creating one and stays allowed, which is what makes the flag usable at all, and
+    /// it also means turning this on for a type that somehow has two entries does not make either of
+    /// them read only.
+    ///
+    /// The count behind the cap takes every entry whatever its status, drafts and archived ones
+    /// included, because a reader that takes the first item of the list cannot tell an archived row
+    /// from a live one and two rows is the ambiguity the flag exists to remove. So archiving the one
+    /// entry does not free the slot: that takes <c>DELETE /api/contents/{id}/erase</c>, which needs
+    /// SuperAdmin and the <c>EraseContent</c> capability.
+    ///
+    /// A Portability bundle import is not subject to the cap. It validates nothing by design, and it
+    /// runs during a restore or a migration, where dropping rows that the bundle holds loses content
+    /// at the worst possible moment. A bundle carrying two entries of a singleton type lands both.
+    ///
+    /// The tenant profile is not a substitute. Its shape is fixed and <c>Branding</c> is not writable
+    /// through the API, so a client's emergency number has nowhere to go. <c>SystemSetting</c> is
+    /// deployment level with fixed categories, neither per tenant nor public.
+    /// </remarks>
+    public bool IsSingleton { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 

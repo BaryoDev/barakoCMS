@@ -229,7 +229,7 @@ and page in one call, and `events`, `portfolio` and `docs` do the same for their
 rather than replaces a type that already exists. [blueprints.md](blueprints.md) has the field sets
 and how to ship your own.
 
-Three decisions in this step are worth making deliberately.
+Four decisions in this step are worth making deliberately.
 
 **Public delivery is opt in.** `isPubliclyDeliverable` defaults to false. Without it,
 `/api/public/{type}` returns 404 whatever the entries underneath say. The switch is on the create
@@ -237,6 +237,19 @@ body, on the toggle in the admin's content type screen, and on
 `PUT /api/content-types/{name}/public-delivery`. Setting `PublicDelivery:RequireAcknowledgement` to
 true makes the enable call refuse unless it carries `acknowledgeExposure`, and the refusal names how
 many published entries the decision would expose. It defaults to false.
+
+**A singleton type holds one entry.** `isSingleton` defaults to false. Set it true for the values a
+site shows on every page (address, phone, an emergency number, opening hours, footer text, social
+links) and a second entry of that type is refused, so the settings stay one entry rather than a list
+that grows a second row the first time somebody clicks New. Editing the entry that is there is not
+affected. It is on the create body and on the type as the API reports it, so a console can show one
+edit screen instead of a list; there is no endpoint to change it afterwards.
+
+Two things the cap does not do. It counts entries of every status, so archiving the one entry does
+not free the slot; that takes `DELETE /api/contents/{id}/erase`, which needs SuperAdmin and the
+`erase_content` capability. And a Portability bundle import is not capped: an import validates
+nothing by design and it runs during a restore, where dropping rows the bundle holds would lose
+content. A bundle with two entries of a singleton type lands both.
 
 **A slug field is what makes `/api/public/{type}/{slug}` exist.** A field of type `slug`, or failing
 that a field named `slug`. Without one that route is 404.

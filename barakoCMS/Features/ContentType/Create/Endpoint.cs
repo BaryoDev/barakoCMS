@@ -22,6 +22,12 @@ internal class Request
     public bool IsPubliclyDeliverable { get; set; }
 
     /// <summary>
+    /// Hold exactly one entry of this type, for a site's own values: address, phone, opening hours.
+    /// Defaults to false, which is every type that exists today.
+    /// </summary>
+    public bool IsSingleton { get; set; }
+
+    /// <summary>
     /// Make the event stream the source of truth for entries of this type. Permanent.
     /// </summary>
     /// <remarks>
@@ -203,6 +209,7 @@ internal class Endpoint : Endpoint<Request, Response>
             Description = req.Description,
             Fields = req.Fields,
             IsPubliclyDeliverable = req.IsPubliclyDeliverable,
+            IsSingleton = req.IsSingleton,
             CreatedAt = DateTimeOffset.UtcNow,
             UpdatedAt = DateTimeOffset.UtcNow
         };

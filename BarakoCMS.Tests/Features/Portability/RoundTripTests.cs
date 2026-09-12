@@ -161,6 +161,73 @@ public class RoundTripTests
     }
 
     /// <summary>
+    /// The singleton flag survives the trip, and a bundle import is deliberately not capped by it.
+    /// </summary>
+    /// <remarks>
+    /// Two claims in one test because they are the same decision. The flag has to round trip, or a
+    /// migration turns a site's settings type back into a list. The cap is not applied here on
+    /// purpose: an import validates nothing by design and it runs during a restore, where dropping
+    /// rows the bundle holds loses content at the worst possible moment. So a bundle with two entries
+    /// of a singleton type lands both, and this test is what says so out loud.
+    /// </remarks>
+    [Fact]
+    public async Task A_singleton_type_round_trips_and_a_bundle_import_is_not_capped()
+    {
+        var tenant = await TenantAsync();
+        var admin = await AdminOfAsync(tenant);
+        var type = $"single{Guid.NewGuid():n}"[..12];
+
+        var bundle = new
+        {
+            contentTypes = new[]
+            {
+                new
+                {
+                    name = type,
+                    displayName = "Site Settings",
+                    isSingleton = true,
+                    fields = new[] { new { name = "Phone", displayName = "Phone", type = "string" } },
+                },
+            },
+            contents = new[]
+            {
+                new
+                {
+                    contentType = type,
+                    status = "Published",
+                    data = new Dictionary<string, object> { ["Phone"] = "first" },
+                },
+                new
+                {
+                    contentType = type,
+                    status = "Published",
+                    data = new Dictionary<string, object> { ["Phone"] = "second" },
+                },
+            },
+        };
+
+        var imported = await admin.PostAsJsonAsync(
+            "/api/portability/import", bundle, TestContext.Current.CancellationToken);
+        imported.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", imported.StatusCode,
+            await imported.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+
+        var exported = await (await admin.GetAsync(
+                $"/api/portability/export?types={type}", TestContext.Current.CancellationToken))
+            .Content.ReadFromJsonAsync<PortabilityBundle>(
+                ApiJson.Options, TestContext.Current.CancellationToken);
+
+        var definition = exported!.ContentTypes.Should().ContainSingle().Subject;
+        definition.IsSingleton.Should().BeTrue(
+            "a flag that does not survive export turns the settings type back into a list on the "
+            + "other side of a migration");
+
+        exported.Contents.Should().HaveCount(2,
+            "an import is a restore: it lands what the bundle holds and is not subject to the cap");
+        exported.Contents.Select(c => c.Data["Phone"].ToString())
+            .Should().BeEquivalentTo(["first", "second"]);
+    }
+
+    /// <summary>
     /// Importing the same bundle twice upserts by name rather than leaving two of everything.
     /// </summary>
     /// <remarks>
