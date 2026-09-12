@@ -9,8 +9,11 @@ namespace BarakoCMS.Files;
 /// <summary>
 /// Optional file-attachment module for barakoCMS. Enable it with:
 /// <code>services.AddBarakoCMS(config, m =&gt; m.Add(new FilesModule()));</code>
-/// Adds <c>POST /api/files</c> (upload), <c>GET /api/files/{id}</c> (authenticated download), and
-/// <c>GET /api/public/files/{id}</c> (anonymous, public files only). Bytes go through
+/// Adds <c>POST /api/files</c> (upload), <c>GET /api/files</c> (list),
+/// <c>GET /api/files/{id}</c> (authenticated download), <c>GET /api/files/{id}/meta</c> (metadata),
+/// <c>PATCH /api/files/{id}</c> (update alt text and caption), <c>GET /api/files/{id}/usage</c> (usage),
+/// and <c>DELETE /api/files/{id}</c> (delete). <c>GET /api/public/files/{id}</c> (download) and
+/// <c>GET /api/public/files/{id}/meta</c> (metadata) are anonymous, for public files only. Bytes go through
 /// <see cref="IFileStorage"/> — Postgres by default, or an S3-compatible store when the
 /// <c>BarakoCMS.Files.S3</c> module is also registered. Both work; the user chooses by whether they
 /// add the S3 module and configure it.
