@@ -32,7 +32,7 @@ internal static class ApiContract
     /// a status code, or tightening request validation so a request the API used to accept is now
     /// rejected. Adding an optional field, to a request or a response, does not.
     /// </summary>
-    public const int Version = 2;
+    public const int Version = 3;
 
     /// <summary>
     /// The header every response carries the version on, so a caller can read it without a token.
