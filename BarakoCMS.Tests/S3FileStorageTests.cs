@@ -20,8 +20,21 @@ public class S3FileStorageTests : IAsyncLifetime
     private const string Pass = "minioadmin-secret";
     private const string Bucket = "media";
 
+    /*
+     * quay.io, not Docker Hub.
+     *
+     * MinIO archived the project and the `minio/minio` repository on Docker Hub now answers
+     * "pull access denied ... repository does not exist" to an anonymous pull, which is every CI
+     * run. The same tag is still served from quay.io, which is where MinIO published in parallel
+     * the whole time, so this is a registry change and not a version change: the digest behind
+     * this tag is the one these tests were written against.
+     *
+     * This took the whole repository's CI down rather than one test class, because every merge
+     * queue run has to pass this suite. If quay goes the same way, the options are a different
+     * S3-compatible image or pinning by digest in a registry we control.
+     */
     private readonly MinioContainer _minio = new MinioBuilder()
-        .WithImage("minio/minio:RELEASE.2024-01-16T16-07-38Z")
+        .WithImage("quay.io/minio/minio:RELEASE.2024-01-16T16-07-38Z")
         .WithUsername(User)
         .WithPassword(Pass)
         .Build();
