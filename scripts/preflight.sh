@@ -13,6 +13,7 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 
 classes=()
+no_tests=0
 while [ $# -gt 0 ]; do
   case "$1" in
     -class)
@@ -21,12 +22,28 @@ while [ $# -gt 0 ]; do
       classes+=("$1")
       shift
       ;;
+    --no-tests)
+      no_tests=1
+      shift
+      ;;
     *)
       echo "preflight: unrecognised argument '$1'"
       exit 1
       ;;
   esac
 done
+
+# No -class means no test runs at all, and every other check here is a file scan, so the script
+# would restore, build, scan and print "all checks passed" having executed nothing. That is the
+# same hole this script already refuses one level down, where a -class matching zero tests is
+# treated as a failure rather than a clean finish. The argument list deserves the same answer:
+# a run that proves nothing must not look like a run that proved something.
+if [ ${#classes[@]} -eq 0 ] && [ "$no_tests" -eq 0 ]; then
+  echo "preflight: no -class given, so no test would run and this would pass having tested nothing."
+  echo "           Name the classes the change touches, including any that pin a value it moves."
+  echo "           Use --no-tests to run the restore, build and file scans on their own."
+  exit 1
+fi
 
 fail() { echo "preflight: $1"; exit 1; }
 
@@ -64,6 +81,9 @@ bash scripts/changelog-assemble.sh --check || fail "changelog-assemble --check f
 
 echo "== module versions =="
 bash scripts/check-module-versions.sh || fail "check-module-versions.sh failed"
+
+echo "== pinned versions agree =="
+bash scripts/check-pinned-versions.sh || fail "check-pinned-versions.sh failed"
 
 echo "== dash and banned-word scan =="
 # Words come from ~/.claude/CLAUDE.md at run time, never inlined here: the banned list itself is
