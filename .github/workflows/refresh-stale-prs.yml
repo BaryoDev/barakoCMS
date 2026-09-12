@@ -1,0 +1,125 @@
+name: Refresh stale pull requests
+
+# When a fix lands on master, every open pull request whose checks are red on an older base stays
+# red, and somebody has to notice and rebase it by hand.
+#
+# That is not hypothetical. `minio/minio` was removed from Docker Hub, which failed the integration
+# suite on every branch at once. #737 fixed it by moving to quay.io, and after it merged, #723 and
+# #725 were still red for a reason that had already been fixed, four commits behind, waiting for a
+# person to work that out.
+#
+# So: when master moves, any pull request that is behind it AND failing gets its branch updated.
+# Nothing is merged, nothing is retried, and a failure that is really the branch's own comes back on
+# the next run with the stale base ruled out.
+#
+# Deliberately narrow. Updating a green pull request would spend CI minutes to learn nothing, since
+# the merge queue tests against master at merge time anyway. And retrying a failed job rather than
+# rebuilding on a newer base is how a flake becomes invisible, which is the opposite of the point.
+
+on:
+  push:
+    branches: [master]
+  # A fix can also arrive from outside this repository: an image republished, a registry coming back.
+  # Nothing pushes here when that happens.
+  schedule:
+    - cron: "17 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: refresh-stale-prs
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    name: Update branches that are behind and failing
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update every pull request that is behind master and red
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          BASE: master
+          # A ceiling, so a bad day cannot start thirty CI runs at once.
+          MAX: "10"
+        run: |
+          set -euo pipefail
+
+          printf '| PR | behind | checks | action |\n|---|---|---|---|\n' > summary.md
+          acted=0
+
+          # `mergeStateStatus` reports BEHIND only when the repository requires up-to-date branches,
+          # which this one does not, so the comparison is read directly instead.
+          gh pr list --repo "$REPO" --state open --limit 100 \
+            --json number,isDraft,headRefName,headRepositoryOwner,author,labels,statusCheckRollup \
+            > prs.json
+
+          COUNT=$(jq 'length' prs.json)
+          echo "open pull requests: $COUNT"
+
+          for i in $(seq 0 $((COUNT - 1))); do
+            PR=$(jq -r ".[$i]" prs.json)
+            N=$(jq -r '.number' <<<"$PR")
+            BRANCH=$(jq -r '.headRefName' <<<"$PR")
+            DRAFT=$(jq -r '.isDraft' <<<"$PR")
+            AUTHOR=$(jq -r '.author.login' <<<"$PR")
+            OWNER=$(jq -r '.headRepositoryOwner.login // ""' <<<"$PR")
+            OPTED_OUT=$(jq -r '[.labels[].name] | index("no-self-heal") != null' <<<"$PR")
+
+            # A draft is not waiting on CI to be read.
+            [ "$DRAFT" = "true" ] && { printf '| #%s | - | - | skipped, draft |\n' "$N" >> summary.md; continue; }
+            # An escape hatch, for a branch that is deliberately pinned to an old base.
+            [ "$OPTED_OUT" = "true" ] && { printf '| #%s | - | - | skipped, no-self-heal |\n' "$N" >> summary.md; continue; }
+            # Dependabot rebases its own branches and regenerates the lock file while doing it, which
+            # a merge from master would not.
+            # Any spelling: gh reports the login as `app/dependabot`, the API has said `dependabot`
+            # and `dependabot[bot]` at different times, and a case pattern would read the brackets
+            # in that last one as a character class rather than as text.
+            case "$AUTHOR" in
+              *dependabot*)
+                printf '| #%s | - | - | skipped, dependabot rebases itself |\n' "$N" >> summary.md; continue ;;
+            esac
+            # A fork's branch is not ours to push to, and GITHUB_TOKEN cannot anyway.
+            if [ -n "$OWNER" ] && [ "$OWNER" != "${REPO%%/*}" ]; then
+              printf '| #%s | - | - | skipped, fork |\n' "$N" >> summary.md; continue
+            fi
+
+            # A check suite reports `conclusion`, a commit status reports `state`, and the rollup
+            # mixes both. CANCELLED counts: a cancelled required check blocks the pull request just
+            # as a failed one does.
+            FAILING=$(jq -r '[.statusCheckRollup[]? | (.conclusion // .state) | select(. == "FAILURE" or . == "TIMED_OUT" or . == "CANCELLED" or . == "ERROR")] | length' <<<"$PR")
+            BEHIND=$(gh api "repos/$REPO/compare/$BASE...$BRANCH" --jq '.behind_by' 2>/dev/null || echo 0)
+
+            if [ "$BEHIND" -eq 0 ]; then
+              printf '| #%s | 0 | %s failing | nothing to do, up to date |\n' "$N" "$FAILING" >> summary.md; continue
+            fi
+            if [ "$FAILING" -eq 0 ]; then
+              # Green on an older base is fine: the merge queue builds it against master at merge time.
+              printf '| #%s | %s | green | left alone, green |\n' "$N" "$BEHIND" >> summary.md; continue
+            fi
+            if [ "$acted" -ge "$MAX" ]; then
+              printf '| #%s | %s | %s failing | deferred, hit the per-run ceiling of %s |\n' "$N" "$BEHIND" "$FAILING" "$MAX" >> summary.md; continue
+            fi
+
+            # 422 here means the branch conflicts with master, which a person has to resolve. Not a
+            # failure of this job: it reports it and moves on.
+            if OUT=$(gh api --method PUT "repos/$REPO/pulls/$N/update-branch" 2>&1); then
+              acted=$((acted + 1))
+              printf '| #%s | %s | %s failing | **updated onto %s** |\n' "$N" "$BEHIND" "$FAILING" "$BASE" >> summary.md
+              echo "updated #$N ($BRANCH), was $BEHIND behind with $FAILING failing"
+            else
+              printf '| #%s | %s | %s failing | could not update, needs a hand |\n' "$N" "$BEHIND" "$FAILING" >> summary.md
+              echo "could not update #$N: $(printf '%s' "$OUT" | tail -2)"
+            fi
+          done
+
+          {
+            echo "## Stale pull requests"
+            echo
+            echo "Updated $acted branch(es) that were behind \`$BASE\` with failing checks."
+            echo
+            cat summary.md
+          } >> "$GITHUB_STEP_SUMMARY"
