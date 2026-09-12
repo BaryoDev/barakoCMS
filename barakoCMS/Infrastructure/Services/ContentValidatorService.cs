@@ -1,4 +1,5 @@
 using Marten;
+using Marten.Linq.MatchesSql;
 using barakoCMS.Core.Validation;
 using barakoCMS.Models;
 using System.Text.Json;
@@ -15,6 +16,12 @@ public interface IContentValidatorService
     /// and null is the answer that enforces the cap, so a create path that passes nothing still gets
     /// the check.
     /// </param>
+    /// <remarks>
+    /// Anything implementing or decorating this interface wants to override this member rather than
+    /// only the obsolete two-argument one. Inheriting that default passes null, and null is read as a
+    /// create: the singleton cap then refuses an update of the one entry as a second entry, and the
+    /// slug check refuses an entry its own stored slug on the next edit.
+    /// </remarks>
     Task<(bool IsValid, List<string> Errors)> ValidateAsync(
         string contentType,
         Dictionary<string, object> data,
@@ -145,7 +152,79 @@ public class ContentValidatorService : IContentValidatorService
             }
         }
 
+        // Only when everything else passed. This one costs a query the slug route's own comment
+        // explains cannot use an index, and a request already answering 400 does not need a second
+        // reason to; on a bulk import it is one such query per row.
+        //
+        // The entry's own stored slug is not a collision with itself, so the entry being changed is
+        // excluded. `existing` is that entry, which is why no second parameter carrying its id is
+        // needed: every caller that has the id has the entry.
+        if (errors.Count == 0)
+        {
+            var slugError = await ValidateSlugUniquenessAsync(schema, contentType, data, existing?.Id);
+            if (slugError is not null)
+                errors.Add(slugError);
+        }
+
         return (errors.Count == 0, errors);
+    }
+
+    /// <summary>
+    /// Checks that no other entry of this type already holds this entry's slug.
+    /// </summary>
+    /// <remarks>
+    /// A slug is how a URL names one entry, and nothing enforced that it named only one: the slug
+    /// route resolves with <c>FirstOrDefaultAsync</c>, so two entries of a type sharing a slug served
+    /// whichever row Postgres returned first, and which one that is can change between requests.
+    ///
+    /// Every status, not only Published. Leaving drafts out would allow a draft that cannot be
+    /// published, and the moment it was discovered is the moment somebody published it: the scheduler
+    /// does that on a timer with no request to answer and nobody to refuse. Checking on the way in
+    /// means a status change can never create a collision, so <c>ChangeStatus</c> and the sweeper need
+    /// no rule of their own.
+    ///
+    /// Which field is the slug, and how a slug is matched, both come from the delivery code that
+    /// resolves it. A second answer to either question here would be a uniqueness rule that does not
+    /// prevent the ambiguity it exists to prevent: a case-sensitive check, for instance, would accept
+    /// two entries the case-insensitive route cannot tell apart.
+    /// </remarks>
+    private async Task<string?> ValidateSlugUniquenessAsync(
+        ContentTypeDefinition schema,
+        string contentType,
+        Dictionary<string, object> data,
+        Guid? entryId)
+    {
+        var slugField = barakoCMS.Features.Public.PublicDelivery.SlugField(schema);
+        if (slugField is null)
+            return null;
+
+        var submitted = data.FirstOrDefault(kv => kv.Key.Equals(slugField, StringComparison.OrdinalIgnoreCase));
+        if (submitted.Key is null)
+            return null;
+
+        var slug = submitted.Value is JsonElement je ? je.ToString() : submitted.Value?.ToString();
+        if (string.IsNullOrWhiteSpace(slug))
+            return null;
+
+        var (sql, parameters) = barakoCMS.Features.Public.DeliveryQuery.FieldEqualsIgnoreCaseSql(slugField, slug);
+
+        var holders = _session.Query<Models.Content>()
+            .Where(c => c.ContentType == contentType && c.MatchesSql(sql, parameters));
+
+        if (entryId is { } id)
+            holders = holders.Where(c => c.Id != id);
+
+        if (!await holders.AnyAsync())
+            return null;
+
+        var display = schema.Fields
+            .FirstOrDefault(f => string.Equals(f.Name, slugField, StringComparison.OrdinalIgnoreCase))
+            ?.DisplayName ?? slugField;
+
+        // Which entry holds it is deliberately not named. A caller who may create content here is not
+        // necessarily allowed to read the entry in the way, and a draft's existence is the draft's.
+        return $"Field '{display}' must be unique, and '{slug}' is already used by another "
+             + $"'{contentType}' entry.";
     }
 
     /// <summary>

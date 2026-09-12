@@ -44,6 +44,18 @@ exist.
 `/{type}/{slug}` needs the type to have a slug field: a field of type `slug`, or failing that a
 field named `slug`. Without one the route is 404.
 
+A slug is unique within its content type, so the route resolves to one entry. The authoring API
+enforces that on the way in: a create, an update or a rollback carrying a slug another entry of the
+type already holds is refused with 400. Every status counts, drafts and archived entries included,
+because a draft allowed to hold a taken slug only fails at the moment somebody publishes it, and the
+scheduler publishes on a timer with nobody to tell. Matching is case-insensitive, the same way this
+route matches. Reusing the slug of a retired entry means changing or clearing it on that entry first.
+
+Content stored before that rule existed is not rewritten, so a database can still hold two entries
+on one slug. The route resolves those oldest first, with the entry id as the tiebreak, so the URL
+answers with the same entry on every request until the duplicate is cleaned up. It used to answer
+with whichever row the database returned first.
+
 ## Pagination
 
 `GET /api/public/{type}` takes `page` and `pageSize`.

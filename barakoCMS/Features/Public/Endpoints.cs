@@ -581,11 +581,21 @@ internal class GetBySlugEndpoint : EndpointWithoutRequest<PublicContentResponse>
              * back and match in memory, so a blog with 20k posts deserialized 20k documents to
              * answer one request, and a 404 probe cost exactly the same. */
             var (sql, parameters) = DeliveryQuery.FieldEqualsIgnoreCaseSql(slugField, slug);
+
+            /* Oldest first, with the id as the tiebreak, because a slug is only unique going
+             * forward (#717). Authoring refuses a new duplicate, but a deployment that already had
+             * two entries on one slug still has them, and an unordered FirstOrDefaultAsync let
+             * Postgres choose: the same URL answered with either page, and could change its mind
+             * between requests after a vacuum or a plan change. Ordering does not make the data
+             * unambiguous, it makes the answer stable, and the entry that held the slug first is
+             * the one whose links are already out there. */
             match = await _session.Query<ContentDoc>()
                 .Where(c => c.ContentType == type
                             && c.Status == ContentStatus.Published
                             && c.Sensitivity == SensitivityLevel.Public
                             && c.MatchesSql(sql, parameters))
+                .OrderBy(c => c.CreatedAt)
+                .ThenBy(c => c.Id)
                 .FirstOrDefaultAsync(ct);
         }
 
