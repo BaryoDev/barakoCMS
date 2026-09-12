@@ -4,7 +4,9 @@ namespace barakoCMS.Infrastructure.Services;
 
 /// <summary>
 /// Service for resolving user permissions using additive (union) role semantics: a user is
-/// granted an action if ANY of their roles grants it. SuperAdmin bypasses all checks.
+/// granted an action if ANY of their roles grants it. The seeded SuperAdmin role bypasses all
+/// checks, identified by its id rather than its name: the name is not the key, and a custom role
+/// that took it used to inherit the bypass. See Models/SystemRoles.
 /// </summary>
 public class PermissionResolver : IPermissionResolver
 {
@@ -76,7 +78,7 @@ public class PermissionResolver : IPermissionResolver
             return false;
 
         // SUPER ADMIN BYPASS
-        if (roles.Any(r => r.Name == "SuperAdmin"))
+        if (roles.Any(r => r.Id == Models.SystemRoles.SuperAdminRoleId))
             return true;
 
         // Get permission rules for this content type + action
@@ -134,7 +136,7 @@ public class PermissionResolver : IPermissionResolver
         // the query rather than load a collection to deny every item in it.
         if (roles.Count == 0) return ReadPredicate.Nothing;
 
-        if (roles.Any(r => r.Name == "SuperAdmin")) return ReadPredicate.All;
+        if (roles.Any(r => r.Id == Models.SystemRoles.SuperAdminRoleId)) return ReadPredicate.All;
 
         // Gathered exactly the way CanPerformActionAsync gathers them, because the two have to be
         // looking at the same set for the agreement property to mean anything.
@@ -176,7 +178,7 @@ public class PermissionResolver : IPermissionResolver
         if (roles.Count == 0)
             return false;
 
-        if (roles.Any(r => r.Name == "SuperAdmin"))
+        if (roles.Any(r => r.Id == Models.SystemRoles.SuperAdminRoleId))
             return true;
 
         return roles.Any(r => Models.SystemCapabilities.Satisfies(r.SystemCapabilities, capability));

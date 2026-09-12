@@ -790,6 +790,12 @@ public static class ServiceCollectionExtensions
         var erasure = barakoCMS.Infrastructure.Erasure.ErasureOptions.FromConfiguration(configuration);
         erasure.Validate();
 
+        // Sensitivity mode, validated for the same reason as erasure above. All is declared but not
+        // implemented: SensitivityService branches on Off and nothing else, so a deployment that
+        // asks for strict lockdown gets SensitiveOnly and a clean startup. Refused here rather than
+        // served inert, because the operator who sets it is the one who needs it.
+        barakoCMS.Infrastructure.Services.SensitivityService.ValidateMode(configuration);
+
         // Connectors hold live third-party credentials, so a key that is present and wrong is
         // refused before the host is built rather than at the first send. An absent key is not an
         // error: it means the feature is off, and the endpoints say so with the setting named.

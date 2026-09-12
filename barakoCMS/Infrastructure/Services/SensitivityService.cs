@@ -17,6 +17,21 @@ public class SensitivityService : ISensitivityService
     private readonly SensitivityMode _mode;
     private readonly Dictionary<string, ContentTypeDefinition?> _schemaCache = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Throws when the configured mode cannot do what its name says. Called at startup.
+    /// </summary>
+    public static void ValidateMode(IConfiguration configuration)
+    {
+        var raw = configuration["Sensitivity:Mode"];
+        if (Enum.TryParse<SensitivityMode>(raw, ignoreCase: true, out var mode) && mode == SensitivityMode.All)
+        {
+            throw new InvalidOperationException(
+                "Sensitivity:Mode is All, which is declared but not implemented: scrubbing branches "
+                + "on Off only, so All behaves exactly as SensitiveOnly. Use SensitiveOnly, which is "
+                + "the default and scrubs every field marked Sensitive or Hidden.");
+        }
+    }
+
     public SensitivityService(IQuerySession session, IConfiguration configuration)
     {
         _session = session;

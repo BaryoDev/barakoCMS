@@ -132,8 +132,11 @@ duplicate service.
 - **Off**: no scrubbing (dev / fully trusted internal tools).
 - **SensitiveOnly**: scrub only fields/docs marked Sensitive or Hidden; Public
   flows through. This is the normal production mode.
-- **All**: strict, any field not explicitly visible to the caller's role is
-  withheld (lockdown / high-security tenants).
+- **All**: intended as strict lockdown, where any field not explicitly visible to
+  the caller's role is withheld. Not implemented. Scrubbing branches on `Off` and
+  nothing else, so `All` would behave exactly as `SensitiveOnly`. Setting it is
+  refused at startup rather than accepted silently, because an operator who asks
+  for lockdown is the one who cannot afford to get `SensitiveOnly` instead.
 
 **4. Role mapping is data-driven.** A field's `VisibleToRoles` gives granular
 control; when empty, fall back to a configurable default policy
@@ -282,7 +285,8 @@ per type instead of hardcoded.
 
 1. **Done.** Field sensitivity lives on `FieldDefinition` and the filter is data
    driven. The AttendanceRecord hardcode and the duplicate service are gone.
-2. **Done.** `Sensitivity:Mode` selects `Off`, `SensitiveOnly` or `All`.
+2. **Partly done.** `Sensitivity:Mode` selects `Off` or `SensitiveOnly`. `All` is declared but not
+   implemented, so it is refused at startup rather than accepted and left inert.
 3. **Write-path protection done**, in `ISensitivityService.ApplyWriteAsync`: a
    caller who cannot see a field cannot set it, and omitting it is not a way to
    delete it. Admin UI per-field toggles are still outstanding.

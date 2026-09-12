@@ -1,6 +1,6 @@
 {
     # Global Options
-    email ${ACME_EMAIL}
+    email {$ACME_EMAIL}
 }
 
 {$DOMAIN_API} {

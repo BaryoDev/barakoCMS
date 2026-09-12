@@ -26,9 +26,8 @@ If you discover a security vulnerability in BarakoCMS, please report it responsi
 | 2.x | Not supported | ended |
 | < 2.0 | Not supported | ended |
 
-4.0 has not shipped yet. Until it does, 3.x is the current line and is actively supported: the
-published package is 3.21.0. The row above is what 3.x becomes on the day 4.0 is tagged, and the
-twelve months run from that day.
+4.0 shipped on 7 September 2026 and the current published package is 4.0.1. 3.x is therefore in its
+twelve-month window, which runs from that day and ends on 7 September 2027.
 
 ### What "supported" means
 

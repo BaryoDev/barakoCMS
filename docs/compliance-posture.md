@@ -45,7 +45,7 @@ Each row is a control that is implemented and checkable, not a plan.
 | Static analysis | CodeQL on every pull request |
 | Dependency vulnerabilities | Dependabot, plus a `dotnet list package --vulnerable` gate that fails the build on High or Critical |
 | Secret scanning | Gitleaks on every pull request |
-| Software bill of materials | CycloneDX per package and for the container image, attached to each release |
+| Software bill of materials | One CycloneDX SBOM covering the whole solution, generated on each release run and kept as a 90-day workflow artifact. Not per package, none for the container image, and not attached to the GitHub release |
 | Backup and restore | Every deployment path takes verified backups; CI restores one and boots against it on every pull request (`docs/backup-and-restore.md`) |
 | Upgrade safety | CI upgrades a real database created by the previous release (`docs/upgrading-to-4.0.md`) |
 | Vulnerability disclosure | Private channel with a stated timeline (`SECURITY.md`) |

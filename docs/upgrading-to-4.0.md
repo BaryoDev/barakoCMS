@@ -73,9 +73,30 @@ workflow side effect.
 
 **4.0 exits at startup with `Cannot derive schema migrations ... AutoCreate.CreateOnly`.** The
 migration has not been applied, or only partly. Run `db-assert` to see exactly what is outstanding,
-then apply the file again. It is safe to re-run: every statement in it is idempotent in effect.
+then apply the file again. Most of it is idempotent, but four statements are not: the `DO $guard$`
+block reads `mt_streams.snapshot`, which the first run removes, and the three `mt_streams` column
+changes carry no `IF EXISTS` or `IF NOT EXISTS`. Because the command above runs
+`--single-transaction`, a second run aborts and rolls back rather than leaving the database part
+way. If `db-assert` says the migration is outstanding after a failed run, take the outstanding
+statements from the file by hand rather than re-running the whole thing.
 
-**You need to go back to 3.x.** Stop 4.0, then:
+**You need to go back to 3.x.**
+
+> **Rolling back is lossy, and some of what it drops cannot be recovered afterwards.** Have these
+> to hand *before* you start:
+>
+> - **The email provider API key.** `mt_doc_email_settings` is dropped. The stored key is encrypted
+>   and nothing decrypts it for display, so it cannot be read out first.
+> - **Every connector credential**, for the same reason (`mt_doc_connectors`,
+>   `mt_doc_connector_secrets`).
+> - **An export of your URL redirects, query definitions and request definitions.** Those tables are
+>   dropped and the data is not carried anywhere else.
+>
+> Also lost: queued jobs and workflow runs, and the webhook delivery log. Every Scheduled entry is
+> rewritten back to Draft, so anything waiting to publish will need rescheduling. Nine tables are
+> dropped in total; the file lists them with a comment on each.
+
+Stop 4.0, then:
 
 ```bash
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.0.0/rollback-to-3.x.sql
