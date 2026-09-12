@@ -91,7 +91,7 @@ internal class Endpoint : Endpoint<Request, Response>
         // DOMAIN RULES — must run on update too, or an invariant enforced at create (a balanced
         // journal entry) could simply be edited into an illegal state afterwards.
         var hookErrors = await Resolve<barakoCMS.Infrastructure.Services.IContentLifecycleRunner>()
-            .RunBeforeSaveAsync(existingContent.ContentType, req.Data, existingContent.Data, userId, ct);
+            .RunBeforeSaveAsync(existingContent.ContentType, existingContent.Id, req.Data, existingContent.Data, userId, ct);
         if (hookErrors.Count > 0)
         {
             foreach (var error in hookErrors)

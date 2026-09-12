@@ -77,7 +77,7 @@ internal class Endpoint : Endpoint<Request, Response>
         // enrich the entry (e.g. stamp the next sequence number). Runs after validation so a hook can
         // trust the field types it reads.
         var hookErrors = await Resolve<barakoCMS.Infrastructure.Services.IContentLifecycleRunner>()
-            .RunBeforeSaveAsync(req.ContentType, req.Data, existing: null, userId, ct);
+            .RunBeforeSaveAsync(req.ContentType, entryId: null, req.Data, existing: null, userId, ct);
         if (hookErrors.Count > 0)
         {
             foreach (var error in hookErrors)
