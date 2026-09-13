@@ -72,6 +72,7 @@ services:
       # audit log records the proxy. Left unset the app ignores X-Forwarded-For, which is the safe
       # default because the header is client-supplied. See README, "Behind a domain".
       ForwardedHeaders__Enabled: ${FORWARDED_HEADERS_ENABLED:-false}
+      ForwardedHeaders__KnownProxies__0: ${TRUSTED_PROXY_ADDRESS:-}
       ForwardedHeaders__KnownNetworks__0: ${TRUSTED_PROXY_NETWORK:-}
 
       # ── Email (Resend module) — optional. Blank = built-in mock (logs instead of sending). ──

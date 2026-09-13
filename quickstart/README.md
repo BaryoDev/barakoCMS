@@ -139,11 +139,17 @@ audit log see. Name the proxy and both start working per client:
 
 ```env
 FORWARDED_HEADERS_ENABLED=true
-TRUSTED_PROXY_NETWORK=172.16.0.0/12   # the compose bridge the proxy container sits on
+TRUSTED_PROXY_ADDRESS=10.87.51.2   # the proxy's own address, as the API sees it
 ```
 
-Turning it on without a network is a startup failure rather than a silent "trust everyone". If the
-proxy runs outside compose, use its address instead via `ForwardedHeaders__KnownProxies__0`.
+Name the proxy's address, not the range it sits in. Anything else inside a trusted range can reach
+the API and set `X-Forwarded-For` itself, and on a Docker host the whole `172.16.0.0/12` bridge
+range includes every other container. If the proxy is a container, give it a fixed `ipv4_address` on
+a network with a fixed subnet, the way `docker-compose.prod.yml` does, so the address survives a
+restart. `TRUSTED_PROXY_NETWORK` takes CIDR notation for the case where the address really cannot be
+pinned, and both can be set together.
+
+Turning it on without either is a startup failure rather than a silent "trust everyone".
 
 ## Upgrading
 
