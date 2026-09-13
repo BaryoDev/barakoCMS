@@ -120,10 +120,27 @@ public static class ServiceCollectionExtensions
             .SelectMany(m => m.EndpointAssemblies)
             .Distinct()
             .ToArray();
-        if (moduleAssemblies.Length > 0)
-            services.AddFastEndpoints(o => o.Assemblies = moduleAssemblies);
-        else
-            services.AddFastEndpoints();
+
+        // Auto discovery also scans every other loaded assembly, which includes the module
+        // assemblies the enabled list switched off. Their endpoints would be mapped with none of
+        // their services registered, and the host fails at startup resolving them. Those
+        // assemblies are excluded by type, so validators and processors in them stay out too. An
+        // assembly an enabled module also claims, core and the host's own assembly are never
+        // excluded.
+        var switchedOff = seen
+            .Except(enabled)
+            .SelectMany(m => m.EndpointAssemblies)
+            .Except(moduleAssemblies)
+            .Where(a => a != typeof(IBarakoModule).Assembly && a != System.Reflection.Assembly.GetEntryAssembly())
+            .ToHashSet();
+
+        services.AddFastEndpoints(o =>
+        {
+            if (moduleAssemblies.Length > 0)
+                o.Assemblies = moduleAssemblies;
+            if (switchedOff.Count > 0)
+                o.Filter = type => !switchedOff.Contains(type.Assembly);
+        });
 
         // The job queue. The storage provider is a singleton that reaches the request's scoped
         // session through IHttpContextAccessor, which is what makes an enqueue commit with the
