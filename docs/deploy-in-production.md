@@ -143,6 +143,27 @@ one on, add its variables to the `app` service's `environment:` block.
 For the lean core instead of the suite, swap `ghcr.io/baryodev/barako-cms` for
 `ghcr.io/baryodev/barako-cms-decaf` and reference the module packages you want from your own host.
 
+## Client IPs behind Caddy
+
+Rate limiting and the audit log use the client IP that Caddy puts in `X-Forwarded-For`. The app
+believes that header only from Caddy's own address. Caddy and the app share a `proxy` network with a
+fixed subnet, Caddy has a fixed address on it, and the app trusts that one address:
+
+| Variable | Default | What it sets |
+| --- | --- | --- |
+| `PROXY_SUBNET` | `10.87.51.0/28` | the `proxy` network's subnet |
+| `PROXY_ADDRESS` | `10.87.51.2` | Caddy's address on it, and the one address the app trusts |
+| `TRUSTED_PROXY_NETWORK` | empty | an extra trusted range in CIDR notation, if you need one |
+
+If `10.87.51.0/28` is already used on your host, by another Docker network or by a LAN or VPN route,
+set `PROXY_SUBNET` to a free range and `PROXY_ADDRESS` to an address inside it. An overlap with
+another Docker network fails `up` with `Pool overlaps with other one on this address space`. An
+overlap with a host route does not fail anything, it just stops the containers reaching that range,
+so check `ip route` before you pick.
+
+`ForwardedHeadersTests` reads these defaults out of the compose file and checks that a request from
+Caddy's address has its `X-Forwarded-For` honoured and a request from another container does not.
+
 ## Upgrading
 
 ```bash
@@ -153,6 +174,20 @@ docker compose -f docker-compose.prod.yml up -d
 Change `BARAKO_TAG` first. Schema migrations run on start. Read
 [upgrading-to-4.0.md](upgrading-to-4.0.md) before moving to 4.0, which does not boot without its
 migration.
+
+### Upgrading past 4.0.2: the trusted proxy
+
+Before 4.0.2 this file trusted `X-Forwarded-For` from anything in `172.16.0.0/12`, which is every
+container on a default Docker bridge. It now trusts only Caddy's address (see "Client IPs behind
+Caddy" above). The next `up -d` creates the `proxy` network and recreates `caddy` and `app` on it.
+Postgres and its volume are not touched.
+
+- **You never set `TRUSTED_PROXY_NETWORK`.** Nothing to do. Caddy moves to `PROXY_ADDRESS` and the
+  app trusts that address, so client IPs keep working. If `up` fails with a pool overlap, set
+  `PROXY_SUBNET` and `PROXY_ADDRESS` as described above.
+- **You set `TRUSTED_PROXY_NETWORK`.** It is still applied, so everything you trusted before is still
+  trusted, and Caddy's new address is trusted on top. To close the gap this release is about, remove
+  it from `.env` unless it names something other than Caddy that you do need.
 
 ## Backups
 

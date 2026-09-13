@@ -36,6 +36,11 @@ services:
       - ACME_EMAIL=${ACME_EMAIL:?set ACME_EMAIL in .env}
     depends_on:
       - app
+    # Caddy sits alone with the app on the proxy network, at an address that does not move, so the
+    # app can trust that one address for X-Forwarded-For instead of a whole bridge range.
+    networks:
+      proxy:
+        ipv4_address: ${PROXY_ADDRESS:-10.87.51.2}
 
   # 2. Database (PostgreSQL)
   postgres:
@@ -77,11 +82,13 @@ services:
       - InitialAdmin__Username=${ADMIN_USER:-admin}
       - InitialAdmin__Password=${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env, this is your first sign-in}
       - Kubernetes__Enabled=false
-      # Caddy terminates TLS and is the only thing that reaches the app, so its X-Forwarded-For is
-      # what rate limiting and the audit log key on. Named by network because the compose bridge
-      # assigns its address; override if your bridge is not in the default range.
+      # Caddy terminates TLS, so its X-Forwarded-For is what rate limiting and the audit log key on.
+      # Only Caddy's own address is trusted. Any other container that can reach app:8080 is not, so
+      # it cannot choose the client IP. TRUSTED_PROXY_NETWORK is still read, so a deployment that set
+      # it keeps trusting what it named; it is empty unless you set it.
       - ForwardedHeaders__Enabled=true
-      - ForwardedHeaders__KnownNetworks__0=${TRUSTED_PROXY_NETWORK:-172.16.0.0/12}
+      - ForwardedHeaders__KnownProxies__0=${PROXY_ADDRESS:-10.87.51.2}
+      - ForwardedHeaders__KnownNetworks__0=${TRUSTED_PROXY_NETWORK:-}
       # The origin the API puts in the links it hands out, and the host names it will answer to. The
       # Host header is written by whoever sent the request, so without these a caller chooses both.
       # Passed through rather than assumed: quickstart has had them and this file did not, so the
@@ -93,6 +100,9 @@ services:
       # The site the feed points at, which is the client's front end rather than this API. Preferred
       # over App__BaseUrl when set.
       - Feeds__SiteUrl=${FEEDS_SITE_URL:-}
+    networks:
+      - default
+      - proxy
     depends_on:
       postgres:
         condition: service_healthy
@@ -134,6 +144,17 @@ services:
       BACKUP_CRON_SCHEDULE: "${BACKUP_CRON_SCHEDULE:-0 2 * * *}"
       BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
     entrypoint: ["/bin/sh", "/scripts/backup-cron.sh"]
+
+networks:
+  default: {}
+  # A fixed subnet so Caddy's address is known in advance. Docker refuses to create it if another
+  # network on the host already overlaps it, and a host or VPN route in the same range would stop
+  # the containers reaching it. Either way, set PROXY_SUBNET and PROXY_ADDRESS in .env to a free
+  # range. See docs/deploy-in-production.md, "Client IPs behind Caddy".
+  proxy:
+    ipam:
+      config:
+        - subnet: ${PROXY_SUBNET:-10.87.51.0/28}
 
 volumes:
   postgres_prod_data:

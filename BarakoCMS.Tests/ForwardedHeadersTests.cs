@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.RegularExpressions;
 using FluentAssertions;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -161,6 +162,86 @@ public class ForwardedHeadersTests
         ForwardedHeadersSetup.IsEnabled(Config()).Should().BeFalse(
             "trusting nothing is the failing-closed default; a deployment behind a proxy opts in and "
           + "says which proxy");
+    }
+
+    /// <summary>
+    /// The trust the shipped production compose file configures when .env sets nothing (#651).
+    /// </summary>
+    /// <remarks>
+    /// It used to be 172.16.0.0/12, every address a default Docker bridge hands out, so any other
+    /// container that could reach app:8080 was trusted and could write the client IP. The defaults
+    /// are read from the file rather than restated here, so the test follows the file.
+    /// </remarks>
+    private static IConfiguration ProductionComposeDefaults()
+    {
+        var settings = new List<(string, string)>();
+        foreach (var line in ProductionComposeLines())
+        {
+            var match = Regex.Match(line, @"^-\s*ForwardedHeaders__(?<key>\w+)=(?<value>.*)$");
+            if (match.Success)
+                settings.Add(($"ForwardedHeaders:{match.Groups["key"].Value.Replace("__", ":")}", ResolveDefaults(match.Groups["value"].Value)));
+        }
+
+        settings.Should().Contain(s => s.Item1 == "ForwardedHeaders:Enabled",
+            "docker-compose.prod.yml turns forwarded headers on for Caddy");
+        return Config(settings.ToArray());
+    }
+
+    private static string[] ProductionComposeLines() =>
+        File.ReadAllLines(Path.Combine(ComposeDefaultsTests.RepoRoot(), "docker-compose.prod.yml"))
+            .Select(l => l.Trim())
+            .Where(l => !l.StartsWith('#'))
+            .ToArray();
+
+    /// <summary>Resolves ${VAR:-default} the way compose does when VAR is unset, innermost first.</summary>
+    private static string ResolveDefaults(string value)
+    {
+        var variable = new Regex(@"\$\{[A-Za-z_][A-Za-z0-9_]*(?::?-(?<default>[^${}]*))?\}");
+        while (variable.IsMatch(value))
+            value = variable.Replace(value, m => m.Groups["default"].Value);
+        return value;
+    }
+
+    private static string? CaddyAddressInProductionCompose() =>
+        ProductionComposeLines()
+            .Where(l => l.StartsWith("ipv4_address:", StringComparison.Ordinal))
+            .Select(l => ResolveDefaults(l["ipv4_address:".Length..].Trim()))
+            .SingleOrDefault();
+
+    [Fact]
+    public async Task The_production_compose_trusts_a_forwarded_header_from_caddy()
+    {
+        var caddy = CaddyAddressInProductionCompose();
+        caddy.Should().NotBeNull("Caddy needs a fixed address for the app to trust that address alone");
+
+        var observed = await ObservedClientIp(ProductionComposeDefaults(), peer: caddy!, forwardedFor: Client);
+
+        observed.Should().Be(Client, "the request came from Caddy, the one proxy the stack has");
+    }
+
+    [Fact]
+    public async Task The_production_compose_trusts_caddy_when_kestrel_reports_an_ipv4_mapped_address()
+    {
+        var caddy = CaddyAddressInProductionCompose();
+        caddy.Should().NotBeNull("Caddy needs a fixed address for the app to trust that address alone");
+
+        var observed = await ObservedClientIp(ProductionComposeDefaults(), peer: $"::ffff:{caddy}", forwardedFor: Client);
+
+        observed.Should().Be(Client,
+            "Kestrel listens dual stack in the container, so an IPv4 peer can arrive as ::ffff:a.b.c.d");
+    }
+
+    [Theory]
+    [InlineData("172.18.0.5")]
+    [InlineData("172.17.0.9")]
+    [InlineData("10.87.51.3")]
+    public async Task The_production_compose_ignores_a_forwarded_header_from_another_container(string neighbour)
+    {
+        var observed = await ObservedClientIp(ProductionComposeDefaults(), peer: neighbour, forwardedFor: Client);
+
+        observed.Should().Be(neighbour,
+            "{0} is another container on a Docker network, not Caddy. Honouring its X-Forwarded-For "
+          + "would let it pick the IP the audit log records and the rate limiter keys on", neighbour);
     }
 
     [Fact]
