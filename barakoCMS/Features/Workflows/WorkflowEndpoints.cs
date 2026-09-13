@@ -52,6 +52,8 @@ internal class CreateWorkflowEndpoint : Endpoint<WorkflowDefinition, barakoCMS.F
             req.TriggerEvent = declared;
         }
 
+        WorkflowTriggers.Normalise(req);
+
         // Encrypted before it is stored, so the definition, the runs that copy its parameters and
         // the execution log all hold ciphertext. Only the webhook action decrypts it, when sending.
         WebhookSigning.ProtectSecrets(req, _protector);

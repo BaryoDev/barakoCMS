@@ -13,6 +13,7 @@ internal class Request
 {
     public string Name { get; set; } = string.Empty;
     public string TriggerContentType { get; set; } = string.Empty;
+    public List<string> TriggerContentTypes { get; set; } = new();
     public string TriggerEvent { get; set; } = string.Empty;
     public Dictionary<string, string> Conditions { get; set; } = new();
     public List<WorkflowAction> Actions { get; set; } = new();
@@ -47,6 +48,7 @@ internal class Endpoint : Endpoint<Request, WorkflowValidationResult>
             {
                 Name = req.Name,
                 TriggerContentType = req.TriggerContentType,
+                TriggerContentTypes = req.TriggerContentTypes,
                 TriggerEvent = req.TriggerEvent,
                 Conditions = req.Conditions,
                 Actions = req.Actions

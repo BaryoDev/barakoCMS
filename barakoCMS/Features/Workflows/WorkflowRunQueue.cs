@@ -66,7 +66,7 @@ internal sealed class WorkflowRunQueue : IWorkflowRunQueue
     public async Task<int> EnqueueAsync(barakoCMS.Models.Content content, string eventType, long eventSequence, CancellationToken ct)
     {
         var workflows = await _session.Query<WorkflowDefinition>()
-            .Where(w => w.TriggerContentType == content.ContentType && w.TriggerEvent == eventType)
+            .Where(WorkflowTriggers.FiredBy(content.ContentType, eventType))
             .ToListAsync(ct);
 
         if (workflows.Count == 0) return 0;

@@ -135,6 +135,81 @@ public class WorkflowFiringTests
         run.Actions[0].Error.Should().BeNull();
     }
 
+    /// <summary>
+    /// One workflow naming two types fires for each of them, and not for a type it does not name.
+    /// </summary>
+    /// <remarks>
+    /// Saved through the endpoint with only the list, the way a caller that knows the field writes
+    /// it. The third type publishes first, so if it fired the total would be three and not two.
+    /// </remarks>
+    [Fact]
+    public async Task A_workflow_naming_two_content_types_fires_for_each_and_not_for_a_third()
+    {
+        await AuthenticateAsync();
+        var page = NewTypeName();
+        var post = NewTypeName();
+        var other = NewTypeName();
+        var probeType = NewTypeName();
+
+        var res = await _client.PostAsJsonAsync("/api/workflows", new
+        {
+            name = $"probe-{Guid.NewGuid():N}",
+            triggerContentTypes = new[] { page, post },
+            triggerEvent = "Published",
+            actions = new[]
+            {
+                new WorkflowAction
+                {
+                    Type = "CreateTask",
+                    Parameters = new Dictionary<string, string> { ["ContentType"] = probeType, ["Title"] = "probe" },
+                },
+            },
+        });
+        res.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", res.StatusCode, await res.Content.ReadAsStringAsync());
+
+        var otherId = await CreateContentAsync(other);
+        (await ChangeStatusAsync(otherId, ContentStatus.Published)).EnsureSuccessStatusCode();
+        await Task.Delay(TimeSpan.FromSeconds(3));
+        (await WaitForProbesOrZeroAsync(probeType)).Should().Be(0, "the workflow does not name this type");
+
+        var pageId = await CreateContentAsync(page);
+        (await ChangeStatusAsync(pageId, ContentStatus.Published)).EnsureSuccessStatusCode();
+        var postId = await CreateContentAsync(post);
+        (await ChangeStatusAsync(postId, ContentStatus.Published)).EnsureSuccessStatusCode();
+
+        (await WaitForProbesAsync(probeType, atLeast: 2)).Should().Be(2,
+            "one publish of each named type, and nothing for the type it does not name");
+    }
+
+    /// <summary>
+    /// A workflow stored before the list existed has no list in its document, and still fires.
+    /// </summary>
+    /// <remarks>
+    /// The key is removed from the stored JSON rather than left as an empty array, because an empty
+    /// array is what a new document holds and a real old document holds nothing at all.
+    /// </remarks>
+    [Fact]
+    public async Task A_single_type_workflow_stored_before_the_list_existed_still_fires()
+    {
+        await AuthenticateAsync();
+        var contentType = NewTypeName();
+        var probeType = NewTypeName();
+        var workflowId = await CreateWorkflowAsync(contentType, probeType);
+        await WorkflowTriggerContentTypesTests.StripListFromStoredDocumentAsync(_factory, workflowId);
+
+        var id = await CreateContentAsync(contentType);
+        (await ChangeStatusAsync(id, ContentStatus.Published)).EnsureSuccessStatusCode();
+
+        (await WaitForProbesAsync(probeType, atLeast: 1)).Should().Be(1);
+    }
+
+    private async Task<int> WaitForProbesOrZeroAsync(string probeContentType)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+        return await session.Query<barakoCMS.Models.Content>().CountAsync(c => c.ContentType == probeContentType);
+    }
+
     private async Task AuthenticateAsync()
     {
         var (token, _) = await TestHelpers.CreateAdminUserAsync(_factory);

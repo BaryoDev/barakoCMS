@@ -38,7 +38,7 @@ internal class WorkflowEngine : IWorkflowEngine
         try
         {
             workflows = await _session.Query<WorkflowDefinition>()
-                .Where(w => w.TriggerContentType == contentType && w.TriggerEvent == eventType)
+                .Where(WorkflowTriggers.FiredBy(contentType, eventType))
                 .ToListAsync(ct);
         }
         catch (Exception ex)
