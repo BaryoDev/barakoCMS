@@ -61,7 +61,7 @@ jobs:
       version: ${{ steps.check.outputs.version }}
       should_release: ${{ steps.check.outputs.should_release }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - id: check
         run: |
           set -euo pipefail
@@ -124,8 +124,8 @@ jobs:
     if: needs.gate.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-dotnet@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
         with:
           dotnet-version: 10.0.x
 
@@ -235,7 +235,7 @@ jobs:
           echo "$f: $COMPONENTS components"
 
       - name: Upload the SBOM
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: sbom
           path: sbom/*.json
@@ -248,7 +248,7 @@ jobs:
       # from this artifact and nothing else, so every Source Link build shipped no symbols at all
       # and no step went red about it. The assertion in verify-packages keeps it that way.
       - name: Upload the packages
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: nupkg
           path: out/*.*nupkg
@@ -256,7 +256,7 @@ jobs:
           retention-days: 7
 
       - name: Upload the template package
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: template-nupkg
           path: out-templates/*.nupkg
@@ -280,11 +280,11 @@ jobs:
       # of a package instead of opening the .nupkg we just built, so a package whose contents are
       # broken restores from cache and passes. Verified: with a warm cache the assembly assertion
       # below does not fire; with a cold one it does. This job needs the cold path.
-      - uses: actions/setup-dotnet@v6
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
         with:
           dotnet-version: 10.0.x
 
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: nupkg
           path: packages
@@ -292,7 +292,7 @@ jobs:
       # The release claims to produce an SBOM, so this job proves the file exists and describes
       # something. The pattern is the same as the assembly assertion below: a step that produced no
       # output still exits 0, and the release should not be able to say "SBOM" while shipping none.
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: sbom
           path: sbom
@@ -407,15 +407,15 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
-      - uses: actions/setup-dotnet@v6
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
         with:
           dotnet-version: 10.0.x
 
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           pattern: "*nupkg"
           path: feed
@@ -449,13 +449,13 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/setup-dotnet@v6
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
         with:
           dotnet-version: 10.0.x
 
       # Both artifacts into one directory: the packages with their symbols, and the template
       # package, which has none.
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           pattern: "*nupkg"
           path: out
@@ -510,9 +510,9 @@ jobs:
             runner: ubuntu-24.04-arm
             platform: linux/arm64
     steps:
-      - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v4
-      - uses: docker/login-action@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -520,7 +520,7 @@ jobs:
 
       - name: Build and push by digest
         id: build
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: ${{ matrix.image.context }}
           file: ${{ matrix.image.file }}
@@ -547,7 +547,7 @@ jobs:
           mkdir -p /tmp/digests
           echo "$DIGEST" > "/tmp/digests/${{ matrix.image.name }}.${{ matrix.arch }}"
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: digest-${{ matrix.image.name }}-${{ matrix.arch }}
           path: /tmp/digests/*
@@ -570,9 +570,9 @@ jobs:
     env:
       VERSION: ${{ needs.gate.outputs.version }}
     steps:
-      - uses: actions/checkout@v7 # for scripts/check-image-platforms.sh
-      - uses: docker/setup-buildx-action@v4
-      - uses: docker/login-action@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (for scripts/check-image-platforms.sh)
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -580,12 +580,12 @@ jobs:
       - name: Login to Docker Hub (optional mirror)
         id: dockerhub
         continue-on-error: true
-        uses: docker/login-action@v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           pattern: digest-*
           path: /tmp/digests
@@ -650,16 +650,16 @@ jobs:
     env:
       VERSION: ${{ needs.gate.outputs.version }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v4
-      - uses: docker/login-action@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push suite (arm64)
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: .
           file: Dockerfile.suite
@@ -696,13 +696,13 @@ jobs:
       name: playground
       url: https://playground.baryo.dev/barakocms-api/health
     steps:
-      - uses: actions/checkout@v7 # for scripts/smoke-test.sh
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (for scripts/smoke-test.sh)
 
       # Forced-command key (/home/opc/deploy-playground.sh): pulls the :playground image,
       # recreates the app, and fails if it does not answer 200. A leaked key cannot open a
       # shell. The console on the same host is deployed by barakoBrew's own workflow.
       - name: Pull and restart over SSH
-        uses: appleboy/ssh-action@v1.2.5
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ secrets.ORACLE_HOST }}
           username: ${{ secrets.ORACLE_USER }}
@@ -767,7 +767,7 @@ jobs:
       VERSION: ${{ needs.gate.outputs.version }}
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Read the release notes out of the changelog
         run: bash scripts/release-notes.sh "$VERSION" > /tmp/notes.md
