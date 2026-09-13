@@ -296,4 +296,35 @@ public class ExternalAuthCallbackTests
             .Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
         document.RootElement.GetProperty("github").GetBoolean().Should().BeFalse();
     }
+
+    /// <summary>
+    /// With no base URL configured the provider flow cannot build a redirect_uri. That used to be a
+    /// 500 whose body named <c>App:BaseUrl</c> to an anonymous caller (#654).
+    /// </summary>
+    [Theory]
+    [InlineData("/api/auth/github/start")]
+    [InlineData("/api/auth/github/callback?code=c&state=s")]
+    public async Task With_no_base_url_the_provider_flow_is_unavailable_without_naming_the_setting(string path)
+    {
+        var factory = _fixture.WithSettings(new Dictionary<string, string?>
+        {
+            { "App:BaseUrl", null },
+            { "GitHub:ClientId", "test-client-id" },
+            { "GitHub:ClientSecret", "test-client-secret" },
+        });
+        var client = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            AllowAutoRedirect = false,
+            HandleCookies = false,
+        });
+        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, ClientIp);
+
+        var response = await client.GetAsync(path, TestContext.Current.CancellationToken);
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        body.Should().NotBeEmpty();
+        body.Should().NotContain("App:BaseUrl");
+        body.Should().NotContain("AllowedHosts");
+    }
 }
