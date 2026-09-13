@@ -208,11 +208,25 @@ and network access (Cloud Shell, a bastion, a one-off task):
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/<version>/<file>.sql
 ```
 
-[upgrading-to-4.0.md](upgrading-to-4.0.md) describes checking the schema without starting the server
-with `dotnet barakoCMS.dll db-assert`. That command is in the `barako-cms-decaf` image only. The
-`barako-cms` image ignores the argument and starts the server, which was confirmed on `4.1.0`. Run
-the check from the decaf image of the same version as a one-off job. That the decaf image answers
-`db-assert` as documented is read from `barakoCMS/Program.cs`, not run here.
+To check the schema without starting the server, run the image with `db-assert` as a one-off job
+(an App Service WebJob, a one-off ECS task, a Cloud Run job) with the same connection string and JWT
+key the service uses:
+
+```bash
+docker run --rm \
+  -e ConnectionStrings__DefaultConnection="$CONNECTION_STRING" \
+  -e JWT__Key="$JWT_KEY" \
+  ghcr.io/baryodev/barako-cms:<version> db-assert
+```
+
+Exit code 0 means the schema is current. Non-zero prints the statements still outstanding. `db-patch`
+and `db-apply` take the same form; see [upgrading-to-4.0.md](upgrading-to-4.0.md) for what each does.
+
+Images up to and including `4.1.0` ignore the argument and start the web server against that
+database instead, which was confirmed on `4.1.0`. Use a tag newer than `4.1.0` for this step even
+when the version you deploy is older. That newer images answer the command is read from
+`BarakoCMS.Suite/Program.cs` (#759), not run here against a published image. The job form on each
+platform is also not tested here.
 
 ## Per platform
 
