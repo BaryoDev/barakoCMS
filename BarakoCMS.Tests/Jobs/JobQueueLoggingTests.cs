@@ -100,7 +100,8 @@ public class JobQueueLoggingTests
             Substitute.For<IDocumentStore>(),
             new HttpContextAccessor { HttpContext = http },
             new JobOptions(),
-            log);
+            log,
+            new JobStorageGate());
 
         return (provider, http, log);
     }
