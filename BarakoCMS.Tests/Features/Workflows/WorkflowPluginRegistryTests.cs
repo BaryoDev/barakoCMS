@@ -91,6 +91,49 @@ public class WorkflowPluginRegistryTests
         Assert.False(result);
     }
 
+    [Fact]
+    public void Optional_parameters_are_reported_and_credential_names_among_them_are_marked_secret()
+    {
+        var registry = new WorkflowPluginRegistry(new List<IWorkflowAction> { new MockSignedAction() });
+
+        var metadata = registry.GetActionMetadata("Signed");
+
+        Assert.NotNull(metadata);
+        Assert.Equal(["Url", "ApiToken"], metadata.RequiredParameters);
+        Assert.Equal(["Secret", "Label"], metadata.OptionalParameters);
+        Assert.Equal(["ApiToken", "Secret"], metadata.SecretParameters);
+    }
+
+    [Fact]
+    public void An_action_that_declares_no_optional_parameters_reports_empty_lists()
+    {
+        var registry = new WorkflowPluginRegistry(new List<IWorkflowAction> { new MockEmailAction(), new MockSmsAction() });
+
+        var declared = registry.GetActionMetadata("Email");
+        var undecorated = registry.GetActionMetadata("SMS");
+
+        Assert.NotNull(declared);
+        Assert.Equal(3, declared.RequiredParameters.Count);
+        Assert.Empty(declared.OptionalParameters);
+        Assert.Empty(declared.SecretParameters);
+
+        Assert.NotNull(undecorated);
+        Assert.Empty(undecorated.OptionalParameters);
+        Assert.Empty(undecorated.SecretParameters);
+    }
+
+    [WorkflowActionMetadata(
+        Description = "Signed test action",
+        RequiredParameters = new[] { "Url", "ApiToken" },
+        OptionalParameters = new[] { "Secret", "Label" }
+    )]
+    private class MockSignedAction : IWorkflowAction
+    {
+        public string Type => "Signed";
+        public Task ExecuteAsync(Dictionary<string, string> parameters, barakoCMS.Models.Content content, CancellationToken ct)
+            => Task.CompletedTask;
+    }
+
     private List<IWorkflowAction> GetTestActions()
     {
         return new List<IWorkflowAction>

@@ -85,6 +85,44 @@ public class WorkflowToolsApiTests : IAsyncLifetime
         actionTypes.Should().Contain(new[] { "Email", "SMS", "Webhook", "CreateTask", "UpdateField", "Conditional" });
     }
 
+    [Fact]
+    public async Task GetActions_reports_optional_and_secret_parameters_for_each_action()
+    {
+        var response = await _client.GetAsync("/api/workflows/actions", TestContext.Current.CancellationToken);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        body.Should().Contain("\"optionalParameters\"").And.Contain("\"secretParameters\"");
+
+        var actions = await response.Content.ReadFromJsonAsync<List<WorkflowActionMetadata>>(TestContext.Current.CancellationToken);
+        actions.Should().NotBeNull();
+        var byType = actions!.ToDictionary(a => a.Type);
+        byType.Should().HaveCount(8);
+
+        byType["Webhook"].RequiredParameters.Should().Equal("Url");
+        byType["Webhook"].OptionalParameters.Should().Equal("Secret");
+        byType["Webhook"].SecretParameters.Should().Equal("Secret");
+
+        byType["CreateTask"].OptionalParameters.Should().Equal("Status");
+        byType["UpdateField"].OptionalParameters.Should().Equal("TargetId");
+        byType["Conditional"].OptionalParameters.Should().Equal("ElseActions");
+
+        foreach (var type in new[] { "Email", "SMS", "Request" })
+        {
+            byType[type].OptionalParameters.Should().BeEmpty(type);
+        }
+
+        // ThrowingRunner is a custom action with no metadata attribute at all. It still loads, with
+        // empty lists rather than nulls.
+        byType["ThrowingRunner"].OptionalParameters.Should().NotBeNull().And.BeEmpty();
+        byType["ThrowingRunner"].SecretParameters.Should().NotBeNull().And.BeEmpty();
+
+        foreach (var type in new[] { "Email", "SMS", "Request", "CreateTask", "UpdateField", "Conditional" })
+        {
+            byType[type].SecretParameters.Should().BeEmpty(type);
+        }
+    }
+
     #endregion
 
     #region POST /api/workflows/validate Tests

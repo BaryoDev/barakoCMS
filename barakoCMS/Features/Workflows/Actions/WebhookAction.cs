@@ -26,6 +26,7 @@ namespace barakoCMS.Features.Workflows.Actions;
 [WorkflowActionMetadata(
     Description = "Send HTTP POST requests to external webhooks, signed when a Secret is set",
     RequiredParameters = new[] { "Url" },
+    OptionalParameters = new[] { "Secret" },
     ExampleJson = @"{""Type"":""Webhook"",""Parameters"":{""Url"":""https://example.com/webhook"",""Secret"":""a shared secret, optional""}}"
 )]
 internal class WebhookAction : IWorkflowAction
