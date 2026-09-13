@@ -185,6 +185,59 @@ public class WorkflowTransitionTriggerTests
             "got {0}: {1}", res.StatusCode, await res.Content.ReadAsStringAsync());
     }
 
+    /// <summary>
+    /// A transition trigger naming two types checks each of them, so a missing second type is refused
+    /// by name, the same way a missing single type is.
+    /// </summary>
+    [Fact]
+    public async Task A_transition_trigger_naming_a_type_that_does_not_exist_in_its_list_is_refused_by_name()
+    {
+        await AuthenticateAsync();
+        var type = await TypeWithLifecycleAsync();
+        var ghost = NewName("ghost");
+
+        var res = await _client.PostAsJsonAsync("/api/workflows", new
+        {
+            name = NewName("wf"),
+            triggerContentTypes = new[] { type, ghost },
+            triggerEvent = WorkflowEvents.ForTransition("Approve"),
+            actions = new[] { Probe(NewName("probe")) },
+        });
+        var body = await res.Content.ReadAsStringAsync();
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest, "got {0}: {1}", res.StatusCode, body);
+        body.Should().Contain(ghost, "the message has to say which of the listed types does not exist");
+        body.Should().NotContain(type, "the type that exists and declares the transition is not the problem");
+    }
+
+    /// <summary>
+    /// The control for the test above, and proof the list reaches the engine for a transition: saved
+    /// with two declaring types, the transition on the second one fires it.
+    /// </summary>
+    [Fact]
+    public async Task A_transition_trigger_naming_two_declaring_types_is_accepted_and_fires_for_the_second()
+    {
+        await AuthenticateAsync();
+        var first = await TypeWithLifecycleAsync();
+        var second = await TypeWithLifecycleAsync();
+        var probe = NewName("probe");
+
+        var res = await _client.PostAsJsonAsync("/api/workflows", new
+        {
+            name = NewName("wf"),
+            triggerContentTypes = new[] { first, second },
+            triggerEvent = "transition:approve",
+            actions = new[] { Probe(probe) },
+        });
+        res.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", res.StatusCode, await res.Content.ReadAsStringAsync());
+
+        var id = await CreateContentAsync(second);
+        await TransitionAsync(id, "Submit");
+        (await TransitionAsync(id, "Approve")).EnsureSuccessStatusCode();
+
+        (await WaitForAsync(probe, atLeast: 1)).Should().Be(1);
+    }
+
     private async Task AuthenticateAsync()
     {
         var (token, _) = await TestHelpers.CreateAdminUserAsync(_factory);

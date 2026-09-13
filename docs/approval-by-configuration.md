@@ -283,6 +283,13 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST $BASE/api/workflows \
 `400`, naming the declared transitions. A workflow that saves and never fires looks exactly like
 one that fires and fails, so the name is checked when it is saved.
 
+One workflow can fire for several types. Send `"triggerContentTypes": ["invoice", "credit-note"]`
+alongside or instead of `triggerContentType`; the workflow fires for `triggerContentType` and every
+type in the list. The response carries both: the list with every type, and `triggerContentType`
+holding the first. A blank entry is refused. With a transition trigger, every listed type has to
+exist and declare that transition with the same spelling, and each one that does not is named in
+the `400`.
+
 ## 9. The sender, from settings
 
 ```bash

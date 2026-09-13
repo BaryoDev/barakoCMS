@@ -17,6 +17,10 @@ internal sealed class WorkflowResponse
     public Guid Id { get; init; }
     public string Name { get; init; } = string.Empty;
     public string TriggerContentType { get; init; } = string.Empty;
+
+    /// <summary>Every content type the workflow fires for, including <see cref="TriggerContentType"/>.</summary>
+    /// <remarks>Filled for a workflow saved before the list existed too, so a reader can use this alone.</remarks>
+    public List<string> TriggerContentTypes { get; init; } = new();
     public string TriggerEvent { get; init; } = string.Empty;
     public Dictionary<string, string> Conditions { get; init; } = new();
     public List<WorkflowActionResponse> Actions { get; init; } = new();
@@ -26,6 +30,7 @@ internal sealed class WorkflowResponse
         Id = w.Id,
         Name = w.Name,
         TriggerContentType = w.TriggerContentType,
+        TriggerContentTypes = WorkflowTriggers.ContentTypes(w),
         TriggerEvent = w.TriggerEvent,
         Conditions = w.Conditions,
         Actions = w.Actions.Select(WorkflowActionResponse.From).ToList(),

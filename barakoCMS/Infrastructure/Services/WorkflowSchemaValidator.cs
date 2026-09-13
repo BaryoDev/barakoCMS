@@ -1,3 +1,4 @@
+using barakoCMS.Features.Workflows;
 using barakoCMS.Features.Workflows.Actions;
 using barakoCMS.Models;
 using Marten;
@@ -69,7 +70,24 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
             result.IsValid = false;
         }
 
-        if (string.IsNullOrWhiteSpace(workflow.TriggerContentType))
+        // TriggerContentType and TriggerContentTypes together name the types, so either one is
+        // enough. A blank entry in the list is refused rather than skipped: it is a type the caller
+        // meant to name and did not, and skipping it saves a workflow that never fires for it.
+        var listed = workflow.TriggerContentTypes ?? [];
+        for (var i = 0; i < listed.Count; i++)
+        {
+            if (string.IsNullOrWhiteSpace(listed[i]))
+            {
+                result.Errors.Add(new ValidationError
+                {
+                    Field = $"triggerContentTypes[{i}]",
+                    Message = "A trigger content type cannot be blank"
+                });
+                result.IsValid = false;
+            }
+        }
+
+        if (WorkflowTriggers.ContentTypes(workflow).Count == 0 && !listed.Any(string.IsNullOrWhiteSpace))
         {
             result.Errors.Add(new ValidationError
             {
@@ -146,42 +164,79 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
             return result;
         }
 
-        var definition = await _session.Query<ContentTypeDefinition>()
-            .FirstOrDefaultAsync(d => d.Name == workflow.TriggerContentType, ct);
+        // Every named type is checked, and every failure reported, so a list with two mistakes is
+        // not fixed one save at a time.
+        string? spelling = null;
+        string? spelledBy = null;
+        var transitionValid = true;
 
-        // A missing type is refused rather than passed over. Skipping the check when the thing to
-        // check against is absent is how a validation quietly stops validating, and here it would
-        // let through exactly the workflow that never fires.
-        if (definition is null)
+        foreach (var contentType in WorkflowTriggers.ContentTypes(workflow))
         {
-            result.Errors.Add(new ValidationError
+            var definition = await _session.Query<ContentTypeDefinition>()
+                .FirstOrDefaultAsync(d => d.Name == contentType, ct);
+
+            // A missing type is refused rather than passed over. Skipping the check when the thing to
+            // check against is absent is how a validation quietly stops validating, and here it would
+            // let through exactly the workflow that never fires.
+            if (definition is null)
             {
-                Field = "triggerEvent",
-                Message = $"Content type '{workflow.TriggerContentType}' does not exist, so its transitions cannot be checked",
-            });
+                result.Errors.Add(new ValidationError
+                {
+                    Field = "triggerEvent",
+                    Message = $"Content type '{contentType}' does not exist, so its transitions cannot be checked",
+                });
+                transitionValid = false;
+                continue;
+            }
+
+            var declared = definition.Lifecycle?.Transitions ?? new List<StateTransition>();
+            var match = declared.FirstOrDefault(t => string.Equals(t.Name, transition, StringComparison.OrdinalIgnoreCase));
+
+            if (match is null)
+            {
+                var available = declared.Count == 0
+                    ? "(none)"
+                    : string.Join(", ", declared.Select(t => t.Name).OrderBy(n => n, StringComparer.Ordinal));
+
+                result.Errors.Add(new ValidationError
+                {
+                    Field = "triggerEvent",
+                    Message = $"'{transition}' is not a transition on '{contentType}'. Declared transitions: {available}",
+                });
+                transitionValid = false;
+                continue;
+            }
+
+            // One TriggerEvent is stored and matched by equality, so the types have to agree on how
+            // the transition is spelled, or the workflow would fire for some of them and not others.
+            if (spelling is null)
+            {
+                spelling = match.Name;
+                spelledBy = contentType;
+            }
+            else if (!string.Equals(spelling, match.Name, StringComparison.Ordinal))
+            {
+                result.Errors.Add(new ValidationError
+                {
+                    Field = "triggerEvent",
+                    Message = $"'{spelledBy}' declares the transition as '{spelling}' and '{contentType}' as '{match.Name}'. "
+                            + "One workflow matches one spelling, so use a workflow per spelling",
+                });
+                transitionValid = false;
+            }
+        }
+
+        if (!transitionValid)
+        {
             result.IsValid = false;
             return result;
         }
 
-        var declared = definition.Lifecycle?.Transitions ?? new List<StateTransition>();
-        var match = declared.FirstOrDefault(t => string.Equals(t.Name, transition, StringComparison.OrdinalIgnoreCase));
-
-        if (match is null)
+        if (spelling is not null)
         {
-            var available = declared.Count == 0
-                ? "(none)"
-                : string.Join(", ", declared.Select(t => t.Name).OrderBy(n => n, StringComparer.Ordinal));
-
-            result.Errors.Add(new ValidationError
-            {
-                Field = "triggerEvent",
-                Message = $"'{transition}' is not a transition on '{workflow.TriggerContentType}'. Declared transitions: {available}",
-            });
-            result.IsValid = false;
-            return result;
+            result.NormalisedTriggerEvent = WorkflowEvents.ForTransition(spelling);
         }
 
-        result.NormalisedTriggerEvent = WorkflowEvents.ForTransition(match.Name);
         return result;
     }
 

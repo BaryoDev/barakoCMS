@@ -103,6 +103,49 @@ public class WorkflowSchemaValidatorTests
     }
 
     [Fact]
+    public void An_empty_list_with_no_single_type_is_refused_as_a_missing_trigger()
+    {
+        var workflow = EmailWorkflow(single: "", list: []);
+
+        var result = _validator.Validate(workflow);
+
+        Assert.False(result.IsValid);
+        var error = Assert.Single(result.Errors);
+        Assert.Equal("triggerContentType", error.Field);
+        Assert.Contains("required", error.Message);
+    }
+
+    [Fact]
+    public void A_list_of_types_without_the_single_field_is_valid()
+    {
+        var result = _validator.Validate(EmailWorkflow(single: "", list: ["page", "post"]));
+
+        Assert.True(result.IsValid, string.Join("; ", result.Errors.Select(e => $"{e.Field}: {e.Message}")));
+    }
+
+    [Fact]
+    public void A_blank_entry_in_the_list_is_refused_and_named_by_its_position()
+    {
+        var result = _validator.Validate(EmailWorkflow(single: "", list: ["page", " "]));
+
+        Assert.False(result.IsValid);
+        var error = Assert.Single(result.Errors);
+        Assert.Equal("triggerContentTypes[1]", error.Field);
+    }
+
+    private static WorkflowDefinition EmailWorkflow(string single, List<string> list) => new()
+    {
+        Name = "Test",
+        TriggerContentType = single,
+        TriggerContentTypes = list,
+        TriggerEvent = "Created",
+        Actions = new List<WorkflowAction>
+        {
+            new() { Type = "Email", Parameters = new() { { "To", "test@test.com" }, { "Subject", "Test" }, { "Body", "Body" } } }
+        }
+    };
+
+    [Fact]
     public void Validate_InvalidTriggerEvent_ShouldReturnError()
     {
         // Arrange
