@@ -108,7 +108,8 @@ icon has to be a real PNG under 1MB, and `dotnet test` will tell you if it isn't
 
 Modules are how barakoCMS grows without the core growing. A module is an ordinary class library that
 implements the module interface, registers its own services, endpoints and schema, and is published
-as its own NuGet package.
+as its own NuGet package. [docs/your-first-module.md](docs/your-first-module.md) builds one step by
+step, tests included.
 
 If you publish one, tag it **`barakocms-module`**. That tag is the discovery mechanism, since one search
 on nuget.org returns every module, yours included, and it is what a future marketplace would index.

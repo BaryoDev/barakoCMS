@@ -390,7 +390,8 @@ over HTTP, and [Caddy](https://caddyserver.com/) is the reverse proxy that termi
 Full docs at **<https://baryo.dev/docs>**: getting started, guides, module references, API
 reference, and architecture. Changelog: [CHANGELOG.md](CHANGELOG.md).
 
-In this repo: [delivering a client project](docs/delivering-a-client-project.md) (the whole path from
+In this repo: [your first module](docs/your-first-module.md) (from a fresh clone to a module with a
+lifecycle hook, an endpoint and passing tests), [delivering a client project](docs/delivering-a-client-project.md) (the whole path from
 a clean machine to handover, and what is not solved yet),
 [the public delivery API](docs/delivery-api.md) (pagination, the `filter[field][op]`
 syntax, sorting, resolving references), [idempotency on the authoring API](docs/idempotency.md)
