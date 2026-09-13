@@ -142,6 +142,7 @@ public static class ServiceCollectionExtensions
             return options;
         });
         services.AddHttpContextAccessor();
+        services.AddSingleton<barakoCMS.Infrastructure.Jobs.JobStorageGate>();
         services.AddJobQueues<barakoCMS.Models.JobRecord, barakoCMS.Infrastructure.Jobs.MartenJobStorageProvider>();
 
         // Request body size limit (defends against large-payload memory pressure / DoS on the
@@ -1314,6 +1315,13 @@ public static class ServiceCollectionExtensions
 
         // Starts one worker per command type. Every instance runs workers; the provider's lease
         // is what stops two of them running the same job.
+        //
+        // The workers start here, before the host applies the schema, so they wait on JobStorageGate
+        // before touching storage (#686). ApplyMartenSchemaAsync opens it; starting the host opens it
+        // too, for a host that assembles its own startup without the explicit apply. A db-* command
+        // does neither, so its workers never create job storage.
+        var jobGate = app.ApplicationServices.GetRequiredService<barakoCMS.Infrastructure.Jobs.JobStorageGate>();
+        app.ApplicationServices.GetRequiredService<IHostApplicationLifetime>().ApplicationStarted.Register(jobGate.Open);
         var jobOptions = app.ApplicationServices.GetRequiredService<barakoCMS.Infrastructure.Jobs.JobOptions>();
         app.ApplicationServices.UseJobQueues(o =>
         {
@@ -1523,6 +1531,8 @@ public static class ServiceCollectionExtensions
 
             await store.Storage.ApplyAllConfiguredChangesToDatabaseAsync();
         });
+
+        host.Services.GetService<barakoCMS.Infrastructure.Jobs.JobStorageGate>()?.Open();
     }
 
     /// <summary>

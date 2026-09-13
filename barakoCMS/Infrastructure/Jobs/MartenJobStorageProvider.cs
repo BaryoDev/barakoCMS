@@ -36,6 +36,7 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
     private readonly IHttpContextAccessor _http;
     private readonly JobOptions _options;
     private readonly ILogger<MartenJobStorageProvider> _logger;
+    private readonly JobStorageGate _gate;
 
     /// <summary>
     /// A retry the queue itself planned must not expire before it happens, so the expiry is pushed
@@ -47,12 +48,13 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
 
     public MartenJobStorageProvider(
         IDocumentStore store, IHttpContextAccessor http, JobOptions options,
-        ILogger<MartenJobStorageProvider> logger)
+        ILogger<MartenJobStorageProvider> logger, JobStorageGate gate)
     {
         _store = store;
         _http = http;
         _options = options;
         _logger = logger;
+        _gate = gate;
     }
 
     /// <summary>
@@ -125,6 +127,7 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
     public async Task<ICollection<JobRecord>> GetNextBatchAsync(PendingJobSearchParams<JobRecord> p)
     {
         var ct = p.CancellationToken;
+        await _gate.WaitAsync(ct);
         // The queue's execution limit is Jobs:LeaseSeconds, set in UseBarakoCMS, so the lease and
         // the handler's cancellation expire together. The fallback covers a queue given its own limit.
         var lease = p.ExecutionTimeLimit > TimeSpan.Zero && p.ExecutionTimeLimit != Timeout.InfiniteTimeSpan
@@ -275,6 +278,7 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
     public async Task PurgeStaleJobsAsync(StaleJobSearchParams<JobRecord> p)
     {
         var ct = p.CancellationToken;
+        await _gate.WaitAsync(ct);
 
         IReadOnlyList<JobRecord> stale;
         await using (var query = _store.QuerySession())
