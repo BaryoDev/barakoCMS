@@ -58,10 +58,16 @@ The boundaries are deliberate, because a search index is an easy place to leak s
   "Ai": {
     "Enabled": true,
     "EmbeddingBaseUrl": "http://localhost:11434",
-    "EmbeddingModel": "nomic-embed-text"
+    "EmbeddingModel": "nomic-embed-text",
+    "SemanticSearchScanLimit": 1000
   }
 }
 ```
+
+`SemanticSearchScanLimit` caps how many stored embeddings one search reads for a type, since the
+search endpoint is anonymous. The default, 1000, is twice what one index run writes. A type with
+more embeddings than the limit is searched over that many only, and the response says so with
+`"truncated": true`.
 
 The module ships **inert**: without `Ai:Enabled` it registers and does nothing, so adding the
 package cannot change how an existing site behaves. Point `EmbeddingBaseUrl` at your own Ollama

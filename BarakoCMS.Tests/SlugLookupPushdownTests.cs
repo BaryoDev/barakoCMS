@@ -20,6 +20,9 @@ internal sealed class CapturingMartenLogger : IMartenLogger, IMartenSessionLogge
 {
     public ConcurrentQueue<(string Sql, string[] Parameters)> Commands { get; } = new();
 
+    /// <summary>The same statements with their parameters cloned, so a test can run one again.</summary>
+    public ConcurrentQueue<(string Sql, NpgsqlParameter[] Parameters)> RawCommands { get; } = new();
+
     public IMartenSessionLogger StartSession(IQuerySession session) => this;
 
     public void SchemaChange(string sql) { }
@@ -33,6 +36,7 @@ internal sealed class CapturingMartenLogger : IMartenLogger, IMartenSessionLogge
         foreach (var command in batch.BatchCommands)
         {
             Commands.Enqueue((command.CommandText, Values(command.Parameters)));
+            RawCommands.Enqueue((command.CommandText, Clones(command.Parameters)));
         }
     }
 
@@ -46,8 +50,14 @@ internal sealed class CapturingMartenLogger : IMartenLogger, IMartenSessionLogge
 
     public void OnBeforeExecute(NpgsqlBatch batch) { }
 
-    private void Record(NpgsqlCommand command) =>
+    private void Record(NpgsqlCommand command)
+    {
         Commands.Enqueue((command.CommandText, Values(command.Parameters)));
+        RawCommands.Enqueue((command.CommandText, Clones(command.Parameters)));
+    }
+
+    private static NpgsqlParameter[] Clones(System.Collections.IEnumerable parameters) =>
+        parameters.Cast<NpgsqlParameter>().Select(p => p.Clone()).ToArray();
 
     private static string[] Values(System.Collections.IEnumerable parameters)
     {
