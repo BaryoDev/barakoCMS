@@ -1,11 +1,13 @@
 # Upgrading from 3.x to 4.0
 
-4.0 will not boot against a 3.x database until you apply one SQL file. This page is what to run,
+4.0 will not boot against a 3.x database until you apply two SQL files. This page is what to run,
 what each statement does, and what to do when it goes wrong.
 
 The whole sequence, including the rollback below, is proved in CI by `scripts/upgrade-check.sh`,
 which stands up a real 3.21.0 database through the released image, upgrades it, then rolls it back
-and boots 3.21.0 again against the result. If a step here stops being true, that job goes red.
+and boots 3.21.0 again against the result. It checks the schema with both the core host and the
+Suite, and boots the Suite, which is what the published image runs. If a step here stops being
+true, that job goes red.
 
 ## Why there is a migration at all
 
@@ -14,9 +16,15 @@ database sets itself up, but it never alters an existing one. That is deliberate
 (`CreateOrUpdate`) retries a failing migration on every write, so a schema mismatch arrives as
 random 500s on user requests rather than as a failure you can see.
 
-4.0 moved Marten from 8.37 to 9.30. Four database objects changed, so the first boot against a 3.x
-database hits `CreateOnly`, refuses, and exits non-zero. Nothing is written and nothing is lost; the
-host simply does not start.
+4.0 moved Marten from 8.37 to 9.30. Four of core's database objects changed, so the first boot
+against a 3.x database hits `CreateOnly`, refuses, and exits non-zero. Nothing is written and
+nothing is lost; the host simply does not start.
+
+The published image runs the Suite, core plus every module, and one module changed too: Files
+declares an index on `mt_doc_stored_files.ParentFileId` that 3.x never created. On an existing
+database `CreateOnly` will not add it, and the module schema preflight refuses to start without it,
+naming `Files: public.mt_doc_stored_files`. A host that loads no module (the decaf image, or your
+own host without Files) does not need that second file, and running it anyway is harmless.
 
 ## Before you start
 
@@ -44,7 +52,11 @@ Stop the 4.0 deploy from starting yet, and with 3.x stopped:
 
 ```bash
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.0.0/3.x-to-4.0.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/4.2.0/stored-files-parent-index.sql
 ```
+
+The second file builds the index `CONCURRENTLY`, so it does not block writes to stored files, and
+that is why it runs on its own, without `--single-transaction`. It is safe to run twice.
 
 Then confirm the schema matches what 4.0 expects, without starting the server. The command is an
 argument to the 4.0 image, which hands it to the host instead of booting the web app. With compose,
@@ -122,6 +134,7 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.0.0
 ```
 
 That restores the two `mt_streams` columns as NULL, which is what they were, and removes `bdata`.
+It also drops the Files `ParentFileId` index, which the 3.x Suite refuses to start alongside.
 Events appended while 4.0 was running stay: they are ordinary events that 3.x reads fine. The one
 thing rollback cannot preserve is a binary event payload in `bdata`, and barakoCMS opts no event
 into binary serialization, so that column is NULL in every row. Check it if you are unsure:

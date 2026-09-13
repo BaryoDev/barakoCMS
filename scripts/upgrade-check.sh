@@ -9,19 +9,27 @@
 # The sequence, which is also the documented upgrade and rollback procedure:
 #
 #   1. stand up a database with the released FROM_VERSION and put real content in it
-#   2. db-assert must FAIL, because 4.0's schema does not match a 3.x database
-#   3. apply the reviewed migration in migrations/4.0.0/
-#   4. db-assert must PASS
-#   5. 4.0 boots in Production mode and serves
-#   6. an event appends to a stream that already existed, and the projection daemon resumes from
+#   2. db-assert must FAIL on both hosts, because 4.0's schema does not match a 3.x database
+#   3. apply the reviewed core migration, migrations/4.0.0/3.x-to-4.0.sql
+#   4. db-assert must PASS on the core host, so that file is exactly what core needs
+#   5. apply the module migration, migrations/4.2.0/stored-files-parent-index.sql
+#   6. db-assert must PASS on the Suite host, so nothing any module registers is left outstanding
+#   7. the Suite boots in Production mode, module schema preflight included, and serves
+#   8. an event appends to a stream that already existed, and the projection daemon resumes from
 #      its stored progression rather than restarting from zero
-#   7. 4.0 stops, migrations/4.0.0/rollback-to-3.x.sql is applied
-#   8. FROM_VERSION boots again against the rolled-back database and still serves the record 4.0
+#   9. 4.0 stops, migrations/4.0.0/rollback-to-3.x.sql is applied
+#  10. FROM_VERSION boots again against the rolled-back database and still serves the record 4.0
 #      wrote to, with every event still on its stream
 #
 # Step 2 is asserted rather than skipped on purpose. If a future change makes the migration
 # unnecessary, this fails and someone finds out deliberately instead of shipping a stale file.
-# Step 8 exists because #604 shipped a rollback file nothing had ever executed: it did not even
+# Steps 5 to 7 run the Suite because that is what ghcr.io/baryodev/barako-cms runs. This gate used to
+# run only the core host, which loads no module, so it went green for all of 4.0 while the Suite
+# refused to start on the first upgraded database it met: Files wanted an index on
+# mt_doc_stored_files that CreateOnly never adds (#661). The core host stays in steps 2 and 4
+# because the decaf image runs it, and because it pins the core file to core's objects alone.
+#
+# Step 10 exists because #604 shipped a rollback file nothing had ever executed: it did not even
 # parse. Running it here means a future edit that breaks it fails this job instead of an operator
 # mid-incident.
 #
@@ -30,10 +38,10 @@
 set -euo pipefail
 
 FROM_VERSION="${FROM_VERSION:-3.21.0}"
-IMAGE="ghcr.io/baryodev/barako-cms:${FROM_VERSION}"
-NETWORK="barako-upgrade-check"
-PG="upgrade-check-pg"
-OLD="upgrade-check-old"
+IMAGE="${IMAGE:-ghcr.io/baryodev/barako-cms:${FROM_VERSION}}"
+NETWORK="${NETWORK:-barako-upgrade-check}"
+PG="${PG:-upgrade-check-pg}"
+OLD="${OLD:-upgrade-check-old}"
 PG_PORT="${PG_PORT:-55433}"
 NEW_PORT="${NEW_PORT:-58090}"
 OLD_PORT="${OLD_PORT:-58091}"
@@ -53,18 +61,27 @@ trap cleanup EXIT
 step() { printf '\n=== %s\n' "$1"; }
 fail() { printf '\nFAILED: %s\n' "$1" >&2; exit 1; }
 
+# $1 is the host dll, core or Suite; the rest are its arguments.
 run_host() {
+    local dll="$1"
+    shift
     # Explicit environment, not an inherited one: a stray DATABASE_URL in the shell would point the
     # host somewhere other than the database under test and every check below would pass wrongly.
-    env -i PATH="$PATH" HOME="$HOME" DOTNET_ROOT="${DOTNET_ROOT:-}" \
+    #
+    # HOST_EXEC=exec is for the backgrounded boot. `run_suite &` forks a subshell and $! names it,
+    # not dotnet, so killing $! left the 4.0 host running through the rollback and after the script.
+    ${HOST_EXEC:-} env -i PATH="$PATH" HOME="$HOME" DOTNET_ROOT="${DOTNET_ROOT:-}" \
         ASPNETCORE_ENVIRONMENT=Production \
         ASPNETCORE_URLS="http://127.0.0.1:${NEW_PORT}" \
         ConnectionStrings__DefaultConnection="$CONN" \
         JWT__Key="$JWT_KEY" \
         SKIP_SEEDER=true \
         Kubernetes__Enabled=false \
-        dotnet exec "$WORK/publish/barakoCMS.dll" "$@"
+        dotnet exec "$dll" "$@"
 }
+
+run_core() { run_host "$WORK/core/barakoCMS.dll" "$@"; }
+run_suite() { run_host "$WORK/suite/BarakoCMS.Suite.dll" "$@"; }
 
 psql_q() { docker exec "$PG" psql -U postgres -d barako_cms -tAc "$1"; }
 
@@ -89,8 +106,9 @@ for port in "$PG_PORT" "$NEW_PORT" "$OLD_PORT"; do
     fi
 done
 
-step "building 4.0 from the working tree"
-dotnet publish barakoCMS/barakoCMS.csproj -c Release -o "$WORK/publish" --nologo -v q -clp:ErrorsOnly -p:RestoreLockedMode=true
+step "building 4.0 from the working tree, the Suite and the core host"
+dotnet publish BarakoCMS.Suite/BarakoCMS.Suite.csproj -c Release -o "$WORK/suite" --nologo -v q -clp:ErrorsOnly -p:RestoreLockedMode=true -nodeReuse:false
+dotnet publish barakoCMS/barakoCMS.csproj -c Release -o "$WORK/core" --nologo -v q -clp:ErrorsOnly -p:RestoreLockedMode=true -nodeReuse:false
 
 step "starting postgres"
 docker network create "$NETWORK" >/dev/null 2>&1 || true
@@ -167,9 +185,12 @@ docker stop "$OLD" >/dev/null
 PROGRESSION_BEFORE=$(psql_q "select coalesce(max(last_seq_id), 0) from mt_event_progression where name like '%WorkflowProjection%';")
 echo "workflow projection progression is $PROGRESSION_BEFORE"
 
-step "db-assert must refuse the un-migrated database"
-if run_host db-assert >"$WORK/assert-before.log" 2>&1; then
-    fail "db-assert passed against a ${FROM_VERSION} database. The committed migration is stale: regenerate it with db-patch, or delete it if 4.0 no longer needs one."
+step "db-assert must refuse the un-migrated database, on both hosts"
+if run_core db-assert >"$WORK/assert-before-core.log" 2>&1; then
+    fail "core db-assert passed against a ${FROM_VERSION} database. The committed migration is stale: regenerate it with db-patch, or delete it if 4.0 no longer needs one."
+fi
+if run_suite db-assert >"$WORK/assert-before-suite.log" 2>&1; then
+    fail "Suite db-assert passed against a ${FROM_VERSION} database, where core alone refuses it"
 fi
 echo "refused, as it must"
 
@@ -183,15 +204,27 @@ PROGRESSION_MIGRATED=$(psql_q "select coalesce(max(last_seq_id), 0) from mt_even
     || fail "the migration moved the workflow projection from $PROGRESSION_BEFORE to $PROGRESSION_MIGRATED. A reset here means 4.0 replays every event on first boot, re-firing every workflow email, webhook and task."
 echo "still $PROGRESSION_MIGRATED"
 
-step "db-assert must now pass"
-run_host db-assert >"$WORK/assert-after.log" 2>&1 || {
-    cat "$WORK/assert-after.log" >&2
-    fail "the migration did not bring the schema up to date"
+step "core db-assert must now pass"
+run_core db-assert >"$WORK/assert-after-core.log" 2>&1 || {
+    cat "$WORK/assert-after-core.log" >&2
+    fail "migrations/4.0.0/3.x-to-4.0.sql did not bring core's schema up to date"
 }
-echo "schema matches"
+echo "core schema matches"
 
-step "booting 4.0 in Production against the migrated database"
-run_host >"$WORK/boot.log" 2>&1 &
+# CONCURRENTLY, so this file cannot run inside a transaction, and it says so itself.
+step "applying migrations/4.2.0/stored-files-parent-index.sql"
+docker cp migrations/4.2.0/stored-files-parent-index.sql "$PG:/tmp/modules.sql"
+docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 -f /tmp/modules.sql >/dev/null
+
+step "Suite db-assert must now pass, every module included"
+run_suite db-assert >"$WORK/assert-after-suite.log" 2>&1 || {
+    cat "$WORK/assert-after-suite.log" >&2
+    fail "the migrations brought core up to date and left a module behind. The Suite, which the published image runs, would refuse to start on this database. Whatever db-assert lists above needs a migration, and docs/upgrading-to-4.0.md needs to name it."
+}
+echo "Suite schema matches"
+
+step "booting the 4.0 Suite in Production against the migrated database"
+HOST_EXEC=exec run_suite >"$WORK/boot.log" 2>&1 &
 HOST_PID=$!
 NEW_URL="http://127.0.0.1:${NEW_PORT}"
 for _ in $(seq 1 60); do
@@ -289,4 +322,4 @@ EVENTS_ROLLED_BACK=$(psql_q "select count(*) from mt_events where stream_id = '$
     || fail "expected $EVENTS_AFTER events on stream $CONTENT_ID after rollback, found $EVENTS_ROLLED_BACK. A rollback must not lose events."
 echo "${FROM_VERSION} reads it back: FirstName $ROLLBACK_FIRST_NAME, Status $ROLLBACK_STATUS, $EVENTS_ROLLED_BACK events on the stream"
 
-printf '\nThe %s to 4.0 upgrade works, with migrations/4.0.0/3.x-to-4.0.sql applied first, and rolls back cleanly with migrations/4.0.0/rollback-to-3.x.sql.\n' "$FROM_VERSION"
+printf '\nThe %s to 4.0 upgrade works on the Suite host, with migrations/4.0.0/3.x-to-4.0.sql and migrations/4.2.0/stored-files-parent-index.sql applied first, and rolls back cleanly with migrations/4.0.0/rollback-to-3.x.sql.\n' "$FROM_VERSION"
