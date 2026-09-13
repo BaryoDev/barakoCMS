@@ -69,47 +69,7 @@ internal class Endpoint : Endpoint<Request, Response>
             return;
         }
 
-        var streamState = await _session.Events.FetchStreamStateAsync(req.Id, ct);
-
-        // #565 / D16: the document's own Marten version, exposed as a standard ETag so a client can
-        // do read-modify-write safely. Gated on the same eventSourced check Update/Endpoint.cs uses
-        // for If-Match, and for the same reason: an event-sourced type's PUT does not consult
-        // If-Match at all (it already has its own expected-version check on the stream, D3), so an
-        // ETag here would promise a precondition nothing on the write side honours. A client that
-        // did a correct read-modify-write against one would believe it was protected when nothing
-        // was checking. One header, one meaning: emit it only where PUT will act on it.
-        if (!await _sourcing.IsEventSourcedAsync(content.ContentType, ct))
-        {
-            var metadata = await _session.MetadataForAsync(content, ct);
-            if (metadata is not null)
-            {
-                HttpContext.Response.Headers.ETag = ContentETag.Format(metadata.CurrentVersion);
-            }
-        }
-
-        Response = new Response
-        {
-            Id = content.Id,
-            ContentType = content.ContentType,
-            Data = new Dictionary<string, object>(content.Data),
-            CreatedAt = content.CreatedAt,
-            UpdatedAt = content.UpdatedAt,
-            Status = content.Status,
-            LastModifiedBy = content.LastModifiedBy,
-            Sensitivity = content.Sensitivity,
-            // Stored as DateTime with Kind Utc. Stated explicitly rather than relying on the
-            // implicit conversion, which would read an Unspecified Kind as local time.
-            ScheduledPublishAt = content.ScheduledPublishAt is { } p
-                ? new DateTimeOffset(DateTime.SpecifyKind(p, DateTimeKind.Utc))
-                : null,
-            ScheduledUnpublishAt = content.ScheduledUnpublishAt is { } u
-                ? new DateTimeOffset(DateTime.SpecifyKind(u, DateTimeKind.Utc))
-                : null,
-            Version = streamState?.Version ?? 0
-        };
-
-        var sensitivityService = Resolve<barakoCMS.Core.Interfaces.ISensitivityService>();
-        if (await sensitivityService.ApplyAsync(Response.ContentType, Response.Sensitivity, Response.Data, HttpContext, ct))
-            Response.ContentType = "HIDDEN";
+        Response = await EntryResponse.BuildAsync(
+            content, _session, _sourcing, Resolve<ISensitivityService>(), HttpContext, ct);
     }
 }
