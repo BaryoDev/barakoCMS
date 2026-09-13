@@ -13,7 +13,9 @@ puts `ghcr.io/baryodev/barako-admin` in front of it.
   (Umami), Email (Resend), Feature flags, Diagnostics, Import, Files, Device trust, External auth,
   Portability.
 - **Postgres 16** with a persistent volume.
-- A **nightly backup** container running the same script the production stack uses.
+- A **nightly backup** container running the same script the production stack uses. The folder
+  carries its own copy in `scripts/backup-cron.sh`, so copy the whole folder, not just the compose
+  file.
 
 Every module is already in the image. Each one stays **off or on a safe mock** until you provide its
 keys, so an empty-but-valid `.env` boots a working CMS you can grow into.
@@ -155,7 +157,9 @@ reproducible, deliberate upgrades.
 ## Data & backup
 
 Postgres data lives in the `pgdata` volume, and `db-backup` dumps it nightly into the `backups`
-volume with the same script production runs. For a one-off dump:
+volume with the same script production runs. It also takes one backup at startup, once the API has
+created its tables, so `docker compose logs db-backup` shows `Backup OK` within a few minutes of the
+first `up`. If it does not, the stack has no recovery point. For a one-off dump:
 
 ```bash
 docker compose exec postgres pg_dump -U postgres barakocms > backup.sql

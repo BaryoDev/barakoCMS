@@ -102,19 +102,22 @@ services:
 
   # Nightly backup, using the same hardened script the production stack runs.
   #
-  # ../scripts is the repository's own, because this file is run from the quickstart folder of a
-  # checkout. Duplicating the script here would mean two copies of the logic that exists to stop a
-  # failed dump reporting success, and only one of them would get fixed next time.
+  # ./scripts is this folder's own copy of the repository's scripts/backup-cron.sh, so the folder
+  # still works once it is copied out of a checkout, which is what the README tells you to do.
+  # scripts/check-quickstart-backup-script.sh fails CI when the two copies differ, so a fix to one
+  # cannot ship without the other.
+  #
+  # No container_name: compose derives one from the project, so two copies of this folder can run
+  # on one host without their containers colliding.
   db-backup:
     image: postgres:16-alpine
-    container_name: barako-quickstart-backup
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
     volumes:
       - backups:/backups
-      - ../scripts:/scripts:ro
+      - ./scripts:/scripts:ro
     environment:
       POSTGRES_HOST: postgres
       # barakocms, not barako_cms: this stack's own default, matching the postgres service and the

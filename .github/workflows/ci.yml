@@ -218,6 +218,16 @@ jobs:
           docker compose -f quickstart/docker-compose.yml config >/dev/null
           echo "quickstart/docker-compose.yml resolves"
 
+      # The quickstart carries its own copy of the backup script so the folder works once copied out
+      # of a checkout (#712). The copy is only safe while it is identical to the original.
+      - name: The quickstart backup script matches the repository's
+        run: bash scripts/check-quickstart-backup-script.sh
+
+      # Resolving is not running. The backup service crash-looped in every copied quickstart folder
+      # while the file still resolved, so this copies the folder out and waits for a real backup.
+      - name: A copied quickstart folder takes a backup
+        run: bash scripts/quickstart-backup-check.sh
+
       # The production file deliberately has no defaults for the secrets, so it is checked twice:
       # once with a filled env, and once without, where it has to fail rather than boot on a blank.
       - name: The production file resolves with a filled env
