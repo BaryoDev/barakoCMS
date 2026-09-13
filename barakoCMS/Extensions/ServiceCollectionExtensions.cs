@@ -1130,6 +1130,7 @@ public static class ServiceCollectionExtensions
         // Global exception handler — MUST be first so it wraps every downstream middleware/endpoint.
         // Returns a structured 500 (no stack trace leak) and logs the exception via FastEndpoints.
         app.UseDefaultExceptionHandler();
+        app.UseMiddleware<barakoCMS.Infrastructure.Http.MalformedRequestMiddleware>();
 
         // Forwarded headers, before anything that reads the client IP or the scheme. Only added
         // when ForwardedHeaders:Enabled names a trusted proxy; see ForwardedHeadersSetup.
