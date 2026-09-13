@@ -2,7 +2,7 @@ namespace BarakoCMS.Files;
 
 /// <summary>
 /// Metadata for an uploaded file. The bytes live wherever the configured <see cref="IFileStorage"/>
-/// put them (Postgres by default, or any S3-compatible store: AWS S3, Cloudflare R2, MinIO); this
+/// put them (Postgres by default, or any S3-compatible store: AWS S3, Cloudflare R2, SeaweedFS); this
 /// record holds only the metadata and the storage key, so a read knows where to fetch from. Public
 /// files carry a direct <see cref="PublicUrl"/> when the store serves publicly; for Postgres it is
 /// null and the bytes are delivered through the API.

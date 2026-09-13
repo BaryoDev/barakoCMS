@@ -6,7 +6,7 @@ using Microsoft.Extensions.Options;
 namespace BarakoCMS.Files.S3;
 
 /// <summary>
-/// Stores file bytes in an S3-compatible object store (AWS S3, Cloudflare R2, MinIO). Public files are
+/// Stores file bytes in an S3-compatible object store (AWS S3, Cloudflare R2, SeaweedFS). Public files are
 /// written public-read (where the store honors ACLs) and get a direct <see cref="PublicUrl"/> a browser
 /// can use as an image src; private files return null and are proxied through the API. Metadata stays
 /// in Postgres (a StoredFile record); only the bytes live here.
@@ -27,7 +27,7 @@ public sealed class S3FileStorage : IFileStorage
     public async Task<StoredObjectRef> PutAsync(Stream content, string key, string contentType, bool isPublic, CancellationToken ct = default)
     {
         /* Buffer to a seekable stream so the SDK knows the length up front — avoids chunked-signing
-         * issues against MinIO/R2 and works for non-seekable upload streams. */
+         * issues against self-hosted stores and R2 and works for non-seekable upload streams. */
         using var buffer = new MemoryStream();
         await content.CopyToAsync(buffer, ct);
         buffer.Position = 0;
