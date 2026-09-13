@@ -21,6 +21,13 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         .WithUsername("postgres")
         .WithPassword("postgres")
         .WithPassword("postgres")
+        // Every class in the Sequential collection shares this container, and every host a test
+        // derives with WithWebHostBuilder stays alive until the collection ends (see WithSetting).
+        // Each one runs the projection daemon and the workflow runner, polling on unpooled
+        // connections, so peak connections grow with the number of live hosts. The Postgres default
+        // of 100 ran out at 72 and 94 hosts on CI, failing whichever host was starting with 53300.
+        // 500 covers the whole suite's ~112 hosts at 4 connections each.
+        .WithCommand("-c", "max_connections=500")
         .Build();
 
     /// <summary>
