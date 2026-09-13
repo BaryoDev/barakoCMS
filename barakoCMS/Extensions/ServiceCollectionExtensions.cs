@@ -1303,6 +1303,9 @@ public static class ServiceCollectionExtensions
             // change. Reading still accepts a number, so an existing caller keeps working.
             c.Serializer.Options.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
 
+            c.Serializer.RequestDeserializer =
+                barakoCMS.Infrastructure.Serialization.BodilessRequestDeserializer.Create(c.Serializer.Options);
+
             c.Endpoints.Configurator = ep =>
             {
                 if (globalPreProcessors.Length > 0)
