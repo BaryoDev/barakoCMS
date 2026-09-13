@@ -1133,6 +1133,7 @@ public static class ServiceCollectionExtensions
         // Global exception handler — MUST be first so it wraps every downstream middleware/endpoint.
         // Returns a structured 500 (no stack trace leak) and logs the exception via FastEndpoints.
         app.UseDefaultExceptionHandler();
+        app.UseMiddleware<barakoCMS.Infrastructure.Http.MalformedRequestMiddleware>();
 
         // Inside the handler above, so it is reached first. The default handler writes the exception
         // message into a 500, and this message names configuration keys, which is for the operator

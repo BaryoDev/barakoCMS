@@ -191,7 +191,11 @@ public static class FieldTypeRegistry
 
     private static bool IsDecimal(object value)
     {
-        if (value is decimal or double or float or int or long) return true;
+        // A double past decimal's range can be Infinity (1e400 reads as one), and JSON cannot
+        // write it back, so it would pass here and throw when the document is stored.
+        if (value is double d) return double.IsFinite(d);
+        if (value is float f) return float.IsFinite(f);
+        if (value is decimal or int or long) return true;
         if (value is JsonElement { ValueKind: JsonValueKind.Number } je) return je.TryGetDecimal(out _);
         if (value is string s) return decimal.TryParse(s, out _);
         return false;

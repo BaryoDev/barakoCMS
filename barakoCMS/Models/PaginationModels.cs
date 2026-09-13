@@ -11,6 +11,15 @@ public class PaginatedRequest
     /// </summary>
     public const int MaxPageSize = 100;
 
+    /// <summary>
+    /// The largest page number that still has a representable offset at the maximum page size.
+    /// </summary>
+    /// <remarks>
+    /// Past this, <c>(Page - 1) * PageSize</c> overflows int32 into a negative OFFSET, which
+    /// Postgres refuses. At a smaller page size a row past the clamp is reached by asking for more per page.
+    /// </remarks>
+    private const int MaxPage = int.MaxValue / MaxPageSize + 1;
+
     private int _pageSize;
     private int _page = 1;
 
@@ -25,12 +34,12 @@ public class PaginatedRequest
     }
 
     /// <summary>
-    /// Page number (1-indexed). Values below 1 are clamped to 1 to prevent negative OFFSET.
+    /// Page number (1-indexed). Clamped to the range 1..21474837 to prevent a negative OFFSET.
     /// </summary>
     public int Page
     {
         get => _page;
-        set => _page = value < 1 ? 1 : value;
+        set => _page = value < 1 ? 1 : Math.Min(value, MaxPage);
     }
 
     /// <summary>

@@ -103,6 +103,9 @@ public class FieldTypeRegistryTests
     [InlineData(12.50, true)]
     [InlineData(0, true)]
     [InlineData(-5, true)]
+    [InlineData(double.PositiveInfinity, false)]
+    [InlineData(double.NegativeInfinity, false)]
+    [InlineData(double.NaN, false)]
     public void Money_AcceptsNumbers(object value, bool expected)
     {
         FieldTypeRegistry.IsValidValue("money", value).Should().Be(expected);
