@@ -111,15 +111,6 @@
           "Microsoft.IdentityModel.Tokens": "8.22.0"
         }
       },
-      "Testcontainers.Minio": {
-        "type": "Direct",
-        "requested": "[4.15.0, )",
-        "resolved": "4.15.0",
-        "contentHash": "ta6o0i463GqP/X+J1homJq0p/hGfOiYFoZ+vxAj2y6qDy593DBJIREt33fUaaxpIkDuAmnj+Xa/DKrgTOBHHmg==",
-        "dependencies": {
-          "Testcontainers": "4.15.0"
-        }
-      },
       "Testcontainers.PostgreSql": {
         "type": "Direct",
         "requested": "[4.15.0, )",

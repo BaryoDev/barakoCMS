@@ -108,7 +108,7 @@ not reformat code you are not otherwise changing; it buries the real diff.
 dotnet test BarakoCMS.Tests/BarakoCMS.Tests.csproj
 ```
 
-**Integration tests need Docker running.** Testcontainers starts PostgreSQL and MinIO. Without
+**Integration tests need Docker running.** Testcontainers starts PostgreSQL and SeaweedFS. Without
 Docker the suite reports a large number of failures that are environmental, not regressions. Check
 the error before assuming you broke something: `DockerUnavailableException` means start Docker.
 
