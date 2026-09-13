@@ -149,6 +149,12 @@ jobs:
       - name: Prove the 3.x database can be upgraded and rolled back
         run: bash scripts/upgrade-check.sh
 
+      # upgrade-check.sh runs the commands through barakoCMS.dll, the core host. The published image
+      # runs BarakoCMS.Suite.dll, which ignored them and started a server instead (#662). This runs
+      # db-assert, db-patch and db-apply through the Suite, the host operators actually have.
+      - name: Prove the Suite host runs the schema commands
+        run: bash scripts/suite-db-commands-check.sh
+
   restore:
     name: Restore a backup
     runs-on: ubuntu-latest
