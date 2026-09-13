@@ -89,6 +89,29 @@ public class RedirectRulesTests
         UrlRedirect.Normalize(input).Should().Be(expected);
     }
 
+    [Theory]
+    [InlineData("\\evil.com", "/evil.com")]
+    [InlineData("/\\evil.com", "/evil.com")]
+    [InlineData("\\\\evil.com", "/evil.com")]
+    [InlineData("\\/evil.com", "/evil.com")]
+    [InlineData("/\t/evil.com", "/evil.com")]
+    [InlineData("/\n/evil.com", "/evil.com")]
+    [InlineData("/\r\n/evil.com", "/evil.com")]
+    [InlineData("\t//evil.com", "/evil.com")]
+    [InlineData("/old\\page", "/old/page")]
+    public void A_path_a_browser_would_read_as_another_host_is_stored_as_a_local_path(string input, string expected)
+    {
+        // A browser treats a backslash as a slash and drops tabs and newlines from a URL before
+        // parsing it, so "\\evil.com" and "/\t/evil.com" both navigate to evil.com. Collapsing "//"
+        // alone leaves those intact, and the stored path becomes an open redirect in any frontend
+        // that assigns it to location.
+        var normalised = UrlRedirect.Normalize(input);
+
+        normalised.Should().Be(expected);
+        normalised.Should().NotContain("\\");
+        normalised.Should().NotStartWith("//");
+    }
+
     [Fact]
     public void Case_is_preserved_because_paths_are_case_sensitive()
     {
@@ -166,6 +189,24 @@ public class RedirectEndpointTests
 
         body.GetProperty("status").GetInt32().Should().Be(302,
             "permanent defaults to false, because a 301 entered by mistake cannot be taken back");
+    }
+
+    [Fact]
+    public async Task A_backslash_target_is_stored_as_a_local_path_not_another_host()
+    {
+        await AuthenticateAsync();
+        var from = Unique();
+
+        (await SaveAsync(from, "\\evil.example")).IsSuccessStatusCode.Should().BeTrue();
+
+        using var anonymous = _factory.CreateClient();
+        var body = JsonDocument.Parse(await (await anonymous.GetAsync(
+                $"/api/public/redirects/resolve?path={Uri.EscapeDataString(from)}",
+                TestContext.Current.CancellationToken))
+            .Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).RootElement;
+
+        body.GetProperty("toPath").GetString().Should().Be("/evil.example",
+            "a browser reads a leading backslash as a slash, so storing it verbatim points the site at another host");
     }
 
     [Fact]
