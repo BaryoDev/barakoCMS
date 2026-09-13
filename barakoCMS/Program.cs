@@ -33,33 +33,28 @@ builder.Host.UseSerilog((context, services, configuration) =>
     }
 });
 
-// Add services to the container.
-builder.Services.AddBarakoCMS(builder.Configuration);
-
-var app = builder.Build();
-
-// Configure the HTTP request pipeline.
+// Registration and pipeline setup are inside the try, not ahead of it. AddBarakoCMS is where a
+// missing connection string or JWT key throws, and an exception left to the runtime ends in
+// abort(). In a container this process is PID 1, which the kernel does not kill with a signal it
+// has no handler for, so the host logged the error and spun instead of exiting (#763).
 try
 {
+    // Add services to the container.
+    builder.Services.AddBarakoCMS(builder.Configuration);
+
+    var app = builder.Build();
+
+    // Configure the HTTP request pipeline.
     app.UseBarakoCMS();
-}
-catch (Exception ex)
-{
-    Log.Fatal(ex, "Failed to start BarakoCMS Pipeline!");
-    Console.WriteLine(ex.ToString());
-    throw;
-}
 
-// NOTE: /health, /health/live and /health/ready are mapped inside UseBarakoCMS (see
-// ServiceCollectionExtensions), each with a minimal response writer so they don't leak internal
-// check details to anonymous callers.
+    // NOTE: /health, /health/live and /health/ready are mapped inside UseBarakoCMS (see
+    // ServiceCollectionExtensions), each with a minimal response writer so they don't leak internal
+    // check details to anonymous callers.
 
-// Prometheus Metrics
-app.UseHttpMetrics();
-app.MapMetrics();
+    // Prometheus Metrics
+    app.UseHttpMetrics();
+    app.MapMetrics();
 
-try
-{
     Log.Information("Starting BarakoCMS Host...");
 
     // A bare first argument names a JasperFx command (db-assert, db-patch, db-apply, help). A

@@ -30,22 +30,65 @@ public class HostStartupExitCodeTests
 
     public HostStartupExitCodeTests(IntegrationTestFixture fixture) => _fixture = fixture;
 
+    private static readonly string SuiteAssembly = SuiteAssemblyPath();
+
+    private const string UnreachableDatabase =
+        "Server=127.0.0.1;Port=1;Database=nope;User Id=postgres;Password=postgres;Timeout=2;Command Timeout=2";
+
+    private const string ValidJwtKey = "test-super-secret-key-that-is-at-least-32-chars-long";
+
+    public static TheoryData<string, string> MissingSettings() => new()
+    {
+        { "core", "database" },
+        { "core", "jwt" },
+        { "suite", "database" },
+        { "suite", "jwt" },
+    };
+
     /// <summary>
-    /// No database configured, outside Development: the host stops and names the setting.
+    /// A required setting missing, outside Development: the host exits 1 and names the setting.
     /// </summary>
     /// <remarks>
-    /// The old path substituted a localhost dummy connection string, so "nobody configured a
-    /// database" arrived much later as a connection refused against 127.0.0.1 and never mentioned
-    /// the setting that was missing. Asserting on the message as well as the code is deliberate: a
-    /// non-zero exit for the wrong reason would otherwise pass.
+    /// Exactly 1, not merely non-zero. Both settings throw inside <c>AddBarakoCMS</c>, and while that
+    /// ran outside the top-level handler the exception reached the runtime, which aborts: exit 134
+    /// here, where the test runner is the parent. In the published image the host is PID 1, the
+    /// kernel does not deliver that abort to it, and the container logged the error and kept running
+    /// (#763). A non-zero assertion passed on the abort. Exit 1 is only reachable through the handler.
+    ///
+    /// The Suite is covered because it is the host the image runs. Asserting on the message as well
+    /// as the code is deliberate: a failure for the wrong reason would otherwise pass.
     /// </remarks>
-    [Fact]
-    public async Task A_host_with_no_connection_string_exits_non_zero_and_names_the_setting()
+    [Theory]
+    [MemberData(nameof(MissingSettings))]
+    public async Task A_host_missing_a_required_setting_exits_1_and_names_the_setting(string host, string missing)
     {
-        var (exitCode, output) = await RunHostAsync(connectionString: null);
+        var assembly = host == "suite" ? SuiteAssembly : HostAssembly;
+        File.Exists(assembly).Should().BeTrue($"the {host} host must be built at {assembly}");
 
-        exitCode.Should().NotBe(0);
-        output.Should().Contain("DATABASE_URL");
+        var (exitCode, output) = await RunHostAsync(
+            assembly,
+            connectionString: missing == "database" ? null : UnreachableDatabase,
+            jwtKey: missing == "jwt" ? null : ValidJwtKey);
+
+        exitCode.Should().Be(1, $"an unhandled startup exception aborts instead (134), which PID 1 in a container never completes. Output:\n{Truncate(output)}");
+        output.Should().Contain(missing == "database" ? "DATABASE_URL" : "JWT:Key");
+    }
+
+    /// <summary>
+    /// Where the Suite host was built, taken from this assembly's own output path so the
+    /// configuration and framework folders match.
+    /// </summary>
+    private static string SuiteAssemblyPath()
+    {
+        var output = AppContext.BaseDirectory;
+        var root = new DirectoryInfo(output);
+        while (root is not null && !File.Exists(Path.Combine(root.FullName, "Directory.Build.props")))
+            root = root.Parent;
+        if (root is null)
+            return "BarakoCMS.Suite.dll (repository root not found)";
+
+        var relative = Path.GetRelativePath(Path.Combine(root.FullName, "BarakoCMS.Tests"), output);
+        return Path.Combine(root.FullName, "BarakoCMS.Suite", relative, "BarakoCMS.Suite.dll");
     }
 
     /// <summary>
@@ -59,13 +102,13 @@ public class HostStartupExitCodeTests
     [Fact]
     public async Task A_host_that_cannot_reach_its_database_exits_non_zero()
     {
-        var (exitCode, _) = await RunHostAsync(
-            "Server=127.0.0.1;Port=1;Database=nope;User Id=postgres;Password=postgres;Timeout=2;Command Timeout=2");
+        var (exitCode, _) = await RunHostAsync(HostAssembly, UnreachableDatabase, ValidJwtKey);
 
         exitCode.Should().NotBe(0);
     }
 
-    private static async Task<(int ExitCode, string Output)> RunHostAsync(string? connectionString)
+    private static async Task<(int ExitCode, string Output)> RunHostAsync(
+        string hostAssembly, string? connectionString, string? jwtKey)
     {
         var start = new ProcessStartInfo("dotnet")
         {
@@ -74,7 +117,7 @@ public class HostStartupExitCodeTests
             UseShellExecute = false,
         };
         start.ArgumentList.Add("exec");
-        start.ArgumentList.Add(HostAssembly);
+        start.ArgumentList.Add(hostAssembly);
 
         // The environment is built explicitly rather than inherited. IntegrationTestFixture sets
         // DATABASE_URL and ConnectionStrings__DefaultConnection on this process, so an inherited
@@ -87,7 +130,10 @@ public class HostStartupExitCodeTests
         start.Environment["ASPNETCORE_ENVIRONMENT"] = "Production";
         start.Environment["ASPNETCORE_URLS"] = "http://127.0.0.1:0";
         start.Environment["SKIP_SEEDER"] = "true";
-        start.Environment["JWT__Key"] = "test-super-secret-key-that-is-at-least-32-chars-long";
+        if (jwtKey is not null)
+        {
+            start.Environment["JWT__Key"] = jwtKey;
+        }
         if (connectionString is not null)
         {
             start.Environment["ConnectionStrings__DefaultConnection"] = connectionString;

@@ -63,6 +63,10 @@
     <!-- The packable test host a third-party module tests on. Its own tests run it against
          Portability, so the harness is proved on a real module before anyone outside installs it. -->
     <ProjectReference Include="..\BarakoCMS.Testing\BarakoCMS.Testing.csproj" />
+    <!-- Built, not referenced. HostStartupExitCodeTests runs the Suite as a process, because the
+         published image runs it, and its exit code is the claim. Referencing the assembly would put
+         a second Program type next to the core host's. -->
+    <ProjectReference Include="..\BarakoCMS.Suite\BarakoCMS.Suite.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
 </Project>
