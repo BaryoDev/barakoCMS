@@ -4,39 +4,38 @@ using System.Text;
 using Amazon.Runtime;
 using Amazon.S3;
 using BarakoCMS.Files.S3;
+using DotNet.Testcontainers.Builders;
+using DotNet.Testcontainers.Containers;
 using Microsoft.Extensions.Options;
-using Testcontainers.Minio;
 
 namespace BarakoCMS.Tests;
 
 /// <summary>
-/// S3FileStorage against a real MinIO container (S3-compatible), so the same code path that runs
+/// S3FileStorage against a real SeaweedFS container (S3-compatible), so the same code path that runs
 /// against AWS S3 or Cloudflare R2 is exercised locally: put/get round-trip, a public file's URL,
 /// a private file returning no URL, missing-key handling, and delete.
 /// </summary>
 public class S3FileStorageTests : IAsyncLifetime
 {
-    private const string User = "minioadmin";
-    private const string Pass = "minioadmin-secret";
+    private const string AccessKey = "barako-test";
+    private const string SecretKey = "barako-test-secret";
     private const string Bucket = "media";
+    private const ushort S3Port = 8333;
 
     /*
-     * quay.io, not Docker Hub.
-     *
-     * MinIO archived the project and the `minio/minio` repository on Docker Hub now answers
-     * "pull access denied ... repository does not exist" to an anonymous pull, which is every CI
-     * run. The same tag is still served from quay.io, which is where MinIO published in parallel
-     * the whole time, so this is a registry change and not a version change: the digest behind
-     * this tag is the one these tests were written against.
-     *
-     * This took the whole repository's CI down rather than one test class, because every merge
-     * queue run has to pass this suite. If quay goes the same way, the options are a different
-     * S3-compatible image or pinning by digest in a registry we control.
+     * SeaweedFS, not MinIO. MinIO archived its repository and publishes no more images or security
+     * patches (#619). Pinned by digest so a retagged image cannot change what these tests run against.
+     * `weed mini` runs master, volume, filer and the S3 gateway in one process, and the AWS_* variables
+     * create its admin identity.
      */
-    private readonly MinioContainer _minio = new MinioBuilder()
-        .WithImage("quay.io/minio/minio:RELEASE.2024-01-16T16-07-38Z")
-        .WithUsername(User)
-        .WithPassword(Pass)
+    private readonly IContainer _s3Server = new ContainerBuilder(
+            "chrislusf/seaweedfs:4.46@sha256:08d516132314207d10c8e37cbffc1f32b147d870169688734cc61c6231625b62")
+        .WithCommand("mini")
+        .WithEnvironment("AWS_ACCESS_KEY_ID", AccessKey)
+        .WithEnvironment("AWS_SECRET_ACCESS_KEY", SecretKey)
+        .WithPortBinding(S3Port, assignRandomHostPort: true)
+        .WithWaitStrategy(Wait.ForUnixContainer()
+            .UntilHttpRequestIsSucceeded(r => r.ForPort(S3Port).ForPath("/healthz")))
         .Build();
 
     private IAmazonS3 _s3 = null!;
@@ -44,26 +43,26 @@ public class S3FileStorageTests : IAsyncLifetime
 
     public async ValueTask InitializeAsync()
     {
-        await _minio.StartAsync();
-        var endpoint = _minio.GetConnectionString();
+        await _s3Server.StartAsync();
+        var endpoint = $"http://{_s3Server.Hostname}:{_s3Server.GetMappedPublicPort(S3Port)}";
 
         var cfg = new AmazonS3Config { ServiceURL = endpoint, ForcePathStyle = true };
-        _s3 = new AmazonS3Client(new BasicAWSCredentials(User, Pass), cfg);
+        _s3 = new AmazonS3Client(new BasicAWSCredentials(AccessKey, SecretKey), cfg);
         await _s3.PutBucketAsync(Bucket);
 
         var opts = Options.Create(new S3StorageOptions
         {
             Bucket = Bucket,
             ServiceUrl = endpoint,
-            AccessKey = User,
-            SecretKey = Pass,
+            AccessKey = AccessKey,
+            SecretKey = SecretKey,
             ForcePathStyle = true,
             PublicBaseUrl = "https://cdn.example.com",
         });
         _storage = new S3FileStorage(_s3, opts);
     }
 
-    public async ValueTask DisposeAsync() => await _minio.DisposeAsync();
+    public async ValueTask DisposeAsync() => await _s3Server.DisposeAsync();
 
     private static Stream Bytes(string s) => new MemoryStream(Encoding.UTF8.GetBytes(s));
 

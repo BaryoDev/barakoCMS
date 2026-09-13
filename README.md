@@ -376,7 +376,7 @@ the one that builds.
 - [Talaan](https://github.com/BaryoDev/Talaan) 0.1.0, our own `.xlsx`/CSV reader, used by the Import module.
 - [Serilog](https://serilog.net/) (Serilog.AspNetCore 10.0.0) for logging.
 - [prometheus-net](https://github.com/prometheus-net/prometheus-net) 8.2.1 for metrics.
-- [Testcontainers](https://dotnet.testcontainers.org/) 4.14.0 (PostgreSql and Minio) for the integration tests.
+- [Testcontainers](https://dotnet.testcontainers.org/) 4.15.0 (PostgreSql, plus a generic container running SeaweedFS for the S3 tests) for the integration tests.
 
 Two things run next to the app rather than inside it, so they do not appear in any manifest here:
 [Umami](https://umami.is) is a separate self-hosted service that the Analytics.Umami module talks to

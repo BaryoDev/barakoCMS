@@ -49,7 +49,7 @@ public sealed class S3FilesModule : IBarakoModule
             var o = sp.GetRequiredService<IOptions<S3StorageOptions>>().Value;
             var cfg = new AmazonS3Config { ForcePathStyle = o.ForcePathStyle };
             if (!string.IsNullOrEmpty(o.ServiceUrl))
-                cfg.ServiceURL = o.ServiceUrl;                      /* R2 / MinIO */
+                cfg.ServiceURL = o.ServiceUrl;                      /* R2 / self-hosted */
             else
                 cfg.RegionEndpoint = Amazon.RegionEndpoint.GetBySystemName(o.Region); /* AWS */
             return new AmazonS3Client(new BasicAWSCredentials(o.AccessKey, o.SecretKey), cfg);
