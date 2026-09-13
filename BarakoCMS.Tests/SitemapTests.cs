@@ -322,7 +322,9 @@ public class SitemapTests
         var body = await response.Content.ReadAsStringAsync();
 
         response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
-        body.Should().Contain("Feeds:SiteUrl", "the refusal names the setting that fixes it");
+        body.Should().NotBeEmpty();
+        body.Should().NotContain("Feeds:SiteUrl", "an anonymous caller is not told the configuration; the log is");
+        body.Should().NotContain("App:BaseUrl");
         body.Should().NotContain("attacker-example.net", "the caller does not get to choose the origin");
     }
 

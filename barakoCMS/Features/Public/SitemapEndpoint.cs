@@ -50,10 +50,7 @@ internal class SitemapEndpoint : EndpointWithoutRequest
 
         if (siteUrl is null)
         {
-            await Send.StringAsync(
-                barakoCMS.Infrastructure.Security.CanonicalHost.NotConfigured("Feeds:SiteUrl"),
-                503, "text/plain; charset=utf-8", ct);
-            return;
+            throw new barakoCMS.Infrastructure.Security.BaseUrlNotConfiguredException("Feeds:SiteUrl");
         }
 
         var sb = new StringBuilder();

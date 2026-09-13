@@ -150,6 +150,8 @@ public static class ServiceCollectionExtensions
         services.Configure<Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions>(o =>
         {
             o.Limits.MaxRequestBodySize = maxBodyBytes;
+            // "Server: Kestrel" tells a scanner what it is talking to and tells a client nothing.
+            o.AddServerHeader = false;
         });
         services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o =>
         {
@@ -1131,6 +1133,29 @@ public static class ServiceCollectionExtensions
         // Returns a structured 500 (no stack trace leak) and logs the exception via FastEndpoints.
         app.UseDefaultExceptionHandler();
 
+        // Inside the handler above, so it is reached first. The default handler writes the exception
+        // message into a 500, and this message names configuration keys, which is for the operator
+        // rather than an anonymous caller (#654).
+        var notConfiguredLog = app.ApplicationServices.GetRequiredService<ILoggerFactory>()
+            .CreateLogger("barakoCMS.Infrastructure.Security.CanonicalHost");
+        app.Use(async (context, next) =>
+        {
+            try
+            {
+                await next();
+            }
+            catch (barakoCMS.Infrastructure.Security.BaseUrlNotConfiguredException ex) when (!context.Response.HasStarted)
+            {
+                // The path is caller input and stays out of the log; the message names the setting,
+                // which is all the operator needs.
+                notConfiguredLog.LogWarning("A link could not be built: {Reason}", ex.Message);
+                context.Response.Clear();
+                context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+                context.Response.ContentType = "text/plain; charset=utf-8";
+                await context.Response.WriteAsync(barakoCMS.Infrastructure.Security.CanonicalHost.NotConfiguredResponse);
+            }
+        });
+
         // Forwarded headers, before anything that reads the client IP or the scheme. Only added
         // when ForwardedHeaders:Enabled names a trusted proxy; see ForwardedHeadersSetup.
         if (barakoCMS.Infrastructure.Security.ForwardedHeadersSetup.IsEnabled(configuration))
@@ -1170,6 +1195,14 @@ public static class ServiceCollectionExtensions
                 ? healthDashboardCsp
                 : csp;
             context.Response.Headers.Append("Content-Security-Policy", policy);
+
+            // A token, a key or the caller's own details: no browser or proxy keeps a copy. Pragma is
+            // for HTTP/1.0 caches, which do not read Cache-Control.
+            if (barakoCMS.Infrastructure.Security.SecurityHeaders.IsNoStorePath(context.Request.Path))
+            {
+                context.Response.Headers.CacheControl = "no-store";
+                context.Response.Headers.Pragma = "no-cache";
+            }
 
             // Strict-Transport-Security is NOT written here. UseHsts above owns it, configured by
             // HstsPolicy. This block used to append a second copy of the header on every HTTPS

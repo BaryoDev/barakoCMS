@@ -41,4 +41,16 @@ public static class SecurityHeaders
 
     public static bool IsHealthDashboardPath(string? path) =>
         path is not null && path.StartsWith(HealthDashboardPrefix, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Routes whose responses carry a token, a key or the caller's own details: sign-in, refresh,
+    /// MFA and OTP, social sign-in, <c>/api/me</c>, API key creation and preview tokens. These are
+    /// sent <c>Cache-Control: no-store</c> so neither a browser nor a proxy keeps them (#654).
+    /// </summary>
+    private static readonly string[] NoStorePrefixes = ["/api/auth", "/api/me", "/api/api-keys", "/api/preview"];
+
+    public static bool IsNoStorePath(string? path) =>
+        path is not null && NoStorePrefixes.Any(prefix =>
+            path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            && (path.Length == prefix.Length || path[prefix.Length] == '/'));
 }

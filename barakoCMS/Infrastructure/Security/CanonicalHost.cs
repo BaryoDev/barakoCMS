@@ -76,6 +76,12 @@ public static class CanonicalHost
         return $"{request.Scheme}://{request.Host}".TrimEnd('/');
     }
 
+    /// <summary>
+    /// What an anonymous caller is told when there is no base URL. The setting to fix it goes to the
+    /// log, not the response, so the public surface does not describe the deployment's configuration.
+    /// </summary>
+    public const string NotConfiguredResponse = "This endpoint is not available on this deployment.";
+
     /// <summary>The message a caller uses when <see cref="BaseUrl"/> came back null.</summary>
     public static string NotConfigured(string settingKey) =>
         $"No canonical base URL is configured. Set {settingKey} to this deployment's public URL, or set "
@@ -112,3 +118,11 @@ public static class CanonicalHost
         return null;
     }
 }
+
+/// <summary>
+/// Thrown when a link has to be built and <see cref="CanonicalHost.BaseUrl"/> has no answer.
+/// <c>UseBarakoCMS</c> turns it into a 503 carrying <see cref="CanonicalHost.NotConfiguredResponse"/>
+/// and logs the message, which names the setting.
+/// </summary>
+public sealed class BaseUrlNotConfiguredException(string settingKey)
+    : InvalidOperationException(CanonicalHost.NotConfigured(settingKey));

@@ -19,9 +19,8 @@ public static class ExternalAuthSupport
     /// <exception cref="InvalidOperationException">Nothing configured a base URL and the host is not constrained.</exception>
     public static string BaseUrl(IConfiguration config, HttpContext ctx) =>
         barakoCMS.Infrastructure.Security.CanonicalHost.BaseUrl(config, ctx.Request)
-        ?? throw new InvalidOperationException(
-            barakoCMS.Infrastructure.Security.CanonicalHost.NotConfigured(
-                barakoCMS.Infrastructure.Security.CanonicalHost.BaseUrlKey));
+        ?? throw new barakoCMS.Infrastructure.Security.BaseUrlNotConfiguredException(
+            barakoCMS.Infrastructure.Security.CanonicalHost.BaseUrlKey);
 
     /// <summary>A short-lived, HttpOnly, Lax cookie — survives the top-level GET redirect back from the provider.</summary>
     public static CookieOptions ShortCookie() => new()
