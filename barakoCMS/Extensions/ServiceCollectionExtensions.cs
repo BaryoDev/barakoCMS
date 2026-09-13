@@ -1146,7 +1146,9 @@ public static class ServiceCollectionExtensions
             }
             catch (barakoCMS.Infrastructure.Security.BaseUrlNotConfiguredException ex) when (!context.Response.HasStarted)
             {
-                notConfiguredLog.LogWarning("{Path} could not build a link: {Reason}", context.Request.Path, ex.Message);
+                // The path is caller input and stays out of the log; the message names the setting,
+                // which is all the operator needs.
+                notConfiguredLog.LogWarning("A link could not be built: {Reason}", ex.Message);
                 context.Response.Clear();
                 context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
                 context.Response.ContentType = "text/plain; charset=utf-8";
