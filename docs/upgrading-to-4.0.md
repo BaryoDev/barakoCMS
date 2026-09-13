@@ -46,13 +46,32 @@ Stop the 4.0 deploy from starting yet, and with 3.x stopped:
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.0.0/3.x-to-4.0.sql
 ```
 
-Then confirm the schema matches what 4.0 expects, without starting the server:
+Then confirm the schema matches what 4.0 expects, without starting the server. The command is an
+argument to the 4.0 image, which hands it to the host instead of booting the web app. With compose,
+from the directory holding your compose file and `.env`:
 
 ```bash
-dotnet barakoCMS.dll db-assert
+docker compose pull
+docker compose run --rm --no-deps app db-assert
+```
+
+The service is `app` in `docker-compose.prod.yml` and `api` in `quickstart/docker-compose.yml`.
+`run` gives the command the service's environment, so it checks the same database the deploy will
+use. Without compose, pass the same connection string and JWT key the deploy uses:
+
+```bash
+docker run --rm \
+  -e ConnectionStrings__DefaultConnection="$CONNECTION_STRING" \
+  -e JWT__Key="$JWT_KEY" \
+  ghcr.io/baryodev/barako-cms:<version> db-assert
 ```
 
 Exit code 0 means you can deploy. Non-zero prints the exact statements still outstanding.
+
+The image runs `BarakoCMS.Suite.dll`. Through 4.1.0 the Suite ignored these commands and started
+the web app against that database instead, so use a tag newer than 4.1.0 for this step even when
+the version you are deploying is older. The decaf image (`barako-cms-decaf`) runs the core host and
+has always answered them.
 
 Now start 4.0 normally.
 
@@ -117,10 +136,18 @@ The same route applies to any 4.x patch that needs a schema change, which is why
 part of the host rather than a one-off script:
 
 ```bash
-dotnet barakoCMS.dll db-patch upgrade.sql   # writes the delta and its rollback, changes nothing
-dotnet barakoCMS.dll db-assert              # verify only, non-zero when the schema is behind
-dotnet barakoCMS.dll db-apply               # apply it
+# writes the delta and its rollback into the current directory, changes nothing
+docker compose run --rm --no-deps -v "$PWD:/out" --user "$(id -u)" app db-patch /out/upgrade.sql
+# verify only, non-zero when the schema is behind
+docker compose run --rm --no-deps app db-assert
+# apply it
+docker compose run --rm --no-deps app db-apply
 ```
+
+The mount and `--user` are there because the image runs as a non-root user that cannot write to
+your directory otherwise. A host built from the NuGet packages answers the same commands when its
+`Program.cs` ends with `app.RunJasperFxCommands(args)`, as both hosts in this repository do:
+`dotnet YourHost.dll db-assert`.
 
 `db-patch` writes two files: `upgrade.sql` and `upgrade.drop.sql`, the second being the rollback.
 Read both before running either. The point of the reviewed-file route is that a destructive

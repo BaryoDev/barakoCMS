@@ -118,6 +118,23 @@ public class ModuleSchemaPreflightTests
         refusal.Should().Contain("ConfigureMarten", "the object is core's, so the module is named for the hook that can reach it");
     }
 
+    /// <summary>
+    /// The published image runs BarakoCMS.Suite.dll, so a command naming barakoCMS.dll does not exist
+    /// on the artifact an operator has. Handing the command to the image's own entrypoint does (#662).
+    /// </summary>
+    [Fact]
+    public async Task The_refusal_names_a_db_patch_command_that_runs_against_the_published_image()
+    {
+        await EnsureContentsTableExists();
+        await using var provider = Build(new CoreTableProbe(), AutoCreate.CreateOnly);
+
+        var act = () => provider.PreflightModuleSchemaAsync(TestContext.Current.CancellationToken);
+
+        var refusal = (await act.Should().ThrowAsync<InvalidOperationException>()).Which.Message;
+        refusal.Should().Contain("<image> db-patch /out/upgrade.sql", "the command is handed to the image's own entrypoint");
+        refusal.Should().NotContain("barakoCMS.dll", "that assembly is not the published image's entrypoint");
+    }
+
     [Fact]
     public async Task The_same_module_passes_under_AutoCreate_All()
     {

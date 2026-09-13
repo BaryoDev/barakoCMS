@@ -128,7 +128,9 @@ internal static class ModuleSchemaPreflight
             $"Schema preflight refused to start. This store runs AutoCreate.{autoCreate}, which "
             + "creates a missing object and never alters one that exists, and these modules want a "
             + $"change to an existing database object: {string.Join("; ", lines)}. Apply the change "
-            + "first (dotnet barakoCMS.dll db-patch, see docs/upgrading-to-4.0.md), or run the store "
+            + "first: run the same image with db-patch as its argument in place of a normal start, "
+            + "docker run --rm <your environment> -v \"$PWD:/out\" <image> db-patch /out/upgrade.sql "
+            + "(see docs/upgrading-to-4.0.md), or run the store "
             + "with AutoCreate.CreateOrUpdate, which this host uses when ASPNETCORE_ENVIRONMENT is "
             + $"Development. {EnabledKey}=false skips this check and leaves the refusal to Marten.");
     }

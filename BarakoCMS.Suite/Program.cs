@@ -1,3 +1,4 @@
+using JasperFx;
 using Serilog;
 using barakoCMS.Extensions;
 
@@ -44,11 +45,21 @@ var app = builder.Build();
 
 app.UseBarakoCMS();
 
+// A bare first argument names a JasperFx command (db-assert, db-patch, db-apply, help), the same
+// rule the core host uses. This is the host the published image runs, so the upgrade doc and the
+// schema refusal can only name those commands if this host dispatches them (#662). A command must
+// not apply the schema first: db-assert and db-patch exist to inspect a database the apply below
+// would refuse to touch.
+var willServe = args.Length == 0 || args[0].StartsWith('-') || args[0] == "run";
+
 // Create/patch the schema before anything reads it, so a fresh database has its tables before the
 // seeders query them.
-await app.ApplyMartenSchemaAsync();
+if (willServe)
+{
+    await app.ApplyMartenSchemaAsync();
+}
 
-if (!string.Equals(Environment.GetEnvironmentVariable("SKIP_SEEDER"), "true", StringComparison.OrdinalIgnoreCase))
+if (willServe && !string.Equals(Environment.GetEnvironmentVariable("SKIP_SEEDER"), "true", StringComparison.OrdinalIgnoreCase))
 {
     // Core baseline first: system roles + the InitialAdmin user. Without this a fresh Suite install
     // has no one to sign in as — the module seeders below only add module data, not an admin.
@@ -69,7 +80,9 @@ if (!string.Equals(Environment.GetEnvironmentVariable("SKIP_SEEDER"), "true", St
     }
 }
 
-app.Run();
+// Runs the host exactly as app.Run() did when no command was named. A failed command comes back as
+// a return value, not an exception, and has to reach the exit code or db-assert cannot fail a deploy.
+Environment.ExitCode = await app.RunJasperFxCommands(args);
 
 // Exposed so integration tests can boot this host if needed.
 public partial class Program { }
