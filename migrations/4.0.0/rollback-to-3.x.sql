@@ -84,6 +84,11 @@ $function$;
 -- database accepts and no data has to move.
 DROP INDEX IF EXISTS public.mt_doc_contenttypedefinition_uidx_name;
 
+-- The Files ParentFileId index, from migrations/4.2.0/stored-files-parent-index.sql. 3.x does not
+-- declare it, and under CreateOnly the 3.x Suite refuses to start on a table carrying an index it
+-- would drop. Only an index, so no data moves. IF EXISTS because a host without Files never had it.
+DROP INDEX IF EXISTS public.mt_doc_stored_files_idx_parent_file_id;
+
 -- Pending self-registrations. 3.x has no such table and nothing else references it, so dropping it
 -- moves no data. Anything still in it is a registration that was never confirmed and, on 3.x, never
 -- can be: rolling back means self-registration goes back to creating accounts outright.

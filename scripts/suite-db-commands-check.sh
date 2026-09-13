@@ -3,9 +3,10 @@
 # Proves the Suite host, the one the published image runs, answers the schema commands.
 #
 # The schema refusal and docs/upgrading-to-4.0.md tell an operator to run db-assert and db-patch.
-# scripts/upgrade-check.sh proves those against barakoCMS.dll, the core host, which is not what
-# ghcr.io/baryodev/barako-cms runs. Its entrypoint is BarakoCMS.Suite.dll, and until #662 the Suite
-# ignored its arguments: `db-assert` booted the web app against the database instead of checking it.
+# ghcr.io/baryodev/barako-cms runs BarakoCMS.Suite.dll, and until #662 the Suite ignored its
+# arguments: `db-assert` booted the web app against the database instead of checking it.
+# scripts/upgrade-check.sh runs only db-assert, against an upgraded database, so db-patch and
+# db-apply are proved here.
 #
 # The sequence, against an empty database in Production mode (so the store runs CreateOnly):
 #
