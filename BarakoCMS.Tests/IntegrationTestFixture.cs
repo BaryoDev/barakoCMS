@@ -377,8 +377,11 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
 
     public new async ValueTask DisposeAsync()
     {
-        await _postgresContainer.DisposeAsync();
+        // The host first. Stopping it stops the projection daemon and the workflow runner, and with
+        // the database already gone those fail their passes and Marten's coordinator threw
+        // ObjectDisposedException out of StopAsync, failing every test in the collection.
         await base.DisposeAsync();
+        await _postgresContainer.DisposeAsync();
     }
 
     /// <summary>
