@@ -18,6 +18,15 @@ public class WorkflowActionMetadataAttribute : Attribute
     public string[] RequiredParameters { get; set; } = Array.Empty<string>();
 
     /// <summary>
+    /// Parameter names this action reads when present but does not need.
+    /// </summary>
+    /// <remarks>
+    /// Not the parameters the runner adds on its own (RunId, IdempotencyKey and the like), only the
+    /// ones a person writing the workflow would set.
+    /// </remarks>
+    public string[] OptionalParameters { get; set; } = Array.Empty<string>();
+
+    /// <summary>
     /// Example JSON configuration for documentation.
     /// </summary>
     public string ExampleJson { get; set; } = string.Empty;

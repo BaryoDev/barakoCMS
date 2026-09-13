@@ -1,4 +1,5 @@
 using barakoCMS.Features.Workflows;
+using barakoCMS.Features.Workflows.Actions;
 using barakoCMS.Infrastructure.Attributes;
 using barakoCMS.Models;
 
@@ -75,11 +76,21 @@ public class WorkflowPluginRegistry : IWorkflowPluginRegistry
             var metadataAttr = actionType.GetCustomAttributes(typeof(WorkflowActionMetadataAttribute), false)
                 .FirstOrDefault() as WorkflowActionMetadataAttribute;
 
+            var required = metadataAttr?.RequiredParameters?.ToList() ?? new List<string>();
+            var optional = metadataAttr?.OptionalParameters?.ToList() ?? new List<string>();
+
             var metadata = new WorkflowActionMetadata
             {
                 Type = action.Type,
                 Description = metadataAttr?.Description ?? $"{action.Type} action",
-                RequiredParameters = metadataAttr?.RequiredParameters?.ToList() ?? new List<string>(),
+                RequiredParameters = required,
+                OptionalParameters = optional,
+                // Derived from the same rule the read path redacts by, not declared separately, so a
+                // parameter reported as secret is exactly one whose value cannot be read back.
+                SecretParameters = required.Concat(optional)
+                    .Where(WebhookSigning.IsSensitiveParameterName)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList(),
                 ExampleConfiguration = metadataAttr?.ExampleJson ?? "{}"
             };
 

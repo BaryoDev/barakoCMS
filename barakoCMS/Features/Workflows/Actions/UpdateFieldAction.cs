@@ -13,6 +13,7 @@ namespace barakoCMS.Features.Workflows.Actions;
 [WorkflowActionMetadata(
     Description = "Update fields on content items (status, data fields, etc.)",
     RequiredParameters = new[] { "Field", "Value" },
+    OptionalParameters = new[] { "TargetId" },
     ExampleJson = @"{""Type"":""UpdateField"",""Parameters"":{""Field"":""data.Status"",""Value"":""Approved""}}"
 )]
 internal class UpdateFieldAction : IWorkflowAction

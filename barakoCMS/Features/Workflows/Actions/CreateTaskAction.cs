@@ -12,6 +12,7 @@ namespace barakoCMS.Features.Workflows.Actions;
 [WorkflowActionMetadata(
     Description = "Create new content items automatically (tasks, tickets, etc.)",
     RequiredParameters = new[] { "ContentType", "Title" },
+    OptionalParameters = new[] { "Status" },
     ExampleJson = @"{""Type"":""CreateTask"",""Parameters"":{""ContentType"":""Task"",""Title"":""Review {{contentType}}"",""Status"":""Draft""}}"
 )]
 internal class CreateTaskAction : IWorkflowAction

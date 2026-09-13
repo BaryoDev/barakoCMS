@@ -21,6 +21,17 @@ public class WorkflowActionMetadata
     public List<string> RequiredParameters { get; set; } = new();
 
     /// <summary>
+    /// Parameter names the action reads when present but does not need.
+    /// </summary>
+    public List<string> OptionalParameters { get; set; } = new();
+
+    /// <summary>
+    /// The required and optional parameter names whose value the API leaves out when it returns a
+    /// workflow, so a value entered for one cannot be read back.
+    /// </summary>
+    public List<string> SecretParameters { get; set; } = new();
+
+    /// <summary>
     /// Example configuration JSON.
     /// </summary>
     public string ExampleConfiguration { get; set; } = string.Empty;
