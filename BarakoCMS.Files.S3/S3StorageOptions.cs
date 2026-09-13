@@ -2,7 +2,7 @@ namespace BarakoCMS.Files.S3;
 
 /// <summary>
 /// Configuration for the S3-compatible storage provider, bound from the <c>Files:S3</c> config section.
-/// The same options drive AWS S3, Cloudflare R2, and MinIO; only <see cref="ServiceUrl"/> and
+/// The same options drive AWS S3, Cloudflare R2, and self-hosted S3-compatible stores; only <see cref="ServiceUrl"/> and
 /// <see cref="PublicBaseUrl"/> differ between them.
 /// </summary>
 public sealed class S3StorageOptions
@@ -11,7 +11,7 @@ public sealed class S3StorageOptions
     public string Bucket { get; set; } = string.Empty;
 
     /// <summary>
-    /// The S3 endpoint for R2 or MinIO (e.g. <c>https://&lt;account&gt;.r2.cloudflarestorage.com</c> or
+    /// The S3 endpoint for R2 or a self-hosted store (e.g. <c>https://&lt;account&gt;.r2.cloudflarestorage.com</c> or
     /// <c>http://localhost:9000</c>). Leave null for AWS S3, which is reached via <see cref="Region"/>.
     /// </summary>
     public string? ServiceUrl { get; set; }
@@ -22,7 +22,7 @@ public sealed class S3StorageOptions
     public string AccessKey { get; set; } = string.Empty;
     public string SecretKey { get; set; } = string.Empty;
 
-    /// <summary>Path-style addressing. Required for MinIO and R2; harmless for AWS.</summary>
+    /// <summary>Path-style addressing. Required for most self-hosted stores and R2; harmless for AWS.</summary>
     public bool ForcePathStyle { get; set; } = true;
 
     /// <summary>
@@ -33,12 +33,13 @@ public sealed class S3StorageOptions
     public string? PublicBaseUrl { get; set; }
 
     /// <summary>
-    /// Set a public-read ACL on public objects (AWS and MinIO honor it). Cloudflare R2 ignores object
-    /// ACLs — make the bucket public in the R2 dashboard instead and set this false.
+    /// Set a public-read ACL on public objects. AWS applies it on a bucket with ACLs enabled. Cloudflare
+    /// R2, Garage and SeaweedFS do not apply an ACL sent with an upload, so make the bucket public
+    /// instead and set this false.
     ///
     /// <para>Caveat with a public bucket (the R2 setup): every object in it is readable by anyone who
     /// knows the key, so a "private" file physically resides in public space and is protected only by
-    /// its unguessable key (the app never discloses a private file's key or URL). With AWS or MinIO the
+    /// its unguessable key (the app never discloses a private file's key or URL). With AWS the
     /// per-object ACL keeps private objects genuinely private. If you need strict private files on R2,
     /// use a separate private bucket for them.</para>
     /// </summary>

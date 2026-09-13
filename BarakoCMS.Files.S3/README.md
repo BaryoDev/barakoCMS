@@ -6,7 +6,7 @@
 
 ---
 
-Stores uploads in AWS S3, Cloudflare R2, MinIO, or anything else that speaks the S3 API, instead of
+Stores uploads in AWS S3, Cloudflare R2, or a self-hosted store that speaks the S3 API, instead of
 on the application's own disk. Public files get a direct, CDN-friendly URL; private files stay
 private and are proxied through the API so authorisation is still checked on every read.
 
@@ -59,12 +59,22 @@ bucket" rather than as an error.
 
 | Key | Notes |
 |---|---|
-| `ServiceUrl` | Set for R2 or MinIO; leave null for AWS |
-| `ForcePathStyle` | Usually `true` for MinIO |
+| `ServiceUrl` | Set for R2 or a self-hosted store; leave null for AWS |
+| `ForcePathStyle` | Usually `true` for self-hosted stores |
 | `PublicBaseUrl` | Serve public files from your CDN domain |
 | `UsePublicReadAcl` | Leave `false` on buckets that block public ACLs, which is the safer default |
 
 Keys belong in environment variables or a secret store, never in a checked-in `appsettings.json`.
+
+## S3-compatible stores
+
+| Store | Notes |
+|---|---|
+| AWS S3 | Leave `ServiceUrl` null and set `Region`. `UsePublicReadAcl` only works on a bucket with ACLs enabled. |
+| Cloudflare R2 | No object ACLs: make the bucket public in the R2 dashboard and set `UsePublicReadAcl` to `false`. |
+| [SeaweedFS](https://github.com/seaweedfs/seaweedfs) | Apache-2.0. The module's own tests run against it. Does not apply an ACL sent with an upload, so make the bucket public and set `UsePublicReadAcl` to `false`. |
+| [Garage](https://garagehq.deuxfleurs.fr/) | AGPL-3.0. No object ACLs, so treat it like R2 and set `UsePublicReadAcl` to `false`. |
+| MinIO | Unmaintained. The upstream repository is archived and gets no security patches, so it is not recommended for new deployments. |
 
 ## Part of barakoCMS
 
