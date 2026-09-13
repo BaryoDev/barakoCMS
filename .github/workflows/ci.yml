@@ -53,6 +53,11 @@ jobs:
       - name: Prove the changelog assembler files entries under Unreleased
         run: bash scripts/test-changelog-assemble.sh
 
+      # GitHub refuses a release body over 125,000 characters, and 4.0.0's notes were 196,028, found
+      # out after every package was published (#660).
+      - name: Prove the release notes fit in a GitHub release
+        run: bash scripts/test-release-notes.sh
+
       # A directory Dependabot does not watch produces no error and no pull request, which is how a
       # front-end folder drifted unwatched for months (#153). This fails the build instead of saying
       # nothing. There is no npm lockfile in this repository today, so the check passes by finding

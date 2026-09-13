@@ -85,6 +85,20 @@ jobs:
             echo "::notice::Releasing BarakoCMS $VERSION."
           fi
 
+      # The release body is written last, after every package and image is published, and GitHub
+      # refuses one over 125,000 characters. 4.0.0 published everything and then failed here with
+      # no tag and no release (#660). The script summarises a long section and exits non-zero only
+      # when even the summary will not fit, so running it now fails the release before anything
+      # irreversible instead of after.
+      - name: The release notes fit in a GitHub release
+        if: steps.check.outputs.should_release == 'true'
+        env:
+          VERSION: ${{ steps.check.outputs.version }}
+        run: |
+          set -euo pipefail
+          bash scripts/release-notes.sh "$VERSION" > /tmp/notes.md
+          echo "::notice::Release notes for $VERSION are $(LC_ALL=C.UTF-8 wc -m < /tmp/notes.md) characters."
+
       # The publish job names the `nuget` environment so a person has to approve the one step that
       # cannot be undone (#203). An environment with no protection rules approves everything
       # silently, and naming one that does not exist creates it that way, so the approval would be
