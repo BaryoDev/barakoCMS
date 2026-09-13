@@ -5,7 +5,7 @@ images. No build step, no .NET toolchain. You edit one `.env` and start it.
 
 This is the API on its own, and its surface is Swagger. For the API with the console in front of
 it, start from [barakoBrew](https://github.com/BaryoDev/barakoBrew): it runs this same image and
-puts `ghcr.io/baryodev/barako-admin` in front of it.
+puts `ghcr.io/baryodev/barako-brew` in front of it.
 
 ## What you get
 
