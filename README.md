@@ -396,7 +396,8 @@ a clean machine to handover, and what is not solved yet),
 syntax, sorting, resolving references), [idempotency on the authoring API](docs/idempotency.md)
 (the `Idempotency-Key` header on `POST`, `PUT` and `PATCH`), [upgrading to 4.0](docs/upgrading-to-4.0.md),
 [event-sourced content types](docs/event-sourced-content-types.md),
-[approval by configuration](docs/approval-by-configuration.md) (an invoice through Submit and
+[deploying on a managed platform](docs/deploy-on-a-managed-platform.md) (App Service, Fargate,
+Cloud Run), [approval by configuration](docs/approval-by-configuration.md) (an invoice through Submit and
 Approve, one curl per step),
 [backup and restore](docs/backup-and-restore.md),
 [compliance posture](docs/compliance-posture.md), and

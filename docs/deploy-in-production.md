@@ -3,6 +3,9 @@
 One `docker compose up -d` on a clean machine, using the images the release workflow publishes.
 Nothing is compiled on the target host.
 
+Not running a VM? App Service, Fargate and Cloud Run are covered in
+[deploy-on-a-managed-platform.md](deploy-on-a-managed-platform.md).
+
 There is one production compose file, `docker-compose.prod.yml`. The other compose files in this
 repository are for other jobs and say so in their headers:
 
