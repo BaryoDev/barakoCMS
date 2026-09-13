@@ -53,7 +53,12 @@ public class UrlRedirect
     /// </remarks>
     public static string Normalize(string? path)
     {
-        var value = (path ?? string.Empty).Trim();
+        // A browser drops tabs and newlines anywhere in a URL and reads a backslash as a slash, so
+        // "\\evil.com" and "/\t/evil.com" both leave the site. Rewriting them to what the browser
+        // would see first lets the "//" collapse below neutralise them like any other host prefix.
+        var value = string.Concat((path ?? string.Empty).Where(c => !char.IsControl(c)))
+            .Replace('\\', '/')
+            .Trim();
 
         var cut = value.IndexOfAny(['?', '#']);
         if (cut >= 0) value = value[..cut];
