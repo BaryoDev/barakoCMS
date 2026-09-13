@@ -223,6 +223,19 @@ other documents or store something atomically with the entry. The real example o
 every referenced account exists and allocates the next entry number inside the write transaction,
 so a rejected entry never uses a number.
 
+One rule ships ready made. A reference to the entry's own type is not a parent just because it
+points at its own type (a related post pointing back is fine), so core cannot refuse loops for every
+such field. If one of your fields is a parent, register `barakoCMS.Core.Hooks.ParentReferenceHook`
+for it:
+
+```csharp
+services.AddScoped<IContentLifecycleHook>(_ => new ParentReferenceHook("page", "ParentPage"));
+```
+
+An update that points the field at the entry itself, closes a loop, or puts the entry more than
+`MaxDepth` levels deep (64 unless you pass another number) is then refused with 400. The chain is
+walked under a transaction advisory lock, so two saves racing to close a loop cannot both land.
+
 ## 4. One endpoint
 
 Endpoints are vertical slices: a folder per action holding its request, response and endpoint. See
