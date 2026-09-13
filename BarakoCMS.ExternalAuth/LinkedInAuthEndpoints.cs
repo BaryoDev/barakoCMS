@@ -34,7 +34,7 @@ public class LinkedInStartEndpoint : EndpointWithoutRequest
     {
         if (!ExternalAuthSupport.ProviderEnabled(_config, "LinkedIn", "ClientId")) { await Send.NotFoundAsync(ct); return; }
         var club = (Query<string>("club", isRequired: false) ?? "").Trim().ToLowerInvariant();
-        var state = Guid.NewGuid().ToString("N");
+        var state = ExternalAuthSupport.NewState();
 
         HttpContext.Response.Cookies.Append("li_state", state, ExternalAuthSupport.ShortCookie());
         HttpContext.Response.Cookies.Append("li_club", club, ExternalAuthSupport.ShortCookie());

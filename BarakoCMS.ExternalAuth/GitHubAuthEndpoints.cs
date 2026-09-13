@@ -35,7 +35,7 @@ public class GitHubStartEndpoint : EndpointWithoutRequest
     {
         if (!ExternalAuthSupport.ProviderEnabled(_config, "GitHub", "ClientId")) { await Send.NotFoundAsync(ct); return; }
         var club = (Query<string>("club", isRequired: false) ?? "").Trim().ToLowerInvariant();
-        var state = Guid.NewGuid().ToString("N");
+        var state = ExternalAuthSupport.NewState();
         HttpContext.Response.Cookies.Append("gh_state", state, ExternalAuthSupport.ShortCookie());
         HttpContext.Response.Cookies.Append("gh_club", club, ExternalAuthSupport.ShortCookie());
 

@@ -41,7 +41,7 @@ public class FacebookStartEndpoint : EndpointWithoutRequest
     {
         if (!ExternalAuthSupport.ProviderEnabled(_config, "Facebook", "AppId")) { await Send.NotFoundAsync(ct); return; }
         var club = (Query<string>("club", isRequired: false) ?? "").Trim().ToLowerInvariant();
-        var state = Guid.NewGuid().ToString("N");
+        var state = ExternalAuthSupport.NewState();
 
         HttpContext.Response.Cookies.Append("fb_state", state, ExternalAuthSupport.ShortCookie());
         HttpContext.Response.Cookies.Append("fb_club", club, ExternalAuthSupport.ShortCookie());
