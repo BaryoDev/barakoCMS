@@ -157,6 +157,29 @@ public class ExternalAuthCallbackTests
     }
 
     /// <summary>
+    /// The state is 32 bytes from the CSPRNG, base64url encoded, like every other secret the API mints.
+    /// </summary>
+    /// <remarks>
+    /// A GUID is 32 hex characters and carries 122 random bits from a source that does not promise to
+    /// be unpredictable. Asserting the 43 character base64url shape tells the two apart without
+    /// testing randomness itself, which cannot be done reliably in a unit test.
+    /// </remarks>
+    [Fact]
+    public async Task A_start_mints_its_state_from_32_random_bytes()
+    {
+        var client = Client();
+
+        var first = StateCookieFrom(
+            await client.GetAsync("/api/auth/github/start", TestContext.Current.CancellationToken));
+        var second = StateCookieFrom(
+            await client.GetAsync("/api/auth/github/start", TestContext.Current.CancellationToken));
+
+        first.Should().MatchRegex("^[A-Za-z0-9_-]{43}$");
+        second.Should().MatchRegex("^[A-Za-z0-9_-]{43}$");
+        second.Should().NotBe(first, "a state reused across starts would let one stolen value answer every flow");
+    }
+
+    /// <summary>
     /// A callback the browser never started, so there is no cookie to compare against, mints nothing.
     /// </summary>
     [Fact]

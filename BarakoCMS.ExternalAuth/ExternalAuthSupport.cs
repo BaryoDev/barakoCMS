@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 
@@ -22,6 +23,13 @@ public static class ExternalAuthSupport
         ?? throw new InvalidOperationException(
             barakoCMS.Infrastructure.Security.CanonicalHost.NotConfigured(
                 barakoCMS.Infrastructure.Security.CanonicalHost.BaseUrlKey));
+
+    /// <summary>
+    /// A fresh OAuth <c>state</c>: 32 bytes from <see cref="RandomNumberGenerator"/>, base64url without
+    /// padding, so it is safe in a query string and a cookie without escaping.
+    /// </summary>
+    internal static string NewState() =>
+        Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 
     /// <summary>A short-lived, HttpOnly, Lax cookie — survives the top-level GET redirect back from the provider.</summary>
     public static CookieOptions ShortCookie() => new()
