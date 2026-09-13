@@ -32,9 +32,11 @@ internal sealed class MalformedRequestMiddleware(RequestDelegate next, ILogger<M
         }
         catch (Exception ex) when (!context.Response.HasStarted && Classify(ex) is { } refusal)
         {
+            // Status and exception type only. The method and path are caller-controlled, and the
+            // request log already records them.
             logger.LogInformation(
-                "Refused {Method} {Path} with {Status}: {ExceptionType}",
-                context.Request.Method, context.Request.Path, refusal.Status, ex.GetType().Name);
+                "Refused a malformed request with {Status}: {ExceptionType}",
+                refusal.Status, ex.GetType().Name);
 
             context.Response.Clear();
             await new ProblemDetails(
