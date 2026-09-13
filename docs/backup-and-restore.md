@@ -18,8 +18,11 @@ Every deployment path takes a nightly backup that is checked before it is publis
 | `quickstart/docker-compose.yml` | `api` | `${DB_NAME:-barakocms}` | the `backups` volume |
 | `k8s/` | Deployment `barako-cms` | `barako_cms` | the `barako-backups` PVC |
 
-The three compose stacks run `scripts/backup-cron.sh`. The Kubernetes CronJob carries the same
-logic inline, because a CronJob has no repository to mount; if you change one, change both.
+The three compose stacks run `scripts/backup-cron.sh`. The quickstart runs its own copy,
+`quickstart/scripts/backup-cron.sh`, because that folder is meant to be copied out of the
+repository; `scripts/check-quickstart-backup-script.sh` fails CI when the two differ. The Kubernetes
+CronJob carries the same logic inline, because a CronJob has no repository to mount; if you change
+one, change both.
 
 Defaults: 02:00 daily, 14 days retained in production and 7 elsewhere. Override with
 `BACKUP_CRON_SCHEDULE` and `BACKUP_KEEP_DAYS`.

@@ -85,6 +85,9 @@ bash scripts/check-module-versions.sh || fail "check-module-versions.sh failed"
 echo "== pinned versions agree =="
 bash scripts/check-pinned-versions.sh || fail "check-pinned-versions.sh failed"
 
+echo "== quickstart backup script matches =="
+bash scripts/check-quickstart-backup-script.sh || fail "check-quickstart-backup-script.sh failed"
+
 echo "== dash and banned-word scan =="
 # Words come from ~/.claude/CLAUDE.md at run time, never inlined here: the banned list itself is
 # banned from appearing in a shell command, and a commit hook rejects it if it does.
