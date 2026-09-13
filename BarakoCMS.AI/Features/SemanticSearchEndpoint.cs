@@ -1,11 +1,20 @@
 using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
+using Microsoft.Extensions.Options;
 
 namespace BarakoCMS.AI.Features;
 
 public sealed record SemanticHit(string ContentType, string? Slug, string Title, double Score);
-public sealed record SemanticResponse(IReadOnlyList<SemanticHit> Results, int Count, string Query);
+
+public sealed record SemanticResponse(IReadOnlyList<SemanticHit> Results, int Count, string Query)
+{
+    /// <summary>
+    /// True when the type holds more embeddings than <see cref="AiOptions.SemanticSearchScanLimit"/>, so
+    /// only part of it was ranked and a better match may exist outside that part.
+    /// </summary>
+    public bool Truncated { get; init; }
+}
 
 /// <summary>
 /// GET /api/public/{type}/semantic?q=…&amp;limit=… — vector search over a type's index. Embeds the query,
@@ -52,28 +61,42 @@ public class SemanticSearchEndpoint : EndpointWithoutRequest<SemanticResponse>
         var queryVector = await _embed.EmbedAsync(q, ct);
         if (queryVector is null) { await Send.OkAsync(empty, ct); return; }
 
-        var embeddings = await _session.Query<ContentEmbedding>()
+        // Ranking happens in memory, so the read is capped rather than trusting the type to be small.
+        // One row past the cap tells a type that holds exactly the cap from one that holds more.
+        // Ordered by id so the same subset is ranked on every request, which keeps a cached answer
+        // and a fresh one in agreement. Database-side ranking, which needs no cap, is #621.
+        var scanLimit = Math.Clamp(Resolve<IOptions<AiOptions>>().Value.SemanticSearchScanLimit, 1, int.MaxValue - 1);
+        var scanned = await _session.Query<ContentEmbedding>()
             .Where(e => e.ContentType == type)
+            .OrderBy(e => e.Id)
+            .Take(scanLimit + 1)
             .ToListAsync(ct);
+        var truncated = scanned.Count > scanLimit;
 
-        var ranked = embeddings
+        var ranked = scanned
+            .Take(scanLimit)
             .Select(e => (e, score: Vectors.Cosine(queryVector, e.Vector)))
             .Where(x => x.score >= Floor)
             .OrderByDescending(x => x.score)
             .Take(limit * 3) // buffer for the freshness filter below
             .ToList();
 
+        // The vector is only a hint; the current content is the source of truth on visibility.
+        var current = ranked.Count == 0
+            ? new Dictionary<Guid, Content>()
+            : (await _session.LoadManyAsync<Content>(ct, ranked.Select(x => x.e.Id).ToArray())).ToDictionary(c => c.Id);
+
         var results = new List<SemanticHit>();
         foreach (var (e, score) in ranked)
         {
-            // The vector is only a hint; the current content is the source of truth on visibility.
-            var c = await _session.LoadAsync<Content>(e.Id, ct);
-            if (c is null || c.Status != ContentStatus.Published || c.Sensitivity != SensitivityLevel.Public) continue;
+            if (!current.TryGetValue(e.Id, out var c)
+                || c.Status != ContentStatus.Published
+                || c.Sensitivity != SensitivityLevel.Public) continue;
             results.Add(new SemanticHit(type, e.Slug, e.Title, Math.Round(score, 4)));
             if (results.Count >= limit) break;
         }
 
         HttpContext.Response.Headers.CacheControl = "public, max-age=60";
-        await Send.OkAsync(new SemanticResponse(results, results.Count, q), ct);
+        await Send.OkAsync(new SemanticResponse(results, results.Count, q) { Truncated = truncated }, ct);
     }
 }

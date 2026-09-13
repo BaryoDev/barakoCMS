@@ -17,5 +17,16 @@ public sealed class AiOptions
     /// <summary>Embedding model name, e.g. nomic-embed-text.</summary>
     public string EmbeddingModel { get; set; } = "nomic-embed-text";
 
+    public const int DefaultSemanticSearchScanLimit = 1000;
+
+    /// <summary>
+    /// Most embeddings one semantic search reads for a type. The endpoint is anonymous, so this is what
+    /// bounds the memory a caller can make one request cost. When a type holds more, the search ranks
+    /// only this many and the response sets <c>truncated</c>, since a better match may sit outside them.
+    /// The default is twice the 500 entries one index run writes, so a type indexed that way is still
+    /// searched whole, and at 768 dimensions a full scan stays near 8 MB.
+    /// </summary>
+    public int SemanticSearchScanLimit { get; set; } = DefaultSemanticSearchScanLimit;
+
     public bool IsConfigured => Enabled && !string.IsNullOrWhiteSpace(EmbeddingBaseUrl);
 }
