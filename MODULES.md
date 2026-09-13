@@ -7,6 +7,9 @@ this contract lets you do and stops you doing.
 If you are deciding whether your idea is a module or a change to core, the tests are in the
 [README](README.md#module-or-core).
 
+Never built one? [docs/your-first-module.md](docs/your-first-module.md) walks from a fresh clone to a
+working module with tests, and links back here for each rule.
+
 barakoCMS has an optional **module system** for layering self-contained features (accounting, import,
 files, email providers, …) on top of the generic core, without forking it. Core stays lean; a host
 opts into exactly the modules it wants.
