@@ -14,15 +14,15 @@
     <PackageVersion Include="FastEndpoints" Version="8.3.0" />
     <PackageVersion Include="FastEndpoints.Security" Version="8.3.0" />
     <PackageVersion Include="FastEndpoints.Swagger" Version="8.3.0" />
-    <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="10.9.0" />
+    <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="10.10.0" />
   </ItemGroup>
 
   <ItemGroup Label="Persistence and storage">
-    <PackageVersion Include="Marten" Version="9.30.0" />
+    <PackageVersion Include="Marten" Version="9.35.0" />
     <!-- Marten 9 already brings JasperFx transitively; referenced explicitly because the host
          calls RunJasperFxCommands for the db-patch / db-assert / db-apply schema commands, and a
          compile-time dependency should not rest on someone else's dependency graph. -->
-    <PackageVersion Include="JasperFx" Version="2.56.0" />
+    <PackageVersion Include="JasperFx" Version="2.69.3" />
     <!-- Was floating (3.7.*) before central management, so two builds of the same commit could
          resolve different versions. Pinned to what it last resolved to. -->
     <PackageVersion Include="AWSSDK.S3" Version="3.7.511.8" />
@@ -59,7 +59,7 @@
   <ItemGroup Label="Email">
     <!-- MailKit rather than System.Net.Mail.SmtpClient, which Microsoft's own docs tell you not to
          use for new code. Brings MimeKit with it. -->
-    <PackageVersion Include="MailKit" Version="4.17.0" />
+    <PackageVersion Include="MailKit" Version="4.18.0" />
   </ItemGroup>
 
   <ItemGroup Label="Infrastructure">
@@ -67,7 +67,7 @@
     <!-- Module discovery reads the application's deps.json through this. Already resolved
          transitively (Serilog.Settings.Configuration, Mvc.Testing); referenced directly because
          core now compiles against it. -->
-    <PackageVersion Include="Microsoft.Extensions.DependencyModel" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyModel" Version="10.0.12" />
   </ItemGroup>
 
   <ItemGroup Label="Testing">
@@ -78,7 +78,7 @@
     <!-- BarakoCMS.Testing hosts a real barakoCMS over TestServer without a Program.cs to point
          WebApplicationFactory at, so it takes the TestHost package directly. Same version line as
          Mvc.Testing, which depends on it. -->
-    <PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="10.0.12" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageVersion Include="Moq" Version="4.20.72" />
     <PackageVersion Include="NSubstitute" Version="5.3.0" />
@@ -91,7 +91,7 @@
          module's tests can use it as a class fixture, and this package carries that type without
          the MSBuild targets that would turn a library into a test project. Same version as
          xunit.v3, which depends on it. -->
-    <PackageVersion Include="xunit.v3.extensibility.core" Version="4.0.0" />
+    <PackageVersion Include="xunit.v3.extensibility.core" Version="4.0.1" />
     <PackageVersion Include="Microsoft.Testing.Extensions.TrxReport" Version="2.4.0" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="4.0.0" />
   </ItemGroup>
