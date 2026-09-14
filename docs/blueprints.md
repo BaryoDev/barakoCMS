@@ -28,10 +28,11 @@ gives.
 
 The audit log records `contenttype.blueprint_applied` with the names created.
 
-## The built-in four
+## The built-in five
 
 Every addressable type has a `Slug` field of type `slug`, which is what makes
-`/api/public/{type}/{slug}` exist, and every type is publicly deliverable. Fields that are for the
+`/api/public/{type}/{slug}` exist, and every type is publicly deliverable. The `site` type is the
+exception to the slug: it is a singleton, one entry per tenant, read from the list. Fields that are for the
 team and not the public are marked `Sensitive` (masked on the way out) or `Hidden` (removed).
 
 | Blueprint | Types | Notes |
@@ -40,6 +41,7 @@ team and not the public are marked `Sensitive` (masked on the way out) or `Hidde
 | `events` | `event`, `venue`, `speaker` | Event has starts and ends, a venue reference and a `geopoint` location, so `filter[Location][near]` works on delivery. Venue contact details are Sensitive. |
 | `portfolio` | `project`, `client` | Project has a client reference, a gallery array, a live URL and a testimonial. Client contact name and email are Sensitive, internal notes are Hidden. |
 | `docs` | `article`, `section` | Article has a markdown body, a required section reference and an order within it. Section can nest under a parent section. |
+| `site` | `site` | A singleton holding the site's identity, theme and chrome, read by the renderer from `/api/public/site`. The theme and chrome fields are JSON; [site-settings.md](site-settings.md) gives their shapes. |
 
 The blueprints carry no SEO fields. Run `POST /api/content-types/{name}/seo-fields` on the types a
 frontend renders as pages; see [seo-fields.md](seo-fields.md).
