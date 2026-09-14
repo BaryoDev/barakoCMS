@@ -16,8 +16,10 @@ namespace BarakoCMS.Tests;
 /// </summary>
 /// <remarks>
 /// The fixture configures the module for <c>pagetreeprobe</c> with MaxDepth 3 and reserved slugs
-/// <c>api</c> and <c>Blog</c>. Every test writes pages under slugs unique to that test, because the
-/// collection shares one database and core refuses a slug the type already holds.
+/// <c>api</c>, <c>Blog</c> and <c>admin</c>. Every test writes pages under slugs unique to that test,
+/// because the collection shares one database and core refuses a slug the type already holds. That
+/// includes the reserved ones: a nested page that takes one blocks the top-level refusal from ever
+/// being reached, so each reserved slug belongs to exactly one test.
 /// </remarks>
 [Collection("Sequential")]
 public class PagesModuleTests
@@ -238,7 +240,7 @@ public class PagesModuleTests
         var client = await AdminAsync();
         var parent = await CreateAsync(client, "Docs", Unique("docs"));
 
-        var res = await PostAsync(client, "Api docs", "api", parent);
+        var res = await PostAsync(client, "Admin docs", "admin", parent);
         res.IsSuccessStatusCode.Should().BeTrue(await res.Content.ReadAsStringAsync(Ct));
     }
 

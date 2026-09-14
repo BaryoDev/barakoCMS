@@ -96,6 +96,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
                 { "Modules:Pages:MaxDepth", "3" },
                 { "Modules:Pages:ReservedSlugs:0", "api" },
                 { "Modules:Pages:ReservedSlugs:1", "Blog" },
+                { "Modules:Pages:ReservedSlugs:2", "admin" },
             });
         });
 
