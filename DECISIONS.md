@@ -862,6 +862,9 @@ project.
 **What this rules out.** Brew plugins. Business rules in the renderer. A console screen that only
 one deployment can use. Modules written for something a workflow already does.
 
+**Superseded in part by D22** (14 Sept 2026): a widget for one site now ships as a plugin package
+enabled per tenant, and the renderer config in rung one becomes site settings read at request time.
+
 ## D21. It runs wherever containers run, and BaryoVM is one option rather than the path
 
 **Decided:** 11 Sept 2026. **Status:** accepted.
@@ -901,3 +904,110 @@ compatible (#728). And not claiming a platform works until somebody has run it t
 weaker argument, and it is not even accurate. The position is that you own the software and choose
 how much of the operating you want to do.
 
+**Amended by D23** (14 Sept 2026): BaryoVM becomes the one deploy engine behind a click-to-deploy
+app, VMs first and then Azure and AWS container platforms. Everything else here stands.
+
+## D22. A site is configuration; developers extend with plugins; rules go to workflows before modules
+
+**Decided:** 14 Sept 2026. **Status:** accepted. **Issue:** #795.
+
+Every site, barakocms.com included, runs the same published barakoCMS, barakoBrew and barakoPress
+images. Everything that makes a site that site is data set in barakoBrew: a blueprint, a theme and
+site settings (#793), navigation, pages made of blocks, and connectors to outside data. The images
+are extended, never customised, and there is no per-site repository.
+
+**The ladder, restated from D20.**
+
+1. **Configuration.** A blueprint, a theme, site settings and pages, all set in barakoBrew.
+2. **Workflows, workflow actions and connectors.** Integrations and server-side rules that react to
+   an event: lifecycle states, named transitions with a permission per role, a workflow on a
+   transition, a connector and request for an outside system. `docs/approval-by-configuration.md`
+   builds an approval flow this way with no code.
+3. **A plugin.** When no block covers a need, a developer writes one as a plugin package. It reaches
+   a deployment through a derived barakoPress image and is enabled per tenant. A block every client
+   would want moves into barakoPress.
+4. **A module**, only for a rule that must hold inside the write itself, such as a gapless sequence
+   or a count that must never go below zero under concurrent saves. A workflow runs after the save
+   commits, so it cannot refuse one.
+
+**Identity is read at request time.** barakoPress stops baking site identity and theme into the
+build. The index, feed, sitemap and robots read the tenant's settings under its cache tag and are
+purged by the publish webhook. This reverses the "identity is build time" choice barakoPress made.
+
+**One renderer serves many domains**, the request host mapped to a tenant (#792).
+
+**The deployment is the boundary.** One set of barakoCMS, barakoBrew and barakoPress on one database
+serves sites that belong together and may share plugins. A different system, or sites that must not
+share plugins or modules, get their own whole set. Never a second renderer against a shared API.
+
+**Same look, generic behaviour.** Colour, type, spacing and layout match a design exactly. Interactive
+pieces are generic configurable blocks that behave the same, not copies of one site's code.
+
+**What this rules out.** Per-site forks of barakoPress. `press.config.ts` literals for identity. Site
+specific code in a client repository. A module for something a workflow can do.
+
+**What would make it wrong.** A site that cannot be expressed as blocks and settings without
+bending the block model out of shape. rckoronadal.org, baryo.dev and barakocms.com are the three
+tests (#722); if one of them needs site code, the ladder needs another rung, not an exception.
+
+## D23. BaryoVM is the one deploy engine: VMs first, then Azure and AWS container platforms
+
+**Decided:** 14 Sept 2026. **Status:** accepted. **Issue:** #800. **Amends:** D21.
+
+BaryoVM becomes the engine behind a click-to-deploy app: the owner connects a VM, an Azure account
+or an AWS account and deploys by clicking. A local web UI is the first front end;
+a desktop app and an editor extension wrap it later.
+
+- **Phase 1, VMs.** Unchanged in practice from D21: SSH to machines the owner has, with a local or
+  managed Postgres.
+- **Phase 2, Azure and AWS.** The same images on Azure App Service or Container Apps and AWS App
+  Runner or ECS on Fargate, through the Azure CLI and AWS CLI the owner is signed into. BaryoVM
+  stores no cloud credential.
+
+**Two ways to publish, one manifest.** Directly, building any derived image (an added module, a
+barakoPress plugin) on the owner's machine or a build host and pushing it to a registry; or through
+CI/CD, with BaryoVM writing the workflow into the owner's repository. A custom image is never built
+on a small client VM.
+
+**What stays true from D21.** barakoCMS still runs wherever a container and Postgres run, and a team
+shipping with its own cloud pipeline is still supported. BaryoVM is the path offered, not a
+requirement.
+
+**What would make it wrong.** A cloud target whose deploy cannot be driven from its own CLI without
+BaryoVM holding a long-lived credential. That target stays the cloud pipeline's job.
+
+## D24. The engines stay MPL-2.0; everything built on them is MIT
+
+**Decided:** 14 Sept 2026. **Status:** accepted. **Issue:** #815.
+
+"The core, the soul, the bitterness of the coffee stays MPL-2.0. The rest is on the house." The
+bitterness is the three engines.
+
+- **MPL-2.0:** barakoCMS core (`barakoCMS/`), BaryoVM, and the barako CLI.
+- **MIT:** everything built on them: barakoCMS modules, `BarakoCMS.Testing`, `BarakoCMS.Suite` and
+  the module template, barakoBrew, barakoPress, create-barako-app, and the messaging and worker
+  services.
+
+Each product changes from its next release. Versions already published keep the licence they
+shipped with.
+
+**Why.** MPL-2.0 was chosen so improvements come back, and that still matters for the engines
+everything depends on: the API every product calls, and the deploy tool and CLI that act on live
+systems. It applies per file, so it never reaches MIT code that uses an engine. For everything built
+on the engines, copyleft only adds a procurement conversation, and MIT removes it for modules,
+plugins, consoles, sites and anything sold on top of them.
+
+**The door stays open.** An engine can move to MIT later with a changelog line. A release made under
+MIT can never be pulled back under copyleft, so the engines keep copyleft until there is a reason to
+drop it.
+
+**Consent.** Modules and barakoBrew move under the existing contributor terms, which name MIT, and
+contributions before 23 August 2026 were made under terms that granted relicensing. BaryoVM stays
+MPL-2.0, so no outside agreement is needed there.
+
+**The boundary.** Code copied from an engine into an MIT package keeps its MPL-2.0 notice. Moving
+files across the line is deliberate and reviewed.
+
+**What would make it wrong.** A module or client needing an engine file under MIT to be usable at
+all. MPL-2.0 permits use in closed products, so that should not happen; if it does, it is a reason
+to revisit D24, not to copy the file.
