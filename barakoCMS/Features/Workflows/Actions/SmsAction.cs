@@ -10,6 +10,7 @@ namespace barakoCMS.Features.Workflows.Actions;
 /// </summary>
 [WorkflowActionMetadata(
     Description = "Send SMS text messages",
+    Group = WorkflowActionGroup.Comms,
     RequiredParameters = new[] { "To", "Message" },
     ExampleJson = @"{""Type"":""SMS"",""Parameters"":{""To"":""+1234567890"",""Message"":""Content {{id}} needs review""}}"
 )]

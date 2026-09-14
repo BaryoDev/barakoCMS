@@ -32,6 +32,12 @@ public class WorkflowActionMetadata
     public List<string> SecretParameters { get; set; } = new();
 
     /// <summary>
+    /// The action library group: Content, Delivery, Comms, Data or Flow. Null when the action does not
+    /// declare one.
+    /// </summary>
+    public string? Group { get; set; }
+
+    /// <summary>
     /// Example configuration JSON.
     /// </summary>
     public string ExampleConfiguration { get; set; } = string.Empty;

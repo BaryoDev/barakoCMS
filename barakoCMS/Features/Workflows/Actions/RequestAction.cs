@@ -20,6 +20,7 @@ namespace barakoCMS.Features.Workflows.Actions;
 /// </remarks>
 [barakoCMS.Infrastructure.Attributes.WorkflowActionMetadata(
     Description = "Send a configured request through a configured connector",
+    Group = barakoCMS.Infrastructure.Attributes.WorkflowActionGroup.Delivery,
     RequiredParameters = new[] { "Request" },
     ExampleJson = @"{""Type"":""Request"",""Parameters"":{""Request"":""post-to-facebook""}}"
 )]
