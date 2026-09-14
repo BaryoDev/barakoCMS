@@ -17,7 +17,18 @@ internal sealed record TreeItem(
     int? Order,
     IReadOnlyList<TreeItem> Children);
 
-internal sealed record TreeResponse(int Contract, bool Truncated, IReadOnlyList<TreeItem> Items);
+/// <summary>The configured type and field names, so the console writes the fields this site's type has.</summary>
+internal sealed record TreeOptions(
+    string ContentType,
+    string ParentField,
+    string ShowInNavigationField,
+    string OrderField,
+    string TitleField,
+    int MaxDepth,
+    IReadOnlyList<string> ReservedSlugs,
+    string? HomeSlug);
+
+internal sealed record TreeResponse(int Contract, bool Truncated, TreeOptions Options, IReadOnlyList<TreeItem> Items);
 
 /// <summary>
 /// GET /api/pages/tree: every page the caller may read, drafts included, nested and ordered, for the
@@ -122,6 +133,16 @@ internal sealed class Endpoint : EndpointWithoutRequest<TreeResponse>
                     n.Id, n.Title, n.Slug, tree.PathOf(n.Id), statuses[n.Id], n.ShowInNavigation, n.Order, Build(n.Id)))
                 .ToList();
 
-        await Send.OkAsync(new TreeResponse(PagesContract.Version, truncated, Build(null)), ct);
+        var options = new TreeOptions(
+            _options.ContentType,
+            _options.ParentField,
+            _options.ShowInNavigationField,
+            _options.OrderField,
+            _options.TitleField,
+            _options.MaxDepth,
+            _options.ReservedSlugs,
+            _options.HomeSlug);
+
+        await Send.OkAsync(new TreeResponse(PagesContract.Version, truncated, options, Build(null)), ct);
     }
 }

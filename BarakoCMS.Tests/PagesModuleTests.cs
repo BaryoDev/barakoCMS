@@ -5,6 +5,7 @@ using System.Text.Json;
 using barakoCMS.Models;
 using FluentAssertions;
 using Marten;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -401,5 +402,108 @@ public class PagesModuleTests
         children.Should().HaveCount(1);
         children[0].GetProperty("status").GetString().Should().Be("Draft");
         children[0].GetProperty("path").GetString().Should().Be($"/{parentSlug}/{childSlug}");
+    }
+
+    private const string LandingType = "landingprobe";
+    private static readonly Lock LandingGate = new();
+    private static WebApplicationFactory<Program>? _landingHost;
+
+    /// <summary>
+    /// A host whose Pages options name none of the defaults. One for the class and never disposed, per
+    /// the note on IntegrationTestFixture.WithSetting.
+    /// </summary>
+    private WebApplicationFactory<Program> LandingHost()
+    {
+        lock (LandingGate)
+        {
+            return _landingHost ??= _factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+                services.Configure<BarakoCMS.Pages.PagesOptions>(o =>
+                {
+                    o.ContentType = LandingType;
+                    o.ParentField = "Parent";
+                    o.ShowInNavigationField = "InMenu";
+                    o.OrderField = "MenuWeight";
+                    o.TitleField = "Heading";
+                    o.MaxDepth = 5;
+                    o.ReservedSlugs = ["shop"];
+                    o.HomeSlug = "start";
+                })));
+        }
+    }
+
+    [Fact]
+    public async Task The_tree_reports_the_configured_type_and_field_names()
+    {
+        var admin = await AdminAsync();
+        var slug = Unique("landing");
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            if (!await session.Query<ContentTypeDefinition>().AnyAsync(d => d.Name == LandingType, Ct))
+            {
+                session.Store(new ContentTypeDefinition
+                {
+                    Id = Guid.NewGuid(),
+                    Name = LandingType,
+                    DisplayName = "Landing probe",
+                    Fields =
+                    [
+                        new FieldDefinition { Name = "Heading", DisplayName = "Heading", Type = "string" },
+                        new FieldDefinition { Name = "Slug", DisplayName = "Slug", Type = "slug" },
+                        new FieldDefinition { Name = "Parent", DisplayName = "Parent", Type = "reference", ReferenceType = LandingType },
+                        new FieldDefinition { Name = "InMenu", DisplayName = "In menu", Type = "bool" },
+                        new FieldDefinition { Name = "MenuWeight", DisplayName = "Menu weight", Type = "int" },
+                    ],
+                });
+            }
+
+            session.Store(new Content
+            {
+                Id = Guid.NewGuid(),
+                ContentType = LandingType,
+                Status = ContentStatus.Draft,
+                Data = new Dictionary<string, object> { ["Heading"] = "Landing", ["Slug"] = slug, ["InMenu"] = true, ["MenuWeight"] = 7 },
+            });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var client = LandingHost().CreateClient();
+        client.DefaultRequestHeaders.Authorization = admin.DefaultRequestHeaders.Authorization;
+
+        var res = await client.GetAsync("/api/pages/tree", Ct);
+        var body = await res.Content.ReadAsStringAsync(Ct);
+        res.StatusCode.Should().Be(HttpStatusCode.OK, body);
+
+        var root = JsonDocument.Parse(body).RootElement;
+        var options = root.GetProperty("options");
+        options.GetProperty("contentType").GetString().Should().Be(LandingType);
+        options.GetProperty("parentField").GetString().Should().Be("Parent");
+        options.GetProperty("showInNavigationField").GetString().Should().Be("InMenu");
+        options.GetProperty("orderField").GetString().Should().Be("MenuWeight");
+        options.GetProperty("titleField").GetString().Should().Be("Heading");
+        options.GetProperty("maxDepth").GetInt32().Should().Be(5);
+        var reserved = options.GetProperty("reservedSlugs").EnumerateArray().Select(e => e.GetString()).ToList();
+        reserved.Should().HaveCount(1);
+        reserved.Should().Equal("shop");
+        options.GetProperty("homeSlug").GetString().Should().Be("start");
+
+        var item = root.GetProperty("items").EnumerateArray().Single(i => i.GetProperty("slug").GetString() == slug);
+        item.GetProperty("title").GetString().Should().Be("Landing", "the tree is read with the same names it reports");
+        item.GetProperty("order").GetInt32().Should().Be(7);
+    }
+
+    [Fact]
+    public async Task The_public_navigation_does_not_carry_the_options()
+    {
+        var slug = Unique("navopts");
+        await StoreAsync("Nav options", slug, nav: true, order: 1);
+
+        var res = await _factory.CreateClient().GetAsync("/api/public/pages/navigation", Ct);
+        var body = await res.Content.ReadAsStringAsync(Ct);
+        res.StatusCode.Should().Be(HttpStatusCode.OK, body);
+
+        var root = JsonDocument.Parse(body).RootElement;
+        root.GetProperty("items").GetArrayLength().Should().BeGreaterThan(0);
+        root.TryGetProperty("options", out _).Should().BeFalse();
     }
 }
