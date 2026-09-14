@@ -101,10 +101,17 @@ renderer that does not know the number should show no menu rather than stop.
 `entry` is the same shape `GET /api/public/{type}/{slug}` returns.
 
 ```json
-{ "contract": 1, "truncated": false, "items": [
+{ "contract": 1, "truncated": false,
+  "options": { "contentType": "page", "parentField": "ParentPage", "showInNavigationField": "ShowInNavigation",
+    "orderField": "NavigationOrder", "titleField": "Title", "maxDepth": 8, "reservedSlugs": [], "homeSlug": "home" },
+  "items": [
   { "id": "...", "title": "About", "slug": "about", "path": "/about", "status": "Draft",
     "showInNavigation": true, "order": 1, "children": [] } ] }
 ```
+
+`options` is the `Modules:Pages` configuration in use, so a console that moves a page writes the
+parent and order fields this site's type has, not the defaults. Only the tree carries it; the two
+anonymous bodies do not.
 
 In the tree, a page whose parent the caller cannot read, or whose chain loops, is listed at the top
 level with `path` null, so it can be found and fixed.
