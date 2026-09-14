@@ -214,18 +214,17 @@ backup, so do it once before you have data worth keeping.
   carry both architectures while the other does not. That is the same check the release workflow runs on every tag it publishes, and CI proves it
   fails on `3.21.0`. Tracked as #394.
 
-  `barako-admin` has the same problem today (`3.21.0` is amd64 only), and worse: nothing publishes
-  it right now. The workflow that built it lived in this repository and was removed when the console
-  split out; none has been re-created in
-  [BaryoDev/barakoBrew](https://github.com/BaryoDev/barakoBrew) yet (barakoBrew#23). So `3.21.0` is
-  the last tag anyone built, this repository has no way to fix it, and there is no `4.0` tag of
-  `barako-admin` and there will not be one from here. Once barakoBrew#23 lands, publishing is that
-  repository's workflow to run.
+  The console image has the same problem on its old name: `barako-admin:3.21.0` is amd64 only. It
+  was the last tag built in this repository before the console split out, and this repository has
+  no way to fix it. The console is published from
+  [BaryoDev/barakoBrew](https://github.com/BaryoDev/barakoBrew) now, as
+  `ghcr.io/baryodev/barako-brew` from barakoBrew 1.2.0 (also pushed as `barako-admin` until 2.0.0),
+  and its publish workflow runs the same platform check. Do not pin the console to `3.21.0`.
 
   The next release published through the gate (4.0.0) fixes `barako-cms` and `barako-cms-decaf`:
   both platforms are built and the release workflow refuses to publish either image's versioned
   tag or `:latest` unless `docker manifest inspect` shows both. Until then, check before you pin.
-  That gate is specific to this repository's own images and does not extend to `barako-admin`.
+  That gate covers this repository's own images; barakoBrew runs its own on the console image.
 
 - **The first nightly-backup container logs a failure** (#395). `db-backup` starts as soon as Postgres is
   healthy and takes a proof backup immediately, which on a fresh stack races the API's schema
