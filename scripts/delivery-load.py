@@ -4,8 +4,8 @@ Fixed-rate load against the public delivery API, reporting p50, p95 and errors p
 
     python3 scripts/delivery-load.py --base-url https://api.example.com --type post --slug hello-world
 
-The API allows 100 requests a minute per client address (the global limiter in
-ServiceCollectionExtensions), and it is not configurable. From one address, a rate above about 1.6
+The API allows 100 requests a minute per client address by default (RateLimiting:Global, see
+"Rate limits" in docs/deploy-in-production.md). From one address, a rate above about 1.6
 requests a second measures that limiter, answered as 429 or queued, rather than delivery. The
 default rate stays under it; a higher rate is useful only to see where the limiter starts.
 
