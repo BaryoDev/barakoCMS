@@ -21,11 +21,49 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
     volumes:
       - pgdata:/var/lib/postgresql/data
+    # Sized for a 2 GB VM that also runs the API, and each value can be changed from .env. The
+    # defaults for 4 GB and 8 GB, and the stock values to go back to, are in
+    # docs/deploy-in-production.md in the barakoCMS repository, "Postgres on a small server". max_connections stays at the stock
+    # 100 so an existing deployment's connection pool keeps fitting. pg_stat_statements is loaded so
+    # slow queries can be found; the postgres-extensions service below creates the extension.
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - max_connections=${PG_MAX_CONNECTIONS:-100}
+      - -c
+      - shared_buffers=${PG_SHARED_BUFFERS:-512MB}
+      - -c
+      - effective_cache_size=${PG_EFFECTIVE_CACHE_SIZE:-1GB}
+      - -c
+      - work_mem=${PG_WORK_MEM:-4MB}
+      - -c
+      - random_page_cost=${PG_RANDOM_PAGE_COST:-1.1}
+      - -c
+      - jit=${PG_JIT:-off}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # Creates pg_stat_statements once Postgres is up, then exits. A separate one-shot rather than a
+  # script in docker-entrypoint-initdb.d, because that only runs on an empty volume and an existing
+  # deployment would never get the extension. IF NOT EXISTS makes every later start a no-op. Nothing
+  # depends on it, so if it fails the API still starts; its log says why.
+  postgres-extensions:
+    image: postgres:16-alpine
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGDATABASE: ${DB_NAME:-barakocms}
+      PGUSER: ${DB_USER:-postgres}
+      PGPASSWORD: ${DB_PASSWORD}
+    command: ["psql", "-v", "ON_ERROR_STOP=1", "-c", "CREATE EXTENSION IF NOT EXISTS pg_stat_statements"]
 
   api:
     # Barako = core + all modules. For the lean core swap in ghcr.io/baryodev/barako-cms-decaf:latest.

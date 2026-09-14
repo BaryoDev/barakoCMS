@@ -151,6 +151,14 @@ pinned, and both can be set together.
 
 Turning it on without either is a startup failure rather than a silent "trust everyone".
 
+## Postgres settings
+
+Postgres runs with settings sized for a 2 GB machine (`shared_buffers` 512MB, `random_page_cost`
+1.1, `jit` off) and loads `pg_stat_statements`, which the one-shot `postgres-extensions` service
+creates on every start. Each value is a `PG_*` variable in `.env`. The values for 4 GB and 8 GB,
+and the stock ones to go back to, are in the barakoCMS repository's
+`docs/deploy-in-production.md`, "Postgres on a small server".
+
 ## Upgrading
 
 ```bash
