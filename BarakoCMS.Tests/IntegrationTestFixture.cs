@@ -236,6 +236,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             // records "No handler is registered for action type" instead of the exception the test
             // is about. Registered on both, the race stops mattering.
             services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.ThrowingRunnerAction>();
+            services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.CredentialEchoAction>();
 
             // Email transport, replacing the Resend provider the module above registered. Resend
             // throws on every call here because no API key is configured, so any flow that emails

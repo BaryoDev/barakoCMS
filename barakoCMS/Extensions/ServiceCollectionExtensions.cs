@@ -853,6 +853,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(sp => barakoCMS.Features.Public.Events.ContentEventsOptions.FromConfiguration(
             sp.GetRequiredService<IConfiguration>()));
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowRunRetentionService>();
+        services.AddHostedService<barakoCMS.Features.Workflows.WorkflowCredentialMigrationService>();
         services.AddHostedService<barakoCMS.Features.WebhookDeliveries.WebhookDeliveryRetentionService>();
         services.AddScoped<barakoCMS.Infrastructure.Auth.Mfa.IMfaService, barakoCMS.Infrastructure.Auth.Mfa.MfaService>();
         // Device trust is opt-in: the default gate does nothing. The DeviceTrust module overrides it.
