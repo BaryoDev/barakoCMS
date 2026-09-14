@@ -484,7 +484,11 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         });
         await session.SaveChangesAsync();
 
-        return CreateToken(roleNames, userId.ToString());
+        // Username as well as UserId, because TokenIssuer mints both and endpoints record the name
+        // as the actor. Without it an endpoint that stores who did something reads null here and a
+        // real sign-in never would.
+        return CreateToken(roleNames, userId.ToString(),
+            new Dictionary<string, string> { ["Username"] = $"stored-{userId:n}" });
     }
 
     public string CreateToken(string[] roles, string? userId = null, Dictionary<string, string>? additionalClaims = null)

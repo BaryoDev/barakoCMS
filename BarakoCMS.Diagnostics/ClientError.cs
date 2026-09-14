@@ -51,4 +51,15 @@ public class ClientError
 
     public bool Resolved { get; set; }
     public DateTime? ResolvedAt { get; set; }
+
+    /// <summary>Who resolved it, so a reference can be followed up with a person.</summary>
+    public string? ResolvedBy { get; set; }
+
+    /// <summary>
+    /// What fixed it: a pull request or ticket link, or a bare number such as AB#1234 or PROJ-42. Free
+    /// text on purpose, since Azure DevOps, Jira and GitHub each spell a reference differently.
+    /// </summary>
+    public string? ResolutionReference { get; set; }
+
+    public string? ResolutionNote { get; set; }
 }
