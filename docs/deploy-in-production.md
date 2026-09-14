@@ -164,6 +164,84 @@ so check `ip route` before you pick.
 `ForwardedHeadersTests` reads these defaults out of the compose file and checks that a request from
 Caddy's address has its `X-Forwarded-For` honoured and a request from another container does not.
 
+## Postgres on a small server
+
+Postgres ships with settings for a machine of unknown size: `shared_buffers` 128MB,
+`random_page_cost` 4 (a spinning disk), `jit` on. `docker-compose.prod.yml` and the quickstart set
+them for a 2 GB VM that also runs the API, and every value is a variable you can set in `.env`:
+
+| Variable | Default (2 GB) | 4 GB | 8 GB | Postgres stock |
+| --- | --- | --- | --- | --- |
+| `PG_SHARED_BUFFERS` | `512MB` | `1GB` | `2GB` | `128MB` |
+| `PG_EFFECTIVE_CACHE_SIZE` | `1GB` | `2GB` | `5GB` | `4GB` |
+| `PG_WORK_MEM` | `4MB` | `8MB` | `16MB` | `4MB` |
+| `PG_MAX_CONNECTIONS` | `100` | `100` | `100` | `100` |
+| `PG_RANDOM_PAGE_COST` | `1.1` | `1.1` | `1.1` | `4` |
+| `PG_JIT` | `off` | `off` | `off` | `on` |
+
+How the numbers are picked:
+
+- `shared_buffers` is about 25% of the machine's RAM.
+- `effective_cache_size` is a planner hint, not an allocation. It is about 50% of RAM on 2 GB, where
+  the API and console take roughly 400 MB, and closer to 60 to 75% on the larger sizes.
+- `work_mem` is per sort or hash, per connection, so `max_connections` times `work_mem` plus
+  `shared_buffers` has to fit in RAM with room to spare. On 2 GB that is 100 x 4MB + 512MB, about
+  900 MB at the worst case. `max_connections` stays at the stock 100 so the API's connection pool
+  keeps fitting; lowering it can turn a busy minute into `too many clients` errors.
+- `random_page_cost` 1.1 assumes an SSD, which every current cloud VM disk is. On a spinning disk
+  set it back to `4`.
+- `jit` off, because compiling a plan costs more than it saves on the small queries a CMS runs.
+
+None of these allocate at start except `shared_buffers`, and Postgres maps that lazily, so a
+container memory limit below it does not stop Postgres starting. It does let Postgres be killed
+once the buffers fill, so if you cap the container's memory, set `PG_SHARED_BUFFERS` to a quarter of
+that cap. On a server larger than 8 GB, or with other databases on it, size from the table rather
+than the defaults.
+
+These are starting values. The measured numbers for them are recorded in #798.
+
+### Finding slow queries
+
+Both files load `pg_stat_statements`, and a one-shot `postgres-extensions` service creates the
+extension each time the stack starts (a no-op after the first). It runs on an existing volume too,
+which a script in `docker-entrypoint-initdb.d` would not. It exits once done, so `docker compose ps`
+shows it only with `-a`. To see the slowest queries:
+
+```bash
+docker compose -f docker-compose.prod.yml exec postgres psql -U postgres -d barako_cms -c \
+  "SELECT round(mean_exec_time::numeric, 1) AS mean_ms, calls, left(query, 80) AS query
+   FROM pg_stat_statements ORDER BY mean_exec_time DESC LIMIT 10;"
+```
+
+Use your `DB_USER` and `DB_NAME` if you changed them. `SELECT pg_stat_statements_reset();` starts
+the counts again, which is worth doing before a measurement.
+
+### Upgrading to these settings
+
+The next `docker compose -f docker-compose.prod.yml up -d` recreates the `postgres` container with
+the new settings, which is a restart of a few seconds. The data volume is not touched. To keep the
+stock values, set the variables to the "Postgres stock" column in `.env`.
+
+### Measuring delivery
+
+`scripts/delivery-load.py` sends a fixed rate of requests for a fixed time to the list, one entry by
+slug and `GET /api/public/site`, and prints p50, p95 and errors for each. It needs only `python3`:
+
+```bash
+python3 scripts/delivery-load.py --base-url https://$DOMAIN_API --type post --slug hello-world \
+  --rate 1.5 --duration 60
+docker stats --no-stream   # in a second shell while it runs, and again at rest
+```
+
+The API allows 100 requests a minute per client address and that limit is not configurable, so from
+one address a rate above about 1.6 a second measures the limiter instead: requests queue, then come
+back as 429, and the script says so. The default rate of 1.5 stays under it.
+
+`--type` must be publicly deliverable with a published entry at `--slug`, and the site must have a
+published `site` entry; the script checks all three answer 200 before it starts. It exits 1 if any
+request failed. Run it from the VM itself to measure the stack, or from outside to include the
+network and Caddy.
+
 ## Upgrading
 
 ```bash
