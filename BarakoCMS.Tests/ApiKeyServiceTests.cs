@@ -56,6 +56,8 @@ public class ApiKeyServiceTests
     [InlineData(new[] { "*" }, "content:write", true)]      // wildcard satisfies anything
     [InlineData(new[] { "content:read", "content:write" }, "content:write", true)]
     [InlineData(new string[0], "content:read", false)]      // no scopes satisfies nothing
+    [InlineData(new[] { "content:write" }, "content:destructive", false)]
+    [InlineData(new[] { "*" }, "content:destructive", true)]
     public void Satisfies_EnforcesScopes(string[] granted, string required, bool expected)
     {
         ApiKeyScopes.Satisfies(granted, required).Should().Be(expected);
@@ -64,6 +66,7 @@ public class ApiKeyServiceTests
     [Theory]
     [InlineData("content:read", true)]
     [InlineData("*", true)]
+    [InlineData("content:destructive", true)]
     [InlineData("admin", false)]        // platform admin is deliberately not a key scope
     [InlineData("users:delete", false)]
     public void IsKnown_RejectsUnknownScopes(string scope, bool expected)
