@@ -329,8 +329,18 @@ internal sealed class WorkflowRunner : BackgroundService
         {
             var variables = scope.ServiceProvider.GetRequiredService<ITemplateVariableExtractor>();
 
-            var resolved = new Dictionary<string, string>(attempt.Parameters.Count);
-            foreach (var (key, value) in attempt.Parameters)
+            var (parameters, credentialError) = barakoCMS.Features.Workflows.Actions.WebhookSigning.UnprotectCredentials(
+                attempt.Parameters, scope.ServiceProvider.GetRequiredService<barakoCMS.Infrastructure.Security.ISecretProtector>());
+
+            if (credentialError is not null)
+            {
+                // Permanent: the key that would decrypt it is not coming back on a retry.
+                timer.Stop();
+                return new Outcome(AttemptStatus.Failed, credentialError, timer.ElapsedMilliseconds, Retryable: false);
+            }
+
+            var resolved = new Dictionary<string, string>(parameters.Count);
+            foreach (var (key, value) in parameters)
             {
                 resolved[key] = variables.ResolveVariables(value, content);
             }

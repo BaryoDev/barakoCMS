@@ -31,6 +31,12 @@ public class WorkflowExecutionLog
     public bool IsDryRun { get; set; }
 
     /// <summary>
+    /// Whether this log was written with exception messages and parameter values redacted. A log
+    /// stored before that reads false, and its error messages are withheld when it is served.
+    /// </summary>
+    public bool Redacted { get; set; }
+
+    /// <summary>
     /// Overall execution success.
     /// </summary>
     public bool Success { get; set; }
