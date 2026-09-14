@@ -1,0 +1,35 @@
+{
+  "name": "site",
+  "description": "A site's identity, theme and chrome as one entry per tenant, so a renderer reads its look from content instead of a config file. See docs/site-settings.md for the shape of each JSON field.",
+  "contentTypes": [
+    {
+      "name": "site",
+      "displayName": "Site",
+      "description": "The one entry that makes this tenant's site look and read like itself.",
+      "isPubliclyDeliverable": true,
+      "isSingleton": true,
+      "fields": [
+        { "name": "Name", "displayName": "Site name", "type": "string", "isRequired": true },
+        { "name": "Tagline", "displayName": "Tagline", "type": "string" },
+        { "name": "Url", "displayName": "Site address", "type": "url" },
+        { "name": "Locale", "displayName": "Locale", "type": "string" },
+        { "name": "Logo", "displayName": "Logo", "type": "url" },
+        { "name": "LogoAlt", "displayName": "Logo alt text", "type": "string" },
+        { "name": "FooterLogo", "displayName": "Footer logo", "type": "url" },
+        { "name": "Favicon", "displayName": "Favicon", "type": "url" },
+        { "name": "ShareImage", "displayName": "Default share image", "type": "url" },
+        { "name": "Colors", "displayName": "Colours", "type": "json" },
+        { "name": "Fonts", "displayName": "Fonts", "type": "json" },
+        { "name": "Radii", "displayName": "Corner radii", "type": "json" },
+        { "name": "Layout", "displayName": "Widths", "type": "json" },
+        { "name": "OptionColors", "displayName": "Colours per option", "type": "json" },
+        { "name": "Variants", "displayName": "Visitor theme variants", "type": "json" },
+        { "name": "TopBar", "displayName": "Top bar", "type": "json" },
+        { "name": "HeaderLinks", "displayName": "Header links", "type": "json" },
+        { "name": "FooterColumns", "displayName": "Footer columns", "type": "json" },
+        { "name": "SocialLinks", "displayName": "Social links", "type": "json" },
+        { "name": "Copyright", "displayName": "Copyright line", "type": "string" }
+      ]
+    }
+  ]
+}
