@@ -28,7 +28,10 @@
         { "name": "HeaderLinks", "displayName": "Header links", "type": "json" },
         { "name": "FooterColumns", "displayName": "Footer columns", "type": "json" },
         { "name": "SocialLinks", "displayName": "Social links", "type": "json" },
-        { "name": "Copyright", "displayName": "Copyright line", "type": "string" }
+        { "name": "Copyright", "displayName": "Copyright line", "type": "string" },
+        { "name": "ComingSoon", "displayName": "Coming soon", "type": "bool" },
+        { "name": "ComingSoonBlocks", "displayName": "Coming soon page", "type": "json" },
+        { "name": "PreviewKeyHash", "displayName": "Preview key hash", "type": "string" }
       ]
     }
   ]

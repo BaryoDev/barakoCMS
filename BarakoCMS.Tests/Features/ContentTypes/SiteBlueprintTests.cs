@@ -189,4 +189,55 @@ public class SiteBlueprintTests
         text.Should().NotContain("Ours");
         elsewhere.StatusCode.Should().NotBe(HttpStatusCode.OK, "the other tenant never applied the blueprint, so it has no site type");
     }
+
+    [Fact]
+    public async Task Applying_site_creates_the_coming_soon_fields()
+    {
+        var client = await AdminInAsync(await TenantAsync());
+
+        (await client.PostAsync("/api/content-types/blueprints/site", null, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var types = await client.GetAsync("/api/content-types?pageSize=100", Ct);
+        using var doc = JsonDocument.Parse(await types.Content.ReadAsStringAsync(Ct));
+        var site = doc.RootElement.GetProperty("items").EnumerateArray().Single(i => i.GetProperty("name").GetString() == "site");
+        var fields = site.GetProperty("fields").EnumerateArray()
+            .ToDictionary(f => f.GetProperty("name").GetString()!, f => f.GetProperty("type").GetString());
+        fields.Should().NotBeEmpty();
+        fields.Should().Contain("ComingSoon", "bool");
+        fields.Should().Contain("ComingSoonBlocks", "json");
+        fields.Should().Contain("PreviewKeyHash", "string");
+    }
+
+    [Fact]
+    public async Task A_published_site_delivers_the_coming_soon_fields_anonymously_including_the_hash()
+    {
+        var tenant = await TenantAsync();
+        var admin = await AdminInAsync(tenant);
+        (await admin.PostAsync("/api/content-types/blueprints/site", null, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+        const string hash = "3b1f6f0c7a0e7f5d0e1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f70";
+        var data = (Dictionary<string, object>)SiteData("Coming soon club");
+        data["ComingSoon"] = true;
+        data["ComingSoonBlocks"] = new object[] { new Dictionary<string, object> { ["type"] = "hero", ["title"] = "Soon" } };
+        data["PreviewKeyHash"] = hash;
+        var created = await admin.PostAsJsonAsync("/api/contents", new { contentType = "site", data }, Ct);
+        created.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", created.StatusCode, await created.Content.ReadAsStringAsync(Ct));
+        using (var createdBody = JsonDocument.Parse(await created.Content.ReadAsStringAsync(Ct)))
+        {
+            await PublishAsync(admin, createdBody.RootElement.GetProperty("id").GetGuid());
+        }
+
+        var live = await AnonymousIn(tenant).GetAsync("/api/public/site", Ct);
+
+        live.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var body = JsonDocument.Parse(await live.Content.ReadAsStringAsync(Ct));
+        var items = body.RootElement.GetProperty("items");
+        items.GetArrayLength().Should().Be(1);
+        var delivered = items[0].GetProperty("data");
+        delivered.GetProperty("ComingSoon").GetBoolean().Should().BeTrue();
+        var blocks = delivered.GetProperty("ComingSoonBlocks");
+        blocks.GetArrayLength().Should().Be(1);
+        blocks[0].GetProperty("title").GetString().Should().Be("Soon");
+        delivered.GetProperty("PreviewKeyHash").GetString().Should().Be(
+            hash, "barakoPress reads the entry anonymously, so the hash is Public and the key must be generated (docs/site-settings.md)");
+    }
 }
