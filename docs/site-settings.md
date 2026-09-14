@@ -50,6 +50,9 @@ half-filled theme renders rather than breaks.
 | `FooterColumns` | json | Footer link columns |
 | `SocialLinks` | json | Social profiles |
 | `Copyright` | string | The footer's copyright line |
+| `ComingSoon` | bool | Show a holding page in place of the site. Absent or false means off |
+| `ComingSoonBlocks` | json | The holding page's blocks. Empty means the theme's default holding page |
+| `PreviewKeyHash` | string | Lowercase hex SHA-256 of the preview key. Never the key itself |
 
 ### Colors
 
@@ -117,6 +120,31 @@ Each variant overrides colours only. A visitor's choice is remembered in their b
 
 An `href` is either a path on the site or an absolute http or https URL. The renderer drops any other
 scheme.
+
+### Coming soon
+
+While `ComingSoon` is true, barakoPress (BaryoDev/barakoPress#35) answers every page with a holding
+page, marks it `noindex`, and serves the feed and sitemap as 404. The holding page is
+`ComingSoonBlocks`, a block list like any page's blocks, or the site's name and tagline in its theme
+when that is empty. Turning it off is a publish, not a deploy.
+
+The people building the site get past it with a preview link:
+`https://<domain>/api/coming-soon?key=<key>`. barakoPress hashes the key, compares it with
+`PreviewKeyHash`, and sets a cookie. Changing the hash signs every previewer out.
+
+**The hash is public.** barakoPress reads this entry anonymously from `GET /api/public/site`, so
+`PreviewKeyHash` is a Public field and anyone can read it. A short or guessable key can be found from
+its hash offline, so a key is generated, never typed: at least 32 random bytes. barakoBrew's Site
+screen generates it, stores only the hash, and shows the link once (BaryoDev/barakoBrew#134). To set
+the hash through the API instead, make the key the same way:
+
+```
+KEY=$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=')
+printf %s "$KEY" | sha256sum | cut -d' ' -f1
+```
+
+The first line is the key to share, 43 characters. The second is the `PreviewKeyHash` to store. A
+proxy in front of the site that logs query strings will record the key.
 
 ## Why a content type
 
