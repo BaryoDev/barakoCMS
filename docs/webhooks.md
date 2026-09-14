@@ -27,6 +27,12 @@ is saved. No read returns it: `GET /api/workflows` shows `secretSet: true` on th
 the parameter out. The runs, the execution log and the delivery log hold no copy either. Only the
 action decrypts it, at the moment of sending.
 
+The same applies to any action parameter whose name reads as a credential (`Password`, `Token`,
+`ApiKey`, `AccessKey`, `PrivateKey`, `Credential` and similar, matched as a substring). Those are
+encrypted on save too, and the runner decrypts them just before the action runs, so a custom action
+reads them as it always did. Only `Secret` reaches the action still encrypted. Workflows stored in
+clear before 4.2 are encrypted in place when the API starts.
+
 If `Secrets:Key` is rotated, stored secrets can no longer be decrypted. The action then refuses to
 send rather than sending unsigned, marks the attempt as a permanent failure with that reason, and
 the fix is to enter the secret again on the workflow.
