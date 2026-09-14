@@ -150,14 +150,14 @@ public class ContentTypeBlueprintTests
     // ---- the built-ins ----------------------------------------------------------------------
 
     [Fact]
-    public async Task The_list_shows_the_four_built_in_blueprints_and_what_each_creates()
+    public async Task The_list_shows_the_built_in_blueprints_and_what_each_creates()
     {
         var client = await AdminInAsync(await TenantAsync());
 
         var list = await ListAsync(client);
 
         var builtIn = list.Items.Where(i => i.BuiltIn).ToList();
-        builtIn.Select(i => i.Name).Should().BeEquivalentTo(["blog", "docs", "events", "portfolio"]);
+        builtIn.Select(i => i.Name).Should().BeEquivalentTo(["blog", "docs", "events", "portfolio", "site"]);
         builtIn.Should().OnlyContain(i => i.Errors.Count == 0,
             "a shipped blueprint that fails its own validation is a bug, and this is where it shows");
         builtIn.Should().OnlyContain(i => i.Description.Length > 0);
@@ -168,6 +168,7 @@ public class ContentTypeBlueprintTests
         builtIn.Single(i => i.Name == "events").ContentTypes.Should().Equal("event", "venue", "speaker");
         builtIn.Single(i => i.Name == "portfolio").ContentTypes.Should().Equal("project", "client");
         builtIn.Single(i => i.Name == "docs").ContentTypes.Should().Equal("article", "section");
+        builtIn.Single(i => i.Name == "site").ContentTypes.Should().Equal("site");
     }
 
     [Fact]
@@ -329,7 +330,7 @@ public class ContentTypeBlueprintTests
         var list = await ListAsync(client);
 
         list.Problems.Should().BeEmpty();
-        list.Items.Where(i => i.BuiltIn).Should().HaveCount(4, "a custom directory adds to the built-ins");
+        list.Items.Where(i => i.BuiltIn).Should().HaveCount(5, "a custom directory adds to the built-ins");
         var agency = list.Items.Single(i => i.Name == "agency");
         agency.BuiltIn.Should().BeFalse();
         agency.Source.Should().Be("agency.json");
@@ -442,7 +443,7 @@ public class ContentTypeBlueprintTests
         var list = await ListAsync(client);
 
         list.Problems.Should().ContainSingle().Which.Should().Contain("Blueprints:Path");
-        list.Items.Where(i => i.BuiltIn).Should().HaveCount(4);
+        list.Items.Where(i => i.BuiltIn).Should().HaveCount(5);
     }
 
     [Fact]
