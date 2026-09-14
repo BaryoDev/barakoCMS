@@ -191,7 +191,7 @@ public class SiteBlueprintTests
     }
 
     [Fact]
-    public async Task Applying_site_creates_the_coming_soon_fields()
+    public async Task Applying_site_creates_the_holding_fields_and_nothing_secret()
     {
         var client = await AdminInAsync(await TenantAsync());
 
@@ -201,24 +201,28 @@ public class SiteBlueprintTests
         using var doc = JsonDocument.Parse(await types.Content.ReadAsStringAsync(Ct));
         var site = doc.RootElement.GetProperty("items").EnumerateArray().Single(i => i.GetProperty("name").GetString() == "site");
         var fields = site.GetProperty("fields").EnumerateArray()
-            .ToDictionary(f => f.GetProperty("name").GetString()!, f => f.GetProperty("type").GetString());
+            .ToDictionary(f => f.GetProperty("name").GetString()!, f => f);
         fields.Should().NotBeEmpty();
-        fields.Should().Contain("ComingSoon", "bool");
-        fields.Should().Contain("ComingSoonBlocks", "json");
-        fields.Should().Contain("PreviewKeyHash", "string");
+        fields["Mode"].GetProperty("type").GetString().Should().Be("string");
+        fields["Mode"].GetProperty("isRequired").GetBoolean().Should().BeFalse("unset means Live");
+        fields["HoldingPath"].GetProperty("type").GetString().Should().Be("string");
+        fields.Keys.Should().NotContain(["ComingSoon", "ComingSoonBlocks", "ComingSoonPath", "PreviewKeyHash"]);
+        fields.Keys.Should().NotContain(k => k.Contains("Key") || k.Contains("Hash"));
     }
 
     [Fact]
-    public async Task A_published_site_delivers_the_coming_soon_fields_anonymously_including_the_hash()
+    public async Task A_published_site_delivers_the_holding_fields_and_no_share_link_secret()
     {
         var tenant = await TenantAsync();
         var admin = await AdminInAsync(tenant);
         (await admin.PostAsync("/api/content-types/blueprints/site", null, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
-        const string hash = "3b1f6f0c7a0e7f5d0e1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f70";
-        var data = (Dictionary<string, object>)SiteData("Coming soon club");
-        data["ComingSoon"] = true;
-        data["ComingSoonBlocks"] = new object[] { new Dictionary<string, object> { ["type"] = "hero", ["title"] = "Soon" } };
-        data["PreviewKeyHash"] = hash;
+        var shared = await admin.PostAsJsonAsync("/api/site/share-links", new { label = "Board preview" }, Ct);
+        shared.StatusCode.Should().Be(HttpStatusCode.Created, await shared.Content.ReadAsStringAsync(Ct));
+        var key = (await shared.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("key").GetString()!;
+        var hash = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(key)));
+        var data = (Dictionary<string, object>)SiteData("Holding club");
+        data["Mode"] = "Holding";
+        data["HoldingPath"] = "/holding";
         var created = await admin.PostAsJsonAsync("/api/contents", new { contentType = "site", data }, Ct);
         created.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", created.StatusCode, await created.Content.ReadAsStringAsync(Ct));
         using (var createdBody = JsonDocument.Parse(await created.Content.ReadAsStringAsync(Ct)))
@@ -229,15 +233,13 @@ public class SiteBlueprintTests
         var live = await AnonymousIn(tenant).GetAsync("/api/public/site", Ct);
 
         live.StatusCode.Should().Be(HttpStatusCode.OK);
-        using var body = JsonDocument.Parse(await live.Content.ReadAsStringAsync(Ct));
+        var text = await live.Content.ReadAsStringAsync(Ct);
+        using var body = JsonDocument.Parse(text);
         var items = body.RootElement.GetProperty("items");
         items.GetArrayLength().Should().Be(1);
         var delivered = items[0].GetProperty("data");
-        delivered.GetProperty("ComingSoon").GetBoolean().Should().BeTrue();
-        var blocks = delivered.GetProperty("ComingSoonBlocks");
-        blocks.GetArrayLength().Should().Be(1);
-        blocks[0].GetProperty("title").GetString().Should().Be("Soon");
-        delivered.GetProperty("PreviewKeyHash").GetString().Should().Be(
-            hash, "barakoPress reads the entry anonymously, so the hash is Public and the key must be generated (docs/site-settings.md)");
+        delivered.GetProperty("Mode").GetString().Should().Be("Holding");
+        delivered.GetProperty("HoldingPath").GetString().Should().Be("/holding");
+        text.Should().NotContain(hash).And.NotContain(key).And.NotContainEquivalentOf("KeyHash");
     }
 }

@@ -99,6 +99,7 @@ public class RateLimitSetupTests
         settings.Auth.Should().Be(new RateLimitWindow(5, 900, 0));
         settings.Batch.Should().Be(new RateLimitWindow(20, 60, 0));
         settings.Registration.Should().Be(new RateLimitWindow(5, 3600, 0));
+        settings.SiteShare.Should().Be(new RateLimitWindow(10, 60, 0));
         settings.RendererKey.Should().BeNull("no key configured means no renderer partition");
     }
 
@@ -121,6 +122,7 @@ public class RateLimitSetupTests
     [InlineData("Batch:PermitLimit", "0")]
     [InlineData("Registration:WindowSeconds", "0")]
     [InlineData("Renderer:PermitLimit", "0")]
+    [InlineData("SiteShare:PermitLimit", "0")]
     [InlineData("Global:PermitLimit", "lots")]
     public void An_invalid_value_fails_at_startup_naming_the_setting(string key, string value)
     {

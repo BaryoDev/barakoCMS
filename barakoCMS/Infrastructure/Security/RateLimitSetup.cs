@@ -16,16 +16,17 @@ internal sealed record RateLimitSettings(
     RateLimitWindow Batch,
     RateLimitWindow Registration,
     string? RendererKey,
-    RateLimitWindow Renderer)
+    RateLimitWindow Renderer,
+    RateLimitWindow SiteShare)
 {
     public override string ToString() =>
         $"RateLimitSettings {{ Global = {Global}, Auth = {Auth}, Batch = {Batch}, "
-      + $"Registration = {Registration}, RendererKey = {(RendererKey is null ? "unset" : "set")}, Renderer = {Renderer} }}";
+      + $"Registration = {Registration}, RendererKey = {(RendererKey is null ? "unset" : "set")}, Renderer = {Renderer}, SiteShare = {SiteShare} }}";
 }
 
 /// <summary>
-/// Reads the <c>RateLimiting</c> section and builds the global limiter and the auth, telemetry and
-/// registration policies from it.
+/// Reads the <c>RateLimiting</c> section and builds the global limiter and the auth, telemetry,
+/// registration and site share policies from it.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -37,7 +38,7 @@ internal sealed record RateLimitSettings(
 /// The renderer partition exists because one barakoPress container renders every site it serves
 /// from one IP, so all of those sites shared one global bucket. A request carrying the configured
 /// key in <see cref="RendererHeader"/> is counted in its own bucket instead. Only the global limiter
-/// honours it. The auth, telemetry and registration policies stay per IP, since a leaked renderer
+/// honours it. The auth, telemetry, registration and site share policies stay per IP, since a leaked renderer
 /// key must not buy extra password guesses.
 /// </para>
 /// </remarks>
@@ -50,6 +51,7 @@ internal static class RateLimitSetup
     public const string AuthPolicy = "auth";
     public const string BatchPolicy = "telemetry";
     public const string RegistrationPolicy = "registration";
+    public const string SiteSharePolicy = "site-share";
 
     internal const string RendererPartition = "renderer";
 
@@ -58,6 +60,7 @@ internal static class RateLimitSetup
     public static readonly RateLimitWindow DefaultBatch = new(20, 60, 0);
     public static readonly RateLimitWindow DefaultRegistration = new(5, 60 * 60, 0);
     public static readonly RateLimitWindow DefaultRenderer = new(1000, 60, 10);
+    public static readonly RateLimitWindow DefaultSiteShare = new(10, 60, 0);
 
     /// <summary>Reads and validates the section. Throws with the offending setting named.</summary>
     public static RateLimitSettings Read(IConfiguration configuration)
@@ -84,7 +87,8 @@ internal static class RateLimitSetup
             Window(section, "Batch", DefaultBatch),
             Window(section, "Registration", DefaultRegistration),
             rendererKey,
-            Window(section, "Renderer", DefaultRenderer));
+            Window(section, "Renderer", DefaultRenderer),
+            Window(section, "SiteShare", DefaultSiteShare));
     }
 
     /// <summary>
@@ -120,6 +124,11 @@ internal static class RateLimitSetup
 
         options.AddPolicy(RegistrationPolicy, context =>
             RateLimitPartition.GetFixedWindowLimiter($"registration-{ClientIp(context)}", _ => Options(settings.Registration)));
+
+        // Anonymous share link redemption. A guess costs a query, so it is held well under the global
+        // limit. The key is 32 random bytes, so this is about load, not about making a guess feasible.
+        options.AddPolicy(SiteSharePolicy, context =>
+            RateLimitPartition.GetFixedWindowLimiter($"site-share-{ClientIp(context)}", _ => Options(settings.SiteShare)));
 
         options.OnRejected = async (context, cancellationToken) =>
         {

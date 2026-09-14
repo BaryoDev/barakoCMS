@@ -254,6 +254,7 @@ changes nothing until you set one. Each has `PermitLimit` (requests), `WindowSec
 | `RateLimiting:Auth` | 5 in 900 seconds, queue 0 | login, refresh, OTP and MFA, per client IP |
 | `RateLimiting:Batch` | 20 in 60 seconds, queue 0 | anonymous telemetry batches, per client IP |
 | `RateLimiting:Registration` | 5 in 3600 seconds, queue 0 | registration and its verification, per client IP |
+| `RateLimiting:SiteShare` | 10 in 60 seconds, queue 0 | anonymous share link redemption, per client IP |
 
 As environment variables on the `app` service, the colon becomes a double underscore:
 

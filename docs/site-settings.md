@@ -50,9 +50,8 @@ half-filled theme renders rather than breaks.
 | `FooterColumns` | json | Footer link columns |
 | `SocialLinks` | json | Social profiles |
 | `Copyright` | string | The footer's copyright line |
-| `ComingSoon` | bool | Show a holding page in place of the site. Absent or false means off |
-| `ComingSoonBlocks` | json | The holding page's blocks. Empty means the theme's default holding page |
-| `PreviewKeyHash` | string | Lowercase hex SHA-256 of the preview key. Never the key itself |
+| `Mode` | string | `Live` or `Holding`. Unset means `Live`. See [Holding a site back](#holding-a-site-back) |
+| `HoldingPath` | string | The site path of the page shown while holding, such as `/holding` |
 
 ### Colors
 
@@ -121,30 +120,64 @@ Each variant overrides colours only. A visitor's choice is remembered in their b
 An `href` is either a path on the site or an absolute http or https URL. The renderer drops any other
 scheme.
 
-### Coming soon
+## Holding a site back
 
-While `ComingSoon` is true, barakoPress (BaryoDev/barakoPress#35) answers every page with a holding
-page, marks it `noindex`, and serves the feed and sitemap as 404. The holding page is
-`ComingSoonBlocks`, a block list like any page's blocks, or the site's name and tagline in its theme
-when that is empty. Turning it off is a publish, not a deploy.
+`Mode` set to `Holding` asks a frontend to show the page at `HoldingPath` on every route instead of
+the site. It covers a launch, maintenance and a seasonal break. The holding page is an ordinary page
+from the Pages module, and `HoldingPath` is a path string rather than a reference because a
+blueprint may only reference types it declares. Going live again is a publish, not a deploy.
 
-The people building the site get past it with a preview link:
-`https://<domain>/api/coming-soon?key=<key>`. barakoPress hashes the key, compares it with
-`PreviewKeyHash`, and sets a cookie. Changing the hash signs every previewer out.
+`Mode` is a string today, documented as `Live` or `Holding`. Any other value should be read as
+`Live`. It becomes a choice field once the choice type (#820) is on master.
 
-**The hash is public.** barakoPress reads this entry anonymously from `GET /api/public/site`, so
-`PreviewKeyHash` is a Public field and anyone can read it. A short or guessable key can be found from
-its hash offline, so a key is generated, never typed: at least 32 random bytes. barakoBrew's Site
-screen generates it, stores only the hash, and shows the link once (BaryoDev/barakoBrew#134). To set
-the hash through the API instead, make the key the same way:
+**Mode and HoldingPath are presentation, not access control.** Frontends honour them; the API
+hides nothing. While holding, published, publicly deliverable content is still served from
+`/api/public/...` to anyone who asks. To keep content hidden before launch, leave it unpublished and
+schedule the publish.
+
+### Share links
+
+People who need to see a held site (a client, a board, a reviewer) get a share link. A tenant can
+have many, each with its own label and expiry, and each revoked on its own.
+
+A link is:
 
 ```
-KEY=$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=')
-printf %s "$KEY" | sha256sum | cut -d' ' -f1
+{site Url}/_share#{key}
 ```
 
-The first line is the key to share, 43 characters. The second is the `PreviewKeyHash` to store. A
-proxy in front of the site that logs query strings will record the key.
+The key is in the fragment, so a browser never sends it to a server: it stays out of access logs
+and out of the `Referer` header. The frontend's `/_share` page reads the fragment and redeems it.
+
+| Route | Who | Answers |
+| :--- | :--- | :--- |
+| `POST /api/site/share-links` | may update `site` | 201 `{ id, label, expiresAt, createdAt, key }` |
+| `GET /api/site/share-links` | may update `site` | a page of `{ id, label, createdAt, createdBy, expiresAt, revokedAt, lastUsedAt }` |
+| `DELETE /api/site/share-links/{id}` | may update `site` | 204, or 404 for an unknown id |
+| `POST /api/public/site/share-links/redeem` | anyone | 200 `{ expiresAt }`, or 404 |
+
+Managing links needs update permission on the `site` type (SuperAdmin always has it), for listing
+too, since the list names who shared the site with whom.
+
+**Creating.** The body is `{ "label": "...", "expiresAt": "..." }`. The label is required, at most
+100 characters. `expiresAt` is optional: unset means 30 days from now, and more than 90 days away is
+a 400. The key is 32 random bytes, base64url encoded, and appears in this response and nowhere else.
+Only its SHA-256 is stored, on a tenant scoped document that is not part of site settings, public
+delivery or a portability export. Creating is audited as `site.share_link.created` with the label
+and expiry, never the key. A tenant holds at most 100 active links; revoke one to make another.
+
+**Redeeming.** The frontend posts `{ "key": "..." }` with the tenant resolved the same way as
+`GET /api/public/site`. A live link answers 200 with its `expiresAt` and records `lastUsedAt`. A
+wrong key, an expired or revoked link, and another tenant's key all answer the same 404. Both
+answers carry `Cache-Control: no-store`. Redeeming is rate limited per client IP
+(`RateLimiting:SiteShare`, 10 a minute by default). The key is never logged.
+
+**Sessions.** After a 200 the frontend may keep its own session so the previewer does not redeem on
+every page. Keep it for at most 24 hours, and never past the link's `expiresAt`; after that, redeem
+again.
+
+**Revoking.** `DELETE` sets `revokedAt`, is audited as `site.share_link.revoked`, and the key stops
+redeeming at once. A session a frontend already started runs out on its own, within 24 hours.
 
 ## Why a content type
 
