@@ -35,16 +35,6 @@
           "Microsoft.EntityFrameworkCore": "8.0.0"
         }
       },
-      "AWSSDK.Core": {
-        "type": "Transitive",
-        "resolved": "3.7.501.1",
-        "contentHash": "VZR0LRAawpn5FQwXNPzhOO8DHhfffhBSvcSZT1d0ctcZ+kmsz3tzTArZnTQ9Haf/TNEqNLzKupHfjV2ndWAL4A=="
-      },
-      "BouncyCastle.Cryptography": {
-        "type": "Transitive",
-        "resolved": "2.6.2",
-        "contentHash": "7oWOcvnntmMKNzDLsdxAYqApt+AjpRpP2CShjMfIa3umZ42UQMvH0tl1qAliYPNYO6vTdcGMqnRrCPmsfzTI1w=="
-      },
       "DistributedLock.Core": {
         "type": "Transitive",
         "resolved": "1.0.8",
@@ -338,15 +328,6 @@
         "resolved": "3.0.1",
         "contentHash": "s/s20YTVY9r9TPfTrN5g8zPF1YhwxyqO6PxUkrYTGI2B+OGPe9AdajWZrLhFqXIvqIW23fnUE4+ztrUWNU1+9g=="
       },
-      "MimeKit": {
-        "type": "Transitive",
-        "resolved": "4.17.0",
-        "contentHash": "h/KXsCreJf8RpR/PSAtlbvYtZFndp9N8Wn1Bs248AL7ITyhn+AiIY5bLTvt60tbN2mu6g8KadtBNWygTji2lqg==",
-        "dependencies": {
-          "BouncyCastle.Cryptography": "2.6.2",
-          "System.Security.Cryptography.Pkcs": "10.0.0"
-        }
-      },
       "Mono.TextTemplating": {
         "type": "Transitive",
         "resolved": "2.2.1",
@@ -631,11 +612,6 @@
           "System.Composition.Runtime": "6.0.0"
         }
       },
-      "System.Security.Cryptography.Pkcs": {
-        "type": "Transitive",
-        "resolved": "10.0.0",
-        "contentHash": "UPWqLSygJlFerRi9XNIuM0a1VC8gHUIufyP24xQ0sc+XimqUAEcjpOz9DhKpyDjH+5B/wO3RpC0KpkEeDj/ddg=="
-      },
       "System.ServiceProcess.ServiceController": {
         "type": "Transitive",
         "resolved": "8.0.0",
@@ -702,128 +678,6 @@
           "prometheus-net.AspNetCore": "[8.2.1, )"
         }
       },
-      "barakocms.accounting": {
-        "type": "Project",
-        "dependencies": {
-          "BarakoCMS": "[4.1.0, )",
-          "Microsoft.IdentityModel.JsonWebTokens": "[8.22.0, )",
-          "System.IdentityModel.Tokens.Jwt": "[8.22.0, )"
-        }
-      },
-      "barakocms.ai": {
-        "type": "Project",
-        "dependencies": {
-          "BarakoCMS": "[4.1.0, )",
-          "Microsoft.IdentityModel.JsonWebTokens": "[8.22.0, )",
-          "System.IdentityModel.Tokens.Jwt": "[8.22.0, )"
-        }
-      },
-      "barakocms.analytics.umami": {
-        "type": "Project",
-        "dependencies": {
-          "BarakoCMS": "[4.1.0, )",
-          "Microsoft.IdentityModel.JsonWebTokens": "[8.22.0, )",
-          "System.IdentityModel.Tokens.Jwt": "[8.22.0, )"
-        }
-      },
-      "barakocms.devicetrust": {
-        "type": "Project",
-        "dependencies": {
-          "BarakoCMS": "[4.1.0, )",
-          "Microsoft.IdentityModel.JsonWebTokens": "[8.22.0, )",
-          "System.IdentityModel.Tokens.Jwt": "[8.22.0, )"
-        }
-      },
-      "barakocms.diagnostics": {
-        "type": "Project",
-        "dependencies": {
-          "BarakoCMS": "[4.1.0, )",
-          "Microsoft.IdentityModel.JsonWebTokens": "[8.22.0, )",
-          "System.IdentityModel.Tokens.Jwt": "[8.22.0, )"
-        }
-      },
-      "barakocms.email.resend": {
-        "type": "Project",
-        "dependencies": {
-          "BarakoCMS": "[4.1.0, )",
-          "Microsoft.IdentityModel.JsonWebTokens": "[8.22.0, )",
-          "System.IdentityModel.Tokens.Jwt": "[8.22.0, )"
-        }
-      },
-      "barakocms.email.smtp": {
-        "type": "Project",
-        "dependencies": {
-          "BarakoCMS": "[4.1.0, )",
-          "MailKit": "[4.17.0, )"
-        }
-      },
-      "barakocms.externalauth": {
-        "type": "Project",
-        "dependencies": {
-          "BarakoCMS": "[4.1.0, )",
-          "Microsoft.IdentityModel.JsonWebTokens": "[8.22.0, )",
-          "System.IdentityModel.Tokens.Jwt": "[8.22.0, )"
-        }
-      },
-      "barakocms.featureflags": {
-        "type": "Project",
-        "dependencies": {
-          "BarakoCMS": "[4.1.0, )",
-          "Microsoft.IdentityModel.JsonWebTokens": "[8.22.0, )",
-          "System.IdentityModel.Tokens.Jwt": "[8.22.0, )"
-        }
-      },
-      "barakocms.files": {
-        "type": "Project",
-        "dependencies": {
-          "BarakoCMS": "[4.1.0, )",
-          "Microsoft.IdentityModel.JsonWebTokens": "[8.22.0, )",
-          "SixLabors.ImageSharp": "[3.1.12, )",
-          "System.IdentityModel.Tokens.Jwt": "[8.22.0, )"
-        }
-      },
-      "barakocms.files.s3": {
-        "type": "Project",
-        "dependencies": {
-          "AWSSDK.S3": "[3.7.511.8, )",
-          "BarakoCMS.Files": "[4.1.1, )",
-          "Microsoft.IdentityModel.JsonWebTokens": "[8.22.0, )",
-          "System.IdentityModel.Tokens.Jwt": "[8.22.0, )"
-        }
-      },
-      "barakocms.import": {
-        "type": "Project",
-        "dependencies": {
-          "BarakoCMS": "[4.1.0, )",
-          "Microsoft.IdentityModel.JsonWebTokens": "[8.22.0, )",
-          "System.IdentityModel.Tokens.Jwt": "[8.22.0, )",
-          "Talaan": "[0.1.0, )"
-        }
-      },
-      "barakocms.pages": {
-        "type": "Project",
-        "dependencies": {
-          "BarakoCMS": "[4.1.0, )",
-          "Microsoft.IdentityModel.JsonWebTokens": "[8.22.0, )",
-          "System.IdentityModel.Tokens.Jwt": "[8.22.0, )"
-        }
-      },
-      "barakocms.portability": {
-        "type": "Project",
-        "dependencies": {
-          "BarakoCMS": "[4.1.0, )",
-          "Microsoft.IdentityModel.JsonWebTokens": "[8.22.0, )",
-          "System.IdentityModel.Tokens.Jwt": "[8.22.0, )"
-        }
-      },
-      "barakocms.pwa": {
-        "type": "Project",
-        "dependencies": {
-          "BarakoCMS": "[4.1.0, )",
-          "Microsoft.IdentityModel.JsonWebTokens": "[8.22.0, )",
-          "System.IdentityModel.Tokens.Jwt": "[8.22.0, )"
-        }
-      },
       "AspNetCore.HealthChecks.NpgSql": {
         "type": "CentralTransitive",
         "requested": "[9.0.0, )",
@@ -870,15 +724,6 @@
         "dependencies": {
           "AspNetCore.HealthChecks.UI.Data": "9.0.0",
           "Microsoft.EntityFrameworkCore.InMemory": "8.0.11"
-        }
-      },
-      "AWSSDK.S3": {
-        "type": "CentralTransitive",
-        "requested": "[3.7.511.8, )",
-        "resolved": "3.7.511.8",
-        "contentHash": "QLHt7ucegMurWnwB3GomMeP6DiCG033aEittRiabMGnTOMZ5xyu7tbmTkqs3ZU5tBz4AK53Ak8WJkF+kk+s4Tw==",
-        "dependencies": {
-          "AWSSDK.Core": "[3.7.501.1, 4.0.0)"
         }
       },
       "BCrypt.Net-Next": {
@@ -946,15 +791,6 @@
         "dependencies": {
           "Fractions": "7.3.0",
           "YamlDotNet": "16.3.0"
-        }
-      },
-      "MailKit": {
-        "type": "CentralTransitive",
-        "requested": "[4.17.0, )",
-        "resolved": "4.17.0",
-        "contentHash": "1nUAVLxM9fhT/78we6/AGsCesnpn5dRNLLeRqOfr52Wnk87pzVwo5YMTMyqnmoXrYc7piGhmayiMA/OgDluIjg==",
-        "dependencies": {
-          "MimeKit": "4.17.0"
         }
       },
       "Marten": {
@@ -1033,18 +869,6 @@
         "dependencies": {
           "Serilog": "4.2.0"
         }
-      },
-      "SixLabors.ImageSharp": {
-        "type": "CentralTransitive",
-        "requested": "[3.1.12, )",
-        "resolved": "3.1.12",
-        "contentHash": "iAg6zifihXEFS/t7fiHhZBGAdCp3FavsF4i2ZIDp0JfeYeDVzvmlbY1CNhhIKimaIzrzSi5M/NBFcWvZT2rB/A=="
-      },
-      "Talaan": {
-        "type": "CentralTransitive",
-        "requested": "[0.1.0, )",
-        "resolved": "0.1.0",
-        "contentHash": "Wq29FUBUaGG7xjRzb/8ptIp01lPv/8xD38Eu2E56ZB3Q1oMZmEslQErr1VRUyS11QgwjucGIo4CB4KUnk+B9RQ=="
       }
     }
   }

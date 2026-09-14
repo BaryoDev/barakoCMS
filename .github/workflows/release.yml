@@ -42,7 +42,7 @@ concurrency:
 # gate failed on "expected 14", and publish-packages needs it.
 env:
   PACKAGE_PROJECTS: >-
-    barakoCMS BarakoCMS.Accounting BarakoCMS.Import BarakoCMS.Files BarakoCMS.Files.S3 BarakoCMS.Email.Resend BarakoCMS.Email.Smtp BarakoCMS.DeviceTrust BarakoCMS.ExternalAuth BarakoCMS.FeatureFlags BarakoCMS.Portability BarakoCMS.Diagnostics BarakoCMS.Analytics.Umami BarakoCMS.Pwa BarakoCMS.AI BarakoCMS.Testing
+    barakoCMS BarakoCMS.Accounting BarakoCMS.Import BarakoCMS.Files BarakoCMS.Files.S3 BarakoCMS.Email.Resend BarakoCMS.Email.Smtp BarakoCMS.DeviceTrust BarakoCMS.ExternalAuth BarakoCMS.FeatureFlags BarakoCMS.Portability BarakoCMS.Diagnostics BarakoCMS.Analytics.Umami BarakoCMS.Pwa BarakoCMS.Pages BarakoCMS.AI BarakoCMS.Testing
   # The dotnet new template package. Kept out of PACKAGE_PROJECTS on purpose: it ships no assembly
   # and no symbols, so the two verify-packages gates that assert a .snupkg beside every package and
   # a net10.0 assembly out of every package are the wrong questions for it. It is packed to its own
