@@ -224,7 +224,8 @@ public static class DataSeeder
                 password = GenerateInitialPassword();
             }
 
-            var existingAdmin = await session.Query<User>().FirstOrDefaultAsync(u => u.Username == username);
+            var normalizedUsername = User.NormalizeIdentity(username);
+            var existingAdmin = await session.Query<User>().FirstOrDefaultAsync(u => u.NormalizedUsername == normalizedUsername);
 
             var adminUser = existingAdmin ?? new User { Id = Guid.NewGuid(), CreatedAt = DateTime.UtcNow };
 

@@ -85,7 +85,7 @@ internal class Endpoint : Endpoint<Request, Response>
             return;
         }
 
-        var owner = await _session.Query<User>().FirstOrDefaultAsync(u => u.Email.ToLower() == email, ct);
+        var owner = await _session.Query<User>().FirstOrDefaultAsync(u => u.NormalizedEmail == email, ct);
         if (owner is not null)
         {
             // No pending registration, and the mailbox owner hears about the attempt rather than the
