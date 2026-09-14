@@ -132,6 +132,7 @@ project, through the same `IBarakoModule` contract you can implement yourself.
 | **FeatureFlags** | [`BarakoCMS.FeatureFlags`](https://www.nuget.org/packages/BarakoCMS.FeatureFlags) | Create, toggle, and target flags by tenant, user, or percentage: viewable/toggleable in the admin. |
 | **Portability** | [`BarakoCMS.Portability`](https://www.nuget.org/packages/BarakoCMS.Portability) | Export/import content-type definitions and data as a JSON bundle, for backup, migration, and seeding. |
 | **Diagnostics** | [`BarakoCMS.Diagnostics`](https://www.nuget.org/packages/BarakoCMS.Diagnostics) | Captures client-side (browser) errors and shows a deduped, resolvable **error log** in the admin. |
+| **Forms** | [`BarakoCMS.Forms`](https://www.nuget.org/packages/BarakoCMS.Forms) | Lets a public visitor submit a **form**: a content type marked as a form takes anonymous submissions, validated by its own schema, stored Sensitive, rate limited, with a honeypot and optional Turnstile. |
 | **Analytics.Umami** | [`BarakoCMS.Analytics.Umami`](https://www.nuget.org/packages/BarakoCMS.Analytics.Umami) | A server-side proxy over self-hosted [Umami](https://umami.is): visitors, pages, referrers, countries, devices, plus registering sites and verifying install. |
 | **Pages** | [`BarakoCMS.Pages`](https://www.nuget.org/packages/BarakoCMS.Pages) | A **page tree** over a content type: refuses parent loops, over-deep pages and reserved top-level slugs, and serves the nested menu, path resolution with breadcrumbs, and a drafts-included tree for the console. |
 | **Pwa** | [`BarakoCMS.Pwa`](https://www.nuget.org/packages/BarakoCMS.Pwa) | Tracks PWA installs / installed-app launches (anonymous or tied to the signed-in user) so the admin shows **who** installed the app. |
@@ -224,7 +225,7 @@ BarakoCMS is headless, so you build the frontend. These BaryoDev packages help:
               Portability                   Email.Resend              Pwa
               Pages
               ExternalAuth                  Email.Smtp                Diagnostics
-                                            DeviceTrust
+              Forms                         DeviceTrust
                     |                         |                         |
                     +-------------------------+-------------------------+
                                               v
