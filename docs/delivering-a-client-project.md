@@ -193,16 +193,27 @@ curl -s -X POST "$API/api/me/switch" \
   -d '{"club":"acme"}'
 ```
 
-### Custom domains and branding are not settable through the API
+### Custom domains
 
-`Tenant` carries a `Domains` list and a `Branding` dictionary. Both are returned by
-`GET /api/tenants` and `GET /api/me/tenants`. Neither can be written: the create and update request
-bodies have no field for them, and no other endpoint sets them.
+Set a tenant's domains with the tenant itself:
 
-So if a client is to be reached on their own domain rather than a subdomain, that row goes into the
-database directly. Store the bare host, for example `acme.com`. A leading `www.` is ignored on both
-sides of the match. The domain map is cached for `Multitenancy:CacheDuration`, five minutes by
-default, and nothing in the running application invalidates it, so allow for that after the write.
+```bash
+curl -s -X PUT "$API/api/tenants/acme" -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Acme","isActive":true,"domains":["acme.com"]}'
+```
+
+Enter bare hosts. They are stored the way requests are matched: lower case, a leading `www.` and a
+trailing dot removed, so `acme.com` also answers `www.acme.com`. A scheme, port, path or wildcard is
+refused, and so is a domain another tenant already holds, with the holder named. Leaving `domains`
+out of an update keeps what is stored; an empty list clears it. The change routes on the next
+request, because every tenant write clears the cached domain map.
+
+A renderer that serves several sites finds the tenant for a host with
+`GET /api/tenants/by-host/{host}`, which is anonymous and answers only the handle.
+
+`Branding` is still not writable through the API. A site's identity and theme belong in the `site`
+blueprint instead (#793).
 
 `Multitenancy:RefuseUnknownHosts` turns a host that matches no tenant into a 404 instead of quietly
 serving the default tenant. It is off by default because a single-tenant deployment legitimately
@@ -693,7 +704,7 @@ this list was written. See [seo-fields.md](seo-fields.md), [url-redirects.md](ur
   reviewable file that configures an instance, which is what would make step 3 through step 5
   repeatable per client instead of retyped.
 - **No per-tenant email settings.** One provider for the deployment.
-- **Custom domains and branding are database writes**, as section 3 says.
+- **Tenant branding is a database write.** Domains are set through the API (section 3); a site's identity and theme belong in content (#793).
 - **Per-field sensitivity can be set when a content type is created but not edited in barakoBrew.**
   Changing it afterwards is `PUT /api/content-types/{name}/fields/{field}/sensitivity`, called
   directly.
