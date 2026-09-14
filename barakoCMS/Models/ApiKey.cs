@@ -55,9 +55,17 @@ public static class ApiKeyScopes
     public const string ContentTypeRead = "contenttype:read";
     public const string ContentTypeWrite = "contenttype:write";
 
+    /// <summary>
+    /// Erasing an entry (<c>DELETE /api/contents/{id}/erase</c>) and rolling one back
+    /// (<c>POST /api/contents/{id}/rollback/{versionId}</c>). Not implied by <see cref="ContentWrite"/>,
+    /// because an erasure cannot be undone and a key minted to author content should not carry it by
+    /// default. <see cref="All"/> still includes it.
+    /// </summary>
+    public const string ContentDestructive = "content:destructive";
+
     public static readonly IReadOnlySet<string> Known = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
-        All, ContentRead, ContentWrite, ContentTypeRead, ContentTypeWrite,
+        All, ContentRead, ContentWrite, ContentDestructive, ContentTypeRead, ContentTypeWrite,
     };
 
     public static bool IsKnown(string scope) => !string.IsNullOrWhiteSpace(scope) && Known.Contains(scope);
