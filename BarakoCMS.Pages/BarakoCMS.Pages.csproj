@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>BarakoCMS.Pages</RootNamespace>
+
+    <IsPackable>true</IsPackable>
+    <PackageId>BarakoCMS.Pages</PackageId>
+    <Version>4.2.0</Version>
+    <Description>Page tree for barakoCMS: refuses a parent cycle, a page too deep or a reserved root slug on a configured content type, and serves the nested navigation, path resolution with breadcrumbs, and an authenticated tree with drafts for the console.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\barakoCMS\barakoCMS.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
+  </ItemGroup>
+</Project>

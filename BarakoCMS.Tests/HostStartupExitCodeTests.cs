@@ -107,8 +107,24 @@ public class HostStartupExitCodeTests
         exitCode.Should().NotBe(0);
     }
 
+    /// <summary>
+    /// An invalid rate limit stops the host with exit 1 and names the setting, rather than booting
+    /// with the limit removed.
+    /// </summary>
+    [Fact]
+    public async Task A_host_with_an_invalid_rate_limit_exits_1_and_names_the_setting()
+    {
+        var (exitCode, output) = await RunHostAsync(
+            HostAssembly, UnreachableDatabase, ValidJwtKey,
+            new Dictionary<string, string> { ["RateLimiting__Auth__PermitLimit"] = "0" });
+
+        exitCode.Should().Be(1, $"Output:\n{Truncate(output)}");
+        output.Should().Contain("RateLimiting:Auth:PermitLimit");
+    }
+
     private static async Task<(int ExitCode, string Output)> RunHostAsync(
-        string hostAssembly, string? connectionString, string? jwtKey)
+        string hostAssembly, string? connectionString, string? jwtKey,
+        IReadOnlyDictionary<string, string>? extraEnvironment = null)
     {
         var start = new ProcessStartInfo("dotnet")
         {
@@ -137,6 +153,10 @@ public class HostStartupExitCodeTests
         if (connectionString is not null)
         {
             start.Environment["ConnectionStrings__DefaultConnection"] = connectionString;
+        }
+        foreach (var (name, value) in extraEnvironment ?? new Dictionary<string, string>())
+        {
+            start.Environment[name] = value;
         }
 
         using var process = Process.Start(start)!;

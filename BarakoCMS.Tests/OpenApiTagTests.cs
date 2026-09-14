@@ -127,6 +127,7 @@ public class OpenApiTagTests
             "Me",
             "Modules",
             "Monitoring",
+            "Pages",
             "Portability",
             "Preview",
             "Public",

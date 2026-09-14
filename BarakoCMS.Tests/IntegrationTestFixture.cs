@@ -91,6 +91,12 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
                 // more than a few seconds.
                 { "Jobs:BackoffBaseSeconds", "0" },
                 { "Jobs:LeaseSeconds", "5" },
+                // Pages runs over its own probe type, so no other test's "page" entries meet its rules.
+                { "Modules:Pages:ContentType", "pagetreeprobe" },
+                { "Modules:Pages:MaxDepth", "3" },
+                { "Modules:Pages:ReservedSlugs:0", "api" },
+                { "Modules:Pages:ReservedSlugs:1", "Blog" },
+                { "Modules:Pages:ReservedSlugs:2", "admin" },
             });
         });
 
@@ -193,6 +199,10 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             // schema so those endpoints can run.
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Pwa.PwaModule(), opts));
 
+            // Pages: its hook guards the probe type configured above, and its three endpoints read
+            // the same options. Registered with its own section, as the host scopes it.
+            new BarakoCMS.Pages.PagesModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Pages"));
+
             // FeatureFlags: /api/feature-flags is anonymous, so which keys it hands out is a test
             // this project has to be able to run.
             new BarakoCMS.FeatureFlags.FeatureFlagsModule().ConfigureServices(services, ctx.Configuration);
@@ -256,6 +266,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         typeof(BarakoCMS.Accounting.AccountingModule).Assembly,
         typeof(BarakoCMS.Diagnostics.DiagnosticsModule).Assembly,
         typeof(BarakoCMS.Pwa.PwaModule).Assembly,
+        typeof(BarakoCMS.Pages.PagesModule).Assembly,
         typeof(BarakoCMS.FeatureFlags.FeatureFlagsModule).Assembly,
         // Portability owns no documents of its own and registers no services, so its
         // endpoints only need discovering.

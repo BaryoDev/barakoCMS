@@ -233,14 +233,66 @@ python3 scripts/delivery-load.py --base-url https://$DOMAIN_API --type post --sl
 docker stats --no-stream   # in a second shell while it runs, and again at rest
 ```
 
-The API allows 100 requests a minute per client address and that limit is not configurable, so from
-one address a rate above about 1.6 a second measures the limiter instead: requests queue, then come
+The API allows 100 requests a minute per client address by default (`RateLimiting:Global`, see "Rate
+limits" below), so from one address a rate above about 1.6 a second measures the limiter instead: requests queue, then come
 back as 429, and the script says so. The default rate of 1.5 stays under it.
 
 `--type` must be publicly deliverable with a published entry at `--slug`, and the site must have a
 published `site` entry; the script checks all three answer 200 before it starts. It exits 1 if any
 request failed. Run it from the VM itself to measure the stack, or from outside to include the
 network and Caddy.
+
+## Rate limits
+
+Every limit is a setting. The defaults are the limits earlier releases hard coded, so an upgrade
+changes nothing until you set one. Each has `PermitLimit` (requests), `WindowSeconds` and
+`QueueLimit` (requests that wait for the next window instead of getting 429):
+
+| Section | Default | Applies to |
+| --- | --- | --- |
+| `RateLimiting:Global` | 100 in 60 seconds, queue 10 | every request, per client IP |
+| `RateLimiting:Auth` | 5 in 900 seconds, queue 0 | login, refresh, OTP and MFA, per client IP |
+| `RateLimiting:Batch` | 20 in 60 seconds, queue 0 | anonymous telemetry batches, per client IP |
+| `RateLimiting:Registration` | 5 in 3600 seconds, queue 0 | registration and its verification, per client IP |
+
+As environment variables on the `app` service, the colon becomes a double underscore:
+
+```yaml
+- RateLimiting__Global__PermitLimit=600
+- RateLimiting__Global__WindowSeconds=60
+```
+
+A zero or negative `PermitLimit` or `WindowSeconds`, a negative `QueueLimit`, or a value that is not
+a whole number stops the host at startup with the setting named. There is no way to turn a limit off.
+Setting `Auth` or `Registration` looser than its default is allowed and logs a warning at startup,
+since those two exist to slow down guessing.
+
+The client IP is the one described in "Client IPs behind Caddy" above. Get that right first, or every
+client shares Caddy's bucket.
+
+### A renderer serving many sites
+
+One barakoPress container renders every site it serves, so all of their reads come from one IP and
+share one global bucket. Give it a key instead:
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `RateLimiting__Renderer__Key` | unset | a secret of at least 32 characters. Unset means no renderer partition |
+| `RateLimiting__Renderer__PermitLimit` | `1000` | requests in the renderer's own bucket |
+| `RateLimiting__Renderer__WindowSeconds` | `60` | the window for that bucket |
+| `RateLimiting__Renderer__QueueLimit` | `10` | requests that wait for the next window |
+
+A request with the header `X-Barako-Renderer-Key` equal to the key is counted in one renderer bucket
+instead of its IP's bucket. A missing or wrong key is an ordinary request, counted against its IP. The
+key only affects the global limit: `Auth`, `Batch` and `Registration` stay per IP with or without it.
+The key is compared in constant time and never logged. Keep it in `.env` like the JWT key, and set the
+same value in barakoPress (`CMS_RENDERER_KEY`).
+
+A renderer behind a proxy should use the key rather than rely on `X-Forwarded-For`. Trusting another
+proxy's forwarded header widens who can choose the client IP; the key is a secret only the renderer
+holds.
+
+`RateLimitSetupTests` covers the defaults, the startup failures, the renderer bucket and a wrong key.
 
 ## Upgrading
 

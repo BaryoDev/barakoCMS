@@ -936,72 +936,23 @@ public static class ServiceCollectionExtensions
                 options => barakoCMS.Infrastructure.Security.ForwardedHeadersSetup.Configure(options, configuration));
         }
 
-        // Rate Limiting
-        services.AddRateLimiter(options =>
+        // Rate limiting. Read and validated here so a bad value stops the host before anything else
+        // starts. The renderer key is never logged; see RateLimitSetup.
+        var rateLimits = barakoCMS.Infrastructure.Security.RateLimitSetup.Read(configuration);
+        foreach (var warning in barakoCMS.Infrastructure.Security.RateLimitSetup.Warnings(rateLimits))
         {
-            // Global rate limit: 100 requests per minute per IP
-            options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
-            {
-                var ipAddress = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+            Log.Warning("{RateLimitWarning}", warning);
+        }
 
-                return RateLimitPartition.GetFixedWindowLimiter(ipAddress, _ =>
-                    new FixedWindowRateLimiterOptions
-                    {
-                        PermitLimit = 100,
-                        Window = TimeSpan.FromMinutes(1),
-                        QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-                        QueueLimit = 10
-                    });
-            });
-
-            // Stricter limit for authentication endpoints: 5 per 15 minutes
-            options.AddPolicy("auth", context =>
-            {
-                var ipAddress = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-
-                return RateLimitPartition.GetFixedWindowLimiter($"auth-{ipAddress}", _ =>
-                    new FixedWindowRateLimiterOptions
-                    {
-                        PermitLimit = 5,  // 5 login attempts per 15 minutes
-                        Window = TimeSpan.FromMinutes(15)
-                    });
-            });
-            
-            // Anonymous telemetry ingestion (browser error reports). Deliberately tighter than the
-            // global limit: the endpoint is unauthenticated and each request fans out to one lookup per
-            // item in the batch, so the global 100/min would allow a 20x amplification against the DB.
-            options.AddPolicy("telemetry", context =>
-            {
-                var ipAddress = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-
-                return RateLimitPartition.GetFixedWindowLimiter($"telemetry-{ipAddress}", _ =>
-                    new FixedWindowRateLimiterOptions
-                    {
-                        PermitLimit = 20,  // 20 batches per minute is far above real client behaviour
-                        Window = TimeSpan.FromMinutes(1)
-                    });
-            });
-
-            // Registration rate limit: 5 per hour
-            options.AddPolicy("registration", context =>
-            {
-                var ipAddress = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-
-                return RateLimitPartition.GetFixedWindowLimiter($"registration-{ipAddress}", _ =>
-                    new FixedWindowRateLimiterOptions
-                    {
-                        PermitLimit = 5,  // 5 registrations per hour
-                        Window = TimeSpan.FromHours(1)
-                    });
-            });
-
-            options.OnRejected = async (context, cancellationToken) =>
-            {
-                context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
-                await context.HttpContext.Response.WriteAsync(
-                    "Too many requests. Please try again later.", cancellationToken);
-            };
-        });
+        // The limiter itself is built from the container's IConfiguration when UseRateLimiter
+        // resolves it, for the reason given on the job queue above: under WebApplicationFactory a
+        // test host's settings arrive after this method has run. In production both reads see the
+        // same values.
+        services.AddRateLimiter(_ => { });
+        services.AddOptions<Microsoft.AspNetCore.RateLimiting.RateLimiterOptions>()
+            .Configure<IConfiguration>((options, current) =>
+                barakoCMS.Infrastructure.Security.RateLimitSetup.Configure(
+                    options, barakoCMS.Infrastructure.Security.RateLimitSetup.Read(current)));
 
         // Health Checks UI (Config-Gated)
         if (configuration.GetValue<bool>("HealthChecksUI:Enabled"))
