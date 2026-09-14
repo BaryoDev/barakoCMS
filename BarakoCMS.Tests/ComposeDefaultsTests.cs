@@ -207,4 +207,54 @@ public class ComposeDefaultsTests
           + "that is an open database; the app reaches it over the compose network, so a mapping is "
           + "only for a local client and belongs on 127.0.0.1", composeFile);
     }
+
+    /// <summary>
+    /// Production and the quickstart load pg_stat_statements and create it on an existing volume (#799).
+    /// </summary>
+    /// <remarks>
+    /// docker-entrypoint-initdb.d only runs against an empty data directory, so an extension created
+    /// there never reaches a deployment that already has data. The one-shot service is what does.
+    /// </remarks>
+    [Theory]
+    [InlineData("docker-compose.prod.yml")]
+    [InlineData("quickstart/docker-compose.yml")]
+    public void Postgres_loads_pg_stat_statements_and_creates_it_on_every_start(string composeFile)
+    {
+        var lines = Lines(composeFile).Select(l => l.Trim()).Where(l => !l.StartsWith('#')).ToArray();
+
+        lines.Should().Contain("- shared_preload_libraries=pg_stat_statements",
+            "{0} must preload the library or CREATE EXTENSION succeeds and the view errors", composeFile);
+        lines.Should().Contain(l => l.Contains("CREATE EXTENSION IF NOT EXISTS pg_stat_statements"),
+            "{0} must create the extension outside initdb so an existing volume gets it", composeFile);
+    }
+
+    private static readonly Regex TunedSetting =
+        new(@"^-\s*(?<setting>[a-z_]+)=\$\{(?<variable>PG_[A-Z_]+):-(?<value>[^}]+)\}$", RegexOptions.Compiled);
+
+    private static Dictionary<string, string> TunedSettings(string composeFile) =>
+        Lines(composeFile)
+            .Select(l => TunedSetting.Match(l.Trim()))
+            .Where(m => m.Success)
+            .ToDictionary(m => $"{m.Groups["setting"].Value} {m.Groups["variable"].Value}", m => m.Groups["value"].Value);
+
+    /// <summary>
+    /// The small-server Postgres settings are overridable, agree between the two files, and keep
+    /// max_connections at the stock value (#799).
+    /// </summary>
+    /// <remarks>
+    /// A lower max_connections would refuse connections an existing deployment's pool already opens,
+    /// which is a default removing something that used to work.
+    /// </remarks>
+    [Fact]
+    public void Small_server_postgres_settings_are_overridable_and_agree_between_production_and_quickstart()
+    {
+        var production = TunedSettings("docker-compose.prod.yml");
+        var quickstart = TunedSettings("quickstart/docker-compose.yml");
+
+        production.Should().HaveCount(6);
+        production.Should().Equal(quickstart);
+        production.Should().Contain("max_connections PG_MAX_CONNECTIONS", "100");
+        production.Should().Contain("shared_buffers PG_SHARED_BUFFERS", "512MB");
+        production.Should().Contain("jit PG_JIT", "off");
+    }
 }
