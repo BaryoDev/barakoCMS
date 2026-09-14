@@ -20,6 +20,7 @@ internal class Endpoint : Endpoint<Request, Response>
     private readonly barakoCMS.Core.Interfaces.IOtpService _otp;
 
     private readonly barakoCMS.Infrastructure.Auth.ITokenIssuer _tokenIssuer;
+    private readonly barakoCMS.Core.Interfaces.IEmailService _email;
 
     public Endpoint(
         barakoCMS.Repository.IUserRepository repo,
@@ -31,8 +32,10 @@ internal class Endpoint : Endpoint<Request, Response>
         barakoCMS.Core.Interfaces.IOtpService otp,
         barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
         barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer,
-        barakoCMS.Infrastructure.Auth.Mfa.IMfaService mfa)
+        barakoCMS.Infrastructure.Auth.Mfa.IMfaService mfa,
+        barakoCMS.Core.Interfaces.IEmailService email)
     {
+        _email = email;
         _repo = repo;
         _session = session;
         _documentSession = documentSession;
@@ -74,6 +77,40 @@ internal class Endpoint : Endpoint<Request, Response>
         return BCrypt.Net.BCrypt.Verify(password, hash);
     }
 
+    /// <summary>
+    /// Tells the account's owner it was locked. The response cannot say so without telling everyone
+    /// else, so the registered address is the one place this goes.
+    /// </summary>
+    /// <remarks>
+    /// Sent when the lock is set, not on each attempt against a locked account, so a caller cannot use
+    /// it to fill somebody's inbox faster than one message per lockout. A send failure is logged and
+    /// changes nothing about the response.
+    /// </remarks>
+    private async Task NotifyOwnerOfLockoutAsync(User user, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(user.Email))
+        {
+            return;
+        }
+
+        var appName = System.Net.WebUtility.HtmlEncode(_config["Branding:AppName"] ?? "BarakoCMS");
+        var body =
+            $"<p>Your {appName} account was locked for 15 minutes after too many failed sign-in attempts.</p>"
+          + "<p>While it is locked, sign-in answers as if the password were wrong, even when it is right. "
+          + "Wait for the lock to pass, or sign in with an emailed code instead.</p>"
+          + "<p>If these attempts were not yours, somebody may be guessing your password. Consider changing it "
+          + "once you are back in.</p>";
+
+        try
+        {
+            await _email.SendEmailAsync(user.Email, $"Your {appName} account was locked", body, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "Could not send the lockout notice for user {UserId}", user.Id);
+        }
+    }
+
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
         var device = barakoCMS.Infrastructure.DeviceContext.From(HttpContext);
@@ -93,10 +130,14 @@ internal class Endpoint : Endpoint<Request, Response>
             return;
         }
 
-        // Check if account is locked out
+        // A locked account answers exactly as a wrong password and an unknown username do, and burns
+        // the same verify. An account that does not exist never locks, so any distinct answer here
+        // tells a caller the username is real, and a stated duration tells them when to lock it
+        // again. The owner hears about the lock by email instead, when it is set (#640).
         if (user.LockoutUntil.HasValue && user.LockoutUntil.Value > DateTime.UtcNow)
         {
-            var remainingMinutes = (int)(user.LockoutUntil.Value - DateTime.UtcNow).TotalMinutes + 1;
+            BCrypt.Net.BCrypt.Verify(req.Password, DummyPasswordHash);
+
             _logger.LogWarning(
                 "Login attempt for locked account: {Username}, Lockout until: {LockoutUntil}",
                 req.Username, user.LockoutUntil.Value);
@@ -104,7 +145,7 @@ internal class Endpoint : Endpoint<Request, Response>
             await AuditLog.RecordAsync(_documentSession, _tenant.Slug, "auth.login.blocked", user.Id, user.Username,
                 metadata: new() { ["reason"] = "locked_out", ["lockoutUntil"] = user.LockoutUntil.Value }, ipAddress: device.IpAddress, ct: ct);
             await _documentSession.SaveChangesAsync(ct);
-            ThrowError($"Account is locked due to multiple failed login attempts. Please try again in {remainingMinutes} minute(s).", 423);
+            ThrowError("Invalid credentials", 401);
             return;
         }
 
@@ -137,6 +178,8 @@ internal class Endpoint : Endpoint<Request, Response>
                 await AuditLog.RecordAsync(_documentSession, _tenant.Slug, "auth.account.locked", user.Id, user.Username,
                     metadata: new() { ["attempts"] = attempts }, ipAddress: device.IpAddress, ct: ct);
                 await _documentSession.SaveChangesAsync(ct);
+            
+                await NotifyOwnerOfLockoutAsync(user, ct);
             }
 
             _logger.LogWarning(
