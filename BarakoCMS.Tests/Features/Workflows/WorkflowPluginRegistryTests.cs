@@ -122,6 +122,29 @@ public class WorkflowPluginRegistryTests
         Assert.Empty(undecorated.SecretParameters);
     }
 
+    [Fact]
+    public void A_declared_group_is_reported_by_name_and_an_undeclared_one_is_null()
+    {
+        var registry = new WorkflowPluginRegistry(new List<IWorkflowAction>
+        {
+            new MockGroupedAction(), new MockSignedAction(), new MockSmsAction()
+        });
+
+        Assert.Equal("Data", registry.GetActionMetadata("Grouped")?.Group);
+        Assert.NotNull(registry.GetActionMetadata("Signed"));
+        Assert.Null(registry.GetActionMetadata("Signed")!.Group);
+        Assert.NotNull(registry.GetActionMetadata("SMS"));
+        Assert.Null(registry.GetActionMetadata("SMS")!.Group);
+    }
+
+    [WorkflowActionMetadata(Description = "Grouped test action", Group = WorkflowActionGroup.Data)]
+    private class MockGroupedAction : IWorkflowAction
+    {
+        public string Type => "Grouped";
+        public Task ExecuteAsync(Dictionary<string, string> parameters, barakoCMS.Models.Content content, CancellationToken ct)
+            => Task.CompletedTask;
+    }
+
     [WorkflowActionMetadata(
         Description = "Signed test action",
         RequiredParameters = new[] { "Url", "ApiToken" },

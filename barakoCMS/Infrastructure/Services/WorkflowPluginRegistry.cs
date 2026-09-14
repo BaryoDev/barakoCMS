@@ -91,6 +91,9 @@ public class WorkflowPluginRegistry : IWorkflowPluginRegistry
                     .Where(WebhookSigning.IsSensitiveParameterName)
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToList(),
+                Group = metadataAttr is null || metadataAttr.Group == WorkflowActionGroup.Unspecified
+                    ? null
+                    : metadataAttr.Group.ToString(),
                 ExampleConfiguration = metadataAttr?.ExampleJson ?? "{}"
             };
 

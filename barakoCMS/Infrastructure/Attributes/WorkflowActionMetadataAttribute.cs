@@ -27,6 +27,12 @@ public class WorkflowActionMetadataAttribute : Attribute
     public string[] OptionalParameters { get; set; } = Array.Empty<string>();
 
     /// <summary>
+    /// The group the workflow builder lists this action under. Leave it unset and the action reports
+    /// no group.
+    /// </summary>
+    public WorkflowActionGroup Group { get; set; } = WorkflowActionGroup.Unspecified;
+
+    /// <summary>
     /// Example JSON configuration for documentation.
     /// </summary>
     public string ExampleJson { get; set; } = string.Empty;

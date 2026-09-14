@@ -10,6 +10,7 @@ namespace barakoCMS.Features.Workflows.Actions;
 /// </summary>
 [WorkflowActionMetadata(
     Description = "Send email notifications",
+    Group = WorkflowActionGroup.Comms,
     RequiredParameters = new[] { "To", "Subject", "Body" },
     ExampleJson = @"{""Type"":""Email"",""Parameters"":{""To"":""admin@example.com"",""Subject"":""Workflow Triggered"",""Body"":""Content {{id}} was updated""}}"
 )]

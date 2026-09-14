@@ -10,6 +10,7 @@ namespace barakoCMS.Features.Workflows.Actions;
 /// </summary>
 [WorkflowActionMetadata(
     Description = "Conditional if/then/else logic for workflows",
+    Group = WorkflowActionGroup.Flow,
     RequiredParameters = new[] { "Condition", "ThenActions" },
     OptionalParameters = new[] { "ElseActions" },
     ExampleJson = @"{""Type"":""Conditional"",""Parameters"":{""Condition"":""{{status}} == Published"",""ThenActions"":""[{\""Type\"":\""Email\"",\""Parameters\"":{\""To\"":\""admin@example.com\""}}]""}}"

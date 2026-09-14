@@ -1,3 +1,4 @@
+using System.Text.Json;
 using barakoCMS.Models;
 using FluentAssertions;
 using System.Net;
@@ -121,6 +122,40 @@ public class WorkflowToolsApiTests : IAsyncLifetime
         {
             byType[type].SecretParameters.Should().BeEmpty(type);
         }
+    }
+
+    [Fact]
+    public async Task GetActions_reports_the_group_each_action_is_listed_under()
+    {
+        var response = await _client.GetAsync("/api/workflows/actions", TestContext.Current.CancellationToken);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Read as JSON rather than the model, so the wire name is what is checked.
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        var byType = doc.RootElement.EnumerateArray().ToDictionary(
+            a => a.GetProperty("type").GetString()!,
+            a => a.TryGetProperty("group", out var g) ? g : default);
+        byType.Should().HaveCount(8);
+
+        var expected = new Dictionary<string, string>
+        {
+            ["Email"] = "Comms",
+            ["SMS"] = "Comms",
+            ["Webhook"] = "Delivery",
+            ["Request"] = "Delivery",
+            ["CreateTask"] = "Content",
+            ["UpdateField"] = "Content",
+            ["Conditional"] = "Flow",
+        };
+        foreach (var (type, group) in expected)
+        {
+            byType[type].ValueKind.Should().Be(JsonValueKind.String, type);
+            byType[type].GetString().Should().Be(group, type);
+        }
+
+        // ThrowingRunner is a custom action with no metadata attribute. It still loads and reports no
+        // group, which the console lists under Other.
+        byType["ThrowingRunner"].ValueKind.Should().Be(JsonValueKind.Null);
     }
 
     #endregion
