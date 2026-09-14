@@ -72,13 +72,64 @@ internal sealed class TenantWriteRequest
     public string? Email { get; set; }
     public string? ContactUrl { get; set; }
     public bool IsActive { get; set; } = true;
+
+    /// <summary>
+    /// The domains the tenant answers on, as bare hosts such as <c>example.com</c>.
+    /// </summary>
+    /// <remarks>
+    /// Null on an update leaves the stored domains as they are, and an empty list clears them. The
+    /// distinction is what lets a client that predates this field keep saving a tenant without
+    /// wiping its domains.
+    /// </remarks>
+    public List<string>? Domains { get; set; }
+}
+
+/// <summary>Finds a domain already held by another tenant.</summary>
+/// <remarks>
+/// Inactive tenants count. The map skips them, but a domain given away while its tenant is paused
+/// would collide the moment that tenant is switched back on, and the map answers a collision by
+/// resolving no custom domain at all.
+///
+/// A read before the write, so two saves committing at the same instant are not covered. The map
+/// logs that case and degrades rather than routing a host to the wrong tenant.
+/// </remarks>
+internal static class TenantDomainClash
+{
+    public static async Task<(string Domain, string Slug)?> FindAsync(
+        IQuerySession session, IReadOnlyCollection<string> domains, string? exceptSlug, CancellationToken ct)
+    {
+        if (domains.Count == 0)
+            return null;
+
+        var tenants = await session.Query<Tenant>().ToListAsync(ct);
+        foreach (var other in tenants)
+        {
+            if (exceptSlug is not null && string.Equals(other.Slug, exceptSlug, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            foreach (var stored in other.Domains)
+            {
+                var held = TenantDomainMap.Normalise(stored);
+                if (held is not null && domains.Contains(held))
+                    return (held, other.Slug);
+            }
+        }
+
+        return null;
+    }
 }
 
 /// <summary>POST /api/tenants — create a tenant (platform admin).</summary>
 internal class CreateTenantEndpoint : Endpoint<TenantWriteRequest, TenantResponse>
 {
     private readonly IDocumentSession _session;
-    public CreateTenantEndpoint(IDocumentSession session) => _session = session;
+    private readonly ITenantDomainSource _domains;
+
+    public CreateTenantEndpoint(IDocumentSession session, ITenantDomainSource domains)
+    {
+        _session = session;
+        _domains = domains;
+    }
 
     public override void Configure()
     {
@@ -95,10 +146,16 @@ internal class CreateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
         { AddError(r => r.ContactUrl, "Must be a full http(s) URL."); }
         if (!string.IsNullOrWhiteSpace(req.LocationUrl) && !TenantHandles.IsValidAbsoluteUrl(req.LocationUrl))
         { AddError(r => r.LocationUrl, "Must be a full http(s) URL."); }
+        var domains = TenantDomains.Normalise(req.Domains ?? new List<string>(), out var domainErrors);
+        foreach (var error in domainErrors)
+        { AddError(r => r.Domains, error); }
         ThrowIfAnyErrors();
 
         if (await _session.Query<Tenant>().AnyAsync(x => x.Slug == handle, ct))
         { AddError(r => r.Handle, "A tenant with this handle already exists."); ThrowIfAnyErrors(); }
+
+        if (await TenantDomainClash.FindAsync(_session, domains, exceptSlug: null, ct) is { } clash)
+        { ThrowError($"'{clash.Domain}' is already a domain of tenant '{clash.Slug}'. A domain belongs to one tenant.", 409); }
 
         var tenant = new Tenant
         {
@@ -113,6 +170,7 @@ internal class CreateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
             Email = req.Email,
             ContactUrl = req.ContactUrl,
             IsActive = req.IsActive,
+            Domains = domains.ToList(),
         };
         _session.Store(tenant);
 
@@ -134,6 +192,7 @@ internal class CreateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
         }
 
         await _session.SaveChangesAsync(ct);
+        _domains.Invalidate();
         await Send.OkAsync(TenantResponse.From(tenant), ct);
     }
 }
@@ -142,7 +201,13 @@ internal class CreateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
 internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, TenantResponse>
 {
     private readonly IDocumentSession _session;
-    public UpdateTenantEndpoint(IDocumentSession session) => _session = session;
+    private readonly ITenantDomainSource _domains;
+
+    public UpdateTenantEndpoint(IDocumentSession session, ITenantDomainSource domains)
+    {
+        _session = session;
+        _domains = domains;
+    }
 
     public override void Configure()
     {
@@ -160,7 +225,18 @@ internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
         { AddError(r => r.ContactUrl, "Must be a full http(s) URL."); }
         if (!string.IsNullOrWhiteSpace(req.LocationUrl) && !TenantHandles.IsValidAbsoluteUrl(req.LocationUrl))
         { AddError(r => r.LocationUrl, "Must be a full http(s) URL."); }
+        IReadOnlyList<string>? domains = null;
+        if (req.Domains is not null)
+        {
+            domains = TenantDomains.Normalise(req.Domains, out var domainErrors);
+            foreach (var error in domainErrors)
+            { AddError(r => r.Domains, error); }
+        }
         ThrowIfAnyErrors();
+
+        if (domains is not null
+            && await TenantDomainClash.FindAsync(_session, domains, exceptSlug: tenant.Slug, ct) is { } clash)
+        { ThrowError($"'{clash.Domain}' is already a domain of tenant '{clash.Slug}'. A domain belongs to one tenant.", 409); }
 
         tenant.Name = req.Name;
         tenant.LogoUrl = req.LogoUrl;
@@ -171,8 +247,14 @@ internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
         tenant.Email = req.Email;
         tenant.ContactUrl = req.ContactUrl;
         tenant.IsActive = req.IsActive;
+        if (domains is not null)
+            tenant.Domains = domains.ToList();
         _session.Store(tenant);
         await _session.SaveChangesAsync(ct);
+
+        // Every update, not only a change of domains: switching a tenant off takes its domains out of
+        // the map too, and waiting out the cache would keep routing to it for minutes.
+        _domains.Invalidate();
         await Send.OkAsync(TenantResponse.From(tenant), ct);
     }
 }

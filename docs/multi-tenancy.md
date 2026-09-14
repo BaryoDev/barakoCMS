@@ -62,6 +62,12 @@ because an authenticated request still has to survive `TenantAccessMiddleware`, 
 requests only ever reach content a tenant published. Forging the `Host` header selects exactly the
 same set of tenants by a longer route, which is why #147 closed as not-an-escalation.
 
+Domains are written with the tenant, `POST /api/tenants` and `PUT /api/tenants/{handle}`, and each
+write clears the cached map, so a change routes on the next request. A domain belongs to one tenant;
+a second claim is a 409. `GET /api/tenants/by-host/{host}` answers which active tenant a domain
+belongs to, anonymously and with the handle only, for a renderer serving several sites from one
+process.
+
 `RefuseUnknownHosts` turns a host that looks like a custom domain but matches nothing into a 404,
 rather than quietly serving the default tenant. It is opt-in, because on a single-tenant deployment
 every host is legitimately unrecognised.
