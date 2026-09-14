@@ -52,6 +52,7 @@ internal sealed class AttemptResponse
     public DateTimeOffset? NextAttemptAt { get; init; }
     public int? ResponseStatus { get; init; }
     public string? Error { get; init; }
+    public bool? Retryable { get; init; }
     public DateTimeOffset? CompletedAt { get; init; }
     public long? DurationMs { get; init; }
 
@@ -64,6 +65,7 @@ internal sealed class AttemptResponse
         NextAttemptAt = a.NextAttemptAt,
         ResponseStatus = a.ResponseStatus,
         Error = a.Error,
+        Retryable = a.Retryable,
         CompletedAt = a.CompletedAt,
         DurationMs = a.DurationMs,
     };
@@ -240,7 +242,14 @@ internal sealed class RetryAttemptEndpoint : EndpointWithoutRequest<RunResponse>
         // recorded every retry as ordinary.
         var wasUnknown = attempt.Status == AttemptStatus.Unknown;
 
+        // The same decision for a failure the runner recorded as permanent: nothing about it changes
+        // on its own, and a Conditional marked permanent re-sends the child that already went out.
+        // Allowed, because an operator who fixed the configuration has a reason to re-drive it, and
+        // recorded, so the audit trail says it was retried knowing that.
+        var wasPermanent = attempt.Status == AttemptStatus.Failed && attempt.Retryable == false;
+
         attempt.Status = AttemptStatus.Pending;
+        attempt.Retryable = null;
         attempt.NextAttemptAt = null;
         attempt.LeasedBy = null;
         attempt.LeaseExpiresAt = null;
@@ -261,6 +270,7 @@ internal sealed class RetryAttemptEndpoint : EndpointWithoutRequest<RunResponse>
                 ["ordinal"] = ordinal,
                 ["actionType"] = attempt.ActionType,
                 ["wasUnknown"] = wasUnknown,
+                ["wasPermanent"] = wasPermanent,
             }, ct: ct);
 
         try
