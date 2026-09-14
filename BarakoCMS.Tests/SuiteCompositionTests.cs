@@ -45,7 +45,7 @@ public class SuiteCompositionTests
 
     /// <summary>
     /// The thirteen the hand-written list named, plus Email.Smtp, which the Suite project referenced
-    /// all along and the list never added, plus this project's own probe. A module project added to
+    /// all along and the list never added, plus Pages, plus this project's own probe. A module project added to
     /// the Suite without being added here fails this test, which is the point: the set is pinned.
     /// </summary>
     [Fact]
@@ -69,6 +69,7 @@ public class SuiteCompositionTests
             "Files",
             "Files.S3",
             "Import",
+            "Pages",
             "Portability",
             "Pwa",
             DiscoverableProbeModule.ModuleName,
