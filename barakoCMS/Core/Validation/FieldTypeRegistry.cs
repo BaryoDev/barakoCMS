@@ -91,6 +91,12 @@ public static class FieldTypeRegistry
         // is fixed to numbers under those two keys: the query casts them and a string would not
         // cast. A string, an array, a missing key or a value outside the range is refused.
         new("geopoint", "geopoint", v => TryReadGeoPoint(v, out _, out _)),
+
+        // One value, or a list of values, from options the field declares. Only the shape is checked
+        // here, a string or a list of strings, because this is a pure function of the value. Whether
+        // each value is a declared option, and whether the field takes one or several, needs the
+        // definition, so ContentValidatorService checks it.
+        new("choice", "choice", v => TryReadChoice(v, out _, out _)),
     };
 
     // Alias -> canonical spec. Aliases are the historical synonyms both live
@@ -216,6 +222,55 @@ public static class FieldTypeRegistry
         if (value is IDictionary<string, object>) return true;
         if (value is JsonElement { ValueKind: JsonValueKind.Object }) return true;
         return value.GetType().IsClass;
+    }
+
+    /// <summary>
+    /// Reads a choice value as the strings it holds, and whether it arrived as a list, or returns
+    /// false when it is neither a string nor a list of strings.
+    /// </summary>
+    /// <remarks>
+    /// A list arrives as a <see cref="JsonElement"/> from a raw request and as a
+    /// <c>List&lt;object&gt;</c> after <c>ObjectJsonConverter</c> has read a body or a stored document.
+    /// A list holding anything but strings is refused as a whole rather than read in part.
+    /// </remarks>
+    public static bool TryReadChoice(object? value, out List<string> values, out bool isList)
+    {
+        values = new List<string>();
+        isList = false;
+
+        if (value is null) return false;
+
+        if (AsString(value) is { } single)
+        {
+            values.Add(single);
+            return true;
+        }
+
+        switch (value)
+        {
+            case JsonElement { ValueKind: JsonValueKind.Array } je:
+                foreach (var item in je.EnumerateArray())
+                {
+                    if (item.ValueKind != JsonValueKind.String) return false;
+                    values.Add(item.GetString()!);
+                }
+                break;
+            case System.Collections.IDictionary:
+            case JsonElement:
+                return false;
+            case System.Collections.IEnumerable list:
+                foreach (var item in list)
+                {
+                    if (item is null || AsString(item) is not { } s) return false;
+                    values.Add(s);
+                }
+                break;
+            default:
+                return false;
+        }
+
+        isList = true;
+        return true;
     }
 
     // A json field holds an arbitrary structured value: an object or an array.

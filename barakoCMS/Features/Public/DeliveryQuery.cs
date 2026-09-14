@@ -11,7 +11,10 @@ internal enum FilterOp { Eq, Ne, Lt, Lte, Gt, Gte, Contains }
 /// The field's declared type. Carried because jsonb compares by type first: without it a filter on
 /// a string field holding "500" would emit the number 500 and match nothing.
 /// </param>
-internal readonly record struct DeliveryFilter(string Field, FilterOp Op, string Value, string Type);
+/// <param name="Multiple">
+/// The field is a choice holding a list, so equality means "holds this value" rather than "is it".
+/// </param>
+internal readonly record struct DeliveryFilter(string Field, FilterOp Op, string Value, string Type, bool Multiple = false);
 
 /// <summary>A validated sort, or none.</summary>
 internal readonly record struct DeliverySort(string Field, bool Descending);
@@ -84,6 +87,8 @@ internal sealed class DeliveryQuery
             .Where(f => f.Sensitivity == SensitivityLevel.Public)
             .ToDictionary(f => f.Name, f => f.Type ?? string.Empty, StringComparer.OrdinalIgnoreCase);
 
+        var lists = ListFields(def);
+
         var filters = new List<DeliveryFilter>();
         DeliveryNear? near = null;
         string? sortValue = null;
@@ -142,7 +147,11 @@ internal sealed class DeliveryQuery
 
                 // The canonical name from the schema is stored, never the caller's spelling, so what
                 // reaches the query builder can only be a string the content type already declared.
-                filters.Add(new DeliveryFilter(canonical, parsedOp, rawValue ?? string.Empty, declaredType));
+                var isList = lists.Contains(canonical);
+                if (isList && parsedOp is not (FilterOp.Eq or FilterOp.Ne))
+                    return new DeliveryQuery { Error = ListOperatorError(op, canonical) };
+
+                filters.Add(new DeliveryFilter(canonical, parsedOp, rawValue ?? string.Empty, declaredType, isList));
             }
 
             // Arbitrary filter combinations against a JSONB column on an anonymous endpoint is a
@@ -246,7 +255,26 @@ internal sealed class DeliveryQuery
         // #>> '{}' unwraps a jsonb scalar to text without its quotes, so a stored "hat" compares
         // as hat rather than "hat".
         if (f.Op == FilterOp.Contains)
+        {
+            if (f.Multiple)
+                throw new ArgumentOutOfRangeException(nameof(f), ListOperatorError("contains", f.Field));
             return ($"({KeyLookup} #>> '{{}}') ILIKE ?", [f.Field, $"%{Escape(f.Value)}%"]);
+        }
+
+        // A choice holding a list matches an entry that holds the value among others. @> carries no
+        // ?, so the field name and the value still bind. A stored value that is not a list, written
+        // before the field took several, contains nothing and is left out rather than failing the query.
+        if (f.Multiple)
+        {
+            var holds = $"{KeyLookup} @> ?::jsonb";
+            object[] listParameters = [f.Field, System.Text.Json.JsonSerializer.Serialize(new[] { f.Value })];
+            return f.Op switch
+            {
+                FilterOp.Eq => (holds, listParameters),
+                FilterOp.Ne => ($"NOT ({holds})", listParameters),
+                _ => throw new ArgumentOutOfRangeException(nameof(f), ListOperatorError(f.Op.ToString().ToLowerInvariant(), f.Field)),
+            };
+        }
 
         var op = f.Op switch
         {
@@ -480,6 +508,17 @@ internal sealed class DeliveryQuery
              + $"WHERE lower(e.key) = lower('{sort.Field}') LIMIT 1) {direction} NULLS LAST, "
              + "(d.data ->> 'CreatedAt')::timestamptz DESC";
     }
+
+    /// <summary>The choice fields that hold a list, by name, case-insensitively.</summary>
+    internal static HashSet<string> ListFields(ContentTypeDefinition def) =>
+        def.Fields
+            .Where(f => f.Multiple && string.Equals(f.Type, "choice", StringComparison.OrdinalIgnoreCase))
+            .Select(f => f.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    internal static string ListOperatorError(string op, string field) =>
+        $"Operator '{op}' does not apply to '{field}', which holds a list of options. "
+        + "Use eq for entries holding a value, or ne for entries that do not.";
 
     /// <summary>Letters and digits only, starting with a letter. No quote, no semicolon, no space.</summary>
     internal static bool IsSafeFieldName(string name) =>

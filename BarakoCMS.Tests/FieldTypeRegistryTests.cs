@@ -37,6 +37,8 @@ public class FieldTypeRegistryTests
             var definition = new FieldDefinition { Name = "Field", Type = type };
             if (string.Equals(type, "reference", StringComparison.OrdinalIgnoreCase))
                 definition.ReferenceType = "sometype";
+            if (string.Equals(type, "choice", StringComparison.OrdinalIgnoreCase))
+                definition.Options = [new FieldOption { Value = "A", Label = "A" }];
 
             var (isValid, errors) = _typeValidator.Validate(
                 "sample", "Sample",

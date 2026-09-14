@@ -21,6 +21,12 @@ internal sealed class Request
     /// <summary>Required for a reference, meaningless otherwise.</summary>
     public string? ReferenceType { get; set; }
 
+    /// <summary>Required for a choice, refused otherwise. Values are stored; labels are shown.</summary>
+    public List<FieldOption>? Options { get; set; }
+
+    /// <summary>For a choice, whether an entry holds a list of options rather than one.</summary>
+    public bool Multiple { get; set; }
+
     public bool IsRequired { get; set; }
     public object? DefaultValue { get; set; }
     public Dictionary<string, object>? ValidationRules { get; set; }
@@ -135,6 +141,8 @@ internal sealed class Endpoint : Endpoint<Request, Response>
             DisplayName = string.IsNullOrWhiteSpace(req.DisplayName) ? req.FieldName : req.DisplayName,
             Type = req.Type,
             ReferenceType = req.ReferenceType,
+            Options = req.Options,
+            Multiple = req.Multiple,
             IsRequired = req.IsRequired,
             DefaultValue = req.DefaultValue,
             ValidationRules = req.ValidationRules ?? new Dictionary<string, object>(),

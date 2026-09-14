@@ -73,6 +73,8 @@ internal sealed class QueryRunner : IQueryRunner
             return "Every filter needs a field.";
         }
 
+        var lists = DeliveryQuery.ListFields(schema);
+
         if (definition.Filters.Count > MaxFilters)
         {
             return $"Too many filters. At most {MaxFilters} are allowed.";
@@ -88,6 +90,11 @@ internal sealed class QueryRunner : IQueryRunner
             if (!Ops.ContainsKey(filter.Op))
             {
                 return $"Unknown operator '{filter.Op}'. Supported: {string.Join(", ", Ops.Keys)}.";
+            }
+
+            if (lists.Contains(filter.Field) && Ops[filter.Op] is not (FilterOp.Eq or FilterOp.Ne))
+            {
+                return DeliveryQuery.ListOperatorError(filter.Op, filter.Field);
             }
         }
 
@@ -132,6 +139,7 @@ internal sealed class QueryRunner : IQueryRunner
 
         var typeOf = schema.Fields.ToDictionary(f => f.Name, f => f.Type ?? string.Empty, StringComparer.OrdinalIgnoreCase);
         var canonical = schema.Fields.ToDictionary(f => f.Name, f => f.Name, StringComparer.OrdinalIgnoreCase);
+        var lists = DeliveryQuery.ListFields(schema);
 
         var query = _session.Query<Content>()
             .Where(c => c.ContentType == definition.ContentType);
@@ -141,7 +149,7 @@ internal sealed class QueryRunner : IQueryRunner
             // The schema's own spelling, never the stored one, so what reaches the builder can only
             // be a string the content type already declared.
             var built = new DeliveryFilter(
-                canonical[filter.Field], Ops[filter.Op], filter.Value, typeOf[filter.Field]);
+                canonical[filter.Field], Ops[filter.Op], filter.Value, typeOf[filter.Field], lists.Contains(filter.Field));
 
             var (sql, parameters) = DeliveryQuery.ToSql(built);
             query = query.Where(c => c.MatchesSql(sql, parameters));

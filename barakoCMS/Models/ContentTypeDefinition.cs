@@ -113,7 +113,7 @@ public class FieldDefinition
     // Field type. The accepted set lives in FieldTypeRegistry (the single source of
     // truth both validators read from): string/text, int, decimal, money, bool,
     // date/datetime, time, email, url, slug, uuid, richtext, markdown, json, array,
-    // object, reference, geopoint. (blob is still planned, not yet accepted.)
+    // object, reference, geopoint, choice. (blob is still planned, not yet accepted.)
     public string Type { get; set; } = "text";
 
     /// <summary>For a <c>reference</c> field, the content type its value points at.</summary>
@@ -124,6 +124,20 @@ public class FieldDefinition
     /// it is the thing this field type exists to stop being the only option.
     /// </remarks>
     public string? ReferenceType { get; set; }
+
+    /// <summary>For a <c>choice</c> field, the options it accepts, in display order.</summary>
+    /// <remarks>
+    /// Required for a choice and refused on anything else. The value is what an entry stores, what
+    /// delivery returns and what a filter matches; the label is what an editor sees. Keeping the two
+    /// apart is what lets a label be reworded without touching an entry, and gives a renderer a stable
+    /// key to hang a colour on. Null for every other type, so definitions that exist today read back
+    /// exactly as they did.
+    /// </remarks>
+    public List<FieldOption>? Options { get; set; }
+
+    /// <summary>For a <c>choice</c> field, whether an entry holds a list of options rather than one.</summary>
+    public bool Multiple { get; set; }
+
     public bool IsRequired { get; set; }
     public object? DefaultValue { get; set; }
     public Dictionary<string, object> ValidationRules { get; set; } = new(); // min, max, regex, etc.
@@ -134,6 +148,16 @@ public class FieldDefinition
     public SensitivityLevel Sensitivity { get; set; } = SensitivityLevel.Public;
     public List<string> VisibleToRoles { get; set; } = new();
     public FieldMask Mask { get; set; } = FieldMask.Default;
+}
+
+/// <summary>One option a <c>choice</c> field accepts.</summary>
+public class FieldOption
+{
+    /// <summary>What an entry stores. Matched exactly, case included.</summary>
+    public string Value { get; set; } = string.Empty;
+
+    /// <summary>What an editor sees. A consumer shows the value when this is empty.</summary>
+    public string Label { get; set; } = string.Empty;
 }
 
 /// <summary>How a masked field is presented to callers who may not see it.</summary>

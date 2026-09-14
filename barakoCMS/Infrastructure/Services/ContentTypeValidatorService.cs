@@ -78,6 +78,15 @@ public class ContentTypeValidatorService : IContentTypeValidatorService
                 {
                     errors.Add($"Field '{field.Name}' declares referenceType but is of type '{field.Type}', not reference.");
                 }
+
+                if (string.Equals(field.Type, "choice", StringComparison.OrdinalIgnoreCase))
+                {
+                    errors.AddRange(ChoiceErrors(field));
+                }
+                else if (field.Options is { Count: > 0 } || field.Multiple)
+                {
+                    errors.Add($"Field '{field.Name}' declares options but is of type '{field.Type}', not choice.");
+                }
             }
         }
 
@@ -150,6 +159,61 @@ public class ContentTypeValidatorService : IContentTypeValidatorService
         }
 
         return (errors.Count == 0, errors);
+    }
+
+    /// <summary>The most options one choice field may list.</summary>
+    /// <remarks>
+    /// Every option travels in the schema response and in the OpenAPI document. A list longer than
+    /// this is data rather than a choice, and belongs in a content type with a reference to it.
+    /// </remarks>
+    public const int MaxChoiceOptions = 200;
+
+    public const int MaxChoiceValueLength = 100;
+
+    public const int MaxChoiceLabelLength = 200;
+
+    private static IEnumerable<string> ChoiceErrors(FieldDefinition field)
+    {
+        var options = field.Options ?? new List<FieldOption>();
+
+        if (options.Count == 0)
+        {
+            yield return $"Field '{field.Name}' is a choice and must list its options, each with a value and a label.";
+            yield break;
+        }
+
+        if (options.Count > MaxChoiceOptions)
+            yield return $"Field '{field.Name}' lists {options.Count} options, and a choice holds at most "
+                + $"{MaxChoiceOptions}. A longer list belongs in its own content type, pointed at with a reference.";
+
+        foreach (var option in options)
+        {
+            if (option is null || string.IsNullOrWhiteSpace(option.Value))
+            {
+                yield return $"Field '{field.Name}' has an option with no value.";
+                continue;
+            }
+
+            if (option.Value != option.Value.Trim())
+                yield return $"Field '{field.Name}' has the option '{option.Value}', which starts or ends with a space.";
+
+            if (option.Value.Length > MaxChoiceValueLength)
+                yield return $"Field '{field.Name}' has an option value longer than {MaxChoiceValueLength} characters.";
+
+            if ((option.Label ?? string.Empty).Length > MaxChoiceLabelLength)
+                yield return $"Field '{field.Name}' has an option label longer than {MaxChoiceLabelLength} characters.";
+        }
+
+        // Ignoring case, although values are matched exactly. Two options that differ only in case
+        // are the typo this type exists to stop, declared into the schema instead of the data.
+        var repeated = options
+            .Where(o => o is not null && !string.IsNullOrWhiteSpace(o.Value))
+            .GroupBy(o => o.Value, StringComparer.OrdinalIgnoreCase)
+            .Where(g => g.Count() > 1)
+            .Select(g => g.Key);
+
+        foreach (var value in repeated)
+            yield return $"Field '{field.Name}' lists the option '{value}' more than once, ignoring case.";
     }
 
     private static bool IsPascalCase(string fieldName)
