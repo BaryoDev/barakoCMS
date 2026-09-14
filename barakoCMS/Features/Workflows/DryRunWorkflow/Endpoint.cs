@@ -68,6 +68,10 @@ internal class Endpoint : Endpoint<Request, Response>
         var overallTimer = Stopwatch.StartNew();
         var executionLog = _debugger.StartExecution(req.Workflow.Id, req.SampleContent.Id, isDryRun: true);
 
+        // The stored log is redacted, since anyone who can read runs can read it. The response goes
+        // back to whoever sent the workflow and the sample, so it shows what the templates resolved to.
+        var preview = new List<Dictionary<string, string>>();
+
         try
         {
             foreach (var action in req.Workflow.Actions)
@@ -89,10 +93,12 @@ internal class Endpoint : Endpoint<Request, Response>
                         action.Type, System.Text.Json.JsonSerializer.Serialize(Actions.WebhookSigning.WithoutSecret(resolvedParams)));
 
                     _debugger.LogActionSuccess(executionLog, action.Type, actionTimer, resolvedParams);
+                    preview.Add(Actions.WebhookSigning.WithoutSecret(resolvedParams));
                 }
                 catch (Exception ex)
                 {
                     _debugger.LogActionFailure(executionLog, action.Type, actionTimer, ex, action.Parameters);
+                    preview.Add(Actions.WebhookSigning.WithoutSecret(action.Parameters));
                 }
             }
 
@@ -101,7 +107,14 @@ internal class Endpoint : Endpoint<Request, Response>
             var response = new Response
             {
                 Success = executionLog.Success,
-                Actions = executionLog.Actions,
+                Actions = executionLog.Actions.Select((a, i) => new ActionExecutionLog
+                {
+                    ActionType = a.ActionType,
+                    Success = a.Success,
+                    ErrorMessage = a.ErrorMessage,
+                    ResolvedParameters = i < preview.Count ? preview[i] : a.ResolvedParameters,
+                    Duration = a.Duration,
+                }).ToList(),
                 Duration = executionLog.Duration,
                 Message = executionLog.Success
                     ? "Dry-run completed successfully. No actual actions were executed."
