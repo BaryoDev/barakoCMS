@@ -128,6 +128,18 @@ public class WorkflowActionAttempt
     /// </remarks>
     public string? Error { get; set; }
 
+    /// <summary>
+    /// For a Failed attempt, whether the failure was one a retry could fix. Null for any other
+    /// status, and for a failure recorded before this was kept.
+    /// </summary>
+    /// <remarks>
+    /// False is a malformed URL, an unknown action type, or a Conditional whose earlier child already
+    /// went out: the same on the fifth attempt as the first, or worse. An operator reading the run
+    /// needs to tell that apart from a provider outage, and the retry endpoint records which one a
+    /// person chose to retry.
+    /// </remarks>
+    public bool? Retryable { get; set; }
+
     public DateTimeOffset? CompletedAt { get; set; }
 
     public long? DurationMs { get; set; }
