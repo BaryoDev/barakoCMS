@@ -20,11 +20,13 @@ internal class Endpoint : Endpoint<Request, Response>
     private readonly barakoCMS.Core.Interfaces.IOtpService _otp;
 
     private readonly barakoCMS.Infrastructure.Auth.ITokenIssuer _tokenIssuer;
+    private readonly IDocumentStore _store;
 
     public Endpoint(
         barakoCMS.Repository.IUserRepository repo,
         IQuerySession session,
         IDocumentSession documentSession,
+        IDocumentStore store,
         IConfiguration _config,
         ILogger<Endpoint> logger,
         barakoCMS.Core.Interfaces.IDeviceGate deviceGate,
@@ -36,6 +38,7 @@ internal class Endpoint : Endpoint<Request, Response>
         _repo = repo;
         _session = session;
         _documentSession = documentSession;
+        _store = store;
         this._config = _config;
         _logger = logger;
         _deviceGate = deviceGate;
@@ -56,8 +59,9 @@ internal class Endpoint : Endpoint<Request, Response>
         Options(x => x.RequireRateLimiting("auth")); // 5 attempts per 15 minutes
     }
 
-    // Dummy password hash for timing attack prevention (pre-computed BCrypt hash)
-    private static readonly string DummyPasswordHash = BCrypt.Net.BCrypt.HashPassword("dummy_password_for_timing_attack_prevention");
+    // Dummy password hash for timing attack prevention. Made at the current work factor, so the miss
+    // path keeps costing what a real verify costs when the factor is raised.
+    private static readonly string DummyPasswordHash = barakoCMS.Infrastructure.Auth.PasswordHashing.Hash("dummy_password_for_timing_attack_prevention");
 
     /// <summary>
     /// True when the password matches. An account with no password set never matches, and costs the
@@ -72,6 +76,45 @@ internal class Endpoint : Endpoint<Request, Response>
         }
 
         return BCrypt.Net.BCrypt.Verify(password, hash);
+    }
+
+    /// <summary>
+    /// Rewrites a hash made below the current work factor, while the verified plaintext is in hand.
+    /// </summary>
+    /// <remarks>
+    /// After the lockout reset, which stores the whole document it loaded and would put the old hash
+    /// back. In its own session, so a failed write leaves nothing queued on the one the rest of this
+    /// sign-in commits through. The write is conditional on the hash it replaces: a password changed in
+    /// between is the newer fact and must not be overwritten with this one.
+    ///
+    /// A failure is logged and the sign-in goes on. The password was correct, and the next sign-in tries
+    /// again. The extra hash is paid once per account after the factor rises, not on every sign-in.
+    /// </remarks>
+    private async Task UpgradePasswordHashAsync(User user, string password, CancellationToken ct)
+    {
+        try
+        {
+            if (!barakoCMS.Infrastructure.Auth.PasswordHashing.NeedsRehash(user.PasswordHash))
+            {
+                return;
+            }
+
+            var upgraded = barakoCMS.Infrastructure.Auth.PasswordHashing.Hash(password);
+
+            await using var session = _store.LightweightSession();
+            session.QueueSqlCommand(
+                $"update {_store.Options.DatabaseSchemaName}.mt_doc_users "
+              + "set data = jsonb_set(data, '{PasswordHash}', to_jsonb(?::text)) "
+              + "where id = ? and data ->> 'PasswordHash' = ?",
+                upgraded, user.Id, user.PasswordHash);
+            await session.SaveChangesAsync(ct);
+
+            user.PasswordHash = upgraded;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Could not upgrade the password hash for user {UserId}; the next sign-in will try again", user.Id);
+        }
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
@@ -158,6 +201,8 @@ internal class Endpoint : Endpoint<Request, Response>
             _documentSession.Update(user);
             await _documentSession.SaveChangesAsync(ct);
         }
+
+        await UpgradePasswordHashAsync(user, req.Password, ct);
 
         // MFA: if the account has a second factor enrolled, the password alone is not enough. Issue a
         // short-lived challenge bound to this user instead of tokens; the client completes the sign-in at

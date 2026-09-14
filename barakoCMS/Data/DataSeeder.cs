@@ -231,7 +231,7 @@ public static class DataSeeder
 
             adminUser.Username = username;
             adminUser.Email = $"{username}@example.com";
-            adminUser.PasswordHash = BCrypt.Net.BCrypt.HashPassword(password);
+            adminUser.PasswordHash = barakoCMS.Infrastructure.Auth.PasswordHashing.Hash(password);
             adminUser.RoleIds = new List<Guid> { superAdminRole.Id, adminRole.Id };
 
             session.Store(adminUser);
@@ -261,7 +261,7 @@ public static class DataSeeder
                 Id = Guid.NewGuid(),
                 Username = "hr_manager",
                 Email = "hr@example.com",
-                PasswordHash = BCrypt.Net.BCrypt.HashPassword("HRPassword123!"),
+                PasswordHash = barakoCMS.Infrastructure.Auth.PasswordHashing.Hash("HRPassword123!"),
                 RoleIds = new List<Guid> { hrRole.Id, adminRole.Id },
                 CreatedAt = DateTime.UtcNow
             };
@@ -274,7 +274,7 @@ public static class DataSeeder
                 Id = Guid.NewGuid(),
                 Username = "john_viewer",
                 Email = "john@example.com",
-                PasswordHash = BCrypt.Net.BCrypt.HashPassword("UserPassword123!"),
+                PasswordHash = barakoCMS.Infrastructure.Auth.PasswordHashing.Hash("UserPassword123!"),
                 RoleIds = new List<Guid> { userRole.Id },
                 CreatedAt = DateTime.UtcNow
             };
