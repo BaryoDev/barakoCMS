@@ -35,6 +35,10 @@ public class ClientErrorDto
     public DateTime FirstSeenAt { get; set; }
     public DateTime LastSeenAt { get; set; }
     public bool Resolved { get; set; }
+    public DateTime? ResolvedAt { get; set; }
+    public string? ResolvedBy { get; set; }
+    public string? ResolutionReference { get; set; }
+    public string? ResolutionNote { get; set; }
 
     internal static ClientErrorDto From(ClientError e) => new()
     {
@@ -54,6 +58,10 @@ public class ClientErrorDto
         FirstSeenAt = e.FirstSeenAt,
         LastSeenAt = e.LastSeenAt,
         Resolved = e.Resolved,
+        ResolvedAt = e.ResolvedAt,
+        ResolvedBy = e.ResolvedBy,
+        ResolutionReference = e.ResolutionReference,
+        ResolutionNote = e.ResolutionNote,
     };
 }
 
