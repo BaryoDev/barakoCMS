@@ -77,7 +77,7 @@ internal class Endpoint : Endpoint<Request, Response>
         }
 
         var email = req.Email.Trim().ToLowerInvariant();
-        var passwordHash = BCrypt.Net.BCrypt.HashPassword(req.Password);
+        var passwordHash = barakoCMS.Infrastructure.Auth.PasswordHashing.Hash(req.Password);
 
         if (!_options.Required)
         {
