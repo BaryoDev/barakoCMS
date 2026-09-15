@@ -20,6 +20,7 @@ internal class Endpoint : Endpoint<Request, Response>
     private readonly barakoCMS.Core.Interfaces.IOtpService _otp;
 
     private readonly barakoCMS.Infrastructure.Auth.ITokenIssuer _tokenIssuer;
+    private readonly barakoCMS.Infrastructure.Auth.AccountLockout _lockout;
     private readonly IDocumentStore _store;
 
     public Endpoint(
@@ -33,8 +34,10 @@ internal class Endpoint : Endpoint<Request, Response>
         barakoCMS.Core.Interfaces.IOtpService otp,
         barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
         barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer,
-        barakoCMS.Infrastructure.Auth.Mfa.IMfaService mfa)
+        barakoCMS.Infrastructure.Auth.Mfa.IMfaService mfa,
+        barakoCMS.Infrastructure.Auth.AccountLockout lockout)
     {
+        _lockout = lockout;
         _repo = repo;
         _session = session;
         _documentSession = documentSession;
@@ -136,10 +139,14 @@ internal class Endpoint : Endpoint<Request, Response>
             return;
         }
 
-        // Check if account is locked out
+        // A locked account answers exactly as a wrong password and an unknown username do, and burns
+        // the same verify. An account that does not exist never locks, so any distinct answer here
+        // tells a caller the username is real, and a stated duration tells them when to lock it
+        // again. The owner hears about the lock by email instead, when it is set (#640).
         if (user.LockoutUntil.HasValue && user.LockoutUntil.Value > DateTime.UtcNow)
         {
-            var remainingMinutes = (int)(user.LockoutUntil.Value - DateTime.UtcNow).TotalMinutes + 1;
+            BCrypt.Net.BCrypt.Verify(req.Password, DummyPasswordHash);
+
             _logger.LogWarning(
                 "Login attempt for locked account: {Username}, Lockout until: {LockoutUntil}",
                 req.Username, user.LockoutUntil.Value);
@@ -147,7 +154,7 @@ internal class Endpoint : Endpoint<Request, Response>
             await AuditLog.RecordAsync(_documentSession, _tenant.Slug, "auth.login.blocked", user.Id, user.Username,
                 metadata: new() { ["reason"] = "locked_out", ["lockoutUntil"] = user.LockoutUntil.Value }, ipAddress: device.IpAddress, ct: ct);
             await _documentSession.SaveChangesAsync(ct);
-            ThrowError($"Account is locked due to multiple failed login attempts. Please try again in {remainingMinutes} minute(s).", 423);
+            ThrowError("Invalid credentials", 401);
             return;
         }
 
@@ -170,10 +177,11 @@ internal class Endpoint : Endpoint<Request, Response>
             var refreshed = await _session.LoadAsync<User>(user.Id, ct);
             var attempts = refreshed?.FailedLoginAttempts ?? 0;
 
-            if (attempts >= 5)
+            // Only the request that actually sets the lock records it; the owner's notice is queued
+            // there too, so concurrent failures past the threshold produce one of each.
+            if (attempts >= barakoCMS.Infrastructure.Auth.AccountLockout.MaxFailedAttempts
+                && await _lockout.TryLockAsync(user, ct))
             {
-                _documentSession.Patch<User>(user.Id).Set(x => x.LockoutUntil, DateTime.UtcNow.AddMinutes(15));
-                await _documentSession.SaveChangesAsync(ct);
                 _logger.LogWarning(
                     "Account locked due to failed login attempts: {Username}",
                     req.Username);
