@@ -279,6 +279,82 @@ public class UserIdentityUniquenessTests
         }
     }
 
+    /// <summary>
+    /// The migration trims with btrim, which leaves a tab, so it stores "name" and "name" plus a tab as
+    /// two values and its collision check passes them. .NET trims the tab, so sign-in sees one name.
+    /// </summary>
+    [Fact]
+    public async Task Startup_refuses_accounts_the_migration_kept_apart_that_collide_once_trimmed_in_dotnet()
+    {
+        var id = $"bf{Guid.NewGuid():N}"[..20];
+        var first = await StoreUserAsync(id, $"{id}-a@example.com");
+        var second = await StoreUserAsync($"{id}-other", $"{id}-b@example.com");
+
+        try
+        {
+            await SetUsernameAsMigratedAsync(first, id);
+            await SetUsernameAsMigratedAsync(second, id + "\t");
+            (await StoredNormalizedUsernameAsync(second)).Should().Be(id + "\t",
+                "this is what the migration's lower(btrim(...)) stores, and the unique index allowed it");
+
+            var act = () => UserIdentityBackfill.RunAsync(_factory.Services.GetRequiredService<IDocumentStore>(), Ct);
+
+            (await act.Should().ThrowAsync<InvalidOperationException>())
+                .WithMessage($"*{first}*").WithMessage($"*{second}*");
+            (await StoredNormalizedUsernameAsync(second)).Should().Be(id + "\t", "a refusal changes nothing");
+        }
+        finally
+        {
+            await DeleteUsersAsync(first, second);
+        }
+    }
+
+    [Fact]
+    public async Task Startup_trims_a_tab_the_migration_left_so_the_account_can_sign_in_by_its_name()
+    {
+        var id = $"bf{Guid.NewGuid():N}"[..20];
+        var user = await StoreUserAsync(id, $"{id}@example.com", BCrypt.Net.BCrypt.HashPassword(Password, 4));
+
+        try
+        {
+            await SetUsernameAsMigratedAsync(user, id + "\t");
+
+            await UserIdentityBackfill.RunAsync(_factory.Services.GetRequiredService<IDocumentStore>(), Ct);
+
+            (await StoredNormalizedUsernameAsync(user)).Should().Be(id);
+            var response = await _client.PostAsJsonAsync("/api/auth/login", new { Username = id, Password }, Ct);
+            response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
+        }
+        finally
+        {
+            await DeleteUsersAsync(user);
+        }
+    }
+
+    /// <summary>
+    /// lower() under lc_ctype C folds ASCII only, so the migration stores a non-ASCII capital as it is.
+    /// The test database's locale may fold it, so the stored value is written as a C locale leaves it.
+    /// </summary>
+    [Fact]
+    public async Task Startup_lowercases_a_non_ascii_letter_the_database_locale_left_alone()
+    {
+        var id = $"bf{Guid.NewGuid():N}"[..20];
+        var user = await StoreUserAsync($"\u00C9{id}", $"{id}@example.com");
+
+        try
+        {
+            await SetUsernameAsMigratedAsync(user, $"\u00C9{id}", storedNormalizedUsername: $"\u00C9{id}");
+
+            await UserIdentityBackfill.RunAsync(_factory.Services.GetRequiredService<IDocumentStore>(), Ct);
+
+            (await StoredNormalizedUsernameAsync(user)).Should().Be($"\u00E9{id}");
+        }
+        finally
+        {
+            await DeleteUsersAsync(user);
+        }
+    }
+
     private const string PreNormalizationShape = """
         drop index if exists public.mt_doc_users_uidx_normalized_username;
         drop index if exists public.mt_doc_users_uidx_normalized_email;
@@ -317,11 +393,11 @@ public class UserIdentityUniquenessTests
         return string.Join("\n", lines);
     }
 
-    private async Task<Guid> StoreUserAsync(string username, string email)
+    private async Task<Guid> StoreUserAsync(string username, string email, string passwordHash = "")
     {
         var id = Guid.NewGuid();
         await using var session = _factory.Services.GetRequiredService<IDocumentStore>().LightweightSession();
-        session.Store(new User { Id = id, Username = username, Email = email });
+        session.Store(new User { Id = id, Username = username, Email = email, PasswordHash = passwordHash });
         await session.SaveChangesAsync(Ct);
         return id;
     }
@@ -334,6 +410,30 @@ public class UserIdentityUniquenessTests
             "update public.mt_doc_users set data = jsonb_set(data - 'NormalizedUsername' - 'NormalizedEmail', "
           + "'{Username}', coalesce(to_jsonb(@name::text), data -> 'Username')) where id = @id",
             ("name", (object?)username ?? DBNull.Value), ("id", id));
+    }
+
+    /// <summary>
+    /// Sets the username and stores the normalised username the way the 4.2.0 migration computes it,
+    /// lower(btrim(...)), unless a stored value is given.
+    /// </summary>
+    private async Task SetUsernameAsMigratedAsync(Guid id, string username, string? storedNormalizedUsername = null)
+    {
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        await connection.OpenAsync(Ct);
+        await ExecAsync(connection, null,
+            "update public.mt_doc_users set data = data || jsonb_build_object('Username', @name::text, "
+          + "'NormalizedUsername', coalesce(@stored::text, lower(btrim(@name::text)))) where id = @id",
+            ("name", username), ("stored", (object?)storedNormalizedUsername ?? DBNull.Value), ("id", id));
+    }
+
+    private async Task<string?> StoredNormalizedUsernameAsync(Guid id)
+    {
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        await connection.OpenAsync(Ct);
+        await using var command = new NpgsqlCommand(
+            "select data ->> 'NormalizedUsername' from public.mt_doc_users where id = @id", connection);
+        command.Parameters.AddWithValue("id", id);
+        return (await command.ExecuteScalarAsync(Ct))?.ToString();
     }
 
     private async Task DeleteUsersAsync(params Guid[] ids)
