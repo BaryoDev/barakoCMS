@@ -8,6 +8,7 @@ using barakoCMS.Core.Interfaces;
 using barakoCMS.Models;
 using FluentAssertions;
 using Marten;
+using Marten.Patching;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using OtpNet;
@@ -207,6 +208,60 @@ public class LockedAccountResponseTests
 
         (await WaitAsync(() => slow.SentTo.Contains(user.Email))).Should().BeTrue(
             "the notice is still sent, after the response");
+    }
+
+    /// <summary>
+    /// A lock resets the counter. Otherwise one failure after the lock expires relocks the account and
+    /// mails the owner again, and one guess per lock period keeps that going indefinitely.
+    /// </summary>
+    [Fact]
+    public async Task One_failure_after_a_lock_expires_neither_relocks_nor_emails_again()
+    {
+        var user = await StoreUserAsync(failedAttempts: 4, lockoutUntil: null);
+
+        (await LoginAsync(user.Username, "WrongPassword123!", NextIp())).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        await WaitForNoticeAsync(user.Email);
+
+        var store = _factory.Services.GetRequiredService<IDocumentStore>();
+        await using (var session = store.LightweightSession())
+        {
+            session.Patch<User>(user.Id).Set(x => x.LockoutUntil, DateTime.UtcNow.AddMinutes(-1));
+            await session.SaveChangesAsync(Ct);
+        }
+
+        (await LoginAsync(user.Username, "WrongPassword123!", NextIp())).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        await SettleNoticesAsync();
+
+        await using (var session = store.QuerySession())
+        {
+            var reloaded = await session.LoadAsync<User>(user.Id, Ct);
+            reloaded!.LockoutUntil.Should().BeBefore(DateTime.UtcNow, "one failure is not five");
+            reloaded.FailedLoginAttempts.Should().Be(1);
+        }
+
+        LockoutNotices(user.Email).Should().ContainSingle();
+    }
+
+    /// <summary>
+    /// A failure reads the counter, and a successful sign-in can clear it before that failure goes on
+    /// to lock. The lock has to look at the counter as it is then, not as the failure read it.
+    /// </summary>
+    [Fact]
+    public async Task An_account_whose_counter_was_cleared_is_not_locked()
+    {
+        var user = await StoreUserAsync(failedAttempts: 0, lockoutUntil: null);
+        var lockout = _factory.Services.GetRequiredService<barakoCMS.Infrastructure.Auth.AccountLockout>();
+
+        await using (var session = _factory.Services.GetRequiredService<IDocumentStore>().QuerySession())
+        {
+            var loaded = (await session.LoadAsync<User>(user.Id, Ct))!;
+            (await lockout.TryLockAsync(loaded, Ct)).Should().BeFalse();
+        }
+
+        await using (var session = _factory.Services.GetRequiredService<IDocumentStore>().QuerySession())
+        {
+            (await session.LoadAsync<User>(user.Id, Ct))!.LockoutUntil.Should().BeNull();
+        }
     }
 
     /// <summary>
