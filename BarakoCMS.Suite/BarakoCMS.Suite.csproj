@@ -24,6 +24,7 @@
     <ProjectReference Include="..\BarakoCMS.AI\BarakoCMS.AI.csproj" />
     <ProjectReference Include="..\BarakoCMS.Diagnostics\BarakoCMS.Diagnostics.csproj" />
     <ProjectReference Include="..\BarakoCMS.Pages\BarakoCMS.Pages.csproj" />
+    <ProjectReference Include="..\BarakoCMS.Forms\BarakoCMS.Forms.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />

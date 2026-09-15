@@ -122,6 +122,7 @@ public class OpenApiTagTests
             "ExternalAuth",
             "FeatureFlags",
             "Files",
+            "Forms",
             "Import",
             "Jobs",
             "Me",

@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>BarakoCMS.Forms</RootNamespace>
+
+    <IsPackable>true</IsPackable>
+    <PackageId>BarakoCMS.Forms</PackageId>
+    <Version>4.2.0</Version>
+    <Description>Public forms for barakoCMS: a content type marked as a form accepts anonymous submissions at POST /api/public/forms/{slug}, validated against its own schema and stored as a Sensitive entry that delivery never serves, with a per-client rate limit, a honeypot and optional Cloudflare Turnstile.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Microsoft.Extensions.Configuration" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="BarakoCMS.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\barakoCMS\barakoCMS.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
+  </ItemGroup>
+</Project>
