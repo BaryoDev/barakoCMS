@@ -209,6 +209,8 @@ public class WorkflowCredentialEncryptionTests
             Actions = [new WorkflowAction { Type = "CredentialEcho", Parameters = new Dictionary<string, string> { ["ApiKey"] = hexApiKey } }],
         };
         WebhookSigning.ProtectSecrets(definition, Protector());
+        definition.Actions[0].Parameters["ApiKey"].Should().StartWith(AesGcmEnvelope.VersionPrefix)
+            .And.NotContain(hexApiKey, "saving the workflow encrypts the key rather than mistaking it for ciphertext");
 
         var store = _fixture.Services.GetRequiredService<IDocumentStore>();
         var contentId = Guid.NewGuid();
@@ -280,6 +282,12 @@ public class WorkflowCredentialEncryptionTests
             .Build());
         var rotatedSecret = otherKey.Protect("whsec_rotated")[AesGcmEnvelope.VersionPrefix.Length..];
 
+        // What a build that recognised ciphertext by shape wrote over a prefixed value: the prefixed
+        // envelope, encrypted again without a prefix.
+        var accessKey = NewPlaintext();
+        var innerEnvelope = Protector().Protect(accessKey);
+        var doubleWrapped = Protector().Protect(innerEnvelope)[AesGcmEnvelope.VersionPrefix.Length..];
+
         var id = Guid.NewGuid();
         var store = _fixture.Services.GetRequiredService<IDocumentStore>();
         await using (var session = store.LightweightSession())
@@ -297,7 +305,8 @@ public class WorkflowCredentialEncryptionTests
                         Type = "CredentialEcho",
                         Parameters = new Dictionary<string, string>
                         {
-                            ["ApiKey"] = unprefixedEnvelope, ["Token"] = hexToken, ["Secret"] = rotatedSecret, ["Channel"] = "#ops",
+                            ["ApiKey"] = unprefixedEnvelope, ["Token"] = hexToken, ["Secret"] = rotatedSecret,
+                            ["AccessKey"] = doubleWrapped, ["Channel"] = "#ops",
                         },
                     },
                 ],
@@ -320,6 +329,11 @@ public class WorkflowCredentialEncryptionTests
             Protector().Unprotect(parameters["Token"]).Should().Be(hexToken);
             parameters["Secret"].Should().Be(rotatedSecret, "a Secret the key cannot read is not encrypted as if it were the secret");
             parameters["Channel"].Should().Be("#ops");
+            parameters["AccessKey"].Should().Be(innerEnvelope, "a prefixed envelope wrapped a second time is unwrapped");
+
+            var (unprotected, error) = WebhookSigning.UnprotectCredentials(parameters, Protector());
+            error.Should().BeNull();
+            unprotected["AccessKey"].Should().Be(accessKey);
         }
 
         (await StoredJsonAsync(id)).Should().NotContain(hexToken);

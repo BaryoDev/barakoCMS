@@ -9,4 +9,6 @@
   its prefix, encrypts a value stored in clear, and leaves an envelope-shaped `Secret` that will not
   decrypt as it is, logging the parameter name and workflow id. `IWorkflowEngine.ProcessEventAsync`
   now decrypts credentials before running an action, as the runner does, and records a failure when
-  one will not decrypt.
+  one will not decrypt. Do not roll back to 4.1.0 after upgrading: it cannot read the prefix, so a
+  webhook `Secret` is refused as not protected and an email API key saved since falls back to the
+  configured key.

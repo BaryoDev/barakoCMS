@@ -115,7 +115,7 @@ internal sealed class WorkflowCredentialMigrationService : BackgroundService
                     // The name and where it is, never the value: this is the log of a value that
                     // might be a credential.
                     logger?.LogWarning(
-                        "The {Parameter} parameter of action {ActionIndex} on workflow {WorkflowId} could not be decrypted with the current key and was left as it is. Enter it again on the workflow.",
+                        "The {Parameter} parameter of action {ActionIndex} on workflow {WorkflowId} could not be decrypted with the current key and was left as it is. Either Secrets:Key changed since it was saved, or it was saved in clear; restore the old key, or recreate the workflow.",
                         name, index, workflow.Id));
 
                 if (!changedHere) continue;

@@ -134,11 +134,14 @@ internal static class WebhookSigning
     /// </para>
     /// <para>
     /// That last one is left untouched and reported through <paramref name="undecryptableSecret"/>.
-    /// Secret has been encrypted on save since #524, so an envelope-shaped Secret that will not
-    /// decrypt is most likely a changed Secrets:Key, and encrypting the old ciphertext as if it were
-    /// the secret would sign every delivery with garbage instead of refusing with a message that says
-    /// to enter it again. The other names were never encrypted before #765, so for them clear is the
-    /// likely reading.
+    /// Every release since #524 encrypts Secret on save whatever it looks like, so on a released
+    /// deployment an envelope-shaped Secret that will not decrypt is a changed Secrets:Key.
+    /// Encrypting that ciphertext as if it were the secret would sign every delivery with the wrong
+    /// key and stop the old key from recovering it. The cost is the other reading, a plaintext
+    /// Secret that only happens to look like an envelope (a custom action from before #524, or an
+    /// unreleased build between #765 and the prefix), which stays as it is until the workflow is
+    /// recreated. The other names were never encrypted before #765, so for them clear is the likely
+    /// reading.
     /// </para>
     /// <para>
     /// Safe to run again and on several instances at once: every write produces a prefixed envelope
@@ -171,9 +174,14 @@ internal static class WebhookSigning
 
                 if (LooksProtected(value)) continue;
 
-                if (protector.Unprotect(value) is not null)
+                var decrypted = protector.Unprotect(value);
+                if (decrypted is not null)
                 {
-                    action.Parameters[name] = AesGcmEnvelope.VersionPrefix + value;
+                    // A prefixed envelope encrypted a second time by a build that still recognised
+                    // ciphertext by shape, when both ran against one database. The inner envelope is
+                    // the credential; prefixing the outer one would hand the action ciphertext.
+                    var inner = LooksProtected(decrypted) && protector.Unprotect(decrypted) is not null;
+                    action.Parameters[name] = inner ? decrypted : AesGcmEnvelope.VersionPrefix + value;
                     changed = true;
                     continue;
                 }
