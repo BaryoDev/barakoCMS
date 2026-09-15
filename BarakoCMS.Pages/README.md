@@ -48,7 +48,7 @@ Under `Modules:Pages`. The defaults match the `blog` blueprint's `page` type.
 | `MaxDepth` | `8` | Most ancestors a page may have |
 | `ReservedSlugs` | none | Slugs a top-level page may not take, case-insensitive |
 | `HomeSlug` | `home` | The top-level page served at `/` |
-| `MaxPages` | `1000` | Most pages one request reads |
+| `MaxPages` | `1000` | Most pages one request reads; navigation and the tree say `truncated` when there were more |
 
 The slug field is the one public delivery already uses: a field of type `slug`, else one named `slug`.
 
@@ -85,7 +85,7 @@ Every body carries `contract`, currently `1`. It moves only on a breaking change
 renderer that does not know the number should show no menu rather than stop.
 
 ```json
-{ "contract": 1, "items": [
+{ "contract": 1, "truncated": false, "items": [
   { "id": "...", "title": "About", "slug": "about", "path": "/about", "order": 1, "children": [
     { "id": "...", "title": "Team", "slug": "team", "path": "/about/team", "order": null, "children": [] } ] } ] }
 ```
@@ -97,6 +97,10 @@ renderer that does not know the number should show no menu rather than stop.
     { "id": "...", "title": "About", "slug": "about", "path": "/about" },
     { "id": "...", "title": "Team", "slug": "team", "path": "/about/team" } ] }
 ```
+
+`truncated` is true when the type holds more than `MaxPages` published pages. Pages are read oldest
+first, so the newer ones, and every page under them, are missing from the menu even though resolve
+still serves them. Raise `MaxPages` when a site sees it.
 
 `entry` is the same shape `GET /api/public/{type}/{slug}` returns.
 

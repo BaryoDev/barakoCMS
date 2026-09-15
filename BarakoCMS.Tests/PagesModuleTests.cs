@@ -286,6 +286,7 @@ public class PagesModuleTests
         var root = await NavigationAsync();
 
         root.GetProperty("contract").GetInt32().Should().Be(1);
+        root.GetProperty("truncated").GetBoolean().Should().BeFalse();
         var aboutItem = root.GetProperty("items").EnumerateArray()
             .Single(i => i.GetProperty("slug").GetString() == aboutSlug);
         aboutItem.GetProperty("path").GetString().Should().Be($"/{aboutSlug}");
@@ -492,6 +493,73 @@ public class PagesModuleTests
         var item = root.GetProperty("items").EnumerateArray().Single(i => i.GetProperty("slug").GetString() == slug);
         item.GetProperty("title").GetString().Should().Be("Landing", "the tree is read with the same names it reports");
         item.GetProperty("order").GetInt32().Should().Be(7);
+    }
+
+    private const string CappedType = "navcapprobe";
+    private static readonly Lock CappedGate = new();
+    private static WebApplicationFactory<Program>? _cappedHost;
+
+    /// <summary>A host reading at most two pages, of a type no other test writes.</summary>
+    private WebApplicationFactory<Program> CappedHost()
+    {
+        lock (CappedGate)
+        {
+            return _cappedHost ??= _factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+                services.Configure<BarakoCMS.Pages.PagesOptions>(o =>
+                {
+                    o.ContentType = CappedType;
+                    o.MaxPages = 2;
+                })));
+        }
+    }
+
+    [Fact]
+    public async Task Navigation_says_when_there_are_more_pages_than_MaxPages()
+    {
+        var slugs = new[] { Unique("cap-a"), Unique("cap-b"), Unique("cap-c") };
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(),
+                Name = CappedType,
+                DisplayName = "Capped probe",
+                IsPubliclyDeliverable = true,
+                Fields =
+                [
+                    new FieldDefinition { Name = "Title", DisplayName = "Title", Type = "string" },
+                    new FieldDefinition { Name = "Slug", DisplayName = "Slug", Type = "slug" },
+                    new FieldDefinition { Name = "ParentPage", DisplayName = "Parent page", Type = "reference", ReferenceType = CappedType },
+                    new FieldDefinition { Name = "ShowInNavigation", DisplayName = "Show in navigation", Type = "bool" },
+                    new FieldDefinition { Name = "NavigationOrder", DisplayName = "Navigation order", Type = "int" },
+                ],
+            });
+
+            for (var i = 0; i < slugs.Length; i++)
+            {
+                session.Store(new Content
+                {
+                    Id = Guid.NewGuid(),
+                    ContentType = CappedType,
+                    Status = ContentStatus.Published,
+                    Sensitivity = SensitivityLevel.Public,
+                    Data = PageData($"Capped {i}", slugs[i], null, nav: true, order: i),
+                    CreatedAt = DateTime.UtcNow.AddMinutes(i - 10),
+                });
+            }
+
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var res = await CappedHost().CreateClient().GetAsync("/api/public/pages/navigation", Ct);
+        var body = await res.Content.ReadAsStringAsync(Ct);
+        res.StatusCode.Should().Be(HttpStatusCode.OK, body);
+
+        var root = JsonDocument.Parse(body).RootElement;
+        var items = root.GetProperty("items").EnumerateArray().Select(i => i.GetProperty("slug").GetString()).ToList();
+        items.Should().Equal(slugs[0], slugs[1]);
+        root.GetProperty("truncated").GetBoolean().Should().BeTrue();
     }
 
     [Fact]
