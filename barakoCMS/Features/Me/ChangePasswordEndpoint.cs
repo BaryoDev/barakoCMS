@@ -89,7 +89,7 @@ internal class ChangePasswordEndpoint : Endpoint<ChangePasswordRequest, ChangePa
             return;
         }
 
-        user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(req.NewPassword);
+        user.PasswordHash = barakoCMS.Infrastructure.Auth.PasswordHashing.Hash(req.NewPassword);
         _session.Store(user);
 
         // Revoke the user's refresh tokens so a token stolen before the change can't be refreshed

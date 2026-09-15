@@ -172,6 +172,19 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
 
             services.Remove(deliveryRetention);
 
+            // The startup pass that redacts stored execution logs, for the same reason: it would
+            // rewrite a log a test seeded unredacted on purpose, before the test gets to look at it.
+            var logRedaction = services.SingleOrDefault(d =>
+                d.ImplementationType == typeof(barakoCMS.Features.Workflows.WorkflowExecutionLogRedactionService));
+            if (logRedaction is null)
+            {
+                throw new InvalidOperationException(
+                    "WorkflowExecutionLogRedactionService is no longer registered the way this fixture expects, "
+                  + "so it may still rewrite logs tests seed unredacted.");
+            }
+
+            services.Remove(logRedaction);
+
             new BarakoCMS.Email.Resend.ResendEmailModule().ConfigureServices(services, ctx.Configuration);
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Email.Resend.ResendEmailModule(), opts));
 
@@ -236,6 +249,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             // records "No handler is registered for action type" instead of the exception the test
             // is about. Registered on both, the race stops mattering.
             services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.ThrowingRunnerAction>();
+            services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.CredentialEchoAction>();
 
             // Email transport, replacing the Resend provider the module above registered. Resend
             // throws on every call here because no API key is configured, so any flow that emails

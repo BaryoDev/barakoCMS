@@ -143,6 +143,104 @@ public class ApiKeyIntegrationTests
         res.StatusCode.Should().Be(HttpStatusCode.Forbidden, "API keys are limited to the content API");
     }
 
+    // ---- destructive content operations (#653) -------------------------------
+
+    private async Task<Guid> SeedContentAsync()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var writer = scope.ServiceProvider.GetRequiredService<barakoCMS.Core.Interfaces.IContentWriter>();
+        var id = Guid.NewGuid();
+
+        await writer.CreateAsync(new barakoCMS.Events.ContentCreated(
+            id, "apikey-probe", new Dictionary<string, object> { ["Title"] = "keep me" },
+            ContentStatus.Draft, Guid.NewGuid(), $"apikey-probe-{id:n}",
+            SensitivityLevel.Public), default);
+
+        await session.SaveChangesAsync();
+        return id;
+    }
+
+    private async Task<bool> ContentExistsAsync(Guid id)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+        return await session.LoadAsync<barakoCMS.Models.Content>(id) is not null;
+    }
+
+    [Theory]
+    [InlineData("/api/contents/{0}/erase")]
+    [InlineData("/API/Contents/{0}/Erase/")]
+    public async Task WriteKey_CannotEraseContent(string route)
+    {
+        var (userId, _) = await SuperAdminAsync();
+        var secret = await StoreKeyAsync(userId, new[] { "content:read", "content:write" });
+        var id = await SeedContentAsync();
+
+        var res = await _client.SendAsync(WithKey(HttpMethod.Delete, string.Format(route, id), secret));
+
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden, "erasure needs content:destructive, not content:write");
+        (await ContentExistsAsync(id)).Should().BeTrue("a refused erase must leave the entry in place");
+    }
+
+    [Theory]
+    [InlineData("/api/contents/{0}/rollback/{1}")]
+    [InlineData("/API/Contents/{0}/Rollback/{1}/")]
+    public async Task WriteKey_CannotRollBackContent(string route)
+    {
+        var (userId, _) = await SuperAdminAsync();
+        var secret = await StoreKeyAsync(userId, new[] { "content:read", "content:write" });
+        var id = await SeedContentAsync();
+
+        var res = await _client.SendAsync(
+            WithKey(HttpMethod.Post, string.Format(route, id, Guid.NewGuid()), secret));
+
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden, "rollback needs content:destructive, not content:write");
+    }
+
+    [Theory]
+    [InlineData("/api/contents/by-slug/erase/missing")]
+    [InlineData("/api/contents/by-slug/rollback/missing")]
+    [InlineData("/API/Contents/By-Slug/Rollback/missing/")]
+    public async Task ReadWriteKey_ReadingBySlugFromATypeNamedEraseOrRollback_IsNotTreatedAsDestructive(string route)
+    {
+        var (userId, _) = await SuperAdminAsync();
+        var secret = await StoreKeyAsync(userId, new[] { "content:read", "content:write" });
+
+        var res = await _client.SendAsync(Get(route, secret));
+
+        res.StatusCode.Should().Be(HttpStatusCode.NotFound,
+            "a by-slug read needs content:read, and a missing slug is 404 whatever the type is called");
+    }
+
+    [Theory]
+    [InlineData("content:destructive")]
+    [InlineData("*")]
+    public async Task DestructiveOrWildcardKey_CanEraseContent(string scope)
+    {
+        var (userId, _) = await SuperAdminAsync();
+        var secret = await StoreKeyAsync(userId, new[] { scope });
+        var id = await SeedContentAsync();
+
+        var res = await _client.SendAsync(WithKey(HttpMethod.Delete, $"/api/contents/{id}/erase", secret));
+
+        res.StatusCode.Should().Be(HttpStatusCode.NoContent, await res.Content.ReadAsStringAsync());
+        (await ContentExistsAsync(id)).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task DestructiveKey_CannotMakeOrdinaryWrites()
+    {
+        var (userId, _) = await SuperAdminAsync();
+        var secret = await StoreKeyAsync(userId, new[] { "content:destructive" });
+
+        var req = WithKey(HttpMethod.Post, "/api/contents", secret);
+        req.Content = JsonContent.Create(new { contentType = "anything", status = 1, sensitivity = 0, data = new Dictionary<string, object>() });
+        var res = await _client.SendAsync(req);
+
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden, "content:destructive is not content:write");
+    }
+
     // ---- management endpoints (human admin, JWT) ----------------------------
 
     [Fact]

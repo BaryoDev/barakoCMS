@@ -127,4 +127,57 @@ public class WebhookSigningTests
     {
         WebhookSigning.LooksProtected("a plaintext secret typed before #524").Should().BeFalse();
     }
+    [Fact]
+    public void A_base64_secret_and_a_hex_api_key_are_encrypted_rather_than_mistaken_for_ciphertext()
+    {
+        // Both decode to at least nonce plus tag length, the shape an envelope used to be recognised by.
+        var base64Secret = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+        var hexApiKey = Convert.ToHexStringLower(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+        var workflow = new WorkflowDefinition
+        {
+            Actions =
+            {
+                new WorkflowAction
+                {
+                    Type = "Webhook",
+                    Parameters = new Dictionary<string, string>
+                    {
+                        ["Url"] = "https://hooks.example.com/x", ["Secret"] = base64Secret, ["ApiKey"] = hexApiKey,
+                    },
+                },
+            },
+        };
+
+        var protector = Protector();
+        WebhookSigning.ProtectSecrets(workflow, protector);
+
+        var parameters = workflow.Actions[0].Parameters;
+        parameters["Secret"].Should().NotBe(base64Secret);
+        parameters["ApiKey"].Should().NotBe(hexApiKey);
+        protector.Unprotect(parameters["Secret"]).Should().Be(base64Secret);
+        protector.Unprotect(parameters["ApiKey"]).Should().Be(hexApiKey);
+
+        var (unprotected, error) = WebhookSigning.UnprotectCredentials(parameters, protector);
+        error.Should().BeNull();
+        unprotected["ApiKey"].Should().Be(hexApiKey);
+    }
+
+    [Fact]
+    public void A_password_keeps_its_surrounding_spaces()
+    {
+        var workflow = new WorkflowDefinition
+        {
+            Actions =
+            {
+                new WorkflowAction { Type = "CustomNotifier", Parameters = new Dictionary<string, string> { ["Password"] = " pw " } },
+            },
+        };
+
+        var protector = Protector();
+        WebhookSigning.ProtectSecrets(workflow, protector);
+
+        var (unprotected, error) = WebhookSigning.UnprotectCredentials(workflow.Actions[0].Parameters, protector);
+        error.Should().BeNull();
+        unprotected["Password"].Should().Be(" pw ");
+    }
 }

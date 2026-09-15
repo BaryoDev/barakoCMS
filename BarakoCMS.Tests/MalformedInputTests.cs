@@ -147,6 +147,39 @@ public class MalformedInputTests
 
         response.StatusCode.Should().Be(HttpStatusCode.RequestEntityTooLarge, body);
         body.Should().NotContain("Request body too large");
+
+        // The refusal is written after the response is cleared, and the headers have to survive that.
+        response.Headers.TryGetValues(barakoCMS.Features.Monitoring.Meta.ApiContract.HeaderName, out var contract)
+            .Should().BeTrue("a console reads the contract version from every response, errors included");
+        contract!.Should().ContainSingle().Which.Should().Be(barakoCMS.Features.Monitoring.Meta.ApiContract.Version.ToString());
+        response.Headers.TryGetValues("X-Content-Type-Options", out var nosniff).Should().BeTrue();
+        nosniff!.Should().ContainSingle().Which.Should().Be("nosniff");
+    }
+
+    /// <summary>
+    /// The same refusal on an auth path keeps no-store, so no cache holds a copy of the answer.
+    /// </summary>
+    [Fact]
+    public async Task A_body_over_the_limit_on_an_auth_path_keeps_no_store()
+    {
+        using var host = _factory.WithWebHostBuilder(_ => { });
+        host.UseKestrel(0);
+        host.StartServer();
+        using var client = host.CreateClient();
+
+        var oversized = new string('a', (int)(10L * 1024 * 1024) + 1024);
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/auth/login")
+        {
+            Content = new StringContent($$$"""{"username":"{{{oversized}}}","password":"x"}""", Encoding.UTF8, "application/json"),
+        };
+        request.Headers.ExpectContinue = true;
+
+        var response = await client.SendAsync(request);
+        var body = await response.Content.ReadAsStringAsync();
+
+        response.StatusCode.Should().Be(HttpStatusCode.RequestEntityTooLarge, body);
+        response.Headers.CacheControl.Should().NotBeNull("an auth response is never kept by a cache");
+        response.Headers.CacheControl!.NoStore.Should().BeTrue();
     }
 
     /// <summary>

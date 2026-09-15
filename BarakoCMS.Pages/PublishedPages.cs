@@ -28,7 +28,11 @@ internal static class PublishedPages
         return session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name.ToLower() == lowered, ct);
     }
 
-    public static async Task<List<(PageNode Node, PublicContentProjection Entry)>> AllAsync(
+    /// <summary>
+    /// Published pages, oldest first, at most <see cref="PagesOptions.MaxPages"/>, and whether there
+    /// were more than that.
+    /// </summary>
+    public static async Task<(List<(PageNode Node, PublicContentProjection Entry)> Pages, bool Truncated)> AllAsync(
         IQuerySession session,
         IPublicContentProjector projector,
         ContentTypeDefinition definition,
@@ -42,10 +46,10 @@ internal static class PublishedPages
                         && c.Sensitivity == SensitivityLevel.Public)
             .OrderBy(c => c.CreatedAt)
             .ThenBy(c => c.Id)
-            .Take(options.MaxPages)
+            .Take(options.MaxPages + 1)
             .ToListAsync(ct);
 
-        return Project(docs, projector, definition, options);
+        return (Project(docs.Take(options.MaxPages), projector, definition, options), docs.Count > options.MaxPages);
     }
 
     /// <summary>Published pages holding <paramref name="slug"/>, oldest first, at most a handful.</summary>

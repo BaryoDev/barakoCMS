@@ -46,7 +46,7 @@ public interface IWorkflowDebugger
             ActionType = actionType,
             Success = false,
             ErrorMessage = error,
-            ResolvedParameters = barakoCMS.Features.Workflows.Actions.WebhookSigning.WithoutSecret(resolvedParams),
+            ResolvedParameters = WorkflowDebugger.RecordableParameters(resolvedParams),
             Duration = timer.Elapsed
         });
 
@@ -87,6 +87,7 @@ public class WorkflowDebugger : IWorkflowDebugger
             ContentId = contentId,
             ExecutedAt = DateTime.UtcNow,
             IsDryRun = isDryRun,
+            Redacted = true,
             Success = true // Assume success unless proven otherwise
         };
 
@@ -111,7 +112,7 @@ public class WorkflowDebugger : IWorkflowDebugger
         {
             ActionType = actionType,
             Success = true,
-            ResolvedParameters = barakoCMS.Features.Workflows.Actions.WebhookSigning.WithoutSecret(resolvedParams),
+            ResolvedParameters = WorkflowDebugger.RecordableParameters(resolvedParams),
             Duration = timer.Elapsed
         };
 
@@ -124,7 +125,10 @@ public class WorkflowDebugger : IWorkflowDebugger
 
     public void LogActionFailure(WorkflowExecutionLog log, string actionType, Stopwatch timer, Exception ex, Dictionary<string, string> resolvedParams)
     {
-        RecordFailure(log, actionType, timer, ex.Message, resolvedParams);
+        // The type only. An exception message can carry what the action was sending, a recipient
+        // or a provider's error body with the credential in it, and this record is served over the
+        // API. The message stays in the log line below.
+        RecordFailure(log, actionType, timer, ex.GetType().Name, resolvedParams);
 
         _logger.LogError(ex,
             "Action failed: {ActionType} after {Duration}ms",
@@ -149,7 +153,7 @@ public class WorkflowDebugger : IWorkflowDebugger
             ActionType = actionType,
             Success = false,
             ErrorMessage = error,
-            ResolvedParameters = barakoCMS.Features.Workflows.Actions.WebhookSigning.WithoutSecret(resolvedParams),
+            ResolvedParameters = WorkflowDebugger.RecordableParameters(resolvedParams),
             Duration = timer.Elapsed
         };
 
@@ -179,7 +183,79 @@ public class WorkflowDebugger : IWorkflowDebugger
             .Take(limit)
             .ToListAsync(ct);
 
-        return logs.ToList();
+        return logs.Select(RedactForReading).ToList();
+    }
+
+    /// <summary>What a log line shows in place of a parameter value that is not on the allowlist.</summary>
+    internal const string RedactedValue = "[redacted]";
+
+    internal const string UnredactedErrorMessage =
+        "Recorded before execution logs were redacted. The server log has the detail.";
+
+    /// <summary>
+    /// Parameter names whose value is structural (an identifier, a content type, a status) rather
+    /// than something an action sends.
+    /// </summary>
+    /// <remarks>
+    /// An allowlist, not a denylist. Parameters are free-form and resolved against the content, so a
+    /// recipient, a URL with a token in its query, or a credential under a name nobody thought of
+    /// all arrive looking like any other parameter. Anything not named here keeps its key and loses
+    /// its value; a credential-named key is dropped outright, the same as everywhere else.
+    /// </remarks>
+    private static readonly HashSet<string> RecordableParameterNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "ContentType", "Status", "Field", "TargetId", "Request", "TriggerEvent", "RunId", "WorkflowId", "Attempt",
+    };
+
+    internal static Dictionary<string, string> RecordableParameters(IReadOnlyDictionary<string, string> parameters)
+    {
+        var recorded = barakoCMS.Features.Workflows.Actions.WebhookSigning.WithoutSecret(parameters);
+        foreach (var key in recorded.Keys.ToList())
+        {
+            if (!RecordableParameterNames.Contains(key)) recorded[key] = RedactedValue;
+        }
+
+        return recorded;
+    }
+
+    /// <summary>
+    /// Redacts a stored log again on the way out, so a record written before redaction existed does
+    /// not keep serving what it captured.
+    /// </summary>
+    private static WorkflowExecutionLog RedactForReading(WorkflowExecutionLog log)
+    {
+        RedactActions(log);
+        return log;
+    }
+
+    /// <summary>
+    /// Applies the redaction a log gets on the way out to the log itself, and marks it redacted, so
+    /// the stored row stops holding what it captured. What <c>WorkflowExecutionLogRedactionService</c>
+    /// writes back.
+    /// </summary>
+    /// <returns>False when the log was already redacted and nothing was changed.</returns>
+    internal static bool RedactStored(WorkflowExecutionLog log)
+    {
+        if (log.Redacted) return false;
+
+        RedactActions(log);
+        log.Redacted = true;
+        return true;
+    }
+
+    private static void RedactActions(WorkflowExecutionLog log)
+    {
+        foreach (var action in log.Actions)
+        {
+            action.ResolvedParameters = RecordableParameters(action.ResolvedParameters);
+
+            // An older record may hold a raw exception message, and nothing on it says which failures
+            // were exceptions, so every error on it is replaced.
+            if (!log.Redacted && action.ErrorMessage is not null)
+            {
+                action.ErrorMessage = UnredactedErrorMessage;
+            }
+        }
     }
 
 }

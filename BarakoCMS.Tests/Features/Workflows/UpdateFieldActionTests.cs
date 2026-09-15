@@ -1,5 +1,6 @@
 using System.Text.Json;
 using barakoCMS.Core;
+using barakoCMS.Core.Hooks;
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Events;
 using barakoCMS.Features.Workflows;
@@ -545,6 +546,77 @@ public class UpdateFieldActionTests
     }
 
     /// <summary>
+    /// A data write from a workflow runs the content type's lifecycle hooks, so a refusal there stops
+    /// the write. Here that is the parent loop ParentReferenceHook exists to stop: the parent pointed
+    /// at its own child.
+    /// </summary>
+    [Fact]
+    public async Task A_parent_update_that_closes_a_loop_fails_permanently_and_stores_nothing()
+    {
+        const string tenant = "update-field-parent-loop";
+        const string type = "update-field-page";
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var parentId = Guid.NewGuid();
+        var childId = Guid.NewGuid();
+
+        await SeedAsync(store, tenant, parentId, type, ContentStatus.Draft,
+            new Dictionary<string, object> { { "Title", "parent" } });
+        await SeedAsync(store, tenant, childId, type, ContentStatus.Draft,
+            new Dictionary<string, object> { { "Title", "child" }, { "ParentPage", parentId.ToString() } });
+
+        var result = await RunAndGetResultAsync(store, tenant, parentId, new Dictionary<string, string>
+        {
+            { "Field", "data.ParentPage" },
+            { "Value", childId.ToString() },
+        }, new ParentReferenceHook(type, "ParentPage"));
+
+        result.Succeeded.Should().BeFalse("the parent hook refuses a loop");
+        result.Retryable.Should().BeFalse("the hook refuses the same data on every retry");
+        result.Error.Should().Contain("cycle");
+
+        var stored = await LoadAsync(store, tenant, parentId);
+        stored.Data.Should().ContainKey("Title", "the entry's own data is still there");
+        stored.Data.Should().NotContainKey("ParentPage");
+    }
+
+    /// <summary>A hook may enrich the data as well as refuse it, and what it adds is what is stored.</summary>
+    [Fact]
+    public async Task A_hook_that_rewrites_the_data_has_its_change_stored()
+    {
+        const string tenant = "update-field-hook-rewrite";
+        const string type = "update-field-stamped";
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var contentId = Guid.NewGuid();
+
+        await SeedAsync(store, tenant, contentId, type, ContentStatus.Draft,
+            new Dictionary<string, object> { { "Priority", "Low" } });
+
+        var result = await RunAndGetResultAsync(store, tenant, contentId, new Dictionary<string, string>
+        {
+            { "Field", "data.Priority" },
+            { "Value", "High" },
+        }, new StampingHook(type));
+
+        result.Succeeded.Should().BeTrue(result.Error);
+
+        var stored = await LoadAsync(store, tenant, contentId);
+        AsString(stored.Data["Priority"]).Should().Be("High");
+        stored.Data.Should().ContainKey("Stamp");
+        AsString(stored.Data["Stamp"]).Should().Be("stamped by hook");
+    }
+
+    private sealed class StampingHook(string contentType) : IContentLifecycleHook
+    {
+        public string ContentType => contentType;
+
+        public Task<IReadOnlyList<string>> OnBeforeSaveAsync(ContentLifecycleContext context, CancellationToken ct)
+        {
+            context.Data["Stamp"] = "stamped by hook";
+            return Task.FromResult<IReadOnlyList<string>>([]);
+        }
+    }
+
+    /// <summary>
     /// Creates content the way this system actually creates it, through <c>IContentWriter</c>, so
     /// its event stream exists before the action appends to it. A raw <c>session.Store</c> would
     /// leave the stream unstarted, which every real caller here avoids by going through the writer.
@@ -575,11 +647,13 @@ public class UpdateFieldActionTests
     /// but through RunAsync directly so the caller can see what the action reports, the way
     /// WorkflowRunner does.</summary>
     private static async Task<WorkflowActionResult> RunAndGetResultAsync(
-        IDocumentStore store, string tenant, Guid contentId, Dictionary<string, string> parameters)
+        IDocumentStore store, string tenant, Guid contentId, Dictionary<string, string> parameters,
+        params IContentLifecycleHook[] hooks)
     {
         await using var session = store.LightweightSession(tenant);
         var writer = new ContentWriter(session, new ContentSourcingPolicyService(session));
-        var action = new UpdateFieldAction(session, writer, NullLogger<UpdateFieldAction>.Instance);
+        var action = new UpdateFieldAction(
+            session, writer, new ContentLifecycleRunner(hooks, session), NullLogger<UpdateFieldAction>.Instance);
         var triggerContent = new Content { Id = contentId, LastModifiedBy = Guid.NewGuid() };
 
         return await action.RunAsync(parameters, triggerContent, TestContext.Current.CancellationToken);
@@ -592,7 +666,8 @@ public class UpdateFieldActionTests
     private static async Task RunOnceAsync(IDocumentSession session, Guid contentId, Dictionary<string, string> parameters)
     {
         var writer = new ContentWriter(session, new ContentSourcingPolicyService(session));
-        var action = new UpdateFieldAction(session, writer, NullLogger<UpdateFieldAction>.Instance);
+        var action = new UpdateFieldAction(
+            session, writer, new ContentLifecycleRunner([], session), NullLogger<UpdateFieldAction>.Instance);
 
         // Stands in for the content WorkflowRunner.ExecuteAsync loads before calling the handler.
         // Only Id and LastModifiedBy are read from it when no TargetId parameter is set; the action

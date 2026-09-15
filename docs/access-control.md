@@ -291,6 +291,25 @@ per type instead of hardcoded.
    caller who cannot see a field cannot set it, and omitting it is not a way to
    delete it. Admin UI per-field toggles are still outstanding.
 
+## API key scopes
+
+An API key is confined to the content surface, and its scopes narrow that further. The key still acts
+as its owner, so it can never do more than the owner's own roles and capabilities allow.
+`ApiKeyScopeProcessor` enforces the scopes; `ApiKeyIntegrationTests` covers them.
+
+| Scope | What it allows |
+| --- | --- |
+| `content:read` | `GET` under `/api/contents` |
+| `content:write` | `POST`, `PUT`, `PATCH` and `DELETE` under `/api/contents`, except erase and rollback |
+| `content:destructive` | `DELETE /api/contents/{id}/erase` and `POST /api/contents/{id}/rollback/{versionId}` |
+| `contenttype:read` | `GET` under `/api/content-types` and `/api/schemas` |
+| `contenttype:write` | `POST`, `PUT`, `PATCH` and `DELETE` under `/api/content-types` and `/api/schemas` |
+| `*` | all of the above |
+
+`content:destructive` does not include `content:write`, and `content:write` does not include it. Before
+#653 a `content:write` key could erase and roll back; such a key now gets 403 on both routes and needs
+`content:destructive` added. A `*` key is unchanged.
+
 ## Administrative endpoints: system capabilities
 
 Everything above is about content. Administrative endpoints (roles, tenants, users,
