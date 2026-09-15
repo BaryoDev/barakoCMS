@@ -98,9 +98,10 @@ renderer that does not know the number should show no menu rather than stop.
     { "id": "...", "title": "Team", "slug": "team", "path": "/about/team" } ] }
 ```
 
-`truncated` is true when the type holds more than `MaxPages` published pages. Pages are read oldest
-first, so the newer ones, and every page under them, are missing from the menu even though resolve
-still serves them. Raise `MaxPages` when a site sees it.
+`truncated` is true when the type holds more than `MaxPages` published pages, counted before the
+navigation flag is read. Pages are read oldest first, so the newer ones, and every page under them,
+may be missing from the menu even though resolve still serves them. Raise `MaxPages` when a site
+sees it.
 
 `entry` is the same shape `GET /api/public/{type}/{slug}` returns.
 
