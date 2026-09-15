@@ -200,4 +200,161 @@ public class WorkflowCredentialEncryptionTests
         parameters["Secret"].Should().Be(secretEnvelope, "Webhook decrypts its own Secret");
         parameters["Token"].Should().Be("typed-before-the-upgrade");
     }
+    [Fact]
+    public async Task The_runner_hands_a_hex_api_key_saved_on_a_workflow_to_the_action_as_typed()
+    {
+        var hexApiKey = Convert.ToHexStringLower(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+        var definition = new WorkflowDefinition
+        {
+            Actions = [new WorkflowAction { Type = "CredentialEcho", Parameters = new Dictionary<string, string> { ["ApiKey"] = hexApiKey } }],
+        };
+        WebhookSigning.ProtectSecrets(definition, Protector());
+        definition.Actions[0].Parameters["ApiKey"].Should().StartWith(AesGcmEnvelope.VersionPrefix)
+            .And.NotContain(hexApiKey, "saving the workflow encrypts the key rather than mistaking it for ciphertext");
+
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var contentId = Guid.NewGuid();
+        var run = new WorkflowRun
+        {
+            Id = Guid.NewGuid(),
+            WorkflowDefinitionId = Guid.NewGuid(),
+            WorkflowName = "Hex credential",
+            ContentId = contentId,
+            ContentType = "article",
+            TriggerEvent = "Published",
+            TriggeringEventSequence = 1,
+            Actions =
+            [
+                new WorkflowActionAttempt
+                {
+                    Ordinal = 0,
+                    ActionType = "CredentialEcho",
+                    IdempotencyKey = Guid.NewGuid().ToString("N"),
+                    // What a run queued from the saved definition copies.
+                    Parameters = new Dictionary<string, string>(definition.Actions[0].Parameters),
+                },
+            ],
+        };
+
+        await using (var session = store.LightweightSession())
+        {
+            session.Store(new Content { Id = contentId, ContentType = "article", Status = ContentStatus.Published });
+            run.Recompute();
+            session.Store(run);
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        var runner = new WorkflowRunner(
+            _fixture.Services,
+            _fixture.Services.GetRequiredService<ILogger<WorkflowRunner>>(),
+            _fixture.Services.GetRequiredService<IConfiguration>());
+
+        var key = run.Id.ToString();
+        for (var polls = 0; polls < 100 && !CredentialEchoAction.ReceivedByRun.ContainsKey(key); polls++)
+        {
+            await using (var check = store.QuerySession())
+            {
+                var current = await check.LoadAsync<WorkflowRun>(run.Id, TestContext.Current.CancellationToken);
+                if (current!.Actions[0].Status == AttemptStatus.Failed) break;
+            }
+
+            if (!await runner.RunOnceAsync(TestContext.Current.CancellationToken))
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(100), TestContext.Current.CancellationToken);
+            }
+        }
+
+        CredentialEchoAction.ReceivedByRun.Should().ContainKey(key, "the attempt must not fail trying to decrypt a value saved in clear");
+        CredentialEchoAction.ReceivedByRun[key].Should().Be(hexApiKey);
+    }
+
+    [Fact]
+    public async Task The_migration_prefixes_an_old_envelope_encrypts_a_clear_value_and_leaves_an_undecryptable_secret()
+    {
+        var apiKey = NewPlaintext();
+        var hexToken = Convert.ToHexStringLower(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+        var prefixed = Protector().Protect(apiKey);
+        prefixed.Should().StartWith(AesGcmEnvelope.VersionPrefix);
+        var unprefixedEnvelope = prefixed[AesGcmEnvelope.VersionPrefix.Length..];
+
+        var otherKey = new SecretProtector(new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Secrets:Key"] = "a-different-key-that-is-at-least-32-characters" })
+            .Build());
+        var rotatedSecret = otherKey.Protect("whsec_rotated")[AesGcmEnvelope.VersionPrefix.Length..];
+
+        // What a build that recognised ciphertext by shape wrote over a prefixed value: the prefixed
+        // envelope, encrypted again without a prefix.
+        var accessKey = NewPlaintext();
+        var innerEnvelope = Protector().Protect(accessKey);
+        var doubleWrapped = Protector().Protect(innerEnvelope)[AesGcmEnvelope.VersionPrefix.Length..];
+
+        var id = Guid.NewGuid();
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        await using (var session = store.LightweightSession())
+        {
+            session.Store(new WorkflowDefinition
+            {
+                Id = id,
+                Name = "pre-prefix-" + id.ToString("N"),
+                TriggerContentType = "article",
+                TriggerEvent = "Published",
+                Actions =
+                [
+                    new WorkflowAction
+                    {
+                        Type = "CredentialEcho",
+                        Parameters = new Dictionary<string, string>
+                        {
+                            ["ApiKey"] = unprefixedEnvelope, ["Token"] = hexToken, ["Secret"] = rotatedSecret,
+                            ["AccessKey"] = doubleWrapped, ["Channel"] = "#ops",
+                        },
+                    },
+                ],
+            });
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        var logger = new CapturingLogger();
+        var migration = new WorkflowCredentialMigrationService(store, Protector(), logger);
+        await migration.ProtectAllTenantsAsync(TestContext.Current.CancellationToken);
+
+        await using (var check = store.QuerySession())
+        {
+            var stored = await check.LoadAsync<WorkflowDefinition>(id, TestContext.Current.CancellationToken);
+            var parameters = stored!.Actions.Single().Parameters;
+
+            parameters["ApiKey"].Should().Be(AesGcmEnvelope.VersionPrefix + unprefixedEnvelope,
+                "an envelope that decrypts keeps its ciphertext and gains the prefix");
+            parameters["Token"].Should().StartWith(AesGcmEnvelope.VersionPrefix);
+            Protector().Unprotect(parameters["Token"]).Should().Be(hexToken);
+            parameters["Secret"].Should().Be(rotatedSecret, "a Secret the key cannot read is not encrypted as if it were the secret");
+            parameters["Channel"].Should().Be("#ops");
+            parameters["AccessKey"].Should().Be(innerEnvelope, "a prefixed envelope wrapped a second time is unwrapped");
+
+            var (unprotected, error) = WebhookSigning.UnprotectCredentials(parameters, Protector());
+            error.Should().BeNull();
+            unprotected["AccessKey"].Should().Be(accessKey);
+        }
+
+        (await StoredJsonAsync(id)).Should().NotContain(hexToken);
+
+        logger.Lines.Should().ContainSingle(line => line.Contains("Secret") && line.Contains(id.ToString()));
+        logger.Lines.Should().NotContain(line => line.Contains(rotatedSecret) || line.Contains(hexToken) || line.Contains(apiKey));
+
+        var afterFirst = await StoredJsonAsync(id);
+        await migration.ProtectAllTenantsAsync(TestContext.Current.CancellationToken);
+        (await StoredJsonAsync(id)).Should().Be(afterFirst, "a second pass changes nothing");
+    }
+
+    private sealed class CapturingLogger : ILogger<WorkflowCredentialMigrationService>
+    {
+        public System.Collections.Concurrent.ConcurrentQueue<string> Lines { get; } = new();
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+            => Lines.Enqueue(formatter(state, exception));
+    }
 }

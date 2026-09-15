@@ -62,7 +62,10 @@ internal static class WebhookSigning
         return "sha256=" + Convert.ToHexStringLower(digest);
     }
 
-    /// <summary>Encrypts every credential-named parameter on every action, in place.</summary>
+    /// <summary>
+    /// Encrypts every credential-named parameter on every action of a definition that arrived in a
+    /// request, in place.
+    /// </summary>
     /// <remarks>
     /// <para>
     /// Every action type, not only Webhook (issue #526), and every name
@@ -71,13 +74,20 @@ internal static class WebhookSigning
     /// as secret, so encrypting only one of them showed the rest as protected while they sat in clear.
     /// </para>
     /// <para>
-    /// A value already shaped like an envelope is left alone, which is what lets the startup
-    /// migration run this over stored workflows more than once.
+    /// Every non-blank value is encrypted, whatever it looks like. A request carries what somebody
+    /// typed, and the API never hands ciphertext back to type in, so nothing here is already an
+    /// envelope. Skipping values that looked like one is what left a base64 or hex API key in clear.
+    /// Stored definitions go through <see cref="MigrateStoredCredentials"/> instead, which does have
+    /// to tell the two apart.
+    /// </para>
+    /// <para>
+    /// Only <see cref="SecretParameter"/> is trimmed, as it always was. Any other credential is kept
+    /// exactly as typed, because a password with a leading space is a different password.
     /// </para>
     /// <para>
     /// Unprotecting is split. <see cref="SecretParameter"/> reaches the action as ciphertext, as it
     /// always has, and the action decrypts it (Webhook does, in <see cref="WebhookAction"/>). Every
-    /// other credential name is decrypted by the runner before the action sees it, by
+    /// other credential name is decrypted before the action sees it, by
     /// <see cref="UnprotectCredentials"/>, so a custom action that read its ApiKey as plaintext before
     /// this still does.
     /// </para>
@@ -91,9 +101,9 @@ internal static class WebhookSigning
         {
             foreach (var name in action.Parameters.Keys.Where(IsSensitiveParameterName).ToList())
             {
-                var trimmed = action.Parameters[name]?.Trim() ?? string.Empty;
+                var value = action.Parameters[name];
 
-                if (trimmed.Length == 0)
+                if (string.IsNullOrWhiteSpace(value))
                 {
                     if (name != SecretParameter) continue;
 
@@ -102,9 +112,87 @@ internal static class WebhookSigning
                     continue;
                 }
 
-                if (LooksProtected(trimmed)) continue;
+                action.Parameters[name] = protector.Protect(name == SecretParameter ? value.Trim() : value);
+                changed = true;
+            }
+        }
 
-                action.Parameters[name] = protector.Protect(trimmed);
+        return changed;
+    }
+
+    /// <summary>
+    /// Brings the credential-named parameters of a stored definition up to the prefixed envelope, in
+    /// place.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A value with the prefix is left alone. One without it is one of three things, told apart by
+    /// trying the current key: an envelope written before the prefix existed (it decrypts, and gains
+    /// the prefix with its ciphertext unchanged), a value stored in clear (it does not decrypt, and is
+    /// encrypted), or a <see cref="SecretParameter"/> that has the envelope's shape and will not
+    /// decrypt.
+    /// </para>
+    /// <para>
+    /// That last one is left untouched and reported through <paramref name="undecryptableSecret"/>.
+    /// Every release since #524 encrypts Secret on save whatever it looks like, so on a released
+    /// deployment an envelope-shaped Secret that will not decrypt is a changed Secrets:Key.
+    /// Encrypting that ciphertext as if it were the secret would sign every delivery with the wrong
+    /// key and stop the old key from recovering it. The cost is the other reading, a plaintext
+    /// Secret that only happens to look like an envelope (a custom action from before #524, or an
+    /// unreleased build between #765 and the prefix), which stays as it is until the workflow is
+    /// recreated. The other names were never encrypted before #765, so for them clear is the likely
+    /// reading.
+    /// </para>
+    /// <para>
+    /// Safe to run again and on several instances at once: every write produces a prefixed envelope
+    /// of the same plaintext, and a prefixed value is never touched.
+    /// </para>
+    /// </remarks>
+    /// <param name="undecryptableSecret">Called with the action's index and the parameter name, never the value.</param>
+    /// <returns>True when any parameter was changed.</returns>
+    public static bool MigrateStoredCredentials(
+        WorkflowDefinition workflow, ISecretProtector protector, Action<int, string>? undecryptableSecret = null)
+    {
+        var changed = false;
+
+        for (var index = 0; index < workflow.Actions.Count; index++)
+        {
+            var action = workflow.Actions[index];
+
+            foreach (var name in action.Parameters.Keys.Where(IsSensitiveParameterName).ToList())
+            {
+                var value = action.Parameters[name];
+
+                if (string.IsNullOrWhiteSpace(value))
+                {
+                    if (name != SecretParameter) continue;
+
+                    action.Parameters.Remove(name);
+                    changed = true;
+                    continue;
+                }
+
+                if (LooksProtected(value)) continue;
+
+                var decrypted = protector.Unprotect(value);
+                if (decrypted is not null)
+                {
+                    // A prefixed envelope encrypted a second time by a build that still recognised
+                    // ciphertext by shape, when both ran against one database. The inner envelope is
+                    // the credential; prefixing the outer one would hand the action ciphertext.
+                    var inner = LooksProtected(decrypted) && protector.Unprotect(decrypted) is not null;
+                    action.Parameters[name] = inner ? decrypted : AesGcmEnvelope.VersionPrefix + value;
+                    changed = true;
+                    continue;
+                }
+
+                if (name == SecretParameter && AesGcmEnvelope.IsWellFormed(value))
+                {
+                    undecryptableSecret?.Invoke(index, name);
+                    continue;
+                }
+
+                action.Parameters[name] = protector.Protect(name == SecretParameter ? value.Trim() : value);
                 changed = true;
             }
         }
@@ -117,10 +205,11 @@ internal static class WebhookSigning
     /// decrypted, for handing to an action.
     /// </summary>
     /// <remarks>
-    /// A value that is not shaped like an envelope passes through as it is. That is a workflow saved
-    /// before #765 that the startup migration has not reached yet, and it worked in clear before the
-    /// upgrade, so it keeps working. A value that is shaped right and still will not decrypt is a
-    /// changed Secrets:Key, and the error says so by parameter name, never by value.
+    /// A prefixed value that will not decrypt is a changed Secrets:Key, and the error says so by
+    /// parameter name, never by value. A value without the prefix is tried too, since an envelope
+    /// written before the prefix existed can still be on a run queued before the startup migration
+    /// reached its workflow; when it does not decrypt it is a value in clear from before #765, which
+    /// worked before the upgrade and so passes through as it is.
     /// </remarks>
     public static (Dictionary<string, string> Parameters, string? Error) UnprotectCredentials(
         IReadOnlyDictionary<string, string> parameters, ISecretProtector protector)
@@ -129,19 +218,19 @@ internal static class WebhookSigning
 
         foreach (var (name, value) in parameters)
         {
-            if (name == SecretParameter || !IsSensitiveParameterName(name) || !LooksProtected(value))
+            if (name == SecretParameter || !IsSensitiveParameterName(name) || string.IsNullOrEmpty(value))
             {
                 copy[name] = value;
                 continue;
             }
 
             var plaintext = protector.Unprotect(value);
-            if (plaintext is null)
+            if (plaintext is null && LooksProtected(value))
             {
                 return (copy, $"The {name} parameter could not be decrypted (Secrets:Key changed?). Enter it again on the workflow.");
             }
 
-            copy[name] = plaintext;
+            copy[name] = plaintext ?? value;
         }
 
         return (copy, null);
@@ -150,18 +239,23 @@ internal static class WebhookSigning
     public static bool HasSecret(IReadOnlyDictionary<string, string> parameters) =>
         parameters.TryGetValue(SecretParameter, out var value) && !string.IsNullOrWhiteSpace(value);
 
+    /// <summary>Whether a stored value carries the envelope prefix <see cref="ISecretProtector"/> writes.</summary>
+    public static bool LooksProtected(string storedValue) => AesGcmEnvelope.HasVersionPrefix(storedValue);
+
     /// <summary>
-    /// Whether a stored Secret value is shaped like something <see cref="ProtectSecrets"/> produced,
-    /// as opposed to plaintext saved before this action's secret was protected.
+    /// Whether a stored Secret that will not decrypt could ever have been ciphertext, as opposed to
+    /// plaintext saved before this action's secret was protected.
     /// </summary>
     /// <remarks>
     /// A Webhook action saved before #524 (or a custom action saved before #526) can hold a Secret
     /// parameter that was never encrypted. <see cref="ISecretProtector.Unprotect"/> returns null both
-    /// for that case and for one that is shaped right but will not decrypt under the current key, and
-    /// the two need different messages: an operator retyping a rotated secret is not the same fix as
-    /// recreating a workflow that predates encryption.
+    /// for that case and for one that will not decrypt under the current key, and the two need
+    /// different messages: an operator retyping a rotated secret is not the same fix as recreating a
+    /// workflow that predates encryption. The prefix settles it for a value written since; for one
+    /// written before the prefix, the envelope's shape is the best evidence there is.
     /// </remarks>
-    public static bool LooksProtected(string storedValue) => AesGcmEnvelope.IsWellFormed(storedValue);
+    public static bool CouldBeCiphertext(string storedValue) =>
+        LooksProtected(storedValue) || AesGcmEnvelope.IsWellFormed(storedValue);
 
     /// <summary>
     /// Parameter names whose value is a credential, and so must never be stored on a run record or
