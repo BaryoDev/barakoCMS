@@ -86,10 +86,12 @@ internal class Endpoint : Endpoint<Request, Response>
     /// <remarks>
     /// The slug field and the match are the ones delivery and the uniqueness rule use, so all three
     /// agree on which entry a slug names. Oldest first with the id as tiebreak for the same reason the
-    /// public route orders: uniqueness is enforced going forward (#717), and a deployment that already
-    /// held a duplicate should get a stable answer rather than whichever row Postgres returns. More
-    /// than one row is returned so that a duplicate the caller cannot read does not hide a newer one
-    /// they can.
+    /// public route orders: uniqueness is a check on write (#717), not a constraint, so a deployment
+    /// can still hold duplicates (rows from before it, a bulk import, a workflow field update, two
+    /// concurrent saves) and should get a stable answer rather than whichever row Postgres returns.
+    /// More than one row is returned so that a duplicate the caller cannot read does not hide a newer
+    /// one they can. Only the oldest ten are checked: past that a readable duplicate answers 404, and
+    /// the bound stays because any signed-in account reaches this route.
     /// </remarks>
     private async Task<IReadOnlyList<barakoCMS.Models.Content>> FindAsync(string type, string slug, CancellationToken ct)
     {

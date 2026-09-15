@@ -10,8 +10,9 @@ using barakoCMS.Models;
 namespace BarakoCMS.Tests;
 
 /// <summary>
-/// <c>GET /api/contents/by-slug/{type}/{slug}</c> answers what <c>GET /api/contents/{id}</c> answers
-/// for the entry the slug names.
+/// <c>GET /api/contents/by-slug/{type}/{slug}</c> applies the read check and masking
+/// <c>GET /api/contents/{id}</c> applies to the entry the slug names, except that an entry the
+/// caller may not read answers 404, as a missing slug does.
 /// </summary>
 /// <remarks>
 /// Every type here is left not publicly deliverable and every entry a Draft, because that is the case
@@ -183,6 +184,36 @@ public class ContentBySlugTests
         olderById.StatusCode.Should().Be(HttpStatusCode.Forbidden, "the row condition must deny the older duplicate");
         bySlug.StatusCode.Should().Be(HttpStatusCode.OK);
         (await JsonAsync(bySlug)).GetProperty("id").GetGuid().Should().Be(newer.Id);
+    }
+
+    /// <summary>
+    /// The newer row is stored first, so neither a reversed order nor a missing one can return the
+    /// older row by insertion order.
+    /// </summary>
+    [Fact]
+    public async Task The_oldest_readable_duplicate_wins()
+    {
+        var type = $"dupo_{Guid.NewGuid():N}"[..20];
+        var older = Entry(type, "shared-slug", "older");
+        older.CreatedAt = DateTime.UtcNow.AddMinutes(-10);
+        var newer = Entry(type, "shared-slug", "newer");
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            await using var session = scope.ServiceProvider.GetRequiredService<IDocumentStore>().LightweightSession();
+            session.Store(TypeDefinition(type));
+            session.Store(newer);
+            await session.SaveChangesAsync();
+            session.Store(older);
+            await session.SaveChangesAsync();
+        }
+
+        var viewer = await ViewerAsync(type, canRead: true, "203.0.113.178");
+
+        var resp = await viewer.GetAsync($"/api/contents/by-slug/{type}/shared-slug");
+
+        resp.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await JsonAsync(resp)).GetProperty("id").GetGuid().Should().Be(older.Id);
     }
 
     [Fact]
