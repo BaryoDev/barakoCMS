@@ -183,17 +183,34 @@ public class ApiKeyIntegrationTests
         (await ContentExistsAsync(id)).Should().BeTrue("a refused erase must leave the entry in place");
     }
 
-    [Fact]
-    public async Task WriteKey_CannotRollBackContent()
+    [Theory]
+    [InlineData("/api/contents/{0}/rollback/{1}")]
+    [InlineData("/API/Contents/{0}/Rollback/{1}/")]
+    public async Task WriteKey_CannotRollBackContent(string route)
     {
         var (userId, _) = await SuperAdminAsync();
         var secret = await StoreKeyAsync(userId, new[] { "content:read", "content:write" });
         var id = await SeedContentAsync();
 
         var res = await _client.SendAsync(
-            WithKey(HttpMethod.Post, $"/api/contents/{id}/rollback/{Guid.NewGuid()}", secret));
+            WithKey(HttpMethod.Post, string.Format(route, id, Guid.NewGuid()), secret));
 
         res.StatusCode.Should().Be(HttpStatusCode.Forbidden, "rollback needs content:destructive, not content:write");
+    }
+
+    [Theory]
+    [InlineData("/api/contents/by-slug/erase/missing")]
+    [InlineData("/api/contents/by-slug/rollback/missing")]
+    [InlineData("/API/Contents/By-Slug/Rollback/missing/")]
+    public async Task ReadWriteKey_ReadingBySlugFromATypeNamedEraseOrRollback_IsNotTreatedAsDestructive(string route)
+    {
+        var (userId, _) = await SuperAdminAsync();
+        var secret = await StoreKeyAsync(userId, new[] { "content:read", "content:write" });
+
+        var res = await _client.SendAsync(Get(route, secret));
+
+        res.StatusCode.Should().Be(HttpStatusCode.NotFound,
+            "a by-slug read needs content:read, and a missing slug is 404 whatever the type is called");
     }
 
     [Theory]
