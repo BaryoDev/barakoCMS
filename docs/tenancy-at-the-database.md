@@ -86,6 +86,21 @@ undoing to get back to the application-only behaviour. Point the connection stri
 superuser only if you also want the policies bypassed, which is a strange state to be in
 deliberately.
 
+## Background work
+
+The workflow runner, the job queue worker, and the workflow run and webhook delivery retention
+sweeps work across every tenant. With enforcement off they read every tenant's rows in one query.
+With it on they cannot, because that query runs outside any tenant and the policy holds it to one,
+so they list tenants from the registry instead: every `Tenant`, active or not, plus the default
+partition. Two consequences:
+
+- Each pass costs one query per registered tenant. The workflow runner polls every five seconds
+  when idle and starts again from the registry for every attempt it claims. The job queue probes
+  each queue every `Jobs:StorageProbeSeconds` (60 by default) and pays the same again for every
+  batch it claims while draining.
+- Rows in a partition with no `Tenant` document (written under an `X-Tenant` header naming a slug
+  nobody registered) are not reached. Register the tenant to bring them back into scope.
+
 ## Two things to know before you deploy it
 
 **Connection footprint.** The tenant is set as a session variable, so the connection has to carry it

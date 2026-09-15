@@ -114,7 +114,7 @@ internal sealed class WorkflowRunner : BackgroundService
         using var scope = _services.CreateScope();
         var store = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
 
-        foreach (var tenantId in await PartitionsWithWorkAsync(store, ct))
+        foreach (var tenantId in await TenantPartitions.ListAsync(store, _config, PartitionsWithWorkSql, ct))
         {
             await using var query = store.QuerySession(tenantId);
 
@@ -134,37 +134,22 @@ internal sealed class WorkflowRunner : BackgroundService
     }
 
     /// <summary>
-    /// The partitions that actually hold unfinished work.
+    /// The partitions that actually hold unfinished work, when the rows can be asked directly.
     /// </summary>
     /// <remarks>
-    /// Read from the runs table rather than from the tenant registry, which is what
-    /// ScheduledContentService does. The registry is the right source for a sweep that visits every
-    /// tenant looking for something to do; it is the wrong one for draining a queue, because a run
-    /// queued before a tenant was deactivated would then never execute and nothing would say so.
-    /// Asking the rows themselves cannot miss one.
+    /// Rows rather than the registry, which is what ScheduledContentService reads. The registry is
+    /// the right source for a sweep that visits every tenant looking for something to do; it is the
+    /// wrong one for draining a queue, because a partition it does not list would never execute and
+    /// nothing would say so. Asking the rows themselves cannot miss one.
     ///
-    /// Distinct tenant ids only, so this is one index-backed query rather than a scan per tenant.
+    /// Only with database tenancy off. With it on, <see cref="TenantPartitions"/> reads the registry
+    /// instead, including inactive tenants, and the due query in <see cref="RunOnceAsync"/> is what
+    /// skips a partition with nothing to do. Every pass starts again from the registry, so a drain
+    /// costs one due query per registered tenant per attempt claimed.
     /// </remarks>
-    private static async Task<IReadOnlyList<string>> PartitionsWithWorkAsync(IDocumentStore store, CancellationToken ct)
-    {
-        var partitions = new List<string>();
-
-        await using var conn = store.Storage.Database.CreateConnection();
-        await conn.OpenAsync(ct);
-
-        await using var cmd = conn.CreateCommand();
-        cmd.CommandText =
-            "select distinct tenant_id from public.mt_doc_workflow_runs "
-          + "where (data ->> 'Status')::integer in (0, 1)";
-
-        await using var reader = await cmd.ExecuteReaderAsync(ct);
-        while (await reader.ReadAsync(ct))
-        {
-            partitions.Add(reader.GetString(0));
-        }
-
-        return partitions;
-    }
+    private const string PartitionsWithWorkSql =
+        "select distinct tenant_id from public.mt_doc_workflow_runs "
+      + "where (data ->> 'Status')::integer in (0, 1)";
 
     /// <summary>Claims the next due attempt of one run and executes it.</summary>
     private async Task<bool> TryRunAsync(IDocumentStore store, Guid runId, string tenantId, CancellationToken ct)
