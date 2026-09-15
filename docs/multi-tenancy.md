@@ -64,9 +64,11 @@ same set of tenants by a longer route, which is why #147 closed as not-an-escala
 
 Domains are written with the tenant, `POST /api/tenants` and `PUT /api/tenants/{handle}`, and each
 write clears the cached map, so a change routes on the next request. A domain belongs to one tenant;
-a second claim is a 409. `GET /api/tenants/by-host/{host}` answers which active tenant a domain
+a second claim is a 409. `GET /api/tenants/by-host/{host}` answers which active tenant a host
 belongs to, anonymously and with the handle only, for a renderer serving several sites from one
-process.
+process. It resolves the host the same way requests are routed: a registered domain first, then the
+leading subdomain, so `acme.example.com` answers `acme` when an active tenant has that handle and no
+domain row claims the host. An unknown or inactive handle is a 404 either way.
 
 `RefuseUnknownHosts` turns a host that looks like a custom domain but matches nothing into a 404,
 rather than quietly serving the default tenant. It is opt-in, because on a single-tenant deployment

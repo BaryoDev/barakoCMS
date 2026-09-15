@@ -82,10 +82,13 @@ internal sealed class ResolveRedirectEndpoint : EndpointWithoutRequest<ResolveRe
             return;
         }
 
+        // Normalised on the way out as well as on save. A rule can be older than the save path's
+        // handling of backslashes and control characters and still hold "/\evil.com", and serving
+        // it verbatim sends an anonymous visitor to another host.
         await Send.OkAsync(new ResolveRedirectResponse
         {
-            FromPath = redirect.FromPath,
-            ToPath = redirect.ToPath,
+            FromPath = UrlRedirect.Normalize(redirect.FromPath),
+            ToPath = UrlRedirect.Normalize(redirect.ToPath),
             Status = redirect.Permanent ? 301 : 302,
         }, ct);
     }
