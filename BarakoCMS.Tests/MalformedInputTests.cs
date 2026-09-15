@@ -147,6 +147,13 @@ public class MalformedInputTests
 
         response.StatusCode.Should().Be(HttpStatusCode.RequestEntityTooLarge, body);
         body.Should().NotContain("Request body too large");
+
+        // The refusal is written after the response is cleared, and the headers have to survive that.
+        response.Headers.TryGetValues(barakoCMS.Features.Monitoring.Meta.ApiContract.HeaderName, out var contract)
+            .Should().BeTrue("a console reads the contract version from every response, errors included");
+        contract!.Should().ContainSingle().Which.Should().Be(barakoCMS.Features.Monitoring.Meta.ApiContract.Version.ToString());
+        response.Headers.TryGetValues("X-Content-Type-Options", out var nosniff).Should().BeTrue();
+        nosniff!.Should().ContainSingle().Which.Should().Be("nosniff");
     }
 
     /// <summary>
