@@ -212,7 +212,7 @@ public class RedirectEndpointTests
     [Fact]
     public async Task A_rule_stored_before_normalisation_is_served_as_a_local_path()
     {
-        // Written straight to the session, because the save endpoint now normalises and would hide
+        // Written straight to the session, because the save endpoint normalises and would hide
         // the case: a rule saved before that still holds the backslash in the database.
         var from = Unique();
         using (var scope = _factory.Services.CreateScope())

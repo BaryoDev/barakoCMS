@@ -40,7 +40,10 @@ internal sealed class TenantByHostEndpoint : EndpointWithoutRequest<TenantByHost
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        var host = Route<string>("host");
+        // Without its port, as routing reads Request.Host.Host. The leading-subdomain rule splits on
+        // dots and would otherwise read "100.64.0.1:8080" as the handle "100".
+        var raw = Route<string>("host");
+        var host = string.IsNullOrWhiteSpace(raw) ? raw : new HostString(raw).Host;
         var map = await _domains.GetAsync(ct);
         var resolved = TenantResolutionMiddleware.Resolve(host, map);
         var slug = resolved.Slug;

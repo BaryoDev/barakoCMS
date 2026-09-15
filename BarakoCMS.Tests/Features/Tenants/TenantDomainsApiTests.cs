@@ -209,4 +209,18 @@ public class TenantDomainsApiTests
         (await ByHostAsync($"{Handle()}.sites.example")).StatusCode.Should().Be(HttpStatusCode.NotFound);
         (await ByHostAsync("www.sites.example")).StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
+
+    /// <summary>
+    /// Routing reads the host without its port, so an IP address stays an IP address. Splitting the
+    /// raw value on dots instead would read "100.64.0.1:8080" as the handle "100".
+    /// </summary>
+    [Fact]
+    public async Task A_port_does_not_turn_an_ip_address_into_a_subdomain()
+    {
+        var client = await SuperAdminAsync();
+        var created = await CreateAsync(client, "100");
+        created.StatusCode.Should().BeOneOf(HttpStatusCode.OK, HttpStatusCode.Conflict);
+
+        (await ByHostAsync("100.64.0.1:8080")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
 }
