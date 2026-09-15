@@ -1011,3 +1011,33 @@ files across the line is deliberate and reviewed.
 **What would make it wrong.** A module or client needing an engine file under MIT to be usable at
 all. MPL-2.0 permits use in closed products, so that should not happen; if it does, it is a reason
 to revisit D24, not to copy the file.
+
+## D25. A tenant is a data boundary, not a site
+
+**Decided:** 15 Sept 2026. **Status:** accepted. **Issue:** #935.
+
+A tenant is an entity whose data is visible only to itself: a hotel branch, a school, a client. Tenants
+can run the same processes, and their data can be aggregated above them. A tenant is not a site. One
+tenant per site is a common setup, not a rule.
+
+- **Isolation.** A tenant's entries, files, events and runs are readable only inside that tenant.
+  Database enforcement (`Tenancy:DatabaseEnforcement`) is the backstop.
+- **Similar processes.** Content types, workflows, lifecycles and roles can be defined once for a group
+  of tenants and used by each of them (#945). A tenant may add its own beside them.
+- **Aggregation.** A principal holding a group capability can read totals and lists across the tenants
+  of the group, run per tenant so isolation still holds (#946). A tenant member never sees another
+  tenant's rows.
+- **Groups.** The group is the account above tenants (#898).
+- **Sites.** A site is configuration a tenant holds (D22). A tenant may hold one site, several, or none
+  when it only serves an API.
+
+**Why.** A hotel chain, a franchise, a school district and an agency all need the same three things:
+each unit sees only its own data, the units share one way of working, and someone above them sees the
+whole. Treating tenant as site would force a chain to choose between isolation and a rollup.
+
+**What changes.** Nothing already released breaks. Today's tenant-owned definitions stay as
+tenant-local definitions. The site singleton (#885, #860) remains the one-site case until a tenant
+needs a second site.
+
+**What would make it wrong.** A deployment where units share data rather than processes. That is one
+tenant with permissions, not several tenants.
