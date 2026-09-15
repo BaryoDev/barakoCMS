@@ -248,10 +248,11 @@ internal sealed class RetryAttemptEndpoint : EndpointWithoutRequest<RunResponse>
         // recorded, so the audit trail says it was retried knowing that.
         //
         // A failure recorded before retryable existed, or by a path that did not set it, says
-        // nothing either way, and the audit entry says "unknown" rather than claiming it was transient.
-        object wasPermanent = attempt.Status != AttemptStatus.Failed
+        // nothing either way. The audit entry then leaves wasPermanent out rather than claiming the
+        // failure was transient, which keeps the value a boolean wherever it is present.
+        bool? wasPermanent = attempt.Status != AttemptStatus.Failed
             ? false
-            : attempt.Retryable is { } retryable ? !retryable : "unknown";
+            : attempt.Retryable is { } retryable ? !retryable : null;
 
         attempt.Status = AttemptStatus.Pending;
         attempt.Retryable = null;
@@ -265,18 +266,20 @@ internal sealed class RetryAttemptEndpoint : EndpointWithoutRequest<RunResponse>
         run.Recompute();
         _session.Update(run);
 
+        var metadata = new Dictionary<string, object>
+        {
+            ["workflow"] = run.WorkflowName,
+            ["ordinal"] = ordinal,
+            ["actionType"] = attempt.ActionType,
+            ["wasUnknown"] = wasUnknown,
+        };
+        if (wasPermanent is { } permanent) metadata["wasPermanent"] = permanent;
+
         var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
         await AuditLog.RecordAsync(_session, _tenant.Slug, "workflow.action.retried", actorId,
             User.FindFirst("Username")?.Value,
             targetType: nameof(WorkflowRun), targetId: run.Id.ToString(),
-            metadata: new Dictionary<string, object>
-            {
-                ["workflow"] = run.WorkflowName,
-                ["ordinal"] = ordinal,
-                ["actionType"] = attempt.ActionType,
-                ["wasUnknown"] = wasUnknown,
-                ["wasPermanent"] = wasPermanent,
-            }, ct: ct);
+            metadata: metadata, ct: ct);
 
         try
         {

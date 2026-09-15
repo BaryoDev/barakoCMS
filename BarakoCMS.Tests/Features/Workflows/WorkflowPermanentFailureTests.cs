@@ -183,8 +183,8 @@ public class WorkflowPermanentFailureTests
             .ToListAsync(TestContext.Current.CancellationToken);
 
         entries.Should().HaveCount(1);
-        entries[0].Metadata.Should().NotBeNull().And.ContainKey("wasPermanent");
-        entries[0].Metadata!["wasPermanent"].ToString().Should().Be("unknown",
+        entries[0].Metadata.Should().NotBeNull().And.ContainKey("wasUnknown", "the entry is the retry's audit metadata");
+        entries[0].Metadata.Should().NotContainKey("wasPermanent",
             "nothing recorded whether it was permanent, so the audit entry must not say it was not");
     }
 }

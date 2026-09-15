@@ -158,7 +158,7 @@ public class WorkflowDebuggerRedactionTests : IAsyncLifetime
 
         var pass = new barakoCMS.Features.Workflows.WorkflowExecutionLogRedactionService(
             store, _fixture.Services.GetRequiredService<ILogger<barakoCMS.Features.Workflows.WorkflowExecutionLogRedactionService>>());
-        await pass.RedactAllTenantsAsync(TestContext.Current.CancellationToken);
+        (await pass.RedactAllTenantsAsync(TestContext.Current.CancellationToken)).Should().BeGreaterThanOrEqualTo(1);
 
         var after = await RawJsonAsync(store, logId);
         after.Should().NotContain(Recipient);
@@ -172,8 +172,8 @@ public class WorkflowDebuggerRedactionTests : IAsyncLifetime
         stored.Actions[0].ErrorMessage.Should().Be(WorkflowDebugger.UnredactedErrorMessage);
         stored.Actions[0].ResolvedParameters.Should().Contain("To", WorkflowDebugger.RedactedValue);
 
-        await pass.RedactAllTenantsAsync(TestContext.Current.CancellationToken);
-        (await RawJsonAsync(store, logId)).Should().Be(after, "a redacted log is not selected again");
+        (await pass.RedactAllTenantsAsync(TestContext.Current.CancellationToken)).Should().Be(0, "a redacted log is not selected again");
+        (await RawJsonAsync(store, logId)).Should().Be(after);
     }
 
     private static async Task<string> RawJsonAsync(IDocumentStore store, Guid id)
