@@ -7,7 +7,8 @@ namespace barakoCMS.Features.Workflows;
 
 /// <summary>
 /// Encrypts, in place, the credential-named parameters of workflows stored before they were
-/// encrypted on save (issue #765).
+/// encrypted on save (issue #765), and gives envelopes written before the version prefix existed
+/// that prefix.
 /// </summary>
 /// <remarks>
 /// A migration rather than "encrypt on next save", because there is no endpoint that saves an
@@ -15,10 +16,10 @@ namespace barakoCMS.Features.Workflows;
 /// leave every stored credential in clear for good.
 ///
 /// It runs once at startup, over every partition that holds a workflow. It is safe to run on several
-/// instances at once and on every boot, since <see cref="WebhookSigning.ProtectSecrets"/> leaves a
-/// value that is already an envelope alone; two instances racing on one document each write a valid
+/// instances at once and on every boot, since <see cref="WebhookSigning.MigrateStoredCredentials"/>
+/// leaves a prefixed value alone; two instances racing on one document each write a prefixed
 /// envelope of the same plaintext. Runs already queued keep the parameters they copied, and the
-/// runner still accepts those, because a value that is not an envelope passes through as it did.
+/// runner still accepts those: an unprefixed envelope decrypts and a value in clear passes through.
 /// </remarks>
 internal sealed class WorkflowCredentialMigrationService : BackgroundService
 {
@@ -61,7 +62,7 @@ internal sealed class WorkflowCredentialMigrationService : BackgroundService
         foreach (var tenantId in await PartitionsAsync(ct))
         {
             await using var session = _store.LightweightSession(tenantId);
-            changed += await ProtectStoredAsync(session, _protector, ct);
+            changed += await ProtectStoredAsync(session, _protector, ct, _logger);
         }
 
         if (changed > 0)
@@ -94,7 +95,8 @@ internal sealed class WorkflowCredentialMigrationService : BackgroundService
 
     /// <summary>Encrypts every stored workflow in one partition. Pure over the session, so a test drives it directly.</summary>
     /// <returns>The number of workflows that were rewritten.</returns>
-    public static async Task<int> ProtectStoredAsync(IDocumentSession session, ISecretProtector protector, CancellationToken ct)
+    public static async Task<int> ProtectStoredAsync(
+        IDocumentSession session, ISecretProtector protector, CancellationToken ct, ILogger? logger = null)
     {
         var changed = 0;
 
@@ -109,7 +111,14 @@ internal sealed class WorkflowCredentialMigrationService : BackgroundService
             var dirty = 0;
             foreach (var workflow in batch)
             {
-                if (!WebhookSigning.ProtectSecrets(workflow, protector)) continue;
+                var changedHere = WebhookSigning.MigrateStoredCredentials(workflow, protector, (index, name) =>
+                    // The name and where it is, never the value: this is the log of a value that
+                    // might be a credential.
+                    logger?.LogWarning(
+                        "The {Parameter} parameter of action {ActionIndex} on workflow {WorkflowId} could not be decrypted with the current key and was left as it is. Enter it again on the workflow.",
+                        name, index, workflow.Id));
+
+                if (!changedHere) continue;
 
                 session.Store(workflow);
                 dirty++;

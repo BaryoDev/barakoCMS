@@ -50,6 +50,7 @@ public class WorkflowTests
             [spy],
             scope.ServiceProvider.GetRequiredService<barakoCMS.Infrastructure.Services.ITemplateVariableExtractor>(),
             scope.ServiceProvider.GetRequiredService<barakoCMS.Infrastructure.Services.IWorkflowDebugger>(),
+            scope.ServiceProvider.GetRequiredService<barakoCMS.Infrastructure.Security.ISecretProtector>(),
             scope.ServiceProvider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<barakoCMS.Features.Workflows.WorkflowEngine>>());
 
         return (engine, spy, scope);
@@ -147,6 +148,7 @@ public class WorkflowTests
             [spy, new ThrowingAction()],
             scope.ServiceProvider.GetRequiredService<barakoCMS.Infrastructure.Services.ITemplateVariableExtractor>(),
             scope.ServiceProvider.GetRequiredService<barakoCMS.Infrastructure.Services.IWorkflowDebugger>(),
+            scope.ServiceProvider.GetRequiredService<barakoCMS.Infrastructure.Security.ISecretProtector>(),
             scope.ServiceProvider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<barakoCMS.Features.Workflows.WorkflowEngine>>());
 
         var workflow = Definition(type, new());
@@ -203,6 +205,61 @@ public class WorkflowTests
 
         await act.Should().NotThrowAsync("an escape here halts the projection for everybody");
         spy.Executions.Should().ContainSingle("the healthy workflow still ran");
+    }
+
+    [Fact]
+    public async Task The_engine_hands_an_action_its_encrypted_credential_decrypted()
+    {
+        var type = $"wfc_{Guid.NewGuid():n}"[..12];
+        var (engine, spy, scope) = await EngineAsync();
+        using var _ = scope;
+
+        var protector = scope.ServiceProvider.GetRequiredService<barakoCMS.Infrastructure.Security.ISecretProtector>();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var workflow = Definition(type, new());
+        workflow.Actions[0].Parameters["ApiKey"] = protector.Protect("ak_live_engine");
+        session.Store(workflow);
+        await session.SaveChangesAsync();
+
+        await engine.ProcessEventAsync(type, "Created", new Content
+        {
+            Id = Guid.NewGuid(), ContentType = type, Data = new Dictionary<string, object>(),
+        }, CancellationToken.None);
+
+        spy.Executions.Should().ContainSingle();
+        spy.Executions[0]["ApiKey"].Should().Be("ak_live_engine");
+    }
+
+    [Fact]
+    public async Task The_engine_records_a_failure_for_a_credential_the_key_cannot_decrypt()
+    {
+        var type = $"wfd_{Guid.NewGuid():n}"[..12];
+        var (engine, spy, scope) = await EngineAsync();
+        using var _ = scope;
+
+        var otherKey = new barakoCMS.Infrastructure.Security.SecretProtector(
+            new Microsoft.Extensions.Configuration.ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?> { ["Secrets:Key"] = "a-different-key-that-is-at-least-32-characters" })
+                .Build());
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var workflow = Definition(type, new());
+        workflow.Actions[0].Parameters["ApiKey"] = otherKey.Protect("ak_live_rotated");
+        session.Store(workflow);
+        await session.SaveChangesAsync();
+
+        await engine.ProcessEventAsync(type, "Created", new Content
+        {
+            Id = Guid.NewGuid(), ContentType = type, Data = new Dictionary<string, object>(),
+        }, CancellationToken.None);
+
+        spy.Executions.Should().BeEmpty("an action is not run with a credential it cannot read");
+
+        await using var check = _factory.Services.GetRequiredService<IDocumentStore>().QuerySession();
+        var logs = await check.Query<WorkflowExecutionLog>().Where(l => l.WorkflowId == workflow.Id).ToListAsync();
+        logs.Should().HaveCount(1);
+        logs[0].Success.Should().BeFalse();
+        logs[0].Actions.Should().HaveCount(1);
+        logs[0].Actions[0].ErrorMessage.Should().Contain("ApiKey").And.NotContain("ak_live_rotated");
     }
 
     private sealed class ThrowingAction : barakoCMS.Features.Workflows.IWorkflowAction
