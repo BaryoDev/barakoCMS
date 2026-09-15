@@ -1,6 +1,7 @@
 using System.Globalization;
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Infrastructure.Attributes;
+using barakoCMS.Infrastructure.Services;
 using Marten;
 using Microsoft.Extensions.Logging;
 
@@ -52,15 +53,18 @@ internal class UpdateFieldAction : IWorkflowAction
 
     private readonly IDocumentSession _session;
     private readonly IContentWriter _contentWriter;
+    private readonly IContentLifecycleRunner _lifecycle;
     private readonly ILogger<UpdateFieldAction> _logger;
 
     /// <summary>
     /// Creates a new UpdateFieldAction.
     /// </summary>
-    public UpdateFieldAction(IDocumentSession session, IContentWriter contentWriter, ILogger<UpdateFieldAction> logger)
+    public UpdateFieldAction(
+        IDocumentSession session, IContentWriter contentWriter, IContentLifecycleRunner lifecycle, ILogger<UpdateFieldAction> logger)
     {
         _session = session;
         _contentWriter = contentWriter;
+        _lifecycle = lifecycle;
         _logger = logger;
     }
 
@@ -162,11 +166,15 @@ internal class UpdateFieldAction : IWorkflowAction
         var events = new List<object>();
         var dataChanged = false;
 
+        // A copy, so the loaded document keeps the stored data until the write is accepted and the
+        // lifecycle hooks below can compare the two.
+        var data = new Dictionary<string, object>(targetContent.Data, targetContent.Data.Comparer);
+
         // Handle nested field paths (e.g., "data.AssignedTo")
         if (field.StartsWith("data.", StringComparison.OrdinalIgnoreCase))
         {
             var dataKey = field.Substring(5);
-            targetContent.Data[dataKey] = value;
+            data[dataKey] = value;
             dataChanged = true;
         }
         else if (field.Equals("Status", StringComparison.OrdinalIgnoreCase))
@@ -179,7 +187,7 @@ internal class UpdateFieldAction : IWorkflowAction
         else
         {
             // Default to data field
-            targetContent.Data[field] = value;
+            data[field] = value;
             dataChanged = true;
         }
 
@@ -188,7 +196,7 @@ internal class UpdateFieldAction : IWorkflowAction
             // Data is replaced wholesale by Content.Apply(ContentUpdated, ...), so this carries
             // the field just set alongside everything already on the document.
             events.Insert(0, new barakoCMS.Events.ContentUpdated(
-                targetContent.Id, targetContent.Data, content.LastModifiedBy, targetContent.SearchText, DateTime.UtcNow));
+                targetContent.Id, data, content.LastModifiedBy, targetContent.SearchText, DateTime.UtcNow));
         }
 
         if (events.Count == 0)
@@ -196,6 +204,33 @@ internal class UpdateFieldAction : IWorkflowAction
             // Nothing to apply: an unrecognised Status value. Permanent, like a missing Field:
             // the value in the workflow definition parses the same way on the fifth retry.
             return WorkflowActionResult.PermanentFailure($"'{value}' is not a recognised Status value.");
+        }
+
+        if (dataChanged)
+        {
+            // The same rules the Update endpoint runs, through the same session this action commits,
+            // so a workflow cannot store data a person editing the entry would be refused. A Status
+            // change leaves the data as stored, which is all a hook is given to check.
+            IReadOnlyList<string> refusals;
+            try
+            {
+                refusals = await _lifecycle.RunBeforeSaveAsync(
+                    targetContent.ContentType, targetContent.Id, data, targetContent.Data, content.LastModifiedBy, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lifecycle hooks failed for field {Field} on content {ContentId}", field, targetContent.Id);
+                return WorkflowActionResult.Failure($"Could not run the save rules for content {targetContent.Id} ({ex.GetType().Name}).");
+            }
+
+            if (refusals.Count > 0)
+            {
+                _logger.LogWarning(
+                    "Lifecycle hooks refused field {Field} on content {ContentId}", field, targetContent.Id);
+                // Permanent: a hook refuses the same data on every retry.
+                return WorkflowActionResult.PermanentFailure(
+                    $"The save rules for content {targetContent.Id} refused this update: {string.Join(" ", refusals)}");
+            }
         }
 
         try
