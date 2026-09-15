@@ -210,6 +210,33 @@ public class RedirectEndpointTests
     }
 
     [Fact]
+    public async Task A_rule_stored_before_normalisation_is_served_as_a_local_path()
+    {
+        // Written straight to the session, because the save endpoint now normalises and would hide
+        // the case: a rule saved before that still holds the backslash in the database.
+        var from = Unique();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new UrlRedirect { Id = Guid.NewGuid(), FromPath = from, ToPath = "/\\evil.com", Permanent = true });
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        using var anonymous = _factory.CreateClient();
+        var response = await anonymous.GetAsync(
+            $"/api/public/redirects/resolve?path={Uri.EscapeDataString(from)}",
+            TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = JsonDocument.Parse(
+            await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).RootElement;
+
+        body.GetProperty("toPath").GetString().Should().Be("/evil.com",
+            "a browser reads /\\evil.com as //evil.com, which is another host");
+        body.GetProperty("fromPath").GetString().Should().Be(from);
+    }
+
+    [Fact]
     public async Task A_path_nobody_moved_answers_404_rather_than_an_empty_success()
     {
         using var anonymous = _factory.CreateClient();
