@@ -48,8 +48,8 @@ public sealed class ContentLifecycleContext
 /// Hooks are registered in DI like workflow actions (<c>services.AddScoped&lt;IContentLifecycleHook,
 /// MyHook&gt;()</c>), so a module contributes rules without core knowing the module exists. Every hook
 /// whose <see cref="ContentType"/> matches the entry being written runs before it is persisted;
-/// returning any error aborts the write. The writes that run hooks are content create, update and
-/// rollback, and the <c>UpdateField</c> workflow action when it changes a data field.
+/// returning any error aborts the write. The writes that run hooks are the content create, update and
+/// rollback endpoints, and the <c>UpdateField</c> workflow action when it sets a data field.
 /// </summary>
 public interface IContentLifecycleHook
 {

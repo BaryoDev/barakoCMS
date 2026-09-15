@@ -30,10 +30,13 @@ namespace barakoCMS.Core.Hooks;
 /// is released by the commit or rollback, so it is held only while a write to this tree is in flight.
 /// </para>
 /// <para>
-/// A save that keeps the parent the entry already has is not checked. The edge is already stored,
-/// and the write is bound to the version it read, so a concurrent move that changed the parent
-/// in between fails that write instead of letting it put the old edge back. Skipping the lock keeps
-/// ordinary edits under one parent from queueing behind each other.
+/// A save that keeps the parent the entry already has takes the same lock in shared mode and, if the
+/// committed parent still matches, is not walked. Shared holders do not wait on each other, so
+/// ordinary edits under one tree do not queue. A move still waits for them to commit, and then walks
+/// a tree that includes their edge. The committed parent is read under the lock rather than taken
+/// from <see cref="ContentLifecycleContext.Existing"/>, because a PUT without If-Match, a rollback
+/// and a workflow write are not bound to the version they loaded: a move committed after that load
+/// would otherwise let the old edge be written back past a check that never saw it.
 /// </para>
 /// <para>
 /// The walk reads at most <see cref="MaxDepth"/> ancestors. A chain that has not reached a root by
@@ -83,16 +86,19 @@ public sealed class ParentReferenceHook : IContentLifecycleHook
             return [$"Field '{await DisplayNameAsync(context.Session, ct)}' cannot point at the entry itself."];
         }
 
+        await context.Session.BeginTransactionAsync(ct);
+        var lockKey = $"barakocms:parent-reference:{context.Session.TenantId}:{ContentType.ToLowerInvariant()}:{ParentField.ToLowerInvariant()}";
+
         if (context.Existing is { } existing && ReadParent(existing) == parent)
         {
-            return [];
+            await context.Session.QueryAsync<int>("select 1 from pg_advisory_xact_lock_shared(hashtextextended(?, 0))", ct, lockKey);
+            if (await CommittedParentAsync(context.Session, self, ct) == parent)
+            {
+                return [];
+            }
         }
 
-        await context.Session.BeginTransactionAsync(ct);
-        await context.Session.QueryAsync<int>(
-            "select 1 from pg_advisory_xact_lock(hashtextextended(?, 0))",
-            ct,
-            $"barakocms:parent-reference:{context.Session.TenantId}:{ContentType.ToLowerInvariant()}:{ParentField.ToLowerInvariant()}");
+        await context.Session.QueryAsync<int>("select 1 from pg_advisory_xact_lock(hashtextextended(?, 0))", ct, lockKey);
 
         var (error, ancestors) = await WalkAsync(context.Session, self, parent, ct);
 
@@ -153,6 +159,20 @@ public sealed class ParentReferenceHook : IContentLifecycleHook
     }
 
     /// <summary>
+    /// The parent as committed now. A query rather than a load, so a session that already holds the
+    /// document cannot answer from what it loaded earlier.
+    /// </summary>
+    private async Task<Guid?> CommittedParentAsync(IDocumentSession session, Guid self, CancellationToken ct)
+    {
+        var data = await session.Query<Content>()
+            .Where(c => c.Id == self)
+            .Select(c => c.Data)
+            .FirstOrDefaultAsync(ct);
+
+        return data is null ? null : ReadParent(data);
+    }
+
+    /// <summary>
     /// How many levels of descendants <paramref name="self"/> has, reading one level per query and
     /// stopping once <paramref name="limit"/> levels are found, so a deep tree costs at most that
     /// many queries. An entry already seen is not followed again, so a loop stored below this entry
@@ -161,7 +181,7 @@ public sealed class ParentReferenceHook : IContentLifecycleHook
     private async Task<int> SubtreeHeightAsync(IDocumentSession session, Guid self, int limit, CancellationToken ct)
     {
         var seen = new HashSet<Guid> { self };
-        var frontier = new[] { self.ToString() };
+        var frontier = new[] { self.ToString("N") };
         var lowered = ContentType.ToLower();
 
         for (var height = 0; height < limit; height++)
@@ -171,7 +191,7 @@ public sealed class ParentReferenceHook : IContentLifecycleHook
                 .Select(c => c.Id)
                 .ToListAsync(ct);
 
-            var next = children.Where(seen.Add).Select(id => id.ToString()).ToArray();
+            var next = children.Where(seen.Add).Select(id => id.ToString("N")).ToArray();
             if (next.Length == 0)
             {
                 return height;
@@ -185,10 +205,12 @@ public sealed class ParentReferenceHook : IContentLifecycleHook
 
     /// <summary>
     /// The parent field, matched by name without regard to case like <see cref="ReadParent"/>, holds
-    /// one of the given ids. Both are bound parameters.
+    /// one of the given ids, compared in the 32-digit form. A reference is stored as the client wrote
+    /// it and <see cref="Guid.TryParse(string, out Guid)"/> accepts braces, parentheses and no dashes,
+    /// so a child written that way must still be found. Both are bound parameters.
     /// </summary>
     private const string ParentIsAnyOfSql =
-        "lower((SELECT e.value FROM jsonb_each(d.data -> 'Data') e WHERE lower(e.key) = lower(?) LIMIT 1) #>> '{}') = ANY(?)";
+        "translate(lower((SELECT e.value FROM jsonb_each(d.data -> 'Data') e WHERE lower(e.key) = lower(?) LIMIT 1) #>> '{}'), '{}()-', '') = ANY(?)";
 
     private Guid? ReadParent(IReadOnlyDictionary<string, object> data)
     {

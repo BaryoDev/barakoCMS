@@ -42,6 +42,21 @@ public class ParentReferenceHookTests
         private readonly Lock _gate = new();
         private readonly Dictionary<string, (int Arrived, TaskCompletionSource Both)> _byMarker = new();
         private readonly HashSet<string> _timedOut = new();
+        private readonly Dictionary<string, TaskCompletionSource> _firstArrival = new();
+
+        /// <summary>Completes when the first writer carrying this marker reaches the barrier.</summary>
+        public Task FirstArrivalAsync(string marker)
+        {
+            lock (_gate)
+            {
+                return FirstArrival(marker).Task;
+            }
+        }
+
+        private TaskCompletionSource FirstArrival(string marker) =>
+            _firstArrival.TryGetValue(marker, out var arrived)
+                ? arrived
+                : _firstArrival[marker] = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public async Task ArriveAsync(string marker)
         {
@@ -53,6 +68,7 @@ public class ParentReferenceHookTests
                     : (Arrived: 0, Both: new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
                 entry.Arrived++;
                 _byMarker[marker] = entry;
+                FirstArrival(marker).TrySetResult();
                 if (entry.Arrived >= 2)
                 {
                     entry.Both.TrySetResult();
@@ -195,12 +211,12 @@ public class ParentReferenceHookTests
         return client;
     }
 
-    private static async Task<Guid> CreateAsync(HttpClient client, string title, Guid? parent = null)
+    private static async Task<Guid> CreateAsync(HttpClient client, string title, Guid? parent = null, string parentFormat = "D")
     {
         var data = new Dictionary<string, object> { ["Title"] = title };
         if (parent is { } p)
         {
-            data["ParentPage"] = p.ToString();
+            data["ParentPage"] = p.ToString(parentFormat);
         }
 
         var res = await client.PostAsJsonAsync("/api/contents", new { contentType = TypeName, data }, Ct);
@@ -431,6 +447,53 @@ public class ParentReferenceHookTests
         var fits = await UpdateAsync(client, moved, "subtree-moved", parent: chain[^2]);
         fits.StatusCode.Should().Be(HttpStatusCode.OK,
             "two ancestors and one level below is the limit, got: {0}", await fits.Content.ReadAsStringAsync(Ct));
+    }
+
+    /// <summary>
+    /// A reference id is stored as the client wrote it, and a Guid without dashes is a valid one. The
+    /// child below the moved entry has to be counted however its parent id is spelled.
+    /// </summary>
+    [Fact]
+    public async Task Moving_an_entry_counts_a_child_whose_parent_id_has_no_dashes()
+    {
+        var client = await AdminAsync();
+        var chain = await SeedChainAsync(MaxDepth);
+        var moved = await CreateAsync(client, "subtree-n-moved");
+        await CreateAsync(client, "subtree-n-child", parent: moved, parentFormat: "N");
+
+        var refused = await UpdateAsync(client, moved, "subtree-n-moved", parent: chain[^1]);
+
+        await ShouldBeRefusedAsync(refused, "the child would sit one level past the limit");
+        (await StoredParentAsync(moved)).Should().BeNull("the refused move stored nothing");
+    }
+
+    /// <summary>
+    /// An edit that keeps X under P is held after its check, while X is moved to the root and P is
+    /// moved under X. Those two moves are each legal on their own, and the held edit then writes X
+    /// under P back. Trusting the parent the edit loaded, the move of P never waited for it and the
+    /// loop was stored. The shared lock makes that move wait for the edit to commit, and then it sees
+    /// X under P and refuses.
+    /// </summary>
+    [Fact]
+    public async Task An_edit_that_keeps_a_parent_cannot_close_a_loop_with_moves_that_commit_while_it_runs()
+    {
+        var client = await AdminAsync();
+        var p = await CreateAsync(client, "hold-p");
+        var x = await CreateAsync(client, "hold-x", parent: p);
+        var marker = "race-hold-" + Guid.NewGuid().ToString("n");
+
+        var held = UpdateAsync(client, x, marker, parent: p);
+        await SharedBarrier.FirstArrivalAsync(marker).WaitAsync(TimeSpan.FromSeconds(30), Ct);
+
+        var toRoot = await UpdateAsync(client, x, "hold-x-root", parent: null);
+        toRoot.StatusCode.Should().Be(HttpStatusCode.OK, await toRoot.Content.ReadAsStringAsync(Ct));
+        await UpdateAsync(client, p, "hold-p-under-x", parent: x);
+        (await held).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var xParent = await StoredParentAsync(x);
+        var pParent = await StoredParentAsync(p);
+        (xParent == p.ToString() && pParent == x.ToString()).Should().BeFalse(
+            "X under P under X is a loop, got x.parent={0} p.parent={1}", xParent, pParent);
     }
 
     /// <summary>

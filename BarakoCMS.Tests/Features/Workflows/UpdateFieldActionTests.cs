@@ -546,9 +546,9 @@ public class UpdateFieldActionTests
     }
 
     /// <summary>
-    /// UpdateField wrote data without running the content type's lifecycle hooks, so a workflow could
-    /// store what the Update endpoint refuses. Here that is the parent loop ParentReferenceHook exists
-    /// to stop: the parent pointed at its own child.
+    /// A data write from a workflow runs the content type's lifecycle hooks, so a refusal there stops
+    /// the write. Here that is the parent loop ParentReferenceHook exists to stop: the parent pointed
+    /// at its own child.
     /// </summary>
     [Fact]
     public async Task A_parent_update_that_closes_a_loop_fails_permanently_and_stores_nothing()
@@ -575,6 +575,7 @@ public class UpdateFieldActionTests
         result.Error.Should().Contain("cycle");
 
         var stored = await LoadAsync(store, tenant, parentId);
+        stored.Data.Should().ContainKey("Title", "the entry's own data is still there");
         stored.Data.Should().NotContainKey("ParentPage");
     }
 
