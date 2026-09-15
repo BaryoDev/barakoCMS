@@ -1154,3 +1154,26 @@ bounds any future swap to `Infrastructure`.
 
 **What would make it wrong.** The spike in #687 failing on transactional enqueue, conjoined tenancy or
 migrations. Then the seams stay and the implementation stays ours.
+
+## D33. Content varies by language per field, not per entry
+
+**Decided:** 15 Sept 2026. **Status:** accepted. **Issue:** #98.
+
+One entry holds every language. A field is marked as varying by language or shared. Title, body and
+slug vary; price, capacity, dates, images and references are stored once.
+
+- **Publish state is per language.** English can be published while Filipino is a draft.
+- **Slugs are per language,** unique per type per language.
+- **A tenant sets its languages and a fallback chain,** for example `fil` falls back to `en`.
+- **Delivery takes `?locale=`** and falls back through the chain, and the response says which language
+  each field came from.
+- **barakoBrew shows missing translations;** barista exports and imports strings for a translator.
+- **The site entry follows the same rule,** so a site's name and footer text can vary by language.
+- **Changing whether a field varies** is a schema change under D30, applied to existing entries by a job.
+
+**Why.** A separate entry per language copies every shared field, and copies drift: a room's price
+changed in English and not in Filipino. A translations table makes every read a join and every edit
+two screens. Per-field variants keep shared data single and let each language publish on its own.
+
+**What it costs.** Search keeps text per language, and a document grows with each language. For the
+two or three languages a Philippine site runs, that is small.
