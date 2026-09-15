@@ -52,8 +52,15 @@ Stop the 4.0 deploy from starting yet, and with 3.x stopped:
 
 ```bash
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.0.0/3.x-to-4.0.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.2.0/user-normalized-identity.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/4.2.0/stored-files-parent-index.sql
 ```
+
+The user file moves the unique indexes on username and email to their lowercased, trimmed forms,
+which is what sign-in compares. If two existing accounts differ only by case, such as
+`Admin@example.com` and `admin@example.com`, it refuses, changes nothing, and lists both accounts by
+id. Rename or remove one of each pair and run it again. It does not pick one for you. A 4.0 or 4.1
+database needs this file too.
 
 The second file builds the index `CONCURRENTLY`, so it does not block writes to stored files, and
 that is why it runs on its own, without `--single-transaction`. It is safe to run twice.
@@ -130,8 +137,12 @@ statements from the file by hand rather than re-running the whole thing.
 Stop 4.0, then:
 
 ```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.2.0/rollback-user-normalized-identity.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.0.0/rollback-to-3.x.sql
 ```
+
+The first file puts the username and email unique indexes back on the stored values, which is where
+3.x declares them.
 
 That restores the two `mt_streams` columns as NULL, which is what they were, and removes `bdata`.
 It also drops the Files `ParentFileId` index, which the 3.x Suite refuses to start alongside.

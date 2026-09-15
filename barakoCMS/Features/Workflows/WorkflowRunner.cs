@@ -402,11 +402,13 @@ internal sealed class WorkflowRunner : BackgroundService
             && attempt.Attempts < WorkflowRetryPolicy.MaxAttempts)
         {
             attempt.Status = AttemptStatus.Pending;
+            attempt.Retryable = null;
             attempt.NextAttemptAt = DateTimeOffset.UtcNow.Add(WorkflowRetryPolicy.Backoff(attempt.Attempts, _random));
             return;
         }
 
         attempt.Status = outcome.Status;
+        attempt.Retryable = outcome.Status == AttemptStatus.Failed ? outcome.Retryable : null;
         attempt.NextAttemptAt = null;
         attempt.CompletedAt = DateTimeOffset.UtcNow;
     }

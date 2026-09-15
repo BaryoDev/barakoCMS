@@ -153,7 +153,7 @@ internal sealed class AddMemberEndpoint : Endpoint<AddMemberRequest, MemberRespo
             }
         }
 
-        var user = await _session.Query<User>().FirstOrDefaultAsync(u => u.Email.ToLower() == email, ct);
+        var user = await _session.Query<User>().FirstOrDefaultAsync(u => u.NormalizedEmail == email, ct);
         var invited = user is null;
 
         if (user is null)
@@ -211,12 +211,12 @@ internal sealed class AddMemberEndpoint : Endpoint<AddMemberRequest, MemberRespo
     }
 
     /// <summary>
-    /// Username carries a unique index, so an invited address that happens to match an existing
+    /// NormalizedUsername carries a unique index, so an invited address that happens to match an existing
     /// username would fail the insert with a 500 instead of adding the member.
     /// </summary>
     private async Task<string> AvailableUsernameAsync(string email, CancellationToken ct)
     {
-        if (!await _session.Query<User>().AnyAsync(u => u.Username == email, ct))
+        if (!await _session.Query<User>().AnyAsync(u => u.NormalizedUsername == email, ct))
             return email;
 
         return $"{email}+{Guid.NewGuid():N}"[..(email.Length + 9)];

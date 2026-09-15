@@ -52,7 +52,7 @@ internal class ResetPasswordEndpoint : Endpoint<ResetPasswordRequest>
             return;
         }
 
-        user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(req.NewPassword);
+        user.PasswordHash = barakoCMS.Infrastructure.Auth.PasswordHashing.Hash(req.NewPassword);
         _session.Store(user);
 
         // Revoke the user's refresh tokens so existing sessions can't be refreshed after the reset.
