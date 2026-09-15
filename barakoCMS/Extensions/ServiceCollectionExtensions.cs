@@ -382,6 +382,9 @@ public static class ServiceCollectionExtensions
         // The only place an access token is minted — it owns the "may this user hold a token for
         // this tenant?" check, so no endpoint can skip it by omission. See ITokenIssuer.
         services.AddScoped<barakoCMS.Infrastructure.Auth.ITokenIssuer, barakoCMS.Infrastructure.Auth.TokenIssuer>();
+        services.AddSingleton<barakoCMS.Infrastructure.Auth.LockoutNoticeSender>();
+        services.AddHostedService(sp => sp.GetRequiredService<barakoCMS.Infrastructure.Auth.LockoutNoticeSender>());
+        services.AddSingleton<barakoCMS.Infrastructure.Auth.AccountLockout>();
         services.AddScoped<ITokenRevocationService, TokenRevocationService>();
         services.AddScoped<ISessionEpochService, SessionEpochService>();
         services.AddScoped<IPasswordPolicyValidator, PasswordPolicyValidator>();

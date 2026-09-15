@@ -20,7 +20,7 @@ internal class Endpoint : Endpoint<Request, Response>
     private readonly barakoCMS.Core.Interfaces.IOtpService _otp;
 
     private readonly barakoCMS.Infrastructure.Auth.ITokenIssuer _tokenIssuer;
-    private readonly barakoCMS.Core.Interfaces.IEmailService _email;
+    private readonly barakoCMS.Infrastructure.Auth.AccountLockout _lockout;
     private readonly IDocumentStore _store;
 
     public Endpoint(
@@ -35,9 +35,9 @@ internal class Endpoint : Endpoint<Request, Response>
         barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
         barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer,
         barakoCMS.Infrastructure.Auth.Mfa.IMfaService mfa,
-        barakoCMS.Core.Interfaces.IEmailService email)
+        barakoCMS.Infrastructure.Auth.AccountLockout lockout)
     {
-        _email = email;
+        _lockout = lockout;
         _repo = repo;
         _session = session;
         _documentSession = documentSession;
@@ -79,40 +79,6 @@ internal class Endpoint : Endpoint<Request, Response>
         }
 
         return BCrypt.Net.BCrypt.Verify(password, hash);
-    }
-
-    /// <summary>
-    /// Tells the account's owner it was locked. The response cannot say so without telling everyone
-    /// else, so the registered address is the one place this goes.
-    /// </summary>
-    /// <remarks>
-    /// Sent when the lock is set, not on each attempt against a locked account, so a caller cannot use
-    /// it to fill somebody's inbox faster than one message per lockout. A send failure is logged and
-    /// changes nothing about the response.
-    /// </remarks>
-    private async Task NotifyOwnerOfLockoutAsync(User user, CancellationToken ct)
-    {
-        if (string.IsNullOrWhiteSpace(user.Email))
-        {
-            return;
-        }
-
-        var appName = System.Net.WebUtility.HtmlEncode(_config["Branding:AppName"] ?? "BarakoCMS");
-        var body =
-            $"<p>Your {appName} account was locked for 15 minutes after too many failed sign-in attempts.</p>"
-          + "<p>While it is locked, sign-in answers as if the password were wrong, even when it is right. "
-          + "Wait for the lock to pass, or sign in with an emailed code instead.</p>"
-          + "<p>If these attempts were not yours, somebody may be guessing your password. Consider changing it "
-          + "once you are back in.</p>";
-
-        try
-        {
-            await _email.SendEmailAsync(user.Email, $"Your {appName} account was locked", body, ct);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            _logger.LogError(ex, "Could not send the lockout notice for user {UserId}", user.Id);
-        }
     }
 
     /// <summary>
@@ -211,18 +177,17 @@ internal class Endpoint : Endpoint<Request, Response>
             var refreshed = await _session.LoadAsync<User>(user.Id, ct);
             var attempts = refreshed?.FailedLoginAttempts ?? 0;
 
-            if (attempts >= 5)
+            // Only the request that actually sets the lock records it; the owner's notice is queued
+            // there too, so concurrent failures past the threshold produce one of each.
+            if (attempts >= barakoCMS.Infrastructure.Auth.AccountLockout.MaxFailedAttempts
+                && await _lockout.TryLockAsync(user, ct))
             {
-                _documentSession.Patch<User>(user.Id).Set(x => x.LockoutUntil, DateTime.UtcNow.AddMinutes(15));
-                await _documentSession.SaveChangesAsync(ct);
                 _logger.LogWarning(
                     "Account locked due to failed login attempts: {Username}",
                     req.Username);
                 await AuditLog.RecordAsync(_documentSession, _tenant.Slug, "auth.account.locked", user.Id, user.Username,
                     metadata: new() { ["attempts"] = attempts }, ipAddress: device.IpAddress, ct: ct);
                 await _documentSession.SaveChangesAsync(ct);
-            
-                await NotifyOwnerOfLockoutAsync(user, ct);
             }
 
             _logger.LogWarning(
