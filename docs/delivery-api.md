@@ -128,6 +128,10 @@ the caller cannot tell "no filter applied" from "no matches".
 Comparison happens in jsonb using the field's declared type, so a numeric field compares
 numerically: `filter[price][lt]=10` puts 9 below 10 instead of after it.
 
+A `choice` field is matched by its stored value, exactly, never by its label:
+`filter[EntryType][eq]=FUN`. A choice that holds a list (`multiple`) takes `eq` and `ne` only, meaning
+the entry holds the value or does not; any other operator on it is 400. See [Choice fields](choice-fields.md).
+
 Filters narrow what the published-and-public predicate already allows. No filter can widen it.
 
 ```text
@@ -245,7 +249,7 @@ title or name hit outranks a body hit.
 
 | Status | When |
 | --- | --- |
-| 400 | unknown filter field, unknown operator, malformed `filter[...]`, more than 5 filters, unknown or non-reference `include`, more than 5 includes, unsortable field, malformed `near` centre or radius, `near` on a field that is not a `geopoint`, `sort=distance` without a `near` filter |
+| 400 | unknown filter field, unknown operator, malformed `filter[...]`, more than 5 filters, unknown or non-reference `include`, more than 5 includes, unsortable field, malformed `near` centre or radius, `near` on a field that is not a `geopoint`, `sort=distance` without a `near` filter, an operator other than `eq` or `ne` on a choice that holds a list |
 | 404 | unknown type, type not marked publicly deliverable, no slug field, no published entry at that slug |
 
 A 400 carries the reason, including the fields that would have been accepted.

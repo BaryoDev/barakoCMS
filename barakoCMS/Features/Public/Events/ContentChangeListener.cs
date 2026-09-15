@@ -197,6 +197,8 @@ internal sealed class ContentChangeListener : DocumentSessionListenerBase
                     DisplayName = f.DisplayName,
                     Type = f.Type,
                     ReferenceType = f.ReferenceType,
+                    Options = f.Options,
+                    Multiple = f.Multiple,
                     IsRequired = f.IsRequired,
                     DefaultValue = f.DefaultValue,
                     ValidationRules = f.ValidationRules,

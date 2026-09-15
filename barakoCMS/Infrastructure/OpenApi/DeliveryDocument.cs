@@ -203,10 +203,26 @@ internal static class DeliveryDocument
 
     private static JsonObject FieldSchema(FieldDefinition field)
     {
-        var schema = OpenApiType(field.Type);
+        var schema = OpenApiChoice(field) ?? OpenApiType(field.Type);
         if (!string.IsNullOrWhiteSpace(field.DisplayName))
             schema["title"] = field.DisplayName;
         return schema;
+    }
+
+    /// <summary>A choice as an enum of its option values, or a list of them when it holds several.</summary>
+    private static JsonObject? OpenApiChoice(FieldDefinition field)
+    {
+        if (!string.Equals(field.Type, "choice", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        var values = new JsonArray();
+        foreach (var option in field.Options ?? new List<FieldOption>())
+            values.Add(JsonValue.Create(option.Value));
+
+        var one = new JsonObject { ["type"] = "string", ["enum"] = values };
+        return field.Multiple
+            ? new JsonObject { ["type"] = "array", ["items"] = one, ["uniqueItems"] = true }
+            : one;
     }
 
     /// <summary>
