@@ -1041,3 +1041,116 @@ needs a second site.
 
 **What would make it wrong.** A deployment where units share data rather than processes. That is one
 tenant with permissions, not several tenants.
+
+## D26. Every setting, secret and operation is either per tenant or per deployment, never neither
+
+**Decided:** 15 Sept 2026. **Status:** accepted. **Issue:** #936.
+
+The data model is tenant first, and what surrounds it follows. Each setting, stored secret, backup,
+export, log line, metric and domain says whether it belongs to a tenant or to the deployment. A
+tenant value overrides a deployment default where both make sense.
+
+- Tenant settings live in one tenant settings document with sections modules declare (#896).
+- A tenant can be exported, imported, moved, archived and erased as one unit (#897).
+- The config-as-code file (#345) has a deployment section and a tenants section, and the seeder applies
+  that file (#905).
+- Stored secrets carry a key id (#900); logs and metrics carry the tenant (#903); CORS and TLS come from
+  the tenant domain map (#904).
+
+**Why.** A hotel branch needs its own sender, bucket and restore without taking every other branch
+with it (D25). Each of #345, #844, BaryoVM's recipes and #833 would otherwise assume the box.
+
+## D27. The API owns the site model; barakoPress renders it
+
+**Decided:** 15 Sept 2026. **Status:** accepted. **Issue:** #937. **Extends:** D20, D22.
+
+The shape of a site is API data: the validated site schema (#924), each tenant's public origin and
+route map (#923), mode and share sessions, block schema and presets, resolved block data (#926) and a
+cache class per route (#922). barakoPress owns rendering primitives, theme and HTML. A renderer
+registers the blocks it can render with the API; it does not hold rules, presets or bindings of its own.
+
+**Why.** Otherwise "render it with barakoPress" becomes "render it only with barakoPress". Another
+frontend, a mobile app or an offline shell reads the same site from the API.
+
+## D28. A module declares itself once, and is enabled per tenant
+
+**Decided:** 15 Sept 2026. **Status:** accepted. **Issue:** #938.
+
+A module has one manifest: name, OpenAPI tag, capabilities with defaults, settings schema, exportable
+documents, inbound receivers, triggers, console screen descriptor and renderer blocks. It is enabled
+per tenant, seeds into each tenant that enables it, and has an uninstall hook that states what happens
+to that tenant's data. `/api/modules` reports presence per tenant publicly and detail to admins. The
+manifest is a descriptor, never a bundle of code for another product (#635). This moves the module
+contract version.
+
+**Why.** barakoBrew screens, barista commands, MCP tools and barakoPress blocks all need the same
+declaration, and today a tenant created after startup never receives a module's roles or types.
+
+## D29. The API is the only home of schema, rules and dry run
+
+**Decided:** 15 Sept 2026. **Status:** accepted. **Issue:** #939.
+
+Field types, validation rules, capabilities and workflow actions are described by the API (#931).
+Every write accepts a dry run (#892). The OpenAPI document is committed and a change to it is checked
+in CI (#631). One export, plan and apply engine replaces Portability's partial bundle (#921). API keys
+are scoped by capability (#906). barakoBrew, barista, MCP and the VS Code extension are clients of
+these and keep no copy of a rule.
+
+**Why.** Each surface building its own validation and preview is the same mistake as a console-only
+rule (D20), repeated per surface and per language.
+
+## D30. A content type is a versioned schema
+
+**Decided:** 15 Sept 2026. **Status:** accepted. **Issue:** #940.
+
+A field is added, renamed, converted or removed through one endpoint. Each change is classified as
+additive, rename, convert or destructive, recorded on the type, and applied to existing entries by a
+job with run visibility (D8). A destructive change is refused unless it is confirmed. Field roles and
+many-valued references land on `FieldDefinition` in the same change (#887, #928). Import goes through
+the same validation (#933).
+
+**Why.** Config as code, blueprints that evolve and live client sites all need to change a type that
+already has data. Today the only route skips validation and drops the lifecycle.
+
+## D31. A principal is an identity plus a membership per tenant
+
+**Decided:** 15 Sept 2026. **Status:** accepted. **Issue:** #941. **Revisits:** the global roles note
+in `docs/multi-tenancy.md`.
+
+An identity is a person, an external identity link or a service. A membership in a tenant (or a group
+of tenants, D25) carries roles, a profile and a security policy. Content and fields have an audience
+level between Public and staff, and delivery accepts a viewer token checked by the same predicate
+compiler authoring uses (#912). Roles are owned by a tenant or group, with a small set of platform
+roles (#913). Signing in to the public site does not make someone a console user.
+
+**Why.** Hotel guests, club members, a teacher clocking in and a partner integration are not console
+users, and today they have to pretend to be one or stay anonymous.
+
+## D32. Wolverine runs durable work, behind seams barakoCMS owns
+
+**Decided:** 15 Sept 2026. **Status:** accepted, pending the spike in #687. **Supersedes:** the
+substrate half of D19. D19's rule that a workflow definition is data still holds.
+
+Durable work (jobs, retries, dead letters, scheduled triggers, waits, the outbox to shots and grinds,
+and leader election) moves onto Wolverine with its Marten integration, underneath FastEndpoints. HTTP
+does not change.
+
+**The seams.** Core and modules depend on barakoCMS interfaces in `Core/Interfaces`, not on Wolverine
+types:
+
+- enqueue or publish a message inside the current transaction (the D15 property);
+- schedule a message for a time;
+- start, wait for and resume a run;
+- handle a message type, as a plain class with no framework base type.
+
+Wolverine implements those in `Infrastructure`. Retry policies, queues and leader election are
+configured there and never reach a module. The seam is the handful of operations barakoCMS needs, not
+a wrapper over all of Wolverine; wrapping everything would cost its features and still leak.
+
+**Why.** Three hand-rolled mechanisms and three advisory locks already produced a day of bugs (#856),
+and the next train needs schedules, waits and an outbox. Wolverine is MIT and already half here through
+JasperFx. Owning the seams keeps the module contract (D18) free of a dependency we might replace, and
+bounds any future swap to `Infrastructure`.
+
+**What would make it wrong.** The spike in #687 failing on transactional enqueue, conjoined tenancy or
+migrations. Then the seams stay and the implementation stays ours.
