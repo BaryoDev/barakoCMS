@@ -155,6 +155,11 @@ DROP TABLE IF EXISTS public.mt_doc_connectors;
 -- re-upgrade needs to find, so there is no reason to keep it around unused.
 DROP TABLE IF EXISTS public.mt_doc_workflow_field_apply_markers;
 
+-- Site share links (#841). 3.x has no such table and nothing references it, so dropping it moves no
+-- content. What is lost is every share link: anyone holding one gets a 404 after a re-upgrade, and new
+-- links have to be created and sent again.
+DROP TABLE IF EXISTS public.mt_doc_site_share_links;
+
 -- Scheduled entries go back to being drafts (#440). 3.x has no Scheduled status,
 -- and its sweeper selects drafts with a publish time, so this is what makes those
 -- entries publish again rather than sitting at a status nothing understands.

@@ -189,4 +189,57 @@ public class SiteBlueprintTests
         text.Should().NotContain("Ours");
         elsewhere.StatusCode.Should().NotBe(HttpStatusCode.OK, "the other tenant never applied the blueprint, so it has no site type");
     }
+
+    [Fact]
+    public async Task Applying_site_creates_the_holding_fields_and_nothing_secret()
+    {
+        var client = await AdminInAsync(await TenantAsync());
+
+        (await client.PostAsync("/api/content-types/blueprints/site", null, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var types = await client.GetAsync("/api/content-types?pageSize=100", Ct);
+        using var doc = JsonDocument.Parse(await types.Content.ReadAsStringAsync(Ct));
+        var site = doc.RootElement.GetProperty("items").EnumerateArray().Single(i => i.GetProperty("name").GetString() == "site");
+        var fields = site.GetProperty("fields").EnumerateArray()
+            .ToDictionary(f => f.GetProperty("name").GetString()!, f => f);
+        fields.Should().NotBeEmpty();
+        fields["Mode"].GetProperty("type").GetString().Should().Be("string");
+        fields["Mode"].GetProperty("isRequired").GetBoolean().Should().BeFalse("unset means Live");
+        fields["HoldingPath"].GetProperty("type").GetString().Should().Be("string");
+        fields.Keys.Should().NotContain(["ComingSoon", "ComingSoonBlocks", "ComingSoonPath", "PreviewKeyHash"]);
+        fields.Keys.Should().NotContain(k => k.Contains("Key") || k.Contains("Hash"));
+    }
+
+    [Fact]
+    public async Task A_published_site_delivers_the_holding_fields_and_no_share_link_secret()
+    {
+        var tenant = await TenantAsync();
+        var admin = await AdminInAsync(tenant);
+        (await admin.PostAsync("/api/content-types/blueprints/site", null, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+        var shared = await admin.PostAsJsonAsync("/api/site/share-links", new { label = "Board preview" }, Ct);
+        shared.StatusCode.Should().Be(HttpStatusCode.Created, await shared.Content.ReadAsStringAsync(Ct));
+        var key = (await shared.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("key").GetString()!;
+        var hash = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(key)));
+        var data = (Dictionary<string, object>)SiteData("Holding club");
+        data["Mode"] = "Holding";
+        data["HoldingPath"] = "/holding";
+        var created = await admin.PostAsJsonAsync("/api/contents", new { contentType = "site", data }, Ct);
+        created.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", created.StatusCode, await created.Content.ReadAsStringAsync(Ct));
+        using (var createdBody = JsonDocument.Parse(await created.Content.ReadAsStringAsync(Ct)))
+        {
+            await PublishAsync(admin, createdBody.RootElement.GetProperty("id").GetGuid());
+        }
+
+        var live = await AnonymousIn(tenant).GetAsync("/api/public/site", Ct);
+
+        live.StatusCode.Should().Be(HttpStatusCode.OK);
+        var text = await live.Content.ReadAsStringAsync(Ct);
+        using var body = JsonDocument.Parse(text);
+        var items = body.RootElement.GetProperty("items");
+        items.GetArrayLength().Should().Be(1);
+        var delivered = items[0].GetProperty("data");
+        delivered.GetProperty("Mode").GetString().Should().Be("Holding");
+        delivered.GetProperty("HoldingPath").GetString().Should().Be("/holding");
+        text.Should().NotContain(hash).And.NotContain(key).And.NotContainEquivalentOf("KeyHash");
+    }
 }
