@@ -1177,3 +1177,29 @@ two screens. Per-field variants keep shared data single and let each language pu
 
 **What it costs.** Search keeps text per language, and a document grows with each language. For the
 two or three languages a Philippine site runs, that is small.
+
+## D34. Frameworks stay behind the contracts others build on, and are used directly inside core
+
+**Decided:** 15 Sept 2026. **Status:** accepted. **Extends:** D18, D32.
+
+What an outside author compiles against names barakoCMS types only. The module contract
+(`Modules/*`, `Core/Interfaces/*`) and the client packages carry no Marten, FastEndpoints or Wolverine
+types. Inside core, slices keep using `IDocumentSession`, FastEndpoints and Wolverine directly, as
+section 1a of `CLAUDE.md` says.
+
+- **Modules** get barakoCMS interfaces for what they need today from Marten: writing content
+  (`IContentWriter`), reading content, a seed context and a hook context in place of
+  `IContentLifecycleHook.Session` and the `IDocumentSession` in `IBarakoModule.SeedAsync`.
+- **Endpoints stay thin.** An endpoint binds the request, calls a handler and maps the result to a
+  status. Logic lives in the handler. The wire shape is pinned by the committed OpenAPI document (D29),
+  so a change of HTTP framework is checked by CI rather than by reading.
+- **Marten is not wrapped inside core.** Tenancy, the event store, projections and concurrency are the
+  design, not an implementation detail, and a generic repository would give them up. Leaving Marten
+  would rewrite persistence with or without a wrapper. The escape hatch is the data: it lives in
+  Postgres tables, and the export engine and tenant bundle (D26, D29) move it out.
+
+**Timing.** The new interfaces are added in 4.x with the Marten-typed members marked `[Obsolete]`, and
+the old members go in 5.0.0, as section 6 requires. Endpoints thin out as each slice is touched.
+
+**Why.** A Marten or FastEndpoints major upgrade should cost core a migration, not break every module
+someone else wrote.
