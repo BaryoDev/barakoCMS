@@ -15,9 +15,14 @@ namespace barakoCMS.Features.Content.GetBySlug;
 /// <remarks>
 /// For a signed-in viewer on a public site. <c>GET /api/public/{type}/{slug}</c> is anonymous and
 /// serves only published, publicly deliverable entries, so a page gated by a role had no way to be
-/// fetched by the slug in its URL. This answers exactly what <c>GET /api/contents/{id}</c> would for
-/// the entry the slug names: the same 401, 404 and 403, the same permission check, any status, and
-/// the same response built by <c>EntryResponse</c>, masking included.
+/// fetched by the slug in its URL. This applies the permission check <c>GET /api/contents/{id}</c>
+/// applies, to any status, and returns the same response built by <c>EntryResponse</c>, masking
+/// included.
+///
+/// An entry the caller may not read answers 404, not the 403 the id route gives. A slug is readable
+/// text a caller can guess, and any signed-in account, a self-registered one with no content
+/// permission included, reaches this route, so a 403 would confirm that a draft or another user's
+/// entry exists under that slug. An id is not guessable, which is why the id route can say 403.
 ///
 /// Not gated on <c>IsPubliclyDeliverable</c>. That flag decides what anonymous callers get; here the
 /// read permission decides.
@@ -54,16 +59,22 @@ internal class Endpoint : Endpoint<Request, Response>
 
         var user = await _session.LoadAsync<User>(userId, ct);
 
-        var content = await FindAsync(req.Type, req.Slug, ct);
+        barakoCMS.Models.Content? content = null;
+        if (user != null)
+        {
+            foreach (var candidate in await FindAsync(req.Type, req.Slug, ct))
+            {
+                if (await _permissionResolver.CanPerformActionAsync(user, candidate.ContentType, "read", candidate, ct))
+                {
+                    content = candidate;
+                    break;
+                }
+            }
+        }
+
         if (content == null)
         {
             await Send.NotFoundAsync(ct);
-            return;
-        }
-
-        if (user == null || !await _permissionResolver.CanPerformActionAsync(user, content.ContentType, "read", content, ct))
-        {
-            await Send.ForbiddenAsync(ct);
             return;
         }
 
@@ -71,20 +82,22 @@ internal class Endpoint : Endpoint<Request, Response>
             content, _session, _sourcing, Resolve<ISensitivityService>(), HttpContext, ct);
     }
 
-    /// <summary>The entry holding this slug, in the request's tenant, or null.</summary>
+    /// <summary>The entries holding this slug, in the request's tenant, oldest first, at most a handful.</summary>
     /// <remarks>
     /// The slug field and the match are the ones delivery and the uniqueness rule use, so all three
     /// agree on which entry a slug names. Oldest first with the id as tiebreak for the same reason the
     /// public route orders: uniqueness is enforced going forward (#717), and a deployment that already
-    /// held a duplicate should get a stable answer rather than whichever row Postgres returns.
+    /// held a duplicate should get a stable answer rather than whichever row Postgres returns. More
+    /// than one row is returned so that a duplicate the caller cannot read does not hide a newer one
+    /// they can.
     /// </remarks>
-    private async Task<barakoCMS.Models.Content?> FindAsync(string type, string slug, CancellationToken ct)
+    private async Task<IReadOnlyList<barakoCMS.Models.Content>> FindAsync(string type, string slug, CancellationToken ct)
     {
         var def = await _session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
-        if (def is null) return null;
+        if (def is null) return [];
 
         var slugField = PublicDelivery.SlugField(def);
-        if (slugField is null) return null;
+        if (slugField is null) return [];
 
         var (sql, parameters) = DeliveryQuery.FieldEqualsIgnoreCaseSql(slugField, slug);
 
@@ -92,6 +105,7 @@ internal class Endpoint : Endpoint<Request, Response>
             .Where(c => c.ContentType == type && c.MatchesSql(sql, parameters))
             .OrderBy(c => c.CreatedAt)
             .ThenBy(c => c.Id)
-            .FirstOrDefaultAsync(ct);
+            .Take(10)
+            .ToListAsync(ct);
     }
 }
