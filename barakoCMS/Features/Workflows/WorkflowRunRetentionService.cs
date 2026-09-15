@@ -136,10 +136,12 @@ internal sealed class WorkflowRunRetentionService : BackgroundService
         {
             var removed = 0;
 
+            var fromRegistry = TenantPartitions.Enforced(_config);
+
             foreach (var tenantId in await TenantPartitions.ListAsync(_store, _config, PartitionsWithRunsSql, ct))
             {
                 await using var session = _store.LightweightSession(tenantId);
-                if (!await HasFinishedRunsAsync(session, ct)) continue;
+                if (fromRegistry && !await HasFinishedRunsAsync(session, ct)) continue;
 
                 removed += await SweepTenantAsync(session, nowUtc, Windows(), _logger, ct);
             }
@@ -182,7 +184,8 @@ internal sealed class WorkflowRunRetentionService : BackgroundService
 
     /// <summary>
     /// One query that ends the visit to a partition with nothing finished in it, which with database
-    /// tenancy on is most registered tenants on most sweeps.
+    /// tenancy on is most registered tenants on most sweeps. With it off the partitions already came
+    /// from finished runs, so this is not asked.
     /// </summary>
     private static Task<bool> HasFinishedRunsAsync(IQuerySession session, CancellationToken ct) =>
         session.Query<WorkflowRun>().AnyAsync(

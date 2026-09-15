@@ -1,6 +1,7 @@
 using barakoCMS.Extensions;
 using barakoCMS.Features.WebhookDeliveries;
 using barakoCMS.Features.Workflows;
+using barakoCMS.Infrastructure.Jobs;
 using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Models;
 using FastEndpoints;
@@ -8,6 +9,7 @@ using FluentAssertions;
 using Marten;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -69,8 +71,9 @@ public class TenantPartitionsTests
             while (await reader.ReadAsync(ct)) { }
         };
 
-        await reading.Should().ThrowAsync<PostgresException>(
-            "the policy reads app.tenant_id, and a bare connection never sets it");
+        (await reading.Should().ThrowAsync<PostgresException>(
+            "the policy reads app.tenant_id, and a bare connection never sets it"))
+            .Which.SqlState.Should().Be(PostgresErrorCodes.UndefinedObject);
     }
 
     [Fact]
@@ -81,7 +84,7 @@ public class TenantPartitionsTests
         var store = host.Services.GetRequiredService<IDocumentStore>();
 
         var runs = new Dictionary<string, Guid>();
-        foreach (var (prefix, active) in new[] { ("rls-run", true), ("rls-run-inactive", false) })
+        foreach (var (prefix, active) in Partitions("rls-run"))
         {
             var tenant = await RegisterAsync(store, prefix, active, ct);
             runs[tenant] = await QueueRunAsync(store, tenant, ct);
@@ -96,7 +99,7 @@ public class TenantPartitionsTests
             (++polls).Should().BeLessThan(50, "the runner should drain rather than find work forever");
         }
 
-        runs.Should().HaveCount(2);
+        runs.Should().HaveCount(3);
         foreach (var (tenant, runId) in runs)
         {
             await using var check = store.QuerySession(tenant);
@@ -117,7 +120,7 @@ public class TenantPartitionsTests
         var now = DateTimeOffset.UtcNow;
 
         var kept = new Dictionary<string, Guid>();
-        foreach (var (prefix, active) in new[] { ("rls-runs", true), ("rls-runs-inactive", false) })
+        foreach (var (prefix, active) in Partitions("rls-runs"))
         {
             var tenant = await RegisterAsync(store, prefix, active, ct);
 
@@ -135,11 +138,14 @@ public class TenantPartitionsTests
 
         (await service.TrySweepAllTenantsAsync(now, ct)).Should().BeTrue();
 
-        kept.Should().HaveCount(2);
+        kept.Should().HaveCount(3);
         foreach (var (tenant, recentId) in kept)
         {
             await using var check = store.QuerySession(tenant);
-            var survivors = await check.Query<WorkflowRun>().Select(r => r.Id).ToListAsync(ct);
+            var survivors = await check.Query<WorkflowRun>()
+                .Where(r => r.WorkflowName == "Finished")
+                .Select(r => r.Id)
+                .ToListAsync(ct);
 
             survivors.Should().Equal([recentId],
                 $"in {tenant} the run past its window goes and the one inside it stays");
@@ -155,7 +161,7 @@ public class TenantPartitionsTests
         var now = DateTimeOffset.UtcNow;
 
         var kept = new Dictionary<string, Guid>();
-        foreach (var (prefix, active) in new[] { ("rls-deliveries", true), ("rls-deliveries-inactive", false) })
+        foreach (var (prefix, active) in Partitions("rls-deliveries"))
         {
             var tenant = await RegisterAsync(store, prefix, active, ct);
 
@@ -172,9 +178,9 @@ public class TenantPartitionsTests
             store, host.Services.GetRequiredService<IConfiguration>(), NullLogger<WebhookDeliveryRetentionService>.Instance);
 
         var (removed, _) = await service.SweepAllTenantsAsync(now, ct);
-        removed.Should().BeGreaterThanOrEqualTo(2);
+        removed.Should().BeGreaterThanOrEqualTo(3);
 
-        kept.Should().HaveCount(2);
+        kept.Should().HaveCount(3);
         foreach (var (tenant, recentId) in kept)
         {
             await using var check = store.QuerySession(tenant);
@@ -183,6 +189,117 @@ public class TenantPartitionsTests
             survivors.Should().Equal([recentId],
                 $"in {tenant} the row past its window goes and the one inside it stays");
         }
+    }
+
+    [Fact]
+    public async Task A_job_queued_in_a_named_tenant_is_claimed_with_enforcement_on()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var host = await HostAsync(ct);
+        var store = host.Services.GetRequiredService<IDocumentStore>();
+        var queue = $"rls-claim-{Guid.NewGuid():N}"[..18];
+
+        var queued = new Dictionary<string, Guid>();
+        foreach (var (prefix, active) in Partitions("rls-jobs"))
+        {
+            var tenant = await RegisterAsync(store, prefix, active, ct);
+            queued[tenant] = await QueueJobAsync(store, tenant, queue, complete: false, ct);
+        }
+
+        var claimed = await JobStorage(host).GetNextBatchAsync(SearchParams<PendingJobSearchParams<JobRecord>>(
+            ("QueueID", queue),
+            ("Match", (System.Linq.Expressions.Expression<Func<JobRecord, bool>>)(r => r.QueueID == queue)),
+            ("Limit", 10),
+            ("ExecutionTimeLimit", TimeSpan.FromMinutes(1)),
+            ("CancellationToken", ct)));
+
+        queued.Should().HaveCount(3);
+        claimed.ToDictionary(r => r.TenantId, r => r.TrackingID).Should().Equal(queued,
+            "a worker serves every tenant, not only the one its session defaults to");
+    }
+
+    [Fact]
+    public async Task Cancel_and_purge_reach_jobs_in_a_named_tenant_with_enforcement_on()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var host = await HostAsync(ct);
+        var store = host.Services.GetRequiredService<IDocumentStore>();
+        var queue = $"rls-ops-{Guid.NewGuid():N}"[..16];
+
+        var tenant = await RegisterAsync(store, "rls-job-ops", active: true, ct);
+        var toCancel = await QueueJobAsync(store, tenant, queue, complete: false, ct);
+        var toPurge = await QueueJobAsync(store, tenant, queue, complete: true, ct);
+
+        await using (var before = store.QuerySession(tenant))
+        {
+            (await before.LoadAsync<JobRecord>(toPurge, ct)).Should().NotBeNull("the purge needs something to remove");
+        }
+
+        var storage = JobStorage(host);
+        await storage.CancelJobAsync(toCancel, ct);
+        await storage.PurgeStaleJobsAsync(SearchParams<StaleJobSearchParams<JobRecord>>(
+            ("Match", (System.Linq.Expressions.Expression<Func<JobRecord, bool>>)(r => r.QueueID == queue && r.TrackingID == toPurge)),
+            ("CancellationToken", ct)));
+
+        await using var check = store.QuerySession(tenant);
+        (await check.LoadAsync<JobRecord>(toCancel, ct))!.State.Should().Be(JobState.DeadLettered);
+        (await check.LoadAsync<JobRecord>(toPurge, ct)).Should().BeNull("a completed job past its expiry is deleted");
+    }
+
+    /// <summary>
+    /// FastEndpoints builds its search parameters itself, and gives them no public constructor or
+    /// setter, so a test that calls the storage provider directly fills them the same way it does.
+    /// </summary>
+    private static T SearchParams<T>(params (string Name, object Value)[] values) where T : struct
+    {
+        object boxed = default(T);
+        foreach (var (name, value) in values)
+        {
+            typeof(T).GetProperty(name)!.GetSetMethod(nonPublic: true)!.Invoke(boxed, [value]);
+        }
+
+        return (T)boxed;
+    }
+
+    private static MartenJobStorageProvider JobStorage(WebApplication host)
+    {
+        var gate = new JobStorageGate();
+        gate.Open();
+
+        return new MartenJobStorageProvider(
+            host.Services.GetRequiredService<IDocumentStore>(),
+            new HttpContextAccessor(),
+            new JobOptions(),
+            NullLogger<MartenJobStorageProvider>.Instance,
+            gate,
+            host.Services.GetRequiredService<IConfiguration>());
+    }
+
+    private static async Task<Guid> QueueJobAsync(
+        IDocumentStore store, string tenant, string queue, bool complete, CancellationToken ct)
+    {
+        var id = Guid.NewGuid();
+        var now = DateTime.UtcNow;
+
+        await using var session = store.LightweightSession(tenant);
+        session.Store(new JobRecord
+        {
+            TrackingID = id,
+            TenantId = tenant,
+            QueueID = queue,
+            CommandType = queue,
+            CommandJson = "{}",
+            CreatedAt = now,
+            ExecuteAfter = now.AddMinutes(-1),
+            ExpireOn = complete ? now.AddMinutes(-1) : now.AddHours(4),
+            DequeueAfter = now.AddMinutes(-1),
+            MaxAttempts = 5,
+            IsComplete = complete,
+            State = complete ? JobState.Completed : JobState.Pending,
+        });
+        await session.SaveChangesAsync(ct);
+
+        return id;
     }
 
     private async Task<WebApplication> HostAsync(CancellationToken ct)
@@ -258,8 +375,17 @@ public class TenantPartitionsTests
         return app;
     }
 
-    private static async Task<string> RegisterAsync(IDocumentStore store, string prefix, bool active, CancellationToken ct)
+    /// <summary>
+    /// An active tenant, an inactive one, and the default partition (a null prefix), which is where
+    /// a single-tenant deployment keeps everything.
+    /// </summary>
+    private static (string? Prefix, bool Active)[] Partitions(string prefix) =>
+        [(prefix, true), (prefix + "-inactive", false), (null, true)];
+
+    private static async Task<string> RegisterAsync(IDocumentStore store, string? prefix, bool active, CancellationToken ct)
     {
+        if (prefix is null) return JasperFx.StorageConstants.DefaultTenantId;
+
         var slug = $"{prefix}-{Guid.NewGuid():N}"[..(prefix.Length + 9)];
 
         await using var session = store.LightweightSession();

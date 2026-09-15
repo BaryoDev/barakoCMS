@@ -144,7 +144,8 @@ internal sealed class WorkflowRunner : BackgroundService
     ///
     /// Only with database tenancy off. With it on, <see cref="TenantPartitions"/> reads the registry
     /// instead, including inactive tenants, and the due query in <see cref="RunOnceAsync"/> is what
-    /// skips a partition with nothing to do.
+    /// skips a partition with nothing to do. Every pass starts again from the registry, so a drain
+    /// costs one due query per registered tenant per attempt claimed.
     /// </remarks>
     private const string PartitionsWithWorkSql =
         "select distinct tenant_id from public.mt_doc_workflow_runs "

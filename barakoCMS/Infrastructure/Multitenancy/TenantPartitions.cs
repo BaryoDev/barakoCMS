@@ -25,19 +25,25 @@ namespace barakoCMS.Infrastructure.Multitenancy;
 /// set <c>app.tenant_id</c>.
 ///
 /// What enforcement costs here: one query per registered tenant per pass rather than one query in
-/// total, and a partition holding rows with no registry entry is not reached.
+/// total, paid again on every pass, so a runner draining a backlog pays it per attempt it claims.
+/// A partition holding rows with no registry entry is not reached.
 /// </remarks>
 internal static class TenantPartitions
 {
+    /// <summary>Whether Postgres enforces the tenant filter, read from the key the store was built with.</summary>
+    public static bool Enforced(IConfiguration configuration) =>
+        configuration.GetValue(DatabaseTenancy.EnabledKey, false);
+
     public static async Task<IReadOnlyList<string>> ListAsync(
         IDocumentStore store, IConfiguration configuration, string distinctTenantIdsSql, CancellationToken ct)
     {
-        return configuration.GetValue(DatabaseTenancy.EnabledKey, false)
+        return Enforced(configuration)
             ? await FromRegistryAsync(store, ct)
             : await FromRowsAsync(store, distinctTenantIdsSql, ct);
     }
 
-    private static async Task<IReadOnlyList<string>> FromRegistryAsync(IDocumentStore store, CancellationToken ct)
+    /// <summary>Every registered tenant, active or not, and the default partition.</summary>
+    public static async Task<IReadOnlyList<string>> FromRegistryAsync(IDocumentStore store, CancellationToken ct)
     {
         await using var session = store.QuerySession();
         var slugs = await session.Query<Tenant>().Select(t => t.Slug).ToListAsync(ct);

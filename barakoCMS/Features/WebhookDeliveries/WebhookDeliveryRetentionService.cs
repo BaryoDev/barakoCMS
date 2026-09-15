@@ -119,13 +119,15 @@ internal sealed class WebhookDeliveryRetentionService : BackgroundService
         var removed = 0;
         var bodiesCleared = 0;
 
+        var fromRegistry = TenantPartitions.Enforced(_config);
+
         foreach (var tenantId in await TenantPartitions.ListAsync(_store, _config, PartitionsWithDeliveriesSql, ct))
         {
             await using var session = _store.LightweightSession(tenantId);
 
-            // With database tenancy on the partitions come from the registry, so most hold nothing,
-            // and one query is the cheapest way to say so.
-            if (!await session.Query<WebhookDelivery>().AnyAsync(ct)) continue;
+            // From the registry most partitions hold nothing, and one query is the cheapest way to
+            // say so. From the rows every partition already holds a delivery.
+            if (fromRegistry && !await session.Query<WebhookDelivery>().AnyAsync(ct)) continue;
 
             // Bodies are cleared first. A row due for outright deletion this pass has nothing left
             // to clear either way, and clearing before deleting means a row that is due for deletion
