@@ -38,7 +38,7 @@ internal static class UserIdentityBackfill
 {
     internal const int BatchSize = 1000;
 
-    private sealed record Rewrite(Guid Id, string Username, string NormalizedUsername, string NormalizedEmail,
+    private sealed record Rewrite(Guid Id, string NormalizedUsername, string NormalizedEmail,
         bool UsernameChanges, bool EmailChanges);
 
     public static async Task RunAsync(IDocumentStore store, CancellationToken ct = default)
@@ -62,17 +62,31 @@ internal static class UserIdentityBackfill
 
         if (collisions.Count > 0)
         {
-            throw new InvalidOperationException(
-                "Refusing to start: some accounts share a username or email once case and surrounding "
-              + "whitespace are ignored, and sign-in could not tell them apart. Nothing was changed. Rename or "
-              + "remove one account in each group, then start again.\n"
-              + string.Join("\n", collisions));
+            throw Refusal(string.Join("\n", collisions));
         }
 
-        await WriteAsync(connection, table, rewrites, ct);
+        try
+        {
+            await WriteAsync(connection, table, rewrites, ct);
+        }
+        catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            // Another node, still serving, stored an account on a value this was about to write, after
+            // the check above ran. The transaction rolled back, and the next start names the accounts.
+            throw Refusal("An account was stored on one of the rewritten values while this was starting. Start again to see which.", ex);
+        }
 
         Log.Information("Rewrote the normalised username or email of {Count} account(s)", rewrites.Count);
     }
+
+    /// <remarks>
+    /// Account ids only. The values are usernames and addresses as registered, which may hold a line
+    /// break, and this message goes to the fatal startup log.
+    /// </remarks>
+    private static InvalidOperationException Refusal(string detail, Exception? inner = null) =>
+        new("Refusing to start: some accounts share a username or email once case and surrounding "
+          + "whitespace are ignored, and sign-in could not tell them apart. Nothing was changed. Rename or "
+          + "remove one account in each group, then start again.\n" + detail, inner);
 
     private static async Task<List<Rewrite>> FindRewritesAsync(NpgsqlConnection connection, string table, CancellationToken ct)
     {
@@ -114,7 +128,7 @@ internal static class UserIdentityBackfill
 
                     if (usernameChanges || emailChanges)
                     {
-                        rewrites.Add(new Rewrite(id, username ?? string.Empty, normalizedUsername, normalizedEmail,
+                        rewrites.Add(new Rewrite(id, normalizedUsername, normalizedEmail,
                             usernameChanges, emailChanges));
                     }
                 }
@@ -146,13 +160,13 @@ internal static class UserIdentityBackfill
 
         var holders = changing
             .GroupBy(value, StringComparer.Ordinal)
-            .ToDictionary(g => g.Key, g => g.Select(r => (r.Id, r.Username)).ToList(), StringComparer.Ordinal);
+            .ToDictionary(g => g.Key, g => g.Select(r => r.Id).ToList(), StringComparer.Ordinal);
 
         foreach (var chunk in holders.Keys.Chunk(BatchSize))
         {
             await using var command = connection.CreateCommand();
             command.CommandText =
-                $"select id, data ->> 'Username', data ->> '{field}' from {table} where data ->> '{field}' = any(@values)";
+                $"select id, data ->> '{field}' from {table} where data ->> '{field}' = any(@values)";
             command.Parameters.AddWithValue("values", chunk);
 
             await using var reader = await command.ExecuteReaderAsync(ct);
@@ -164,15 +178,14 @@ internal static class UserIdentityBackfill
                     continue;
                 }
 
-                holders[reader.GetString(2)].Add((id, reader.IsDBNull(1) ? string.Empty : reader.GetString(1)));
+                holders[reader.GetString(1)].Add(id);
             }
         }
 
         return holders
             .Where(h => h.Value.Count > 1)
             .OrderBy(h => h.Key, StringComparer.Ordinal)
-            .Select(h => $"{kind} '{h.Key}' is held by "
-                       + string.Join(", ", h.Value.OrderBy(u => u.Id).Select(u => $"{u.Id} ({u.Username})")))
+            .Select(h => $"one {kind} is held by accounts " + string.Join(", ", h.Value.OrderBy(id => id)))
             .ToList();
     }
 
