@@ -1103,14 +1103,16 @@ public static class ServiceCollectionExtensions
         var configuration = app.ApplicationServices.GetRequiredService<IConfiguration>();
         var env = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
 
-        // Global exception handler — MUST be first so it wraps every downstream middleware/endpoint.
-        // Returns a structured 500 (no stack trace leak) and logs the exception via FastEndpoints.
-        app.UseDefaultExceptionHandler();
+        // Global exception handler, first so it wraps every downstream middleware and endpoint. The
+        // exception and its message are logged; the 500 body carries a fixed reason, because a
+        // message can name a table, a setting or a value from the request and the caller may be
+        // anonymous.
+        app.UseDefaultExceptionHandler(useGenericReason: true);
         app.UseMiddleware<barakoCMS.Infrastructure.Http.MalformedRequestMiddleware>();
 
-        // Inside the handler above, so it is reached first. The default handler writes the exception
-        // message into a 500, and this message names configuration keys, which is for the operator
-        // rather than an anonymous caller (#654).
+        // Inside the handler above, so it is reached first. A missing base URL is a deployment that
+        // cannot serve this yet rather than a fault, so it answers 503, and its message names
+        // configuration keys, which is for the operator rather than an anonymous caller (#654).
         var notConfiguredLog = app.ApplicationServices.GetRequiredService<ILoggerFactory>()
             .CreateLogger("barakoCMS.Infrastructure.Security.CanonicalHost");
         app.Use(async (context, next) =>
@@ -1151,33 +1153,44 @@ public static class ServiceCollectionExtensions
             barakoCMS.Infrastructure.Security.SecurityHeaders.HealthDashboardContentSecurityPolicy(env);
         var healthDashboardEnabled = configuration.GetValue<bool>("HealthChecksUI:Enabled");
 
+        // Written as the response starts rather than before next. The exception handler, the
+        // malformed request refusal and the 503 above all sit outside this block and clear the
+        // response before writing theirs, which wiped headers set here up front. An OnStarting
+        // callback survives that clear. Each header is only added when missing, so an endpoint that
+        // sets its own Cache-Control still wins.
         app.Use(async (context, next) =>
         {
-            context.Response.Headers.Append("X-Content-Type-Options", "nosniff");
-            context.Response.Headers.Append("X-Frame-Options", "DENY");
-            context.Response.Headers.Append("Referrer-Policy", "strict-origin-when-cross-origin");
-
-            // X-XSS-Protection is deliberately not written. Every current browser ignores it, and
-            // the auditor it was there to satisfy is not a threat model. While it was honoured its
-            // filter introduced holes of its own: "1; mode=block" gave a cross-origin attacker a
-            // way to detect content on the page by watching which loads were blocked. The CSP
-            // below is the control that actually applies. See issue #271.
-
-            // Content Security Policy. The looser style-src is reached only by the health dashboard,
-            // and only while the dashboard is switched on.
-            var policy = healthDashboardEnabled &&
-                         barakoCMS.Infrastructure.Security.SecurityHeaders.IsHealthDashboardPath(context.Request.Path)
-                ? healthDashboardCsp
-                : csp;
-            context.Response.Headers.Append("Content-Security-Policy", policy);
-
-            // A token, a key or the caller's own details: no browser or proxy keeps a copy. Pragma is
-            // for HTTP/1.0 caches, which do not read Cache-Control.
-            if (barakoCMS.Infrastructure.Security.SecurityHeaders.IsNoStorePath(context.Request.Path))
+            context.Response.OnStarting(() =>
             {
-                context.Response.Headers.CacheControl = "no-store";
-                context.Response.Headers.Pragma = "no-cache";
-            }
+                var headers = context.Response.Headers;
+                headers.TryAdd("X-Content-Type-Options", "nosniff");
+                headers.TryAdd("X-Frame-Options", "DENY");
+                headers.TryAdd("Referrer-Policy", "strict-origin-when-cross-origin");
+
+                // X-XSS-Protection is deliberately not written. Every current browser ignores it, and
+                // the auditor it was there to satisfy is not a threat model. While it was honoured its
+                // filter introduced holes of its own: "1; mode=block" gave a cross-origin attacker a
+                // way to detect content on the page by watching which loads were blocked. The CSP
+                // below is the control that actually applies. See issue #271.
+
+                // Content Security Policy. The looser style-src is reached only by the health
+                // dashboard, and only while the dashboard is switched on.
+                var policy = healthDashboardEnabled &&
+                             barakoCMS.Infrastructure.Security.SecurityHeaders.IsHealthDashboardPath(context.Request.Path)
+                    ? healthDashboardCsp
+                    : csp;
+                headers.TryAdd("Content-Security-Policy", policy);
+
+                // A token, a key or the caller's own details: no browser or proxy keeps a copy. Pragma
+                // is for HTTP/1.0 caches, which do not read Cache-Control.
+                if (barakoCMS.Infrastructure.Security.SecurityHeaders.IsNoStorePath(context.Request.Path))
+                {
+                    headers.TryAdd("Cache-Control", "no-store");
+                    headers.TryAdd("Pragma", "no-cache");
+                }
+
+                return Task.CompletedTask;
+            });
 
             // Strict-Transport-Security is NOT written here. UseHsts above owns it, configured by
             // HstsPolicy. This block used to append a second copy of the header on every HTTPS
@@ -1190,12 +1203,18 @@ public static class ServiceCollectionExtensions
 
         // The HTTP contract version, on every response including a 401, so a console can read it
         // before it ever signs in and again mid-session after a rolling upgrade moves it. See
-        // barakoCMS.Features.Monitoring.Meta.ApiContract and CLAUDE.md section 6.
+        // barakoCMS.Features.Monitoring.Meta.ApiContract and CLAUDE.md section 6. Written on start,
+        // for the same reason as the security headers above: an error answered outside this block
+        // clears the response first.
+        var contractVersion = barakoCMS.Features.Monitoring.Meta.ApiContract.Version.ToString();
         app.Use(async (context, next) =>
         {
-            context.Response.Headers.Append(
-                barakoCMS.Features.Monitoring.Meta.ApiContract.HeaderName,
-                barakoCMS.Features.Monitoring.Meta.ApiContract.Version.ToString());
+            context.Response.OnStarting(() =>
+            {
+                context.Response.Headers.TryAdd(
+                    barakoCMS.Features.Monitoring.Meta.ApiContract.HeaderName, contractVersion);
+                return Task.CompletedTask;
+            });
 
             await next();
         });

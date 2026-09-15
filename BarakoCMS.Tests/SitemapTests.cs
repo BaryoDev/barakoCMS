@@ -326,6 +326,12 @@ public class SitemapTests
         body.Should().NotContain("Feeds:SiteUrl", "an anonymous caller is not told the configuration; the log is");
         body.Should().NotContain("App:BaseUrl");
         body.Should().NotContain("attacker-example.net", "the caller does not get to choose the origin");
+
+        response.Headers.TryGetValues(barakoCMS.Features.Monitoring.Meta.ApiContract.HeaderName, out var contract)
+            .Should().BeTrue("the 503 is written after the response is cleared, and the header has to survive that");
+        contract!.Should().ContainSingle().Which.Should().Be(barakoCMS.Features.Monitoring.Meta.ApiContract.Version.ToString());
+        response.Headers.TryGetValues("X-Content-Type-Options", out var nosniff).Should().BeTrue();
+        nosniff!.Should().ContainSingle().Which.Should().Be("nosniff");
     }
 
     private async Task SeedOneAsync(string type, string slug)
