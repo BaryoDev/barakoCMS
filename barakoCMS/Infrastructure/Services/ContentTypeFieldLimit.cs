@@ -13,8 +13,10 @@ namespace barakoCMS.Infrastructure.Services;
 ///
 /// Only growth is refused. A type already stored with more fields than this keeps working: it is
 /// read, delivered and written to as before, and only adding a field to it is refused.
+///
+/// Public because the Portability module imports content types and has to apply the same cap.
 /// </remarks>
-internal static class ContentTypeFieldLimit
+public static class ContentTypeFieldLimit
 {
     public const string ConfigKey = "ContentTypes:MaxFields";
 

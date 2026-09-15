@@ -5,6 +5,7 @@ using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
+using Microsoft.Extensions.Configuration;
 
 namespace BarakoCMS.Portability;
 
@@ -45,6 +46,28 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
         var report = new ImportReport { DryRun = req.DryRun };
 
         var existing = (await _session.Query<ContentTypeDefinition>().ToListAsync(ct)).ToList();
+
+        // Checked for the whole bundle before anything is stored, so a refused import leaves no
+        // type and no content behind. Same rule as the content-type endpoints: a type already
+        // stored over the cap may be imported again at its size, only growth past the cap is refused.
+        var maxFields = barakoCMS.Infrastructure.Services.ContentTypeFieldLimit.Resolve(Resolve<IConfiguration>());
+        foreach (var type in req.ContentTypes)
+        {
+            if (string.IsNullOrWhiteSpace(type.Name)) continue;
+
+            var incoming = type.Fields?.Count ?? 0;
+            var stored = existing.FirstOrDefault(t =>
+                t.Name.Equals(type.Name, StringComparison.OrdinalIgnoreCase))?.Fields?.Count ?? 0;
+
+            if (incoming > maxFields && incoming > stored)
+            {
+                var name = type.Name.Length > 100 ? type.Name[..100] + "..." : type.Name;
+                AddError($"Content type '{name}' was not imported. "
+                         + barakoCMS.Infrastructure.Services.ContentTypeFieldLimit.TooMany(maxFields, incoming));
+                ThrowIfAnyErrors();
+            }
+        }
+
         foreach (var type in req.ContentTypes)
         {
             if (string.IsNullOrWhiteSpace(type.Name)) continue;
