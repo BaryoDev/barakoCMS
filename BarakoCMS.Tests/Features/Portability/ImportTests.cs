@@ -220,4 +220,99 @@ public class ImportTests : IAsyncLifetime
             + "stored value, so an importer that keeps the file's spelling leaves a name the index "
             + "will not recognise as a duplicate of the created one");
     }
+    private static object[] ManyFields(int count) =>
+        Enumerable.Range(1, count)
+            .Select(i => (object)new { name = $"Field{i}", displayName = $"Field {i}", type = "string" })
+            .ToArray();
+
+    private static object CappedBundle(string type, int fieldCount, bool deliverable = false) => new
+    {
+        contentTypes = new[]
+        {
+            new { name = type, displayName = type, isPubliclyDeliverable = deliverable, fields = ManyFields(fieldCount) },
+        },
+        contents = new[]
+        {
+            new { contentType = type, status = "Published", data = new Dictionary<string, object> { ["Field1"] = "x" } },
+        },
+    };
+
+    private async Task StoreTypeAsync(string type, int fieldCount)
+    {
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        session.Store(new ContentTypeDefinition
+        {
+            Id = Guid.NewGuid(),
+            Name = type,
+            DisplayName = type,
+            Fields = Enumerable.Range(1, fieldCount)
+                .Select(i => new FieldDefinition { Name = $"Field{i}", DisplayName = $"Field {i}", Type = "string" })
+                .ToList(),
+        });
+        await session.SaveChangesAsync();
+    }
+
+    private async Task<ContentTypeDefinition?> StoredTypeAsync(string type)
+    {
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+        return await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type);
+    }
+
+    /// <summary>
+    /// Import is another way a content type comes into existence, so the field cap (#650) applies
+    /// to it the same as to create.
+    /// </summary>
+    [Fact]
+    public async Task A_bundle_type_with_one_field_more_than_the_cap_is_refused_and_nothing_is_stored()
+    {
+        var cap = barakoCMS.Infrastructure.Services.ContentTypeFieldLimit.Default;
+        var type = "importcap" + Guid.NewGuid().ToString("n")[..8];
+
+        var response = await _client.PostAsJsonAsync("/api/portability/import", CappedBundle(type, cap + 1));
+
+        var body = await response.Content.ReadAsStringAsync();
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, body);
+        body.Should().Contain(type).And.Contain($"at most {cap} fields");
+
+        (await StoredTypeAsync(type)).Should().BeNull("a refused import must not leave the type behind");
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+        (await session.Query<barakoCMS.Models.Content>().AnyAsync(c => c.ContentType == type))
+            .Should().BeFalse("a refused import must not create the bundle's content either");
+    }
+
+    [Fact]
+    public async Task An_import_may_not_grow_a_stored_type_past_the_cap()
+    {
+        var cap = barakoCMS.Infrastructure.Services.ContentTypeFieldLimit.Default;
+        var type = "importgrow" + Guid.NewGuid().ToString("n")[..8];
+        await StoreTypeAsync(type, cap);
+
+        var response = await _client.PostAsJsonAsync("/api/portability/import", CappedBundle(type, cap + 1));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
+        (await StoredTypeAsync(type))!.Fields.Should().HaveCount(cap, "the refused fields must not have been written");
+    }
+
+    /// <summary>
+    /// The positive control: a type already stored over the cap round-trips through import at its
+    /// own size, because only growth is refused. This passes with or without the cap.
+    /// </summary>
+    [Fact]
+    public async Task A_type_stored_over_the_cap_can_be_imported_again_at_its_size()
+    {
+        var cap = barakoCMS.Infrastructure.Services.ContentTypeFieldLimit.Default;
+        var type = "importover" + Guid.NewGuid().ToString("n")[..8];
+        await StoreTypeAsync(type, cap + 50);
+
+        var response = await _client.PostAsJsonAsync(
+            "/api/portability/import", CappedBundle(type, cap + 50, deliverable: true));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        var stored = await StoredTypeAsync(type);
+        stored!.Fields.Should().HaveCount(cap + 50);
+        stored.IsPubliclyDeliverable.Should().BeTrue("the rest of the imported definition still applies");
+    }
 }
