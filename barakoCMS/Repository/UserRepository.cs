@@ -27,14 +27,17 @@ internal class MartenUserRepository : IUserRepository
 
     public async Task<User?> GetByUsernameOrEmailAsync(string username, string email, CancellationToken ct = default)
     {
+        var normalizedUsername = User.NormalizeIdentity(username);
+        var normalizedEmail = User.NormalizeIdentity(email);
         return await _session.Query<User>()
-            .FirstOrDefaultAsync(u => u.Username == username || u.Email == email, ct);
+            .FirstOrDefaultAsync(u => u.NormalizedUsername == normalizedUsername || u.NormalizedEmail == normalizedEmail, ct);
     }
 
     public async Task<User?> GetByUsernameAsync(string username, CancellationToken ct = default)
     {
+        var normalized = User.NormalizeIdentity(username);
         return await _session.Query<User>()
-            .FirstOrDefaultAsync(u => u.Username == username, ct);
+            .FirstOrDefaultAsync(u => u.NormalizedUsername == normalized, ct);
     }
 
     public void Store(User user)

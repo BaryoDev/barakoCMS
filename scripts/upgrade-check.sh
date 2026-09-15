@@ -10,14 +10,16 @@
 #
 #   1. stand up a database with the released FROM_VERSION and put real content in it
 #   2. db-assert must FAIL on both hosts, because 4.0's schema does not match a 3.x database
-#   3. apply the reviewed core migration, migrations/4.0.0/3.x-to-4.0.sql
-#   4. db-assert must PASS on the core host, so that file is exactly what core needs
+#   3. apply the reviewed core migrations, migrations/4.0.0/3.x-to-4.0.sql and
+#      migrations/4.2.0/user-normalized-identity.sql
+#   4. db-assert must PASS on the core host, so those files are exactly what core needs
 #   5. apply the module migration, migrations/4.2.0/stored-files-parent-index.sql
 #   6. db-assert must PASS on the Suite host, so nothing any module registers is left outstanding
 #   7. the Suite boots in Production mode, module schema preflight included, and serves
 #   8. an event appends to a stream that already existed, and the projection daemon resumes from
 #      its stored progression rather than restarting from zero
-#   9. 4.0 stops, migrations/4.0.0/rollback-to-3.x.sql is applied
+#   9. 4.0 stops, migrations/4.2.0/rollback-user-normalized-identity.sql and
+#      migrations/4.0.0/rollback-to-3.x.sql are applied
 #  10. FROM_VERSION boots again against the rolled-back database and still serves the record 4.0
 #      wrote to, with every event still on its stream
 #
@@ -198,6 +200,10 @@ step "applying migrations/4.0.0/3.x-to-4.0.sql"
 docker cp migrations/4.0.0/3.x-to-4.0.sql "$PG:/tmp/up.sql"
 docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/up.sql >/dev/null
 
+step "applying migrations/4.2.0/user-normalized-identity.sql"
+docker cp migrations/4.2.0/user-normalized-identity.sql "$PG:/tmp/users.sql"
+docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/users.sql >/dev/null
+
 step "the migration left the daemon's progression alone"
 PROGRESSION_MIGRATED=$(psql_q "select coalesce(max(last_seq_id), 0) from mt_event_progression where name like '%WorkflowProjection%';")
 [ "$PROGRESSION_MIGRATED" = "$PROGRESSION_BEFORE" ] \
@@ -207,7 +213,7 @@ echo "still $PROGRESSION_MIGRATED"
 step "core db-assert must now pass"
 run_core db-assert >"$WORK/assert-after-core.log" 2>&1 || {
     cat "$WORK/assert-after-core.log" >&2
-    fail "migrations/4.0.0/3.x-to-4.0.sql did not bring core's schema up to date"
+    fail "migrations/4.0.0/3.x-to-4.0.sql and migrations/4.2.0/user-normalized-identity.sql did not bring core's schema up to date"
 }
 echo "core schema matches"
 
@@ -281,6 +287,10 @@ kill "$HOST_PID" 2>/dev/null || true
 wait "$HOST_PID" 2>/dev/null || true
 HOST_PID=""
 
+step "applying migrations/4.2.0/rollback-user-normalized-identity.sql"
+docker cp migrations/4.2.0/rollback-user-normalized-identity.sql "$PG:/tmp/users-down.sql"
+docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/users-down.sql >/dev/null
+
 step "applying migrations/4.0.0/rollback-to-3.x.sql"
 docker cp migrations/4.0.0/rollback-to-3.x.sql "$PG:/tmp/down.sql"
 docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/down.sql >/dev/null
@@ -322,4 +332,4 @@ EVENTS_ROLLED_BACK=$(psql_q "select count(*) from mt_events where stream_id = '$
     || fail "expected $EVENTS_AFTER events on stream $CONTENT_ID after rollback, found $EVENTS_ROLLED_BACK. A rollback must not lose events."
 echo "${FROM_VERSION} reads it back: FirstName $ROLLBACK_FIRST_NAME, Status $ROLLBACK_STATUS, $EVENTS_ROLLED_BACK events on the stream"
 
-printf '\nThe %s to 4.0 upgrade works on the Suite host, with migrations/4.0.0/3.x-to-4.0.sql and migrations/4.2.0/stored-files-parent-index.sql applied first, and rolls back cleanly with migrations/4.0.0/rollback-to-3.x.sql.\n' "$FROM_VERSION"
+printf '\nThe %s to 4.0 upgrade works on the Suite host, with migrations/4.0.0/3.x-to-4.0.sql, migrations/4.2.0/user-normalized-identity.sql and migrations/4.2.0/stored-files-parent-index.sql applied first, and rolls back cleanly with migrations/4.2.0/rollback-user-normalized-identity.sql and migrations/4.0.0/rollback-to-3.x.sql.\n' "$FROM_VERSION"

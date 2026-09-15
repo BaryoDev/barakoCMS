@@ -1,5 +1,7 @@
 using barakoCMS.Infrastructure.Multitenancy;
+using barakoCMS.Models;
 using FastEndpoints;
+using Marten;
 
 namespace barakoCMS.Features.Tenants;
 
@@ -14,15 +16,21 @@ internal sealed record TenantByHostResponse(string Handle);
 /// and nothing more. Which tenant answers on a public domain is already public, since the domain
 /// serves it; the rest of the tenant record is not.
 ///
-/// It reads the same cached map request resolution reads, so a lookup costs no query and can never
-/// disagree with how the API itself would route that host. Only active tenants resolve, for the same
-/// reason.
+/// It resolves the host the way request resolution does: a registered domain from the same cached
+/// map first, then the leading subdomain. The map holds only active tenants, but the subdomain rule
+/// names a handle without looking it up, so that branch checks the tenant exists and is active
+/// before answering. Otherwise any made-up subdomain would come back as a handle.
 /// </remarks>
 internal sealed class TenantByHostEndpoint : EndpointWithoutRequest<TenantByHostResponse>
 {
     private readonly ITenantDomainSource _domains;
+    private readonly IQuerySession _session;
 
-    public TenantByHostEndpoint(ITenantDomainSource domains) => _domains = domains;
+    public TenantByHostEndpoint(ITenantDomainSource domains, IQuerySession session)
+    {
+        _domains = domains;
+        _session = session;
+    }
 
     public override void Configure()
     {
@@ -32,8 +40,21 @@ internal sealed class TenantByHostEndpoint : EndpointWithoutRequest<TenantByHost
 
     public override async Task HandleAsync(CancellationToken ct)
     {
+        // Without its port, as routing reads Request.Host.Host. The leading-subdomain rule splits on
+        // dots and would otherwise read "100.64.0.1:8080" as the handle "100".
+        var raw = Route<string>("host");
+        var host = string.IsNullOrWhiteSpace(raw) ? raw : new HostString(raw).Host;
         var map = await _domains.GetAsync(ct);
-        var slug = map.Find(Route<string>("host"));
+        var resolved = TenantResolutionMiddleware.Resolve(host, map);
+        var slug = resolved.Slug;
+
+        if (slug is not null && map.Find(host) is null)
+        {
+            slug = await _session.Query<Tenant>()
+                .Where(t => t.Slug == slug && t.IsActive)
+                .Select(t => t.Slug)
+                .FirstOrDefaultAsync(ct);
+        }
 
         if (slug is null)
         {

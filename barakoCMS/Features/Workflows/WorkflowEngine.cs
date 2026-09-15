@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using barakoCMS.Models;
+using barakoCMS.Features.Workflows.Actions;
+using barakoCMS.Infrastructure.Security;
 using barakoCMS.Infrastructure.Services;
 using Microsoft.Extensions.Logging;
 using Marten;
@@ -12,6 +14,7 @@ internal class WorkflowEngine : IWorkflowEngine
     private readonly IEnumerable<IWorkflowAction> _actions;
     private readonly ITemplateVariableExtractor _variableExtractor;
     private readonly IWorkflowDebugger _debugger;
+    private readonly ISecretProtector _protector;
     private readonly ILogger<WorkflowEngine> _logger;
 
     public WorkflowEngine(
@@ -19,12 +22,14 @@ internal class WorkflowEngine : IWorkflowEngine
         IEnumerable<IWorkflowAction> actions,
         ITemplateVariableExtractor variableExtractor,
         IWorkflowDebugger debugger,
+        ISecretProtector protector,
         ILogger<WorkflowEngine> logger)
     {
         _session = session;
         _actions = actions;
         _variableExtractor = variableExtractor;
         _debugger = debugger;
+        _protector = protector;
         _logger = logger;
     }
 
@@ -108,9 +113,18 @@ internal class WorkflowEngine : IWorkflowEngine
 
             try
             {
+                // The same decryption the runner does, since a stored definition holds every
+                // credential but Secret encrypted and an action expects to read them in clear.
+                var (parameters, credentialError) = WebhookSigning.UnprotectCredentials(action.Parameters, _protector);
+                if (credentialError is not null)
+                {
+                    _debugger.LogActionFailure(run, action.Type, timer, credentialError, action.Parameters);
+                    continue;
+                }
+
                 // Resolve {{...}} template variables against the content BEFORE executing, so live
                 // runs behave like the dry-run preview.
-                foreach (var param in action.Parameters)
+                foreach (var param in parameters)
                 {
                     resolvedParams[param.Key] = _variableExtractor.ResolveVariables(param.Value, content);
                 }

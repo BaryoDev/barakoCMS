@@ -2,6 +2,7 @@ using System.Linq;
 using barakoCMS.Core.Validation;
 using barakoCMS.Models;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Configuration;
 
 namespace barakoCMS.Infrastructure.Services;
 
@@ -15,6 +16,17 @@ public interface IContentTypeValidatorService
 
 public class ContentTypeValidatorService : IContentTypeValidatorService
 {
+    private readonly int _maxFields;
+
+    public ContentTypeValidatorService() : this(null)
+    {
+    }
+
+    public ContentTypeValidatorService(IConfiguration? configuration)
+    {
+        _maxFields = ContentTypeFieldLimit.Resolve(configuration);
+    }
+
     public (bool IsValid, List<string> Errors) Validate(string name, string displayName, List<FieldDefinition> fields)
     {
         var errors = new List<string>();
@@ -35,6 +47,12 @@ public class ContentTypeValidatorService : IContentTypeValidatorService
         if (fields == null || fields.Count == 0)
         {
             errors.Add("At least one field is required.");
+        }
+        else if (fields.Count > _maxFields)
+        {
+            // Returned alone rather than alongside per-field errors, so an oversized list cannot
+            // turn into an equally oversized response.
+            errors.Add(ContentTypeFieldLimit.TooMany(_maxFields, fields.Count));
         }
         else
         {

@@ -294,6 +294,14 @@ holds.
 
 `RateLimitSetupTests` covers the defaults, the startup failures, the renderer bucket and a wrong key.
 
+## Content type field limit
+
+A content type may hold at most 200 fields. Creating one with more, or adding a field that would take
+it past the limit, is refused with 400. Raise or lower it with `ContentTypes:MaxFields`
+(`ContentTypes__MaxFields` in compose); a value below 1 is treated as 1. A type already stored with
+more fields than the limit keeps working, and only adding fields to it is refused.
+`FieldCountCapTests` covers this.
+
 ## Upgrading
 
 ```bash

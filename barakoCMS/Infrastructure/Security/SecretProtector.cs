@@ -43,7 +43,7 @@ public sealed class SecretProtector : ISecretProtector
         _key = AesGcmEnvelope.DeriveKey(material);
     }
 
-    public string Protect(string plaintext) => AesGcmEnvelope.Protect(_key, plaintext);
+    public string Protect(string plaintext) => AesGcmEnvelope.VersionPrefix + AesGcmEnvelope.Protect(_key, plaintext);
 
     public string? Unprotect(string protectedValue)
     {
@@ -51,7 +51,11 @@ public sealed class SecretProtector : ISecretProtector
 
         try
         {
-            return AesGcmEnvelope.Unprotect(_key, protectedValue);
+            // An envelope written before the prefix existed has none, and still decrypts.
+            var envelope = AesGcmEnvelope.HasVersionPrefix(protectedValue)
+                ? protectedValue[AesGcmEnvelope.VersionPrefix.Length..]
+                : protectedValue;
+            return AesGcmEnvelope.Unprotect(_key, envelope);
         }
         catch (Exception ex) when (ex is System.Security.Cryptography.CryptographicException or FormatException)
         {

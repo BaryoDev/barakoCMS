@@ -101,7 +101,8 @@ public class JobQueueLoggingTests
             new HttpContextAccessor { HttpContext = http },
             new JobOptions(),
             log,
-            new JobStorageGate());
+            new JobStorageGate(),
+            new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
 
         return (provider, http, log);
     }
