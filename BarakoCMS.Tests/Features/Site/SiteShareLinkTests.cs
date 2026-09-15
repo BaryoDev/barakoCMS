@@ -380,8 +380,11 @@ public class SiteShareLinkTests
 
         (await StoredLinksAsync(slug)).Should().HaveCount(101);
 
+        // Newest first. A redeem rewrites its row, which moves it behind the others in an unordered
+        // scan, so redeeming in the order the links were stored lets a lookup capped at 100 rows reach
+        // every one of them and pass without looking a key up at all.
         var statuses = new List<HttpStatusCode>();
-        foreach (var key in keys)
+        foreach (var key in Enumerable.Reverse(keys))
         {
             statuses.Add((await RedeemAsync(slug, key)).StatusCode);
         }
