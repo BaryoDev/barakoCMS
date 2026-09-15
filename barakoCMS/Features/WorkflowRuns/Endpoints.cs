@@ -246,7 +246,12 @@ internal sealed class RetryAttemptEndpoint : EndpointWithoutRequest<RunResponse>
         // on its own, and a Conditional marked permanent re-sends the child that already went out.
         // Allowed, because an operator who fixed the configuration has a reason to re-drive it, and
         // recorded, so the audit trail says it was retried knowing that.
-        var wasPermanent = attempt.Status == AttemptStatus.Failed && attempt.Retryable == false;
+        //
+        // A failure recorded before retryable existed, or by a path that did not set it, says
+        // nothing either way, and the audit entry says "unknown" rather than claiming it was transient.
+        object wasPermanent = attempt.Status != AttemptStatus.Failed
+            ? false
+            : attempt.Retryable is { } retryable ? !retryable : "unknown";
 
         attempt.Status = AttemptStatus.Pending;
         attempt.Retryable = null;

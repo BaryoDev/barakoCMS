@@ -224,6 +224,27 @@ public class WorkflowDebugger : IWorkflowDebugger
     /// </summary>
     private static WorkflowExecutionLog RedactForReading(WorkflowExecutionLog log)
     {
+        RedactActions(log);
+        return log;
+    }
+
+    /// <summary>
+    /// Applies the redaction a log gets on the way out to the log itself, and marks it redacted, so
+    /// the stored row stops holding what it captured. What <c>WorkflowExecutionLogRedactionService</c>
+    /// writes back.
+    /// </summary>
+    /// <returns>False when the log was already redacted and nothing was changed.</returns>
+    internal static bool RedactStored(WorkflowExecutionLog log)
+    {
+        if (log.Redacted) return false;
+
+        RedactActions(log);
+        log.Redacted = true;
+        return true;
+    }
+
+    private static void RedactActions(WorkflowExecutionLog log)
+    {
         foreach (var action in log.Actions)
         {
             action.ResolvedParameters = RecordableParameters(action.ResolvedParameters);
@@ -235,8 +256,6 @@ public class WorkflowDebugger : IWorkflowDebugger
                 action.ErrorMessage = UnredactedErrorMessage;
             }
         }
-
-        return log;
     }
 
 }
