@@ -66,6 +66,13 @@ internal static class ShareLinkKeys
     public static void RecordUse(IDocumentSession session, SiteShareLink link, DateTimeOffset now) =>
         session.Patch<SiteShareLink>(link.Id).Set(x => x.LastUsedAt, now);
 
+    /// <summary>Revokes by patching RevokedAt alone, so a redeem landing after the load keeps its LastUsedAt.</summary>
+    public static void Revoke(IDocumentSession session, SiteShareLink link, DateTimeOffset now)
+    {
+        link.RevokedAt = now;
+        session.Patch<SiteShareLink>(link.Id).Set(x => x.RevokedAt, now);
+    }
+
     /// <summary>Whether the caller may manage share links: update permission on the site type.</summary>
     public static async Task<bool> MayManageAsync(
         IQuerySession session, IPermissionResolver permissions, System.Security.Claims.ClaimsPrincipal principal, CancellationToken ct)
@@ -292,8 +299,7 @@ internal sealed class RevokeShareLinkEndpoint : EndpointWithoutRequest
 
         if (link.RevokedAt is null)
         {
-            link.RevokedAt = DateTimeOffset.UtcNow;
-            _session.Store(link);
+            ShareLinkKeys.Revoke(_session, link, DateTimeOffset.UtcNow);
 
             Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
             await AuditLog.RecordAsync(_session, _tenant.Slug, "site.share_link.revoked", actorId,

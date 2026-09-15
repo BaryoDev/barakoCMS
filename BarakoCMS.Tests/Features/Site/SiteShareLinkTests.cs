@@ -355,6 +355,31 @@ public class SiteShareLinkTests
     }
 
     [Fact]
+    public async Task A_redeem_between_the_revoke_read_and_write_keeps_its_last_use()
+    {
+        var slug = await TenantAsync();
+        var created = await CreateAsync(await SuperAdminInAsync(slug), new { label = "Used then revoked" });
+        var key = created.GetProperty("key").GetString()!;
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+
+        await using (var revoke = store.LightweightSession(slug))
+        {
+            var read = await revoke.LoadAsync<SiteShareLink>(created.GetProperty("id").GetGuid(), Ct);
+            read.Should().NotBeNull();
+            read!.LastUsedAt.Should().BeNull();
+
+            (await RedeemAsync(slug, key)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+            ShareLinkKeys.Revoke(revoke, read, DateTimeOffset.UtcNow);
+            await revoke.SaveChangesAsync(Ct);
+        }
+
+        var stored = (await StoredLinksAsync(slug)).Single();
+        stored.RevokedAt.Should().NotBeNull("the revoke write landed");
+        stored.LastUsedAt.Should().NotBeNull("the revoke write must not put back the unused copy it read");
+    }
+
+    [Fact]
     public async Task Every_one_of_101_active_links_redeems()
     {
         var slug = await TenantAsync();

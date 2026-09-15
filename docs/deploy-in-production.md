@@ -294,7 +294,9 @@ visitor by `RateLimiting__SiteShare__*` (10 a minute by default). barakoPress re
 so every visitor arrives from its IP. A redeem carrying the renderer key may also send
 `X-Barako-Visitor-IP` with the visitor's address, and that address is then the visitor. The header
 must be one IPv4 or IPv6 literal; anything else, or the header without a matching key, is ignored
-and the socket IP is used.
+and the socket IP is used. The tenant in that bucket is what the request names, `X-Tenant` or else
+the host, because the limiter runs before the tenant is resolved. A caller sending many hosts that
+resolve to one tenant gets a bucket per host, so for that caller the ceiling is the global limit.
 
 A renderer behind a proxy should use the key rather than rely on `X-Forwarded-For`. Trusting another
 proxy's forwarded header widens who can choose the client IP; the key is a secret only the renderer
