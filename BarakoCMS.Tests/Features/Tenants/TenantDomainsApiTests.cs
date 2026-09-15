@@ -184,4 +184,43 @@ public class TenantDomainsApiTests
         (await ByHostAsync(pausedDomain)).StatusCode.Should().Be(HttpStatusCode.NotFound);
         (await ByHostAsync(Domain())).StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
+
+    /// <summary>
+    /// Request routing falls back to the leading subdomain when no domain row matches, so the lookup
+    /// has to as well, or a renderer is told a host the API itself serves belongs to nobody.
+    /// </summary>
+    [Fact]
+    public async Task A_subdomain_host_resolves_to_its_active_tenant_without_a_domain_row()
+    {
+        var client = await SuperAdminAsync();
+        var active = Handle();
+        var paused = Handle();
+        (await CreateAsync(client, active)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await CreateAsync(client, paused)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await UpdateAsync(client, paused, new { name = paused, isActive = false })).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var found = await ByHostAsync($"{active}.sites.example");
+        found.StatusCode.Should().Be(HttpStatusCode.OK, await found.Content.ReadAsStringAsync(Ct));
+        var body = await found.Content.ReadFromJsonAsync<JsonElement>(Ct);
+        body.EnumerateObject().Select(p => p.Name).Should().Equal("handle");
+        body.GetProperty("handle").GetString().Should().Be(active);
+
+        (await ByHostAsync($"{paused}.sites.example")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await ByHostAsync($"{Handle()}.sites.example")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await ByHostAsync("www.sites.example")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    /// <summary>
+    /// Routing reads the host without its port, so an IP address stays an IP address. Splitting the
+    /// raw value on dots instead would read "100.64.0.1:8080" as the handle "100".
+    /// </summary>
+    [Fact]
+    public async Task A_port_does_not_turn_an_ip_address_into_a_subdomain()
+    {
+        var client = await SuperAdminAsync();
+        var created = await CreateAsync(client, "100");
+        created.StatusCode.Should().BeOneOf(HttpStatusCode.OK, HttpStatusCode.Conflict);
+
+        (await ByHostAsync("100.64.0.1:8080")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
 }
