@@ -53,15 +53,21 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
         return null;
     }
 
-    // /api/contents/{id}/erase and /api/contents/{id}/rollback/{versionId}, whatever the method, so a
-    // trailing slash or different casing that routing still matches cannot reach them
-    // with a content:write key. See #653.
+    // DELETE /api/contents/{id}/erase and POST /api/contents/{id}/rollback/{versionId}, matched by
+    // shape whatever the method, so a trailing slash or different casing that routing still matches
+    // cannot reach them with a content:write key (#653). The segment count is exact, and the
+    // rollback shape excludes by-slug: GET /api/contents/by-slug/{type}/{slug} has the same five
+    // segments with a type name where the action sits, and "rollback" and "erase" are valid names.
     private static bool IsDestructive(string path)
     {
         var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        return segments.Length >= 4
-               && (segments[3].Equals("erase", StringComparison.OrdinalIgnoreCase)
-                   || segments[3].Equals("rollback", StringComparison.OrdinalIgnoreCase));
+        return segments.Length switch
+        {
+            4 => segments[3].Equals("erase", StringComparison.OrdinalIgnoreCase),
+            5 => segments[3].Equals("rollback", StringComparison.OrdinalIgnoreCase)
+                 && !segments[2].Equals("by-slug", StringComparison.OrdinalIgnoreCase),
+            _ => false,
+        };
     }
 
     private static bool Match(string path, string prefix) =>

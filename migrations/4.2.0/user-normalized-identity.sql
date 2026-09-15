@@ -17,10 +17,13 @@
 --
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.2.0/user-normalized-identity.sql
 --
--- Safe to run twice. The normalisation is lower(btrim(...)), the same as User.NormalizeIdentity
--- for every ASCII value. For a non-ASCII value Postgres lowercases by the database's locale and
--- .NET by the invariant culture, and where the two disagree the application rewrites the field
--- at its next start (UserIdentityBackfill) and refuses to start if that collides.
+-- Safe to run twice. The normalisation here is lower(btrim(...)), which is close to
+-- User.NormalizeIdentity but not the same: btrim strips spaces only, where .NET trims tabs and
+-- every other whitespace character too, and lower follows the database's locale, which under
+-- lc_ctype C leaves every non-ASCII letter as it is. So "alice" and "alice" followed by a tab pass
+-- the check below as two names, and so do "Émile" and "émile" on a C locale. The application does
+-- not trust what this writes: at every start, UserIdentityBackfill recomputes both fields in .NET,
+-- rewrites the ones that differ, and refuses to start, naming both accounts, when that collides.
 
 DO $$
 DECLARE

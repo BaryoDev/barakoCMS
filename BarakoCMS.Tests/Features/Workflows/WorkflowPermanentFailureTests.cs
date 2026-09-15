@@ -167,4 +167,24 @@ public class WorkflowPermanentFailureTests
         entries[0].Metadata.Should().NotBeNull().And.ContainKey("wasPermanent");
         entries[0].Metadata!["wasPermanent"].ToString().Should().BeEquivalentTo("false");
     }
+    [Fact]
+    public async Task Retrying_a_failure_of_unknown_kind_is_not_audited_as_transient()
+    {
+        // Failed with no retryable recorded: what a run written before the field existed holds.
+        var runId = await SeedAsync("NoHandlerForThisType", AttemptStatus.Failed, attempts: 1, retryable: null);
+        var client = await AdminClientAsync();
+
+        var res = await client.PostAsync($"/api/workflow-runs/{runId}/actions/0/retry", null, TestContext.Current.CancellationToken);
+        res.IsSuccessStatusCode.Should().BeTrue();
+
+        await using var session = _fixture.Services.GetRequiredService<IDocumentStore>().QuerySession();
+        var entries = await session.Query<AuditEvent>()
+            .Where(a => a.Action == "workflow.action.retried" && a.TargetId == runId.ToString())
+            .ToListAsync(TestContext.Current.CancellationToken);
+
+        entries.Should().HaveCount(1);
+        entries[0].Metadata.Should().NotBeNull().And.ContainKey("wasUnknown", "the entry is the retry's audit metadata");
+        entries[0].Metadata.Should().NotContainKey("wasPermanent",
+            "nothing recorded whether it was permanent, so the audit entry must not say it was not");
+    }
 }

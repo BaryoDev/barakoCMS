@@ -21,6 +21,21 @@ internal static class AesGcmEnvelope
     private const int NonceLen = 12; // AesGcm.NonceByteSizes.MaxSize
     private const int TagLen = 16;   // AesGcm.TagByteSizes.MaxSize
 
+    /// <summary>
+    /// Marks a value <see cref="SecretProtector"/> wrote, so "is this ciphertext" is a question about
+    /// a prefix rather than about a value's shape.
+    /// </summary>
+    /// <remarks>
+    /// Shape was not enough. Plenty of real credentials are base64 or hex of 32 bytes or more, which
+    /// decodes to at least nonce plus tag, so a typed API key read as already encrypted, was stored in
+    /// clear and then refused at every send. A value without the prefix may still be an envelope
+    /// written before the prefix existed; only decrypting it can say so.
+    /// </remarks>
+    internal const string VersionPrefix = "enc:v1:";
+
+    internal static bool HasVersionPrefix(string? value) =>
+        value is not null && value.StartsWith(VersionPrefix, StringComparison.Ordinal);
+
     /// <summary>Derives a 32 byte AES-256 key from arbitrary configured key material.</summary>
     internal static byte[] DeriveKey(string material) => SHA256.HashData(Encoding.UTF8.GetBytes(material));
 

@@ -38,7 +38,7 @@ public class CustomActionTests
         var mockSession = new Mock<IDocumentSession>();
         var mockContentWriter = new Mock<barakoCMS.Core.Interfaces.IContentWriter>();
         var mockLogger = new Mock<ILogger<UpdateFieldAction>>();
-        var action = new UpdateFieldAction(mockSession.Object, mockContentWriter.Object, mockLogger.Object);
+        var action = new UpdateFieldAction(mockSession.Object, mockContentWriter.Object, new Mock<barakoCMS.Infrastructure.Services.IContentLifecycleRunner>().Object, mockLogger.Object);
 
         // Act
         var type = action.Type;
@@ -119,7 +119,7 @@ public class CustomActionTests
         var mockSession = new Mock<IDocumentSession>();
         var mockContentWriter = new Mock<barakoCMS.Core.Interfaces.IContentWriter>();
         var mockLogger = new Mock<ILogger<UpdateFieldAction>>();
-        var action = new UpdateFieldAction(mockSession.Object, mockContentWriter.Object, mockLogger.Object);
+        var action = new UpdateFieldAction(mockSession.Object, mockContentWriter.Object, new Mock<barakoCMS.Infrastructure.Services.IContentLifecycleRunner>().Object, mockLogger.Object);
 
         var parameters = new Dictionary<string, string>
         {

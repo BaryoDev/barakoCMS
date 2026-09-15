@@ -172,6 +172,19 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
 
             services.Remove(deliveryRetention);
 
+            // The startup pass that redacts stored execution logs, for the same reason: it would
+            // rewrite a log a test seeded unredacted on purpose, before the test gets to look at it.
+            var logRedaction = services.SingleOrDefault(d =>
+                d.ImplementationType == typeof(barakoCMS.Features.Workflows.WorkflowExecutionLogRedactionService));
+            if (logRedaction is null)
+            {
+                throw new InvalidOperationException(
+                    "WorkflowExecutionLogRedactionService is no longer registered the way this fixture expects, "
+                  + "so it may still rewrite logs tests seed unredacted.");
+            }
+
+            services.Remove(logRedaction);
+
             new BarakoCMS.Email.Resend.ResendEmailModule().ConfigureServices(services, ctx.Configuration);
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Email.Resend.ResendEmailModule(), opts));
 
