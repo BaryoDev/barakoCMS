@@ -140,11 +140,13 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
         IReadOnlyList<JobRecord> candidates;
         if (TenantPartitions.Enforced(_configuration))
         {
-            candidates = (await PerTenantAsync(q => q
+            // Each partition's top Limit, merged and cut again, is the global top Limit, so no
+            // early stop here: a later tenant may hold the oldest job.
+            candidates = (await PerTenantAsync((q, _) => q
                     .Where(p.Match)
                     .Where(r => r.State == JobState.Pending || r.State == JobState.Running)
                     .OrderBy(r => r.ExecuteAfter)
-                    .Take(p.Limit), ct))
+                    .Take(p.Limit), stopAt: null, ct))
                 .OrderBy(r => r.ExecuteAfter)
                 .Take(p.Limit)
                 .ToList();
@@ -214,7 +216,7 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
         JobRecord? found;
         if (TenantPartitions.Enforced(_configuration))
         {
-            found = (await PerTenantAsync(q => q.Where(r => r.TrackingID == trackingId).Take(1), ct))
+            found = (await PerTenantAsync((q, _) => q.Where(r => r.TrackingID == trackingId).Take(1), stopAt: 1, ct))
                 .FirstOrDefault();
         }
         else
@@ -304,10 +306,10 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
         IReadOnlyList<JobRecord> stale;
         if (TenantPartitions.Enforced(_configuration))
         {
-            stale = (await PerTenantAsync(q => q
+            stale = (await PerTenantAsync((q, remaining) => q
                     .Where(p.Match)
                     .Where(r => r.State != JobState.DeadLettered)
-                    .Take(PurgeBatchSize), ct))
+                    .Take(remaining), stopAt: PurgeBatchSize, ct))
                 .Take(PurgeBatchSize)
                 .ToList();
         }
@@ -351,17 +353,22 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
     /// row level security policy still holds a session to the tenant it was opened for, so a default
     /// session sees only the default partition's jobs and a worker never runs anybody else's (#877).
     /// So one session per partition from <see cref="TenantPartitions"/>, each setting its own tenant,
-    /// and the caller orders and limits the merged result again.
+    /// and the caller orders and limits the merged result again. With <paramref name="stopAt"/> set,
+    /// the shape is handed what is left of that budget and the walk ends once it is spent, so a
+    /// cancel or a purge does not query every tenant after it already has what it needs.
     /// </remarks>
     private async Task<List<JobRecord>> PerTenantAsync(
-        Func<IQueryable<JobRecord>, IQueryable<JobRecord>> shape, CancellationToken ct)
+        Func<IQueryable<JobRecord>, int, IQueryable<JobRecord>> shape, int? stopAt, CancellationToken ct)
     {
         var found = new List<JobRecord>();
 
         foreach (var tenantId in await TenantPartitions.FromRegistryAsync(_store, ct))
         {
+            var remaining = stopAt is { } budget ? budget - found.Count : int.MaxValue;
+            if (remaining <= 0) break;
+
             await using var session = _store.QuerySession(tenantId);
-            found.AddRange(await shape(session.Query<JobRecord>()).ToListAsync(ct));
+            found.AddRange(await shape(session.Query<JobRecord>(), remaining).ToListAsync(ct));
         }
 
         return found;
