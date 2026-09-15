@@ -2,6 +2,7 @@ using System.Text.Json;
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Models;
 using Marten;
+using Marten.Linq.MatchesSql;
 
 namespace barakoCMS.Core.Hooks;
 
@@ -29,9 +30,16 @@ namespace barakoCMS.Core.Hooks;
 /// is released by the commit or rollback, so it is held only while a write to this tree is in flight.
 /// </para>
 /// <para>
+/// A save that keeps the parent the entry already has is not checked. The edge is already stored,
+/// and the write is bound to the version it read, so a concurrent move that changed the parent
+/// in between fails that write instead of letting it put the old edge back. Skipping the lock keeps
+/// ordinary edits under one parent from queueing behind each other.
+/// </para>
+/// <para>
 /// The walk reads at most <see cref="MaxDepth"/> ancestors. A chain that has not reached a root by
 /// then is refused, which also covers a loop already stored above the new parent by some path that
-/// does not run this hook.
+/// does not run this hook. A move carries the entry's descendants with it, so the entries below it
+/// are counted too: ancestors plus the height of the moved subtree may not exceed the limit.
 /// </para>
 /// </remarks>
 public sealed class ParentReferenceHook : IContentLifecycleHook
@@ -75,17 +83,35 @@ public sealed class ParentReferenceHook : IContentLifecycleHook
             return [$"Field '{await DisplayNameAsync(context.Session, ct)}' cannot point at the entry itself."];
         }
 
+        if (context.Existing is { } existing && ReadParent(existing) == parent)
+        {
+            return [];
+        }
+
         await context.Session.BeginTransactionAsync(ct);
         await context.Session.QueryAsync<int>(
             "select 1 from pg_advisory_xact_lock(hashtextextended(?, 0))",
             ct,
             $"barakocms:parent-reference:{context.Session.TenantId}:{ContentType.ToLowerInvariant()}:{ParentField.ToLowerInvariant()}");
 
-        var error = await WalkAsync(context.Session, self, parent, ct);
+        var (error, ancestors) = await WalkAsync(context.Session, self, parent, ct);
+
+        // An entry that is not stored yet (PageTreeHook walks a create under a minted id) has nothing
+        // below it, so there is no subtree to measure.
+        if (error is null && context.Existing is not null
+            && await SubtreeHeightAsync(context.Session, self, MaxDepth - ancestors + 1, ct) > MaxDepth - ancestors)
+        {
+            error = $"would put an entry below this one more than {MaxDepth} levels deep.";
+        }
+
         return error is null ? [] : [$"Field '{await DisplayNameAsync(context.Session, ct)}' {error}"];
     }
 
-    private async Task<string?> WalkAsync(IDocumentSession session, Guid self, Guid parent, CancellationToken ct)
+    /// <summary>
+    /// The ancestor count is how many entries the walk loaded before reaching a root, a parent of
+    /// another type, or a missing parent.
+    /// </summary>
+    private async Task<(string? Error, int Ancestors)> WalkAsync(IDocumentSession session, Guid self, Guid parent, CancellationToken ct)
     {
         var visited = new HashSet<Guid>();
         var current = parent;
@@ -95,24 +121,24 @@ public sealed class ParentReferenceHook : IContentLifecycleHook
             var ancestor = await session.LoadAsync<Content>(current, ct);
             if (ancestor is null || !string.Equals(ancestor.ContentType, ContentType, StringComparison.OrdinalIgnoreCase))
             {
-                return null;
+                return (null, depth - 1);
             }
 
             visited.Add(current);
 
             if (ReadParent(ancestor.Data) is not { } next)
             {
-                return null;
+                return (null, depth);
             }
 
             if (next == self)
             {
-                return $"would make a cycle: this entry is already an ancestor of {parent}.";
+                return ($"would make a cycle: this entry is already an ancestor of {parent}.", depth);
             }
 
             if (visited.Contains(next))
             {
-                return $"points at {parent}, whose parent chain loops and never reaches a root.";
+                return ($"points at {parent}, whose parent chain loops and never reaches a root.", depth);
             }
 
             if (depth == MaxDepth)
@@ -123,8 +149,46 @@ public sealed class ParentReferenceHook : IContentLifecycleHook
             current = next;
         }
 
-        return $"would put this entry more than {MaxDepth} levels deep.";
+        return ($"would put this entry more than {MaxDepth} levels deep.", MaxDepth);
     }
+
+    /// <summary>
+    /// How many levels of descendants <paramref name="self"/> has, reading one level per query and
+    /// stopping once <paramref name="limit"/> levels are found, so a deep tree costs at most that
+    /// many queries. An entry already seen is not followed again, so a loop stored below this entry
+    /// by another write path still ends.
+    /// </summary>
+    private async Task<int> SubtreeHeightAsync(IDocumentSession session, Guid self, int limit, CancellationToken ct)
+    {
+        var seen = new HashSet<Guid> { self };
+        var frontier = new[] { self.ToString() };
+        var lowered = ContentType.ToLower();
+
+        for (var height = 0; height < limit; height++)
+        {
+            var children = await session.Query<Content>()
+                .Where(c => c.ContentType.ToLower() == lowered && c.MatchesSql(ParentIsAnyOfSql, ParentField, frontier))
+                .Select(c => c.Id)
+                .ToListAsync(ct);
+
+            var next = children.Where(seen.Add).Select(id => id.ToString()).ToArray();
+            if (next.Length == 0)
+            {
+                return height;
+            }
+
+            frontier = next;
+        }
+
+        return limit;
+    }
+
+    /// <summary>
+    /// The parent field, matched by name without regard to case like <see cref="ReadParent"/>, holds
+    /// one of the given ids. Both are bound parameters.
+    /// </summary>
+    private const string ParentIsAnyOfSql =
+        "lower((SELECT e.value FROM jsonb_each(d.data -> 'Data') e WHERE lower(e.key) = lower(?) LIMIT 1) #>> '{}') = ANY(?)";
 
     private Guid? ReadParent(IReadOnlyDictionary<string, object> data)
     {

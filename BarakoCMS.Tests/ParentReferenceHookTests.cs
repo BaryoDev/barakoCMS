@@ -41,9 +41,11 @@ public class ParentReferenceHookTests
     {
         private readonly Lock _gate = new();
         private readonly Dictionary<string, (int Arrived, TaskCompletionSource Both)> _byMarker = new();
+        private readonly HashSet<string> _timedOut = new();
 
-        public Task ArriveAsync(string marker)
+        public async Task ArriveAsync(string marker)
         {
+            Task both;
             lock (_gate)
             {
                 var entry = _byMarker.TryGetValue(marker, out var e)
@@ -56,9 +58,26 @@ public class ParentReferenceHookTests
                     entry.Both.TrySetResult();
                 }
 
-                // A writer blocked on the lock never arrives, so the first one gives up waiting and
-                // commits. That is the fixed behaviour; without the lock both arrive and both commit.
-                return Task.WhenAny(entry.Both.Task, Task.Delay(TimeSpan.FromSeconds(4)));
+                both = entry.Both.Task;
+            }
+
+            // A writer blocked on the lock never arrives, so the first one gives up waiting and
+            // commits. That is the fixed behaviour; without the lock both arrive and both commit.
+            if (await Task.WhenAny(both, Task.Delay(TimeSpan.FromSeconds(4))) != both)
+            {
+                lock (_gate)
+                {
+                    _timedOut.Add(marker);
+                }
+            }
+        }
+
+        /// <summary>Whether a writer carrying this marker gave up waiting for the other one.</summary>
+        public bool TimedOut(string marker)
+        {
+            lock (_gate)
+            {
+                return _timedOut.Contains(marker);
             }
         }
     }
@@ -388,6 +407,71 @@ public class ParentReferenceHookTests
 
         var parents = new[] { await StoredParentAsync(a), await StoredParentAsync(b) };
         parents.Should().ContainSingle(p => p != null, "only one edge is stored");
+    }
+
+    /// <summary>
+    /// A move carries the moved entry's children with it. Counting only the entry's own ancestors let
+    /// a child land past the limit, and the child's next edit was then refused for a depth it never
+    /// chose. One level shallower fits exactly and is accepted.
+    /// </summary>
+    [Fact]
+    public async Task Moving_an_entry_counts_the_depth_of_the_entries_below_it()
+    {
+        var client = await AdminAsync();
+        var chain = await SeedChainAsync(MaxDepth);
+        var moved = await CreateAsync(client, "subtree-moved");
+        await CreateAsync(client, "subtree-child", parent: moved);
+
+        var refused = await UpdateAsync(client, moved, "subtree-moved", parent: chain[^1]);
+
+        await ShouldBeRefusedAsync(refused, "the child would sit one level past the limit");
+        (await refused.Content.ReadAsStringAsync(Ct)).Should().Contain($"{MaxDepth} levels deep");
+        (await StoredParentAsync(moved)).Should().BeNull("the refused move stored nothing");
+
+        var fits = await UpdateAsync(client, moved, "subtree-moved", parent: chain[^2]);
+        fits.StatusCode.Should().Be(HttpStatusCode.OK,
+            "two ancestors and one level below is the limit, got: {0}", await fits.Content.ReadAsStringAsync(Ct));
+    }
+
+    /// <summary>
+    /// An entry already deeper than the limit can still be edited, as long as the edit leaves its
+    /// parent alone. The depth rule is about where an entry is put. A create is never walked by this
+    /// hook, which is how the entry gets that deep here.
+    /// </summary>
+    [Fact]
+    public async Task An_edit_that_keeps_the_parent_is_accepted_for_an_entry_already_too_deep()
+    {
+        var client = await AdminAsync();
+        var chain = await SeedChainAsync(MaxDepth + 1);
+        var tooDeep = await CreateAsync(client, "depth-too-deep", parent: chain[^1]);
+
+        var res = await UpdateAsync(client, tooDeep, "depth-edited", parent: chain[^1]);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync(Ct));
+        (await StoredParentAsync(tooDeep)).Should().Be(chain[^1].ToString());
+    }
+
+    /// <summary>
+    /// Two edits that keep their parent take no lock, so both reach the barrier together. With the
+    /// lock, the first holds it while it waits there, the second cannot arrive, and the first gives up
+    /// waiting.
+    /// </summary>
+    [Fact]
+    public async Task Two_concurrent_edits_that_keep_the_same_parent_do_not_wait_on_each_other()
+    {
+        var client = await AdminAsync();
+        var parent = await CreateAsync(client, "same-parent");
+        var a = await CreateAsync(client, "same-parent-a", parent: parent);
+        var b = await CreateAsync(client, "same-parent-b", parent: parent);
+        var marker = "race-" + Guid.NewGuid().ToString("n");
+
+        var results = await Task.WhenAll(
+            UpdateAsync(client, a, marker, parent: parent),
+            UpdateAsync(client, b, marker, parent: parent));
+
+        results.Should().HaveCount(2);
+        results.Should().OnlyContain(r => r.StatusCode == HttpStatusCode.OK);
+        SharedBarrier.TimedOut(marker).Should().BeFalse("neither edit waited for the other to commit");
     }
 
     private async Task<Guid[]> SeedChainAsync(int length)

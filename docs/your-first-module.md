@@ -187,6 +187,11 @@ compares two fields by a rule somebody wrote. A lifecycle hook runs inside the c
 after schema validation and before anything is saved. Any message it returns rejects the write with
 a 400, and the message goes back to the caller.
 
+Hooks run on every core write that changes an entry's data: create, update, rollback, and a
+workflow's `UpdateField` action on a data field. A refusal of that workflow write fails the action
+permanently, with the hook's message recorded on the run. A workflow `UpdateField` that only changes
+`Status` does not run them, since the data they check is unchanged.
+
 Create `BarakoCMS.Glossary/GlossaryTermHook.cs`:
 
 ```csharp
@@ -233,8 +238,11 @@ services.AddScoped<IContentLifecycleHook>(_ => new ParentReferenceHook("page", "
 ```
 
 An update that points the field at the entry itself, closes a loop, or puts the entry more than
-`MaxDepth` levels deep (64 unless you pass another number) is then refused with 400. The chain is
-walked under a transaction advisory lock, so two saves racing to close a loop cannot both land.
+`MaxDepth` levels deep (64 unless you pass another number) is then refused with 400. A move counts
+the entries below the moved one as well, so none of them ends up past the limit. The chain is walked
+under a transaction advisory lock, so two saves racing to close a loop cannot both land. A save that
+keeps the parent the entry already has is not walked and takes no lock, so edits under one parent do
+not queue, and an entry some other path stored too deep can still be edited in place.
 
 ## 4. One endpoint
 
