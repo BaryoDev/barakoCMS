@@ -8,6 +8,7 @@ using barakoCMS.Models;
 using FastEndpoints;
 using FluentValidation;
 using Marten;
+using Marten.Patching;
 using Microsoft.AspNetCore.WebUtilities;
 
 namespace barakoCMS.Features.Site.ShareLinks;
@@ -20,8 +21,9 @@ internal static class ShareLinkKeys
     public static readonly TimeSpan MaxLifetime = TimeSpan.FromDays(90);
 
     /// <summary>
-    /// Active links per tenant. Redemption compares against every active link, so this is what keeps
-    /// an anonymous request bounded.
+    /// Active links per tenant, so the list an editor manages stays short. Redemption looks a key up by
+    /// its hash, so it does not depend on this: two concurrent creates can pass it, and every link
+    /// still redeems.
     /// </summary>
     public const int MaxActive = 100;
 
@@ -37,27 +39,32 @@ internal static class ShareLinkKeys
     public static string Hash(string key) =>
         Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(key)));
 
-    /// <summary>The link whose hash matches, comparing against every candidate in constant time.</summary>
-    public static SiteShareLink? Match(IEnumerable<SiteShareLink> candidates, string? key)
+    /// <summary>The active link for <paramref name="key"/> in the session's tenant, or null.</summary>
+    /// <remarks>
+    /// Looked up by hash through the unique KeyHash index. The lookup is not constant time, and does
+    /// not need to be: what it could leak is how much of a SHA-256 matched, which says nothing about
+    /// a key made of 32 random bytes.
+    /// </remarks>
+    public static async Task<SiteShareLink?> FindActiveAsync(IQuerySession session, string? key, DateTimeOffset now, CancellationToken ct)
     {
         if (string.IsNullOrEmpty(key) || key.Length > MaxKeyLength)
         {
             return null;
         }
 
-        var presented = SHA256.HashData(Encoding.UTF8.GetBytes(key));
-        SiteShareLink? found = null;
-        foreach (var link in candidates)
-        {
-            var stored = link.KeyHash is { Length: 64 } ? Convert.FromHexString(link.KeyHash) : new byte[32];
-            if (CryptographicOperations.FixedTimeEquals(presented, stored) && link.KeyHash.Length == 64)
-            {
-                found = link;
-            }
-        }
-
-        return found;
+        var hash = Hash(key);
+        return await session.Query<SiteShareLink>()
+            .Where(l => l.KeyHash == hash && l.RevokedAt == null && l.ExpiresAt > now)
+            .FirstOrDefaultAsync(ct);
     }
+
+    /// <summary>Records a redemption by patching LastUsedAt alone.</summary>
+    /// <remarks>
+    /// Storing the document read by redeem would write back every field as it was at the read, so a
+    /// revoke landing between the read and this write would be undone.
+    /// </remarks>
+    public static void RecordUse(IDocumentSession session, SiteShareLink link, DateTimeOffset now) =>
+        session.Patch<SiteShareLink>(link.Id).Set(x => x.LastUsedAt, now);
 
     /// <summary>Whether the caller may manage share links: update permission on the site type.</summary>
     public static async Task<bool> MayManageAsync(
@@ -333,20 +340,14 @@ internal sealed class RedeemShareLinkEndpoint : Endpoint<RedeemShareLinkRequest,
         HttpContext.Response.Headers.CacheControl = "no-store";
 
         var now = DateTimeOffset.UtcNow;
-        var active = await _session.Query<SiteShareLink>()
-            .Where(l => l.RevokedAt == null && l.ExpiresAt > now)
-            .Take(ShareLinkKeys.MaxActive)
-            .ToListAsync(ct);
-
-        var link = ShareLinkKeys.Match(active, req.Key);
+        var link = await ShareLinkKeys.FindActiveAsync(_session, req.Key, now, ct);
         if (link is null)
         {
             await Send.NotFoundAsync(ct);
             return;
         }
 
-        link.LastUsedAt = now;
-        _session.Store(link);
+        ShareLinkKeys.RecordUse(_session, link, now);
         await _session.SaveChangesAsync(ct);
 
         await Send.OkAsync(new RedeemShareLinkResponse { ExpiresAt = link.ExpiresAt }, ct);

@@ -169,7 +169,7 @@ and expiry, never the key. A tenant holds at most 100 active links; revoke one t
 **Redeeming.** The frontend posts `{ "key": "..." }` with the tenant resolved the same way as
 `GET /api/public/site`. A live link answers 200 with its `expiresAt` and records `lastUsedAt`. A
 wrong key, an expired or revoked link, and another tenant's key all answer the same 404. Both
-answers carry `Cache-Control: no-store`. Redeeming is rate limited per client IP
+answers carry `Cache-Control: no-store`. Redeeming is rate limited per tenant and visitor
 (`RateLimiting:SiteShare`, 10 a minute by default). The key is never logged.
 
 **Sessions.** After a 200 the frontend may keep its own session so the previewer does not redeem on

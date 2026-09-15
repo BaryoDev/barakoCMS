@@ -66,6 +66,7 @@ public class RateLimitSetupTests
                         e.MapPost("/auth", () => "ok").RequireRateLimiting(RateLimitSetup.AuthPolicy);
                         e.MapPost("/batch", () => "ok").RequireRateLimiting(RateLimitSetup.BatchPolicy);
                         e.MapPost("/registration", () => "ok").RequireRateLimiting(RateLimitSetup.RegistrationPolicy);
+                        e.MapPost("/site-share", () => "ok").RequireRateLimiting(RateLimitSetup.SiteSharePolicy);
                     });
                 });
             })
@@ -292,6 +293,76 @@ public class RateLimitSetupTests
 
         var keyed = await SendMany(client, 3, key: Key, path: path);
         keyed.Should().Equal(HttpStatusCode.OK, HttpStatusCode.OK, HttpStatusCode.TooManyRequests);
+    }
+
+    private static async Task<HttpStatusCode> Redeem(HttpClient client, string? key, string? visitor, string tenant = "site-a")
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, "/site-share");
+        request.Headers.Add(IpHeader, ClientIp);
+        request.Headers.Add("X-Tenant", tenant);
+        if (key is not null)
+            request.Headers.Add(RateLimitSetup.RendererHeader, key);
+        if (visitor is not null)
+            request.Headers.TryAddWithoutValidation(RateLimitSetup.VisitorIpHeader, visitor);
+        using var response = await client.SendAsync(request);
+        return response.StatusCode;
+    }
+
+    private static IConfiguration WithSiteShareLimitOfTwo() =>
+        WithRenderer(("SiteShare:PermitLimit", "2"), ("Global:PermitLimit", "100"));
+
+    [Fact]
+    public async Task Two_visitors_behind_the_renderer_key_are_throttled_separately()
+    {
+        using var host = await StartHost(WithSiteShareLimitOfTwo());
+        var client = host.GetTestClient();
+
+        var first = new List<HttpStatusCode>();
+        for (var i = 0; i < 3; i++)
+            first.Add(await Redeem(client, Key, "198.51.100.1"));
+        first.Should().Equal(HttpStatusCode.OK, HttpStatusCode.OK, HttpStatusCode.TooManyRequests);
+
+        (await Redeem(client, Key, "198.51.100.2")).Should().Be(HttpStatusCode.OK,
+            "a second visitor behind the same renderer IP has its own bucket");
+        (await Redeem(client, Key, "2001:db8::2")).Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task A_visitor_header_without_the_renderer_key_is_ignored()
+    {
+        using var host = await StartHost(WithSiteShareLimitOfTwo());
+        var client = host.GetTestClient();
+
+        (await Redeem(client, Key + "x", "198.51.100.1")).Should().Be(HttpStatusCode.OK);
+        (await Redeem(client, null, "198.51.100.2")).Should().Be(HttpStatusCode.OK);
+        (await Redeem(client, Key + "x", "198.51.100.3")).Should().Be(HttpStatusCode.TooManyRequests,
+            "without the key every request is counted against the socket IP, whatever visitor it names");
+    }
+
+    [Theory]
+    [InlineData("1")]
+    [InlineData("10.1")]
+    public async Task A_visitor_header_that_is_not_a_full_ip_literal_is_ignored(string visitor)
+    {
+        using var host = await StartHost(WithSiteShareLimitOfTwo());
+        var client = host.GetTestClient();
+
+        (await Redeem(client, Key, null)).Should().Be(HttpStatusCode.OK);
+        (await Redeem(client, Key, null)).Should().Be(HttpStatusCode.OK);
+        (await Redeem(client, Key, visitor)).Should().Be(HttpStatusCode.TooManyRequests,
+            "an unparseable visitor falls back to the socket IP, whose bucket is spent");
+    }
+
+    [Fact]
+    public async Task The_site_share_bucket_is_per_tenant()
+    {
+        using var host = await StartHost(WithSiteShareLimitOfTwo());
+        var client = host.GetTestClient();
+
+        (await Redeem(client, null, null, "site-a")).Should().Be(HttpStatusCode.OK);
+        (await Redeem(client, null, null, "site-a")).Should().Be(HttpStatusCode.OK);
+        (await Redeem(client, null, null, "site-a")).Should().Be(HttpStatusCode.TooManyRequests);
+        (await Redeem(client, null, null, "site-b")).Should().Be(HttpStatusCode.OK);
     }
 
     [Fact]

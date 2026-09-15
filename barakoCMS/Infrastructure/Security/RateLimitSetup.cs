@@ -38,14 +38,22 @@ internal sealed record RateLimitSettings(
 /// The renderer partition exists because one barakoPress container renders every site it serves
 /// from one IP, so all of those sites shared one global bucket. A request carrying the configured
 /// key in <see cref="RendererHeader"/> is counted in its own bucket instead. Only the global limiter
-/// honours it. The auth, telemetry, registration and site share policies stay per IP, since a leaked renderer
+/// honours it. The auth, telemetry and registration policies stay per IP, since a leaked renderer
 /// key must not buy extra password guesses.
+/// </para>
+/// <para>
+/// The site share policy is per tenant and per visitor. barakoPress redeems share links server side,
+/// so every visitor of every site it renders arrives from its one IP. With the renderer key it may
+/// name the visitor in <see cref="VisitorIpHeader"/>, and then that address is the visitor. Without a
+/// matching key the header is ignored and the socket IP is the visitor, so nobody else can pick an
+/// address to escape the limit.
 /// </para>
 /// </remarks>
 internal static class RateLimitSetup
 {
     public const string Section = "RateLimiting";
     public const string RendererHeader = "X-Barako-Renderer-Key";
+    public const string VisitorIpHeader = "X-Barako-Visitor-IP";
     public const int RendererKeyMinLength = 32;
 
     public const string AuthPolicy = "auth";
@@ -128,7 +136,7 @@ internal static class RateLimitSetup
         // Anonymous share link redemption. A guess costs a query, so it is held well under the global
         // limit. The key is 32 random bytes, so this is about load, not about making a guess feasible.
         options.AddPolicy(SiteSharePolicy, context =>
-            RateLimitPartition.GetFixedWindowLimiter($"site-share-{ClientIp(context)}", _ => Options(settings.SiteShare)));
+            RateLimitPartition.GetFixedWindowLimiter(SiteSharePartitionKey(context, rendererKeyHash), _ => Options(settings.SiteShare)));
 
         options.OnRejected = async (context, cancellationToken) =>
         {
@@ -144,16 +152,70 @@ internal static class RateLimitSetup
     /// </summary>
     internal static string GlobalPartitionKey(HttpContext context, byte[]? rendererKeyHash)
     {
-        if (rendererKeyHash is not null
-            && context.Request.Headers.TryGetValue(RendererHeader, out var presented)
-            && presented.Count == 1
-            && !string.IsNullOrEmpty(presented[0])
-            && CryptographicOperations.FixedTimeEquals(Hash(presented[0]!), rendererKeyHash))
+        return HasRendererKey(context, rendererKeyHash) ? RendererPartition : ClientIp(context);
+    }
+
+    /// <summary>
+    /// The tenant the request names, and the visitor: <see cref="VisitorIpHeader"/> when the renderer
+    /// key matches and the header is one IP literal, otherwise the client IP.
+    /// </summary>
+    /// <remarks>
+    /// The limiter runs before tenant resolution, so the tenant is what the request selects it by: the
+    /// X-Tenant header, else the host. A tenant reached by two hosts gets two buckets, which only
+    /// splits a caller's own budget; the global limit per IP still caps the total.
+    /// </remarks>
+    internal static string SiteSharePartitionKey(HttpContext context, byte[]? rendererKeyHash)
+    {
+        var visitor = HasRendererKey(context, rendererKeyHash) && VisitorIp(context) is { } named
+            ? named
+            : ClientIp(context);
+        return $"site-share|{TenantSelector(context)}|{visitor}";
+    }
+
+    private static bool HasRendererKey(HttpContext context, byte[]? rendererKeyHash) =>
+        rendererKeyHash is not null
+        && context.Request.Headers.TryGetValue(RendererHeader, out var presented)
+        && presented.Count == 1
+        && !string.IsNullOrEmpty(presented[0])
+        && CryptographicOperations.FixedTimeEquals(Hash(presented[0]!), rendererKeyHash);
+
+    private const int MaxTenantSelectorLength = 253;
+
+    private static string TenantSelector(HttpContext context)
+    {
+        var header = context.Request.Headers["X-Tenant"].ToString().Trim();
+        var selector = header.Length > 0 ? header : context.Request.Host.Host;
+        selector = selector.ToLowerInvariant();
+        return selector.Length > MaxTenantSelectorLength ? selector[..MaxTenantSelectorLength] : selector;
+    }
+
+    /// <summary>The visitor header as a normalised address, or null unless it is exactly one IP literal.</summary>
+    internal static string? VisitorIp(HttpContext context)
+    {
+        if (!context.Request.Headers.TryGetValue(VisitorIpHeader, out var values) || values.Count != 1)
         {
-            return RendererPartition;
+            return null;
         }
 
-        return ClientIp(context);
+        var raw = values[0];
+        if (string.IsNullOrEmpty(raw) || raw.Length > 45 || raw.Any(c => !(char.IsAsciiHexDigit(c) || c is '.' or ':')))
+        {
+            return null;
+        }
+
+        if (!System.Net.IPAddress.TryParse(raw, out var address))
+        {
+            return null;
+        }
+
+        // IPAddress.TryParse also reads "1" or "10.1" as IPv4 shorthand. A proxy never sends those,
+        // so an IPv4 address has to be written as its own dotted quad.
+        if (address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork && address.ToString() != raw)
+        {
+            return null;
+        }
+
+        return address.ToString();
     }
 
     internal static byte[] Hash(string value) => SHA256.HashData(Encoding.UTF8.GetBytes(value));

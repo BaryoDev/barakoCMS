@@ -74,6 +74,10 @@
 --                         attempt finds its own mark and applies nothing a second time (#571).
 --                         Conjoined multi-tenant, like the other workflow tables above. Empty on
 --                         arrival, so creating it moves no data.
+--   mt_doc_site_share_links
+--                         New table. Links that let someone preview a site held back from the
+--                         public (#841), stored as the SHA-256 of the key, never the key.
+--                         Conjoined multi-tenant, key hash unique per tenant. Empty on arrival.
 --
 -- Rollback is migrations/4.0.0/rollback-to-3.x.sql, which must be applied while 4.0 is stopped.
 
@@ -488,6 +492,35 @@ CREATE TABLE IF NOT EXISTS public.mt_doc_workflow_field_apply_markers (
 
 CREATE INDEX IF NOT EXISTS mt_doc_workflow_field_apply_markers_idx_applied_at
     ON public.mt_doc_workflow_field_apply_markers USING btree ((public.mt_immutable_timestamptz(data ->> 'AppliedAt')));
+
+-- ---------------------------------------------------------------------------
+-- Site share links (#841).
+--
+-- A link to preview a site while it is held back. Only the SHA-256 of the key is
+-- stored. Conjoined multi-tenant: tenant_id leads the primary key and is part of
+-- the unique key hash index, which is what redeem looks a key up by. Empty on
+-- arrival: 3.x has no share links, and nothing writes here until someone creates
+-- one on 4.x. Statements as db-patch emits them.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.mt_doc_site_share_links (
+    tenant_id           varchar                     NOT NULL DEFAULT '*DEFAULT*',
+    id                  uuid                        NOT NULL,
+    data                jsonb                       NOT NULL,
+    mt_last_modified    timestamp with time zone    NULL DEFAULT (transaction_timestamp()),
+    mt_version          uuid                        NOT NULL DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
+    mt_dotnet_type      varchar                     NULL,
+    CONSTRAINT pkey_mt_doc_site_share_links_tenant_id_id PRIMARY KEY (tenant_id, id)
+);
+
+CREATE INDEX IF NOT EXISTS mt_doc_site_share_links_idx_expires_at
+    ON public.mt_doc_site_share_links USING btree ((public.mt_immutable_timestamptz(data ->> 'ExpiresAt')));
+
+CREATE UNIQUE INDEX IF NOT EXISTS mt_doc_site_share_links_uidx_key_hash
+    ON public.mt_doc_site_share_links USING btree ((data ->> 'KeyHash'), tenant_id);
+
+DROP POLICY IF EXISTS marten_tenant_isolation ON public.mt_doc_site_share_links;
+ALTER TABLE public.mt_doc_site_share_links NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.mt_doc_site_share_links DISABLE ROW LEVEL SECURITY;
 
 -- Scheduled becomes a real content status (#440, DECISIONS.md D12).
 --

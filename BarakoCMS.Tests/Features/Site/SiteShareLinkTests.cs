@@ -8,6 +8,7 @@ using FluentAssertions;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
+using barakoCMS.Features.Site.ShareLinks;
 using barakoCMS.Models;
 
 namespace BarakoCMS.Tests.Features.Site;
@@ -302,6 +303,90 @@ public class SiteShareLinkTests
         statuses.Take(10).Should().OnlyContain(s => s == HttpStatusCode.NotFound);
         statuses.Skip(10).Should().OnlyContain(s => s == HttpStatusCode.TooManyRequests);
         (await RedeemAsync(slug, "wrong")).StatusCode.Should().Be(HttpStatusCode.NotFound, "the limit is per client IP");
+    }
+
+    [Fact]
+    public async Task Wrong_keys_on_one_tenant_do_not_throttle_another_tenant_from_the_same_ip()
+    {
+        var spent = await TenantAsync();
+        var other = await TenantAsync();
+        var key = (await CreateAsync(await SuperAdminInAsync(other), new { label = "Other site" })).GetProperty("key").GetString()!;
+        var ip = NextIp();
+
+        var statuses = new List<HttpStatusCode>();
+        for (var i = 0; i < 11; i++)
+        {
+            statuses.Add((await RedeemAsync(spent, "wrong", ip)).StatusCode);
+        }
+
+        statuses.Should().HaveCount(11);
+        statuses.Take(10).Should().OnlyContain(s => s == HttpStatusCode.NotFound);
+        statuses[10].Should().Be(HttpStatusCode.TooManyRequests, "otherwise the bucket was never spent");
+        (await RedeemAsync(other, key, ip)).StatusCode.Should().Be(HttpStatusCode.OK,
+            "one renderer IP redeems for every tenant it serves, so a tenant's bucket is its own");
+    }
+
+    [Fact]
+    public async Task A_revoke_between_the_redeem_read_and_write_stays_revoked()
+    {
+        var slug = await TenantAsync();
+        var admin = await SuperAdminInAsync(slug);
+        var created = await CreateAsync(admin, new { label = "Raced" });
+        var key = created.GetProperty("key").GetString()!;
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+
+        await using (var redeem = store.LightweightSession(slug))
+        {
+            var read = await ShareLinkKeys.FindActiveAsync(redeem, key, DateTimeOffset.UtcNow, Ct);
+            read.Should().NotBeNull();
+            read!.RevokedAt.Should().BeNull();
+
+            (await admin.DeleteAsync($"/api/site/share-links/{created.GetProperty("id").GetGuid()}", Ct))
+                .StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+            ShareLinkKeys.RecordUse(redeem, read, DateTimeOffset.UtcNow);
+            await redeem.SaveChangesAsync(Ct);
+        }
+
+        var stored = (await StoredLinksAsync(slug)).Single();
+        stored.LastUsedAt.Should().NotBeNull("the redeem write landed");
+        stored.RevokedAt.Should().NotBeNull("the redeem write must not put back the unrevoked copy it read");
+        (await RedeemAsync(slug, key)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Every_one_of_101_active_links_redeems()
+    {
+        var slug = await TenantAsync();
+        var keys = Enumerable.Range(0, 101).Select(_ => ShareLinkKeys.NewKey()).ToList();
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        await using (var session = store.LightweightSession(slug))
+        {
+            var now = DateTimeOffset.UtcNow;
+            for (var i = 0; i < keys.Count; i++)
+            {
+                session.Store(new SiteShareLink
+                {
+                    Id = Guid.NewGuid(),
+                    Label = $"Link {i}",
+                    KeyHash = Sha256Hex(keys[i]),
+                    CreatedAt = now.AddSeconds(i),
+                    ExpiresAt = now.AddDays(1),
+                });
+            }
+
+            await session.SaveChangesAsync(Ct);
+        }
+
+        (await StoredLinksAsync(slug)).Should().HaveCount(101);
+
+        var statuses = new List<HttpStatusCode>();
+        foreach (var key in keys)
+        {
+            statuses.Add((await RedeemAsync(slug, key)).StatusCode);
+        }
+
+        statuses.Should().HaveCount(101).And.OnlyContain(s => s == HttpStatusCode.OK);
     }
 
     [Fact]

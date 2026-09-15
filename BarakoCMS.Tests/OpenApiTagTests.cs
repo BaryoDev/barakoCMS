@@ -138,6 +138,7 @@ public class OpenApiTagTests
             "Roles",
             "Seo",
             "Settings",
+            "Site",
             "Tenants",
             "UserGroups",
             "Users",

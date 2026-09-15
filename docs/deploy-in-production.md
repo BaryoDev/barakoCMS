@@ -254,7 +254,7 @@ changes nothing until you set one. Each has `PermitLimit` (requests), `WindowSec
 | `RateLimiting:Auth` | 5 in 900 seconds, queue 0 | login, refresh, OTP and MFA, per client IP |
 | `RateLimiting:Batch` | 20 in 60 seconds, queue 0 | anonymous telemetry batches, per client IP |
 | `RateLimiting:Registration` | 5 in 3600 seconds, queue 0 | registration and its verification, per client IP |
-| `RateLimiting:SiteShare` | 10 in 60 seconds, queue 0 | anonymous share link redemption, per client IP |
+| `RateLimiting:SiteShare` | 10 in 60 seconds, queue 0 | anonymous share link redemption, per tenant and visitor |
 
 As environment variables on the `app` service, the colon becomes a double underscore:
 
@@ -288,6 +288,13 @@ instead of its IP's bucket. A missing or wrong key is an ordinary request, count
 key only affects the global limit: `Auth`, `Batch` and `Registration` stay per IP with or without it.
 The key is compared in constant time and never logged. Keep it in `.env` like the JWT key, and set the
 same value in barakoPress (`CMS_RENDERER_KEY`).
+
+Share link redemption (`POST /api/public/site/share-links/redeem`) is limited per tenant and per
+visitor by `RateLimiting__SiteShare__*` (10 a minute by default). barakoPress redeems server side,
+so every visitor arrives from its IP. A redeem carrying the renderer key may also send
+`X-Barako-Visitor-IP` with the visitor's address, and that address is then the visitor. The header
+must be one IPv4 or IPv6 literal; anything else, or the header without a matching key, is ignored
+and the socket IP is used.
 
 A renderer behind a proxy should use the key rather than rely on `X-Forwarded-For`. Trusting another
 proxy's forwarded header widens who can choose the client IP; the key is a secret only the renderer

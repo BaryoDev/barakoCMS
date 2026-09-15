@@ -549,7 +549,12 @@ public static class ServiceCollectionExtensions
             options.Schema.For<SiteShareLink>()
                 .MultiTenanted()
                 .DocumentAlias("site_share_links")
-                .Index(x => x.ExpiresAt);
+                .Index(x => x.ExpiresAt)
+                .Index(x => x.KeyHash, idx =>
+                {
+                    idx.IsUnique = true;
+                    idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
+                });
 
             options.Schema.For<Connector>()
                 .MultiTenanted()
