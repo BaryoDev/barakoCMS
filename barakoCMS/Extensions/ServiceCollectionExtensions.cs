@@ -858,6 +858,7 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<IConfiguration>()));
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowRunRetentionService>();
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowCredentialMigrationService>();
+        services.AddHostedService<barakoCMS.Features.Workflows.WorkflowExecutionLogRedactionService>();
         services.AddHostedService<barakoCMS.Features.WebhookDeliveries.WebhookDeliveryRetentionService>();
         services.AddScoped<barakoCMS.Infrastructure.Auth.Mfa.IMfaService, barakoCMS.Infrastructure.Auth.Mfa.MfaService>();
         // Device trust is opt-in: the default gate does nothing. The DeviceTrust module overrides it.
