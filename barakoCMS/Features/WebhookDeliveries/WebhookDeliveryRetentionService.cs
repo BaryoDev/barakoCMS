@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Models;
 using Marten;
 
@@ -118,9 +119,13 @@ internal sealed class WebhookDeliveryRetentionService : BackgroundService
         var removed = 0;
         var bodiesCleared = 0;
 
-        foreach (var tenantId in await PartitionsWithDeliveriesAsync(ct))
+        foreach (var tenantId in await TenantPartitions.ListAsync(_store, _config, PartitionsWithDeliveriesSql, ct))
         {
             await using var session = _store.LightweightSession(tenantId);
+
+            // With database tenancy on the partitions come from the registry, so most hold nothing,
+            // and one query is the cheapest way to say so.
+            if (!await session.Query<WebhookDelivery>().AnyAsync(ct)) continue;
 
             // Bodies are cleared first. A row due for outright deletion this pass has nothing left
             // to clear either way, and clearing before deleting means a row that is due for deletion
@@ -132,24 +137,8 @@ internal sealed class WebhookDeliveryRetentionService : BackgroundService
         return (removed, bodiesCleared);
     }
 
-    private async Task<IReadOnlyList<string>> PartitionsWithDeliveriesAsync(CancellationToken ct)
-    {
-        var partitions = new List<string>();
-
-        await using var conn = _store.Storage.Database.CreateConnection();
-        await conn.OpenAsync(ct);
-
-        await using var cmd = conn.CreateCommand();
-        cmd.CommandText = "select distinct tenant_id from public.mt_doc_webhook_deliveries";
-
-        await using var reader = await cmd.ExecuteReaderAsync(ct);
-        while (await reader.ReadAsync(ct))
-        {
-            partitions.Add(reader.GetString(0));
-        }
-
-        return partitions;
-    }
+    private const string PartitionsWithDeliveriesSql =
+        "select distinct tenant_id from public.mt_doc_webhook_deliveries";
 
     /// <summary>
     /// Deletes the rows older than the window in one partition. Pure over the session, so a test
