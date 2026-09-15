@@ -1167,14 +1167,14 @@ public static class ServiceCollectionExtensions
                 headers.TryAdd("X-Frame-Options", "DENY");
                 headers.TryAdd("Referrer-Policy", "strict-origin-when-cross-origin");
 
-            // X-XSS-Protection is deliberately not written. Every current browser ignores it, and
-            // the auditor it was there to satisfy is not a threat model. While it was honoured its
-            // filter introduced holes of its own: "1; mode=block" gave a cross-origin attacker a
-            // way to detect content on the page by watching which loads were blocked. The CSP
-            // below is the control that actually applies. See issue #271.
+                // X-XSS-Protection is deliberately not written. Every current browser ignores it, and
+                // the auditor it was there to satisfy is not a threat model. While it was honoured its
+                // filter introduced holes of its own: "1; mode=block" gave a cross-origin attacker a
+                // way to detect content on the page by watching which loads were blocked. The CSP
+                // below is the control that actually applies. See issue #271.
 
-            // Content Security Policy. The looser style-src is reached only by the health dashboard,
-            // and only while the dashboard is switched on.
+                // Content Security Policy. The looser style-src is reached only by the health
+                // dashboard, and only while the dashboard is switched on.
                 var policy = healthDashboardEnabled &&
                              barakoCMS.Infrastructure.Security.SecurityHeaders.IsHealthDashboardPath(context.Request.Path)
                     ? healthDashboardCsp

@@ -53,6 +53,12 @@ public class UnhandledExceptionResponseTests
         body.Should().NotBeEmpty();
         body.Should().NotContain(Marker, "an exception message can name a table, a setting or request data");
 
+        // The shape a caller already parses stays the same; only the reason text is fixed.
+        using var json = System.Text.Json.JsonDocument.Parse(body);
+        json.RootElement.EnumerateObject().Select(p => p.Name).Should().Equal("status", "code", "reason", "note");
+        json.RootElement.GetProperty("code").GetInt32().Should().Be(500);
+        json.RootElement.GetProperty("reason").GetString().Should().Be("An unexpected error has occurred.");
+
         response.Headers.TryGetValues(ApiContract.HeaderName, out var contract).Should().BeTrue();
         contract!.Should().ContainSingle().Which.Should().Be(ApiContract.Version.ToString());
         response.Headers.TryGetValues("X-Content-Type-Options", out var nosniff).Should().BeTrue();
