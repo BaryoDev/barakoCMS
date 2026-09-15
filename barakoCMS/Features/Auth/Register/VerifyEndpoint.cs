@@ -83,8 +83,10 @@ internal class VerifyEndpoint : Endpoint<VerifyRequest, VerifyResponse>
         // verified the same address, an operator may have created the account, or an external
         // provider may have signed the real owner in and created it that way. Any of those means
         // this token has nothing left to create.
+        var pendingUsername = barakoCMS.Models.User.NormalizeIdentity(pending.Username);
+        var pendingEmail = barakoCMS.Models.User.NormalizeIdentity(pending.Email);
         var taken = await _session.Query<User>()
-            .FirstOrDefaultAsync(u => u.Username == pending.Username || u.Email == pending.Email, ct);
+            .FirstOrDefaultAsync(u => u.NormalizedUsername == pendingUsername || u.NormalizedEmail == pendingEmail, ct);
         if (taken is not null)
         {
             // The token is spent either way. Leaving it live would let the same token be retried
@@ -124,7 +126,7 @@ internal class VerifyEndpoint : Endpoint<VerifyRequest, VerifyResponse>
     /// <remarks>
     /// Two requests carrying one token are stopped twice over, and both stops throw. Optimistic
     /// concurrency on <c>PendingRegistration</c> means the loser's save fails, and the unique indexes
-    /// on <c>User.Username</c> and <c>User.Email</c> mean an insert that got past that still fails.
+    /// on <c>User.NormalizedUsername</c> and <c>User.NormalizedEmail</c> mean an insert that got past that still fails.
     /// Uncaught, either would answer 500 to what is really one token being used once, which is the
     /// outcome that was wanted.
     /// </remarks>

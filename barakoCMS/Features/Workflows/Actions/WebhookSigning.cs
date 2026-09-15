@@ -62,30 +62,89 @@ internal static class WebhookSigning
         return "sha256=" + Convert.ToHexStringLower(digest);
     }
 
-    /// <summary>Encrypts the Secret parameter on every action that carries one, in place.</summary>
+    /// <summary>Encrypts every credential-named parameter on every action, in place.</summary>
     /// <remarks>
-    /// Every action type, not only Webhook (issue #526). <see cref="barakoCMS.Features.Workflows.WorkflowActionResponse"/>
-    /// already hides the Secret parameter and reports secretSet the same way regardless of type, so a
-    /// custom action reusing the name got that same promise with none of the protection: it was
-    /// stored in clear and shown as protected. Unprotecting it is each action's own job. Webhook does
-    /// it in <see cref="WebhookAction"/>; a custom action that wants to read its own Secret takes an
-    /// <see cref="ISecretProtector"/> the same way.
+    /// <para>
+    /// Every action type, not only Webhook (issue #526), and every name
+    /// <see cref="IsSensitiveParameterName"/> matches, not only <see cref="SecretParameter"/> (issue
+    /// #765). The API already hides all of those names on read and the action metadata reports them
+    /// as secret, so encrypting only one of them showed the rest as protected while they sat in clear.
+    /// </para>
+    /// <para>
+    /// A value already shaped like an envelope is left alone, which is what lets the startup
+    /// migration run this over stored workflows more than once.
+    /// </para>
+    /// <para>
+    /// Unprotecting is split. <see cref="SecretParameter"/> reaches the action as ciphertext, as it
+    /// always has, and the action decrypts it (Webhook does, in <see cref="WebhookAction"/>). Every
+    /// other credential name is decrypted by the runner before the action sees it, by
+    /// <see cref="UnprotectCredentials"/>, so a custom action that read its ApiKey as plaintext before
+    /// this still does.
+    /// </para>
     /// </remarks>
-    public static void ProtectSecrets(WorkflowDefinition workflow, ISecretProtector protector)
+    /// <returns>True when any parameter was changed.</returns>
+    public static bool ProtectSecrets(WorkflowDefinition workflow, ISecretProtector protector)
     {
+        var changed = false;
+
         foreach (var action in workflow.Actions)
         {
-            if (!action.Parameters.TryGetValue(SecretParameter, out var secret)) continue;
-
-            var trimmed = secret?.Trim() ?? string.Empty;
-            if (trimmed.Length == 0)
+            foreach (var name in action.Parameters.Keys.Where(IsSensitiveParameterName).ToList())
             {
-                action.Parameters.Remove(SecretParameter);
+                var trimmed = action.Parameters[name]?.Trim() ?? string.Empty;
+
+                if (trimmed.Length == 0)
+                {
+                    if (name != SecretParameter) continue;
+
+                    action.Parameters.Remove(name);
+                    changed = true;
+                    continue;
+                }
+
+                if (LooksProtected(trimmed)) continue;
+
+                action.Parameters[name] = protector.Protect(trimmed);
+                changed = true;
+            }
+        }
+
+        return changed;
+    }
+
+    /// <summary>
+    /// A copy of the parameters with every credential other than <see cref="SecretParameter"/>
+    /// decrypted, for handing to an action.
+    /// </summary>
+    /// <remarks>
+    /// A value that is not shaped like an envelope passes through as it is. That is a workflow saved
+    /// before #765 that the startup migration has not reached yet, and it worked in clear before the
+    /// upgrade, so it keeps working. A value that is shaped right and still will not decrypt is a
+    /// changed Secrets:Key, and the error says so by parameter name, never by value.
+    /// </remarks>
+    public static (Dictionary<string, string> Parameters, string? Error) UnprotectCredentials(
+        IReadOnlyDictionary<string, string> parameters, ISecretProtector protector)
+    {
+        var copy = new Dictionary<string, string>(parameters.Count);
+
+        foreach (var (name, value) in parameters)
+        {
+            if (name == SecretParameter || !IsSensitiveParameterName(name) || !LooksProtected(value))
+            {
+                copy[name] = value;
                 continue;
             }
 
-            action.Parameters[SecretParameter] = protector.Protect(trimmed);
+            var plaintext = protector.Unprotect(value);
+            if (plaintext is null)
+            {
+                return (copy, $"The {name} parameter could not be decrypted (Secrets:Key changed?). Enter it again on the workflow.");
+            }
+
+            copy[name] = plaintext;
         }
+
+        return (copy, null);
     }
 
     public static bool HasSecret(IReadOnlyDictionary<string, string> parameters) =>

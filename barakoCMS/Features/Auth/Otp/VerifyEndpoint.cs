@@ -124,7 +124,7 @@ internal class VerifyEndpoint : Endpoint<OtpVerifyRequest, OtpVerifyResponse>
         _session.Update(otp);
 
         var user = await _session.Query<User>()
-            .Where(u => u.Email.ToLower() == email)
+            .Where(u => u.NormalizedEmail == email)
             .FirstOrDefaultAsync(ct);
         if (user == null)
         {
