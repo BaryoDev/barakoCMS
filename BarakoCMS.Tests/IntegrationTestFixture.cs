@@ -216,6 +216,12 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             // the same options. Registered with its own section, as the host scopes it.
             new BarakoCMS.Pages.PagesModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Pages"));
 
+            // Forms: the submit endpoint is anonymous and rate limited, so its policy, its options and
+            // its schema all have to be registered for /api/public/forms/* to answer at all. Scoped to
+            // its own section, as the host scopes it.
+            new BarakoCMS.Forms.FormsModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Forms"));
+            services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Forms.FormsModule(), opts));
+
             // FeatureFlags: /api/feature-flags is anonymous, so which keys it hands out is a test
             // this project has to be able to run.
             new BarakoCMS.FeatureFlags.FeatureFlagsModule().ConfigureServices(services, ctx.Configuration);
@@ -281,6 +287,8 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         typeof(BarakoCMS.Diagnostics.DiagnosticsModule).Assembly,
         typeof(BarakoCMS.Pwa.PwaModule).Assembly,
         typeof(BarakoCMS.Pages.PagesModule).Assembly,
+
+        typeof(BarakoCMS.Forms.FormsModule).Assembly,
         typeof(BarakoCMS.FeatureFlags.FeatureFlagsModule).Assembly,
         // Portability owns no documents of its own and registers no services, so its
         // endpoints only need discovering.
