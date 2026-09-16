@@ -1,4 +1,5 @@
 using Marten;
+using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Models;
 
 namespace barakoCMS.Features.Workflows;
@@ -135,9 +136,13 @@ internal sealed class WorkflowRunRetentionService : BackgroundService
         {
             var removed = 0;
 
-            foreach (var tenantId in await PartitionsWithRunsAsync(ct))
+            var fromRegistry = TenantPartitions.Enforced(_config);
+
+            foreach (var tenantId in await TenantPartitions.ListAsync(_store, _config, PartitionsWithRunsSql, ct))
             {
                 await using var session = _store.LightweightSession(tenantId);
+                if (fromRegistry && !await HasFinishedRunsAsync(session, ct)) continue;
+
                 removed += await SweepTenantAsync(session, nowUtc, Windows(), _logger, ct);
             }
 
@@ -167,31 +172,27 @@ internal sealed class WorkflowRunRetentionService : BackgroundService
         _config.GetValue(SucceededDaysKey, DefaultSucceededDays),
         _config.GetValue(FailedDaysKey, DefaultFailedDays));
 
-    /// <summary>Partitions that hold at least one finished run, so an idle tenant costs no query.</summary>
-    private async Task<IReadOnlyList<string>> PartitionsWithRunsAsync(CancellationToken ct)
-    {
-        var partitions = new List<string>();
+    /// <summary>Partitions that hold at least one finished run, when the rows can be asked directly.</summary>
+    /// <remarks>
+    /// Terminal statuses only, cast to integer because Marten stores an enum as a number: the
+    /// JsonStringEnumConverter in ServiceCollectionExtensions is the HTTP serializer.
+    /// 2 Succeeded, 3 Failed, 4 PartiallyFailed. Pending and Running are deliberately absent.
+    /// </remarks>
+    private const string PartitionsWithRunsSql =
+        "select distinct tenant_id from public.mt_doc_workflow_runs "
+      + "where (data ->> 'Status')::integer in (2, 3, 4)";
 
-        await using var conn = _store.Storage.Database.CreateConnection();
-        await conn.OpenAsync(ct);
-
-        await using var cmd = conn.CreateCommand();
-
-        // Terminal statuses only, cast to integer because Marten stores an enum as a number: the
-        // JsonStringEnumConverter in ServiceCollectionExtensions is the HTTP serializer.
-        // 2 Succeeded, 3 Failed, 4 PartiallyFailed. Pending and Running are deliberately absent.
-        cmd.CommandText =
-            "select distinct tenant_id from public.mt_doc_workflow_runs "
-          + "where (data ->> 'Status')::integer in (2, 3, 4)";
-
-        await using var reader = await cmd.ExecuteReaderAsync(ct);
-        while (await reader.ReadAsync(ct))
-        {
-            partitions.Add(reader.GetString(0));
-        }
-
-        return partitions;
-    }
+    /// <summary>
+    /// One query that ends the visit to a partition with nothing finished in it, which with database
+    /// tenancy on is most registered tenants on most sweeps. With it off the partitions already came
+    /// from finished runs, so this is not asked.
+    /// </summary>
+    private static Task<bool> HasFinishedRunsAsync(IQuerySession session, CancellationToken ct) =>
+        session.Query<WorkflowRun>().AnyAsync(
+            r => r.Status == RunStatus.Succeeded
+              || r.Status == RunStatus.Failed
+              || r.Status == RunStatus.PartiallyFailed,
+            ct);
 
     /// <summary>
     /// Deletes the finished runs past their window in one partition. Pure over the session, so a test

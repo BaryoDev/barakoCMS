@@ -2,6 +2,7 @@ using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Models;
 using FastEndpoints;
+using Microsoft.Extensions.Configuration;
 using Marten;
 
 namespace barakoCMS.Features.Seo;
@@ -83,6 +84,13 @@ internal sealed class AddSeoFieldsEndpoint : Endpoint<AddSeoFieldsRequest, AddSe
 
             definition.Fields.Add(field);
             added.Add(field.Name);
+        }
+
+        var maxFields = barakoCMS.Infrastructure.Services.ContentTypeFieldLimit.Resolve(Resolve<IConfiguration>());
+        if (added.Count > 0 && definition.Fields.Count > maxFields)
+        {
+            AddError(barakoCMS.Infrastructure.Services.ContentTypeFieldLimit.TooMany(maxFields, definition.Fields.Count));
+            ThrowIfAnyErrors();
         }
 
         if (added.Count > 0)
