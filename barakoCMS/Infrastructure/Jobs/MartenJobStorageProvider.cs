@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Infrastructure.Security;
 using barakoCMS.Models;
 using FastEndpoints;
@@ -37,6 +38,7 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
     private readonly JobOptions _options;
     private readonly ILogger<MartenJobStorageProvider> _logger;
     private readonly JobStorageGate _gate;
+    private readonly IConfiguration _configuration;
 
     /// <summary>
     /// A retry the queue itself planned must not expire before it happens, so the expiry is pushed
@@ -48,13 +50,14 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
 
     public MartenJobStorageProvider(
         IDocumentStore store, IHttpContextAccessor http, JobOptions options,
-        ILogger<MartenJobStorageProvider> logger, JobStorageGate gate)
+        ILogger<MartenJobStorageProvider> logger, JobStorageGate gate, IConfiguration configuration)
     {
         _store = store;
         _http = http;
         _options = options;
         _logger = logger;
         _gate = gate;
+        _configuration = configuration;
     }
 
     /// <summary>
@@ -135,8 +138,22 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
             : TimeSpan.FromSeconds(_options.LeaseSeconds);
 
         IReadOnlyList<JobRecord> candidates;
-        await using (var query = _store.QuerySession())
+        if (TenantPartitions.Enforced(_configuration))
         {
+            // Each partition's top Limit, merged and cut again, is the global top Limit, so no
+            // early stop here: a later tenant may hold the oldest job.
+            candidates = (await PerTenantAsync((q, _) => q
+                    .Where(p.Match)
+                    .Where(r => r.State == JobState.Pending || r.State == JobState.Running)
+                    .OrderBy(r => r.ExecuteAfter)
+                    .Take(p.Limit), stopAt: null, ct))
+                .OrderBy(r => r.ExecuteAfter)
+                .Take(p.Limit)
+                .ToList();
+        }
+        else
+        {
+            await using var query = _store.QuerySession();
             candidates = await query.Query<JobRecord>()
                 .Where(p.Match)
                 // Every tenant, because a worker serves all of them. Dead letters are never
@@ -197,8 +214,14 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
     public async Task CancelJobAsync(Guid trackingId, CancellationToken ct)
     {
         JobRecord? found;
-        await using (var query = _store.QuerySession())
+        if (TenantPartitions.Enforced(_configuration))
         {
+            found = (await PerTenantAsync((q, _) => q.Where(r => r.TrackingID == trackingId).Take(1), stopAt: 1, ct))
+                .FirstOrDefault();
+        }
+        else
+        {
+            await using var query = _store.QuerySession();
             found = await query.Query<JobRecord>()
                 .Where(r => r.AnyTenant() && r.TrackingID == trackingId)
                 .FirstOrDefaultAsync(ct);
@@ -281,8 +304,18 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
         await _gate.WaitAsync(ct);
 
         IReadOnlyList<JobRecord> stale;
-        await using (var query = _store.QuerySession())
+        if (TenantPartitions.Enforced(_configuration))
         {
+            stale = (await PerTenantAsync((q, remaining) => q
+                    .Where(p.Match)
+                    .Where(r => r.State != JobState.DeadLettered)
+                    .Take(remaining), stopAt: PurgeBatchSize, ct))
+                .Take(PurgeBatchSize)
+                .ToList();
+        }
+        else
+        {
+            await using var query = _store.QuerySession();
             stale = await query.Query<JobRecord>()
                 .Where(p.Match)
                 .Where(r => r.AnyTenant() && r.State != JobState.DeadLettered)
@@ -310,6 +343,35 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
 
             await session.SaveChangesAsync(ct);
         }
+    }
+
+    /// <summary>
+    /// A query over every tenant's jobs when Postgres enforces the tenant filter.
+    /// </summary>
+    /// <remarks>
+    /// <c>AnyTenant()</c> lifts Marten's own filter and nothing else. With database tenancy on, the
+    /// row level security policy still holds a session to the tenant it was opened for, so a default
+    /// session sees only the default partition's jobs and a worker never runs anybody else's (#877).
+    /// So one session per partition from <see cref="TenantPartitions"/>, each setting its own tenant,
+    /// and the caller orders and limits the merged result again. With <paramref name="stopAt"/> set,
+    /// the shape is handed what is left of that budget and the walk ends once it is spent, so a
+    /// cancel or a purge does not query every tenant after it already has what it needs.
+    /// </remarks>
+    private async Task<List<JobRecord>> PerTenantAsync(
+        Func<IQueryable<JobRecord>, int, IQueryable<JobRecord>> shape, int? stopAt, CancellationToken ct)
+    {
+        var found = new List<JobRecord>();
+
+        foreach (var tenantId in await TenantPartitions.FromRegistryAsync(_store, ct))
+        {
+            var remaining = stopAt is { } budget ? budget - found.Count : int.MaxValue;
+            if (remaining <= 0) break;
+
+            await using var session = _store.QuerySession(tenantId);
+            found.AddRange(await shape(session.Query<JobRecord>(), remaining).ToListAsync(ct));
+        }
+
+        return found;
     }
 
     private static bool IsConcurrency(Exception ex) =>

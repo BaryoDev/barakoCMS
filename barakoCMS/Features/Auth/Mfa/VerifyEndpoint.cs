@@ -23,6 +23,7 @@ internal class VerifyEndpoint : Endpoint<VerifyRequest, VerifyResponse>
     private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
     private readonly barakoCMS.Infrastructure.Auth.ITokenIssuer _tokenIssuer;
     private readonly barakoCMS.Core.Interfaces.IDeviceGate _deviceGate;
+    private readonly barakoCMS.Infrastructure.Auth.AccountLockout _lockout;
 
     public VerifyEndpoint(
         IMfaService mfa,
@@ -31,8 +32,10 @@ internal class VerifyEndpoint : Endpoint<VerifyRequest, VerifyResponse>
         IConfiguration config,
         barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
         barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer,
-        barakoCMS.Core.Interfaces.IDeviceGate deviceGate)
+        barakoCMS.Core.Interfaces.IDeviceGate deviceGate,
+        barakoCMS.Infrastructure.Auth.AccountLockout lockout)
     {
+        _lockout = lockout;
         _mfa = mfa;
         _session = session;
         _query = query;
@@ -82,10 +85,9 @@ internal class VerifyEndpoint : Endpoint<VerifyRequest, VerifyResponse>
             await _session.SaveChangesAsync(ct);
 
             var attempts = (await _query.LoadAsync<User>(user.Id, ct))?.FailedLoginAttempts ?? 0;
-            if (attempts >= 5)
+            if (attempts >= barakoCMS.Infrastructure.Auth.AccountLockout.MaxFailedAttempts
+                && await _lockout.TryLockAsync(user, ct))
             {
-                _session.Patch<User>(user.Id).Set(x => x.LockoutUntil, DateTime.UtcNow.AddMinutes(15));
-                await _session.SaveChangesAsync(ct);
                 await AuditLog.RecordAsync(_session, _tenant.Slug, "auth.account.locked", user.Id, user.Username,
                     metadata: new() { ["attempts"] = attempts, ["factor"] = "mfa" }, ipAddress: device.IpAddress, ct: ct);
             }

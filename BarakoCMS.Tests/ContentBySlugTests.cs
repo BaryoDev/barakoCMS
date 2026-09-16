@@ -10,8 +10,9 @@ using barakoCMS.Models;
 namespace BarakoCMS.Tests;
 
 /// <summary>
-/// <c>GET /api/contents/by-slug/{type}/{slug}</c> answers what <c>GET /api/contents/{id}</c> answers
-/// for the entry the slug names.
+/// <c>GET /api/contents/by-slug/{type}/{slug}</c> applies the read check and masking
+/// <c>GET /api/contents/{id}</c> applies to the entry the slug names, except that an entry the
+/// caller may not read answers 404, as a missing slug does.
 /// </summary>
 /// <remarks>
 /// Every type here is left not publicly deliverable and every entry a Draft, because that is the case
@@ -76,7 +77,7 @@ public class ContentBySlugTests
         return (type, target);
     }
 
-    private async Task<HttpClient> ViewerAsync(string type, bool canRead, string ip)
+    private async Task<HttpClient> ViewerAsync(string type, bool canRead, string ip, Dictionary<string, object>? readConditions = null)
     {
         using var scope = _factory.Services.CreateScope();
         await using var session = scope.ServiceProvider.GetRequiredService<IDocumentStore>().LightweightSession();
@@ -90,7 +91,7 @@ public class ContentBySlugTests
                 new ContentTypePermission
                 {
                     ContentTypeSlug = type,
-                    Read = new PermissionRule { Enabled = canRead },
+                    Read = new PermissionRule { Enabled = canRead, Conditions = readConditions },
                     Create = new PermissionRule { Enabled = false },
                     Update = new PermissionRule { Enabled = false },
                     Delete = new PermissionRule { Enabled = false },
@@ -140,17 +141,79 @@ public class ContentBySlugTests
     }
 
     [Fact]
-    public async Task A_viewer_without_read_permission_gets_the_status_the_id_read_gives()
+    public async Task A_viewer_without_read_permission_cannot_tell_an_unreadable_slug_from_a_missing_one()
     {
         var (type, target) = await SeedAsync();
         var viewer = await ViewerAsync(type, canRead: false, "203.0.113.172");
 
         var byId = await viewer.GetAsync($"/api/contents/{target.Id}");
-        var bySlug = await viewer.GetAsync($"/api/contents/by-slug/{type}/members-only");
+        var unreadable = await viewer.GetAsync($"/api/contents/by-slug/{type}/members-only");
+        var missing = await viewer.GetAsync($"/api/contents/by-slug/{type}/no-such-page");
 
-        byId.StatusCode.Should().Be(HttpStatusCode.Forbidden);
-        bySlug.StatusCode.Should().Be(byId.StatusCode);
-        (await bySlug.Content.ReadAsStringAsync()).Should().NotContain("the gated page");
+        byId.StatusCode.Should().Be(HttpStatusCode.Forbidden, "the entry exists and the viewer is refused it");
+        unreadable.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        missing.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await unreadable.Content.ReadAsStringAsync()).Should().NotContain("the gated page");
+    }
+
+    [Fact]
+    public async Task A_readable_newer_duplicate_is_returned_when_the_older_one_is_not_readable()
+    {
+        var type = $"dup_{Guid.NewGuid():N}"[..20];
+        var older = Entry(type, "shared-slug", "older");
+        older.CreatedAt = DateTime.UtcNow.AddMinutes(-10);
+        var newer = Entry(type, "shared-slug", "newer");
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            await using var session = scope.ServiceProvider.GetRequiredService<IDocumentStore>().LightweightSession();
+            session.Store(TypeDefinition(type));
+            session.Store(older);
+            session.Store(newer);
+            await session.SaveChangesAsync();
+        }
+
+        var viewer = await ViewerAsync(type, canRead: true, "203.0.113.177", new Dictionary<string, object>
+        {
+            ["Title"] = new Dictionary<string, object> { ["_eq"] = "newer" },
+        });
+
+        var olderById = await viewer.GetAsync($"/api/contents/{older.Id}");
+        var bySlug = await viewer.GetAsync($"/api/contents/by-slug/{type}/shared-slug");
+
+        olderById.StatusCode.Should().Be(HttpStatusCode.Forbidden, "the row condition must deny the older duplicate");
+        bySlug.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await JsonAsync(bySlug)).GetProperty("id").GetGuid().Should().Be(newer.Id);
+    }
+
+    /// <summary>
+    /// The newer row is stored first, so neither a reversed order nor a missing one can return the
+    /// older row by insertion order.
+    /// </summary>
+    [Fact]
+    public async Task The_oldest_readable_duplicate_wins()
+    {
+        var type = $"dupo_{Guid.NewGuid():N}"[..20];
+        var older = Entry(type, "shared-slug", "older");
+        older.CreatedAt = DateTime.UtcNow.AddMinutes(-10);
+        var newer = Entry(type, "shared-slug", "newer");
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            await using var session = scope.ServiceProvider.GetRequiredService<IDocumentStore>().LightweightSession();
+            session.Store(TypeDefinition(type));
+            session.Store(newer);
+            await session.SaveChangesAsync();
+            session.Store(older);
+            await session.SaveChangesAsync();
+        }
+
+        var viewer = await ViewerAsync(type, canRead: true, "203.0.113.178");
+
+        var resp = await viewer.GetAsync($"/api/contents/by-slug/{type}/shared-slug");
+
+        resp.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await JsonAsync(resp)).GetProperty("id").GetGuid().Should().Be(older.Id);
     }
 
     [Fact]

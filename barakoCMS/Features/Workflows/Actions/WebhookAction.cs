@@ -128,7 +128,7 @@ internal class WebhookAction : IWorkflowAction
                 // key will ever decrypt it; recreating the workflow is the only fix. A value that is
                 // shaped right but still will not decrypt is a rotated Secrets:Key, and the fix is to
                 // enter the secret again.
-                if (!WebhookSigning.LooksProtected(stored))
+                if (!WebhookSigning.CouldBeCiphertext(stored))
                 {
                     _logger.LogWarning("The webhook secret for {Url} is not protected. Skipping webhook action.", Redact(url));
                     delivery.Error = "The secret is not protected. Recreate the workflow.";

@@ -6,6 +6,22 @@ public class User
     public string Username { get; set; } = string.Empty;
     public string PasswordHash { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
+
+    /// <summary>
+    /// <see cref="Username"/> as it is compared: trimmed and lowercased. The unique index and every
+    /// lookup use this, so the database refuses a second account on the same value the query reads.
+    /// </summary>
+    /// <remarks>
+    /// Computed rather than assigned, so no code path that sets <see cref="Username"/> can leave it
+    /// stale. It is stored because the serializer writes it into the document, which is what the
+    /// index reads. See issue #638.
+    /// </remarks>
+    public string NormalizedUsername => NormalizeIdentity(Username);
+
+    /// <summary><see cref="Email"/> as it is compared. See <see cref="NormalizedUsername"/>.</summary>
+    public string NormalizedEmail => NormalizeIdentity(Email);
+
+    internal static string NormalizeIdentity(string? value) => (value ?? string.Empty).Trim().ToLowerInvariant();
     public List<Guid> RoleIds { get; set; } = new();
     public List<Guid> GroupIds { get; set; } = new();
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

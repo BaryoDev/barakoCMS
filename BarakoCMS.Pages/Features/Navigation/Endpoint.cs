@@ -13,7 +13,7 @@ internal sealed record NavigationItem(
     int? Order,
     IReadOnlyList<NavigationItem> Children);
 
-internal sealed record NavigationResponse(int Contract, IReadOnlyList<NavigationItem> Items);
+internal sealed record NavigationResponse(int Contract, bool Truncated, IReadOnlyList<NavigationItem> Items);
 
 /// <summary>
 /// GET /api/public/pages/navigation: the nested, ordered tree of published pages flagged for
@@ -23,6 +23,10 @@ internal sealed record NavigationResponse(int Contract, IReadOnlyList<Navigation
 /// A flagged page whose parent is not flagged sits under its nearest flagged ancestor, or at the top
 /// when it has none, and keeps its real path. A page with no path (under a draft, a Sensitive page or
 /// a missing parent) is left out, since its URL would not resolve.
+///
+/// At most <see cref="PagesOptions.MaxPages"/> published pages are read, oldest first, and
+/// <c>truncated</c> says when there were more. A page past the limit, and every page under it, is
+/// missing from the menu while resolve still serves it, so a renderer needs to be told.
 /// </remarks>
 internal sealed class Endpoint : EndpointWithoutRequest<NavigationResponse>
 {
@@ -52,7 +56,7 @@ internal sealed class Endpoint : EndpointWithoutRequest<NavigationResponse>
             return;
         }
 
-        var pages = await PublishedPages.AllAsync(_session, _projector, definition!, _options, ct);
+        var (pages, truncated) = await PublishedPages.AllAsync(_session, _projector, definition!, _options, ct);
         var tree = new PageTree(pages.Select(p => p.Node), _options.HomeSlug, _options.MaxDepth);
 
         var inNavigation = new Dictionary<Guid, (PageNode Node, string Path, Guid? NavParent)>();
@@ -88,6 +92,6 @@ internal sealed class Endpoint : EndpointWithoutRequest<NavigationResponse>
                 .ToList();
 
         PublishedPages.SetCache(HttpContext);
-        await Send.OkAsync(new NavigationResponse(PagesContract.Version, Build(null)), ct);
+        await Send.OkAsync(new NavigationResponse(PagesContract.Version, truncated, Build(null)), ct);
     }
 }
