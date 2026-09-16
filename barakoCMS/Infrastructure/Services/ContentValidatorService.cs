@@ -120,7 +120,8 @@ public class ContentValidatorService : IContentValidatorService
             // Check Required
             if (field.IsRequired)
             {
-                if (keyDetails.Key == null || keyDetails.Value == null || string.IsNullOrWhiteSpace(keyDetails.Value.ToString()))
+                if (keyDetails.Key == null || keyDetails.Value == null || string.IsNullOrWhiteSpace(keyDetails.Value.ToString())
+                    || IsEmptyList(field, keyDetails.Value))
                 {
                     errors.Add($"Field '{field.DisplayName}' ({field.Name}) is required.");
                     continue;
@@ -146,6 +147,12 @@ public class ContentValidatorService : IContentValidatorService
                     // there. Checked on write rather than on read: a reference that pointed at
                     // nothing would otherwise be stored happily and fail for whoever renders it.
                     var error = await ValidateReferenceAsync(field, value);
+                    if (error is not null)
+                        errors.Add(error);
+                }
+                else if (expectedType == "choice")
+                {
+                    var error = ValidateChoice(field, value);
                     if (error is not null)
                         errors.Add(error);
                 }
@@ -251,6 +258,60 @@ public class ContentValidatorService : IContentValidatorService
         if (!string.Equals(target.ContentType, field.ReferenceType, StringComparison.OrdinalIgnoreCase))
             return $"Field '{field.DisplayName}' references a '{target.ContentType}' "
                  + $"but is declared to point at '{field.ReferenceType}'.";
+
+        return null;
+    }
+
+    /// <summary>A required multiple choice holding an empty list has nothing chosen.</summary>
+    private static bool IsEmptyList(FieldDefinition field, object value) =>
+        string.Equals(field.Type, "choice", StringComparison.OrdinalIgnoreCase)
+        && FieldTypeRegistry.TryReadChoice(value, out var values, out var isList)
+        && isList
+        && values.Count == 0;
+
+    /// <summary>
+    /// Checks that a choice value is one of the field's options, or a list of them for a field that
+    /// takes several.
+    /// </summary>
+    /// <remarks>
+    /// Matched exactly, case included. The value is the stable key a filter, a workflow condition and
+    /// a renderer's colour map all compare against, so 'fun' beside 'FUN' is exactly the drift this
+    /// refuses. The error names every accepted value, because the fix is to pick one of them.
+    /// </remarks>
+    private static string? ValidateChoice(FieldDefinition field, object value)
+    {
+        FieldTypeRegistry.TryReadChoice(value, out var values, out var isList);
+
+        var accepted = (field.Options ?? new List<FieldOption>())
+            .Where(o => o is not null)
+            .Select(o => o.Value)
+            .ToList();
+        var acceptedText = accepted.Count == 0 ? "no values" : string.Join(", ", accepted);
+
+        if (field.Multiple && !isList)
+            return $"Field '{field.DisplayName}' holds a list of options, so send a list, even of one.";
+
+        if (!field.Multiple && isList)
+            return $"Field '{field.DisplayName}' holds one option and received a list.";
+
+        var unknown = values
+            .Where(v => !accepted.Contains(v, StringComparer.Ordinal))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        if (unknown.Count > 0)
+            return $"Field '{field.DisplayName}' accepts {acceptedText}, and "
+                 + string.Join(", ", unknown.Select(u => $"'{u}'"))
+                 + (unknown.Count == 1 ? " is" : " are") + " not one of them.";
+
+        var repeated = values
+            .GroupBy(v => v, StringComparer.Ordinal)
+            .Where(g => g.Count() > 1)
+            .Select(g => $"'{g.Key}'")
+            .ToList();
+
+        if (repeated.Count > 0)
+            return $"Field '{field.DisplayName}' lists {string.Join(", ", repeated)} more than once.";
 
         return null;
     }
