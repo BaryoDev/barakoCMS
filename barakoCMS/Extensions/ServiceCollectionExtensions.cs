@@ -548,6 +548,17 @@ public static class ServiceCollectionExtensions
                     idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
                 });
 
+            // Conjoined: a share link opens one tenant's site and must never redeem on another's.
+            options.Schema.For<SiteShareLink>()
+                .MultiTenanted()
+                .DocumentAlias("site_share_links")
+                .Index(x => x.ExpiresAt)
+                .Index(x => x.KeyHash, idx =>
+                {
+                    idx.IsUnique = true;
+                    idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
+                });
+
             options.Schema.For<Connector>()
                 .MultiTenanted()
                 .DocumentAlias("connectors")

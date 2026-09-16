@@ -28,7 +28,9 @@
         { "name": "HeaderLinks", "displayName": "Header links", "type": "json" },
         { "name": "FooterColumns", "displayName": "Footer columns", "type": "json" },
         { "name": "SocialLinks", "displayName": "Social links", "type": "json" },
-        { "name": "Copyright", "displayName": "Copyright line", "type": "string" }
+        { "name": "Copyright", "displayName": "Copyright line", "type": "string" },
+        { "name": "Mode", "displayName": "Site mode (Live or Holding)", "type": "string" },
+        { "name": "HoldingPath", "displayName": "Holding page path", "type": "string" }
       ]
     }
   ]

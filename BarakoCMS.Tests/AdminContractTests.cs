@@ -81,9 +81,18 @@ public class AdminContractTests
             await s.SaveChangesAsync();
         }
 
-        var body = await (await client.GetAsync("/api/roles?pageSize=100")).Content.ReadAsStringAsync();
-        using var doc = JsonDocument.Parse(body);
-        var items = doc.RootElement.GetProperty("items").EnumerateArray().ToList();
+        // Every test class shares this database, so by the time this runs the roles the others made
+        // can spill past one page, and which page the two below land on depends on run order.
+        var items = new List<JsonElement>();
+        for (var page = 1; ; page++)
+        {
+            var body = await (await client.GetAsync($"/api/roles?page={page}&pageSize=100")).Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(body);
+            var pageItems = doc.RootElement.GetProperty("items").EnumerateArray().Select(i => i.Clone()).ToList();
+            items.AddRange(pageItems);
+            if (pageItems.Count < 100) break;
+        }
+        items.Should().NotBeEmpty();
 
         var renamed = items.First(i => i.GetProperty("id").GetGuid() == SystemRoles.HRRoleId);
         renamed.GetProperty("isSystem").GetBoolean().Should().BeTrue(
