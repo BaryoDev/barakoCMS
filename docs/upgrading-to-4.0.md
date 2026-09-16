@@ -20,11 +20,15 @@ random 500s on user requests rather than as a failure you can see.
 against a 3.x database hits `CreateOnly`, refuses, and exits non-zero. Nothing is written and
 nothing is lost; the host simply does not start.
 
-The published image runs the Suite, core plus every module, and one module changed too: Files
-declares an index on `mt_doc_stored_files.ParentFileId` that 3.x never created. On an existing
+The published image runs the Suite, core plus every module, and two modules need something too.
+Files declares an index on `mt_doc_stored_files.ParentFileId` that 3.x never created. On an existing
 database `CreateOnly` will not add it, and the module schema preflight refuses to start without it,
-naming `Files: public.mt_doc_stored_files`. A host that loads no module (the decaf image, or your
-own host without Files) does not need that second file, and running it anyway is harmless.
+naming `Files: public.mt_doc_stored_files`. Forms (new in 4.2) declares a table,
+`mt_doc_public_forms`, that a database from before the module does not have. `CreateOnly` would
+create it on first boot, but `db-assert` below reports it as outstanding until it exists, so the
+Forms file creates it up front and the boot then has nothing to write. A host that loads no module
+(the decaf image, or your own host without Files or Forms) does not need those two files, and
+running them anyway is harmless.
 
 ## Before you start
 
@@ -54,6 +58,7 @@ Stop the 4.0 deploy from starting yet, and with 3.x stopped:
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.0.0/3.x-to-4.0.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.2.0/user-normalized-identity.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/4.2.0/stored-files-parent-index.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.2.0/forms-public-forms.sql
 ```
 
 The user file moves the unique indexes on username and email to their lowercased, trimmed forms,
@@ -62,8 +67,9 @@ which is what sign-in compares. If two existing accounts differ only by case, su
 id. Rename or remove one of each pair and run it again. It does not pick one for you. A 4.0 or 4.1
 database needs this file too.
 
-The second file builds the index `CONCURRENTLY`, so it does not block writes to stored files, and
-that is why it runs on its own, without `--single-transaction`. It is safe to run twice.
+The Files file builds the index `CONCURRENTLY`, so it does not block writes to stored files, and
+that is why it runs on its own, without `--single-transaction`. The Forms file creates one empty
+table. Both are safe to run twice.
 
 Then confirm the schema matches what 4.0 expects, without starting the server. The command is an
 argument to the 4.0 image, which hands it to the host instead of booting the web app. With compose,
@@ -130,8 +136,9 @@ statements from the file by hand rather than re-running the whole thing.
 > - **An export of your URL redirects, query definitions and request definitions.** Those tables are
 >   dropped and the data is not carried anywhere else.
 >
-> Also lost: queued jobs and workflow runs, and the webhook delivery log. Every Scheduled entry is
-> rewritten back to Draft, so anything waiting to publish will need rescheduling. Nine tables are
+> Also lost: queued jobs and workflow runs, the webhook delivery log, and which content types were
+> forms (the submissions themselves are ordinary entries and stay). Every Scheduled entry is
+> rewritten back to Draft, so anything waiting to publish will need rescheduling. Twelve tables are
 > dropped in total; the file lists them with a comment on each.
 
 Stop 4.0, then:

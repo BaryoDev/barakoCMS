@@ -89,6 +89,12 @@ DROP INDEX IF EXISTS public.mt_doc_contenttypedefinition_uidx_name;
 -- would drop. Only an index, so no data moves. IF EXISTS because a host without Files never had it.
 DROP INDEX IF EXISTS public.mt_doc_stored_files_idx_parent_file_id;
 
+-- The Forms public_forms table, from migrations/4.2.0/forms-public-forms.sql. 3.x has no such table
+-- and nothing references it, so dropping it moves no content: the entries a form collected are
+-- ordinary content and stay. What is lost is which types were forms, so mark them again after a
+-- re-upgrade. IF EXISTS because a host without Forms never had it.
+DROP TABLE IF EXISTS public.mt_doc_public_forms;
+
 -- Pending self-registrations. 3.x has no such table and nothing else references it, so dropping it
 -- moves no data. Anything still in it is a registration that was never confirmed and, on 3.x, never
 -- can be: rolling back means self-registration goes back to creating accounts outright.
