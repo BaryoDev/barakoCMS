@@ -7,6 +7,89 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.2.0] - 2026-09-18
+
+Three new modules, and the batch of security fixes that came out of the architecture sweep.
+
+### Breaking
+
+- **A locked account now answers like any other failed sign-in.** It used to be
+  distinguishable, which told an attacker which usernames exist and which of them are
+  worth waiting on. `X-Api-Contract-Version` moves to 4. The barakoBrew console refuses
+  to start against a contract version it does not speak, so it has to be upgraded in
+  lockstep with this release. (#867, closes #640)
+- **Erase and rollback now require their own API key scope.** A key that could write
+  could previously also destroy. An existing key keeps working for everything except
+  those two routes, which it has to be regranted for. (#863)
+- **Username and email uniqueness is enforced on the normalised values**, so two
+  accounts differing only by case or surrounding whitespace can no longer both exist.
+  Stored values are recomputed at startup rather than left to the migration's SQL.
+  A deployment already holding a normalised collision keeps serving both, and the next
+  edit of either is refused until one is changed. (#864, #879)
+- **A content type now caps how many fields it can hold.** A type already over the cap
+  keeps serving; the next edit of it is refused until it is under. (#861, closes #650)
+- **Malformed and boundary input answers 4xx rather than 500.** Anything treating a 500
+  from these routes as retryable should be rechecked. (#758, closes #648)
+
+### Added
+
+- **Pages: a module for the page tree, navigation and path resolution.** (#826, closes #718)
+- **Forms: a module so a public visitor can submit a form.** (#821, closes #720)
+- **A choice field type with ordered options.** (#820, closes #803)
+- **Site: holding mode and share links**, so a tenant can put a site behind a holding
+  page and hand out links that see past it. (#860, closes #841)
+- **A site blueprint for a tenant's identity, theme and chrome**, with tenant domains
+  settable through the API and tenant lookup by host. (#797, #796)
+- **Every rate limit is configurable**, plus a renderer partition. (#832)
+- **Workflow actions report a group, and optional and secret parameters.** (#783, #764)
+
+### Security
+
+- **Every credential-named workflow parameter is encrypted**, and stored ones are
+  migrated. An encrypted credential is told from a plain one by a prefix rather than by
+  its shape, which guessed wrong on values that happened to look encrypted. (#862, #880)
+- **The workflow execution log is redacted on write and on read**, and stored debugger
+  logs are redacted too. (#859, #881)
+- **Security headers are kept on early error responses, and exception text is kept out
+  of 500s.** (#874)
+- **Stored redirects are normalised when served**, and subdomain tenants resolve by
+  host. Backslashes and control characters in redirect paths are normalised. (#872, #751)
+- **A password hash below the configured work factor is upgraded on successful
+  sign-in.** (#866)
+- **OAuth state is minted from `RandomNumberGenerator`.** (#754)
+- **No-store on token and profile responses, no `Server` header, and no config keys in
+  503s.** (#757, closes #654)
+- **Only Caddy's address is trusted for forwarded headers in the production compose.** (#767)
+
+### Fixed
+
+- **A slug the caller cannot read answers 404**, like a missing one, rather than
+  revealing that it exists. (#875)
+- **A by-slug read of a type named `erase` or `rollback` is no longer treated as
+  destructive.** (#882)
+- **Moving a page checks the whole subtree**, skips unchanged parents, and runs save
+  hooks on workflow field updates. (#876)
+- **Navigation says when it has been truncated** rather than silently returning a
+  partial tree. (#878)
+- **Workflows find partitions from the tenant registry**, so enforced database tenancy
+  still runs them. (#943, closes #877)
+- **A workflow failure records whether it was permanent**, and retrying one is audited. (#865)
+- **A workflow trigger can name more than one content type.** (#776)
+- **A parent reference that points at itself or closes a cycle is refused.** (#772)
+- **Endpoints of a disabled module are no longer mapped.** (#773)
+- **Startup throwing before the host's handler exits 1**, so the image stops instead of
+  spinning. (#777)
+- **The semantic search scan is bounded.** (#771, closes #620)
+
+### Changed
+
+- **Postgres is tuned for a 2 GB server**, query stats are recorded, and there is a
+  delivery load script. (#822)
+- **The upgrade gate runs against the Suite host**, and rollback drops the Files index. (#775)
+- **Files.S3 tests against a maintained S3 server** instead of archived MinIO, and the
+  env examples stop recommending MinIO and the Docker bridge range. (#774, #778, closes #619)
+- **Architecture decisions D22 to D34 recorded.** (#819, #947)
+
 ## [4.1.0] - 2026-09-12
 
 ### Breaking
