@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.2.1] - 2026-09-18
+
+A republish. Core has no changes of its own.
+
+### Fixed
+
+- **`BarakoCMS.ExternalAuth`, `BarakoCMS.Files` and `BarakoCMS.Portability` are published at
+  4.2.1.** All three carried 4.2.0 source changes while still declaring 4.1.1, and 4.1.1 was already
+  on NuGet from the 4.1.0 release, so the 4.2.0 publish pushed them with `--skip-duplicate` and
+  dropped them. Anyone on the published 4.1.1 of these packages did not have the 4.2.0 work in them.
+  What reaches them here: the OAuth `state` for Google, GitHub, Facebook and LinkedIn sign-in is now
+  32 bytes from `RandomNumberGenerator` rather than `Guid.NewGuid` (#652), the Files module
+  documentation is corrected (#553), and a content type is capped at 200 fields (#650). This is the
+  third time an unbumped module version has swallowed a shipped change; see 3.12.1 and 3.17.1.
+- **A deploy carrying a schema change the target database will not accept is refused before the
+  running container is replaced.** Production and playground run `AutoCreate.CreateOnly`, which
+  creates a missing table and never alters an existing one, so a release carrying a delta on a table
+  that is already there throws on start and crash-loops with the previous container already gone.
+  4.2.0 did exactly that on playground. `db-assert` was on the image and in the 4.0 upgrade guide,
+  but nothing in the deploy path ran it; `scripts/assert-schema-current.sh` does, between the pull
+  and the recreate. The production upgrade doc said "schema migrations run on start", which is true
+  for a new table and not for a changed one, and now says which is which.
+
 ## [4.2.0] - 2026-09-18
 
 Three new modules, and the batch of security fixes that came out of the architecture sweep.
