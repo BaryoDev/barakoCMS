@@ -316,12 +316,23 @@ more fields than the limit keeps working, and only adding fields to it is refuse
 
 ```bash
 docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml run --rm --no-deps app db-assert
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-Change `BARAKO_TAG` first. Schema migrations run on start. Read
-[upgrading-to-4.0.md](upgrading-to-4.0.md) before moving to 4.0, which does not boot without its
-migration.
+Change `BARAKO_TAG` first, then run `db-assert` between the pull and the `up`. It exits 0 when the
+database already holds every object the new build declares, and non-zero listing what is
+outstanding.
+
+That middle step is not optional on an existing database. A new table is created on start, but an
+existing table is never altered: production runs `AutoCreate.CreateOnly`. So a release carrying a
+change to a table you already have does not migrate it and does not skip it either, it throws on
+start and the container restarts forever, with the previous one already gone. Releases that need
+this ship the SQL in `migrations/<version>/`; apply it while the old build is still serving, then
+`up`.
+
+Read [upgrading-to-4.0.md](upgrading-to-4.0.md) before moving to 4.0, which does not boot without
+its migration.
 
 ### Upgrading past 4.0.2: the trusted proxy
 
