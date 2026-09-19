@@ -59,6 +59,7 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.0.0
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.2.0/user-normalized-identity.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/4.2.0/stored-files-parent-index.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.2.0/forms-public-forms.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.3.0/collection-syncs.sql
 ```
 
 The user file moves the unique indexes on username and email to their lowercased, trimmed forms,
@@ -144,11 +145,17 @@ statements from the file by hand rather than re-running the whole thing.
 Stop 4.0, then:
 
 ```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.3.0/rollback-collection-syncs.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.2.0/rollback-user-normalized-identity.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.0.0/rollback-to-3.x.sql
 ```
 
-The first file puts the username and email unique indexes back on the stored values, which is where
+Newest first. An earlier release asserts its own schema and reports a table it does not declare as
+outstanding, so it refuses to boot while `mt_doc_collection_syncs` is still there. Dropping it loses
+the sync schedules and field mappings, which nothing else records; the entries those syncs wrote are
+ordinary content and are untouched.
+
+The user file puts the username and email unique indexes back on the stored values, which is where
 3.x declares them.
 
 That restores the two `mt_streams` columns as NULL, which is what they were, and removes `bdata`.
