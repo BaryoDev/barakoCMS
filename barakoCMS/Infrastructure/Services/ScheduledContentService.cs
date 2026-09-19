@@ -207,6 +207,47 @@ public class ScheduledContentService : BackgroundService
         SweepTenantAsync(session, nowUtc, logger, batchSize, maxBatches, beforeSave: null, ct);
 
     /// <summary>
+    /// The events one due item gets: a status transition, a sensitivity change, or both, each
+    /// followed by the event that clears the schedule it consumed.
+    /// </summary>
+    /// <remarks>
+    /// Clearing is an event rather than a write straight to the document: consuming a schedule is a
+    /// state change, and one that happened without a user, so the trail is the only place it is
+    /// visible. Only the field just consumed is cleared; a Published item can still carry a future
+    /// unpublish time, and a sensitivity time is independent of both.
+    /// </remarks>
+    internal static List<object> DueEvents(Content content, DateTime nowUtc)
+    {
+        var now = DateTime.UtcNow;
+        var events = new List<object>(4);
+
+        var publishDue = content.Status is ContentStatus.Scheduled or ContentStatus.Draft
+            && content.ScheduledPublishAt is { } publishAt && publishAt <= nowUtc;
+        var unpublishDue = content.Status == ContentStatus.Published
+            && content.ScheduledUnpublishAt is { } unpublishAt && unpublishAt <= nowUtc;
+
+        if (publishDue)
+        {
+            events.Add(new ContentStatusChanged(content.Id, ContentStatus.Published, SystemActor, now));
+            events.Add(new ContentScheduled(content.Id, null, content.ScheduledUnpublishAt, SystemActor, now));
+        }
+        else if (unpublishDue)
+        {
+            events.Add(new ContentStatusChanged(content.Id, ContentStatus.Archived, SystemActor, now));
+            events.Add(new ContentScheduled(content.Id, content.ScheduledPublishAt, null, SystemActor, now));
+        }
+
+        if (content.ScheduledSensitivity is { } level
+            && content.ScheduledSensitivityAt is { } sensitivityAt && sensitivityAt <= nowUtc)
+        {
+            events.Add(new ContentSensitivityChanged(content.Id, level, SystemActor, now));
+            events.Add(new ContentSensitivityScheduled(content.Id, null, null, SystemActor, now));
+        }
+
+        return events;
+    }
+
+    /// <summary>
     /// The implementation, with a hook that runs after an item is loaded and before its save.
     /// </summary>
     /// <remarks>
@@ -242,7 +283,9 @@ public class ScheduledContentService : BackgroundService
                 .Where(c => ((c.Status == ContentStatus.Scheduled || c.Status == ContentStatus.Draft)
                              && c.ScheduledPublishAt != null && c.ScheduledPublishAt <= nowUtc)
                          || (c.Status == ContentStatus.Published
-                             && c.ScheduledUnpublishAt != null && c.ScheduledUnpublishAt <= nowUtc))
+                             && c.ScheduledUnpublishAt != null && c.ScheduledUnpublishAt <= nowUtc)
+                         || (c.ScheduledSensitivity != null
+                             && c.ScheduledSensitivityAt != null && c.ScheduledSensitivityAt <= nowUtc))
                 .OrderBy(c => c.Id)
                 .Take(batchSize)
                 .ToListAsync(ct);
@@ -256,23 +299,17 @@ public class ScheduledContentService : BackgroundService
 
             foreach (var content in due)
             {
-                var newStatus = content.Status == ContentStatus.Published
-                    ? ContentStatus.Archived
-                    : ContentStatus.Published;
+                var events = DueEvents(content, nowUtc);
 
-                var events = new object[]
+                // Every row the query returns matches at least one branch of DueEvents, so this is
+                // unreachable today. It is here because the predicate and the branches are separate
+                // now: an edit to one and not the other would otherwise append nothing, commit, and
+                // still count the item as applied, inflating the number reported and defeating the
+                // "a full batch that applied nothing" guard that ends the loop.
+                if (events.Count == 0)
                 {
-                    new ContentStatusChanged(content.Id, newStatus, SystemActor, DateTime.UtcNow),
-
-                    // Clear only the field just consumed; the opposite one stays armed, since a
-                    // Published item can still carry a future unpublish time. Recorded as an event
-                    // rather than written straight to the document: consuming a schedule is a state
-                    // change, and one that happened without a user, so the trail is the only place
-                    // it is visible.
-                    newStatus == ContentStatus.Published
-                        ? new ContentScheduled(content.Id, null, content.ScheduledUnpublishAt, SystemActor, DateTime.UtcNow)
-                        : new ContentScheduled(content.Id, content.ScheduledPublishAt, null, SystemActor, DateTime.UtcNow),
-                };
+                    continue;
+                }
 
                 try
                 {

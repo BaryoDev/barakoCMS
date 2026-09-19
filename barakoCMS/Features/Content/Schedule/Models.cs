@@ -12,6 +12,16 @@ internal class Request
     /// <summary>When set (UTC), a Published item is Archived at/after this time. Null clears it.</summary>
     public DateTime? ScheduledUnpublishAt { get; set; }
 
+    /// <summary>
+    /// The sensitivity the entry takes at <see cref="ScheduledSensitivityAt"/>. Both or neither;
+    /// both null clears an armed change. The entry stays Published: this is "still published, but
+    /// only these roles may read it from that moment", where an unpublish time is "gone" (#824).
+    /// </summary>
+    public barakoCMS.Models.SensitivityLevel? ScheduledSensitivity { get; set; }
+
+    /// <summary>When (UTC) the sensitivity changes. Has to be in the future.</summary>
+    public DateTime? ScheduledSensitivityAt { get; set; }
+
     /// <summary>The stream version this schedule was decided against.</summary>
     /// <remarks>
     /// Zero means the client sent none, matching the update endpoint. For a document type that is
@@ -32,6 +42,15 @@ internal class RequestValidator : FastEndpoints.Validator<Request>
         RuleFor(x => x.ScheduledUnpublishAt)
             .Must((req, unpub) => req.ScheduledPublishAt is null || unpub is null || unpub > req.ScheduledPublishAt)
             .WithMessage("ScheduledUnpublishAt must be after ScheduledPublishAt.");
+        RuleFor(x => x.ScheduledSensitivityAt)
+            .Must((req, at) => (req.ScheduledSensitivity is null) == (at is null))
+            .WithMessage("ScheduledSensitivity and ScheduledSensitivityAt go together: send both, or neither to clear.");
+        // A publish time in the past is swept immediately and that is useful. A sensitivity time in
+        // the past is a change the caller could have made directly, and arming it to fire within
+        // the minute hides who decided it behind the system actor.
+        RuleFor(x => x.ScheduledSensitivityAt)
+            .Must(at => at is null || at > DateTime.UtcNow)
+            .WithMessage("ScheduledSensitivityAt must be in the future.");
     }
 }
 
@@ -43,4 +62,7 @@ internal class Response
 
     /// <summary>Where the entry ended up, since arming a publish time now moves it.</summary>
     public barakoCMS.Models.ContentStatus Status { get; set; }
+
+    public barakoCMS.Models.SensitivityLevel? ScheduledSensitivity { get; set; }
+    public DateTime? ScheduledSensitivityAt { get; set; }
 }

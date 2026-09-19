@@ -58,6 +58,10 @@ internal static class EntryResponse
             ScheduledUnpublishAt = content.ScheduledUnpublishAt is { } u
                 ? new DateTimeOffset(DateTime.SpecifyKind(u, DateTimeKind.Utc))
                 : null,
+            ScheduledSensitivity = content.ScheduledSensitivity,
+            ScheduledSensitivityAt = content.ScheduledSensitivityAt is { } s
+                ? new DateTimeOffset(DateTime.SpecifyKind(s, DateTimeKind.Utc))
+                : null,
             Version = streamState?.Version ?? 0
         };
 

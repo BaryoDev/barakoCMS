@@ -59,10 +59,24 @@ internal class Endpoint : Endpoint<Request, Response>
             return;
         }
 
+        if (req.ScheduledSensitivity is { } level && level == content.Sensitivity)
+        {
+            ThrowError(e => e.ScheduledSensitivity, "The entry already has that sensitivity.", 400);
+        }
+
         var events = new List<object>
         {
             new barakoCMS.Events.ContentScheduled(content.Id, req.ScheduledPublishAt, req.ScheduledUnpublishAt, userId, DateTime.UtcNow),
         };
+
+        // Only when it moves. The request is the whole schedule, so a console that sends only the
+        // publish times would otherwise append a clearing event on every save, and a stream full of
+        // "nothing was armed, still nothing is armed" tells the history reader nothing.
+        if (req.ScheduledSensitivity != content.ScheduledSensitivity || req.ScheduledSensitivityAt != content.ScheduledSensitivityAt)
+        {
+            events.Add(new barakoCMS.Events.ContentSensitivityScheduled(
+                content.Id, req.ScheduledSensitivity, req.ScheduledSensitivityAt, userId, DateTime.UtcNow));
+        }
 
         // Scheduled is a status now, so arming or clearing a publish time is a status change and is
         // recorded as one. Deriving it inside Apply(ContentScheduled) would have been shorter and
@@ -98,6 +112,8 @@ internal class Endpoint : Endpoint<Request, Response>
             ScheduledPublishAt = content.ScheduledPublishAt,
             ScheduledUnpublishAt = content.ScheduledUnpublishAt,
             Status = content.Status,
+            ScheduledSensitivity = content.ScheduledSensitivity,
+            ScheduledSensitivityAt = content.ScheduledSensitivityAt,
         });
     }
 

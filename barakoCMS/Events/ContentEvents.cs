@@ -110,6 +110,24 @@ public record ContentScheduled(
 }
 
 /// <summary>
+/// A sensitivity change armed for a moment in the future, or cleared.
+/// </summary>
+/// <remarks>
+/// Intent, not the change itself. <see cref="Infrastructure.Services.ScheduledContentService"/>
+/// applies it on its sweep by appending a real <see cref="ContentSensitivityChanged"/>, so delivery,
+/// masking, change webhooks and the history all see the change the way they see a manual one, and
+/// then clears the schedule with another one of these, with no user behind it. Both fields null
+/// means nothing is armed. The time is UTC.
+/// </remarks>
+[method: JsonConstructor]
+public record ContentSensitivityScheduled(
+    Guid Id,
+    Models.SensitivityLevel? ScheduledSensitivity,
+    DateTime? ScheduledSensitivityAt,
+    Guid UpdatedBy,
+    DateTime OccurredAt) : IContentEvent;
+
+/// <summary>
 /// Document-level sensitivity changed for a content item.
 /// </summary>
 /// <remarks>

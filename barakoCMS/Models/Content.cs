@@ -54,6 +54,13 @@ public class Content
     public DateTime? ScheduledPublishAt { get; set; }
     public DateTime? ScheduledUnpublishAt { get; set; }
 
+    // A sensitivity change waiting for its moment: at/after ScheduledSensitivityAt the scheduler
+    // appends a ContentSensitivityChanged to ScheduledSensitivity and clears both. Set together
+    // through ContentSensitivityScheduled; the entry stays Published throughout, which is the
+    // difference from an unpublish time (#824).
+    public SensitivityLevel? ScheduledSensitivity { get; set; }
+    public DateTime? ScheduledSensitivityAt { get; set; }
+
     // Versioning is handled by Marten, but we can track who updated it
     public Guid LastModifiedBy { get; set; }
 
@@ -126,6 +133,14 @@ public class Content
     {
         ScheduledPublishAt = @event.ScheduledPublishAt;
         ScheduledUnpublishAt = @event.ScheduledUnpublishAt;
+        UpdatedAt = occurredAt;
+        LastModifiedBy = @event.UpdatedBy;
+    }
+
+    public void Apply(barakoCMS.Events.ContentSensitivityScheduled @event, DateTime occurredAt)
+    {
+        ScheduledSensitivity = @event.ScheduledSensitivity;
+        ScheduledSensitivityAt = @event.ScheduledSensitivityAt;
         UpdatedAt = occurredAt;
         LastModifiedBy = @event.UpdatedBy;
     }
