@@ -14,21 +14,27 @@ A republish. Core has no changes of its own.
 ### Fixed
 
 - **`BarakoCMS.ExternalAuth`, `BarakoCMS.Files` and `BarakoCMS.Portability` are published at
-  4.2.1.** All three carried 4.2.0 source changes while still declaring 4.1.1, and 4.1.1 was already
-  on NuGet from the 4.1.0 release, so the 4.2.0 publish pushed them with `--skip-duplicate` and
-  dropped them. Anyone on the published 4.1.1 of these packages did not have the 4.2.0 work in them.
-  What reaches them here: the OAuth `state` for Google, GitHub, Facebook and LinkedIn sign-in is now
-  32 bytes from `RandomNumberGenerator` rather than `Guid.NewGuid` (#652), the Files module
-  documentation is corrected (#553), and a content type is capped at 200 fields (#650). This is the
-  third time an unbumped module version has swallowed a shipped change; see 3.12.1 and 3.17.1.
+  4.2.1.** The 4.2.0 release pushed all three at 4.1.1, a number none of them had been published
+  under before, so nothing was skipped: the 4.1.1 packages already hold the 4.2.0 work, the OAuth
+  `state` from `RandomNumberGenerator` (#754, closes #652), the corrected Files documentation
+  (#748, closes #553) and the 200-field cap in Portability (#861, closes #650). What was wrong is
+  the number. A module's version is the version of the release that publishes it, and
+  `scripts/check-module-versions.sh` measures that against the `v<version>` tag, which did not
+  exist until the release created it, so the check passed on the release pull request and went red
+  on the next one. 4.2.1 republishes the three under the version they should have carried; the
+  code is the same as 4.1.1. Unlike 3.12.1, 3.17.1 and the 4.1.0 Import and Portability skip
+  (#749), no change was lost this time. The first version of this entry said `--skip-duplicate`
+  had dropped them. It had not.
 - **A deploy carrying a schema change the target database will not accept is refused before the
   running container is replaced.** Production and playground run `AutoCreate.CreateOnly`, which
   creates a missing table and never alters an existing one, so a release carrying a delta on a table
   that is already there throws on start and crash-loops with the previous container already gone.
   4.2.0 did exactly that on playground. `db-assert` was on the image and in the 4.0 upgrade guide,
-  but nothing in the deploy path ran it; `scripts/assert-schema-current.sh` does, between the pull
-  and the recreate. The production upgrade doc said "schema migrations run on start", which is true
-  for a new table and not for a changed one, and now says which is which.
+  but nothing in the deploy path ran it. The production upgrade doc now puts it between the `pull`
+  and the `up`, `scripts/assert-schema-current.sh` is that step for any compose stack, and the
+  playground deploy script on the host runs the same check before it recreates the app. The doc
+  also said "schema migrations run on start", which is true for a new table and not for a changed
+  one, and now says which is which.
 
 ## [4.2.0] - 2026-09-18
 
@@ -65,6 +71,13 @@ Three new modules, and the batch of security fixes that came out of the architec
   settable through the API and tenant lookup by host. (#797, #796)
 - **Every rate limit is configurable**, plus a renderer partition. (#832)
 - **Workflow actions report a group, and optional and secret parameters.** (#783, #764)
+- **A signed-in viewer can fetch an entry by its slug**, with the same permission, tenant,
+  status and field-masking rules as a read by id, and 404 for one it may not read. (#768)
+- **Resolving a client error can record a reference and a note**, returned on the list. (#791,
+  closes #790)
+- **The page tree reports the fields it is built from**, under `options`. (#826, closes #842)
+- **A deployment guide for App Service, Fargate and Cloud Run.** (#755, closes #727)
+- **A first-module walkthrough, from clone to passing tests.** (#760, closes #729)
 
 ### Security
 
@@ -103,6 +116,20 @@ Three new modules, and the batch of security fixes that came out of the architec
 - **Startup throwing before the host's handler exits 1**, so the image stops instead of
   spinning. (#777)
 - **The semantic search scan is bounded.** (#771, closes #620)
+- **A bodiless GET or DELETE sent with a JSON content type binds instead of answering 400.**
+  (#756, closes #681)
+- **Job workers wait for the schema apply**, so a host no longer races itself into `42P07` on the
+  jobs index. (#761, closes #686)
+- **The quickstart ships its own backup script**, so a folder copied out of the repository takes
+  backups. (#753, closes #712)
+- **`db-assert` and `db-patch` work on the published image**, which runs the Suite host. (#759,
+  closes #662)
+- **A release body over GitHub's limit is summarised, and checked before anything is published.**
+  (#752, closes #660)
+- **`BarakoCMS.Import` and `BarakoCMS.Portability` 4.1.1 carry the singleton handling 4.1.0
+  skipped.** Both had been bumped to 4.0.1, a version already on NuGet, so the 4.1.0 release
+  dropped them with `--skip-duplicate`; this release publishes them. (#749)
+- **ahmdkaml is credited for code, not ideas.** (#744)
 
 ### Changed
 
@@ -112,6 +139,9 @@ Three new modules, and the batch of security fixes that came out of the architec
 - **Files.S3 tests against a maintained S3 server** instead of archived MinIO, and the
   env examples stop recommending MinIO and the Docker bridge range. (#774, #778, closes #619)
 - **Architecture decisions D22 to D34 recorded.** (#819, #947)
+- **The docs name the console image `barako-brew`.** (#762)
+- **`preflight.sh` refuses to pass having tested nothing**, and checks the three pinned versions
+  agree. (#743)
 
 ## [4.1.0] - 2026-09-12
 
@@ -220,6 +250,9 @@ Three new modules, and the batch of security fixes that came out of the architec
   merge queue run failed with it. The same tag is still served from quay.io, where MinIO published in
   parallel, so `BarakoCMS.Tests/S3FileStorageTests.cs` pulls from there instead. A registry change,
   not a version change.
+- **`delivering-a-client-project` said a custom role could not reach four admin surfaces, and
+  listed seven shipped features as missing.** All four take a capability, and the page now says
+  which; only the media library screen is still absent. (#742)
 
 ### Security
 

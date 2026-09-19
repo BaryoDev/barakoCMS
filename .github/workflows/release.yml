@@ -712,9 +712,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (for scripts/smoke-test.sh)
 
-      # Forced-command key (/home/opc/deploy-playground.sh): pulls the :playground image,
-      # recreates the app, and fails if it does not answer 200. A leaked key cannot open a
-      # shell. The console on the same host is deployed by barakoBrew's own workflow.
+      # Forced-command key (/home/opc/deploy-playground.sh): pulls the :playground image, runs
+      # db-assert against it and stops there if the schema is behind, recreates the app, and
+      # fails if it does not answer 200. A leaked key cannot open a shell. The console on the
+      # same host is deployed by barakoBrew's own workflow.
       - name: Pull and restart over SSH
         uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
