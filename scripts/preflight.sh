@@ -76,6 +76,12 @@ for class in ${classes[@]+"${classes[@]}"}; do
   [ "$total" -gt 0 ] || fail "test class $class matched 0 tests (check for a typo in the class name)"
 done
 
+# holdout.sh decides whether a test notices the change it claims to test, so it is itself a gate
+# that would be worth nothing if it silently stopped working. The fixtures run a known one-hunk
+# change past it and require each case to produce its exit code, including every failure path.
+echo "== holdout fixtures =="
+bash scripts/testdata/holdout/run-fixtures.sh || fail "holdout fixtures failed"
+
 echo "== changelog fragments =="
 bash scripts/changelog-assemble.sh --check || fail "changelog-assemble --check failed"
 
