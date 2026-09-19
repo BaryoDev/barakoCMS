@@ -2,7 +2,9 @@ using Serilog;
 using FastEndpoints;
 using FastEndpoints.Swagger;
 using FastEndpoints.Security;
+using barakoCMS.Infrastructure.Messaging;
 using Marten;
+using Wolverine.Marten;
 using Marten.Events.Projections;
 using Marten.Events.Daemon;
 using Weasel.Core;
@@ -161,6 +163,7 @@ public static class ServiceCollectionExtensions
         services.AddHttpContextAccessor();
         services.AddSingleton<barakoCMS.Infrastructure.Jobs.JobStorageGate>();
         services.AddJobQueues<barakoCMS.Models.JobRecord, barakoCMS.Infrastructure.Jobs.MartenJobStorageProvider>();
+        services.AddBarakoMessaging(configuration);
 
         // Request body size limit (defends against large-payload memory pressure / DoS on the
         // arbitrary-JSON content endpoints). Configurable via RequestLimits:MaxBodyBytes; default 10 MB.
@@ -756,6 +759,10 @@ public static class ServiceCollectionExtensions
             return options;
         })
         .BuildSessionsWith<barakoCMS.Infrastructure.Multitenancy.TenantSessionFactory>(Microsoft.Extensions.DependencyInjection.ServiceLifetime.Scoped)
+        // Wolverine's inbox, outbox, dead letters and node tables, registered with Marten's schema
+        // management so db-assert and db-patch see them. Their own schema, so the public schema the
+        // 3.x upgrade reasons about does not grow five tables that are not ours (#687, question 2).
+        .IntegrateWithWolverine(w => w.MessageStorageSchemaName = barakoCMS.Infrastructure.Messaging.MessagingSetup.SchemaName)
         // HotCold, not Solo. Solo assumes there is never more than one node, and every node that
         // starts under it runs every projection. Two instances therefore both process the same
         // events, and WorkflowProjection has external side effects: an email, an SMS, a webhook, a
@@ -763,6 +770,7 @@ public static class ServiceCollectionExtensions
         //
         // HotCold takes a Postgres advisory lock per projection so exactly one process runs each.
         .AddAsyncDaemon(JasperFx.Events.Daemon.DaemonMode.HotCold);
+        services.UseSingletonSessionFactoryForWolverine();
         // Schema is applied explicitly at startup via host.ApplyMartenSchemaAsync() (below), called
         // BEFORE the data seeders run. ApplyAllDatabaseChangesOnStartup() can't be used here: it
         // registers a hosted service that runs during app.Run(), but the seeders run before that, so

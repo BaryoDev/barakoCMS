@@ -91,6 +91,10 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
                 // more than a few seconds.
                 { "Jobs:BackoffBaseSeconds", "0" },
                 { "Jobs:LeaseSeconds", "5" },
+                // Wolverine (#687 spike): one node per host, and a retry that waits nothing, so a
+                // message that fails five times reaches the dead letter table in milliseconds.
+                { "Messaging:Solo", "true" },
+                { "Messaging:BackoffBaseSeconds", "0" },
                 // Pages runs over its own probe type, so no other test's "page" entries meet its rules.
                 { "Modules:Pages:ContentType", "pagetreeprobe" },
                 { "Modules:Pages:MaxDepth", "3" },
