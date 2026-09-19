@@ -87,6 +87,12 @@ spec newfile   '```holdout
 - untested: barakoCMS/Features/Redeem.cs #1
   why: covered elsewhere
 ```'
+spec allunt    '```holdout
+- untested: barakoCMS/Features/Redeem.cs #1
+  why: shipped data, no compiled behaviour to hold out
+- untested: barakoCMS/Features/Added.cs #1
+  why: added outright
+```'
 spec nonelie   '```holdout
 none: claiming nothing while the diff touches production
 ```'
@@ -124,6 +130,7 @@ check "malformed block line"    2 junk
 check "binding to a new file"   2 newfile
 check "none over real changes"  2 nonelie
 check "none plus a binding"     2 noneplus
+check "every hunk untested"     0 allunt
 check "no holdout block"        2 noblock
 check "empty holdout block"     2 emptyblk
 echo "  ---- $pass passed, $fail failed"
