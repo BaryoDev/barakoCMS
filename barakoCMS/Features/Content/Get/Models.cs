@@ -29,6 +29,12 @@ internal class Response
 
     /// <summary>When the scheduler will archive this, or null if nothing is armed. Always UTC.</summary>
     public DateTimeOffset? ScheduledUnpublishAt { get; set; }
+
+    /// <summary>The sensitivity the scheduler will apply, or null if nothing is armed.</summary>
+    public barakoCMS.Models.SensitivityLevel? ScheduledSensitivity { get; set; }
+
+    /// <summary>When the scheduler will apply it, or null if nothing is armed. Always UTC.</summary>
+    public DateTimeOffset? ScheduledSensitivityAt { get; set; }
     /// <summary>
     /// Event-stream version. Send this back in an update's Version field for optimistic concurrency.
     /// </summary>
