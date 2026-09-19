@@ -34,10 +34,6 @@
 --   mt_doc_request_definitions
 --                         New table. What to send through a connector, held as configuration
 --                         rather than code (#327). Conjoined multi-tenant. Empty on arrival.
---   mt_doc_collection_syncs
---                         New table. A content type whose entries are filled from an outside
---                         source on a schedule (#794). Names a request definition or a feed URL,
---                         never a credential. Conjoined multi-tenant. Empty on arrival.
 --   mt_doc_url_redirects
 --                         New table. Old paths that should send a visitor to a new one after a site
 --                         rebuild (#112). Conjoined multi-tenant, from-path unique per tenant.
@@ -307,28 +303,6 @@ CREATE TABLE IF NOT EXISTS public.mt_doc_request_definitions (
 
 CREATE UNIQUE INDEX IF NOT EXISTS mt_doc_request_definitions_uidx_slug
     ON public.mt_doc_request_definitions USING btree ((data ->> 'Slug'), tenant_id);
-
--- ---------------------------------------------------------------------------
--- Collection syncs (#794).
---
--- A content type whose entries are filled from an outside source on a schedule:
--- which request definition or feed to read, which response path becomes which
--- field, and which field is the stable key. Holds no credential; the request it
--- names points at the connector, which is where the credential lives. Conjoined
--- multi-tenant, slug unique per tenant. Empty on arrival.
--- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS public.mt_doc_collection_syncs (
-    id                  uuid                        NOT NULL,
-    data                jsonb                       NOT NULL,
-    mt_last_modified    timestamp with time zone    NULL DEFAULT (transaction_timestamp()),
-    mt_version          uuid                        NOT NULL DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
-    mt_dotnet_type      varchar                     NULL,
-    tenant_id           varchar                     NOT NULL DEFAULT '*DEFAULT*',
-    CONSTRAINT pkey_mt_doc_collection_syncs_tenant_id_id PRIMARY KEY (tenant_id, id)
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS mt_doc_collection_syncs_uidx_slug
-    ON public.mt_doc_collection_syncs USING btree ((data ->> 'Slug'), tenant_id);
 
 -- ---------------------------------------------------------------------------
 -- URL redirects (#112).
