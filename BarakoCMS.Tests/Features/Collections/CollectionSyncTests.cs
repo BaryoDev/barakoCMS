@@ -289,10 +289,10 @@ public class CollectionSyncTests
 
         (await RunAsync(setup)).GetProperty("created").GetInt32().Should().Be(2, "the control: one run has happened");
 
-        var sweeper = new CollectionSyncService(
-            Host.Services,
-            Host.Services.GetRequiredService<IDocumentStore>(),
-            Microsoft.Extensions.Logging.Abstractions.NullLogger<CollectionSyncService>.Instance);
+        // Built by the container rather than by hand, because the schedule is off in the test host
+        // (see IntegrationTestFixture) and so nothing else here would notice the day one of its
+        // dependencies stopped being resolvable from the root provider.
+        var sweeper = ActivatorUtilities.CreateInstance<CollectionSyncService>(Host.Services);
 
         // Asserted on this sync's own LastRunAt rather than on how many syncs the sweep ran, since
         // other tests in this class leave their own syncs in the same partition.
