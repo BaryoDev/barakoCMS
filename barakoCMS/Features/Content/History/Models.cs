@@ -37,6 +37,8 @@ internal class VersionResponse
 
     public DateTime? ScheduledPublishAt { get; set; }
     public DateTime? ScheduledUnpublishAt { get; set; }
+    public barakoCMS.Models.SensitivityLevel? ScheduledSensitivity { get; set; }
+    public DateTime? ScheduledSensitivityAt { get; set; }
 
     /// <summary>Set by the events that carry a sensitivity level: creation and a sensitivity change.</summary>
     public barakoCMS.Models.SensitivityLevel? Sensitivity { get; set; }
