@@ -122,10 +122,10 @@
       },
       "JasperFx.Events": {
         "type": "Transitive",
-        "resolved": "2.56.0",
-        "contentHash": "RQw7VpWPjKeF7BmRHr0ergsPtDuOAWDm1Cb7GDY8QwybnmVK+GGf/HmTB4uV5xPmMeZdXGX7aII/j80WuYFIEQ==",
+        "resolved": "2.72.0",
+        "contentHash": "gCadWzhl0+EO9isHkjfKIogq+4OmcbqQ9wvk6KTHhCkTeva5NSLQc03a2e4mlE62r3USmoFfFFNhfyA3gayMpA==",
         "dependencies": {
-          "JasperFx": "2.56.0"
+          "JasperFx": "2.72.0"
         }
       },
       "Microsoft.AspNetCore.Authentication.JwtBearer": {
@@ -633,31 +633,31 @@
       },
       "Weasel.Core": {
         "type": "Transitive",
-        "resolved": "9.27.0",
-        "contentHash": "IM9O3x/1MaocEv+WNH47CFAoczA4wTN0MnUcSrdPIqTjBd6BD5/fH/VwrxResj1gP7euObJcAw2wd7YUp8cIDw==",
+        "resolved": "9.32.0",
+        "contentHash": "/wi2jxXzbZbocKfccOXz2hX2DrpZqjP8mZyN7fHJDjbEQNf1sXZociXa4sUWTkkFBWmZuVUDtqXebhQTNsUQyg==",
         "dependencies": {
           "JasperFx": "2.46.0"
         }
       },
       "Weasel.Postgresql": {
         "type": "Transitive",
-        "resolved": "9.27.0",
-        "contentHash": "J9GNOfs6Znl2gj5MRpU1Khd61DDVY8jh5XNPfezMrPD/3OeZpHb1z5Q1EINlEAJz1nuPnmEZT2yuYr4TpGbejg==",
+        "resolved": "9.32.0",
+        "contentHash": "W63RyQNBP1/XDxwnVt8FywH+JhTGHUY7YN7OuFYn1TGPZl9il/O/2t/XkK5/hzuM04It9wtScFs4WXdyZ8KOgA==",
         "dependencies": {
           "DistributedLock.Postgres": "1.3.0",
           "JasperFx.Events": "2.46.0",
           "Npgsql": "9.0.4",
           "Npgsql.NetTopologySuite": "9.0.4",
-          "Weasel.Core": "9.27.0"
+          "Weasel.Core": "9.32.0"
         }
       },
       "Weasel.Storage": {
         "type": "Transitive",
-        "resolved": "9.27.0",
-        "contentHash": "0n8CDUo6+XINLKMK9ZAXTR2RNmM9zu9kas6fteQf/odKAqSwkmxOI8yQ04Fc+R4I99uvyFWJVCMldcgHAnfEdQ==",
+        "resolved": "9.32.0",
+        "contentHash": "fZ7HzS1ufg9fhhhq4c8uqoOhn74Xs6zSDf+SRBH/9czDy3Bxn8Fei3oz8UQB/Xr/HHCx/mgaDihZtPicOusjYQ==",
         "dependencies": {
           "JasperFx.Events": "2.46.0",
-          "Weasel.Core": "9.27.0"
+          "Weasel.Core": "9.32.0"
         }
       },
       "YamlDotNet": {
@@ -665,7 +665,7 @@
         "resolved": "16.3.0",
         "contentHash": "SgMOdxbz8X65z8hraIs6hOEdnkH6hESTAIUa7viEngHOYaH+6q5XJmwr1+yb9vJpNQ19hCQY69xbFsLtXpobQA=="
       },
-      "barakocms": {
+      "BarakoCMS": {
         "type": "Project",
         "dependencies": {
           "AspNetCore.HealthChecks.Npgsql": "[9.0.0, )",
@@ -678,9 +678,9 @@
           "FastEndpoints.Security": "[8.3.0, )",
           "FastEndpoints.Swagger": "[8.3.0, )",
           "IdentityModel": "[7.0.0, )",
-          "JasperFx": "[2.56.0, )",
+          "JasperFx": "[2.72.0, )",
           "KubernetesClient": "[18.0.13, )",
-          "Marten": "[9.30.0, )",
+          "Marten": "[9.37.0, )",
           "Microsoft.Extensions.DependencyModel": "[10.0.11, )",
           "Microsoft.Extensions.Http.Resilience": "[10.9.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.22.0, )",
@@ -695,7 +695,7 @@
       "barakocms.files": {
         "type": "Project",
         "dependencies": {
-          "BarakoCMS": "[3.21.0, )",
+          "BarakoCMS": "[4.2.1, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.22.0, )",
           "SixLabors.ImageSharp": "[3.1.12, )",
           "System.IdentityModel.Tokens.Jwt": "[8.22.0, )"
@@ -795,9 +795,9 @@
       },
       "JasperFx": {
         "type": "CentralTransitive",
-        "requested": "[2.56.0, )",
-        "resolved": "2.56.0",
-        "contentHash": "8K6sde1bHC3Weg3tFLr+imJ9PJ3Sjs+fQlYIxpxA03uf1/MjXFehYTyPWNqBWuf5D377g48Ex2pHgsDq11U8Wg==",
+        "requested": "[2.72.0, )",
+        "resolved": "2.72.0",
+        "contentHash": "9vpo7qCkG+toPItIZm9BIWs+nT1wIP0MTJFChr2uTHzjZSkdQAvrc5HV7ZmScNSssAaqfK53gcrX1jbfV50agQ==",
         "dependencies": {
           "FastExpressionCompiler": "5.4.1",
           "ImTools": "4.0.0",
@@ -818,15 +818,15 @@
       },
       "Marten": {
         "type": "CentralTransitive",
-        "requested": "[9.30.0, )",
-        "resolved": "9.30.0",
-        "contentHash": "gXz6k10iClFpKgJBLAzOdFgX+mFyYsSPG6iXBDW3jM/Dr+V8jtqrFGU+tVHUe7w8NRFEz5o0KiWaVNtp7rNpCg==",
+        "requested": "[9.37.0, )",
+        "resolved": "9.37.0",
+        "contentHash": "Hup11gYVy4knuypRIDtmSdUDj4Z3hnHGcRn0oWMSWoh4P+IHj3bgzBXk0xSxjmBGU+xaRTAYKvICx6pFUcj0sA==",
         "dependencies": {
-          "JasperFx": "2.56.0",
-          "JasperFx.Events": "2.56.0",
+          "JasperFx": "2.72.0",
+          "JasperFx.Events": "2.72.0",
           "Microsoft.IO.RecyclableMemoryStream": "3.0.1",
-          "Weasel.Postgresql": "9.27.0",
-          "Weasel.Storage": "9.27.0"
+          "Weasel.Postgresql": "9.32.0",
+          "Weasel.Storage": "9.32.0"
         }
       },
       "Microsoft.Extensions.DependencyModel": {
