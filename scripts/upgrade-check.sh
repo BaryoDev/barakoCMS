@@ -19,8 +19,10 @@
 #   7. the Suite boots in Production mode, module schema preflight included, and serves
 #   8. an event appends to a stream that already existed, and the projection daemon resumes from
 #      its stored progression rather than restarting from zero
-#   9. 4.0 stops, migrations/4.2.0/rollback-user-normalized-identity.sql and
-#      migrations/4.0.0/rollback-to-3.x.sql are applied
+#   9. 4.0 stops, and the rollback files are applied newest first:
+#      migrations/4.3.0/rollback-marten-9-37-event-store-columns.sql,
+#      migrations/4.2.0/rollback-user-normalized-identity.sql and
+#      migrations/4.0.0/rollback-to-3.x.sql
 #  10. FROM_VERSION boots again against the rolled-back database and still serves the record 4.0
 #      wrote to, with every event still on its stream
 #
@@ -298,6 +300,13 @@ kill "$HOST_PID" 2>/dev/null || true
 wait "$HOST_PID" 2>/dev/null || true
 HOST_PID=""
 
+# Newest first, the reverse of the order the forward files ran in. These columns have to go before
+# the older rollbacks, because FROM_VERSION asserts its own schema and reports anything it does not
+# declare as a column to drop, so it refuses to boot while they are still there.
+step "applying migrations/4.3.0/rollback-marten-9-37-event-store-columns.sql"
+docker cp migrations/4.3.0/rollback-marten-9-37-event-store-columns.sql "$PG:/tmp/marten937-down.sql"
+docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/marten937-down.sql >/dev/null
+
 step "applying migrations/4.2.0/rollback-user-normalized-identity.sql"
 docker cp migrations/4.2.0/rollback-user-normalized-identity.sql "$PG:/tmp/users-down.sql"
 docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/users-down.sql >/dev/null
@@ -343,4 +352,4 @@ EVENTS_ROLLED_BACK=$(psql_q "select count(*) from mt_events where stream_id = '$
     || fail "expected $EVENTS_AFTER events on stream $CONTENT_ID after rollback, found $EVENTS_ROLLED_BACK. A rollback must not lose events."
 echo "${FROM_VERSION} reads it back: FirstName $ROLLBACK_FIRST_NAME, Status $ROLLBACK_STATUS, $EVENTS_ROLLED_BACK events on the stream"
 
-printf '\nThe %s to 4.0 upgrade works on the Suite host, with migrations/4.0.0/3.x-to-4.0.sql, migrations/4.2.0/user-normalized-identity.sql, migrations/4.2.0/stored-files-parent-index.sql and migrations/4.2.0/forms-public-forms.sql applied first, and rolls back cleanly with migrations/4.2.0/rollback-user-normalized-identity.sql and migrations/4.0.0/rollback-to-3.x.sql.\n' "$FROM_VERSION"
+printf '\nThe %s to 4.0 upgrade works on the Suite host, with migrations/4.0.0/3.x-to-4.0.sql, migrations/4.2.0/user-normalized-identity.sql, migrations/4.2.0/stored-files-parent-index.sql and migrations/4.2.0/forms-public-forms.sql applied first, and rolls back cleanly with migrations/4.3.0/rollback-marten-9-37-event-store-columns.sql, migrations/4.2.0/rollback-user-normalized-identity.sql and migrations/4.0.0/rollback-to-3.x.sql.\n' "$FROM_VERSION"
