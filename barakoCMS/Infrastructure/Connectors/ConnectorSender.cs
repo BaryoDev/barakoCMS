@@ -260,7 +260,17 @@ internal sealed class ConnectorSender : IConnectorSender, IConnectorFetcher
             var attached = await TryAttachAuthAsync(request, connector, ct);
             if (attached is not null)
             {
-                return new ConnectorFetchResult(false, null, 0, attached, null);
+                // Fixed text, not the attachment path's own message, which is what SendAsync
+                // returns. A fetch result is read back by a collection sync, which keeps its last
+                // error for the life of the sync and shows it in an admin screen, and those
+                // messages name the secret keys a connector holds. Testing the connector says which
+                // one is missing, to a caller asking about that connector rather than about a
+                // collection, and answers it without storing anything.
+                return new ConnectorFetchResult(
+                    false, null, 0,
+                    $"The credentials for connector '{connector.Slug}' could not be attached, so nothing "
+                  + "was sent. Test the connector to see why.",
+                    null);
             }
         }
 

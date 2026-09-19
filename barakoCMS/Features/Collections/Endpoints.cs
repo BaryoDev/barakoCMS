@@ -62,6 +62,14 @@ internal static class CollectionSyncRules
     internal static async Task<string?> CheckAsync(
         IQuerySession session, SaveCollectionSyncRequest req, CancellationToken ct)
     {
+        if (!Enum.TryParse<SyncSource>(req.Source, ignoreCase: true, out _)
+            || !Enum.TryParse<ContentStatus>(req.EntryStatus, ignoreCase: true, out _))
+        {
+            // Same reason as the floor lookup below. Apply parses both with Enum.Parse, so a
+            // request that reached here without the validator would throw rather than be refused.
+            return "Source and EntryStatus each have to name one of the values the API documents.";
+        }
+
         var schema = await session.Query<ContentTypeDefinition>()
             .FirstOrDefaultAsync(d => d.Name == req.ContentType, ct);
 
@@ -93,8 +101,16 @@ internal static class CollectionSyncRules
 
         foreach (var floor in req.FloorFields)
         {
-            var definition = schema.Fields.First(
+            // FirstOrDefault, though the validator already refuses a floor that FieldMap does not
+            // name and the loop above refuses a mapped field the type does not have. Depending on
+            // one check to make another one safe turns a 400 into a 500 the day either moves.
+            var definition = schema.Fields.FirstOrDefault(
                 f => string.Equals(f.Name, floor, StringComparison.OrdinalIgnoreCase));
+
+            if (definition is null)
+            {
+                return $"'{req.ContentType}' has no field called '{floor}' to put a floor on.";
+            }
 
             if (!IsNumeric(definition.Type))
             {

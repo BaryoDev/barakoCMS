@@ -112,6 +112,12 @@ DROP TABLE IF EXISTS public.mt_doc_email_settings;
 -- Request definitions. 3.x has no such table and nothing else references it, so dropping it moves
 -- no data. What is lost is the integrations somebody configured, which are configuration rather than
 -- content: note them down before rolling back, because nothing else records them.
+-- Collection syncs. 3.x has no such table and nothing references it, so dropping it moves no
+-- content: the entries a sync wrote are ordinary content and are untouched. What is lost is the
+-- schedules and the field mappings somebody configured. Note them down before rolling back,
+-- because nothing else records them.
+DROP TABLE IF EXISTS public.mt_doc_collection_syncs;
+
 DROP TABLE IF EXISTS public.mt_doc_request_definitions;
 
 -- Query definitions. 3.x has no such table and nothing references it, so dropping it moves no
