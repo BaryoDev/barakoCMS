@@ -19,6 +19,45 @@ public sealed record ConnectorCallResult(bool Succeeded, int? StatusCode, long E
         : $"{Error ?? "failed"} after {ElapsedMs} ms";
 }
 
+/// <summary>
+/// The outcome of one call made in order to read what came back, with the body only on success.
+/// </summary>
+/// <remarks>
+/// <see cref="ConnectorCallResult"/> deliberately has no body, because a workflow action sends and
+/// records and never needs one. A collection sync is the other case: reading the answer is the whole
+/// point of the call.
+///
+/// The body is null on every failure, and that is what keeps the two consistent. A 401 from an OAuth
+/// provider frequently echoes the credential that was sent, so the failure path here carries exactly
+/// what the send path carries, a status code and a sentence. Only a successful response reaches a
+/// caller, where the operator's own field mapping decides what is kept.
+/// </remarks>
+public sealed record ConnectorFetchResult(
+    bool Succeeded, int? StatusCode, long ElapsedMs, string? Error, string? Body);
+
+/// <summary>Sends a composed request and hands back what the provider answered.</summary>
+/// <remarks>
+/// A separate interface rather than another member on <see cref="IConnectorSender"/>. That one is
+/// public and a host may already implement it, so adding a member would break it. The same class
+/// implements both, so there is still one outbound path, one address guard and one place where
+/// credentials are attached.
+/// </remarks>
+public interface IConnectorFetcher
+{
+    /// <summary>
+    /// Sends <paramref name="request"/> and reads up to <paramref name="maxBytes"/> of the response.
+    /// </summary>
+    /// <param name="connector">
+    /// The connector supplying credentials, or null for a request that carries none, such as a
+    /// public feed.
+    /// </param>
+    /// <param name="request">The request as already composed, credentials not yet attached.</param>
+    /// <param name="maxBytes">The most of the response that will be read. A longer one fails.</param>
+    /// <param name="ct">Cancels the call.</param>
+    Task<ConnectorFetchResult> FetchAsync(
+        Connector? connector, ComposedRequest request, int maxBytes, CancellationToken ct);
+}
+
 public interface IConnectorSender
 {
     /// <summary>Performs one harmless authenticated request and reports how it went.</summary>
@@ -34,7 +73,7 @@ public interface IConnectorSender
         Connector connector, ComposedRequest request, SuccessRule rule, string? successJsonPath, CancellationToken ct);
 }
 
-internal sealed class ConnectorSender : IConnectorSender
+internal sealed class ConnectorSender : IConnectorSender, IConnectorFetcher
 {
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IQuerySession _session;
@@ -181,6 +220,119 @@ internal sealed class ConnectorSender : IConnectorSender
             _logger.LogWarning("Connector {Slug} send failed: {Reason}", connector.Slug, ex.GetType().Name);
             return new ConnectorCallResult(false, null, timer.ElapsedMilliseconds, Describe(ex));
         }
+    }
+
+    public async Task<ConnectorFetchResult> FetchAsync(
+        Connector? connector, ComposedRequest composed, int maxBytes, CancellationToken ct)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxBytes, 1);
+
+        if (!composed.Ok)
+        {
+            return new ConnectorFetchResult(false, null, 0, composed.Refusal, null);
+        }
+
+        if (!Uri.TryCreate(composed.Url, UriKind.Absolute, out var target)
+            || (target.Scheme != Uri.UriSchemeHttp && target.Scheme != Uri.UriSchemeHttps))
+        {
+            return new ConnectorFetchResult(false, null, 0, "The composed URL is not an absolute http or https URL.", null);
+        }
+
+        // The same client the send path uses, so the address guard, the redirect policy and the
+        // proxy decision are the ones already reviewed rather than a second set.
+        var client = _httpClientFactory.CreateClient("ExternalApi");
+
+        using var request = new HttpRequestMessage(new HttpMethod(composed.Method), target);
+
+        foreach (var (name, value) in composed.Headers)
+        {
+            request.Headers.TryAddWithoutValidation(name, value);
+        }
+
+        if (composed.Body is not null)
+        {
+            request.Content = new StringContent(
+                composed.Body, Encoding.UTF8, composed.BodyContentType ?? "application/json");
+        }
+
+        if (connector is not null)
+        {
+            var attached = await TryAttachAuthAsync(request, connector, ct);
+            if (attached is not null)
+            {
+                return new ConnectorFetchResult(false, null, 0, attached, null);
+            }
+        }
+
+        var timer = Stopwatch.StartNew();
+
+        try
+        {
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                timer.Stop();
+
+                // The body is not read at all on a failure, so there is no path by which one can be
+                // logged, stored or returned. See the remarks on ConnectorFetchResult.
+                return new ConnectorFetchResult(
+                    false, (int)response.StatusCode, timer.ElapsedMilliseconds,
+                    $"The provider answered {(int)response.StatusCode}.", null);
+            }
+
+            var body = await ReadCappedAsync(response, maxBytes, ct);
+            timer.Stop();
+
+            if (body is null)
+            {
+                // Refused rather than truncated. A JSON document cut in half does not parse, and a
+                // feed cut in half parses into however many entries happened to fit, which is a
+                // wrong answer that looks like a right one.
+                return new ConnectorFetchResult(
+                    false, (int)response.StatusCode, timer.ElapsedMilliseconds,
+                    $"The response is larger than the {maxBytes} byte limit.", null);
+            }
+
+            return new ConnectorFetchResult(true, (int)response.StatusCode, timer.ElapsedMilliseconds, null, body);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            timer.Stop();
+            _logger.LogWarning(
+                "Connector {Slug} fetch failed: {Reason}", connector?.Slug ?? "(none)", ex.GetType().Name);
+            return new ConnectorFetchResult(false, null, timer.ElapsedMilliseconds, Describe(ex), null);
+        }
+    }
+
+    /// <summary>The body, or null when it is longer than <paramref name="maxBytes"/>.</summary>
+    /// <remarks>
+    /// Read off the stream rather than through <c>ReadAsStringAsync</c>, because the cap has to hold
+    /// against a provider that sends no Content-Length or an untrue one. Nothing about a response
+    /// from a third party is a reason to allocate what it says to allocate.
+    /// </remarks>
+    private static async Task<string?> ReadCappedAsync(HttpResponseMessage response, int maxBytes, CancellationToken ct)
+    {
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+
+        var buffer = new byte[8192];
+        using var collected = new MemoryStream();
+
+        while (true)
+        {
+            var read = await stream.ReadAsync(buffer, ct);
+            if (read == 0) break;
+
+            if (collected.Length + read > maxBytes) return null;
+
+            collected.Write(buffer, 0, read);
+        }
+
+        return Encoding.UTF8.GetString(collected.GetBuffer(), 0, (int)collected.Length);
     }
 
     /// <summary>Returns null when the credentials went on, or the reason they did not.</summary>

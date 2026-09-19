@@ -72,6 +72,11 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
                 { "Connectors:Key", "test-connectors-key-that-is-its-own-and-long-enough" },
                 { "Feeds:SiteUrl", "https://test.example.com" },
                 { "Feeds:Paths:sitemap_paths", "/articles/{slug}" },
+                // The collection sync schedule is off here, and the tests that cover it drive the
+                // sweep themselves. Left on, every host in the run would sweep every tenant once a
+                // minute for ninety minutes, running whichever sync a test had just configured at a
+                // moment the test did not choose.
+                { "CollectionSyncs:Enabled", "false" },
                 // The job queue, tuned for a test run: a retry waits nothing, so a job that fails
                 // five times dead-letters in seconds. The backoff arithmetic itself is
                 // JobBackoffTests, a unit test.

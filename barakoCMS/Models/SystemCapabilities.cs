@@ -268,13 +268,27 @@ public static class SystemCapabilities
     /// </remarks>
     public const string ViewJobs = "view_jobs";
 
+    /// <summary>
+    /// Create, read, update, delete and run the collection syncs: the schedules that fill a content
+    /// type's entries from an outside source.
+    /// </summary>
+    /// <remarks>
+    /// One name rather than a read half and a write half. There is no legacy gate here to preserve,
+    /// so nothing is being split, and a sync holds no credential to read: it names a request
+    /// definition, which names the connector, which is where the credential lives.
+    ///
+    /// In Admin's defaults because configuring a sync sits with configuring the request definition
+    /// and the connector it runs on, and Admin holds both of those.
+    /// </remarks>
+    public const string ManageCollectionSyncs = "manage_collection_syncs";
+
     public static readonly IReadOnlySet<string> Known = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         All, ManageRoles, ManageTenants, ManageTenantMembers, ManageUsers, ManageUserMembership, ManageUserGroups,
         ManageApiKeys, ViewAuditLog, ManageSettings, ManageEmailSettings, ManageContentTypes, ManagePublicDelivery,
         ViewMonitoring, ManageRedirects, ManageQueries, ManageRequests, ViewConnectors, ManageConnectors,
         ManageWorkflows, ViewWorkflowRuns, RetryWorkflowActions, RollbackContent, EraseContent, ViewModules,
-        ViewJobs, ViewWebhookResponseBodies,
+        ViewJobs, ViewWebhookResponseBodies, ManageCollectionSyncs,
     };
 
     public static bool IsKnown(string capability) =>
@@ -302,6 +316,9 @@ public static class SystemCapabilities
         ViewModules,
         // New with the queue, no gate to preserve. Watching jobs sits with watching workflow runs.
         ViewJobs,
+        // #794: new with collection syncs, no gate to preserve. Configuring a sync sits with
+        // configuring the request definition and the connector it runs on, both of which are here.
+        ManageCollectionSyncs,
     ];
 
     /// <summary>
