@@ -115,6 +115,10 @@ public class SystemCapabilitiesTests
             SystemCapabilities.RollbackContent,
             // Modules: GET /api/modules was Roles("SuperAdmin", "Admin"), so Admin read it already.
             SystemCapabilities.ViewModules,
+            // #794: collection syncs are a new surface with no gate to preserve. Admin holds it
+            // because configuring one sits with configuring the request definition and the connector
+            // it runs on, and Admin holds both of those already.
+            SystemCapabilities.ManageCollectionSyncs,
         });
         admin.Should().NotContain(SystemCapabilities.ManageRoles);
         admin.Should().NotContain(SystemCapabilities.ManageTenants);

@@ -589,6 +589,15 @@ public static class ServiceCollectionExtensions
                     idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
                 });
 
+            options.Schema.For<CollectionSync>()
+                .MultiTenanted()
+                .DocumentAlias("collection_syncs")
+                .Index(x => x.Slug, idx =>
+                {
+                    idx.IsUnique = true;
+                    idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
+                });
+
             options.Schema.For<WorkflowRun>()
                 .MultiTenanted()
                 .DocumentAlias("workflow_runs")
@@ -860,6 +869,10 @@ public static class ServiceCollectionExtensions
         services.AddScoped<barakoCMS.Infrastructure.Connectors.IConnectorSender, barakoCMS.Infrastructure.Connectors.ConnectorSender>();
         services.AddScoped<barakoCMS.Infrastructure.Connectors.IRequestComposer, barakoCMS.Infrastructure.Connectors.RequestComposer>();
         services.AddScoped<barakoCMS.Infrastructure.Connectors.IQueryRunner, barakoCMS.Infrastructure.Connectors.QueryRunner>();
+        // The same class as the sender above, registered again under the interface that hands back a
+        // response body. One outbound path, one address guard, one place credentials are attached.
+        services.AddScoped<barakoCMS.Infrastructure.Connectors.IConnectorFetcher, barakoCMS.Infrastructure.Connectors.ConnectorSender>();
+        services.AddScoped<barakoCMS.Infrastructure.Sync.ICollectionSyncRunner, barakoCMS.Infrastructure.Sync.CollectionSyncRunner>();
 
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowRunQueue, barakoCMS.Features.Workflows.WorkflowRunQueue>();
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowRunner>();
@@ -942,6 +955,14 @@ public static class ServiceCollectionExtensions
 
         // Background service that applies scheduled publish/unpublish across all tenants
         services.AddHostedService<barakoCMS.Infrastructure.Services.ScheduledContentService>();
+
+        // Background service that refills collections from their outside sources across all tenants.
+        // On unless a deployment says otherwise: a staging copy of a production database would
+        // otherwise call every one of production's providers on production's interval.
+        if (barakoCMS.Infrastructure.Sync.CollectionSyncService.IsEnabled(configuration))
+        {
+            services.AddHostedService<barakoCMS.Infrastructure.Sync.CollectionSyncService>();
+        }
 
         // Forwarded headers. Off unless configured, because reading X-Forwarded-For from an
         // untrusted peer would let a caller choose the IP the rate limiter partitions on.
