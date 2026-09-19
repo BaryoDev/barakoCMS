@@ -91,6 +91,9 @@ internal static class ContentProjection
             case ContentSensitivityChanged sensitivityChanged:
                 content.Apply(sensitivityChanged, occurredAt);
                 break;
+            case ContentSensitivityScheduled sensitivityScheduled:
+                content.Apply(sensitivityScheduled, occurredAt);
+                break;
             case ContentFieldSensitivityChanged fieldSensitivityChanged:
                 content.Apply(fieldSensitivityChanged, occurredAt);
                 break;
@@ -105,5 +108,5 @@ internal static class ContentProjection
     public static bool IsProjected(object @event) =>
         @event is ContentCreated or ContentUpdated or ContentStatusChanged
             or ContentScheduled or ContentSensitivityChanged or ContentTransitioned
-            or ContentFieldSensitivityChanged;
+            or ContentFieldSensitivityChanged or ContentSensitivityScheduled;
 }
