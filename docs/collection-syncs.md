@@ -68,8 +68,9 @@ Atom: `id`, `title`, `link`, `summary`, `content`, `published`, `author`, `categ
 UTC ISO 8601 whichever dialect they were written in.
 
 Everything is checked when you save, not on the first sweep. A field the content type does not have,
-a field that is not `Public`, a floor on a field that is not numeric, a request definition or
-connector that does not exist: each is a 400 while you still have the form open. The failure this
+a field that is not `Public`, a floor on a field that is not numeric, a feed path outside the
+vocabulary above (`pubDate` is a common one; both dialects read into `published`), a request
+definition or connector that does not exist: each is a 400 while you still have the form open. The failure this
 guards against is a sync that is configured, looks fine in the list, and quietly writes nothing at
 three in the morning.
 
