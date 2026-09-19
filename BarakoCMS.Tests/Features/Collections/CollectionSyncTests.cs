@@ -361,6 +361,50 @@ public class CollectionSyncTests
             .Should().Contain("nosuchfield");
     }
 
+    /// <summary>
+    /// A feed mapping naming something a feed entry does not carry is refused when it is saved.
+    /// </summary>
+    /// <remarks>
+    /// A feed reads into one fixed vocabulary, so "pubDate" matches nothing: RSS and Atom are both
+    /// read into "published". Left unchecked the sync would save, run and fill that field with
+    /// nothing, which is the silent emptiness the other save-time checks exist to stop.
+    /// </remarks>
+    [Fact]
+    public async Task A_feed_mapping_onto_a_path_a_feed_does_not_carry_is_refused()
+    {
+        var setup = await ArrangeAsync(() => (HttpStatusCode.OK, TwoPackages), save: false);
+        var client = await AdminAsync();
+
+        var body = SyncBody(setup);
+        body["source"] = "Feed";
+        body["feedUrl"] = "https://rotary.example/feed.xml";
+        body["fieldMap"] = new Dictionary<string, string>
+        {
+            ["packageId"] = "id",
+            ["summary"] = "pubDate",
+        };
+        body["floorFields"] = new List<string>();
+
+        var refused = await client.PostAsJsonAsync("/api/collection-syncs", body, TestContext.Current.CancellationToken);
+
+        refused.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await refused.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))
+            .Should().Contain("pubDate").And.Contain("published");
+
+        // The control. The same mapping with a path a feed does carry saves, so the check above is
+        // refusing the path rather than refusing every feed.
+        body["fieldMap"] = new Dictionary<string, string>
+        {
+            ["packageId"] = "id",
+            ["summary"] = "published",
+        };
+
+        var accepted = await client.PostAsJsonAsync("/api/collection-syncs", body, TestContext.Current.CancellationToken);
+
+        accepted.StatusCode.Should().Be(HttpStatusCode.OK,
+            "got {0}", await accepted.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+    }
+
     /// <summary>A floor on a field that is not numeric is refused, since "greater" has to mean something.</summary>
     [Fact]
     public async Task A_floor_on_a_field_that_is_not_numeric_is_refused()

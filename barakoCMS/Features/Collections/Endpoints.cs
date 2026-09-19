@@ -119,7 +119,22 @@ internal static class CollectionSyncRules
             }
         }
 
-        if (!string.Equals(req.Source, nameof(SyncSource.Feed), StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(req.Source, nameof(SyncSource.Feed), StringComparison.OrdinalIgnoreCase))
+        {
+            // A feed entry reads into a fixed vocabulary, so a path outside it can never match
+            // anything. Left unchecked, a mapping onto "pubDate" or "description" would save, run
+            // and fill nothing, which is the same silent emptiness the field checks above exist to
+            // stop.
+            foreach (var path in req.FieldMap.Values)
+            {
+                if (!SyncPayloadReader.FeedFields.All.Contains(path, StringComparer.OrdinalIgnoreCase))
+                {
+                    return $"'{path}' is not something a feed entry carries. A feed reads into: "
+                         + $"{string.Join(", ", SyncPayloadReader.FeedFields.All)}.";
+                }
+            }
+        }
+        else
         {
             var definition = await session.Query<RequestDefinition>()
                 .FirstOrDefaultAsync(r => r.Slug == req.RequestSlug, ct);
