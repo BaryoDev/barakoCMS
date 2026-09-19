@@ -120,11 +120,18 @@ public class WolverineOutboxTests
     }
 
     /// <summary>
-    /// Question 2. Wolverine's tables are in their own schema and Marten's schema management knows
-    /// them, so db-assert reports them and db-patch scripts them.
+    /// Question 2. Wolverine's tables live in their own schema, beside the Marten store rather than
+    /// inside it, and the object that can script them for a migration is the message store.
     /// </summary>
+    /// <remarks>
+    /// This asserts the shape of the storage, not that a deploy would be safe. It cannot: the test
+    /// database is built fresh by the current build, so there is no drift for an assert to find.
+    /// Drift against a database that already exists is what `scripts/upgrade-check.sh` measures, and
+    /// on this branch that check fails, on fourteen Marten ALTER statements the migration does not
+    /// carry yet. Do not read a pass here as an upgrade being clean.
+    /// </remarks>
     [Fact]
-    public async Task Wolverine_storage_is_in_its_own_schema_and_Marten_asserts_it()
+    public async Task Wolverine_storage_is_its_own_database_in_its_own_schema()
     {
         var tables = await ScalarListAsync(
             "select table_name from information_schema.tables where table_schema = @schema order by table_name",
@@ -139,17 +146,15 @@ public class WolverineOutboxTests
             "select table_name from information_schema.tables where table_schema = 'public' and table_name like 'wolverine%'");
         inPublic.Should().BeEmpty("the public schema is the one the 3.x upgrade reasons about; nothing of Wolverine's belongs in it");
 
+        // Beside the Marten store, not inside it. db-assert discovers two databases on this branch,
+        // Marten's Main and Wolverine's WolverineEnvelopeStorage, and reports on both, so the gate
+        // from #951 does see these tables and db-patch can script them. What it does not do is put
+        // them in Main's object list, which is why asking Main about them answers nothing.
         using var scope = _fixture.Services.CreateScope();
         var store = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
-        var act = () => store.Storage.Database.AssertDatabaseMatchesConfigurationAsync();
-        await act.Should().NotThrowAsync("db-assert has to keep passing with Wolverine's tables in place");
-
-        // Not in Marten's schema management, whatever the docs say: db-assert passed above without
-        // knowing these tables exist, and db-patch would not script them. Wolverine builds them
-        // itself on startup and scripts them through its own `storage` command.
         store.Storage.Database.AllObjects()
             .Where(o => o.Identifier.Schema == MessagingSetup.SchemaName)
-            .Should().BeEmpty("if this starts failing, Marten has taken the tables over and the migration story changes");
+            .Should().BeEmpty("Wolverine's tables belong to its own database, so Main must not claim them");
 
         var messageStore = _fixture.Services.GetRequiredService<Wolverine.Persistence.Durability.IMessageStore>();
         messageStore.Should().BeAssignableTo<Weasel.Core.Migrations.IDatabase>(
