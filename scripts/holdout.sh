@@ -1,0 +1,288 @@
+#!/usr/bin/env bash
+# Step 0 of Holdout: prove that a test added by this PR notices the change this PR made.
+#
+#   bash scripts/holdout.sh --spec body.md
+#   bash scripts/holdout.sh --spec body.md --dry-run
+#
+# The spec is a fenced ```holdout block in the PR body naming, for each new test, the production
+# hunk it depends on. This script holds that hunk out (reverts it), reruns the named test, and
+# requires it to fail. A test that passes with its hunk held out does not test that hunk.
+#
+#   ```holdout
+#   - test: BarakoCMS.Tests.ShareLinks.RedeemTests
+#     breaks: barakoCMS/Features/Sites/ShareLinks/Redeem.cs "RevokedAt is not null"
+#   - untested: barakoCMS/Features/Sites/ShareLinks/Endpoints.cs #1
+#     why: route registration, covered by the inventory check
+#   ```
+#
+# Exit codes are distinct so a caller cannot collapse them into "non-zero, whatever":
+#   0 pass          every binding held out and its test failed, then passed again on restore
+#   1 caught        a test passed with its hunk held out
+#   2 unresolved    anchor matched no hunk, or matched more than one, or zero tests ran
+#   3 inconclusive  the held-out tree did not build, so nothing was proven
+#
+# Runs in a temporary worktree. Never mutates the caller's tree: reverting a hunk over uncommitted
+# work and restoring with git checkout is how uncommitted work gets lost.
+
+set -uo pipefail
+
+cd "$(dirname "$0")/.."
+repo_root=$(pwd)
+
+spec=""
+dry_run=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --spec) shift; [ $# -gt 0 ] || { echo "holdout: --spec needs a file"; exit 2; }; spec="$1"; shift ;;
+    --dry-run) dry_run=1; shift ;;
+    *) echo "holdout: unrecognised argument '$1'"; exit 2 ;;
+  esac
+done
+
+[ -n "$spec" ] || { echo "holdout: --spec is required"; exit 2; }
+[ -f "$spec" ] || { echo "holdout: spec file not found: $spec"; exit 2; }
+
+base_ref="${HOLDOUT_BASE:-origin/master}"
+base=$(git merge-base "$base_ref" HEAD 2>/dev/null) || {
+  echo "holdout: cannot find merge base with $base_ref"; exit 2; }
+
+# ---------------------------------------------------------------------------
+# Parse the ```holdout block. Two directives: "test:/breaks:" pairs and
+# "untested:/why:" pairs. Anything else in the block is an error, not a skip.
+# ---------------------------------------------------------------------------
+block=$(awk '/^```holdout[[:space:]]*$/{f=1;next} /^```[[:space:]]*$/{if(f)exit} f' "$spec")
+
+if [ -z "$block" ]; then
+  echo "holdout: no \`\`\`holdout block in $spec"
+  echo "         A PR touching production code must bind each new test to the hunk it depends on,"
+  echo "         or list the hunk under untested: with a reason."
+  exit 2
+fi
+
+bindings=()   # each entry: "test<TAB>path<TAB>anchor"
+untested=()   # each entry: "path<TAB>anchor"
+cur_test=""
+cur_untested=""
+
+while IFS= read -r line; do
+  case "$line" in
+    "- test: "*)      cur_test="${line#- test: }"; cur_untested="" ;;
+    "- untested: "*)  cur_untested="${line#- untested: }"; cur_test="" ;;
+    *"breaks: "*)
+      [ -n "$cur_test" ] || { echo "holdout: 'breaks:' with no preceding 'test:'"; exit 2; }
+      target="${line#*breaks: }"
+      path="${target%% *}"
+      anchor="${target#"$path"}"
+      anchor="${anchor# }"
+      bindings+=("$cur_test	$path	$anchor")
+      cur_test=""
+      ;;
+    *"why: "*)
+      [ -n "$cur_untested" ] || { echo "holdout: 'why:' with no preceding 'untested:'"; exit 2; }
+      path="${cur_untested%% *}"
+      anchor="${cur_untested#"$path"}"
+      untested+=("$path	${anchor# }")
+      cur_untested=""
+      ;;
+    ""|"#"*) ;;
+    *) echo "holdout: unparsed line in block: $line"; exit 2 ;;
+  esac
+done <<< "$block"
+
+if [ ${#bindings[@]} -eq 0 ] && [ ${#untested[@]} -eq 0 ]; then
+  echo "holdout: the block is empty, so this would pass having held out nothing."
+  exit 2
+fi
+
+echo "holdout: $((${#bindings[@]})) binding(s), $((${#untested[@]})) untested hunk(s), base ${base:0:8}"
+
+# ---------------------------------------------------------------------------
+# Resolve an anchor to exactly one hunk of one file's diff against the base.
+# Anchor forms: "some added line substring"   (quoted content anchor)
+#               #2                            (1-based hunk ordinal)
+# Line numbers are deliberately not supported: they do not survive a rebase.
+# Prints the hunk's patch on stdout. Non-zero means unresolved.
+# ---------------------------------------------------------------------------
+resolve_hunk() {
+  local path="$1" anchor="$2"
+  local diff_file; diff_file=$(mktemp)
+  git diff --unified=3 "$base" -- "$path" > "$diff_file" 2>/dev/null
+
+  if [ ! -s "$diff_file" ]; then
+    rm -f "$diff_file"; echo "holdout: no diff for $path against the base" >&2; return 1
+  fi
+
+  local header; header=$(sed -n '1,/^@@/p' "$diff_file" | sed '$d')
+  local count; count=$(grep -c '^@@' "$diff_file")
+  local want=0
+
+  if [[ "$anchor" == \#* ]]; then
+    want="${anchor#\#}"
+    if ! [[ "$want" =~ ^[0-9]+$ ]] || [ "$want" -lt 1 ] || [ "$want" -gt "$count" ]; then
+      rm -f "$diff_file"; echo "holdout: $path has $count hunk(s), no $anchor" >&2; return 1
+    fi
+  else
+    local needle="${anchor%\"}"; needle="${needle#\"}"
+    [ -n "$needle" ] || { rm -f "$diff_file"; echo "holdout: empty anchor for $path" >&2; return 1; }
+    local i=0 hits=0 first=0
+    while IFS= read -r l; do
+      case "$l" in
+        @@*) i=$((i+1)) ;;
+        +*) if [ "$i" -gt 0 ] && [[ "$l" == *"$needle"* ]]; then
+              if [ "$first" -ne "$i" ]; then hits=$((hits+1)); first="$i"; fi
+            fi ;;
+      esac
+    done < "$diff_file"
+    if [ "$hits" -eq 0 ]; then
+      rm -f "$diff_file"; echo "holdout: anchor $anchor matches no added line in $path" >&2; return 1
+    fi
+    if [ "$hits" -gt 1 ]; then
+      rm -f "$diff_file"; echo "holdout: anchor $anchor is ambiguous, matches $hits hunks in $path" >&2; return 1
+    fi
+    want="$first"
+  fi
+
+  printf '%s\n' "$header"
+  awk -v want="$want" '/^@@/{n++} n==want' "$diff_file"
+  rm -f "$diff_file"
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# Every production hunk must be claimed: bound to a test, or listed as untested.
+# An unclaimed hunk is a silent gap; naming it makes the omission a written claim.
+# ---------------------------------------------------------------------------
+prod_files=$(git diff --name-only "$base" -- \
+  'barakoCMS/**' 'BarakoCMS.*/**' ':(exclude)*.Tests/**' ':(exclude)**/*.md' 2>/dev/null || true)
+
+unclaimed=0
+for f in $prod_files; do
+  total=$(git diff --unified=3 "$base" -- "$f" 2>/dev/null | grep -c '^@@' || echo 0)
+  [ "$total" -gt 0 ] || continue
+  claimed=0
+  for b in ${bindings[@]+"${bindings[@]}"}; do
+    [ "$(printf '%s' "$b" | cut -f2)" = "$f" ] && claimed=$((claimed+1))
+  done
+  for u in ${untested[@]+"${untested[@]}"}; do
+    [ "$(printf '%s' "$u" | cut -f1)" = "$f" ] && claimed=$((claimed+1))
+  done
+  if [ "$claimed" -eq 0 ]; then
+    echo "holdout: UNCLAIMED  $f ($total hunk(s)) is bound to no test and not listed untested:"
+    unclaimed=$((unclaimed+1))
+  fi
+done
+[ "$unclaimed" -eq 0 ] || { echo "holdout: $unclaimed production file(s) unclaimed"; exit 2; }
+
+if [ "$dry_run" -eq 1 ]; then
+  echo "holdout: --dry-run, resolving anchors without running tests"
+  rc=0
+  for b in ${bindings[@]+"${bindings[@]}"}; do
+    t=$(printf '%s' "$b" | cut -f1); p=$(printf '%s' "$b" | cut -f2); a=$(printf '%s' "$b" | cut -f3)
+    if patch=$(resolve_hunk "$p" "$a"); then
+      lines=$(printf '%s\n' "$patch" | grep -c '^+' || true)
+      echo "holdout: ok        $t -> $p $a ($lines added line(s))"
+    else
+      rc=2
+    fi
+  done
+  exit $rc
+fi
+
+# ---------------------------------------------------------------------------
+# Run each binding in a throwaway worktree at HEAD.
+# ---------------------------------------------------------------------------
+wt=$(mktemp -d)
+cleanup() { git worktree remove --force "$wt" >/dev/null 2>&1 || rm -rf "$wt"; }
+trap cleanup EXIT
+
+git worktree add --detach "$wt" HEAD >/dev/null 2>&1 || { echo "holdout: cannot create worktree"; exit 2; }
+
+run_class() {  # prints total:failed, or "none" when no summary line appeared
+  local dir="$1" class="$2" out; out=$(mktemp)
+  ( cd "$dir" && dotnet run --project BarakoCMS.Tests/BarakoCMS.Tests.csproj \
+      --no-build --configuration Release -- -class "$class" ) > "$out" 2>&1
+  local total failed
+  total=$(grep -oE 'Total: [0-9]+' "$out" | tail -1 | grep -oE '[0-9]+' || true)
+  failed=$(grep -oE 'Failed: [0-9]+' "$out" | tail -1 | grep -oE '[0-9]+' || echo 0)
+  rm -f "$out"
+  [ -n "$total" ] || { echo "none"; return; }
+  echo "${total}:${failed:-0}"
+}
+
+echo "== holdout: building the clean tree =="
+( cd "$wt" && dotnet restore barakoCMS.sln --locked-mode >/dev/null 2>&1 \
+  && dotnet build barakoCMS.sln --configuration Release --no-restore >/dev/null 2>&1 ) \
+  || { echo "holdout: the clean tree does not build, nothing can be proven"; exit 3; }
+
+status=0
+for b in ${bindings[@]+"${bindings[@]}"}; do
+  test_id=$(printf '%s' "$b" | cut -f1)
+  path=$(printf '%s' "$b" | cut -f2)
+  anchor=$(printf '%s' "$b" | cut -f3)
+  echo "== holdout: $test_id -> $path $anchor =="
+
+  patch_file=$(mktemp)
+  if ! resolve_hunk "$path" "$anchor" > "$patch_file"; then
+    rm -f "$patch_file"; status=2; continue
+  fi
+
+  # 1. clean run: the test must exist and pass, or the rest proves nothing.
+  clean=$(run_class "$wt" "$test_id")
+  if [ "$clean" = "none" ]; then
+    echo "holdout: UNRESOLVED  $test_id produced no summary line"; rm -f "$patch_file"; status=2; continue
+  fi
+  c_total="${clean%%:*}"; c_failed="${clean##*:}"
+  if [ "$c_total" -eq 0 ]; then
+    echo "holdout: UNRESOLVED  $test_id matched 0 tests"; rm -f "$patch_file"; status=2; continue
+  fi
+  if [ "$c_failed" -ne 0 ]; then
+    echo "holdout: INCONCLUSIVE  $test_id already fails on the clean tree ($c_failed of $c_total)"
+    rm -f "$patch_file"; status=3; continue
+  fi
+
+  # 2. hold the hunk out.
+  if ! ( cd "$wt" && git apply -R --unidiff-zero "$patch_file" 2>/dev/null ); then
+    echo "holdout: UNRESOLVED  the hunk does not apply in reverse (rebase drift?)"
+    rm -f "$patch_file"; status=2; continue
+  fi
+
+  # 3. rebuild. A held-out hunk that breaks the build proves nothing either way.
+  if ! ( cd "$wt" && dotnet build barakoCMS.sln --configuration Release --no-restore >/dev/null 2>&1 ); then
+    echo "holdout: INCONCLUSIVE  the tree does not build with $path $anchor held out."
+    echo "                       Bind a behaviour line, not a signature or a declaration."
+    ( cd "$wt" && git checkout -- . >/dev/null 2>&1 )
+    rm -f "$patch_file"; status=3; continue
+  fi
+
+  # 4. the named test must now fail.
+  held=$(run_class "$wt" "$test_id")
+  h_total="${held%%:*}"; h_failed="${held##*:}"
+
+  if [ "$held" = "none" ] || [ "$h_total" -eq 0 ]; then
+    echo "holdout: UNRESOLVED  $test_id ran 0 tests with the hunk held out"
+    status=2
+  elif [ "$h_failed" -eq 0 ]; then
+    echo "holdout: CAUGHT      $test_id passed with its hunk held out"
+    echo "                     hunk     $path $anchor"
+    echo "                     clean    $c_total ran, 0 failed"
+    echo "                     held out $h_total ran, 0 failed   <- must fail here"
+    echo "                     The test does not depend on the code it claims to test."
+    status=1
+  else
+    echo "holdout: ok          $test_id failed as required ($h_failed of $h_total)"
+  fi
+
+  # 5. restore and confirm. A restore that does not restore is its own defect.
+  ( cd "$wt" && git checkout -- . >/dev/null 2>&1 )
+  ( cd "$wt" && dotnet build barakoCMS.sln --configuration Release --no-restore >/dev/null 2>&1 ) \
+    || { echo "holdout: INCONCLUSIVE  the tree does not build after restore"; status=3; }
+  rm -f "$patch_file"
+done
+
+case "$status" in
+  0) echo "holdout: all bindings held out and failed as required" ;;
+  1) echo "holdout: a test passed with its hunk held out" ;;
+  2) echo "holdout: a binding could not be resolved, so nothing was proven for it" ;;
+  3) echo "holdout: inconclusive, the held-out tree did not build" ;;
+esac
+exit $status
