@@ -205,6 +205,12 @@ step "applying migrations/4.2.0/user-normalized-identity.sql"
 docker cp migrations/4.2.0/user-normalized-identity.sql "$PG:/tmp/users.sql"
 docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/users.sql >/dev/null
 
+# Marten 9.37's event store columns. Core, not a module: these are mt_streams and
+# mt_event_progression, so they have to land before core's assert below.
+step "applying migrations/4.3.0/marten-9-37-event-store-columns.sql"
+docker cp migrations/4.3.0/marten-9-37-event-store-columns.sql "$PG:/tmp/marten937.sql"
+docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/marten937.sql >/dev/null
+
 step "the migration left the daemon's progression alone"
 PROGRESSION_MIGRATED=$(psql_q "select coalesce(max(last_seq_id), 0) from mt_event_progression where name like '%WorkflowProjection%';")
 [ "$PROGRESSION_MIGRATED" = "$PROGRESSION_BEFORE" ] \
@@ -214,7 +220,7 @@ echo "still $PROGRESSION_MIGRATED"
 step "core db-assert must now pass"
 run_core db-assert >"$WORK/assert-after-core.log" 2>&1 || {
     cat "$WORK/assert-after-core.log" >&2
-    fail "migrations/4.0.0/3.x-to-4.0.sql and migrations/4.2.0/user-normalized-identity.sql did not bring core's schema up to date"
+    fail "the core migrations under migrations/ did not bring core's schema up to date. Whatever db-assert lists above needs a file, and this script needs to apply it."
 }
 echo "core schema matches"
 
