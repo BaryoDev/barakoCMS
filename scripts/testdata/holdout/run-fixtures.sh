@@ -39,7 +39,14 @@ public class Redeem {
     }
 }
 CS
-  git add -A && git commit -qm "reject revoked keys"
+  # A file the branch adds outright, to prove holdout refuses to bind one. Reversing a whole-file
+  # hunk deletes the file, which cannot compile, so the run could only ever end inconclusive.
+  cat > barakoCMS/Features/Added.cs <<'CS'
+public class Added {
+    public int Value => 1;
+}
+CS
+  git add -A && git commit -qm "reject revoked keys and add a new file"
 ) >/dev/null 2>&1
 
 cp "$holdout" "$fx/scripts/holdout.sh"
@@ -50,10 +57,14 @@ spec() { printf '%s\n' "$2" > "$fx/$1.md"; }
 spec ok        '```holdout
 - test: Some.Tests.RedeemTests
   breaks: barakoCMS/Features/Redeem.cs "RevokedAt is not null"
+- untested: barakoCMS/Features/Added.cs #1
+  why: a file this change adds outright cannot be held out
 ```'
 spec ordinal   '```holdout
 - test: Some.Tests.RedeemTests
   breaks: barakoCMS/Features/Redeem.cs #1
+- untested: barakoCMS/Features/Added.cs #1
+  why: a file this change adds outright cannot be held out
 ```'
 spec noanchor  '```holdout
 - test: Some.Tests.RedeemTests
@@ -69,6 +80,20 @@ spec outrange  '```holdout
 ```'
 spec junk      '```holdout
 - garbage: nonsense
+```'
+spec newfile   '```holdout
+- test: Some.Tests.AddedTests
+  breaks: barakoCMS/Features/Added.cs "public int Value"
+- untested: barakoCMS/Features/Redeem.cs #1
+  why: covered elsewhere
+```'
+spec nonelie   '```holdout
+none: claiming nothing while the diff touches production
+```'
+spec noneplus  '```holdout
+none: contradictory
+- test: T
+  breaks: barakoCMS/Features/Redeem.cs "RevokedAt"
 ```'
 spec noblock   'a PR body with no holdout block at all'
 spec emptyblk  '```holdout
@@ -96,6 +121,9 @@ check "anchor matches nothing"  2 noanchor
 check "unclaimed production"    2 unclaimed
 check "ordinal out of range"    2 outrange
 check "malformed block line"    2 junk
+check "binding to a new file"   2 newfile
+check "none over real changes"  2 nonelie
+check "none plus a binding"     2 noneplus
 check "no holdout block"        2 noblock
 check "empty holdout block"     2 emptyblk
 echo "  ---- $pass passed, $fail failed"

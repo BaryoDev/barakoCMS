@@ -26,8 +26,12 @@
 
 set -uo pipefail
 
-cd "$(dirname "$0")/.."
-repo_root=$(pwd)
+# Resolve the repository from the working directory, not from where this file happens to live. A
+# copy of this script run from outside its checkout used to cd to the wrong place and report
+# "cannot find merge base", which reads as a git problem rather than as a path problem.
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || {
+  echo "holdout: not inside a git repository"; exit 2; }
+cd "$repo_root"
 
 spec=""
 dry_run=0
@@ -63,6 +67,8 @@ bindings=()   # each entry: "test<TAB>path<TAB>anchor"
 untested=()   # each entry: "path<TAB>anchor"
 cur_test=""
 cur_untested=""
+none=0
+none_reason=""
 
 while IFS= read -r line; do
   case "$line" in
@@ -84,10 +90,38 @@ while IFS= read -r line; do
       untested+=("$path	${anchor# }")
       cur_untested=""
       ;;
+    "none:"*)
+      # A change with no production hunks at all still declares that, with a reason. Deliberately
+      # explicit: a missing block and a change that needs no bindings must not look the same, or
+      # every missing block reads as the second.
+      none_reason="${line#none:}"
+      none_reason="${none_reason# }"
+      [ -n "$none_reason" ] || { echo "holdout: 'none:' needs a reason"; exit 2; }
+      none=1
+      ;;
     ""|"#"*) ;;
     *) echo "holdout: unparsed line in block: $line"; exit 2 ;;
   esac
 done <<< "$block"
+
+if [ "$none" -eq 1 ] && { [ ${#bindings[@]} -gt 0 ] || [ ${#untested[@]} -gt 0 ]; }; then
+  echo "holdout: 'none:' cannot be combined with bindings."
+  exit 2
+fi
+
+if [ "$none" -eq 1 ]; then
+  # Still check the diff: a change claiming no production hunks must actually have none, or the
+  # declaration is just a way of opting out.
+  declared_none_files=$(git diff --name-only "$base" -- \
+    'barakoCMS/**' 'BarakoCMS.*/**' ':(exclude)*.Tests/**' ':(exclude)**/*.md' 2>/dev/null || true)
+  if [ -n "$declared_none_files" ]; then
+    echo "holdout: the block says none, but this change touches production files:"
+    for f in $declared_none_files; do echo "         $f"; done
+    exit 2
+  fi
+  echo "holdout: none declared ($none_reason), and the diff touches no production file"
+  exit 0
+fi
 
 if [ ${#bindings[@]} -eq 0 ] && [ ${#untested[@]} -eq 0 ]; then
   echo "holdout: the block is empty, so this would pass having held out nothing."
@@ -110,6 +144,18 @@ resolve_hunk() {
 
   if [ ! -s "$diff_file" ]; then
     rm -f "$diff_file"; echo "holdout: no diff for $path against the base" >&2; return 1
+  fi
+
+  # A file the change adds outright is one hunk covering the whole file, and holding it out deletes
+  # the file. In a compiled language that never builds, so the run can only end inconclusive. Say so
+  # here rather than after spending two builds discovering it. Measured on a real feature branch:
+  # every one of its ten production files was new, so every binding cost 29 seconds to learn nothing.
+  if grep -q '^--- /dev/null' "$diff_file"; then
+    rm -f "$diff_file"
+    echo "holdout: $path is added by this change, so holding any of it out deletes the file." >&2
+    echo "         Nothing can be proven that way. Bind a test to a hunk that modifies an existing" >&2
+    echo "         file, or list this one under untested: with a reason." >&2
+    return 1
   fi
 
   local header; header=$(sed -n '1,/^@@/p' "$diff_file" | sed '$d')
@@ -237,6 +283,14 @@ for b in ${bindings[@]+"${bindings[@]}"}; do
   fi
   if [ "$c_failed" -ne 0 ]; then
     echo "holdout: INCONCLUSIVE  $test_id already fails on the clean tree ($c_failed of $c_total)"
+    # Every test in a class failing is rarely the change's doing. An integration class needs
+    # Testcontainers, and a stopped Docker fails all of them identically, which reads as a broken
+    # branch unless the message says otherwise.
+    if [ "$c_failed" -eq "$c_total" ] && ! docker info >/dev/null 2>&1; then
+      echo "                       All of them failed and the Docker daemon is unreachable."
+      echo "                       An integration class needs Testcontainers. Start Docker, or bind"
+      echo "                       a unit test class instead."
+    fi
     rm -f "$patch_file"; status=3; continue
   fi
 
