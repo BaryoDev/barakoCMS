@@ -3,6 +3,10 @@
 # rediscover the rules by hand each time. Exits non-zero on the first failure with a one-line reason.
 #
 #   bash scripts/preflight.sh -class Some.Fully.Qualified.TestClass [-class Another.TestClass ...]
+#                              [--body pr-body.md]
+#
+# --body runs holdout against the pull request body. It is required when the diff touches production
+# code, and ignored when it does not: a release or a docs pass has no hunk to bind.
 #
 # Every "-class FQN" is passed straight through to the xunit.v3 native runner via
 # `dotnet run --no-build -- -class FQN`, one run per class. Never runs the whole suite: other agents
@@ -14,6 +18,7 @@ cd "$(dirname "$0")/.."
 
 classes=()
 no_tests=0
+body_file=""
 while [ $# -gt 0 ]; do
   case "$1" in
     -class)
@@ -24,6 +29,12 @@ while [ $# -gt 0 ]; do
       ;;
     --no-tests)
       no_tests=1
+      shift
+      ;;
+    --body)
+      shift
+      [ $# -gt 0 ] || { echo "preflight: --body needs a file"; exit 1; }
+      body_file="$1"
       shift
       ;;
     *)
@@ -81,6 +92,42 @@ done
 # change past it and require each case to produce its exit code, including every failure path.
 echo "== holdout fixtures =="
 bash scripts/testdata/holdout/run-fixtures.sh || fail "holdout fixtures failed"
+
+# The fixtures above prove holdout still works. This runs it on the change in hand.
+#
+# It is asked for only when the diff touches production code, because a release, a changelog or a
+# docs pass has no hunk to bind and demanding a declaration there is friction that buys nothing.
+# When production did change and no --body was given, this fails rather than skipping: a check that
+# quietly does nothing when its input is missing is the hole this whole script keeps closing.
+holdout_base="${HOLDOUT_BASE:-origin/master}"
+holdout_merge_base=$(git merge-base "$holdout_base" HEAD 2>/dev/null || true)
+if [ -n "$holdout_merge_base" ]; then
+  production_touched=$(git diff --name-only "$holdout_merge_base" -- \
+    'barakoCMS/**' 'BarakoCMS.*/**' ':(exclude)*.Tests/**' ':(exclude)**/*.md' 2>/dev/null || true)
+  if [ -n "$production_touched" ]; then
+    if [ -z "$body_file" ]; then
+      echo "preflight: this change touches production code and no --body was given, so holdout"
+      echo "           could not run and this would pass having held nothing out."
+      echo "           Write the pull request body to a file and pass --body <file>. The body needs"
+      echo "           a holdout block binding each new test to the hunk it depends on, or naming"
+      echo "           each hunk under untested: with a reason."
+      exit 1
+    fi
+    echo "== holdout =="
+    bash scripts/holdout.sh --spec "$body_file"
+    holdout_status=$?
+    case "$holdout_status" in
+      0) ;;
+      1) fail "holdout: a test passed with its hunk held out" ;;
+      2) fail "holdout: a binding could not be resolved, so nothing was proven for it" ;;
+      3) fail "holdout: inconclusive, the held-out tree did not build" ;;
+      *) fail "holdout exited $holdout_status" ;;
+    esac
+  elif [ -n "$body_file" ]; then
+    echo "== holdout =="
+    bash scripts/holdout.sh --spec "$body_file" || fail "holdout failed"
+  fi
+fi
 
 echo "== changelog fragments =="
 bash scripts/changelog-assemble.sh --check || fail "changelog-assemble --check failed"
