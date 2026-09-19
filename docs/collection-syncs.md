@@ -84,6 +84,12 @@ It is keyed on the content type rather than on the sync, so renaming a sync does
 everything it has written, and two syncs filling one collection with the same key are writing the
 same entry.
 
+A sync never removes an entry. A key the source stops answering with is simply not refreshed, so a
+package delisted from a registry stays on the page until somebody archives or erases it. That is
+deliberate: an entry is ordinary content, a source having a bad afternoon is indistinguishable from
+a source that dropped something on purpose, and the recoverable mistake is the one that leaves too
+much rather than too little.
+
 ## The floor
 
 `floorFields` names fields kept at the greater of the stored and the fetched value. A registry index
