@@ -79,12 +79,7 @@ public static class ServiceCollectionExtensions
 
         AddWorkflowRunner(services);
 
-        // GET /api/public/events. The options resolve the container's configuration at first use
-        // rather than the one passed in here, so a host that layers settings on after this call
-        // (the test fixtures do) is read as configured.
-        services.AddSingleton<barakoCMS.Features.Public.Events.ContentChangeBroadcaster>();
-        services.AddSingleton(sp => barakoCMS.Features.Public.Events.ContentEventsOptions.FromConfiguration(
-            sp.GetRequiredService<IConfiguration>()));
+        AddContentEvents(services);
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowRunRetentionService>();
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowCredentialMigrationService>();
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowExecutionLogRedactionService>();
@@ -1125,6 +1120,16 @@ public static class ServiceCollectionExtensions
     {
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowRunQueue, barakoCMS.Features.Workflows.WorkflowRunQueue>();
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowRunner>();
+    }
+
+    private static void AddContentEvents(IServiceCollection services)
+    {
+        // GET /api/public/events. The options resolve the container's configuration at first use
+        // rather than the one passed in here, so a host that layers settings on after this call
+        // (the test fixtures do) is read as configured.
+        services.AddSingleton<barakoCMS.Features.Public.Events.ContentChangeBroadcaster>();
+        services.AddSingleton(sp => barakoCMS.Features.Public.Events.ContentEventsOptions.FromConfiguration(
+            sp.GetRequiredService<IConfiguration>()));
     }
 
     private static readonly Dictionary<string, string> SslModeMap = new(StringComparer.OrdinalIgnoreCase)
