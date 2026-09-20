@@ -153,6 +153,10 @@ matches nothing refuses to start and lists the names it knows. Turning a module 
 in the database. `GET /api/modules` lists each module with `enabled`. A module that needs
 constructor arguments is still added by hand with `modules.Add(...)`; see [MODULES.md](MODULES.md).
 
+The contract a module compiles against ships separately as
+[`BarakoCMS.Abstractions`](https://www.nuget.org/packages/BarakoCMS.Abstractions): the documents and
+events, the module interfaces, and the workflow extension points, with no reference to the core.
+
 A module contributes DI services, its own Marten documents, FastEndpoints endpoints, and seed data,
 implementing only the hooks it needs. See each module's page in the [docs](https://baryo.dev/docs/).
 Want every module in one image? Use **`ghcr.io/baryodev/barako-cms`** (Barako, full suite); for the
