@@ -89,25 +89,7 @@ public static class ServiceCollectionExtensions
         AddWorkflowTooling(services);
         AddValidationAndMonitoring(services);
 
-        // Confines API-key callers to the content surface and enforces their scopes. A no-op for JWT
-        // callers (they carry no scope claims).
-        services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Auth.ApiKeyScopeProcessor>();
-
-        // Enforces the capability an endpoint declares with Definition.RequireCapability(...). A
-        // no-op for endpoints that still gate on Roles(...).
-        services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Auth.CapabilityGateProcessor>();
-
-        // The names those gates ask for, read off the routing table. GET /api/capabilities lists it
-        // and a role write checks against it.
-        services.AddSingleton<barakoCMS.Infrastructure.Auth.CapabilityVocabulary>();
-
-        services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Filters.IdempotencyFilter>();
-        // The finalizer completes an idempotency claim on success or releases it on failure, so a
-        // failed request stays retryable. See IdempotencyFilter.
-        services.AddSingleton<FastEndpoints.IGlobalPostProcessor, barakoCMS.Infrastructure.Filters.IdempotencyFinalizer>();
-        // Sensitivity is applied explicitly by the read endpoints (Get/List/History) via
-        // ISensitivityService, not as a post-processor: a post-processor's edits did not reach the
-        // serialized response, so field-level masking was silently dropped.
+        AddGlobalProcessors(services);
 
         services.AddHostedService<TokenCleanupService>();
 
@@ -1160,6 +1142,29 @@ public static class ServiceCollectionExtensions
         // itself up. It did not: backup is scripts/backup-cron.sh, run by the deployment, and
         // restore is scripts/restore-check.sh's procedure. A registered service that claims a
         // capability nothing invokes is worse than no service, because it stops people looking.
+    }
+
+    private static void AddGlobalProcessors(IServiceCollection services)
+    {
+        // Confines API-key callers to the content surface and enforces their scopes. A no-op for JWT
+        // callers (they carry no scope claims).
+        services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Auth.ApiKeyScopeProcessor>();
+
+        // Enforces the capability an endpoint declares with Definition.RequireCapability(...). A
+        // no-op for endpoints that still gate on Roles(...).
+        services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Auth.CapabilityGateProcessor>();
+
+        // The names those gates ask for, read off the routing table. GET /api/capabilities lists it
+        // and a role write checks against it.
+        services.AddSingleton<barakoCMS.Infrastructure.Auth.CapabilityVocabulary>();
+
+        services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Filters.IdempotencyFilter>();
+        // The finalizer completes an idempotency claim on success or releases it on failure, so a
+        // failed request stays retryable. See IdempotencyFilter.
+        services.AddSingleton<FastEndpoints.IGlobalPostProcessor, barakoCMS.Infrastructure.Filters.IdempotencyFinalizer>();
+        // Sensitivity is applied explicitly by the read endpoints (Get/List/History) via
+        // ISensitivityService, not as a post-processor: a post-processor's edits did not reach the
+        // serialized response, so field-level masking was silently dropped.
     }
 
     private static readonly Dictionary<string, string> SslModeMap = new(StringComparer.OrdinalIgnoreCase)
