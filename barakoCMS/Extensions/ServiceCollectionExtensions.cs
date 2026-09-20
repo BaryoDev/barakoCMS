@@ -84,17 +84,7 @@ public static class ServiceCollectionExtensions
         AddMfaAndDeviceTrust(services);
         AddTenancyAndConfiguration(services, configuration);
 
-        services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.EmailAction>();
-        services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.SmsAction>();
-        services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.WebhookAction>();
-        services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.CreateTaskAction>();
-        services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.UpdateFieldAction>();
-        services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.RequestAction>();
-        services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.ConditionalAction>();
-
-
-        services.AddScoped<barakoCMS.Features.Workflows.WorkflowEngine>();
-        services.AddScoped<barakoCMS.Features.Workflows.IWorkflowEngine>(sp => sp.GetRequiredService<barakoCMS.Features.Workflows.WorkflowEngine>());
+        AddWorkflowActions(services);
 
         services.AddScoped<IWorkflowPluginRegistry, WorkflowPluginRegistry>();
         services.AddScoped<IWorkflowSchemaValidator, WorkflowSchemaValidator>();
@@ -1145,6 +1135,21 @@ public static class ServiceCollectionExtensions
         services.Configure<barakoCMS.Infrastructure.Multitenancy.MultitenancyOptions>(
             configuration.GetSection(barakoCMS.Infrastructure.Multitenancy.MultitenancyOptions.SectionName));
         services.AddScoped<barakoCMS.Infrastructure.Services.IConfigurationService, barakoCMS.Infrastructure.Services.ConfigurationService>();
+    }
+
+    private static void AddWorkflowActions(IServiceCollection services)
+    {
+        services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.EmailAction>();
+        services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.SmsAction>();
+        services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.WebhookAction>();
+        services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.CreateTaskAction>();
+        services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.UpdateFieldAction>();
+        services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.RequestAction>();
+        services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.ConditionalAction>();
+
+
+        services.AddScoped<barakoCMS.Features.Workflows.WorkflowEngine>();
+        services.AddScoped<barakoCMS.Features.Workflows.IWorkflowEngine>(sp => sp.GetRequiredService<barakoCMS.Features.Workflows.WorkflowEngine>());
     }
 
     private static readonly Dictionary<string, string> SslModeMap = new(StringComparer.OrdinalIgnoreCase)
