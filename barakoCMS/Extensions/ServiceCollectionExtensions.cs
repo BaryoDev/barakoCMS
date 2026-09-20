@@ -81,9 +81,7 @@ public static class ServiceCollectionExtensions
 
         AddContentEvents(services);
         AddRetentionServices(services);
-        services.AddScoped<barakoCMS.Infrastructure.Auth.Mfa.IMfaService, barakoCMS.Infrastructure.Auth.Mfa.MfaService>();
-        // Device trust is opt-in: the default gate does nothing. The DeviceTrust module overrides it.
-        services.TryAddScoped<barakoCMS.Core.Interfaces.IDeviceGate, barakoCMS.Core.Interfaces.NoopDeviceGate>();
+        AddMfaAndDeviceTrust(services);
         // Per-request tenant, resolved from a registered custom domain or the subdomain by
         // TenantResolutionMiddleware.
         services.AddScoped<barakoCMS.Infrastructure.Multitenancy.TenantContext>();
@@ -1135,6 +1133,13 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowCredentialMigrationService>();
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowExecutionLogRedactionService>();
         services.AddHostedService<barakoCMS.Features.WebhookDeliveries.WebhookDeliveryRetentionService>();
+    }
+
+    private static void AddMfaAndDeviceTrust(IServiceCollection services)
+    {
+        services.AddScoped<barakoCMS.Infrastructure.Auth.Mfa.IMfaService, barakoCMS.Infrastructure.Auth.Mfa.MfaService>();
+        // Device trust is opt-in: the default gate does nothing. The DeviceTrust module overrides it.
+        services.TryAddScoped<barakoCMS.Core.Interfaces.IDeviceGate, barakoCMS.Core.Interfaces.NoopDeviceGate>();
     }
 
     private static readonly Dictionary<string, string> SslModeMap = new(StringComparer.OrdinalIgnoreCase)
