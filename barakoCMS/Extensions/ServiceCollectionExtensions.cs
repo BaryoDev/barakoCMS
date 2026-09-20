@@ -1324,41 +1324,7 @@ public static class ServiceCollectionExtensions
 
         UseApiContractHeader(app);
 
-        // The Prometheus endpoint is mapped by the host (barakoCMS/Program.cs) and publishes route
-        // names, per-endpoint traffic and process internals. It is guarded here, before endpoint
-        // routing can execute it, rather than at the mapping. A scraper cannot sign in, so the
-        // credential is the shared Metrics:ScrapeKey; with none set the endpoint serves nobody.
-        var metricsScrapeKey = configuration[barakoCMS.Infrastructure.Security.MetricsScrapeAccess.ConfigurationKey];
-
-        app.Use(async (context, next) =>
-        {
-            if (!barakoCMS.Infrastructure.Security.MetricsScrapeAccess.IsMetricsPath(context.Request.Path))
-            {
-                await next();
-                return;
-            }
-
-            var presented = barakoCMS.Infrastructure.Security.MetricsScrapeAccess.PresentedKey(
-                context.Request.Headers[barakoCMS.Infrastructure.Security.MetricsScrapeAccess.HeaderName],
-                context.Request.Headers.Authorization);
-
-            switch (barakoCMS.Infrastructure.Security.MetricsScrapeAccess.Authorize(metricsScrapeKey, presented))
-            {
-                case barakoCMS.Infrastructure.Security.MetricsScrapeDecision.Allowed:
-                    await next();
-                    return;
-
-                case barakoCMS.Infrastructure.Security.MetricsScrapeDecision.Rejected:
-                    context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-                    context.Response.Headers.WWWAuthenticate = "Bearer";
-                    return;
-
-                default:
-                    // Nothing is configured, so as far as a caller is concerned there is no endpoint.
-                    context.Response.StatusCode = StatusCodes.Status404NotFound;
-                    return;
-            }
-        });
+        UseMetricsScrapeGuard(app, configuration);
 
         app.UseRateLimiter();
 
@@ -1666,6 +1632,45 @@ public static class ServiceCollectionExtensions
             });
 
             await next();
+        });
+    }
+
+    private static void UseMetricsScrapeGuard(IApplicationBuilder app, IConfiguration configuration)
+    {
+        // The Prometheus endpoint is mapped by the host (barakoCMS/Program.cs) and publishes route
+        // names, per-endpoint traffic and process internals. It is guarded here, before endpoint
+        // routing can execute it, rather than at the mapping. A scraper cannot sign in, so the
+        // credential is the shared Metrics:ScrapeKey; with none set the endpoint serves nobody.
+        var metricsScrapeKey = configuration[barakoCMS.Infrastructure.Security.MetricsScrapeAccess.ConfigurationKey];
+
+        app.Use(async (context, next) =>
+        {
+            if (!barakoCMS.Infrastructure.Security.MetricsScrapeAccess.IsMetricsPath(context.Request.Path))
+            {
+                await next();
+                return;
+            }
+
+            var presented = barakoCMS.Infrastructure.Security.MetricsScrapeAccess.PresentedKey(
+                context.Request.Headers[barakoCMS.Infrastructure.Security.MetricsScrapeAccess.HeaderName],
+                context.Request.Headers.Authorization);
+
+            switch (barakoCMS.Infrastructure.Security.MetricsScrapeAccess.Authorize(metricsScrapeKey, presented))
+            {
+                case barakoCMS.Infrastructure.Security.MetricsScrapeDecision.Allowed:
+                    await next();
+                    return;
+
+                case barakoCMS.Infrastructure.Security.MetricsScrapeDecision.Rejected:
+                    context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                    context.Response.Headers.WWWAuthenticate = "Bearer";
+                    return;
+
+                default:
+                    // Nothing is configured, so as far as a caller is concerned there is no endpoint.
+                    context.Response.StatusCode = StatusCodes.Status404NotFound;
+                    return;
+            }
         });
     }
 
