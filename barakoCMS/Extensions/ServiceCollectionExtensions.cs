@@ -46,25 +46,7 @@ public static class ServiceCollectionExtensions
 
         AddModuleEndpoints(services, seen, enabled, modules);
 
-        // The job queue. The storage provider is a singleton that reaches the request's scoped
-        // session through IHttpContextAccessor, which is what makes an enqueue commit with the
-        // request; see MartenJobStorageProvider and docs/background-jobs.md.
-        //
-        // Read from the container's IConfiguration when first resolved, which UseBarakoCMS does
-        // before the workers start, rather than from the configuration handed in here. The two are
-        // the same object in production. Under WebApplicationFactory they are not yet: settings a
-        // test host adds arrive after this method has run, and an eager read here would pin the
-        // production defaults on every test host.
-        services.AddSingleton(sp =>
-        {
-            var options = barakoCMS.Infrastructure.Jobs.JobOptions.FromConfiguration(
-                sp.GetRequiredService<IConfiguration>());
-            options.Validate();
-            return options;
-        });
-        services.AddHttpContextAccessor();
-        services.AddSingleton<barakoCMS.Infrastructure.Jobs.JobStorageGate>();
-        services.AddJobQueues<barakoCMS.Models.JobRecord, barakoCMS.Infrastructure.Jobs.MartenJobStorageProvider>();
+        AddJobQueue(services);
 
         // Request body size limit (defends against large-payload memory pressure / DoS on the
         // arbitrary-JSON content endpoints). Configurable via RequestLimits:MaxBodyBytes; default 10 MB.
@@ -1017,6 +999,29 @@ public static class ServiceCollectionExtensions
             if (switchedOff.Count > 0)
                 o.Filter = type => !switchedOff.Contains(type.Assembly);
         });
+    }
+
+    private static void AddJobQueue(IServiceCollection services)
+    {
+        // The job queue. The storage provider is a singleton that reaches the request's scoped
+        // session through IHttpContextAccessor, which is what makes an enqueue commit with the
+        // request; see MartenJobStorageProvider and docs/background-jobs.md.
+        //
+        // Read from the container's IConfiguration when first resolved, which UseBarakoCMS does
+        // before the workers start, rather than from the configuration handed in here. The two are
+        // the same object in production. Under WebApplicationFactory they are not yet: settings a
+        // test host adds arrive after this method has run, and an eager read here would pin the
+        // production defaults on every test host.
+        services.AddSingleton(sp =>
+        {
+            var options = barakoCMS.Infrastructure.Jobs.JobOptions.FromConfiguration(
+                sp.GetRequiredService<IConfiguration>());
+            options.Validate();
+            return options;
+        });
+        services.AddHttpContextAccessor();
+        services.AddSingleton<barakoCMS.Infrastructure.Jobs.JobStorageGate>();
+        services.AddJobQueues<barakoCMS.Models.JobRecord, barakoCMS.Infrastructure.Jobs.MartenJobStorageProvider>();
     }
 
     private static readonly Dictionary<string, string> SslModeMap = new(StringComparer.OrdinalIgnoreCase)
