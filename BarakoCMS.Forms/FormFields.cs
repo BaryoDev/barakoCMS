@@ -13,7 +13,7 @@ internal static class FormFields
     private static readonly HashSet<string> RenderableTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         "string", "text", "int", "integer", "number", "decimal", "money",
-        "bool", "boolean", "date", "datetime", "time", "email", "url",
+        "bool", "boolean", "date", "datetime", "time", "email", "url", "choice",
     };
 
     /// <summary>

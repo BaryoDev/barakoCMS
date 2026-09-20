@@ -177,6 +177,78 @@ public class FormSubmissionTests
     }
 
     [Fact]
+    public async Task A_single_choice_field_accepts_an_offered_value_and_refuses_others_with_400()
+    {
+        var type = await CreateChoiceTypeAsync();
+        await EnableAsync(type);
+
+        var accepted = await Visitor().PostAsJsonAsync($"/api/public/forms/{type}",
+            new { data = new { name = "Ana", entryType = "FUN" } });
+        accepted.StatusCode.Should().Be(HttpStatusCode.Accepted, await accepted.Content.ReadAsStringAsync());
+
+        var refused = await Visitor().PostAsJsonAsync($"/api/public/forms/{type}",
+            new { data = new { name = "Ben", entryType = "fun" } });
+        refused.StatusCode.Should().Be(HttpStatusCode.BadRequest, "values are matched exactly");
+        var reasons = await ErrorReasonsAsync(refused);
+        reasons.Should().ContainSingle(r => r.Contains("FUN") && r.Contains("COMPETE") && r.Contains("'fun'"),
+            "the refusal must name what is accepted");
+
+        var entries = await EntriesAsync(type);
+        entries.Should().HaveCount(1, "only the offered value was stored");
+        entries[0].Data["entryType"].Should().Be("FUN");
+    }
+
+    [Fact]
+    public async Task A_multiple_choice_field_accepts_offered_values_and_refuses_a_list_with_one_that_is_not()
+    {
+        var type = await CreateChoiceTypeAsync();
+        await EnableAsync(type);
+
+        var accepted = await Visitor().PostAsJsonAsync($"/api/public/forms/{type}",
+            new { data = new { name = "Ana", sizes = new[] { "S", "L" } } });
+        accepted.StatusCode.Should().Be(HttpStatusCode.Accepted, await accepted.Content.ReadAsStringAsync());
+
+        var refused = await Visitor().PostAsJsonAsync($"/api/public/forms/{type}",
+            new { data = new { name = "Ben", sizes = new[] { "S", "XL" } } });
+        refused.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var reasons = await ErrorReasonsAsync(refused);
+        reasons.Should().ContainSingle(r => r.Contains("'XL'"));
+
+        var entries = await EntriesAsync(type);
+        entries.Should().HaveCount(1, "only the offered list was stored");
+        ((System.Collections.IEnumerable)entries[0].Data["sizes"]).Cast<object>().Select(o => o.ToString())
+            .Should().Equal("S", "L");
+    }
+
+    [Fact]
+    public async Task The_definition_lists_a_choice_fields_options_in_order_and_whether_it_is_multiple()
+    {
+        var type = await CreateChoiceTypeAsync();
+        await EnableAsync(type);
+
+        var response = await Visitor().GetAsync($"/api/public/forms/{type}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var fields = body.RootElement.GetProperty("fields").EnumerateArray()
+            .ToDictionary(f => f.GetProperty("name").GetString()!, f => f);
+
+        var entryType = fields["entryType"];
+        entryType.GetProperty("multiple").GetBoolean().Should().BeFalse();
+        var entryOptions = entryType.GetProperty("options").EnumerateArray().ToList();
+        entryOptions.Should().HaveCount(2, "the field offers two options");
+        entryOptions.Select(o => o.GetProperty("value").GetString()).Should().Equal("FUN", "COMPETE");
+        entryOptions.Select(o => o.GetProperty("label").GetString()).Should().Equal("Fun run", "Competitive");
+
+        var sizes = fields["sizes"];
+        sizes.GetProperty("multiple").GetBoolean().Should().BeTrue();
+        var sizeOptions = sizes.GetProperty("options").EnumerateArray().ToList();
+        sizeOptions.Should().HaveCount(3, "the field offers three options");
+        sizeOptions.Select(o => o.GetProperty("value").GetString()).Should().Equal("S", "M", "L");
+        sizeOptions.Select(o => o.GetProperty("label").GetString()).Should().Equal("Small", "Medium", "Large");
+    }
+
+    [Fact]
     public async Task The_definition_lists_only_the_fields_a_visitor_may_fill_in()
     {
         var type = await CreateTypeAsync();
@@ -367,6 +439,49 @@ public class FormSubmissionTests
         });
         await session.SaveChangesAsync();
         return name;
+    }
+
+    private async Task<string> CreateChoiceTypeAsync()
+    {
+        var name = $"form-{Guid.NewGuid():N}";
+
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        session.Store(new ContentTypeDefinition
+        {
+            Id = Guid.NewGuid(),
+            Name = name,
+            DisplayName = "Race sign-up",
+            Fields =
+            [
+                new FieldDefinition { Name = "name", DisplayName = "Name", Type = "string", IsRequired = true },
+                new FieldDefinition
+                {
+                    Name = "entryType", DisplayName = "Entry type", Type = "choice",
+                    Options = [new() { Value = "FUN", Label = "Fun run" }, new() { Value = "COMPETE", Label = "Competitive" }],
+                },
+                new FieldDefinition
+                {
+                    Name = "sizes", DisplayName = "Shirt size", Type = "choice", Multiple = true,
+                    Options =
+                    [
+                        new() { Value = "S", Label = "Small" },
+                        new() { Value = "M", Label = "Medium" },
+                        new() { Value = "L", Label = "Large" },
+                    ],
+                },
+            ],
+        });
+        await session.SaveChangesAsync();
+        return name;
+    }
+
+    private static async Task<List<string>> ErrorReasonsAsync(HttpResponseMessage response)
+    {
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return body.RootElement.GetProperty("errors").EnumerateArray()
+            .Select(e => e.GetProperty("reason").GetString()!)
+            .ToList();
     }
 
     private async Task<IReadOnlyList<Content>> EntriesAsync(string type)
