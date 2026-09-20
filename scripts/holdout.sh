@@ -104,22 +104,77 @@ while IFS= read -r line; do
   esac
 done <<< "$block"
 
+# ---------------------------------------------------------------------------
+# The production files this change touches, as one definition rather than two.
+#
+# Excluded, and why each one is not a thing a test can be bound to:
+#   *.Tests/**            the tests themselves
+#   *.md                  documentation
+#   *.csproj, *.props, *.targets, packages.lock.json
+#                         build metadata. A lock file hunk has no behaviour to hold out, and it
+#                         changes on every dependency bump, so demanding a declaration for one is
+#                         a tax rather than a gate.
+#   pure renames          a file moved with no content change has no hunk at all. `git diff` reports
+#                         it with zero additions and zero deletions.
+#
+# Measured on an assembly split (#971): the unfiltered list asked for 286 declarations, 41 of them
+# build metadata and 60 of them pure moves. A check nobody can satisfy is a check nobody runs.
+# ---------------------------------------------------------------------------
+production_files() {
+  git diff --name-only --diff-filter=ad "$base" -- \
+    'barakoCMS/**' 'BarakoCMS.*/**' \
+    ':(exclude)*.Tests/**' \
+    ':(exclude)**/*.md' \
+    ':(exclude)**/*.csproj' \
+    ':(exclude)**/*.props' \
+    ':(exclude)**/*.targets' \
+    ':(exclude)**/packages.lock.json' 2>/dev/null \
+  | while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      # A rename with no content change produces no @@ hunk. Nothing to hold out, nothing to declare.
+      if [ "$(git diff --unified=0 "$base" -- "$f" 2>/dev/null | grep -c '^@@')" -gt 0 ]; then
+        printf '%s\n' "$f"
+      fi
+    done
+}
+
 if [ "$none" -eq 1 ] && { [ ${#bindings[@]} -gt 0 ] || [ ${#untested[@]} -gt 0 ]; }; then
   echo "holdout: 'none:' cannot be combined with bindings."
   exit 2
 fi
 
 if [ "$none" -eq 1 ]; then
-  # Still check the diff: a change claiming no production hunks must actually have none, or the
-  # declaration is just a way of opting out.
-  declared_none_files=$(git diff --name-only "$base" -- \
-    'barakoCMS/**' 'BarakoCMS.*/**' ':(exclude)*.Tests/**' ':(exclude)**/*.md' 2>/dev/null || true)
-  if [ -n "$declared_none_files" ]; then
-    echo "holdout: the block says none, but this change touches production files:"
-    for f in $declared_none_files; do echo "         $f"; done
+  # none: is checked against the diff, never taken on trust, or it is just a way of opting out.
+  # Two shapes are legitimate, and both are verified rather than asserted:
+  #
+  #   1. The change touches no production file at all. Docs, a changelog, a release.
+  #   2. The change adds no test file at all. There are no new tests, so there are no bindings to
+  #      make, and demanding a declaration per production file is a tax rather than a gate. An
+  #      assembly split (#971) asked for 245 of them; a check nobody can satisfy is one nobody runs.
+  #
+  # The second cannot be used to dodge a binding: add a single test and this fails again, which is
+  # exactly the change for which a binding is owed.
+  declared_none_files=$(production_files)
+  # No --diff-filter here. production_files() excludes added and deleted paths on purpose; this
+  # check exists to notice an ADDED test file, so reusing that filter made it unable to fire. It
+  # was written that way first and the fixture caught it.
+  new_tests=$(git diff --name-only "$base" -- \
+    '*Tests/**' '*Test/**' '*Tests.cs' '*Test.cs' 2>/dev/null || true)
+
+  if [ -n "$declared_none_files" ] && [ -n "$new_tests" ]; then
+    echo "holdout: the block says none, but this change adds or edits tests while touching"
+    echo "         production code, so at least one binding is owed. Test files in the diff:"
+    for f in $new_tests; do echo "         $f"; done
     exit 2
   fi
-  echo "holdout: none declared ($none_reason), and the diff touches no production file"
+
+  if [ -z "$declared_none_files" ]; then
+    echo "holdout: none declared ($none_reason), and the diff touches no production file"
+  else
+    count=$(printf '%s\n' "$declared_none_files" | grep -c . || echo 0)
+    echo "holdout: none declared ($none_reason). $count production file(s) changed and no test file"
+    echo "         was added or edited, so there is no binding to make."
+  fi
   exit 0
 fi
 
@@ -198,8 +253,7 @@ resolve_hunk() {
 # Every production hunk must be claimed: bound to a test, or listed as untested.
 # An unclaimed hunk is a silent gap; naming it makes the omission a written claim.
 # ---------------------------------------------------------------------------
-prod_files=$(git diff --name-only "$base" -- \
-  'barakoCMS/**' 'BarakoCMS.*/**' ':(exclude)*.Tests/**' ':(exclude)**/*.md' 2>/dev/null || true)
+prod_files=$(production_files)
 
 unclaimed=0
 for f in $prod_files; do
