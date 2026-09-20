@@ -14,38 +14,25 @@ namespace barakoCMS.Infrastructure.Services;
 /// be the one the change was made in. Email sends are rare enough that one document read is not
 /// worth the invalidation bug.
 /// </remarks>
-internal sealed class EmailSettingsProvider : IEmailSettingsProvider
+internal sealed class EmailSettingsProvider(
+    IQuerySession session,
+    ISecretProtector protector,
+    IConfiguration config,
+    ILogger<EmailSettingsProvider> logger) : IEmailSettingsProvider
 {
-    private readonly IQuerySession _session;
-    private readonly ISecretProtector _protector;
-    private readonly IConfiguration _config;
-    private readonly ILogger<EmailSettingsProvider> _logger;
-
-    public EmailSettingsProvider(
-        IQuerySession session,
-        ISecretProtector protector,
-        IConfiguration config,
-        ILogger<EmailSettingsProvider> logger)
-    {
-        _session = session;
-        _protector = protector;
-        _config = config;
-        _logger = logger;
-    }
-
     public async Task<ResolvedEmailSettings> GetAsync(CancellationToken ct = default)
     {
-        var configuredKey = Trimmed(_config["Resend:ApiKey"]) ?? Trimmed(Environment.GetEnvironmentVariable("RESEND_API_KEY"));
-        var configuredFrom = Trimmed(_config["Resend:From"]);
+        var configuredKey = Trimmed(config["Resend:ApiKey"]) ?? Trimmed(Environment.GetEnvironmentVariable("RESEND_API_KEY"));
+        var configuredFrom = Trimmed(config["Resend:From"]);
 
-        var stored = await _session.LoadAsync<EmailSettings>(EmailSettings.SingletonId, ct);
+        var stored = await session.LoadAsync<EmailSettings>(EmailSettings.SingletonId, ct);
 
         var apiKey = configuredKey;
         var apiKeySource = configuredKey is null ? EmailSettingSource.None : EmailSettingSource.Configuration;
 
         if (!string.IsNullOrEmpty(stored?.ProtectedApiKey))
         {
-            var decrypted = Trimmed(_protector.Unprotect(stored.ProtectedApiKey));
+            var decrypted = Trimmed(protector.Unprotect(stored.ProtectedApiKey));
             if (decrypted is not null)
             {
                 apiKey = decrypted;
@@ -57,7 +44,7 @@ internal sealed class EmailSettingsProvider : IEmailSettingsProvider
                 // changed. Falling back to configuration silently would send the next invoice from
                 // whatever the deployment was seeded with, which is not what the person who typed
                 // this in asked for, so it is said out loud.
-                _logger.LogError(
+                logger.LogError(
                     "The stored email API key could not be decrypted. Secrets:Key or JWT:Key has changed "
                   + "since it was saved, and it has to be entered again. Falling back to configuration.");
             }

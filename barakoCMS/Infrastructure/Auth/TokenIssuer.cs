@@ -9,19 +9,11 @@ using barakoCMS.Infrastructure.Logging;
 namespace barakoCMS.Infrastructure.Auth;
 
 /// <inheritdoc cref="ITokenIssuer"/>
-public sealed class TokenIssuer : ITokenIssuer
+public sealed class TokenIssuer(
+    IQuerySession session,
+    IConfiguration config,
+    ILogger<TokenIssuer> logger) : ITokenIssuer
 {
-    private readonly IQuerySession _session;
-    private readonly IConfiguration _config;
-    private readonly ILogger<TokenIssuer> _logger;
-
-    public TokenIssuer(IQuerySession session, IConfiguration config, ILogger<TokenIssuer> logger)
-    {
-        _session = session;
-        _config = config;
-        _logger = logger;
-    }
-
     public async Task<TokenIssueResult> IssueAccessTokenAsync(
         User user,
         string tenantSlug,
@@ -37,14 +29,14 @@ public sealed class TokenIssuer : ITokenIssuer
         {
             // Warn, not info: on a multi-tenant deployment this is someone presenting an X-Tenant
             // they have no membership for, which is worth seeing in the logs.
-            _logger.LogWarning(
+            logger.LogWarning(
                 "Refused to issue a token for tenant {Tenant} to user {UserId} ({Username}): {Reason}",
                 LogSafe.Value(slug), user.Id, LogSafe.Value(user.Username), denial);
             return TokenIssueResult.Denied(denial);
         }
 
-        var roleIds = await MembershipRoles.EffectiveRoleIdsAsync(_session, user, slug, ct);
-        var roles = await _session.Query<Role>()
+        var roleIds = await MembershipRoles.EffectiveRoleIdsAsync(session, user, slug, ct);
+        var roles = await session.Query<Role>()
             .Where(r => roleIds.Contains(r.Id))
             .Select(r => r.Name)
             .ToListAsync(ct);
@@ -54,10 +46,10 @@ public sealed class TokenIssuer : ITokenIssuer
 
         var token = JwtBearer.CreateToken(o =>
         {
-            o.SigningKey = _config["JWT:Key"]!;
+            o.SigningKey = config["JWT:Key"]!;
             o.ExpireAt = expiresAt;
-            o.Issuer = _config["JWT:Issuer"];
-            o.Audience = _config["JWT:Audience"];
+            o.Issuer = config["JWT:Issuer"];
+            o.Audience = config["JWT:Audience"];
             var u = o.User;
                 u.Claims.Add(new(JwtRegisteredClaimNames.Jti, jti));
 
@@ -102,7 +94,7 @@ public sealed class TokenIssuer : ITokenIssuer
         if (slug == Tenant.DefaultSlug)
             return null;
 
-        var tenant = await _session.Query<Tenant>()
+        var tenant = await session.Query<Tenant>()
             .FirstOrDefaultAsync(t => t.Slug == slug, ct);
 
         // An unregistered slug is not a managed tenant, so there is no membership model to enforce
@@ -120,7 +112,7 @@ public sealed class TokenIssuer : ITokenIssuer
         if (!tenant.IsActive)
             return "tenant is inactive";
 
-        var isMember = await _session.Query<Membership>()
+        var isMember = await session.Query<Membership>()
             .AnyAsync(m => m.UserId == user.Id
                            && m.TenantSlug == slug
                            && m.Status == MembershipStatus.Active, ct);

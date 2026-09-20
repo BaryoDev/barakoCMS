@@ -25,12 +25,8 @@ public class Response
 /// carry the alt text an editor wrote. Anything not public is a 404, indistinguishable from
 /// missing, exactly as the bytes next door: metadata is not less private than the file it describes.
 /// </summary>
-public class Endpoint : Endpoint<Request, Response>
+public class Endpoint(IQuerySession session) : Endpoint<Request, Response>
 {
-    private readonly IQuerySession _session;
-
-    public Endpoint(IQuerySession session) => _session = session;
-
     public override void Configure()
     {
         Get("/api/public/files/{id}/meta");
@@ -39,7 +35,7 @@ public class Endpoint : Endpoint<Request, Response>
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        var file = await _session.LoadAsync<StoredFile>(req.Id, ct);
+        var file = await session.LoadAsync<StoredFile>(req.Id, ct);
         if (file is null || !file.IsPublic || file.ParentFileId is not null)
         {
             await Send.NotFoundAsync(ct);

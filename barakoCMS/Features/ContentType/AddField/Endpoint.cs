@@ -87,22 +87,11 @@ internal sealed class Validator : Validator<Request>
 /// Adding an endpoint and adding an optional field to a response are both additive, so the API
 /// contract version does not move.
 /// </remarks>
-internal sealed class Endpoint : Endpoint<Request, Response>
+internal sealed class Endpoint(
+    IDocumentSession session,
+    barakoCMS.Infrastructure.Services.IContentTypeValidatorService validator,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<Request, Response>
 {
-    private readonly IDocumentSession _session;
-    private readonly barakoCMS.Infrastructure.Services.IContentTypeValidatorService _validator;
-    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
-
-    public Endpoint(
-        IDocumentSession session,
-        barakoCMS.Infrastructure.Services.IContentTypeValidatorService validator,
-        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
-    {
-        _session = session;
-        _validator = validator;
-        _tenant = tenant;
-    }
-
     public override void Configure()
     {
         Post("/api/content-types/{name}/fields");
@@ -115,7 +104,7 @@ internal sealed class Endpoint : Endpoint<Request, Response>
     {
         var name = barakoCMS.Core.ContentTypeName.Normalize(req.Name);
 
-        var definition = await _session.Query<ContentTypeDefinition>()
+        var definition = await session.Query<ContentTypeDefinition>()
             .FirstOrDefaultAsync(d => d.Name.ToLower() == name, ct);
 
         if (definition is null)
@@ -153,7 +142,7 @@ internal sealed class Endpoint : Endpoint<Request, Response>
         // Validate the type as it would be, not the field on its own, so every rule create applies
         // applies here too.
         var merged = definition.Fields.Concat(new[] { field }).ToList();
-        var (isValid, errors) = _validator.Validate(definition.Name, definition.DisplayName, merged);
+        var (isValid, errors) = validator.Validate(definition.Name, definition.DisplayName, merged);
         if (!isValid)
         {
             foreach (var error in errors) AddError(error);
@@ -162,7 +151,7 @@ internal sealed class Endpoint : Endpoint<Request, Response>
 
         if (field.IsRequired && field.DefaultValue is null)
         {
-            var entries = await _session.Query<barakoCMS.Models.Content>()
+            var entries = await session.Query<barakoCMS.Models.Content>()
                 .CountAsync(c => c.ContentType == definition.Name, ct);
 
             if (entries > 0)
@@ -178,10 +167,10 @@ internal sealed class Endpoint : Endpoint<Request, Response>
 
         definition.Fields.Add(field);
         definition.UpdatedAt = DateTime.UtcNow;
-        _session.Store(definition);
+        session.Store(definition);
 
         var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
-        await AuditLog.RecordAsync(_session, _tenant.Slug, "contenttype.field_added", actorId,
+        await AuditLog.RecordAsync(session, tenant.Slug, "contenttype.field_added", actorId,
             User.FindFirst("Username")?.Value,
             targetType: nameof(ContentTypeDefinition), targetId: definition.Name,
             metadata: new Dictionary<string, object>
@@ -191,7 +180,7 @@ internal sealed class Endpoint : Endpoint<Request, Response>
                 ["required"] = field.IsRequired,
             }, ct: ct);
 
-        await _session.SaveChangesAsync(ct);
+        await session.SaveChangesAsync(ct);
 
         await Send.OkAsync(new Response
         {

@@ -5,15 +5,8 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.UserGroups.Create;
 
-internal class Endpoint : Endpoint<Request, Response>
+internal class Endpoint(IDocumentSession session) : Endpoint<Request, Response>
 {
-    private readonly IDocumentSession _session;
-
-    public Endpoint(IDocumentSession session)
-    {
-        _session = session;
-    }
-
     public override void Configure()
     {
         Post("/api/user-groups");
@@ -30,8 +23,8 @@ internal class Endpoint : Endpoint<Request, Response>
             UserIds = req.UserIds
         };
 
-        _session.Store(userGroup);
-        await _session.SaveChangesAsync(ct);
+        session.Store(userGroup);
+        await session.SaveChangesAsync(ct);
 
         await Send.OkAsync(new Response
         {

@@ -29,11 +29,8 @@ public class Response
 }
 
 /// <summary>POST /api/accounting/journal-entries — post one balanced journal entry.</summary>
-public class Endpoint : Endpoint<Request, Response>
+public class Endpoint(LedgerService ledger) : Endpoint<Request, Response>
 {
-    private readonly LedgerService _ledger;
-    public Endpoint(LedgerService ledger) => _ledger = ledger;
-
     public override void Configure()
     {
         Post("/api/accounting/journal-entries");
@@ -57,7 +54,7 @@ public class Endpoint : Endpoint<Request, Response>
             Lines: req.Lines.Select(l => new PostLine(l.AccountCode, l.Debit, l.Credit, l.Memo)).ToList(),
             Attachments: req.Attachments);
 
-        var result = await _ledger.PostAsync(cmd, userId, ct);
+        var result = await ledger.PostAsync(cmd, userId, ct);
         if (!result.Ok)
         {
             foreach (var err in result.Errors) AddError(err);

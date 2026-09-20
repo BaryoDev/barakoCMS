@@ -5,15 +5,8 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.Roles.Get;
 
-internal class Endpoint : Endpoint<Request, barakoCMS.Features.Roles.RoleResponse>
+internal class Endpoint(IDocumentSession session) : Endpoint<Request, barakoCMS.Features.Roles.RoleResponse>
 {
-    private readonly IDocumentSession _session;
-
-    public Endpoint(IDocumentSession session)
-    {
-        _session = session;
-    }
-
     public override void Configure()
     {
         Get("/api/roles/{id}");
@@ -22,7 +15,7 @@ internal class Endpoint : Endpoint<Request, barakoCMS.Features.Roles.RoleRespons
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        var role = await _session.LoadAsync<Role>(req.Id, ct);
+        var role = await session.LoadAsync<Role>(req.Id, ct);
 
         if (role == null)
         {

@@ -34,20 +34,11 @@ namespace barakoCMS.Infrastructure.Auth;
 /// it after the response, from its own scope.
 /// </para>
 /// </remarks>
-internal sealed class AccountLockout
+internal sealed class AccountLockout(IDocumentStore store, LockoutNoticeSender notices)
 {
     public const int MaxFailedAttempts = 5;
 
     public static readonly TimeSpan LockoutDuration = TimeSpan.FromMinutes(15);
-
-    private readonly IDocumentStore _store;
-    private readonly LockoutNoticeSender _notices;
-
-    public AccountLockout(IDocumentStore store, LockoutNoticeSender notices)
-    {
-        _store = store;
-        _notices = notices;
-    }
 
     /// <summary>
     /// Locks <paramref name="user"/> for <see cref="LockoutDuration"/> and resets its failure counter,
@@ -59,7 +50,7 @@ internal sealed class AccountLockout
         var now = DateTime.UtcNow;
         var until = now.Add(LockoutDuration);
 
-        await using var connection = _store.Storage.Database.CreateConnection();
+        await using var connection = store.Storage.Database.CreateConnection();
         await connection.OpenAsync(ct);
 
         await using var command = connection.CreateCommand();
@@ -67,12 +58,12 @@ internal sealed class AccountLockout
         // have stored it. The comparison runs in the same statement as the write, so two requests
         // racing past the threshold cannot both see the account unlocked.
         command.CommandText =
-            $"update {_store.Options.DatabaseSchemaName}.mt_doc_users "
+            $"update {store.Options.DatabaseSchemaName}.mt_doc_users "
           + "set data = jsonb_set(jsonb_set(data, '{LockoutUntil}', @until), '{FailedLoginAttempts}', '0'::jsonb) "
           + "where id = @id "
           + "and coalesce((data ->> 'FailedLoginAttempts')::int, 0) >= @max "
           + "and (data ->> 'LockoutUntil' is null or (data ->> 'LockoutUntil')::timestamptz <= @now)";
-        command.Parameters.AddWithValue("until", NpgsqlDbType.Jsonb, _store.Options.Serializer().ToJson(until));
+        command.Parameters.AddWithValue("until", NpgsqlDbType.Jsonb, store.Options.Serializer().ToJson(until));
         command.Parameters.AddWithValue("id", user.Id);
         command.Parameters.AddWithValue("now", NpgsqlDbType.TimestampTz, now);
         command.Parameters.AddWithValue("max", MaxFailedAttempts);
@@ -82,7 +73,7 @@ internal sealed class AccountLockout
             return false;
         }
 
-        _notices.Enqueue(user.Id, user.Email);
+        notices.Enqueue(user.Id, user.Email);
         return true;
     }
 }
@@ -95,7 +86,10 @@ internal sealed class AccountLockout
 /// auth limit keep it small in practice. When it is full a notice is dropped and logged rather than
 /// the request waiting. Notices still queued when the host stops are not sent.
 /// </remarks>
-internal sealed class LockoutNoticeSender : BackgroundService
+internal sealed class LockoutNoticeSender(
+    IServiceScopeFactory scopes,
+    IConfiguration config,
+    ILogger<LockoutNoticeSender> logger) : BackgroundService
 {
     internal const int Capacity = 1000;
 
@@ -108,17 +102,6 @@ internal sealed class LockoutNoticeSender : BackgroundService
             SingleReader = true,
         });
 
-    private readonly IServiceScopeFactory _scopes;
-    private readonly IConfiguration _config;
-    private readonly ILogger<LockoutNoticeSender> _logger;
-
-    public LockoutNoticeSender(IServiceScopeFactory scopes, IConfiguration config, ILogger<LockoutNoticeSender> logger)
-    {
-        _scopes = scopes;
-        _config = config;
-        _logger = logger;
-    }
-
     public void Enqueue(Guid userId, string? email)
     {
         if (string.IsNullOrWhiteSpace(email))
@@ -128,7 +111,7 @@ internal sealed class LockoutNoticeSender : BackgroundService
 
         if (!_queue.Writer.TryWrite((userId, email)))
         {
-            _logger.LogError("The lockout notice queue is full; not sending the notice for user {UserId}", userId);
+            logger.LogError("The lockout notice queue is full; not sending the notice for user {UserId}", userId);
         }
     }
 
@@ -148,7 +131,7 @@ internal sealed class LockoutNoticeSender : BackgroundService
 
     private async Task SendAsync(Guid userId, string email, CancellationToken stoppingToken)
     {
-        var appName = System.Net.WebUtility.HtmlEncode(_config["Branding:AppName"] ?? "BarakoCMS");
+        var appName = System.Net.WebUtility.HtmlEncode(config["Branding:AppName"] ?? "BarakoCMS");
         var minutes = (int)AccountLockout.LockoutDuration.TotalMinutes;
         var body =
             $"<p>Your {appName} account was locked for {minutes} minutes after too many failed sign-in attempts.</p>"
@@ -163,13 +146,13 @@ internal sealed class LockoutNoticeSender : BackgroundService
 
         try
         {
-            await using var scope = _scopes.CreateAsyncScope();
+            await using var scope = scopes.CreateAsyncScope();
             var sender = scope.ServiceProvider.GetRequiredService<IEmailService>();
             await sender.SendEmailAsync(email, $"Your {appName} account was locked", body, timeout.Token);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Could not send the lockout notice for user {UserId}", userId);
+            logger.LogError(ex, "Could not send the lockout notice for user {UserId}", userId);
         }
     }
 }

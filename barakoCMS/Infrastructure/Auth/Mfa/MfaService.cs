@@ -27,27 +27,19 @@ public interface IMfaService
     Task<bool> DisableAsync(Guid userId, string code, CancellationToken ct);
 }
 
-public sealed class MfaService : IMfaService
+public sealed class MfaService(
+    IDocumentSession session,
+    IMfaSecretProtector protector,
+    IConfiguration config) : IMfaService
 {
     private const int RecoveryCodeCount = 10;
     private const int SecretBytes = 20; // 160-bit TOTP secret
     // Allow one step either side (~±30s) for clock drift between the server and the authenticator.
     private static readonly VerificationWindow Window = new(previous: 1, future: 1);
 
-    private readonly IDocumentSession _session;
-    private readonly IMfaSecretProtector _protector;
-    private readonly IConfiguration _config;
-
-    public MfaService(IDocumentSession session, IMfaSecretProtector protector, IConfiguration config)
-    {
-        _session = session;
-        _protector = protector;
-        _config = config;
-    }
-
     public async Task<bool> IsEnabledAsync(Guid userId, CancellationToken ct)
     {
-        var mfa = await _session.LoadAsync<MfaSecret>(userId, ct);
+        var mfa = await session.LoadAsync<MfaSecret>(userId, ct);
         return mfa is { Enabled: true };
     }
 
@@ -58,22 +50,22 @@ public sealed class MfaService : IMfaService
 
         // Load-then-update so the optimistic-concurrency version is tracked: calling setup again while a
         // pending enrollment exists replaces it cleanly instead of colliding on the version.
-        var mfa = await _session.LoadAsync<MfaSecret>(user.Id, ct) ?? new MfaSecret { Id = user.Id };
-        mfa.EncryptedSecret = _protector.Protect(secret);
+        var mfa = await session.LoadAsync<MfaSecret>(user.Id, ct) ?? new MfaSecret { Id = user.Id };
+        mfa.EncryptedSecret = protector.Protect(secret);
         mfa.Enabled = false;
         mfa.RecoveryCodeHashes = new();
         mfa.LastUsedTimeStep = 0;
         mfa.CreatedAt = DateTime.UtcNow;
         mfa.ConfirmedAt = null;
-        _session.Store(mfa);
-        await _session.SaveChangesAsync(ct);
+        session.Store(mfa);
+        await session.SaveChangesAsync(ct);
 
         return (secret, BuildOtpauthUri(user.Username, secret));
     }
 
     public async Task<IReadOnlyList<string>?> ConfirmSetupAsync(Guid userId, string code, CancellationToken ct)
     {
-        var mfa = await _session.LoadAsync<MfaSecret>(userId, ct);
+        var mfa = await session.LoadAsync<MfaSecret>(userId, ct);
         if (mfa is null || mfa.Enabled) return null;
 
         // Confirming enrollment does not arm the replay guard, so the user can immediately sign in with
@@ -84,22 +76,22 @@ public sealed class MfaService : IMfaService
         mfa.Enabled = true;
         mfa.ConfirmedAt = DateTime.UtcNow;
         mfa.RecoveryCodeHashes = hashes;
-        _session.Update(mfa);
-        await _session.SaveChangesAsync(ct);
+        session.Update(mfa);
+        await session.SaveChangesAsync(ct);
         return plain;
     }
 
     public async Task<bool> VerifyCodeAsync(Guid userId, string code, CancellationToken ct)
     {
-        var mfa = await _session.LoadAsync<MfaSecret>(userId, ct);
+        var mfa = await session.LoadAsync<MfaSecret>(userId, ct);
         if (mfa is null || !mfa.Enabled) return false;
 
         if (TryConsumeTotp(mfa, code, advanceReplayGuard: true) || TryConsumeRecoveryCode(mfa, code))
         {
-            _session.Update(mfa);
+            session.Update(mfa);
             try
             {
-                await _session.SaveChangesAsync(ct);
+                await session.SaveChangesAsync(ct);
             }
             catch (JasperFx.ConcurrencyException)
             {
@@ -114,13 +106,13 @@ public sealed class MfaService : IMfaService
 
     public async Task<bool> DisableAsync(Guid userId, string code, CancellationToken ct)
     {
-        var mfa = await _session.LoadAsync<MfaSecret>(userId, ct);
+        var mfa = await session.LoadAsync<MfaSecret>(userId, ct);
         if (mfa is null || !mfa.Enabled) return false;
 
         if (!TryConsumeTotp(mfa, code, advanceReplayGuard: true) && !TryConsumeRecoveryCode(mfa, code)) return false;
 
-        _session.Delete(mfa);
-        await _session.SaveChangesAsync(ct);
+        session.Delete(mfa);
+        await session.SaveChangesAsync(ct);
         return true;
     }
 
@@ -133,7 +125,7 @@ public sealed class MfaService : IMfaService
         code = (code ?? string.Empty).Trim();
         if (code.Length == 0) return false;
 
-        var secret = _protector.Unprotect(mfa.EncryptedSecret);
+        var secret = protector.Unprotect(mfa.EncryptedSecret);
         var totp = new Totp(Base32Encoding.ToBytes(secret));
         if (!totp.VerifyTotp(code, out var matchedStep, Window)) return false;
 
@@ -178,7 +170,7 @@ public sealed class MfaService : IMfaService
 
     private string BuildOtpauthUri(string username, string secret)
     {
-        var issuer = _config["Branding:AppName"] ?? "BarakoCMS";
+        var issuer = config["Branding:AppName"] ?? "BarakoCMS";
         var label = Uri.EscapeDataString($"{issuer}:{username}");
         var query = $"secret={secret}&issuer={Uri.EscapeDataString(issuer)}&algorithm=SHA1&digits=6&period=30";
         return $"otpauth://totp/{label}?{query}";

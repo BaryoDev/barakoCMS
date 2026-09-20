@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>barakoCMS</RootNamespace>
+
+    <IsPackable>true</IsPackable>
+    <PackageId>BarakoCMS.Abstractions</PackageId>
+    <Version>4.3.0</Version>
+    <Description>The barakoCMS package contract: the documents and events a consumer stores and reads, the module interfaces a module implements, and the workflow extension points a custom action compiles against. It does not reference the core, so a module built on it does not compile against the host.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FastEndpoints" />
+    <PackageReference Include="JasperFx" />
+    <PackageReference Include="Marten" />
+    <PackageReference Include="Microsoft.Extensions.DependencyModel" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="barakoCMS" />
+    <InternalsVisibleTo Include="BarakoCMS.Tests" />
+  </ItemGroup>
+</Project>

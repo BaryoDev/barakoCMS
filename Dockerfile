@@ -10,7 +10,11 @@ WORKDIR /src
 #
 # The lock file rides in the same layer as the .csproj: locked mode needs it beside the project it
 # restores, and a restore that finds no lock file fails rather than generating one (NU1004).
+#
+# BarakoCMS.Abstractions comes first because core references it. A ProjectReference the restore
+# cannot find fails the whole restore, so the manifest layer has to hold both projects.
 COPY ["Directory.Build.props", "Directory.Packages.props", "./"]
+COPY ["BarakoCMS.Abstractions/BarakoCMS.Abstractions.csproj", "BarakoCMS.Abstractions/packages.lock.json", "BarakoCMS.Abstractions/"]
 COPY ["barakoCMS/barakoCMS.csproj", "barakoCMS/packages.lock.json", "barakoCMS/"]
 RUN dotnet restore "barakoCMS/barakoCMS.csproj" --locked-mode
 

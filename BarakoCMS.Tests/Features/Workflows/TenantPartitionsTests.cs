@@ -362,7 +362,7 @@ public class TenantPartitionsTests
         builder.Services.AddFastEndpoints(o =>
         {
             o.DisableAutoDiscovery = true;
-            o.Assemblies = [typeof(barakoCMS.Modules.IBarakoModule).Assembly];
+            o.Assemblies = [typeof(barakoCMS.Data.DataSeeder).Assembly];
         });
         builder.Services.AddScoped<IWorkflowAction, CredentialEchoAction>();
 

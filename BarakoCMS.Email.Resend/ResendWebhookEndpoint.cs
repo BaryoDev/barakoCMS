@@ -13,17 +13,8 @@ namespace BarakoCMS.Email.Resend;
 /// <see cref="EmailEvent"/> documents, so apps can tell a user an address is bad. Verifies the Svix
 /// signature when <c>Resend:WebhookSecret</c> (or RESEND_WEBHOOK_SECRET) is set.
 /// </summary>
-public sealed class ResendWebhookEndpoint : EndpointWithoutRequest
+public sealed class ResendWebhookEndpoint(IDocumentSession session, IConfiguration config) : EndpointWithoutRequest
 {
-    private readonly IDocumentSession _session;
-    private readonly IConfiguration _config;
-
-    public ResendWebhookEndpoint(IDocumentSession session, IConfiguration config)
-    {
-        _session = session;
-        _config = config;
-    }
-
     public override void Configure()
     {
         Post("/api/webhooks/resend");
@@ -42,7 +33,7 @@ public sealed class ResendWebhookEndpoint : EndpointWithoutRequest
         //
         // An unconfigured receiver is refused rather than trusted: useless is a better failure
         // than forgeable, and the 401 says which setting is missing.
-        var secret = _config["Resend:WebhookSecret"] ?? Environment.GetEnvironmentVariable("RESEND_WEBHOOK_SECRET");
+        var secret = config["Resend:WebhookSecret"] ?? Environment.GetEnvironmentVariable("RESEND_WEBHOOK_SECRET");
         if (string.IsNullOrWhiteSpace(secret))
         {
             Logger.LogError(
@@ -81,7 +72,7 @@ public sealed class ResendWebhookEndpoint : EndpointWithoutRequest
                 var email = FirstRecipient(data);
                 if (!string.IsNullOrWhiteSpace(email))
                 {
-                    _session.Store(new EmailEvent
+                    session.Store(new EmailEvent
                     {
                         Email = email!.Trim().ToLowerInvariant(),
                         Type = kind,
@@ -89,7 +80,7 @@ public sealed class ResendWebhookEndpoint : EndpointWithoutRequest
                         EmailId = data.TryGetProperty("email_id", out var eid) ? eid.GetString() ?? "" : "",
                         At = DateTime.UtcNow,
                     });
-                    await _session.SaveChangesAsync(ct);
+                    await session.SaveChangesAsync(ct);
                 }
             }
         }

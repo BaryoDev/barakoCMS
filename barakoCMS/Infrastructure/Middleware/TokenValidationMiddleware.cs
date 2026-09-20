@@ -8,19 +8,8 @@ namespace barakoCMS.Infrastructure.Middleware;
 /// Refuses tokens that have been revoked by id, and tokens issued before their user's sessions were
 /// invalidated. Runs after authentication.
 /// </summary>
-public class TokenValidationMiddleware
+public class TokenValidationMiddleware(RequestDelegate next, ILogger<TokenValidationMiddleware> logger)
 {
-    private readonly RequestDelegate _next;
-    private readonly ILogger<TokenValidationMiddleware> _logger;
-
-    public TokenValidationMiddleware(
-        RequestDelegate next,
-        ILogger<TokenValidationMiddleware> logger)
-    {
-        _next = next;
-        _logger = logger;
-    }
-
     public async Task InvokeAsync(
         HttpContext context,
         ITokenRevocationService revocationService,
@@ -38,7 +27,7 @@ public class TokenValidationMiddleware
 
                 if (isRevoked)
                 {
-                    _logger.LogWarning(
+                    logger.LogWarning(
                         "Revoked token attempted to access {Path}. JTI: {Jti}",
                         LogSafe.Value(context.Request.Path), jti);
 
@@ -64,7 +53,7 @@ public class TokenValidationMiddleware
             }
         }
 
-        await _next(context);
+        await next(context);
     }
 
     /// <summary>

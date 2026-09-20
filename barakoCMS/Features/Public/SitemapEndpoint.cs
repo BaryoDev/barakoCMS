@@ -6,17 +6,8 @@ using ContentDoc = barakoCMS.Models.Content;
 
 namespace barakoCMS.Features.Public;
 
-internal class SitemapEndpoint : EndpointWithoutRequest
+internal class SitemapEndpoint(IQuerySession session, IConfiguration config) : EndpointWithoutRequest
 {
-    private readonly IQuerySession _session;
-    private readonly IConfiguration _config;
-
-    public SitemapEndpoint(IQuerySession session, IConfiguration config)
-    {
-        _session = session;
-        _config = config;
-    }
-
     public override void Configure()
     {
         Get("/api/public/sitemap.xml");
@@ -24,7 +15,7 @@ internal class SitemapEndpoint : EndpointWithoutRequest
     }
     public override async Task HandleAsync(CancellationToken ct)
     {
-        var definitions = await _session.Query<ContentTypeDefinition>()
+        var definitions = await session.Query<ContentTypeDefinition>()
             .ToListAsync(ct);
 
         var deliverableDefinitions = definitions
@@ -35,7 +26,7 @@ internal class SitemapEndpoint : EndpointWithoutRequest
             .Select(d => d.Name)
             .ToList();
 
-        var entries = await _session.Query<ContentDoc>()
+        var entries = await session.Query<ContentDoc>()
             .Where(c => deliverableTypes.Contains(c.ContentType)
                         && c.Status == ContentStatus.Published
                         && c.Sensitivity == SensitivityLevel.Public)
@@ -46,7 +37,7 @@ internal class SitemapEndpoint : EndpointWithoutRequest
         // read Feeds:SiteUrl on its own and returned a bare 500, so a deployment that set
         // App:BaseUrl got a working feed and a sitemap that failed with nothing to act on. See #670.
         var siteUrl = barakoCMS.Infrastructure.Security.CanonicalHost.BaseUrl(
-            _config, HttpContext.Request, "Feeds:SiteUrl");
+            config, HttpContext.Request, "Feeds:SiteUrl");
 
         if (siteUrl is null)
         {
@@ -69,7 +60,7 @@ internal class SitemapEndpoint : EndpointWithoutRequest
                 .Where(c => c.ContentType == type);
 
 
-            var pathTemplate = _config[$"Feeds:Paths:{type}"]
+            var pathTemplate = config[$"Feeds:Paths:{type}"]
                             ?? $"/{type}/{{slug}}";
 
             foreach (var entry in typeEntries)

@@ -54,16 +54,12 @@ internal sealed class StartupSeedGate
 /// Readiness view of <see cref="StartupSeedGate"/>. Tagged "ready" only, never "live": a node whose
 /// seed has not finished must stay out of rotation, but restarting it only starts the seed over.
 /// </summary>
-internal sealed class StartupSeedHealthCheck : IHealthCheck
+internal sealed class StartupSeedHealthCheck(StartupSeedGate gate) : IHealthCheck
 {
-    private readonly StartupSeedGate _gate;
-
-    public StartupSeedHealthCheck(StartupSeedGate gate) => _gate = gate;
-
     public Task<HealthCheckResult> CheckHealthAsync(
         HealthCheckContext context,
         CancellationToken cancellationToken = default) =>
-        Task.FromResult(_gate.State == StartupSeedState.Completed
-            ? HealthCheckResult.Healthy(_gate.Detail)
-            : HealthCheckResult.Unhealthy(_gate.Detail));
+        Task.FromResult(gate.State == StartupSeedState.Completed
+            ? HealthCheckResult.Healthy(gate.Detail)
+            : HealthCheckResult.Unhealthy(gate.Detail));
 }

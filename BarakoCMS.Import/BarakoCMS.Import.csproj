@@ -5,7 +5,7 @@
 
     <IsPackable>true</IsPackable>
     <PackageId>BarakoCMS.Import</PackageId>
-    <Version>4.1.1</Version>
+    <Version>4.3.0</Version>
     <Description>Optional bulk-import module for barakoCMS: analyze .xlsx/CSV uploads and bulk-create content. Zero-dependency parsing via Talaan.</Description>
   </PropertyGroup>
 
@@ -16,6 +16,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
+    <ProjectReference Include="..\BarakoCMS.Abstractions\BarakoCMS.Abstractions.csproj" />
     <ProjectReference Include="..\barakoCMS\barakoCMS.csproj" />
     <!-- Talaan is consumed as a published NuGet package so this module builds standalone (CI, NuGet). -->
     <PackageReference Include="Talaan" />

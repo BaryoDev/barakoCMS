@@ -26,7 +26,7 @@ public sealed class BarakoModuleBuilder
     /// Registering the same module class twice is refused. It used to be skipped and nothing was
     /// said, so a host that deliberately added two configured instances got one of them and no
     /// explanation. A repeat is a configuration mistake, not a preference, and this matches how
-    /// <see cref="ModuleOrder"/> already treats two modules sharing a name.
+    /// <c>ModuleOrder</c> already treats two modules sharing a name.
     /// </remarks>
     /// <exception cref="InvalidOperationException">The module's type is already registered.</exception>
     public BarakoModuleBuilder Add(IBarakoModule module)
@@ -135,13 +135,19 @@ public sealed class BarakoModuleBuilder
     }
 
     /// <summary>
-    /// The core library as the dependency context names it: the package id, plus the assembly name
-    /// in case the two ever differ. A project reference and a package reference both list the id.
+    /// The core library as the dependency context names it. A project reference and a package
+    /// reference both list the id, and the comparer is case-insensitive, so the assembly name
+    /// (<c>barakoCMS</c>) matches the same entry.
     /// </summary>
+    /// <remarks>
+    /// Named rather than read off <c>typeof(IBarakoModule).Assembly</c>, which is the contract
+    /// assembly and not the core. Reading it there would put BarakoCMS.Abstractions in this set,
+    /// and since core depends on the contract, core would then reach "core" and be scanned for
+    /// modules it does not hold.
+    /// </remarks>
     private static readonly HashSet<string> CoreLibraryNames = new(StringComparer.OrdinalIgnoreCase)
     {
         "BarakoCMS",
-        typeof(IBarakoModule).Assembly.GetName().Name!,
     };
 
     /// <summary>

@@ -8,22 +8,11 @@ namespace barakoCMS.Infrastructure.Services;
 /// checks, identified by its id rather than its name: the name is not the key, and a custom role
 /// that took it used to inherit the bypass. See Models/SystemRoles.
 /// </summary>
-public class PermissionResolver : IPermissionResolver
+public class PermissionResolver(
+    IDocumentSession session,
+    IConditionEvaluator conditionEvaluator,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : IPermissionResolver
 {
-    private readonly IDocumentSession _session;
-    private readonly IConditionEvaluator _conditionEvaluator;
-    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
-
-    public PermissionResolver(
-        IDocumentSession session,
-        IConditionEvaluator conditionEvaluator,
-        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
-    {
-        _session = session;
-        _conditionEvaluator = conditionEvaluator;
-        _tenant = tenant;
-    }
-
     /// <summary>The user's roles in this tenant, read once per request.</summary>
     /// <remarks>
     /// Two queries per call, and every one of them asked the same question. The entries list checks
@@ -48,11 +37,11 @@ public class PermissionResolver : IPermissionResolver
         // Roles come from the user's membership in the current tenant (falling back to the user's
         // legacy roles when there's no membership).
         var roleIds = await barakoCMS.Infrastructure.Multitenancy.MembershipRoles
-            .EffectiveRoleIdsAsync(_session, user, _tenant.Slug, cancellationToken);
+            .EffectiveRoleIdsAsync(session, user, tenant.Slug, cancellationToken);
 
         IReadOnlyList<Models.Role> roles = roleIds.Count == 0
             ? Array.Empty<Models.Role>()
-            : await _session.Query<Models.Role>()
+            : await session.Query<Models.Role>()
                 .Where(r => r.Id.In(roleIds))
                 .ToListAsync(cancellationToken);
 
@@ -113,7 +102,7 @@ public class PermissionResolver : IPermissionResolver
                 // would resolve to "field not present" and deny every record including the caller's
                 // own, which reads as a broken rule rather than as a missing capability.
                 if (content == null || rule.Conditions == null || rule.Conditions.Count == 0 ||
-                    _conditionEvaluator.Evaluate(rule.Conditions, content, user))
+                    conditionEvaluator.Evaluate(rule.Conditions, content, user))
                 {
                     return true; // Granted by at least one role
                 }
@@ -162,16 +151,16 @@ public class PermissionResolver : IPermissionResolver
         string capability,
         CancellationToken cancellationToken = default)
     {
-        var user = await _session.LoadAsync<Models.User>(userId, cancellationToken);
+        var user = await session.LoadAsync<Models.User>(userId, cancellationToken);
         if (user is null)
             return false;
 
         var roleIds = await barakoCMS.Infrastructure.Multitenancy.MembershipRoles
-            .EffectiveRoleIdsAsync(_session, user, _tenant.Slug, cancellationToken);
+            .EffectiveRoleIdsAsync(session, user, tenant.Slug, cancellationToken);
         if (roleIds.Count == 0)
             return false;
 
-        var roles = await _session.Query<Models.Role>()
+        var roles = await session.Query<Models.Role>()
             .Where(r => r.Id.In(roleIds))
             .ToListAsync(cancellationToken);
 

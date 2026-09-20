@@ -18,12 +18,8 @@ public class Request : PaginatedRequest
 /// GET /api/files. The uploads in this tenant, newest first, without the cached resizes: a variant
 /// is reached as <c>?w=</c> on its original and has no row of its own here, as on the downloads.
 /// </summary>
-public class Endpoint : Endpoint<Request, PaginatedResponse<FileMetadata>>
+public class Endpoint(IQuerySession session) : Endpoint<Request, PaginatedResponse<FileMetadata>>
 {
-    private readonly IQuerySession _session;
-
-    public Endpoint(IQuerySession session) => _session = session;
-
     public override void Configure()
     {
         Get("/api/files");
@@ -32,7 +28,7 @@ public class Endpoint : Endpoint<Request, PaginatedResponse<FileMetadata>>
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        var query = _session.Query<StoredFile>().Where(f => f.ParentFileId == null);
+        var query = session.Query<StoredFile>().Where(f => f.ParentFileId == null);
 
         var name = req.Q?.Trim();
         if (!string.IsNullOrEmpty(name))

@@ -41,12 +41,9 @@ internal sealed class RedirectResponse
     };
 }
 
-internal sealed class ListRedirectsEndpoint : Endpoint<PaginatedRequest, PaginatedResponse<RedirectResponse>>
+internal sealed class ListRedirectsEndpoint(
+    IQuerySession session) : Endpoint<PaginatedRequest, PaginatedResponse<RedirectResponse>>
 {
-    private readonly IQuerySession _session;
-
-    public ListRedirectsEndpoint(IQuerySession session) => _session = session;
-
     public override void Configure()
     {
         Get("/api/redirects");
@@ -55,7 +52,7 @@ internal sealed class ListRedirectsEndpoint : Endpoint<PaginatedRequest, Paginat
 
     public override async Task HandleAsync(PaginatedRequest req, CancellationToken ct)
     {
-        var all = await _session.Query<UrlRedirect>().OrderBy(r => r.FromPath).ToListAsync(ct);
+        var all = await session.Query<UrlRedirect>().OrderBy(r => r.FromPath).ToListAsync(ct);
 
         await Send.OkAsync(new PaginatedResponse<RedirectResponse>
         {
@@ -76,18 +73,10 @@ internal sealed class SaveRedirectRequest
     public string? Note { get; set; }
 }
 
-internal sealed class SaveRedirectEndpoint : Endpoint<SaveRedirectRequest, RedirectResponse>
+internal sealed class SaveRedirectEndpoint(
+    IDocumentSession session,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<SaveRedirectRequest, RedirectResponse>
 {
-    private readonly IDocumentSession _session;
-    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
-
-    public SaveRedirectEndpoint(
-        IDocumentSession session, barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
-    {
-        _session = session;
-        _tenant = tenant;
-    }
-
     public override void Configure()
     {
         Post("/api/redirects");
@@ -99,7 +88,7 @@ internal sealed class SaveRedirectEndpoint : Endpoint<SaveRedirectRequest, Redir
         var from = UrlRedirect.Normalize(req.FromPath);
         var to = UrlRedirect.Normalize(req.ToPath);
 
-        var stored = await _session.Query<UrlRedirect>().ToListAsync(ct);
+        var stored = await session.Query<UrlRedirect>().ToListAsync(ct);
 
         // The rule being edited is left out of the map it is checked against, or every edit reads as
         // a loop with itself.
@@ -138,10 +127,10 @@ internal sealed class SaveRedirectEndpoint : Endpoint<SaveRedirectRequest, Redir
         redirect.Note = req.Note;
         redirect.UpdatedAt = DateTime.UtcNow;
 
-        _session.Store(redirect);
+        session.Store(redirect);
 
         var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
-        await AuditLog.RecordAsync(_session, _tenant.Slug, "redirect.saved", actorId,
+        await AuditLog.RecordAsync(session, tenant.Slug, "redirect.saved", actorId,
             User.FindFirst("Username")?.Value,
             targetType: nameof(UrlRedirect), targetId: redirect.Id.ToString(),
             metadata: new Dictionary<string, object>
@@ -151,7 +140,7 @@ internal sealed class SaveRedirectEndpoint : Endpoint<SaveRedirectRequest, Redir
                 ["permanent"] = req.Permanent,
             }, ct: ct);
 
-        await _session.SaveChangesAsync(ct);
+        await session.SaveChangesAsync(ct);
 
         await Send.OkAsync(RedirectResponse.From(redirect), ct);
     }
@@ -162,18 +151,10 @@ internal sealed class DeleteRedirectRequest
     public Guid Id { get; set; }
 }
 
-internal sealed class DeleteRedirectEndpoint : Endpoint<DeleteRedirectRequest>
+internal sealed class DeleteRedirectEndpoint(
+    IDocumentSession session,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<DeleteRedirectRequest>
 {
-    private readonly IDocumentSession _session;
-    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
-
-    public DeleteRedirectEndpoint(
-        IDocumentSession session, barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
-    {
-        _session = session;
-        _tenant = tenant;
-    }
-
     public override void Configure()
     {
         Delete("/api/redirects/{id}");
@@ -182,22 +163,22 @@ internal sealed class DeleteRedirectEndpoint : Endpoint<DeleteRedirectRequest>
 
     public override async Task HandleAsync(DeleteRedirectRequest req, CancellationToken ct)
     {
-        var redirect = await _session.LoadAsync<UrlRedirect>(req.Id, ct);
+        var redirect = await session.LoadAsync<UrlRedirect>(req.Id, ct);
         if (redirect is null)
         {
             await Send.NotFoundAsync(ct);
             return;
         }
 
-        _session.Delete(redirect);
+        session.Delete(redirect);
 
         var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
-        await AuditLog.RecordAsync(_session, _tenant.Slug, "redirect.deleted", actorId,
+        await AuditLog.RecordAsync(session, tenant.Slug, "redirect.deleted", actorId,
             User.FindFirst("Username")?.Value,
             targetType: nameof(UrlRedirect), targetId: redirect.Id.ToString(),
             metadata: new Dictionary<string, object> { ["from"] = redirect.FromPath }, ct: ct);
 
-        await _session.SaveChangesAsync(ct);
+        await session.SaveChangesAsync(ct);
 
         await Send.NoContentAsync(ct);
     }

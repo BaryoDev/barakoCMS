@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests;
 /// </summary>
 public class EventSurfaceTests
 {
-    private static readonly Assembly Core = typeof(barakoCMS.Modules.IBarakoModule).Assembly;
+    private static readonly Assembly Core = typeof(barakoCMS.Data.DataSeeder).Assembly;
 
     private const string EventNamespace = "barakoCMS.Events.";
 

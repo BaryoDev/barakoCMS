@@ -43,15 +43,8 @@ public interface IContentValidatorService
         => ValidateAsync(contentType, data, existing: null);
 }
 
-public class ContentValidatorService : IContentValidatorService
+public class ContentValidatorService(IQuerySession session) : IContentValidatorService
 {
-    private readonly IQuerySession _session;
-
-    public ContentValidatorService(IQuerySession session)
-    {
-        _session = session;
-    }
-
     public async Task<(bool IsValid, List<string> Errors)> ValidateAsync(
         string contentType,
         Dictionary<string, object> data,
@@ -60,7 +53,7 @@ public class ContentValidatorService : IContentValidatorService
         var errors = new List<string>();
         
         // 1. Load Schema
-        var schema = await _session.Query<ContentTypeDefinition>()
+        var schema = await session.Query<ContentTypeDefinition>()
             .FirstOrDefaultAsync(x => x.Name == contentType);
 
         // 2. The singleton cap. Creating only: an update is not a second entry, and refusing it
@@ -79,7 +72,7 @@ public class ContentValidatorService : IContentValidatorService
         {
             var lowered = contentType.ToLower();
 
-            var definition = schema ?? await _session.Query<ContentTypeDefinition>()
+            var definition = schema ?? await session.Query<ContentTypeDefinition>()
                 .FirstOrDefaultAsync(x => x.Name.ToLower() == lowered);
 
             if (definition?.IsSingleton == true)
@@ -90,7 +83,7 @@ public class ContentValidatorService : IContentValidatorService
                 // type holds one row, and a reader that takes the first item of the list cannot tell
                 // an archived row from a live one. Freeing the slot means erasing the entry, which
                 // needs SuperAdmin and the EraseContent capability.
-                var taken = await _session.Query<Models.Content>()
+                var taken = await session.Query<Models.Content>()
                     .AnyAsync(c => c.ContentType.ToLower() == typeName);
 
                 if (taken)
@@ -215,7 +208,7 @@ public class ContentValidatorService : IContentValidatorService
 
         var (sql, parameters) = barakoCMS.Features.Public.DeliveryQuery.FieldEqualsIgnoreCaseSql(slugField, slug);
 
-        var holders = _session.Query<Models.Content>()
+        var holders = session.Query<Models.Content>()
             .Where(c => c.ContentType == contentType && c.MatchesSql(sql, parameters));
 
         if (entryId is { } id)
@@ -250,7 +243,7 @@ public class ContentValidatorService : IContentValidatorService
         if (!Guid.TryParse(raw, out var targetId))
             return $"Field '{field.DisplayName}' expects a reference id.";
 
-        var target = await _session.LoadAsync<Models.Content>(targetId);
+        var target = await session.LoadAsync<Models.Content>(targetId);
 
         if (target is null)
             return $"Field '{field.DisplayName}' references {targetId}, which does not exist.";

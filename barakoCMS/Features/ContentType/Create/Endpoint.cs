@@ -51,28 +51,13 @@ internal class Response
     public bool EventSourced { get; set; }
 }
 
-internal class Endpoint : Endpoint<Request, Response>
+internal class Endpoint(
+    IDocumentSession session,
+    barakoCMS.Infrastructure.Services.IContentTypeValidatorService validator,
+    barakoCMS.Infrastructure.OpenApi.DeliveryDocumentCache openApiCache,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
+    barakoCMS.Core.Interfaces.IContentSourcingPolicy sourcing) : Endpoint<Request, Response>
 {
-    private readonly IDocumentSession _session;
-    private readonly barakoCMS.Infrastructure.Services.IContentTypeValidatorService _validator;
-    private readonly barakoCMS.Infrastructure.OpenApi.DeliveryDocumentCache _openApiCache;
-    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
-    private readonly barakoCMS.Core.Interfaces.IContentSourcingPolicy _sourcing;
-
-    public Endpoint(
-        IDocumentSession session,
-        barakoCMS.Infrastructure.Services.IContentTypeValidatorService validator,
-        barakoCMS.Infrastructure.OpenApi.DeliveryDocumentCache openApiCache,
-        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
-        barakoCMS.Core.Interfaces.IContentSourcingPolicy sourcing)
-    {
-        _session = session;
-        _validator = validator;
-        _openApiCache = openApiCache;
-        _tenant = tenant;
-        _sourcing = sourcing;
-    }
-
     public override void Configure()
     {
         Post("/api/content-types");
@@ -87,9 +72,9 @@ internal class Endpoint : Endpoint<Request, Response>
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
         // 1. Validate ContentType
-        var (isValid, errors) = _validator.Validate(req.Name, req.DisplayName, req.Fields);
+        var (isValid, errors) = validator.Validate(req.Name, req.DisplayName, req.Fields);
 
-        var (lifecycleValid, lifecycleErrors) = _validator.ValidateLifecycle(req.Lifecycle);
+        var (lifecycleValid, lifecycleErrors) = validator.ValidateLifecycle(req.Lifecycle);
         if (!lifecycleValid)
         {
             isValid = false;
@@ -120,7 +105,7 @@ internal class Endpoint : Endpoint<Request, Response>
         // exactly and finds nothing, while every reader in the codebase matches names with
         // OrdinalIgnoreCase and considers it the same type. That gap let "article" be created beside
         // it, and created with the opposite sourcing answer.
-        var existing = await _session.Query<ContentTypeDefinition>()
+        var existing = await session.Query<ContentTypeDefinition>()
             .FirstOrDefaultAsync(x => x.Name.ToLower() == slug, ct);
 
         if (existing != null)
@@ -130,7 +115,7 @@ internal class Endpoint : Endpoint<Request, Response>
 
         // 4. Sourcing policy. Read before anything is written, because two of the three answers here
         // are refusals and a refusal has to happen before the type exists.
-        var standing = await _sourcing.GetAsync(slug, ct);
+        var standing = await sourcing.GetAsync(slug, ct);
 
         if (standing is not null && standing.EventSourced != req.EventSourced)
         {
@@ -156,7 +141,7 @@ internal class Endpoint : Endpoint<Request, Response>
             // Case-insensitive for the same reason as the duplicate check above: entries created
             // before names were normalised carry whatever the caller typed, and counting none of
             // them is what let a name with history be claimed as event sourced.
-            var entries = await _session.Query<barakoCMS.Models.Content>()
+            var entries = await session.Query<barakoCMS.Models.Content>()
                 .CountAsync(c => c.ContentType.ToLower() == slug, ct);
 
             if (entries > 0)
@@ -214,16 +199,16 @@ internal class Endpoint : Endpoint<Request, Response>
             UpdatedAt = DateTimeOffset.UtcNow
         };
 
-        _session.Store(def);
+        session.Store(def);
 
         // Written once for a name and never deleted, which is what makes recreating it inherit
         // rather than re-decide. Staged into the same transaction as the definition, so a type
         // cannot exist without its policy.
-        var policy = await _sourcing.DecideAsync(slug, req.EventSourced, ct);
+        var policy = await sourcing.DecideAsync(slug, req.EventSourced, ct);
 
         try
         {
-            await _session.SaveChangesAsync(ct);
+            await session.SaveChangesAsync(ct);
         }
         catch (Exception ex) when (IsUniqueViolation(ex))
         {
@@ -234,7 +219,7 @@ internal class Endpoint : Endpoint<Request, Response>
 
         // A new deliverable type is three new paths in the OpenAPI document, and the point is that
         // they show up without a restart.
-        _openApiCache.Invalidate(_tenant.Slug);
+        openApiCache.Invalidate(tenant.Slug);
 
         await Send.OkAsync(new Response
         {

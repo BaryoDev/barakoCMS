@@ -32,12 +32,8 @@ public class Validator : Validator<Request>
 /// PATCH /api/files/{id}. Sets the alt text and caption. Nothing else about a file is editable:
 /// the name, type and public flag are decided at upload and a frontend may have cached the answer.
 /// </summary>
-public class Endpoint : Endpoint<Request, FileMetadata>
+public class Endpoint(IDocumentSession session) : Endpoint<Request, FileMetadata>
 {
-    private readonly IDocumentSession _session;
-
-    public Endpoint(IDocumentSession session) => _session = session;
-
     public override void Configure()
     {
         Patch("/api/files/{id}");
@@ -46,7 +42,7 @@ public class Endpoint : Endpoint<Request, FileMetadata>
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        var file = await _session.LoadAsync<StoredFile>(req.Id, ct);
+        var file = await session.LoadAsync<StoredFile>(req.Id, ct);
         if (file is null || file.ParentFileId is not null)
         {
             await Send.NotFoundAsync(ct);
@@ -56,8 +52,8 @@ public class Endpoint : Endpoint<Request, FileMetadata>
         if (req.Alt is not null) file.Alt = Clean(req.Alt);
         if (req.Caption is not null) file.Caption = Clean(req.Caption);
 
-        _session.Store(file);
-        await _session.SaveChangesAsync(ct);
+        session.Store(file);
+        await session.SaveChangesAsync(ct);
 
         await Send.OkAsync(FileMetadata.From(file), ct);
     }

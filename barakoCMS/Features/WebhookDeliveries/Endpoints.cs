@@ -69,18 +69,11 @@ internal sealed class ListDeliveriesRequest : ListRequest
 /// <see cref="SystemCapabilities.ViewWorkflowRuns"/> still gets every row, with the status, the
 /// error and everything else the row carries; only the body itself is withheld. See issue #607.
 /// </remarks>
-internal sealed class ListDeliveriesEndpoint : Endpoint<ListDeliveriesRequest, PaginatedResponse<WebhookDeliveryResponse>>
+internal sealed class ListDeliveriesEndpoint(
+    IQuerySession session,
+    IPermissionResolver permissionResolver) : Endpoint<ListDeliveriesRequest, PaginatedResponse<WebhookDeliveryResponse>>
 {
     private static readonly string[] StatusClasses = ["2xx", "3xx", "4xx", "5xx", "failed"];
-
-    private readonly IQuerySession _session;
-    private readonly IPermissionResolver _permissionResolver;
-
-    public ListDeliveriesEndpoint(IQuerySession session, IPermissionResolver permissionResolver)
-    {
-        _session = session;
-        _permissionResolver = permissionResolver;
-    }
 
     public override void Configure()
     {
@@ -90,7 +83,7 @@ internal sealed class ListDeliveriesEndpoint : Endpoint<ListDeliveriesRequest, P
 
     public override async Task HandleAsync(ListDeliveriesRequest req, CancellationToken ct)
     {
-        var query = _session.Query<WebhookDelivery>().AsQueryable();
+        var query = session.Query<WebhookDelivery>().AsQueryable();
 
         if (req.WorkflowId is { } workflowId)
         {
@@ -118,7 +111,7 @@ internal sealed class ListDeliveriesEndpoint : Endpoint<ListDeliveriesRequest, P
         HttpContext.Response.Headers.CacheControl = "no-store";
 
         var canReadResponseBody = Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId)
-            && await _permissionResolver.HasCapabilityAsync(userId, SystemCapabilities.ViewWebhookResponseBodies, ct);
+            && await permissionResolver.HasCapabilityAsync(userId, SystemCapabilities.ViewWebhookResponseBodies, ct);
 
         await Send.ResponseAsync(new PaginatedResponse<WebhookDeliveryResponse>
         {

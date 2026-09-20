@@ -28,7 +28,10 @@ namespace barakoCMS.Features.WebhookDeliveries;
 /// mistake can be recovered from. Each window uses that reading on its own; a deployment can keep
 /// the row forever while still clearing bodies hourly, or the other way round.
 /// </remarks>
-internal sealed class WebhookDeliveryRetentionService : BackgroundService
+internal sealed class WebhookDeliveryRetentionService(
+    IDocumentStore store,
+    IConfiguration config,
+    ILogger<WebhookDeliveryRetentionService> logger) : BackgroundService
 {
     public const string RetentionDaysKey = "Webhooks:DeliveryLogRetentionDays";
     public const int DefaultRetentionDays = 30;
@@ -45,27 +48,15 @@ internal sealed class WebhookDeliveryRetentionService : BackgroundService
     private static readonly TimeSpan SweepInterval = TimeSpan.FromHours(1);
     private static readonly TimeSpan StartupDelay = TimeSpan.FromMinutes(2);
 
-    private readonly IDocumentStore _store;
-    private readonly IConfiguration _config;
-    private readonly ILogger<WebhookDeliveryRetentionService> _logger;
+    public int RetentionDays => config.GetValue(RetentionDaysKey, DefaultRetentionDays);
 
-    public WebhookDeliveryRetentionService(
-        IDocumentStore store, IConfiguration config, ILogger<WebhookDeliveryRetentionService> logger)
-    {
-        _store = store;
-        _config = config;
-        _logger = logger;
-    }
-
-    public int RetentionDays => _config.GetValue(RetentionDaysKey, DefaultRetentionDays);
-
-    public int ResponseBodyRetentionHours => _config.GetValue(ResponseBodyRetentionHoursKey, DefaultResponseBodyRetentionHours);
+    public int ResponseBodyRetentionHours => config.GetValue(ResponseBodyRetentionHoursKey, DefaultResponseBodyRetentionHours);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         if (RetentionDays <= 0 && ResponseBodyRetentionHours <= 0)
         {
-            _logger.LogInformation(
+            logger.LogInformation(
                 "{RowKey} and {BodyKey} are both zero or less, so webhook deliveries and their response bodies are kept forever.",
                 RetentionDaysKey, ResponseBodyRetentionHoursKey);
             return;
@@ -87,11 +78,11 @@ internal sealed class WebhookDeliveryRetentionService : BackgroundService
                 var (removed, bodiesCleared) = await SweepAllTenantsAsync(DateTimeOffset.UtcNow, stoppingToken);
                 if (removed > 0)
                 {
-                    _logger.LogInformation("Webhook delivery retention removed {Count} row(s)", removed);
+                    logger.LogInformation("Webhook delivery retention removed {Count} row(s)", removed);
                 }
                 if (bodiesCleared > 0)
                 {
-                    _logger.LogInformation("Webhook delivery retention cleared {Count} response body/bodies", bodiesCleared);
+                    logger.LogInformation("Webhook delivery retention cleared {Count} response body/bodies", bodiesCleared);
                 }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -100,7 +91,7 @@ internal sealed class WebhookDeliveryRetentionService : BackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error during the webhook delivery retention sweep");
+                logger.LogError(ex, "Error during the webhook delivery retention sweep");
             }
 
             try
@@ -119,11 +110,11 @@ internal sealed class WebhookDeliveryRetentionService : BackgroundService
         var removed = 0;
         var bodiesCleared = 0;
 
-        var fromRegistry = TenantPartitions.Enforced(_config);
+        var fromRegistry = TenantPartitions.Enforced(config);
 
-        foreach (var tenantId in await TenantPartitions.ListAsync(_store, _config, PartitionsWithDeliveriesSql, ct))
+        foreach (var tenantId in await TenantPartitions.ListAsync(store, config, PartitionsWithDeliveriesSql, ct))
         {
-            await using var session = _store.LightweightSession(tenantId);
+            await using var session = store.LightweightSession(tenantId);
 
             // From the registry most partitions hold nothing, and one query is the cheapest way to
             // say so. From the rows every partition already holds a delivery.

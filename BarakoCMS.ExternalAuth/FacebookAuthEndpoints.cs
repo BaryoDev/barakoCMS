@@ -26,11 +26,8 @@ internal static class Fb
 }
 
 /// <summary>GET /api/auth/facebook/start?club={handle} — redirect the browser to Facebook's consent dialog.</summary>
-public class FacebookStartEndpoint : EndpointWithoutRequest
+public class FacebookStartEndpoint(IConfiguration config) : EndpointWithoutRequest
 {
-    private readonly IConfiguration _config;
-    public FacebookStartEndpoint(IConfiguration config) => _config = config;
-
     public override void Configure()
     {
         Get("/api/auth/facebook/start");
@@ -39,15 +36,15 @@ public class FacebookStartEndpoint : EndpointWithoutRequest
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        if (!ExternalAuthSupport.ProviderEnabled(_config, "Facebook", "AppId")) { await Send.NotFoundAsync(ct); return; }
+        if (!ExternalAuthSupport.ProviderEnabled(config, "Facebook", "AppId")) { await Send.NotFoundAsync(ct); return; }
         var club = (Query<string>("club", isRequired: false) ?? "").Trim().ToLowerInvariant();
         var state = ExternalAuthSupport.NewState();
 
         HttpContext.Response.Cookies.Append("fb_state", state, ExternalAuthSupport.ShortCookie());
         HttpContext.Response.Cookies.Append("fb_club", club, ExternalAuthSupport.ShortCookie());
 
-        var appId = _config["Facebook:AppId"];
-        var redirect = Fb.CallbackUrl(_config, HttpContext);
+        var appId = config["Facebook:AppId"];
+        var redirect = Fb.CallbackUrl(config, HttpContext);
         var url =
             $"{Fb.Dialog}?client_id={appId}" +
             $"&redirect_uri={Uri.EscapeDataString(redirect)}" +
@@ -58,28 +55,13 @@ public class FacebookStartEndpoint : EndpointWithoutRequest
 }
 
 /// <summary>GET /api/auth/facebook/callback — exchange the code, resolve the user, mint our token, hand it back.</summary>
-public class FacebookCallbackEndpoint : EndpointWithoutRequest
+public class FacebookCallbackEndpoint(
+    IHttpClientFactory httpFactory,
+    IDocumentSession session,
+    IConfiguration config,
+    barakoCMS.Core.Interfaces.IDeviceGate deviceGate,
+    barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer) : EndpointWithoutRequest
 {
-    private readonly IHttpClientFactory _httpFactory;
-    private readonly IDocumentSession _session;
-    private readonly IConfiguration _config;
-    private readonly barakoCMS.Core.Interfaces.IDeviceGate _deviceGate;
-    private readonly barakoCMS.Infrastructure.Auth.ITokenIssuer _tokenIssuer;
-
-    public FacebookCallbackEndpoint(
-        IHttpClientFactory httpFactory,
-        IDocumentSession session,
-        IConfiguration config,
-        barakoCMS.Core.Interfaces.IDeviceGate deviceGate,
-        barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer)
-    {
-        _httpFactory = httpFactory;
-        _session = session;
-        _config = config;
-        _deviceGate = deviceGate;
-        _tokenIssuer = tokenIssuer;
-    }
-
     public override void Configure()
     {
         Get("/api/auth/facebook/callback");
@@ -88,7 +70,7 @@ public class FacebookCallbackEndpoint : EndpointWithoutRequest
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        var baseUrl = ExternalAuthSupport.BaseUrl(_config, HttpContext);
+        var baseUrl = ExternalAuthSupport.BaseUrl(config, HttpContext);
         var club = HttpContext.Request.Cookies["fb_club"] ?? "";
         var cookieState = HttpContext.Request.Cookies["fb_state"];
         var code = Query<string>("code", isRequired: false);
@@ -115,13 +97,13 @@ public class FacebookCallbackEndpoint : EndpointWithoutRequest
         SocialSignIn.ProfileData profile;
         try
         {
-            var http = _httpFactory.CreateClient();
-            var redirect = Fb.CallbackUrl(_config, HttpContext);
+            var http = httpFactory.CreateClient();
+            var redirect = Fb.CallbackUrl(config, HttpContext);
 
             var tokenUrl =
-                $"{Fb.Graph}/oauth/access_token?client_id={_config["Facebook:AppId"]}" +
+                $"{Fb.Graph}/oauth/access_token?client_id={config["Facebook:AppId"]}" +
                 $"&redirect_uri={Uri.EscapeDataString(redirect)}" +
-                $"&client_secret={_config["Facebook:AppSecret"]}" +
+                $"&client_secret={config["Facebook:AppSecret"]}" +
                 $"&code={Uri.EscapeDataString(code)}";
             var tokenDoc = await http.GetFromJsonAsync<JsonElement>(tokenUrl, ct);
             var userToken = tokenDoc.GetProperty("access_token").GetString();
@@ -138,7 +120,7 @@ public class FacebookCallbackEndpoint : EndpointWithoutRequest
             // enough for their deployment sets Facebook:TrustUnverifiedEmail, and takes on the
             // consequence that a Facebook account asserting an address becomes a login for the
             // local account holding it. Default is off, which refuses the sign-in.
-            emailVerified = _config.GetValue<bool>("Facebook:TrustUnverifiedEmail");
+            emailVerified = config.GetValue<bool>("Facebook:TrustUnverifiedEmail");
             var name = me.TryGetProperty("name", out var n) ? n.GetString() : null;
             var photo = me.TryGetProperty("picture", out var pic) && pic.TryGetProperty("data", out var pd)
                 && pd.TryGetProperty("url", out var pu) ? pu.GetString() : null;
@@ -160,7 +142,7 @@ public class FacebookCallbackEndpoint : EndpointWithoutRequest
         }
 
         var mfa = Resolve<barakoCMS.Infrastructure.Auth.Mfa.IMfaService>();
-        var tokens = await SocialSignIn.IssueAsync(_session, _config, _deviceGate, _tokenIssuer, mfa, HttpContext, email, emailVerified, club, ct, profile);
+        var tokens = await SocialSignIn.IssueAsync(session, config, deviceGate, tokenIssuer, mfa, HttpContext, email, emailVerified, club, ct, profile);
         if (tokens.RequiresMfa)
         {
             await Send.ResultAsync(Results.Redirect(SocialSignIn.FrontendMfaCallback(baseUrl, tokens.MfaChallenge!, club)));

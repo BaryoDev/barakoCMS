@@ -23,15 +23,8 @@ internal class HealthEntry
     public IEnumerable<string>? Tags { get; set; }
 }
 
-internal class Endpoint : EndpointWithoutRequest<DetailedHealthStatus>
+internal class Endpoint(HealthCheckService healthCheckService) : EndpointWithoutRequest<DetailedHealthStatus>
 {
-    private readonly HealthCheckService _healthCheckService;
-
-    public Endpoint(HealthCheckService healthCheckService)
-    {
-        _healthCheckService = healthCheckService;
-    }
-
     public override void Configure()
     {
         Get("/api/monitoring/health");
@@ -45,7 +38,7 @@ internal class Endpoint : EndpointWithoutRequest<DetailedHealthStatus>
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        var report = await _healthCheckService.CheckHealthAsync(ct);
+        var report = await healthCheckService.CheckHealthAsync(ct);
         var response = new DetailedHealthStatus
         {
             Status = report.Status.ToString(),

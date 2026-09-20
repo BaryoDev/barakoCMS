@@ -22,17 +22,10 @@ internal class Request
 /// <summary>
 /// Endpoint to validate workflow JSON schema.
 /// </summary>
-internal class Endpoint : Endpoint<Request, WorkflowValidationResult>
+internal class Endpoint(
+    IWorkflowSchemaValidator validator,
+    ILogger<Endpoint> logger) : Endpoint<Request, WorkflowValidationResult>
 {
-    private readonly IWorkflowSchemaValidator _validator;
-    private readonly ILogger<Endpoint> _logger;
-
-    public Endpoint(IWorkflowSchemaValidator validator, ILogger<Endpoint> logger)
-    {
-        _validator = validator;
-        _logger = logger;
-    }
-
     public override void Configure()
     {
         Post("/api/workflows/validate");
@@ -54,17 +47,17 @@ internal class Endpoint : Endpoint<Request, WorkflowValidationResult>
                 Actions = req.Actions
             };
 
-            var result = await _validator.ValidateAsync(workflow, ct);
+            var result = await validator.ValidateAsync(workflow, ct);
             await Send.ResponseAsync(result, cancellation: ct);
         }
         catch (OperationCanceledException)
         {
-            _logger.LogInformation("Workflow validation was cancelled");
+            logger.LogInformation("Workflow validation was cancelled");
             throw;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error validating workflow");
+            logger.LogError(ex, "Error validating workflow");
             await Send.ErrorsAsync(cancellation: ct);
         }
     }

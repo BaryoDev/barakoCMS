@@ -58,26 +58,14 @@ internal class ContentResponse
     public long Version { get; set; }
 }
 
-internal class Endpoint : Endpoint<Request, PaginatedResponse<ContentResponse>>
+internal class Endpoint(
+    IQuerySession session,
+    barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver,
+    ILogger<Endpoint> logger) : Endpoint<Request, PaginatedResponse<ContentResponse>>
 {
-    private readonly IQuerySession _session;
-    private readonly barakoCMS.Infrastructure.Services.IPermissionResolver _permissionResolver;
-    private readonly ILogger<Endpoint> _logger;
-
-    public Endpoint(
-        IQuerySession session,
-        barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver,
-        ILogger<Endpoint> logger)
-    {
-        _session = session;
-        _permissionResolver = permissionResolver;
-        _logger = logger;
-    }
-
     public override void Configure()
     {
         Get("/api/contents");
-        // Removed AllowAnonymous - requires authentication
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
@@ -93,7 +81,7 @@ internal class Endpoint : Endpoint<Request, PaginatedResponse<ContentResponse>>
             return;
         }
         
-        var user = await _session.LoadAsync<barakoCMS.Models.User>(userId, ct);
+        var user = await session.LoadAsync<barakoCMS.Models.User>(userId, ct);
         if (user == null)
         {
             await Send.UnauthorizedAsync(ct);
@@ -101,7 +89,7 @@ internal class Endpoint : Endpoint<Request, PaginatedResponse<ContentResponse>>
         }
 
         // 2. Build Query
-        var query = _session.Query<barakoCMS.Models.Content>().AsQueryable();
+        var query = session.Query<barakoCMS.Models.Content>().AsQueryable();
 
         if (!string.IsNullOrEmpty(req.ContentType))
         {
@@ -138,7 +126,7 @@ internal class Endpoint : Endpoint<Request, PaginatedResponse<ContentResponse>>
 
         // 4. Ask whether the read rules can be a WHERE clause. When they can, the database pages and
         // counts; when they cannot, everything below is exactly what it was.
-        var predicate = await _permissionResolver.ReadPredicateAsync(user, req.ContentType ?? string.Empty, ct);
+        var predicate = await permissionResolver.ReadPredicateAsync(user, req.ContentType ?? string.Empty, ct);
 
         // Only with a named type. Across all types each type has its own rules, and one predicate
         // cannot speak for rules it was not compiled from.
@@ -176,7 +164,7 @@ internal class Endpoint : Endpoint<Request, PaginatedResponse<ContentResponse>>
         var permittedItems = new List<ContentResponse>();
         foreach (var item in candidates)
         {
-            if (await _permissionResolver.CanPerformActionAsync(user, item.ContentType, "read", item, ct))
+            if (await permissionResolver.CanPerformActionAsync(user, item.ContentType, "read", item, ct))
             {
                 var response = new ContentResponse
                 {
@@ -200,7 +188,7 @@ internal class Endpoint : Endpoint<Request, PaginatedResponse<ContentResponse>>
         // disagreeing in production, and if they ever do, this is the direction that denies.
         if (predicate.Compiled && permittedItems.Count != candidates.Count)
         {
-            _logger.LogError(
+            logger.LogError(
                 "The read predicate returned {Returned} rows the per-item check reduced to {Permitted}. "
               + "The compiled predicate and ConditionEvaluator disagree, which is a defect in "
               + "PermissionPredicateCompiler. Serving the smaller set.",
@@ -216,7 +204,7 @@ internal class Endpoint : Endpoint<Request, PaginatedResponse<ContentResponse>>
 
         if (permittedTotal < 0) permittedTotal = permittedItems.Count;
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "Content list query: Page={Page}, PageSize={PageSize}, VisibleTotal={VisibleTotal}, "
           + "Returned={Returned}, Compiled={Compiled}",
             req.Page, req.PageSize, permittedTotal, pagedItems.Count, predicate.Compiled);
@@ -260,7 +248,7 @@ internal class Endpoint : Endpoint<Request, PaginatedResponse<ContentResponse>>
     {
         if (items.Count == 0) return;
 
-        var batch = _session.CreateBatchQuery();
+        var batch = session.CreateBatchQuery();
         var states = items.Select(i => batch.Events.FetchStreamState(i.Id)).ToList();
 
         await batch.Execute(ct);

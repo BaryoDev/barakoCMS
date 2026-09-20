@@ -52,20 +52,11 @@ internal interface IWorkflowRunQueue
     Task<int> EnqueueAsync(barakoCMS.Models.Content content, string eventType, long eventSequence, CancellationToken ct);
 }
 
-internal sealed class WorkflowRunQueue : IWorkflowRunQueue
+internal sealed class WorkflowRunQueue(IDocumentSession session, ILogger<WorkflowRunQueue> logger) : IWorkflowRunQueue
 {
-    private readonly IDocumentSession _session;
-    private readonly ILogger<WorkflowRunQueue> _logger;
-
-    public WorkflowRunQueue(IDocumentSession session, ILogger<WorkflowRunQueue> logger)
-    {
-        _session = session;
-        _logger = logger;
-    }
-
     public async Task<int> EnqueueAsync(barakoCMS.Models.Content content, string eventType, long eventSequence, CancellationToken ct)
     {
-        var workflows = await _session.Query<WorkflowDefinition>()
+        var workflows = await session.Query<WorkflowDefinition>()
             .Where(WorkflowTriggers.FiredBy(content.ContentType, eventType))
             .ToListAsync(ct);
 
@@ -81,7 +72,7 @@ internal sealed class WorkflowRunQueue : IWorkflowRunQueue
             // everything. A rebuild replays every event ever stored, and without this the first one
             // would re-fire every email and webhook this instance has ever sent. That is the failure
             // docs/operating-workflows.md calls expensive, and it stops being possible here.
-            var already = await _session.Query<WorkflowRun>()
+            var already = await session.Query<WorkflowRun>()
                 .Where(r => r.WorkflowDefinitionId == workflow.Id
                             && r.ContentId == content.Id
                             && r.TriggeringEventSequence == eventSequence)
@@ -89,7 +80,7 @@ internal sealed class WorkflowRunQueue : IWorkflowRunQueue
 
             if (already)
             {
-                _logger.LogDebug(
+                logger.LogDebug(
                     "Workflow {WorkflowId} already has a run for content {ContentId} at sequence {Sequence}",
                     workflow.Id, content.Id, eventSequence);
                 continue;
@@ -121,11 +112,11 @@ internal sealed class WorkflowRunQueue : IWorkflowRunQueue
             }
 
             run.Recompute();
-            _session.Store(run);
+            session.Store(run);
             queued++;
         }
 
-        if (queued > 0) await _session.SaveChangesAsync(ct);
+        if (queued > 0) await session.SaveChangesAsync(ct);
 
         return queued;
     }

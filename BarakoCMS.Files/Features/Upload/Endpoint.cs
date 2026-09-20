@@ -23,7 +23,11 @@ public class Response
 /// <see cref="IFileStorage"/> (Postgres or S3); metadata is recorded in Postgres. Pass a form field
 /// <c>isPublic=true</c> to make it anonymously readable; the default is private (fail closed).
 /// </summary>
-public class Endpoint : EndpointWithoutRequest<Response>
+public class Endpoint(
+    IDocumentSession session,
+    IFileStorage storage,
+    IFileScanner scanner,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : EndpointWithoutRequest<Response>
 {
     private const long MaxBytes = 10L * 1024 * 1024;
 
@@ -34,23 +38,6 @@ public class Endpoint : EndpointWithoutRequest<Response>
     {
         "image/png", "image/jpeg", "image/gif", "image/webp", "image/avif", "application/pdf",
     };
-
-    private readonly IDocumentSession _session;
-    private readonly IFileStorage _storage;
-    private readonly IFileScanner _scanner;
-    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
-
-    public Endpoint(
-        IDocumentSession session,
-        IFileStorage storage,
-        IFileScanner scanner,
-        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
-    {
-        _session = session;
-        _storage = storage;
-        _scanner = scanner;
-        _tenant = tenant;
-    }
 
     public override void Configure()
     {
@@ -101,7 +88,7 @@ public class Endpoint : EndpointWithoutRequest<Response>
         var ext = Path.GetExtension(file.FileName);
         var key = $"{Guid.NewGuid():N}{ext}";
 
-        if (_scanner.Configured)
+        if (scanner.Configured)
         {
             // Its own read of the file, finished before storage opens its own. The stream is
             // forward-only, so scanning and storing cannot share one, and buffering ten megabytes per
@@ -109,7 +96,7 @@ public class Endpoint : EndpointWithoutRequest<Response>
             ScanResult scan;
             await using (var forScanning = file.OpenReadStream())
             {
-                scan = await _scanner.ScanAsync(forScanning, ct);
+                scan = await scanner.ScanAsync(forScanning, ct);
             }
 
             if (scan.Verdict != ScanVerdict.Clean)
@@ -130,21 +117,21 @@ public class Endpoint : EndpointWithoutRequest<Response>
         }
 
         await using var stream = file.OpenReadStream();
-        var stored = await _storage.PutAsync(stream, key, contentType, isPublic, ct);
+        var stored = await storage.PutAsync(stream, key, contentType, isPublic, ct);
 
         var record = new StoredFile
         {
             FileName = Path.GetFileName(file.FileName),
             ContentType = contentType,
             Size = file.Length,
-            Provider = _storage.Provider,
+            Provider = storage.Provider,
             StorageKey = stored.Key,
             IsPublic = isPublic,
             PublicUrl = stored.PublicUrl,
             UploadedBy = userId,
         };
-        _session.Store(record);
-        await _session.SaveChangesAsync(ct);
+        session.Store(record);
+        await session.SaveChangesAsync(ct);
 
         await Send.ResponseAsync(new Response
         {
@@ -175,8 +162,8 @@ public class Endpoint : EndpointWithoutRequest<Response>
         IFormFile file, string contentType, Guid userId, ScanResult scan, CancellationToken ct)
     {
         await barakoCMS.Infrastructure.Audit.AuditLog.RecordAsync(
-            _session,
-            _tenant.Slug,
+            session,
+            tenant.Slug,
             scan.Verdict == ScanVerdict.Infected ? "file.refused.infected" : "file.refused.unscanned",
             userId,
             User.FindFirst("Username")?.Value ?? string.Empty,
@@ -193,6 +180,6 @@ public class Endpoint : EndpointWithoutRequest<Response>
             ipAddress: HttpContext.Connection.RemoteIpAddress?.ToString(),
             ct: ct);
 
-        await _session.SaveChangesAsync(ct);
+        await session.SaveChangesAsync(ct);
     }
 }

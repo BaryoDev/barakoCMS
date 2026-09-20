@@ -35,30 +35,21 @@ public interface ISessionEpochService
 /// A null result is cached too. Most users have never had a security event, so the common path must
 /// not be a database read that finds nothing every thirty seconds.
 /// </remarks>
-public sealed class SessionEpochService : ISessionEpochService
+public sealed class SessionEpochService(IQuerySession session, IMemoryCache cache) : ISessionEpochService
 {
-    private readonly IQuerySession _session;
-    private readonly IMemoryCache _cache;
-
     /// <summary>How stale an answer may be, and therefore how long a token outlives its revocation.</summary>
     public static readonly TimeSpan CacheDuration = TimeSpan.FromSeconds(30);
-
-    public SessionEpochService(IQuerySession session, IMemoryCache cache)
-    {
-        _session = session;
-        _cache = cache;
-    }
 
     private static string Key(Guid userId) => $"session-epoch:{userId}";
 
     public async Task<DateTime?> ValidFromAsync(Guid userId, CancellationToken ct = default)
     {
-        if (_cache.TryGetValue<DateTime?>(Key(userId), out var cached))
+        if (cache.TryGetValue<DateTime?>(Key(userId), out var cached))
             return cached;
 
         // Projected rather than loading the User, so this does not pull a whole document, and so a
         // cached User elsewhere in the session cannot answer with a stale copy of the field.
-        var validFrom = await _session.Query<Models.User>()
+        var validFrom = await session.Query<Models.User>()
             .Where(u => u.Id == userId)
             .Select(u => u.TokensValidFrom)
             .FirstOrDefaultAsync(ct);
@@ -66,7 +57,7 @@ public sealed class SessionEpochService : ISessionEpochService
         // Size is required: AddMemoryCache sets SizeLimit, and an entry without one throws. That
         // is not hypothetical, it is what this line did first, and the middleware's catch turned the
         // exception into a control that silently never fired.
-        _cache.Set(Key(userId), validFrom, new MemoryCacheEntryOptions
+        cache.Set(Key(userId), validFrom, new MemoryCacheEntryOptions
         {
             AbsoluteExpirationRelativeToNow = CacheDuration,
             Size = 1,
@@ -74,5 +65,5 @@ public sealed class SessionEpochService : ISessionEpochService
         return validFrom;
     }
 
-    public void Invalidate(Guid userId) => _cache.Remove(Key(userId));
+    public void Invalidate(Guid userId) => cache.Remove(Key(userId));
 }

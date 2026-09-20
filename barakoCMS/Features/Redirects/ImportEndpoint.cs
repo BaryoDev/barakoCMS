@@ -39,18 +39,10 @@ internal sealed class RedirectImportReport
 /// bundle is one export that should arrive whole, and a redirect list is a spreadsheet somebody
 /// typed, where the useful answer is "these four hundred worked and these three did not".
 /// </remarks>
-internal sealed class ImportRedirectsEndpoint : Endpoint<ImportRedirectsRequest, RedirectImportReport>
+internal sealed class ImportRedirectsEndpoint(
+    IDocumentSession session,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<ImportRedirectsRequest, RedirectImportReport>
 {
-    private readonly IDocumentSession _session;
-    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
-
-    public ImportRedirectsEndpoint(
-        IDocumentSession session, barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
-    {
-        _session = session;
-        _tenant = tenant;
-    }
-
     public override void Configure()
     {
         Post("/api/redirects/import");
@@ -87,7 +79,7 @@ internal sealed class ImportRedirectsEndpoint : Endpoint<ImportRedirectsRequest,
             return;
         }
 
-        var stored = await _session.Query<UrlRedirect>().ToListAsync(ct);
+        var stored = await session.Query<UrlRedirect>().ToListAsync(ct);
         var byPath = stored.ToDictionary(r => r.FromPath, StringComparer.Ordinal);
 
         // The map the loop check walks, seeded from the database and extended as lines are accepted,
@@ -141,7 +133,7 @@ internal sealed class ImportRedirectsEndpoint : Endpoint<ImportRedirectsRequest,
                 existing.Note = note ?? existing.Note;
                 existing.UpdatedAt = DateTime.UtcNow;
 
-                _session.Store(existing);
+                session.Store(existing);
                 updated++;
             }
             else
@@ -155,7 +147,7 @@ internal sealed class ImportRedirectsEndpoint : Endpoint<ImportRedirectsRequest,
                     Note = note,
                 };
 
-                _session.Store(redirect);
+                session.Store(redirect);
                 byPath[from] = redirect;
                 created++;
             }
@@ -170,7 +162,7 @@ internal sealed class ImportRedirectsEndpoint : Endpoint<ImportRedirectsRequest,
         if (!req.DryRun)
         {
             var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
-            await AuditLog.RecordAsync(_session, _tenant.Slug, "redirect.imported", actorId,
+            await AuditLog.RecordAsync(session, tenant.Slug, "redirect.imported", actorId,
                 User.FindFirst("Username")?.Value,
                 targetType: nameof(UrlRedirect),
                 metadata: new Dictionary<string, object>
@@ -180,7 +172,7 @@ internal sealed class ImportRedirectsEndpoint : Endpoint<ImportRedirectsRequest,
                     ["rejected"] = rejected.Count,
                 }, ct: ct);
 
-            await _session.SaveChangesAsync(ct);
+            await session.SaveChangesAsync(ct);
         }
 
         await Send.OkAsync(new RedirectImportReport

@@ -22,17 +22,10 @@ public sealed record SemanticResponse(IReadOnlyList<SemanticHit> Results, int Co
 /// document-Public before returning it — so an entry unpublished or hidden since indexing never leaks.
 /// Anonymous and cacheable; the literal "semantic" segment wins over the {slug} route.
 /// </summary>
-public class SemanticSearchEndpoint : EndpointWithoutRequest<SemanticResponse>
+public class SemanticSearchEndpoint(
+    IQuerySession session,
+    IEmbeddingClient embed) : EndpointWithoutRequest<SemanticResponse>
 {
-    private readonly IQuerySession _session;
-    private readonly IEmbeddingClient _embed;
-
-    public SemanticSearchEndpoint(IQuerySession session, IEmbeddingClient embed)
-    {
-        _session = session;
-        _embed = embed;
-    }
-
     private const int MaxResults = 20;
     private const double Floor = 0.4; // ignore weak matches so an unrelated query returns nothing
 
@@ -53,12 +46,12 @@ public class SemanticSearchEndpoint : EndpointWithoutRequest<SemanticResponse>
         // Semantic search is public delivery in another form, so it answers to the same type-level
         // opt-in. Checked before anything else: embedding an unserviceable query would still spend a
         // model call, which makes an ungated endpoint a free compute endpoint as well as a leak.
-        var def = await _session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
+        var def = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
         if (def is not { IsPubliclyDeliverable: true }) { await Send.NotFoundAsync(ct); return; }
 
-        if (q.Length < 2 || !_embed.IsConfigured) { await Send.OkAsync(empty, ct); return; }
+        if (q.Length < 2 || !embed.IsConfigured) { await Send.OkAsync(empty, ct); return; }
 
-        var queryVector = await _embed.EmbedAsync(q, ct);
+        var queryVector = await embed.EmbedAsync(q, ct);
         if (queryVector is null) { await Send.OkAsync(empty, ct); return; }
 
         // Ranking happens in memory, so the read is capped rather than trusting the type to be small.
@@ -66,7 +59,7 @@ public class SemanticSearchEndpoint : EndpointWithoutRequest<SemanticResponse>
         // Ordered by id so the same subset is ranked on every request, which keeps a cached answer
         // and a fresh one in agreement. Database-side ranking, which needs no cap, is #621.
         var scanLimit = Math.Clamp(Resolve<IOptions<AiOptions>>().Value.SemanticSearchScanLimit, 1, int.MaxValue - 1);
-        var scanned = await _session.Query<ContentEmbedding>()
+        var scanned = await session.Query<ContentEmbedding>()
             .Where(e => e.ContentType == type)
             .OrderBy(e => e.Id)
             .Take(scanLimit + 1)
@@ -84,7 +77,7 @@ public class SemanticSearchEndpoint : EndpointWithoutRequest<SemanticResponse>
         // The vector is only a hint; the current content is the source of truth on visibility.
         var current = ranked.Count == 0
             ? new Dictionary<Guid, Content>()
-            : (await _session.LoadManyAsync<Content>(ct, ranked.Select(x => x.e.Id).ToArray())).ToDictionary(c => c.Id);
+            : (await session.LoadManyAsync<Content>(ct, ranked.Select(x => x.e.Id).ToArray())).ToDictionary(c => c.Id);
 
         var results = new List<SemanticHit>();
         foreach (var (e, score) in ranked)

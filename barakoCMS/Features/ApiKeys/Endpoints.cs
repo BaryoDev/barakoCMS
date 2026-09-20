@@ -21,17 +21,10 @@ internal sealed record CreateApiKeyResponse(
     string TenantSlug, DateTime? ExpiresAt, DateTime CreatedAt);
 
 /// <summary>POST /api/api-keys — create a key; returns the full secret ONCE.</summary>
-internal class CreateApiKeyEndpoint : Endpoint<CreateApiKeyRequest, CreateApiKeyResponse>
+internal class CreateApiKeyEndpoint(
+    IDocumentSession session,
+    ApiKeyService keys) : Endpoint<CreateApiKeyRequest, CreateApiKeyResponse>
 {
-    private readonly IDocumentSession _session;
-    private readonly ApiKeyService _keys;
-
-    public CreateApiKeyEndpoint(IDocumentSession session, ApiKeyService keys)
-    {
-        _session = session;
-        _keys = keys;
-    }
-
     public override void Configure()
     {
         Post("/api/api-keys");
@@ -60,7 +53,7 @@ internal class CreateApiKeyEndpoint : Endpoint<CreateApiKeyRequest, CreateApiKey
         var creatorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var id) ? id : Guid.Empty;
         var tenant = (User.FindFirst("tenant")?.Value ?? Tenant.DefaultSlug).Trim().ToLowerInvariant();
 
-        var generated = _keys.Generate();
+        var generated = keys.Generate();
         var apiKey = new ApiKey
         {
             Id = Guid.NewGuid(),
@@ -74,8 +67,8 @@ internal class CreateApiKeyEndpoint : Endpoint<CreateApiKeyRequest, CreateApiKey
             Revoked = false,
             CreatedAt = DateTime.UtcNow,
         };
-        _session.Store(apiKey);
-        await _session.SaveChangesAsync(ct);
+        session.Store(apiKey);
+        await session.SaveChangesAsync(ct);
 
         // The one and only time the plaintext secret leaves the server.
         await Send.OkAsync(new CreateApiKeyResponse(
@@ -89,11 +82,8 @@ internal sealed record ApiKeyListItem(
     DateTime? ExpiresAt, DateTime? LastUsedAt, bool Revoked, DateTime CreatedAt);
 
 /// <summary>GET /api/api-keys — list the current tenant's keys (never the secret or hash).</summary>
-internal class ListApiKeysEndpoint : Endpoint<ListRequest, PaginatedResponse<ApiKeyListItem>>
+internal class ListApiKeysEndpoint(IQuerySession session) : Endpoint<ListRequest, PaginatedResponse<ApiKeyListItem>>
 {
-    private readonly IQuerySession _session;
-    public ListApiKeysEndpoint(IQuerySession session) => _session = session;
-
     public override void Configure()
     {
         Get("/api/api-keys");
@@ -103,7 +93,7 @@ internal class ListApiKeysEndpoint : Endpoint<ListRequest, PaginatedResponse<Api
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)
     {
         var tenant = (User.FindFirst("tenant")?.Value ?? Tenant.DefaultSlug).Trim().ToLowerInvariant();
-        var page = await _session.Query<ApiKey>()
+        var page = await session.Query<ApiKey>()
             .Where(k => k.TenantSlug == tenant)
             .OrderByDescending(k => k.CreatedAt)
             .ToPagedResponseAsync(req, ct);
@@ -123,11 +113,8 @@ internal class ListApiKeysEndpoint : Endpoint<ListRequest, PaginatedResponse<Api
 }
 
 /// <summary>DELETE /api/api-keys/{id} — revoke a key (soft; the record is kept). Effective immediately.</summary>
-internal class RevokeApiKeyEndpoint : EndpointWithoutRequest
+internal class RevokeApiKeyEndpoint(IDocumentSession session) : EndpointWithoutRequest
 {
-    private readonly IDocumentSession _session;
-    public RevokeApiKeyEndpoint(IDocumentSession session) => _session = session;
-
     public override void Configure()
     {
         Delete("/api/api-keys/{id}");
@@ -140,12 +127,12 @@ internal class RevokeApiKeyEndpoint : EndpointWithoutRequest
         var tenant = (User.FindFirst("tenant")?.Value ?? Tenant.DefaultSlug).Trim().ToLowerInvariant();
 
         // Scoped to the caller's tenant, so an admin can't revoke another tenant's key by guessing an id.
-        var key = await _session.Query<ApiKey>().FirstOrDefaultAsync(k => k.Id == id && k.TenantSlug == tenant, ct);
+        var key = await session.Query<ApiKey>().FirstOrDefaultAsync(k => k.Id == id && k.TenantSlug == tenant, ct);
         if (key is null) { await Send.NotFoundAsync(ct); return; }
 
         key.Revoked = true;
-        _session.Store(key);
-        await _session.SaveChangesAsync(ct);
+        session.Store(key);
+        await session.SaveChangesAsync(ct);
         await Send.NoContentAsync(ct);
     }
 }

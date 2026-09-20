@@ -17,24 +17,13 @@ namespace barakoCMS.Features.Public.Events;
 /// <c>?type=</c> repeats to filter by content type. A type that is not deliverable simply never
 /// matches, which says nothing about whether it exists.
 /// </remarks>
-internal sealed class StreamEndpoint : EndpointWithoutRequest
+internal sealed class StreamEndpoint(
+    ContentChangeBroadcaster broadcaster,
+    ContentEventsOptions options,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : EndpointWithoutRequest
 {
     /// <summary>A filter is a handful of names, not a way to make the server hold a large set per connection.</summary>
     private const int MaxTypes = 20;
-
-    private readonly ContentChangeBroadcaster _broadcaster;
-    private readonly ContentEventsOptions _options;
-    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
-
-    public StreamEndpoint(
-        ContentChangeBroadcaster broadcaster,
-        ContentEventsOptions options,
-        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
-    {
-        _broadcaster = broadcaster;
-        _options = options;
-        _tenant = tenant;
-    }
 
     public override void Configure()
     {
@@ -62,7 +51,7 @@ internal sealed class StreamEndpoint : EndpointWithoutRequest
             return Task.CompletedTask;
         });
 
-        if (!_options.Enabled)
+        if (!options.Enabled)
         {
             await Send.NotFoundAsync(ct);
             return;
@@ -86,14 +75,14 @@ internal sealed class StreamEndpoint : EndpointWithoutRequest
         // here, for the reason DeviceContext gives.
         var client = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
-        using var subscription = _broadcaster.TrySubscribe(
-            _tenant.Slug, types, client, _options.MaxConnections, _options.MaxConnectionsPerClient, out var refusal);
+        using var subscription = broadcaster.TrySubscribe(
+            tenant.Slug, types, client, options.MaxConnections, options.MaxConnectionsPerClient, out var refusal);
         if (subscription is null)
         {
             HttpContext.Response.Headers.RetryAfter = "5";
             var reason = refusal == ContentChangeBroadcaster.SubscribeRefusal.ClientCap
-                ? $"This client is at its event stream connection limit ({_options.MaxConnectionsPerClient}). Close a stream before opening another."
-                : $"The event stream is at its connection limit ({_options.MaxConnections}). Try again later.";
+                ? $"This client is at its event stream connection limit ({options.MaxConnectionsPerClient}). Close a stream before opening another."
+                : $"The event stream is at its connection limit ({options.MaxConnections}). Try again later.";
             await Send.StringAsync(reason, 503, "text/plain; charset=utf-8", ct);
             return;
         }
@@ -130,7 +119,7 @@ internal sealed class StreamEndpoint : EndpointWithoutRequest
 
             using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct))
             {
-                timeout.CancelAfter(_options.KeepAlive);
+                timeout.CancelAfter(options.KeepAlive);
                 try
                 {
                     change = await reader.ReadAsync(timeout.Token);

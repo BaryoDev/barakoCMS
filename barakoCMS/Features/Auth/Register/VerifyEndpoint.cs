@@ -38,18 +38,11 @@ internal class VerifyResponse
 /// properly. Minting tokens here would be a fourth issuer path to keep in step with those.
 /// </para>
 /// </remarks>
-internal class VerifyEndpoint : Endpoint<VerifyRequest, VerifyResponse>
+internal class VerifyEndpoint(
+    IDocumentSession session,
+    ILogger<VerifyEndpoint> logger) : Endpoint<VerifyRequest, VerifyResponse>
 {
     private const string Invalid = "That verification link is invalid or has expired.";
-
-    private readonly IDocumentSession _session;
-    private readonly ILogger<VerifyEndpoint> _logger;
-
-    public VerifyEndpoint(IDocumentSession session, ILogger<VerifyEndpoint> logger)
-    {
-        _session = session;
-        _logger = logger;
-    }
 
     public override void Configure()
     {
@@ -66,7 +59,7 @@ internal class VerifyEndpoint : Endpoint<VerifyRequest, VerifyResponse>
             return;
         }
 
-        var pending = await _session.LoadAsync<PendingRegistration>(pendingId, ct);
+        var pending = await session.LoadAsync<PendingRegistration>(pendingId, ct);
         if (pending is null || pending.Consumed || pending.ExpiresAt < DateTime.UtcNow)
         {
             ThrowError(Invalid);
@@ -85,7 +78,7 @@ internal class VerifyEndpoint : Endpoint<VerifyRequest, VerifyResponse>
         // this token has nothing left to create.
         var pendingUsername = barakoCMS.Models.User.NormalizeIdentity(pending.Username);
         var pendingEmail = barakoCMS.Models.User.NormalizeIdentity(pending.Email);
-        var taken = await _session.Query<User>()
+        var taken = await session.Query<User>()
             .FirstOrDefaultAsync(u => u.NormalizedUsername == pendingUsername || u.NormalizedEmail == pendingEmail, ct);
         if (taken is not null)
         {
@@ -98,8 +91,8 @@ internal class VerifyEndpoint : Endpoint<VerifyRequest, VerifyResponse>
         }
 
         Consume(pending);
-        _session.Store(Endpoint.NewUser(
-            await Endpoint.UserRoleIdsAsync(_session, ct),
+        session.Store(Endpoint.NewUser(
+            await Endpoint.UserRoleIdsAsync(session, ct),
             pending.Username,
             pending.Email,
             pending.PasswordHash));
@@ -110,14 +103,14 @@ internal class VerifyEndpoint : Endpoint<VerifyRequest, VerifyResponse>
             return;
         }
 
-        _logger.LogInformation("Registration verified for {Username}", pending.Username);
+        logger.LogInformation("Registration verified for {Username}", pending.Username);
         await Send.ResponseAsync(new VerifyResponse { Message = "Email confirmed. You can sign in now." });
     }
 
     private void Consume(PendingRegistration pending)
     {
         pending.Consumed = true;
-        _session.Update(pending);
+        session.Update(pending);
     }
 
     /// <summary>
@@ -134,7 +127,7 @@ internal class VerifyEndpoint : Endpoint<VerifyRequest, VerifyResponse>
     {
         try
         {
-            await _session.SaveChangesAsync(ct);
+            await session.SaveChangesAsync(ct);
             return true;
         }
         catch (JasperFx.ConcurrencyException)

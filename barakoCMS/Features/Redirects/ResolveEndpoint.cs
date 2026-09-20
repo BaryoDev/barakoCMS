@@ -29,12 +29,8 @@ internal sealed class ResolveRedirectResponse
 /// its own lookup failed, and an empty 200 would make "no redirect" and "a redirect to nowhere" the
 /// same answer.
 /// </remarks>
-internal sealed class ResolveRedirectEndpoint : EndpointWithoutRequest<ResolveRedirectResponse>
+internal sealed class ResolveRedirectEndpoint(IQuerySession session) : EndpointWithoutRequest<ResolveRedirectResponse>
 {
-    private readonly IQuerySession _session;
-
-    public ResolveRedirectEndpoint(IQuerySession session) => _session = session;
-
     public override void Configure()
     {
         Get("/api/public/redirects/resolve");
@@ -73,7 +69,7 @@ internal sealed class ResolveRedirectEndpoint : EndpointWithoutRequest<ResolveRe
         // One equality on the unique per-tenant index. Deliberately not a chain walk: the save path
         // refuses loops and long chains, so a stored rule points where it should, and following a
         // chain here would put the cost of somebody else's mistake on every visitor.
-        var redirect = await _session.Query<UrlRedirect>()
+        var redirect = await session.Query<UrlRedirect>()
             .FirstOrDefaultAsync(r => r.FromPath == path, ct);
 
         if (redirect is null)

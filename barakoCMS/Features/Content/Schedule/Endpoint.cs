@@ -11,21 +11,11 @@ namespace barakoCMS.Features.Content.Schedule;
 /// emits a real ContentStatusChanged event for each transition. Requires the same "update" permission as
 /// a status change.
 /// </summary>
-internal class Endpoint : Endpoint<Request, Response>
+internal class Endpoint(
+    IDocumentSession session,
+    barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver,
+    IContentWriter contentWriter) : Endpoint<Request, Response>
 {
-    private readonly IDocumentSession _session;
-    private readonly IContentWriter _contentWriter;
-    private readonly barakoCMS.Infrastructure.Services.IPermissionResolver _permissionResolver;
-
-    public Endpoint(
-        IDocumentSession session,
-        barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver, IContentWriter contentWriter)
-    {
-        _contentWriter = contentWriter;
-        _session = session;
-        _permissionResolver = permissionResolver;
-    }
-
     public override void Configure()
     {
         Put("/api/contents/{id}/schedule");
@@ -45,15 +35,15 @@ internal class Endpoint : Endpoint<Request, Response>
             ThrowError("Invalid or missing User ID claim");
         }
 
-        var user = await _session.LoadAsync<barakoCMS.Models.User>(userId, ct);
-        var content = await _session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct);
+        var user = await session.LoadAsync<barakoCMS.Models.User>(userId, ct);
+        var content = await session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct);
         if (content == null)
         {
             await Send.NotFoundAsync(ct);
             return;
         }
 
-        if (user == null || !await _permissionResolver.CanPerformActionAsync(user, content.ContentType, "update", content, ct))
+        if (user == null || !await permissionResolver.CanPerformActionAsync(user, content.ContentType, "update", content, ct))
         {
             await Send.ForbiddenAsync(ct);
             return;
@@ -98,8 +88,8 @@ internal class Endpoint : Endpoint<Request, Response>
             // Both events go in one call rather than two, so the schedule and the status it implies
             // land in the same commit under the same expected version. Appending them separately
             // would leave a stream that can hold a schedule with no status behind it.
-            await _contentWriter.AppendAsync(content, events, req.Version == 0 ? null : req.Version, ct);
-            await _session.SaveChangesAsync(ct);
+            await contentWriter.AppendAsync(content, events, req.Version == 0 ? null : req.Version, ct);
+            await session.SaveChangesAsync(ct);
         }
         catch (StaleContentException ex)
         {

@@ -49,22 +49,11 @@ internal sealed class Response
     public int Skipped { get; set; }
 }
 
-internal class Endpoint : Endpoint<Request, Response>
+internal class Endpoint(
+    IDocumentSession session,
+    IContentRebuilder rebuilder,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<Request, Response>
 {
-    private readonly IDocumentSession _session;
-    private readonly IContentRebuilder _rebuilder;
-    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
-
-    public Endpoint(
-        IDocumentSession session,
-        IContentRebuilder rebuilder,
-        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
-    {
-        _session = session;
-        _rebuilder = rebuilder;
-        _tenant = tenant;
-    }
-
     public override void Configure()
     {
         Post("/api/content-types/{name}/rebuild");
@@ -75,7 +64,7 @@ internal class Endpoint : Endpoint<Request, Response>
     {
         var name = barakoCMS.Core.ContentTypeName.Normalize(req.Name);
 
-        var def = await _session.Query<ContentTypeDefinition>()
+        var def = await session.Query<ContentTypeDefinition>()
             .FirstOrDefaultAsync(d => d.Name == name, ct);
 
         if (def is null)
@@ -84,7 +73,7 @@ internal class Endpoint : Endpoint<Request, Response>
             return;
         }
 
-        var result = await _rebuilder.RebuildAsync(name, ct);
+        var result = await rebuilder.RebuildAsync(name, ct);
 
         if (!result.EventSourced)
         {
@@ -97,11 +86,11 @@ internal class Endpoint : Endpoint<Request, Response>
         }
 
         var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : Guid.Empty;
-        await AuditLog.RecordAsync(_session, _tenant.Slug, "content.rebuilt", actorId,
+        await AuditLog.RecordAsync(session, tenant.Slug, "content.rebuilt", actorId,
             User.FindFirst("Username")?.Value ?? string.Empty,
             targetType: name, targetId: name,
             metadata: new() { ["rebuilt"] = result.Rebuilt, ["skipped"] = result.Skipped }, ct: ct);
-        await _session.SaveChangesAsync(ct);
+        await session.SaveChangesAsync(ct);
 
         await Send.OkAsync(new Response { Name = name, Rebuilt = result.Rebuilt, Skipped = result.Skipped }, ct);
     }

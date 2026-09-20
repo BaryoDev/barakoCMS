@@ -35,18 +35,10 @@ internal sealed class AddSeoFieldsResponse
 /// overwritten, because a client may well have renamed the display name, made one required, or
 /// changed a type, and none of that is this endpoint's to undo.
 /// </remarks>
-internal sealed class AddSeoFieldsEndpoint : Endpoint<AddSeoFieldsRequest, AddSeoFieldsResponse>
+internal sealed class AddSeoFieldsEndpoint(
+    IDocumentSession session,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<AddSeoFieldsRequest, AddSeoFieldsResponse>
 {
-    private readonly IDocumentSession _session;
-    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
-
-    public AddSeoFieldsEndpoint(
-        IDocumentSession session, barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
-    {
-        _session = session;
-        _tenant = tenant;
-    }
-
     public override void Configure()
     {
         Post("/api/content-types/{name}/seo-fields");
@@ -59,7 +51,7 @@ internal sealed class AddSeoFieldsEndpoint : Endpoint<AddSeoFieldsRequest, AddSe
     {
         var name = barakoCMS.Core.ContentTypeName.Normalize(req.Name);
 
-        var definition = await _session.Query<ContentTypeDefinition>()
+        var definition = await session.Query<ContentTypeDefinition>()
             .FirstOrDefaultAsync(d => d.Name.ToLower() == name, ct);
 
         if (definition is null)
@@ -96,15 +88,15 @@ internal sealed class AddSeoFieldsEndpoint : Endpoint<AddSeoFieldsRequest, AddSe
         if (added.Count > 0)
         {
             definition.UpdatedAt = DateTime.UtcNow;
-            _session.Store(definition);
+            session.Store(definition);
 
             var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
-            await AuditLog.RecordAsync(_session, _tenant.Slug, "contenttype.seo_fields_added", actorId,
+            await AuditLog.RecordAsync(session, tenant.Slug, "contenttype.seo_fields_added", actorId,
                 User.FindFirst("Username")?.Value,
                 targetType: nameof(ContentTypeDefinition), targetId: definition.Name,
                 metadata: new Dictionary<string, object> { ["added"] = string.Join(", ", added) }, ct: ct);
 
-            await _session.SaveChangesAsync(ct);
+            await session.SaveChangesAsync(ct);
         }
 
         await Send.OkAsync(new AddSeoFieldsResponse

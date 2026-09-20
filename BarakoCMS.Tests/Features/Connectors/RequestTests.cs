@@ -578,7 +578,7 @@ public class RequestTests
     public void A_provider_that_answers_200_with_an_error_is_not_a_success(
         SuccessRule rule, int status, string body, string? path, bool expected)
     {
-        var type = typeof(barakoCMS.Models.Connector).Assembly
+        var type = typeof(barakoCMS.Data.DataSeeder).Assembly
             .GetType("barakoCMS.Infrastructure.Connectors.SuccessEvaluator")!;
         var method = type.GetMethod("Succeeded",
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;

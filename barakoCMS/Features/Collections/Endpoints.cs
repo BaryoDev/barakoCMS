@@ -177,12 +177,9 @@ internal static class CollectionSyncRules
     }
 }
 
-internal sealed class ListCollectionSyncsEndpoint : Endpoint<ListRequest, PaginatedResponse<CollectionSyncResponse>>
+internal sealed class ListCollectionSyncsEndpoint(
+    IQuerySession session) : Endpoint<ListRequest, PaginatedResponse<CollectionSyncResponse>>
 {
-    private readonly IQuerySession _session;
-
-    public ListCollectionSyncsEndpoint(IQuerySession session) => _session = session;
-
     public override void Configure()
     {
         Get("/api/collection-syncs");
@@ -191,7 +188,7 @@ internal sealed class ListCollectionSyncsEndpoint : Endpoint<ListRequest, Pagina
 
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)
     {
-        var page = await _session.Query<CollectionSync>().OrderBy(s => s.Name).ToPagedResponseAsync(req, ct);
+        var page = await session.Query<CollectionSync>().OrderBy(s => s.Name).ToPagedResponseAsync(req, ct);
 
         await Send.ResponseAsync(new PaginatedResponse<CollectionSyncResponse>
         {
@@ -203,12 +200,8 @@ internal sealed class ListCollectionSyncsEndpoint : Endpoint<ListRequest, Pagina
     }
 }
 
-internal sealed class GetCollectionSyncEndpoint : EndpointWithoutRequest<CollectionSyncResponse>
+internal sealed class GetCollectionSyncEndpoint(IQuerySession session) : EndpointWithoutRequest<CollectionSyncResponse>
 {
-    private readonly IQuerySession _session;
-
-    public GetCollectionSyncEndpoint(IQuerySession session) => _session = session;
-
     public override void Configure()
     {
         Get("/api/collection-syncs/{slug}");
@@ -225,7 +218,7 @@ internal sealed class GetCollectionSyncEndpoint : EndpointWithoutRequest<Collect
             return;
         }
 
-        var sync = await _session.Query<CollectionSync>().FirstOrDefaultAsync(s => s.Slug == slug, ct);
+        var sync = await session.Query<CollectionSync>().FirstOrDefaultAsync(s => s.Slug == slug, ct);
 
         if (sync is null)
         {
@@ -237,17 +230,10 @@ internal sealed class GetCollectionSyncEndpoint : EndpointWithoutRequest<Collect
     }
 }
 
-internal sealed class CreateCollectionSyncEndpoint : Endpoint<SaveCollectionSyncRequest, CollectionSyncResponse>
+internal sealed class CreateCollectionSyncEndpoint(
+    IDocumentSession session,
+    TenantContext tenant) : Endpoint<SaveCollectionSyncRequest, CollectionSyncResponse>
 {
-    private readonly IDocumentSession _session;
-    private readonly TenantContext _tenant;
-
-    public CreateCollectionSyncEndpoint(IDocumentSession session, TenantContext tenant)
-    {
-        _session = session;
-        _tenant = tenant;
-    }
-
     public override void Configure()
     {
         Post("/api/collection-syncs");
@@ -256,14 +242,14 @@ internal sealed class CreateCollectionSyncEndpoint : Endpoint<SaveCollectionSync
 
     public override async Task HandleAsync(SaveCollectionSyncRequest req, CancellationToken ct)
     {
-        var problem = await CollectionSyncRules.CheckAsync(_session, req, ct);
+        var problem = await CollectionSyncRules.CheckAsync(session, req, ct);
         if (problem is not null)
         {
             ThrowError(problem, 400);
             return;
         }
 
-        if (await _session.Query<CollectionSync>().AnyAsync(s => s.Slug == req.Slug, ct))
+        if (await session.Query<CollectionSync>().AnyAsync(s => s.Slug == req.Slug, ct))
         {
             ThrowError($"A collection sync with the slug '{req.Slug}' already exists.", 409);
             return;
@@ -273,26 +259,19 @@ internal sealed class CreateCollectionSyncEndpoint : Endpoint<SaveCollectionSync
         CollectionSyncRules.Apply(sync, req);
         sync.CreatedAt = sync.UpdatedAt;
 
-        _session.Store(sync);
+        session.Store(sync);
 
-        await CollectionSyncGate.AuditAsync(_session, _tenant.Slug, "collection_sync.created", sync, User, ct);
-        await _session.SaveChangesAsync(ct);
+        await CollectionSyncGate.AuditAsync(session, tenant.Slug, "collection_sync.created", sync, User, ct);
+        await session.SaveChangesAsync(ct);
 
         await Send.ResponseAsync(CollectionSyncResponse.From(sync), cancellation: ct);
     }
 }
 
-internal sealed class UpdateCollectionSyncEndpoint : Endpoint<SaveCollectionSyncRequest, CollectionSyncResponse>
+internal sealed class UpdateCollectionSyncEndpoint(
+    IDocumentSession session,
+    TenantContext tenant) : Endpoint<SaveCollectionSyncRequest, CollectionSyncResponse>
 {
-    private readonly IDocumentSession _session;
-    private readonly TenantContext _tenant;
-
-    public UpdateCollectionSyncEndpoint(IDocumentSession session, TenantContext tenant)
-    {
-        _session = session;
-        _tenant = tenant;
-    }
-
     public override void Configure()
     {
         Put("/api/collection-syncs/{slug}");
@@ -309,7 +288,7 @@ internal sealed class UpdateCollectionSyncEndpoint : Endpoint<SaveCollectionSync
             return;
         }
 
-        var sync = await _session.Query<CollectionSync>().FirstOrDefaultAsync(s => s.Slug == slug, ct);
+        var sync = await session.Query<CollectionSync>().FirstOrDefaultAsync(s => s.Slug == slug, ct);
 
         if (sync is null)
         {
@@ -322,7 +301,7 @@ internal sealed class UpdateCollectionSyncEndpoint : Endpoint<SaveCollectionSync
         // resource sends back what it was given.
         req.Slug = sync.Slug;
 
-        var problem = await CollectionSyncRules.CheckAsync(_session, req, ct);
+        var problem = await CollectionSyncRules.CheckAsync(session, req, ct);
         if (problem is not null)
         {
             ThrowError(problem, 400);
@@ -330,26 +309,19 @@ internal sealed class UpdateCollectionSyncEndpoint : Endpoint<SaveCollectionSync
         }
 
         CollectionSyncRules.Apply(sync, req);
-        _session.Store(sync);
+        session.Store(sync);
 
-        await CollectionSyncGate.AuditAsync(_session, _tenant.Slug, "collection_sync.updated", sync, User, ct);
-        await _session.SaveChangesAsync(ct);
+        await CollectionSyncGate.AuditAsync(session, tenant.Slug, "collection_sync.updated", sync, User, ct);
+        await session.SaveChangesAsync(ct);
 
         await Send.ResponseAsync(CollectionSyncResponse.From(sync), cancellation: ct);
     }
 }
 
-internal sealed class DeleteCollectionSyncEndpoint : EndpointWithoutRequest
+internal sealed class DeleteCollectionSyncEndpoint(
+    IDocumentSession session,
+    TenantContext tenant) : EndpointWithoutRequest
 {
-    private readonly IDocumentSession _session;
-    private readonly TenantContext _tenant;
-
-    public DeleteCollectionSyncEndpoint(IDocumentSession session, TenantContext tenant)
-    {
-        _session = session;
-        _tenant = tenant;
-    }
-
     public override void Configure()
     {
         Delete("/api/collection-syncs/{slug}");
@@ -366,7 +338,7 @@ internal sealed class DeleteCollectionSyncEndpoint : EndpointWithoutRequest
             return;
         }
 
-        var sync = await _session.Query<CollectionSync>().FirstOrDefaultAsync(s => s.Slug == slug, ct);
+        var sync = await session.Query<CollectionSync>().FirstOrDefaultAsync(s => s.Slug == slug, ct);
 
         if (sync is null)
         {
@@ -377,10 +349,10 @@ internal sealed class DeleteCollectionSyncEndpoint : EndpointWithoutRequest
         // The entries stay. They are ordinary content: somebody may be linking to them, a block may
         // be rendering them, and deleting a schedule is not a decision to delete a hundred published
         // pages. Removing them is the content erase route, deliberately.
-        _session.Delete(sync);
+        session.Delete(sync);
 
-        await CollectionSyncGate.AuditAsync(_session, _tenant.Slug, "collection_sync.deleted", sync, User, ct);
-        await _session.SaveChangesAsync(ct);
+        await CollectionSyncGate.AuditAsync(session, tenant.Slug, "collection_sync.deleted", sync, User, ct);
+        await session.SaveChangesAsync(ct);
 
         await Send.NoContentAsync(ct);
     }
@@ -394,19 +366,11 @@ internal sealed class DeleteCollectionSyncEndpoint : EndpointWithoutRequest
 /// same code path the sweep takes, so what it reports is what the sweep will do. It answers 200 with
 /// the outcome even when the run failed: the request succeeded, and the outcome is the answer.
 /// </remarks>
-internal sealed class RunCollectionSyncEndpoint : EndpointWithoutRequest<RunCollectionSyncResponse>
+internal sealed class RunCollectionSyncEndpoint(
+    IDocumentSession session,
+    ICollectionSyncRunner runner,
+    TenantContext tenant) : EndpointWithoutRequest<RunCollectionSyncResponse>
 {
-    private readonly IDocumentSession _session;
-    private readonly ICollectionSyncRunner _runner;
-    private readonly TenantContext _tenant;
-
-    public RunCollectionSyncEndpoint(IDocumentSession session, ICollectionSyncRunner runner, TenantContext tenant)
-    {
-        _session = session;
-        _runner = runner;
-        _tenant = tenant;
-    }
-
     public override void Configure()
     {
         Post("/api/collection-syncs/{slug}/run");
@@ -423,7 +387,7 @@ internal sealed class RunCollectionSyncEndpoint : EndpointWithoutRequest<RunColl
             return;
         }
 
-        var sync = await _session.Query<CollectionSync>().FirstOrDefaultAsync(s => s.Slug == slug, ct);
+        var sync = await session.Query<CollectionSync>().FirstOrDefaultAsync(s => s.Slug == slug, ct);
 
         if (sync is null)
         {
@@ -431,10 +395,10 @@ internal sealed class RunCollectionSyncEndpoint : EndpointWithoutRequest<RunColl
             return;
         }
 
-        await CollectionSyncGate.AuditAsync(_session, _tenant.Slug, "collection_sync.run", sync, User, ct);
-        await _session.SaveChangesAsync(ct);
+        await CollectionSyncGate.AuditAsync(session, tenant.Slug, "collection_sync.run", sync, User, ct);
+        await session.SaveChangesAsync(ct);
 
-        var outcome = await _runner.RunAsync(sync, ct);
+        var outcome = await runner.RunAsync(sync, ct);
 
         await Send.ResponseAsync(new RunCollectionSyncResponse
         {

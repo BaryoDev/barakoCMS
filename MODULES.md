@@ -172,6 +172,12 @@ the module, the version it declared and the range core accepts. See
 
 ## Writing a module
 
+The contract ships as [`BarakoCMS.Abstractions`](../BarakoCMS.Abstractions): `IBarakoModule`,
+`IModuleSchema`, `ModuleContract`, the documents and events under `barakoCMS.Models` and
+`barakoCMS.Events`, the service interfaces under `barakoCMS.Core.Interfaces`, and the workflow
+extension points. It does not reference the core, so it cannot grow a dependency on the host by
+accident. Namespaces are unchanged, so a module already built on `BarakoCMS` needs no edit.
+
 Implement `IBarakoModule` (all members but `Name` have default no-op implementations, so implement
 only what you need):
 

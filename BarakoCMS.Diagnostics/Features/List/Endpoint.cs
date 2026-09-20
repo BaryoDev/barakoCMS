@@ -66,11 +66,8 @@ public class ClientErrorDto
 }
 
 /// <summary>GET /api/client-errors — browse captured errors, newest activity first.</summary>
-public class Endpoint : Endpoint<ListRequest, PaginatedResponse<ClientErrorDto>>
+public class Endpoint(IQuerySession session) : Endpoint<ListRequest, PaginatedResponse<ClientErrorDto>>
 {
-    private readonly IQuerySession _session;
-    public Endpoint(IQuerySession session) => _session = session;
-
     public override void Configure()
     {
         Get("/api/client-errors");
@@ -80,7 +77,7 @@ public class Endpoint : Endpoint<ListRequest, PaginatedResponse<ClientErrorDto>>
 
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)
     {
-        var query = _session.Query<ClientError>().AsQueryable();
+        var query = session.Query<ClientError>().AsQueryable();
 
         if (req.Resolved is bool resolved)
             query = query.Where(e => e.Resolved == resolved);

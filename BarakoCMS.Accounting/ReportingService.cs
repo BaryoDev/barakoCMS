@@ -20,21 +20,17 @@ public record CashFlow(string Period, decimal Opening, decimal Receipts, decimal
 /// path is a Marten projection maintaining an AccountBalance read-model — no API change, since reports
 /// already flow through this service.
 /// </summary>
-public class ReportingService
+public class ReportingService(IQuerySession session)
 {
-    private readonly IQuerySession _session;
-
-    public ReportingService(IQuerySession session) => _session = session;
-
     // Accounts and entries are content types now; AccountingContentReader projects them back into
     // the domain shapes so all the aggregation below is unchanged and still exact-decimal.
     private Task<List<JournalEntry>> PostedEntriesAsync(DateOnly? asOf, CancellationToken ct) =>
-        AccountingContentReader.PostedEntriesAsync(_session, asOf, ct);
+        AccountingContentReader.PostedEntriesAsync(session, asOf, ct);
 
     /// <summary>Signed balance per account, using each account's normal side. A trial balance.</summary>
     public async Task<List<AccountBalance>> BalancesAsync(DateOnly? asOf, CancellationToken ct)
     {
-        var accounts = await AccountingContentReader.AccountsAsync(_session, ct);
+        var accounts = await AccountingContentReader.AccountsAsync(session, ct);
         var entries = await PostedEntriesAsync(asOf, ct);
 
         var debit = new Dictionary<string, decimal>();
@@ -60,7 +56,7 @@ public class ReportingService
     /// <summary>A single account's ledger with a running balance (e.g. a member's receivable).</summary>
     public async Task<AccountLedger?> AccountLedgerAsync(string accountCode, CancellationToken ct)
     {
-        var account = (await AccountingContentReader.AccountsAsync(_session, ct))
+        var account = (await AccountingContentReader.AccountsAsync(session, ct))
             .FirstOrDefault(a => string.Equals(a.Code, accountCode, StringComparison.OrdinalIgnoreCase));
         if (account is null) return null;
 

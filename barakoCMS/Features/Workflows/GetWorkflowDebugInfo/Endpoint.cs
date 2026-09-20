@@ -18,17 +18,10 @@ internal class Request
 /// <summary>
 /// Endpoint to get workflow execution history for debugging.
 /// </summary>
-internal class Endpoint : Endpoint<Request, List<WorkflowExecutionLog>>
+internal class Endpoint(
+    IWorkflowDebugger debugger,
+    ILogger<Endpoint> logger) : Endpoint<Request, List<WorkflowExecutionLog>>
 {
-    private readonly IWorkflowDebugger _debugger;
-    private readonly ILogger<Endpoint> _logger;
-
-    public Endpoint(IWorkflowDebugger debugger, ILogger<Endpoint> logger)
-    {
-        _debugger = debugger;
-        _logger = logger;
-    }
-
     public override void Configure()
     {
         Get("/api/workflows/{id}/debug");
@@ -41,12 +34,12 @@ internal class Endpoint : Endpoint<Request, List<WorkflowExecutionLog>>
     {
         try
         {
-            var logs = await _debugger.GetExecutionHistoryAsync(req.Id, req.Limit, ct);
+            var logs = await debugger.GetExecutionHistoryAsync(req.Id, req.Limit, ct);
             await Send.ResponseAsync(logs, cancellation: ct);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error retrieving debug info for workflow {WorkflowId}", req.Id);
+            logger.LogError(ex, "Error retrieving debug info for workflow {WorkflowId}", req.Id);
             await Send.ErrorsAsync(cancellation: ct);
         }
     }

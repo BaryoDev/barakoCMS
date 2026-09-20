@@ -89,12 +89,9 @@ internal static class RunGate
     internal static readonly string[] LegacyRoles = ["SuperAdmin", "Admin"];
 }
 
-internal sealed class ListRunsEndpoint : Endpoint<ListRunsRequest, PaginatedResponse<RunResponse>>
+internal sealed class ListRunsEndpoint(
+    IQuerySession session) : Endpoint<ListRunsRequest, PaginatedResponse<RunResponse>>
 {
-    private readonly IQuerySession _session;
-
-    public ListRunsEndpoint(IQuerySession session) => _session = session;
-
     public override void Configure()
     {
         Get("/api/workflow-runs");
@@ -103,7 +100,7 @@ internal sealed class ListRunsEndpoint : Endpoint<ListRunsRequest, PaginatedResp
 
     public override async Task HandleAsync(ListRunsRequest req, CancellationToken ct)
     {
-        var query = _session.Query<WorkflowRun>().AsQueryable();
+        var query = session.Query<WorkflowRun>().AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(req.Status))
         {
@@ -135,12 +132,8 @@ internal sealed class ListRunsEndpoint : Endpoint<ListRunsRequest, PaginatedResp
     }
 }
 
-internal sealed class GetRunEndpoint : EndpointWithoutRequest<RunResponse>
+internal sealed class GetRunEndpoint(IQuerySession session) : EndpointWithoutRequest<RunResponse>
 {
-    private readonly IQuerySession _session;
-
-    public GetRunEndpoint(IQuerySession session) => _session = session;
-
     public override void Configure()
     {
         Get("/api/workflow-runs/{id}");
@@ -155,7 +148,7 @@ internal sealed class GetRunEndpoint : EndpointWithoutRequest<RunResponse>
             return;
         }
 
-        var run = await _session.LoadAsync<WorkflowRun>(id, ct);
+        var run = await session.LoadAsync<WorkflowRun>(id, ct);
         if (run is null)
         {
             await Send.NotFoundAsync(ct);
@@ -176,18 +169,10 @@ internal sealed class GetRunEndpoint : EndpointWithoutRequest<RunResponse>
 /// An action that already succeeded is refused: the whole reason a run records each action
 /// separately is so that retrying a failed third one does not re-send the first two.
 /// </remarks>
-internal sealed class RetryAttemptEndpoint : EndpointWithoutRequest<RunResponse>
+internal sealed class RetryAttemptEndpoint(
+    IDocumentSession session,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : EndpointWithoutRequest<RunResponse>
 {
-    private readonly IDocumentSession _session;
-    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
-
-    public RetryAttemptEndpoint(
-        IDocumentSession session, barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
-    {
-        _session = session;
-        _tenant = tenant;
-    }
-
     public override void Configure()
     {
         Post("/api/workflow-runs/{id}/actions/{ordinal}/retry");
@@ -211,7 +196,7 @@ internal sealed class RetryAttemptEndpoint : EndpointWithoutRequest<RunResponse>
             return;
         }
 
-        var run = await _session.LoadAsync<WorkflowRun>(id, ct);
+        var run = await session.LoadAsync<WorkflowRun>(id, ct);
         if (run is null)
         {
             await Send.NotFoundAsync(ct);
@@ -264,7 +249,7 @@ internal sealed class RetryAttemptEndpoint : EndpointWithoutRequest<RunResponse>
         // one this button makes.
         run.CompletedAt = null;
         run.Recompute();
-        _session.Update(run);
+        session.Update(run);
 
         var metadata = new Dictionary<string, object>
         {
@@ -276,14 +261,14 @@ internal sealed class RetryAttemptEndpoint : EndpointWithoutRequest<RunResponse>
         if (wasPermanent is { } permanent) metadata["wasPermanent"] = permanent;
 
         var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
-        await AuditLog.RecordAsync(_session, _tenant.Slug, "workflow.action.retried", actorId,
+        await AuditLog.RecordAsync(session, tenant.Slug, "workflow.action.retried", actorId,
             User.FindFirst("Username")?.Value,
             targetType: nameof(WorkflowRun), targetId: run.Id.ToString(),
             metadata: metadata, ct: ct);
 
         try
         {
-            await _session.SaveChangesAsync(ct);
+            await session.SaveChangesAsync(ct);
         }
         catch (Exception ex) when (ex is JasperFx.ConcurrencyException
             || ex.GetType().Name.Contains("Concurrency"))

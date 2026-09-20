@@ -173,7 +173,7 @@ public class BarakoTestHost : IAsyncLifetime
             .Where(d => d.ServiceType == typeof(IBarakoModule))
             .Select(d => d.ImplementationInstance)
             .OfType<IBarakoModule>();
-        var endpointAssemblies = new[] { typeof(IBarakoModule).Assembly }
+        var endpointAssemblies = new[] { typeof(barakoCMS.Extensions.ServiceCollectionExtensions).Assembly }
             .Concat(running.SelectMany(m => m.EndpointAssemblies))
             .Distinct()
             .ToArray();

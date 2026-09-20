@@ -6,31 +6,14 @@ using System.Security.Claims;
 
 namespace barakoCMS.Features.Content.ChangeStatus;
 
-internal class Endpoint : Endpoint<Request, Response>
+internal class Endpoint(
+    IDocumentSession session,
+    barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
+    IContentWriter contentWriter,
+    IConfiguration configuration,
+    ILogger<Endpoint> logger) : Endpoint<Request, Response>
 {
-    private readonly IDocumentSession _session;
-    private readonly IContentWriter _contentWriter;
-    private readonly barakoCMS.Infrastructure.Services.IPermissionResolver _permissionResolver;
-    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
-    private readonly IConfiguration _configuration;
-    private readonly ILogger<Endpoint> _logger;
-
-    public Endpoint(
-        IDocumentSession session,
-        barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver,
-        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
-        IContentWriter contentWriter,
-        IConfiguration configuration,
-        ILogger<Endpoint> logger)
-    {
-        _contentWriter = contentWriter;
-        _session = session;
-        _permissionResolver = permissionResolver;
-        _tenant = tenant;
-        _configuration = configuration;
-        _logger = logger;
-    }
-
     public override void Configure()
     {
         Put("/api/contents/{id}/status");
@@ -50,10 +33,9 @@ internal class Endpoint : Endpoint<Request, Response>
             ThrowError("Invalid User ID format");
         }
 
-        var user = await _session.LoadAsync<barakoCMS.Models.User>(userId, ct);
+        var user = await session.LoadAsync<barakoCMS.Models.User>(userId, ct);
 
-        // Check if content exists
-        var content = await _session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct);
+        var content = await session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct);
         if (content == null)
         {
             await Send.NotFoundAsync(ct);
@@ -69,7 +51,7 @@ internal class Endpoint : Endpoint<Request, Response>
         // Which of the two request shapes is correct depends on the content type, which the
         // validator cannot see. A type with a lifecycle takes a named transition; every type that
         // exists today has none and takes a status.
-        var definition = await _session.Query<barakoCMS.Models.ContentTypeDefinition>()
+        var definition = await session.Query<barakoCMS.Models.ContentTypeDefinition>()
             .FirstOrDefaultAsync(d => d.Name == content.ContentType, ct);
         var lifecycle = definition?.Lifecycle;
 
@@ -95,7 +77,7 @@ internal class Endpoint : Endpoint<Request, Response>
         }
 
         // A status change is an edit of the entry, so it is governed by Update, unchanged.
-        if (!await _permissionResolver.CanPerformActionAsync(user, content.ContentType, "update", content, ct))
+        if (!await permissionResolver.CanPerformActionAsync(user, content.ContentType, "update", content, ct))
         {
             await Send.ForbiddenAsync(ct);
             return;
@@ -129,18 +111,18 @@ internal class Endpoint : Endpoint<Request, Response>
         // overwrite a scheduler transition or an edit that landed in between.
         try
         {
-            await _contentWriter.AppendOptimisticAsync(content, new[] { @event }, ct);
+            await contentWriter.AppendOptimisticAsync(content, new[] { @event }, ct);
 
             // There's no content-delete endpoint in barakoCMS today, and archiving is the closest
             // destructive-equivalent action, so it's what gets audited here rather than every routine
             // draft-to-published transition, which would just be noise.
             if (newStatus == barakoCMS.Models.ContentStatus.Archived)
             {
-                await AuditLog.RecordAsync(_session, _tenant.Slug, "content.archived", userId, user.Username,
+                await AuditLog.RecordAsync(session, tenant.Slug, "content.archived", userId, user.Username,
                     targetType: content.ContentType, targetId: content.Id.ToString(), ct: ct);
             }
 
-            await _session.SaveChangesAsync(ct);
+            await session.SaveChangesAsync(ct);
         }
         catch (Exception ex) when (ex is JasperFx.ConcurrencyException
             || ex.GetType().Name.Contains("Concurrency")
@@ -193,7 +175,7 @@ internal class Endpoint : Endpoint<Request, Response>
         // type's declared transitions and the entry's current lifecycle state, which is a workflow
         // map handed to anyone holding a valid token. Read is the floor rather than Update, because
         // requiring Update is the coupling this whole change exists to remove.
-        if (!await _permissionResolver.CanPerformActionAsync(user, content.ContentType, "read", content, ct))
+        if (!await permissionResolver.CanPerformActionAsync(user, content.ContentType, "read", content, ct))
         {
             await Send.ForbiddenAsync(ct);
             return;
@@ -225,7 +207,7 @@ internal class Endpoint : Endpoint<Request, Response>
         // obvious way to keep existing configurations working and it is the defect this exists to
         // fix: it grants approval to everyone who can edit. Undeclared means refused.
         var transitionAction = barakoCMS.Infrastructure.Services.PermissionResolver.TransitionActionPrefix + transition.Name;
-        if (!await _permissionResolver.CanPerformActionAsync(user, content.ContentType, transitionAction, content, ct))
+        if (!await permissionResolver.CanPerformActionAsync(user, content.ContentType, transitionAction, content, ct))
         {
             await Send.ForbiddenAsync(ct);
             return;
@@ -239,9 +221,9 @@ internal class Endpoint : Endpoint<Request, Response>
         // CreatedBy is what this reads, not LastModifiedBy, which moves to whoever edited last and
         // would make the check mean nothing after any edit.
         if (content.CreatedBy == userId
-            && !_configuration.GetValue($"Lifecycle:AllowSelfTransition:{transition.Name}", false))
+            && !configuration.GetValue($"Lifecycle:AllowSelfTransition:{transition.Name}", false))
         {
-            _logger.LogInformation(
+            logger.LogInformation(
                 "Refused a self transition of {ContentId} by its creator. Set Lifecycle:AllowSelfTransition:{Transition} to allow it.",
                 content.Id, transition.Name);
 
@@ -251,7 +233,7 @@ internal class Endpoint : Endpoint<Request, Response>
 
         if (!string.Equals(transition.From, currentState, StringComparison.OrdinalIgnoreCase))
         {
-            var enforce = _configuration.GetValue("Lifecycle:EnforceTransitions", true);
+            var enforce = configuration.GetValue("Lifecycle:EnforceTransitions", true);
             var message = $"'{transition.Name}' moves {transition.From} to {transition.To}, and this entry is {currentState}.";
 
             if (enforce)
@@ -263,7 +245,7 @@ internal class Endpoint : Endpoint<Request, Response>
             // Recorded at warning level rather than passed over. The setting exists to let existing
             // data through, and an operator who turned it on should be able to see what it let
             // through and how often.
-            _logger.LogWarning(
+            logger.LogWarning(
                 "Lifecycle:EnforceTransitions is off and permitted an out-of-order transition on {ContentId}: {Message}",
                 content.Id, message);
         }
@@ -273,14 +255,14 @@ internal class Endpoint : Endpoint<Request, Response>
 
         try
         {
-            await _contentWriter.AppendOptimisticAsync(content, new object[] { transitioned }, ct);
+            await contentWriter.AppendOptimisticAsync(content, new object[] { transitioned }, ct);
 
-            await AuditLog.RecordAsync(_session, _tenant.Slug, $"content.transitioned", userId, user.Username,
+            await AuditLog.RecordAsync(session, tenant.Slug, $"content.transitioned", userId, user.Username,
                 targetType: content.ContentType, targetId: content.Id.ToString(),
                 metadata: new() { ["transition"] = transition.Name, ["from"] = currentState, ["to"] = transition.To },
                 ct: ct);
 
-            await _session.SaveChangesAsync(ct);
+            await session.SaveChangesAsync(ct);
         }
         catch (Exception ex) when (ex is JasperFx.ConcurrencyException
             || ex.GetType().Name.Contains("Concurrency")

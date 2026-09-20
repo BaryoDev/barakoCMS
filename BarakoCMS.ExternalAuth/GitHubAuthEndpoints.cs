@@ -20,11 +20,8 @@ internal static class Gh
 }
 
 /// <summary>GET /api/auth/github/start?club={handle}</summary>
-public class GitHubStartEndpoint : EndpointWithoutRequest
+public class GitHubStartEndpoint(IConfiguration config) : EndpointWithoutRequest
 {
-    private readonly IConfiguration _config;
-    public GitHubStartEndpoint(IConfiguration config) => _config = config;
-
     public override void Configure()
     {
         Get("/api/auth/github/start");
@@ -33,15 +30,15 @@ public class GitHubStartEndpoint : EndpointWithoutRequest
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        if (!ExternalAuthSupport.ProviderEnabled(_config, "GitHub", "ClientId")) { await Send.NotFoundAsync(ct); return; }
+        if (!ExternalAuthSupport.ProviderEnabled(config, "GitHub", "ClientId")) { await Send.NotFoundAsync(ct); return; }
         var club = (Query<string>("club", isRequired: false) ?? "").Trim().ToLowerInvariant();
         var state = ExternalAuthSupport.NewState();
         HttpContext.Response.Cookies.Append("gh_state", state, ExternalAuthSupport.ShortCookie());
         HttpContext.Response.Cookies.Append("gh_club", club, ExternalAuthSupport.ShortCookie());
 
-        var redirect = Gh.CallbackUrl(_config, HttpContext);
+        var redirect = Gh.CallbackUrl(config, HttpContext);
         var url =
-            $"{Gh.Authorize}?client_id={_config["GitHub:ClientId"]}" +
+            $"{Gh.Authorize}?client_id={config["GitHub:ClientId"]}" +
             $"&redirect_uri={Uri.EscapeDataString(redirect)}" +
             $"&state={state}&scope={Uri.EscapeDataString(Gh.Scope)}";
         await Send.ResultAsync(Results.Redirect(url));
@@ -49,25 +46,13 @@ public class GitHubStartEndpoint : EndpointWithoutRequest
 }
 
 /// <summary>GET /api/auth/github/callback</summary>
-public class GitHubCallbackEndpoint : EndpointWithoutRequest
+public class GitHubCallbackEndpoint(
+    IHttpClientFactory httpFactory,
+    IDocumentSession session,
+    IConfiguration config,
+    barakoCMS.Core.Interfaces.IDeviceGate deviceGate,
+    barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer) : EndpointWithoutRequest
 {
-    private readonly IHttpClientFactory _httpFactory;
-    private readonly IDocumentSession _session;
-    private readonly IConfiguration _config;
-    private readonly barakoCMS.Core.Interfaces.IDeviceGate _deviceGate;
-    private readonly barakoCMS.Infrastructure.Auth.ITokenIssuer _tokenIssuer;
-
-    public GitHubCallbackEndpoint(IHttpClientFactory httpFactory, IDocumentSession session,
-        IConfiguration config, barakoCMS.Core.Interfaces.IDeviceGate deviceGate,
-        barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer)
-    {
-        _httpFactory = httpFactory;
-        _session = session;
-        _config = config;
-        _deviceGate = deviceGate;
-        _tokenIssuer = tokenIssuer;
-    }
-
     public override void Configure()
     {
         Get("/api/auth/github/callback");
@@ -76,7 +61,7 @@ public class GitHubCallbackEndpoint : EndpointWithoutRequest
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        var baseUrl = ExternalAuthSupport.BaseUrl(_config, HttpContext);
+        var baseUrl = ExternalAuthSupport.BaseUrl(config, HttpContext);
         var club = HttpContext.Request.Cookies["gh_club"] ?? "";
         var cookieState = HttpContext.Request.Cookies["gh_state"];
         var code = Query<string>("code", isRequired: false);
@@ -102,16 +87,16 @@ public class GitHubCallbackEndpoint : EndpointWithoutRequest
         SocialSignIn.ProfileData profile;
         try
         {
-            var http = _httpFactory.CreateClient();
+            var http = httpFactory.CreateClient();
 
             using var tokenReq = new HttpRequestMessage(System.Net.Http.HttpMethod.Post, Gh.Token)
             {
                 Content = new FormUrlEncodedContent(new Dictionary<string, string>
                 {
-                    ["client_id"] = _config["GitHub:ClientId"] ?? "",
-                    ["client_secret"] = _config["GitHub:ClientSecret"] ?? "",
+                    ["client_id"] = config["GitHub:ClientId"] ?? "",
+                    ["client_secret"] = config["GitHub:ClientSecret"] ?? "",
                     ["code"] = code,
-                    ["redirect_uri"] = Gh.CallbackUrl(_config, HttpContext),
+                    ["redirect_uri"] = Gh.CallbackUrl(config, HttpContext),
                 }),
             };
             tokenReq.Headers.Accept.Add(new("application/json"));
@@ -158,7 +143,7 @@ public class GitHubCallbackEndpoint : EndpointWithoutRequest
         }
 
         var mfa = Resolve<barakoCMS.Infrastructure.Auth.Mfa.IMfaService>();
-        var tokens = await SocialSignIn.IssueAsync(_session, _config, _deviceGate, _tokenIssuer, mfa, HttpContext, email, emailVerified, club, ct, profile);
+        var tokens = await SocialSignIn.IssueAsync(session, config, deviceGate, tokenIssuer, mfa, HttpContext, email, emailVerified, club, ct, profile);
         if (tokens.RequiresMfa)
         {
             await Send.ResultAsync(Results.Redirect(SocialSignIn.FrontendMfaCallback(baseUrl, tokens.MfaChallenge!, club)));

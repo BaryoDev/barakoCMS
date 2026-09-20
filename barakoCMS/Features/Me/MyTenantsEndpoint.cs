@@ -10,12 +10,8 @@ internal sealed record TenantSummary(string Slug, string Name, string? LogoUrl, 
 /// GET /api/me/tenants — the tenants the signed-in user belongs to (their active memberships joined
 /// with the tenant registry). Powers a "switch tenant" experience across a multi-tenant deployment.
 /// </summary>
-internal class MyTenantsEndpoint : Endpoint<ListRequest, PaginatedResponse<TenantSummary>>
+internal class MyTenantsEndpoint(IQuerySession session) : Endpoint<ListRequest, PaginatedResponse<TenantSummary>>
 {
-    private readonly IQuerySession _session;
-
-    public MyTenantsEndpoint(IQuerySession session) => _session = session;
-
     public override void Configure()
     {
         Get("/api/me/tenants"); // authenticated by default
@@ -25,12 +21,12 @@ internal class MyTenantsEndpoint : Endpoint<ListRequest, PaginatedResponse<Tenan
     {
         Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId);
 
-        var memberships = await _session.Query<Membership>()
+        var memberships = await session.Query<Membership>()
             .Where(m => m.UserId == userId && m.Status == MembershipStatus.Active)
             .ToListAsync(ct);
 
         var slugs = memberships.Select(m => m.TenantSlug).ToList();
-        var tenants = await _session.Query<Tenant>()
+        var tenants = await session.Query<Tenant>()
             .Where(t => slugs.Contains(t.Slug) && t.IsActive)
             .ToListAsync(ct);
 

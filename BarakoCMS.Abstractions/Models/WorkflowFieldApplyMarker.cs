@@ -20,7 +20,7 @@ namespace barakoCMS.Models;
 /// </para>
 /// <para>
 /// A document of its own does not have either problem, and does not lose the one thing that made
-/// <c>Data</c> tempting: <see cref="barakoCMS.Features.Workflows.Actions.UpdateFieldAction"/> stores
+/// <c>Data</c> tempting: <c>UpdateFieldAction</c> stores
 /// this through the same <c>IDocumentSession</c> as the content write, and Marten commits a session
 /// as one transaction across document types, so the two still land together or not at all.
 /// </para>

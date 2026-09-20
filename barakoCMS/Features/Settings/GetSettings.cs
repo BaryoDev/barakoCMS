@@ -16,15 +16,9 @@ internal class SystemSettingDto
     public DateTime UpdatedAt { get; set; }
 }
 
-internal class GetSettingsEndpoint : Endpoint<ListRequest, PaginatedResponse<SystemSettingDto>>
+internal class GetSettingsEndpoint(
+    IDocumentSession session) : Endpoint<ListRequest, PaginatedResponse<SystemSettingDto>>
 {
-    private readonly IDocumentSession _session;
-
-    public GetSettingsEndpoint(IDocumentSession session)
-    {
-        _session = session;
-    }
-
     public override void Configure()
     {
         Get("/api/settings");
@@ -33,7 +27,7 @@ internal class GetSettingsEndpoint : Endpoint<ListRequest, PaginatedResponse<Sys
 
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)
     {
-        var page = await _session.Query<SystemSetting>()
+        var page = await session.Query<SystemSetting>()
             .OrderBy(s => s.Category)
             .ThenBy(s => s.Key)
             .ToPagedResponseAsync(req, ct);

@@ -20,7 +20,9 @@ namespace barakoCMS.Features.Workflows;
 /// instances racing on one row would write the same redacted document. An advisory lock keeps a
 /// second instance from repeating the work while the first is still going.
 /// </remarks>
-internal sealed class WorkflowExecutionLogRedactionService : BackgroundService
+internal sealed class WorkflowExecutionLogRedactionService(
+    IDocumentStore store,
+    ILogger<WorkflowExecutionLogRedactionService> logger) : BackgroundService
 {
     private const int BatchSize = 200;
 
@@ -32,15 +34,6 @@ internal sealed class WorkflowExecutionLogRedactionService : BackgroundService
     /// the boolean would read as null and skip.
     /// </summary>
     private const string UnredactedSql = "coalesce((d.data ->> 'Redacted')::boolean, false) = false";
-
-    private readonly IDocumentStore _store;
-    private readonly ILogger<WorkflowExecutionLogRedactionService> _logger;
-
-    public WorkflowExecutionLogRedactionService(IDocumentStore store, ILogger<WorkflowExecutionLogRedactionService> logger)
-    {
-        _store = store;
-        _logger = logger;
-    }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -55,16 +48,16 @@ internal sealed class WorkflowExecutionLogRedactionService : BackgroundService
         {
             // Logged, not fatal. Reads still redact an old log, so a failed pass leaves responses
             // exactly as they were, and the next boot tries again.
-            _logger.LogError(ex, "Could not redact stored workflow execution logs");
+            logger.LogError(ex, "Could not redact stored workflow execution logs");
         }
     }
 
     /// <returns>The number of logs rewritten, or null when another instance held the lock.</returns>
     public async Task<int?> RedactAllTenantsAsync(CancellationToken ct)
     {
-        await _store.Storage.Database.EnsureStorageExistsAsync(typeof(WorkflowExecutionLog), ct);
+        await store.Storage.Database.EnsureStorageExistsAsync(typeof(WorkflowExecutionLog), ct);
 
-        await using var lockConnection = _store.Storage.Database.CreateConnection();
+        await using var lockConnection = store.Storage.Database.CreateConnection();
         await lockConnection.OpenAsync(ct);
 
         await using (var acquire = lockConnection.CreateCommand())
@@ -74,7 +67,7 @@ internal sealed class WorkflowExecutionLogRedactionService : BackgroundService
 
             if ((bool?)await acquire.ExecuteScalarAsync(ct) is not true)
             {
-                _logger.LogDebug("Another instance is redacting stored workflow execution logs; skipping.");
+                logger.LogDebug("Another instance is redacting stored workflow execution logs; skipping.");
                 return null;
             }
         }
@@ -84,13 +77,13 @@ internal sealed class WorkflowExecutionLogRedactionService : BackgroundService
             var redacted = 0;
             foreach (var tenantId in await PartitionsAsync(ct))
             {
-                await using var session = _store.LightweightSession(tenantId);
+                await using var session = store.LightweightSession(tenantId);
                 redacted += await RedactStoredAsync(session, ct);
             }
 
             if (redacted > 0)
             {
-                _logger.LogInformation("Redacted {Count} stored workflow execution log(s)", redacted);
+                logger.LogInformation("Redacted {Count} stored workflow execution log(s)", redacted);
             }
 
             return redacted;
@@ -114,7 +107,7 @@ internal sealed class WorkflowExecutionLogRedactionService : BackgroundService
     /// </remarks>
     private async Task<IReadOnlyList<string>> PartitionsAsync(CancellationToken ct)
     {
-        await using var session = _store.QuerySession();
+        await using var session = store.QuerySession();
         var slugs = await session.Query<Tenant>().Select(t => t.Slug).ToListAsync(ct);
 
         return slugs

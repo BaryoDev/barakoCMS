@@ -3,11 +3,8 @@ using FastEndpoints;
 namespace BarakoCMS.ExternalAuth;
 
 /// <summary>GET /api/auth/providers — which social sign-in buttons the client should show (those configured).</summary>
-public class AuthProvidersEndpoint : EndpointWithoutRequest
+public class AuthProvidersEndpoint(IConfiguration config) : EndpointWithoutRequest
 {
-    private readonly IConfiguration _config;
-    public AuthProvidersEndpoint(IConfiguration config) => _config = config;
-
     public override void Configure()
     {
         Get("/api/auth/providers");
@@ -18,10 +15,10 @@ public class AuthProvidersEndpoint : EndpointWithoutRequest
     {
         await Send.OkAsync(new
         {
-            facebook = ExternalAuthSupport.ProviderEnabled(_config, "Facebook", "AppId"),
-            google = ExternalAuthSupport.ProviderEnabled(_config, "Google", "ClientId"),
-            linkedin = ExternalAuthSupport.ProviderEnabled(_config, "LinkedIn", "ClientId"),
-            github = ExternalAuthSupport.ProviderEnabled(_config, "GitHub", "ClientId"),
+            facebook = ExternalAuthSupport.ProviderEnabled(config, "Facebook", "AppId"),
+            google = ExternalAuthSupport.ProviderEnabled(config, "Google", "ClientId"),
+            linkedin = ExternalAuthSupport.ProviderEnabled(config, "LinkedIn", "ClientId"),
+            github = ExternalAuthSupport.ProviderEnabled(config, "GitHub", "ClientId"),
         }, ct);
     }
 }

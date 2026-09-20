@@ -26,12 +26,8 @@ public sealed class SummaryResponse
 }
 
 /// <summary>GET /api/analytics/{websiteId}/summary?range=7d — headline counters for the window.</summary>
-public sealed class SummaryEndpoint : Endpoint<AnalyticsWindowRequest, SummaryResponse>
+public sealed class SummaryEndpoint(IUmamiClient umami) : Endpoint<AnalyticsWindowRequest, SummaryResponse>
 {
-    private readonly IUmamiClient _umami;
-
-    public SummaryEndpoint(IUmamiClient umami) => _umami = umami;
-
     public override void Configure()
     {
         Get("/api/analytics/{websiteId}/summary");
@@ -42,7 +38,7 @@ public sealed class SummaryEndpoint : Endpoint<AnalyticsWindowRequest, SummaryRe
     public override async Task HandleAsync(AnalyticsWindowRequest req, CancellationToken ct)
     {
         var (startAt, endAt, _) = AnalyticsRange.Resolve(req.Range);
-        var s = await _umami.GetSummaryAsync(req.WebsiteId, startAt, endAt, ct);
+        var s = await umami.GetSummaryAsync(req.WebsiteId, startAt, endAt, ct);
         await Send.OkAsync(new SummaryResponse
         {
             Pageviews = Map(s.Pageviews),

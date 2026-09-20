@@ -37,28 +37,20 @@ public interface IContentEraser
 /// mark does not move and nothing is reprocessed or skipped. That is asserted by a test rather than
 /// assumed, because a quietly stopped projection is a failure this project has already had.
 /// </remarks>
-public sealed class ContentEraser : IContentEraser
+public sealed class ContentEraser(
+    IDocumentSession session,
+    ErasureOptions options,
+    ILogger<ContentEraser> logger) : IContentEraser
 {
-    private readonly IDocumentSession _session;
-    private readonly ErasureOptions _options;
-    private readonly ILogger<ContentEraser> _logger;
-
-    public ContentEraser(IDocumentSession session, ErasureOptions options, ILogger<ContentEraser> logger)
-    {
-        _session = session;
-        _options = options;
-        _logger = logger;
-    }
-
     public async Task<bool> QueueEraseAsync(Guid contentId, CancellationToken ct)
     {
-        if (_options.Mode == ErasureMode.None)
+        if (options.Mode == ErasureMode.None)
         {
             throw new InvalidOperationException(
                 "This deployment runs Erasure:Mode=None, which has no erasure path.");
         }
 
-        var content = await _session.LoadAsync<Models.Content>(contentId, ct);
+        var content = await session.LoadAsync<Models.Content>(contentId, ct);
         if (content is null)
         {
             return false;
@@ -80,17 +72,17 @@ public sealed class ContentEraser : IContentEraser
         // the foreign key checked once at the end of it.
         //
         // Marten's placeholder is ?, not a named parameter, and each occurrence takes its own value.
-        _session.QueueSqlCommand(
+        session.QueueSqlCommand(
             "with erased_events as (delete from public.mt_events where stream_id = ? returning stream_id) "
             + "delete from public.mt_streams where id = ?",
             contentId, contentId);
-        _session.Delete(content);
+        session.Delete(content);
 
         // The id only, never the content. A log line about an erasure that quotes what was erased is
         // not an erasure. Logged on queueing rather than on commit, which is a small imprecision
         // accepted so that this stays free of transaction control; the caller's save is what makes
         // it true.
-        _logger.LogInformation("Erasing content {ContentId}: events, stream and document", contentId);
+        logger.LogInformation("Erasing content {ContentId}: events, stream and document", contentId);
 
         return true;
     }

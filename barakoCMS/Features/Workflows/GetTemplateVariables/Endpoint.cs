@@ -17,17 +17,10 @@ internal class Request
 /// <summary>
 /// Endpoint to get available template variables for a content type.
 /// </summary>
-internal class Endpoint : Endpoint<Request, TemplateVariableCollection>
+internal class Endpoint(
+    ITemplateVariableExtractor extractor,
+    ILogger<Endpoint> logger) : Endpoint<Request, TemplateVariableCollection>
 {
-    private readonly ITemplateVariableExtractor _extractor;
-    private readonly ILogger<Endpoint> _logger;
-
-    public Endpoint(ITemplateVariableExtractor extractor, ILogger<Endpoint> logger)
-    {
-        _extractor = extractor;
-        _logger = logger;
-    }
-
     public override void Configure()
     {
         Get("/api/workflows/variables");
@@ -43,12 +36,12 @@ internal class Endpoint : Endpoint<Request, TemplateVariableCollection>
         try
         {
             var contentType = req.ContentType ?? "Content"; // Default to generic Content type
-            var variables = await _extractor.GetVariablesAsync(contentType, ct);
+            var variables = await extractor.GetVariablesAsync(contentType, ct);
             await Send.ResponseAsync(variables, cancellation: ct);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error retrieving template variables for content type {ContentType}", req.ContentType);
+            logger.LogError(ex, "Error retrieving template variables for content type {ContentType}", req.ContentType);
             await Send.ErrorsAsync(cancellation: ct);
         }
     }

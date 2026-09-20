@@ -12,7 +12,6 @@ internal class Endpoint : Endpoint<Request, Response>
 {
     private readonly IQuerySession _querySession;
     private readonly IDocumentSession _documentSession;
-    private readonly IConfiguration _config;
     private readonly ILogger<Endpoint> _logger;
     private readonly barakoCMS.Infrastructure.Services.ITokenRevocationService _tokenRevocation;
     private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
@@ -20,7 +19,6 @@ internal class Endpoint : Endpoint<Request, Response>
     public Endpoint(
         IQuerySession querySession,
         IDocumentSession documentSession,
-        IConfiguration config,
         ILogger<Endpoint> logger,
         barakoCMS.Infrastructure.Services.ITokenRevocationService tokenRevocation,
         barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
@@ -28,7 +26,6 @@ internal class Endpoint : Endpoint<Request, Response>
     {
         _querySession = querySession;
         _documentSession = documentSession;
-        _config = config;
         _logger = logger;
         _tokenRevocation = tokenRevocation;
         _tenant = tenant;
@@ -75,7 +72,6 @@ internal class Endpoint : Endpoint<Request, Response>
             return;
         }
 
-        // Check if token is revoked
         if (refreshToken.IsRevoked)
         {
             // Reuse detection: replaying an already-rotated ("used") token is a strong signal that
@@ -100,7 +96,6 @@ internal class Endpoint : Endpoint<Request, Response>
             return;
         }
 
-        // Check if token is expired
         if (refreshToken.ExpiresAt < DateTime.UtcNow)
         {
             _logger.LogWarning(
@@ -110,7 +105,6 @@ internal class Endpoint : Endpoint<Request, Response>
             return;
         }
 
-        // Load the user
         var user = await _querySession.LoadAsync<User>(refreshToken.UserId, ct);
         if (user == null)
         {

@@ -49,30 +49,15 @@ namespace barakoCMS.Features.ContentType.SetFieldSensitivity;
 /// something unrelated: a type created before the "a reference must name its target" rule existed
 /// would fail it, and masking a leaking field on that type would become impossible.
 /// </remarks>
-internal class Endpoint : Endpoint<Request, Response>
+internal class Endpoint(
+    IDocumentSession session,
+    IContentWriter writer,
+    barakoCMS.Infrastructure.OpenApi.DeliveryDocumentCache openApiCache,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
+    IContentSourcingPolicy sourcing) : Endpoint<Request, Response>
 {
     /// <summary>Entries per batch while rebuilding search text.</summary>
     private const int BatchSize = 200;
-
-    private readonly IDocumentSession _session;
-    private readonly IContentWriter _writer;
-    private readonly barakoCMS.Infrastructure.OpenApi.DeliveryDocumentCache _openApiCache;
-    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
-    private readonly IContentSourcingPolicy _sourcing;
-
-    public Endpoint(
-        IDocumentSession session,
-        IContentWriter writer,
-        barakoCMS.Infrastructure.OpenApi.DeliveryDocumentCache openApiCache,
-        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
-        IContentSourcingPolicy sourcing)
-    {
-        _session = session;
-        _writer = writer;
-        _openApiCache = openApiCache;
-        _tenant = tenant;
-        _sourcing = sourcing;
-    }
 
     public override void Configure()
     {
@@ -87,7 +72,7 @@ internal class Endpoint : Endpoint<Request, Response>
         var name = Route<string>("name") ?? string.Empty;
         var fieldName = Route<string>("field") ?? string.Empty;
 
-        var def = await _session.Query<ContentTypeDefinition>()
+        var def = await session.Query<ContentTypeDefinition>()
             .FirstOrDefaultAsync(d => d.Name == name, ct);
 
         if (def is null)
@@ -127,7 +112,7 @@ internal class Endpoint : Endpoint<Request, Response>
         // acquire one afterwards: raising a field on it would put personal data into an append-only
         // stream that nothing can erase it from. Lowering back to Public is still allowed, so a field
         // is never stranded.
-        if (to != SensitivityLevel.Public && await _sourcing.IsEventSourcedAsync(def.Name, ct))
+        if (to != SensitivityLevel.Public && await sourcing.IsEventSourcedAsync(def.Name, ct))
         {
             AddError(
                 $"'{def.Name}' is event sourced, so its fields have to stay Public. Raising "
@@ -139,7 +124,7 @@ internal class Endpoint : Endpoint<Request, Response>
 
         if (lowering && !req.AcknowledgeDisclosure)
         {
-            var affected = await _session.Query<ContentDoc>().CountAsync(c => c.ContentType == def.Name, ct);
+            var affected = await session.Query<ContentDoc>().CountAsync(c => c.ContentType == def.Name, ct);
             var reach = def.IsPubliclyDeliverable
                 ? "everyone who can read this type, and anonymous callers through the public delivery API"
                 : "everyone who can read this type";
@@ -172,13 +157,13 @@ internal class Endpoint : Endpoint<Request, Response>
             : req.VisibleToRoles ?? new List<string>();
         field.Mask = to == SensitivityLevel.Public ? FieldMask.Default : req.Mask ?? FieldMask.Default;
         def.UpdatedAt = DateTimeOffset.UtcNow;
-        _session.Store(def);
+        session.Store(def);
 
         // Lowering is a disclosure, so it gets an action of its own. Alerting on it should not mean
         // reading the metadata of every sensitivity change.
         await AuditLog.RecordAsync(
-            _session,
-            _tenant.Slug,
+            session,
+            tenant.Slug,
             lowering ? "contenttype.field.sensitivity.lowered" : "contenttype.field.sensitivity.changed",
             actorId == Guid.Empty ? null : actorId,
             User.FindFirst("Username")?.Value,
@@ -194,13 +179,13 @@ internal class Endpoint : Endpoint<Request, Response>
             },
             ct: ct);
 
-        await _session.SaveChangesAsync(ct);
+        await session.SaveChangesAsync(ct);
 
         if (lowering)
             reindexed = await RebuildSearchTextAsync(def.Name, field.Name, from, to, publicFields, actorId, ct);
 
         // The delivery OpenAPI document lists only the Public fields of a type, so this changed it.
-        _openApiCache.Invalidate(_tenant.Slug);
+        openApiCache.Invalidate(tenant.Slug);
 
         await Send.OkAsync(new Response
         {
@@ -248,7 +233,7 @@ internal class Endpoint : Endpoint<Request, Response>
 
         while (true)
         {
-            var query = _session.Query<ContentDoc>().Where(c => c.ContentType == contentType);
+            var query = session.Query<ContentDoc>().Where(c => c.ContentType == contentType);
 
             if (lastId.HasValue)
                 query = query.Where(c => c.Id > lastId.Value);
@@ -276,7 +261,7 @@ internal class Endpoint : Endpoint<Request, Response>
                 if (string.Equals(rebuilt, content.SearchText, StringComparison.Ordinal))
                     continue;
 
-                await _writer.AppendAsync(content, new ContentFieldSensitivityChanged(
+                await writer.AppendAsync(content, new ContentFieldSensitivityChanged(
                     content.Id, fieldName, from, to, rebuilt, actorId, DateTime.UtcNow), ct);
 
                 staged = true;
@@ -284,7 +269,7 @@ internal class Endpoint : Endpoint<Request, Response>
             }
 
             if (staged)
-                await _session.SaveChangesAsync(ct);
+                await session.SaveChangesAsync(ct);
         }
 
         return updated;

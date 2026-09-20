@@ -33,14 +33,12 @@ internal class SwitchTenantResponse
 internal class SwitchTenantEndpoint : Endpoint<SwitchTenantRequest, SwitchTenantResponse>
 {
     private readonly IDocumentSession _session;
-    private readonly IConfiguration _config;
 
     private readonly barakoCMS.Infrastructure.Auth.ITokenIssuer _tokenIssuer;
 
-    public SwitchTenantEndpoint(IDocumentSession session, IConfiguration config, barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer)
+    public SwitchTenantEndpoint(IDocumentSession session, barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer)
     {
         _session = session;
-        _config = config;
         _tokenIssuer = tokenIssuer;
     }
 

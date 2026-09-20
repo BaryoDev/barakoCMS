@@ -4,17 +4,10 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.Content.History;
 
-internal class Endpoint : Endpoint<Request, barakoCMS.Models.PaginatedResponse<VersionResponse>>
+internal class Endpoint(
+    IQuerySession session,
+    barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver) : Endpoint<Request, barakoCMS.Models.PaginatedResponse<VersionResponse>>
 {
-    private readonly IQuerySession _session;
-    private readonly barakoCMS.Infrastructure.Services.IPermissionResolver _permissionResolver;
-
-    public Endpoint(IQuerySession session, barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver)
-    {
-        _session = session;
-        _permissionResolver = permissionResolver;
-    }
-
     public override void Configure()
     {
         Get("/api/contents/{id}/history");
@@ -34,7 +27,7 @@ internal class Endpoint : Endpoint<Request, barakoCMS.Models.PaginatedResponse<V
             return;
         }
 
-        var user = await _session.LoadAsync<Models.User>(userId, ct);
+        var user = await session.LoadAsync<Models.User>(userId, ct);
         if (user == null)
         {
             await Send.UnauthorizedAsync(ct);
@@ -42,20 +35,20 @@ internal class Endpoint : Endpoint<Request, barakoCMS.Models.PaginatedResponse<V
         }
 
         // 2. Load current content and authorize "read" on it (same gate as GET /api/contents/{id}).
-        var content = await _session.LoadAsync<Models.Content>(req.Id, ct);
+        var content = await session.LoadAsync<Models.Content>(req.Id, ct);
         if (content == null)
         {
             await Send.NotFoundAsync(ct);
             return;
         }
 
-        if (!await _permissionResolver.CanPerformActionAsync(user, content.ContentType, "read", content, ct))
+        if (!await permissionResolver.CanPerformActionAsync(user, content.ContentType, "read", content, ct))
         {
             await Send.ForbiddenAsync(ct);
             return;
         }
 
-        var events = await _session.Events.FetchStreamAsync(req.Id, token: ct);
+        var events = await session.Events.FetchStreamAsync(req.Id, token: ct);
 
         // Every event becomes an entry, including one this mapper does not recognise: it keeps its
         // type name and carries no data, rather than being dropped where nobody would see it go.

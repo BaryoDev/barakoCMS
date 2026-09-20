@@ -67,17 +67,8 @@ public interface IWorkflowDebugger
 /// <summary>
 /// Provides debugging capabilities for workflow execution.
 /// </summary>
-public class WorkflowDebugger : IWorkflowDebugger
+public class WorkflowDebugger(IDocumentSession session, ILogger<WorkflowDebugger> logger) : IWorkflowDebugger
 {
-    private readonly IDocumentSession _session;
-    private readonly ILogger<WorkflowDebugger> _logger;
-
-    public WorkflowDebugger(IDocumentSession session, ILogger<WorkflowDebugger> logger)
-    {
-        _session = session;
-        _logger = logger;
-    }
-
     public WorkflowExecutionLog StartExecution(Guid workflowId, Guid contentId, bool isDryRun = false)
     {
         var log = new WorkflowExecutionLog
@@ -91,7 +82,7 @@ public class WorkflowDebugger : IWorkflowDebugger
             Success = true // Assume success unless proven otherwise
         };
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "Starting workflow execution: WorkflowId={WorkflowId}, ContentId={ContentId}, DryRun={DryRun}",
             workflowId, contentId, isDryRun);
 
@@ -100,7 +91,7 @@ public class WorkflowDebugger : IWorkflowDebugger
 
     public Stopwatch StartAction(WorkflowExecutionLog log, string actionType)
     {
-        _logger.LogInformation("Starting action: {ActionType} (DryRun={DryRun})", actionType, log.IsDryRun);
+        logger.LogInformation("Starting action: {ActionType} (DryRun={DryRun})", actionType, log.IsDryRun);
         return Stopwatch.StartNew();
     }
 
@@ -118,7 +109,7 @@ public class WorkflowDebugger : IWorkflowDebugger
 
         log.Actions.Add(actionLog);
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "Action completed successfully: {ActionType} in {Duration}ms",
             actionType, timer.ElapsedMilliseconds);
     }
@@ -130,7 +121,7 @@ public class WorkflowDebugger : IWorkflowDebugger
         // API. The message stays in the log line below.
         RecordFailure(log, actionType, timer, ex.GetType().Name, resolvedParams);
 
-        _logger.LogError(ex,
+        logger.LogError(ex,
             "Action failed: {ActionType} after {Duration}ms",
             actionType, timer.ElapsedMilliseconds);
     }
@@ -139,7 +130,7 @@ public class WorkflowDebugger : IWorkflowDebugger
     {
         RecordFailure(log, actionType, timer, error, resolvedParams);
 
-        _logger.LogError(
+        logger.LogError(
             "Action failed: {ActionType} after {Duration}ms: {Error}",
             actionType, timer.ElapsedMilliseconds, error);
     }
@@ -167,17 +158,17 @@ public class WorkflowDebugger : IWorkflowDebugger
         log.Duration = overallTimer.Elapsed;
 
         // Save execution log to database
-        _session.Store(log);
-        await _session.SaveChangesAsync(ct);
+        session.Store(log);
+        await session.SaveChangesAsync(ct);
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "Workflow execution completed: WorkflowId={WorkflowId}, Success={Success}, Duration={Duration}ms, Actions={ActionCount}",
             log.WorkflowId, log.Success, overallTimer.ElapsedMilliseconds, log.Actions.Count);
     }
 
     public async Task<List<WorkflowExecutionLog>> GetExecutionHistoryAsync(Guid workflowId, int limit = 20, CancellationToken ct = default)
     {
-        var logs = await _session.Query<WorkflowExecutionLog>()
+        var logs = await session.Query<WorkflowExecutionLog>()
             .Where(log => log.WorkflowId == workflowId)
             .OrderByDescending(log => log.ExecutedAt)
             .Take(limit)

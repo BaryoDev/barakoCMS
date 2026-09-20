@@ -31,12 +31,8 @@ public sealed class CreateWebsiteResponse
 
 /// <summary>POST /api/analytics/websites — register a new site in Umami and return its tracking
 /// snippet, so an admin can start tracking a site without leaving the CMS.</summary>
-public sealed class CreateWebsiteEndpoint : Endpoint<CreateWebsiteRequest, CreateWebsiteResponse>
+public sealed class CreateWebsiteEndpoint(IUmamiClient umami) : Endpoint<CreateWebsiteRequest, CreateWebsiteResponse>
 {
-    private readonly IUmamiClient _umami;
-
-    public CreateWebsiteEndpoint(IUmamiClient umami) => _umami = umami;
-
     public override void Configure()
     {
         Post("/api/analytics/websites");
@@ -46,20 +42,20 @@ public sealed class CreateWebsiteEndpoint : Endpoint<CreateWebsiteRequest, Creat
 
     public override async Task HandleAsync(CreateWebsiteRequest req, CancellationToken ct)
     {
-        if (!_umami.IsConfigured)
+        if (!umami.IsConfigured)
         {
             AddError("Umami is not configured on the server.");
             await Send.ErrorsAsync(502, ct);
             return;
         }
 
-        var site = await _umami.CreateWebsiteAsync(req.Name.Trim(), req.Domain.Trim(), ct);
+        var site = await umami.CreateWebsiteAsync(req.Name.Trim(), req.Domain.Trim(), ct);
         await Send.OkAsync(new CreateWebsiteResponse
         {
             Id = site.Id,
             Name = site.Name,
             Domain = site.Domain,
-            Snippet = _umami.TrackingSnippet(site.Id),
+            Snippet = umami.TrackingSnippet(site.Id),
         }, ct);
     }
 }

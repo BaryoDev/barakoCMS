@@ -19,19 +19,10 @@ namespace barakoCMS.Infrastructure.Multitenancy;
 /// only public information. The tenant-replay guard must not turn these into 403s.</item>
 /// </list>
 /// </summary>
-public class TenantAccessMiddleware
+public class TenantAccessMiddleware(RequestDelegate next, ILogger<TenantAccessMiddleware> logger)
 {
     private const string GlobalIdentityPrefix = "/api/me";
     private const string PublicSuffix = "/public";
-
-    private readonly RequestDelegate _next;
-    private readonly ILogger<TenantAccessMiddleware> _logger;
-
-    public TenantAccessMiddleware(RequestDelegate next, ILogger<TenantAccessMiddleware> logger)
-    {
-        _next = next;
-        _logger = logger;
-    }
 
     public async Task InvokeAsync(HttpContext context, TenantContext tenant)
     {
@@ -49,7 +40,7 @@ public class TenantAccessMiddleware
             if (!string.IsNullOrEmpty(tokenTenant) &&
                 !string.Equals(tokenTenant, tenant.Slug, StringComparison.OrdinalIgnoreCase))
             {
-                _logger.LogWarning(
+                logger.LogWarning(
                     "Tenant access denied: token tenant '{TokenTenant}' does not match resolved tenant '{ResolvedTenant}' for {Method} {Path}.",
                     LogSafe.Value(tokenTenant), tenant.Slug, LogSafe.Value(context.Request.Method), LogSafe.Value(path.Value));
 
@@ -59,6 +50,6 @@ public class TenantAccessMiddleware
             }
         }
 
-        await _next(context);
+        await next(context);
     }
 }

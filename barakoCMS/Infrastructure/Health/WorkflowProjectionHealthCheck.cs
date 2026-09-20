@@ -13,7 +13,9 @@ namespace barakoCMS.Infrastructure.Health;
 /// signal in the logs after the first exception. Database, disk and memory checks all stay green
 /// through that, which is why this one exists. See docs/operating-workflows.md.
 /// </remarks>
-internal sealed class WorkflowProjectionHealthCheck : IHealthCheck
+internal sealed class WorkflowProjectionHealthCheck(
+    IDocumentStore store,
+    long tolerance = ProjectionLag.DefaultTolerance) : IHealthCheck
 {
     public const string Name = "Workflow Projection";
 
@@ -31,25 +33,16 @@ internal sealed class WorkflowProjectionHealthCheck : IHealthCheck
         "Events appended but not yet processed by an async projection shard.",
         new GaugeConfiguration { LabelNames = ["projection"] });
 
-    private readonly IDocumentStore _store;
-    private readonly long _tolerance;
-
-    public WorkflowProjectionHealthCheck(IDocumentStore store, long tolerance = ProjectionLag.DefaultTolerance)
-    {
-        _store = store;
-        _tolerance = tolerance;
-    }
-
     public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
     {
-        var statistics = await _store.Advanced.FetchEventStoreStatistics(token: cancellationToken);
-        var progress = await _store.Advanced.AllProjectionProgress(token: cancellationToken);
+        var statistics = await store.Advanced.FetchEventStoreStatistics(token: cancellationToken);
+        var progress = await store.Advanced.AllProjectionProgress(token: cancellationToken);
 
         var shard = progress.FirstOrDefault(p =>
             p.ShardName.StartsWith(ShardPrefix, StringComparison.OrdinalIgnoreCase));
 
         var reading = ProjectionLag.Evaluate(
-            ProjectionName, statistics.EventCount, statistics.EventSequenceNumber, shard?.Sequence, _tolerance);
+            ProjectionName, statistics.EventCount, statistics.EventSequenceNumber, shard?.Sequence, tolerance);
 
         // Refreshed whenever health is evaluated, which the shipped probes do every ten seconds.
         // Nothing else polls it, so a deployment with no health probe gets a stale gauge.

@@ -19,17 +19,8 @@ namespace barakoCMS.Features.Public;
 /// the feed answers 503 unless <c>AllowedHosts</c> makes the request host trustworthy, because a feed
 /// is fetched by aggregators and its links must not come from a header the caller wrote (#147).
 /// </summary>
-internal class FeedEndpoint : EndpointWithoutRequest
+internal class FeedEndpoint(IQuerySession session, IConfiguration config) : EndpointWithoutRequest
 {
-    private readonly IQuerySession _session;
-    private readonly IConfiguration _config;
-
-    public FeedEndpoint(IQuerySession session, IConfiguration config)
-    {
-        _session = session;
-        _config = config;
-    }
-
     private const int MaxItems = 50;
 
     public override void Configure()
@@ -42,12 +33,12 @@ internal class FeedEndpoint : EndpointWithoutRequest
     {
         var type = Route<string>("type") ?? string.Empty;
 
-        var def = await _session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
+        var def = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
         /* A feed is public delivery in another format, so it answers to the same opt-in. */
         if (!PublicDelivery.IsDeliverable(def)) { await Send.NotFoundAsync(ct); return; }
         var slugField = PublicDelivery.SlugField(def!);
 
-        var entries = await _session.Query<ContentDoc>()
+        var entries = await session.Query<ContentDoc>()
             .Where(c => c.ContentType == type
                         && c.Status == ContentStatus.Published
                         && c.Sensitivity == SensitivityLevel.Public)
@@ -56,15 +47,15 @@ internal class FeedEndpoint : EndpointWithoutRequest
             .ToListAsync(ct);
 
         var siteUrl = barakoCMS.Infrastructure.Security.CanonicalHost.BaseUrl(
-            _config, HttpContext.Request, "Feeds:SiteUrl");
+            config, HttpContext.Request, "Feeds:SiteUrl");
 
         if (siteUrl is null)
         {
             throw new barakoCMS.Infrastructure.Security.BaseUrlNotConfiguredException("Feeds:SiteUrl");
         }
 
-        var pathTemplate = _config[$"Feeds:Paths:{type}"] ?? $"/{type}/{{slug}}";
-        var channelTitle = _config[$"Feeds:Titles:{type}"] ?? type;
+        var pathTemplate = config[$"Feeds:Paths:{type}"] ?? $"/{type}/{{slug}}";
+        var channelTitle = config[$"Feeds:Titles:{type}"] ?? type;
 
         var sb = new StringBuilder();
         sb.Append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");

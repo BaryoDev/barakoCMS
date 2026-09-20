@@ -30,19 +30,11 @@ internal sealed class EmailSettingsResponse
     public bool ProviderRegistered { get; set; }
 }
 
-internal sealed class GetEmailSettingsEndpoint : EndpointWithoutRequest<EmailSettingsResponse>
+internal sealed class GetEmailSettingsEndpoint(
+    IQuerySession session,
+    IEmailSettingsProvider provider,
+    IEmailService email) : EndpointWithoutRequest<EmailSettingsResponse>
 {
-    private readonly IQuerySession _session;
-    private readonly IEmailSettingsProvider _provider;
-    private readonly IEmailService _email;
-
-    public GetEmailSettingsEndpoint(IQuerySession session, IEmailSettingsProvider provider, IEmailService email)
-    {
-        _session = session;
-        _provider = provider;
-        _email = email;
-    }
-
     public override void Configure()
     {
         Get("/api/settings/email");
@@ -53,8 +45,8 @@ internal sealed class GetEmailSettingsEndpoint : EndpointWithoutRequest<EmailSet
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        var resolved = await _provider.GetAsync(ct);
-        var stored = await _session.LoadAsync<EmailSettings>(EmailSettings.SingletonId, ct);
+        var resolved = await provider.GetAsync(ct);
+        var stored = await session.LoadAsync<EmailSettings>(EmailSettings.SingletonId, ct);
 
         await Send.ResponseAsync(new EmailSettingsResponse
         {
@@ -64,7 +56,7 @@ internal sealed class GetEmailSettingsEndpoint : EndpointWithoutRequest<EmailSet
             FromAddressSource = resolved.FromAddressSource.ToString(),
             UpdatedAt = stored?.UpdatedAt,
             UpdatedBy = stored?.UpdatedBy,
-            ProviderRegistered = !EmailProvider.IsMock(_email),
+            ProviderRegistered = !EmailProvider.IsMock(email),
         }, cancellation: ct);
     }
 }
@@ -86,28 +78,13 @@ internal sealed class UpdateEmailSettingsRequest
     public string? FromAddress { get; set; }
 }
 
-internal sealed class UpdateEmailSettingsEndpoint : Endpoint<UpdateEmailSettingsRequest, EmailSettingsResponse>
+internal sealed class UpdateEmailSettingsEndpoint(
+    IDocumentSession session,
+    ISecretProtector protector,
+    IEmailSettingsProvider provider,
+    IEmailService email,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<UpdateEmailSettingsRequest, EmailSettingsResponse>
 {
-    private readonly IDocumentSession _session;
-    private readonly ISecretProtector _protector;
-    private readonly IEmailSettingsProvider _provider;
-    private readonly IEmailService _email;
-    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
-
-    public UpdateEmailSettingsEndpoint(
-        IDocumentSession session,
-        ISecretProtector protector,
-        IEmailSettingsProvider provider,
-        IEmailService email,
-        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
-    {
-        _session = session;
-        _protector = protector;
-        _provider = provider;
-        _email = email;
-        _tenant = tenant;
-    }
-
     public override void Configure()
     {
         Put("/api/settings/email");
@@ -120,7 +97,7 @@ internal sealed class UpdateEmailSettingsEndpoint : Endpoint<UpdateEmailSettings
 
     public override async Task HandleAsync(UpdateEmailSettingsRequest req, CancellationToken ct)
     {
-        var settings = await _session.LoadAsync<EmailSettings>(EmailSettings.SingletonId, ct)
+        var settings = await session.LoadAsync<EmailSettings>(EmailSettings.SingletonId, ct)
             ?? new EmailSettings();
 
         var changed = new List<string>();
@@ -128,7 +105,7 @@ internal sealed class UpdateEmailSettingsEndpoint : Endpoint<UpdateEmailSettings
         if (req.ApiKey is not null)
         {
             var trimmed = req.ApiKey.Trim();
-            var next = trimmed.Length == 0 ? string.Empty : _protector.Protect(trimmed);
+            var next = trimmed.Length == 0 ? string.Empty : protector.Protect(trimmed);
 
             // Compared on whether there is a key rather than on the ciphertext, which is different
             // every time it is encrypted because the nonce is.
@@ -153,21 +130,21 @@ internal sealed class UpdateEmailSettingsEndpoint : Endpoint<UpdateEmailSettings
         {
             settings.UpdatedAt = DateTime.UtcNow;
             settings.UpdatedBy = User.FindFirst("Username")?.Value ?? User.Identity?.Name;
-            _session.Store(settings);
+            session.Store(settings);
 
             // What changed, never what it changed to. An audit entry that quotes the key puts the
             // key in the audit trail, which is the one table designed never to be deleted from.
             Guid? actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var id) ? id : null;
-            await AuditLog.RecordAsync(_session, _tenant.Slug, "settings.email.changed",
+            await AuditLog.RecordAsync(session, tenant.Slug, "settings.email.changed",
                 actorId, settings.UpdatedBy,
                 targetType: nameof(EmailSettings), targetId: EmailSettings.SingletonId.ToString(),
                 metadata: new() { ["fields"] = string.Join(", ", changed) },
                 ct: ct);
 
-            await _session.SaveChangesAsync(ct);
+            await session.SaveChangesAsync(ct);
         }
 
-        var resolved = await _provider.GetAsync(ct);
+        var resolved = await provider.GetAsync(ct);
 
         await Send.ResponseAsync(new EmailSettingsResponse
         {
@@ -177,7 +154,7 @@ internal sealed class UpdateEmailSettingsEndpoint : Endpoint<UpdateEmailSettings
             FromAddressSource = resolved.FromAddressSource.ToString(),
             UpdatedAt = settings.UpdatedAt,
             UpdatedBy = settings.UpdatedBy,
-            ProviderRegistered = !EmailProvider.IsMock(_email),
+            ProviderRegistered = !EmailProvider.IsMock(email),
         }, cancellation: ct);
     }
 }
@@ -200,28 +177,13 @@ internal sealed class SendTestEmailResponse
 /// and returns, so a test button in front of it answers "sent" every time and moves the failure to
 /// the first real invoice, which is the thing this endpoint exists to prevent.
 /// </remarks>
-internal sealed class SendTestEmailEndpoint : EndpointWithoutRequest<SendTestEmailResponse>
+internal sealed class SendTestEmailEndpoint(
+    IEmailService email,
+    IEmailSettingsProvider provider,
+    IQuerySession session,
+    IConfiguration config,
+    ILogger<SendTestEmailEndpoint> logger) : EndpointWithoutRequest<SendTestEmailResponse>
 {
-    private readonly IEmailService _email;
-    private readonly IEmailSettingsProvider _provider;
-    private readonly IQuerySession _session;
-    private readonly IConfiguration _config;
-    private readonly ILogger<SendTestEmailEndpoint> _logger;
-
-    public SendTestEmailEndpoint(
-        IEmailService email,
-        IEmailSettingsProvider provider,
-        IQuerySession session,
-        IConfiguration config,
-        ILogger<SendTestEmailEndpoint> logger)
-    {
-        _email = email;
-        _provider = provider;
-        _session = session;
-        _config = config;
-        _logger = logger;
-    }
-
     public override void Configure()
     {
         Post("/api/settings/email/test");
@@ -232,7 +194,7 @@ internal sealed class SendTestEmailEndpoint : EndpointWithoutRequest<SendTestEma
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        if (EmailProvider.IsMock(_email))
+        if (EmailProvider.IsMock(email))
         {
             ThrowError(
                 "No email provider is registered, so nothing would be delivered. Add a provider module, "
@@ -240,7 +202,7 @@ internal sealed class SendTestEmailEndpoint : EndpointWithoutRequest<SendTestEma
             return;
         }
 
-        var resolved = await _provider.GetAsync(ct);
+        var resolved = await provider.GetAsync(ct);
         if (string.IsNullOrEmpty(resolved.ApiKey))
         {
             ThrowError("No API key is set, in the admin or in configuration.", 400);
@@ -253,18 +215,18 @@ internal sealed class SendTestEmailEndpoint : EndpointWithoutRequest<SendTestEma
             return;
         }
 
-        var user = await _session.LoadAsync<User>(userId, ct);
+        var user = await session.LoadAsync<User>(userId, ct);
         if (user is null || string.IsNullOrWhiteSpace(user.Email))
         {
             ThrowError("Your account has no email address to send the test to.", 400);
             return;
         }
 
-        var appName = _config["Branding:AppName"] ?? "BarakoCMS";
+        var appName = config["Branding:AppName"] ?? "BarakoCMS";
 
         try
         {
-            await _email.SendEmailAsync(
+            await email.SendEmailAsync(
                 user.Email,
                 $"{appName} email test",
                 $"<p>This is a test from {appName}. If you are reading it, email is configured and "
@@ -275,7 +237,7 @@ internal sealed class SendTestEmailEndpoint : EndpointWithoutRequest<SendTestEma
         {
             // The provider's own reason, which is the whole value of a test button: "failed" alone
             // sends the operator back to guessing which of the two fields is wrong.
-            _logger.LogWarning(ex, "The email test send failed");
+            logger.LogWarning(ex, "The email test send failed");
             ThrowError($"The provider refused it: {ex.Message}", 400);
             return;
         }

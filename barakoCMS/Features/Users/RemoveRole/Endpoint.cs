@@ -6,22 +6,11 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.Users.RemoveRole;
 
-internal class Endpoint : Endpoint<Request, Response>
+internal class Endpoint(
+    IDocumentSession session,
+    barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<Request, Response>
 {
-    private readonly IDocumentSession _session;
-    private readonly barakoCMS.Infrastructure.Services.IPermissionResolver _permissionResolver;
-    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
-
-    public Endpoint(
-        IDocumentSession session,
-        barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver,
-        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
-    {
-        _session = session;
-        _permissionResolver = permissionResolver;
-        _tenant = tenant;
-    }
-
     public override void Configure()
     {
         Delete("/api/users/{userId}/roles/{roleId}");
@@ -30,7 +19,7 @@ internal class Endpoint : Endpoint<Request, Response>
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        var user = await _session.LoadAsync<User>(req.UserId, ct);
+        var user = await session.LoadAsync<User>(req.UserId, ct);
 
         if (user == null)
         {
@@ -39,14 +28,14 @@ internal class Endpoint : Endpoint<Request, Response>
         }
 
         user.RoleIds.Remove(req.RoleId);
-        _session.Store(user);
+        session.Store(user);
         Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
-        await AuditLog.RecordAsync(_session, _tenant.Slug, "user.role.removed", actorId, User.FindFirst("Username")?.Value,
+        await AuditLog.RecordAsync(session, tenant.Slug, "user.role.removed", actorId, User.FindFirst("Username")?.Value,
             targetType: "User", targetId: req.UserId.ToString(), metadata: new() { ["roleId"] = req.RoleId.ToString() }, ct: ct);
-        await _session.SaveChangesAsync(ct);
+        await session.SaveChangesAsync(ct);
 
         // Removing a role narrows the user's access — evict cached decisions so it applies now.
-        _permissionResolver.InvalidateUserPermissions(req.UserId);
+        permissionResolver.InvalidateUserPermissions(req.UserId);
 
         await Send.OkAsync(new Response { Message = "Role removed from user successfully" }, ct);
     }

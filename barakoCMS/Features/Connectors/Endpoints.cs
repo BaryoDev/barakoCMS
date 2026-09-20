@@ -56,12 +56,9 @@ internal static class ConnectorGate
     }
 }
 
-internal sealed class ListConnectorsEndpoint : Endpoint<ListRequest, PaginatedResponse<ConnectorResponse>>
+internal sealed class ListConnectorsEndpoint(
+    IQuerySession session) : Endpoint<ListRequest, PaginatedResponse<ConnectorResponse>>
 {
-    private readonly IQuerySession _session;
-
-    public ListConnectorsEndpoint(IQuerySession session) => _session = session;
-
     public override void Configure()
     {
         Get("/api/connectors");
@@ -70,7 +67,7 @@ internal sealed class ListConnectorsEndpoint : Endpoint<ListRequest, PaginatedRe
 
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)
     {
-        var page = await _session.Query<Connector>().OrderBy(c => c.Name).ToPagedResponseAsync(req, ct);
+        var page = await session.Query<Connector>().OrderBy(c => c.Name).ToPagedResponseAsync(req, ct);
 
         await Send.ResponseAsync(new PaginatedResponse<ConnectorResponse>
         {
@@ -82,12 +79,8 @@ internal sealed class ListConnectorsEndpoint : Endpoint<ListRequest, PaginatedRe
     }
 }
 
-internal sealed class GetConnectorEndpoint : EndpointWithoutRequest<ConnectorResponse>
+internal sealed class GetConnectorEndpoint(IQuerySession session) : EndpointWithoutRequest<ConnectorResponse>
 {
-    private readonly IQuerySession _session;
-
-    public GetConnectorEndpoint(IQuerySession session) => _session = session;
-
     public override void Configure()
     {
         Get("/api/connectors/{slug}");
@@ -104,7 +97,7 @@ internal sealed class GetConnectorEndpoint : EndpointWithoutRequest<ConnectorRes
             return;
         }
 
-        var connector = await _session.Query<Connector>().FirstOrDefaultAsync(c => c.Slug == slug, ct);
+        var connector = await session.Query<Connector>().FirstOrDefaultAsync(c => c.Slug == slug, ct);
 
         if (connector is null)
         {
@@ -116,22 +109,11 @@ internal sealed class GetConnectorEndpoint : EndpointWithoutRequest<ConnectorRes
     }
 }
 
-internal sealed class CreateConnectorEndpoint : Endpoint<SaveConnectorRequest, ConnectorResponse>
+internal sealed class CreateConnectorEndpoint(
+    IDocumentSession session,
+    IConnectorSecretProtector protector,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<SaveConnectorRequest, ConnectorResponse>
 {
-    private readonly IDocumentSession _session;
-    private readonly IConnectorSecretProtector _protector;
-    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
-
-    public CreateConnectorEndpoint(
-        IDocumentSession session,
-        IConnectorSecretProtector protector,
-        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
-    {
-        _session = session;
-        _protector = protector;
-        _tenant = tenant;
-    }
-
     public override void Configure()
     {
         Post("/api/connectors");
@@ -147,7 +129,7 @@ internal sealed class CreateConnectorEndpoint : Endpoint<SaveConnectorRequest, C
             return;
         }
 
-        if (req.Secrets is { Count: > 0 } && !_protector.IsConfigured)
+        if (req.Secrets is { Count: > 0 } && !protector.IsConfigured)
         {
             // Fail closed and name the setting. Storing the credential in the clear because no key
             // was configured is the one outcome nobody would choose and nobody would notice.
@@ -155,7 +137,7 @@ internal sealed class CreateConnectorEndpoint : Endpoint<SaveConnectorRequest, C
             return;
         }
 
-        if (await _session.Query<Connector>().AnyAsync(c => c.Slug == req.Slug, ct))
+        if (await session.Query<Connector>().AnyAsync(c => c.Slug == req.Slug, ct))
         {
             ThrowError($"A connector with the slug '{req.Slug}' already exists.", 409);
             return;
@@ -174,10 +156,10 @@ internal sealed class CreateConnectorEndpoint : Endpoint<SaveConnectorRequest, C
         };
 
         connector.SecretKeys = StoreSecrets(connector.Id, req.Secrets, replaceAll: true);
-        _session.Store(connector);
+        session.Store(connector);
 
-        await ConnectorGate.AuditAsync(_session, _tenant.Slug, "connector.created", connector, User, ct: ct);
-        await _session.SaveChangesAsync(ct);
+        await ConnectorGate.AuditAsync(session, tenant.Slug, "connector.created", connector, User, ct: ct);
+        await session.SaveChangesAsync(ct);
 
         await Send.ResponseAsync(ConnectorResponse.From(connector), cancellation: ct);
     }
@@ -191,12 +173,12 @@ internal sealed class CreateConnectorEndpoint : Endpoint<SaveConnectorRequest, C
         {
             if (string.IsNullOrWhiteSpace(value)) continue;
 
-            _session.Store(new ConnectorSecret
+            session.Store(new ConnectorSecret
             {
                 Id = Guid.NewGuid(),
                 ConnectorId = connectorId,
                 Key = key,
-                ProtectedValue = _protector.Protect(value),
+                ProtectedValue = protector.Protect(value),
             });
             names.Add(key);
         }
@@ -205,22 +187,11 @@ internal sealed class CreateConnectorEndpoint : Endpoint<SaveConnectorRequest, C
     }
 }
 
-internal sealed class UpdateConnectorEndpoint : Endpoint<SaveConnectorRequest, ConnectorResponse>
+internal sealed class UpdateConnectorEndpoint(
+    IDocumentSession session,
+    IConnectorSecretProtector protector,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<SaveConnectorRequest, ConnectorResponse>
 {
-    private readonly IDocumentSession _session;
-    private readonly IConnectorSecretProtector _protector;
-    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
-
-    public UpdateConnectorEndpoint(
-        IDocumentSession session,
-        IConnectorSecretProtector protector,
-        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
-    {
-        _session = session;
-        _protector = protector;
-        _tenant = tenant;
-    }
-
     public override void Configure()
     {
         Put("/api/connectors/{slug}");
@@ -237,7 +208,7 @@ internal sealed class UpdateConnectorEndpoint : Endpoint<SaveConnectorRequest, C
             return;
         }
 
-        var connector = await _session.Query<Connector>().FirstOrDefaultAsync(c => c.Slug == slug, ct);
+        var connector = await session.Query<Connector>().FirstOrDefaultAsync(c => c.Slug == slug, ct);
 
         if (connector is null)
         {
@@ -256,7 +227,7 @@ internal sealed class UpdateConnectorEndpoint : Endpoint<SaveConnectorRequest, C
             return;
         }
 
-        if (req.Secrets is { Count: > 0 } && !_protector.IsConfigured)
+        if (req.Secrets is { Count: > 0 } && !protector.IsConfigured)
         {
             ThrowError("Connectors:Key is not configured, so a credential cannot be stored. Set it and restart.", 400);
             return;
@@ -274,7 +245,7 @@ internal sealed class UpdateConnectorEndpoint : Endpoint<SaveConnectorRequest, C
 
         if (req.Secrets is not null)
         {
-            var existing = await _session.Query<ConnectorSecret>()
+            var existing = await session.Query<ConnectorSecret>()
                 .Where(s => s.ConnectorId == connector.Id)
                 .ToListAsync(ct);
 
@@ -288,7 +259,7 @@ internal sealed class UpdateConnectorEndpoint : Endpoint<SaveConnectorRequest, C
                     // form cannot show the current value, so it cannot send it back unchanged.
                     if (current is not null)
                     {
-                        _session.Delete(current);
+                        session.Delete(current);
                         connector.SecretKeys.Remove(key);
                         changedSecrets.Add($"{key} cleared");
                     }
@@ -297,53 +268,44 @@ internal sealed class UpdateConnectorEndpoint : Endpoint<SaveConnectorRequest, C
 
                 if (current is null)
                 {
-                    _session.Store(new ConnectorSecret
+                    session.Store(new ConnectorSecret
                     {
                         Id = Guid.NewGuid(),
                         ConnectorId = connector.Id,
                         Key = key,
-                        ProtectedValue = _protector.Protect(value),
+                        ProtectedValue = protector.Protect(value),
                     });
                     if (!connector.SecretKeys.Contains(key)) connector.SecretKeys.Add(key);
                 }
                 else
                 {
-                    current.ProtectedValue = _protector.Protect(value);
+                    current.ProtectedValue = protector.Protect(value);
                     current.UpdatedAt = DateTime.UtcNow;
-                    _session.Store(current);
+                    session.Store(current);
                 }
 
                 changedSecrets.Add($"{key} set");
             }
         }
 
-        _session.Store(connector);
+        session.Store(connector);
 
-        await ConnectorGate.AuditAsync(_session, _tenant.Slug, "connector.updated", connector, User,
+        await ConnectorGate.AuditAsync(session, tenant.Slug, "connector.updated", connector, User,
             extra: changedSecrets.Count > 0
                 ? new Dictionary<string, object> { ["secretsChanged"] = string.Join(", ", changedSecrets) }
                 : null,
             ct: ct);
 
-        await _session.SaveChangesAsync(ct);
+        await session.SaveChangesAsync(ct);
 
         await Send.ResponseAsync(ConnectorResponse.From(connector), cancellation: ct);
     }
 }
 
-internal sealed class DeleteConnectorEndpoint : EndpointWithoutRequest
+internal sealed class DeleteConnectorEndpoint(
+    IDocumentSession session,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : EndpointWithoutRequest
 {
-    private readonly IDocumentSession _session;
-    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
-
-    public DeleteConnectorEndpoint(
-        IDocumentSession session,
-        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
-    {
-        _session = session;
-        _tenant = tenant;
-    }
-
     public override void Configure()
     {
         Delete("/api/connectors/{slug}");
@@ -360,7 +322,7 @@ internal sealed class DeleteConnectorEndpoint : EndpointWithoutRequest
             return;
         }
 
-        var connector = await _session.Query<Connector>().FirstOrDefaultAsync(c => c.Slug == slug, ct);
+        var connector = await session.Query<Connector>().FirstOrDefaultAsync(c => c.Slug == slug, ct);
 
         if (connector is null)
         {
@@ -371,36 +333,25 @@ internal sealed class DeleteConnectorEndpoint : EndpointWithoutRequest
         // The secrets go with it, in the same transaction. Leaving them behind would keep decryptable
         // credentials in the database belonging to a connector nobody can see any more, which is the
         // worst of both: still a liability, no longer visible.
-        var secrets = await _session.Query<ConnectorSecret>()
+        var secrets = await session.Query<ConnectorSecret>()
             .Where(s => s.ConnectorId == connector.Id)
             .ToListAsync(ct);
 
-        foreach (var secret in secrets) _session.Delete(secret);
-        _session.Delete(connector);
+        foreach (var secret in secrets) session.Delete(secret);
+        session.Delete(connector);
 
-        await ConnectorGate.AuditAsync(_session, _tenant.Slug, "connector.deleted", connector, User, ct: ct);
-        await _session.SaveChangesAsync(ct);
+        await ConnectorGate.AuditAsync(session, tenant.Slug, "connector.deleted", connector, User, ct: ct);
+        await session.SaveChangesAsync(ct);
 
         await Send.NoContentAsync(ct);
     }
 }
 
-internal sealed class TestConnectorEndpoint : EndpointWithoutRequest<TestConnectorResponse>
+internal sealed class TestConnectorEndpoint(
+    IDocumentSession session,
+    IConnectorSender sender,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : EndpointWithoutRequest<TestConnectorResponse>
 {
-    private readonly IDocumentSession _session;
-    private readonly IConnectorSender _sender;
-    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
-
-    public TestConnectorEndpoint(
-        IDocumentSession session,
-        IConnectorSender sender,
-        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
-    {
-        _session = session;
-        _sender = sender;
-        _tenant = tenant;
-    }
-
     public override void Configure()
     {
         Post("/api/connectors/{slug}/test");
@@ -417,7 +368,7 @@ internal sealed class TestConnectorEndpoint : EndpointWithoutRequest<TestConnect
             return;
         }
 
-        var connector = await _session.Query<Connector>().FirstOrDefaultAsync(c => c.Slug == slug, ct);
+        var connector = await session.Query<Connector>().FirstOrDefaultAsync(c => c.Slug == slug, ct);
 
         if (connector is null)
         {
@@ -425,17 +376,17 @@ internal sealed class TestConnectorEndpoint : EndpointWithoutRequest<TestConnect
             return;
         }
 
-        var result = await _sender.ProbeAsync(connector, ct);
+        var result = await sender.ProbeAsync(connector, ct);
 
         connector.LastTestedAt = DateTime.UtcNow;
         connector.LastTestResult = result.Describe();
-        _session.Store(connector);
+        session.Store(connector);
 
-        await ConnectorGate.AuditAsync(_session, _tenant.Slug, "connector.tested", connector, User,
+        await ConnectorGate.AuditAsync(session, tenant.Slug, "connector.tested", connector, User,
             extra: new Dictionary<string, object> { ["result"] = connector.LastTestResult },
             ct: ct);
 
-        await _session.SaveChangesAsync(ct);
+        await session.SaveChangesAsync(ct);
 
         // The status code and the round trip. Not the body: a 401 from an OAuth provider frequently
         // contains the credential that was sent, so echoing it would be the leak this feature spends

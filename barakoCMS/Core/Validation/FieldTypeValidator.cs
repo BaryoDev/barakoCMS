@@ -78,10 +78,8 @@ public static class FieldTypeValidator
         if (string.IsNullOrWhiteSpace(fieldName))
             return fieldName;
 
-        // Remove invalid characters and split by common separators
         var parts = fieldName.Split(new[] { '_', '-', ' ' }, StringSplitOptions.RemoveEmptyEntries);
         
-        // Capitalize first letter of each part
         var fixedName = string.Join("", parts.Select(p => 
             char.ToUpper(p[0]) + p.Substring(1).ToLower()));
 

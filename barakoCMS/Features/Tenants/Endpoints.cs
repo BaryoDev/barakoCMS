@@ -11,11 +11,8 @@ internal sealed record TenantPublicResponse(
     string? Location, string? LocationUrl, string? SocialHandle, string? Email, string? ContactUrl);
 
 /// <summary>GET /api/tenants/{handle}/public — anonymous public profile for a tenant's landing page.</summary>
-internal class PublicTenantEndpoint : EndpointWithoutRequest<TenantPublicResponse>
+internal class PublicTenantEndpoint(IQuerySession session) : EndpointWithoutRequest<TenantPublicResponse>
 {
-    private readonly IQuerySession _session;
-    public PublicTenantEndpoint(IQuerySession session) => _session = session;
-
     public override void Configure()
     {
         Get("/api/tenants/{handle}/public");
@@ -25,7 +22,7 @@ internal class PublicTenantEndpoint : EndpointWithoutRequest<TenantPublicRespons
     public override async Task HandleAsync(CancellationToken ct)
     {
         var handle = Route<string>("handle")?.ToLowerInvariant();
-        var t = await _session.Query<Tenant>().FirstOrDefaultAsync(x => x.Slug == handle && x.IsActive, ct);
+        var t = await session.Query<Tenant>().FirstOrDefaultAsync(x => x.Slug == handle && x.IsActive, ct);
         if (t is null) { await Send.NotFoundAsync(ct); return; }
         await Send.OkAsync(new TenantPublicResponse(
             t.Slug, t.Name, t.LogoUrl, t.About, t.Location, t.LocationUrl, t.SocialHandle, t.Email, t.ContactUrl), ct);
@@ -33,11 +30,8 @@ internal class PublicTenantEndpoint : EndpointWithoutRequest<TenantPublicRespons
 }
 
 /// <summary>GET /api/tenants — list all tenants with full profile (platform admin).</summary>
-internal class ListTenantsEndpoint : Endpoint<ListRequest, PaginatedResponse<TenantResponse>>
+internal class ListTenantsEndpoint(IQuerySession session) : Endpoint<ListRequest, PaginatedResponse<TenantResponse>>
 {
-    private readonly IQuerySession _session;
-    public ListTenantsEndpoint(IQuerySession session) => _session = session;
-
     public override void Configure()
     {
         Get("/api/tenants");
@@ -46,7 +40,7 @@ internal class ListTenantsEndpoint : Endpoint<ListRequest, PaginatedResponse<Ten
 
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)
     {
-        var page = await _session.Query<Tenant>()
+        var page = await session.Query<Tenant>()
             .OrderBy(t => t.Name)
             .ToPagedResponseAsync(req, ct);
 

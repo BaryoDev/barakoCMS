@@ -29,11 +29,8 @@ public class FlagDto
 }
 
 /// <summary>GET /api/feature-flags/admin — all flags with their full config.</summary>
-public class ListFlagsEndpoint : EndpointWithoutRequest<List<FlagDto>>
+public class ListFlagsEndpoint(IQuerySession session) : EndpointWithoutRequest<List<FlagDto>>
 {
-    private readonly IQuerySession _session;
-    public ListFlagsEndpoint(IQuerySession session) => _session = session;
-
     public override void Configure()
     {
         Get("/api/feature-flags/admin");
@@ -43,7 +40,7 @@ public class ListFlagsEndpoint : EndpointWithoutRequest<List<FlagDto>>
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        var flags = await _session.Query<FeatureFlag>().OrderBy(f => f.Key).ToListAsync(ct);
+        var flags = await session.Query<FeatureFlag>().OrderBy(f => f.Key).ToListAsync(ct);
         await Send.ResponseAsync(flags.Select(FlagDto.From).ToList(), cancellation: ct);
     }
 }
@@ -66,11 +63,8 @@ public class UpsertFlagRequest
 }
 
 /// <summary>POST /api/feature-flags/admin — create or update a flag (upsert by key).</summary>
-public class SaveFlagEndpoint : Endpoint<UpsertFlagRequest, FlagDto>
+public class SaveFlagEndpoint(IDocumentSession session) : Endpoint<UpsertFlagRequest, FlagDto>
 {
-    private readonly IDocumentSession _session;
-    public SaveFlagEndpoint(IDocumentSession session) => _session = session;
-
     public override void Configure()
     {
         Post("/api/feature-flags/admin");
@@ -83,7 +77,7 @@ public class SaveFlagEndpoint : Endpoint<UpsertFlagRequest, FlagDto>
         var key = (req.Key ?? string.Empty).Trim().ToLowerInvariant();
         if (string.IsNullOrWhiteSpace(key)) { AddError("Key is required."); await Send.ErrorsAsync(400, ct); return; }
 
-        var flag = await _session.Query<FeatureFlag>().FirstOrDefaultAsync(f => f.Key == key, ct)
+        var flag = await session.Query<FeatureFlag>().FirstOrDefaultAsync(f => f.Key == key, ct)
                    ?? new FeatureFlag { Key = key };
         flag.Description = string.IsNullOrWhiteSpace(req.Description) ? null : req.Description!.Trim();
         flag.Enabled = req.Enabled;
@@ -93,8 +87,8 @@ public class SaveFlagEndpoint : Endpoint<UpsertFlagRequest, FlagDto>
         flag.IsPublic = req.IsPublic;
         flag.UpdatedAt = DateTime.UtcNow;
 
-        _session.Store(flag);
-        await _session.SaveChangesAsync(ct);
+        session.Store(flag);
+        await session.SaveChangesAsync(ct);
         await Send.ResponseAsync(FlagDto.From(flag), cancellation: ct);
     }
 
@@ -105,11 +99,8 @@ public class SaveFlagEndpoint : Endpoint<UpsertFlagRequest, FlagDto>
 public class KeyRequest { public string Key { get; set; } = string.Empty; }
 
 /// <summary>POST /api/feature-flags/admin/{key}/toggle — flip a flag on/off.</summary>
-public class ToggleFlagEndpoint : Endpoint<KeyRequest, FlagDto>
+public class ToggleFlagEndpoint(IDocumentSession session) : Endpoint<KeyRequest, FlagDto>
 {
-    private readonly IDocumentSession _session;
-    public ToggleFlagEndpoint(IDocumentSession session) => _session = session;
-
     public override void Configure()
     {
         Post("/api/feature-flags/admin/{key}/toggle");
@@ -120,22 +111,19 @@ public class ToggleFlagEndpoint : Endpoint<KeyRequest, FlagDto>
     public override async Task HandleAsync(KeyRequest req, CancellationToken ct)
     {
         var key = (req.Key ?? string.Empty).Trim().ToLowerInvariant();
-        var flag = await _session.Query<FeatureFlag>().FirstOrDefaultAsync(f => f.Key == key, ct);
+        var flag = await session.Query<FeatureFlag>().FirstOrDefaultAsync(f => f.Key == key, ct);
         if (flag is null) { await Send.NotFoundAsync(ct); return; }
         flag.Enabled = !flag.Enabled;
         flag.UpdatedAt = DateTime.UtcNow;
-        _session.Store(flag);
-        await _session.SaveChangesAsync(ct);
+        session.Store(flag);
+        await session.SaveChangesAsync(ct);
         await Send.ResponseAsync(FlagDto.From(flag), cancellation: ct);
     }
 }
 
 /// <summary>DELETE /api/feature-flags/admin/{key} — remove a flag.</summary>
-public class DeleteFlagEndpoint : Endpoint<KeyRequest>
+public class DeleteFlagEndpoint(IDocumentSession session) : Endpoint<KeyRequest>
 {
-    private readonly IDocumentSession _session;
-    public DeleteFlagEndpoint(IDocumentSession session) => _session = session;
-
     public override void Configure()
     {
         Delete("/api/feature-flags/admin/{key}");
@@ -146,8 +134,8 @@ public class DeleteFlagEndpoint : Endpoint<KeyRequest>
     public override async Task HandleAsync(KeyRequest req, CancellationToken ct)
     {
         var key = (req.Key ?? string.Empty).Trim().ToLowerInvariant();
-        var flag = await _session.Query<FeatureFlag>().FirstOrDefaultAsync(f => f.Key == key, ct);
-        if (flag is not null) { _session.Delete(flag); await _session.SaveChangesAsync(ct); }
+        var flag = await session.Query<FeatureFlag>().FirstOrDefaultAsync(f => f.Key == key, ct);
+        if (flag is not null) { session.Delete(flag); await session.SaveChangesAsync(ct); }
         await Send.OkAsync(ct);
     }
 }
