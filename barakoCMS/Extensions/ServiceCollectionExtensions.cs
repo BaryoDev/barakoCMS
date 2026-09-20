@@ -56,12 +56,7 @@ public static class ServiceCollectionExtensions
         AddJwtAndApiKeyAuth(services, configuration);
 
         AddHstsAndCors(services, configuration);
-        services.AddScoped<IUserRepository, MartenUserRepository>();
-
-        services.AddScoped<IConditionEvaluator, ConditionEvaluator>();
-        
-        services.AddScoped<PermissionResolver>(); // Inner resolver
-        services.AddScoped<IPermissionResolver, CachedPermissionResolver>(); // Cached decorator
+        AddPermissionResolution(services);
         
         // Security Services
         // The only place an access token is minted — it owns the "may this user hold a token for
@@ -1047,6 +1042,16 @@ public static class ServiceCollectionExtensions
                 }
             });
         });
+    }
+
+    private static void AddPermissionResolution(IServiceCollection services)
+    {
+        services.AddScoped<IUserRepository, MartenUserRepository>();
+
+        services.AddScoped<IConditionEvaluator, ConditionEvaluator>();
+        
+        services.AddScoped<PermissionResolver>(); // Inner resolver
+        services.AddScoped<IPermissionResolver, CachedPermissionResolver>(); // Cached decorator
     }
 
     private static readonly Dictionary<string, string> SslModeMap = new(StringComparer.OrdinalIgnoreCase)
