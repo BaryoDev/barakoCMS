@@ -2,6 +2,7 @@ using System.Net;
 using FluentAssertions;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Xunit;
+using Cors = barakoCMS.Extensions.ServiceCollectionExtensions;
 
 namespace BarakoCMS.Tests;
 
@@ -170,5 +171,49 @@ public class CorsTests
 
         exposed.Should().Contain("ETag");
         exposed.Should().Contain("X-Api-Contract-Version");
+    }
+}
+
+/// <summary>
+/// The origin decision on its own, without a host. The localhost fallback used to run in every
+/// environment, so a deployment that never set <c>CORS:AllowedOrigins</c> allowed credentialed
+/// requests from three localhost ports, and the refresh token lives in a cookie. The integration
+/// tests above all run in Development, which is the branch that was always meant to be there, so
+/// nothing among them could have caught it.
+/// </summary>
+public class CorsOriginTests
+{
+    private static readonly string[] Localhost =
+        ["http://localhost:3000", "http://localhost:3001", "https://localhost:7049"];
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Configured_origins_win_in_every_environment(bool isDevelopment)
+    {
+        var origins = Cors.ResolveCorsOrigins(
+            "https://console.example.com, https://admin.example.com", isDevelopment);
+
+        origins.Should().Equal("https://console.example.com", "https://admin.example.com");
+    }
+
+    [Fact]
+    public void Development_with_nothing_configured_falls_back_to_localhost()
+    {
+        var origins = Cors.ResolveCorsOrigins(null, isDevelopment: true);
+
+        origins.Should().Equal(Localhost);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("  ,  ")]
+    public void Outside_development_nothing_configured_allows_no_origin(string? configured)
+    {
+        var origins = Cors.ResolveCorsOrigins(configured, isDevelopment: false);
+
+        origins.Should().BeEmpty(
+            "a production deployment that forgot the setting must not accept credentialed requests from localhost");
     }
 }

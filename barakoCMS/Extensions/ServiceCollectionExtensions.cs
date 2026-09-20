@@ -263,7 +263,7 @@ public static class ServiceCollectionExtensions
         // no configuration at all while production stays off unless it is asked for. Defaulting to
         // false everywhere would have removed it for every developer.
         var swaggerOnByDefault =
-            Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development";
+            IsDevelopmentEnvironment();
         if (configuration.GetValue("Swagger:Enabled", swaggerOnByDefault))
         {
             services.SwaggerDocument(o =>
@@ -435,11 +435,11 @@ public static class ServiceCollectionExtensions
             // would buy nothing.
             options.AddPolicy("SecurePolicy", builder =>
             {
-                // Get allowed origins from configuration (comma-separated list)
-                // Priority: CORS__AllowedOrigins env var > appsettings.json CORS:AllowedOrigins
-                var allowedOrigins = configuration["CORS:AllowedOrigins"]?
-                    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                    ?? Array.Empty<string>();
+                // CORS__AllowedOrigins as an environment variable, CORS:AllowedOrigins in
+                // appsettings.json; configuration binding treats them as the same key.
+                var allowedOrigins = ResolveCorsOrigins(
+                    configuration["CORS:AllowedOrigins"],
+                    IsDevelopmentEnvironment());
 
                 if (allowedOrigins.Length > 0)
                 {
@@ -451,12 +451,7 @@ public static class ServiceCollectionExtensions
                 }
                 else
                 {
-                    // Fallback to localhost for development if no origins configured
-                    builder.WithOrigins("http://localhost:3000", "http://localhost:3001", "https://localhost:7049")
-                           .AllowAnyMethod()
-                           .AllowAnyHeader()
-                           .WithExposedHeaders(BrowserReadableHeaders)
-                           .AllowCredentials();
+                    builder.WithOrigins().WithExposedHeaders(BrowserReadableHeaders);
                 }
             });
         });
@@ -818,7 +813,7 @@ public static class ServiceCollectionExtensions
             // a frictionless local loop. NOTE: changing Events.TenancyStyle on an existing store is
             // still not auto-migratable — it requires an event-store rebuild, never a live migration.
             var isDevelopment =
-                Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development";
+                IsDevelopmentEnvironment();
             options.AutoCreateSchemaObjects = isDevelopment
                 ? JasperFx.AutoCreate.CreateOrUpdate
                 : JasperFx.AutoCreate.CreateOnly;
@@ -1201,6 +1196,32 @@ public static class ServiceCollectionExtensions
 
     private static bool IsDevelopmentEnvironment() =>
         IsDevelopment(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"));
+
+    /// <summary>The ports the quickstart and <c>dotnet run</c> serve a frontend on.</summary>
+    private static readonly string[] DevelopmentOrigins =
+        ["http://localhost:3000", "http://localhost:3001", "https://localhost:7049"];
+
+    /// <summary>The origins SecurePolicy allows, empty when nothing may call this API cross-origin.</summary>
+    /// <remarks>
+    /// The localhost fallback used to apply in every environment, so a deployment that forgot
+    /// CORS:AllowedOrigins accepted credentialed requests from a page on one of three localhost
+    /// ports, and this API puts the refresh token in a cookie. Outside Development, no configured
+    /// origins now means no cross-origin access: a deployment with no browser client needs none,
+    /// and one that has a client sees a CORS error naming the setting rather than a hole nobody
+    /// looks for.
+    /// </remarks>
+    internal static string[] ResolveCorsOrigins(string? configured, bool isDevelopment)
+    {
+        var configuredOrigins =
+            configured?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) ?? [];
+
+        if (configuredOrigins.Length > 0)
+        {
+            return configuredOrigins;
+        }
+
+        return isDevelopment ? DevelopmentOrigins : [];
+    }
 
     /// <summary>Whether an environment name means Development.</summary>
     /// <remarks>
