@@ -29,7 +29,7 @@ public class BlueprintFieldTypeTests
 
     private static IReadOnlyList<(string Name, JsonDocument Json)> BuiltIn()
     {
-        var assembly = typeof(barakoCMS.Models.ContentTypeDefinition).Assembly;
+        var assembly = typeof(barakoCMS.Data.DataSeeder).Assembly;
 
         return assembly.GetManifestResourceNames()
             .Where(n => n.StartsWith(ResourcePrefix, StringComparison.Ordinal)
