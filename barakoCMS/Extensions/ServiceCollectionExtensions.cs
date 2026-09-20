@@ -48,19 +48,7 @@ public static class ServiceCollectionExtensions
 
         AddJobQueue(services);
 
-        // Request body size limit (defends against large-payload memory pressure / DoS on the
-        // arbitrary-JSON content endpoints). Configurable via RequestLimits:MaxBodyBytes; default 10 MB.
-        var maxBodyBytes = configuration.GetValue<long?>("RequestLimits:MaxBodyBytes") ?? 10L * 1024 * 1024;
-        services.Configure<Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions>(o =>
-        {
-            o.Limits.MaxRequestBodySize = maxBodyBytes;
-            // "Server: Kestrel" tells a scanner what it is talking to and tells a client nothing.
-            o.AddServerHeader = false;
-        });
-        services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o =>
-        {
-            o.MultipartBodyLengthLimit = maxBodyBytes;
-        });
+        AddRequestLimits(services, configuration);
         // Config wins, and the environment supplies the default, so Development keeps Swagger with
         // no configuration at all while production stays off unless it is asked for. Defaulting to
         // false everywhere would have removed it for every developer.
@@ -1022,6 +1010,23 @@ public static class ServiceCollectionExtensions
         services.AddHttpContextAccessor();
         services.AddSingleton<barakoCMS.Infrastructure.Jobs.JobStorageGate>();
         services.AddJobQueues<barakoCMS.Models.JobRecord, barakoCMS.Infrastructure.Jobs.MartenJobStorageProvider>();
+    }
+
+    private static void AddRequestLimits(IServiceCollection services, IConfiguration configuration)
+    {
+        // Request body size limit (defends against large-payload memory pressure / DoS on the
+        // arbitrary-JSON content endpoints). Configurable via RequestLimits:MaxBodyBytes; default 10 MB.
+        var maxBodyBytes = configuration.GetValue<long?>("RequestLimits:MaxBodyBytes") ?? 10L * 1024 * 1024;
+        services.Configure<Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions>(o =>
+        {
+            o.Limits.MaxRequestBodySize = maxBodyBytes;
+            // "Server: Kestrel" tells a scanner what it is talking to and tells a client nothing.
+            o.AddServerHeader = false;
+        });
+        services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o =>
+        {
+            o.MultipartBodyLengthLimit = maxBodyBytes;
+        });
     }
 
     private static readonly Dictionary<string, string> SslModeMap = new(StringComparer.OrdinalIgnoreCase)
