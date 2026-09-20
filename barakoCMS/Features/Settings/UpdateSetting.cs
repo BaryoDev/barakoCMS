@@ -52,13 +52,11 @@ internal class UpdateSettingEndpoint(IDocumentSession session) : Endpoint<Update
             return;
         }
 
-        // Find existing setting or create new
         var setting = await session.Query<SystemSetting>()
             .FirstOrDefaultAsync(s => s.Key == req.Key, ct);
 
         if (setting == null)
         {
-            // Create new setting with appropriate metadata based on key
             setting = new SystemSetting
             {
                 Id = Guid.NewGuid(),
@@ -72,7 +70,6 @@ internal class UpdateSettingEndpoint(IDocumentSession session) : Endpoint<Update
         }
         else
         {
-            // Update existing
             setting.Value = req.Value;
             setting.UpdatedAt = DateTime.UtcNow;
             session.Update(setting);

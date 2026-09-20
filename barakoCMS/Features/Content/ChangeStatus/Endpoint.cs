@@ -35,7 +35,6 @@ internal class Endpoint(
 
         var user = await session.LoadAsync<barakoCMS.Models.User>(userId, ct);
 
-        // Check if content exists
         var content = await session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct);
         if (content == null)
         {

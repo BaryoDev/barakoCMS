@@ -31,7 +31,6 @@ internal class Endpoint(
             ThrowError("Invalid User ID format");
         }
 
-        // PERMISSION CHECK
         var user = await session.LoadAsync<User>(userId, ct);
         if (user == null)
         {
@@ -49,7 +48,6 @@ internal class Endpoint(
         await Resolve<barakoCMS.Core.Interfaces.ISensitivityService>()
             .ApplyWriteAsync(req.ContentType, req.Data, existing: null, HttpContext, ct);
 
-        // DYNAMIC VALIDATION
         var validationResult = await validator.ValidateAsync(req.ContentType, req.Data, existing: null);
         if (!validationResult.IsValid)
         {

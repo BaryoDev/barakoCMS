@@ -72,7 +72,6 @@ internal class Endpoint : Endpoint<Request, Response>
             return;
         }
 
-        // Check if token is revoked
         if (refreshToken.IsRevoked)
         {
             // Reuse detection: replaying an already-rotated ("used") token is a strong signal that
@@ -97,7 +96,6 @@ internal class Endpoint : Endpoint<Request, Response>
             return;
         }
 
-        // Check if token is expired
         if (refreshToken.ExpiresAt < DateTime.UtcNow)
         {
             _logger.LogWarning(
@@ -107,7 +105,6 @@ internal class Endpoint : Endpoint<Request, Response>
             return;
         }
 
-        // Load the user
         var user = await _querySession.LoadAsync<User>(refreshToken.UserId, ct);
         if (user == null)
         {

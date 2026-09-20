@@ -275,7 +275,6 @@ public static class ServiceCollectionExtensions
                 p.ValidIssuer = configuration["JWT:Issuer"];
                 p.ValidAudience = configuration["JWT:Audience"];
 
-                // Explicitly map claims
                 p.NameClaimType = "Username";
                 p.RoleClaimType = System.Security.Claims.ClaimTypes.Role;
 
@@ -368,13 +367,10 @@ public static class ServiceCollectionExtensions
                 }
             });
         });
-        // Repository registration
         services.AddScoped<IUserRepository, MartenUserRepository>();
 
-        // RBAC Services
         services.AddScoped<IConditionEvaluator, ConditionEvaluator>();
         
-        // Permission Resolver with Caching
         services.AddScoped<PermissionResolver>(); // Inner resolver
         services.AddScoped<IPermissionResolver, CachedPermissionResolver>(); // Cached decorator
         
@@ -463,7 +459,6 @@ public static class ServiceCollectionExtensions
                 options.UseRowLevelSecurity();
             }
 
-            // Configure document versioning and indexes
             options.Schema.For<Content>()
                 .DocumentAlias("contents")
                 // #565 / D16: the document a client reads and writes through GET/PUT gets the same
@@ -732,7 +727,6 @@ public static class ServiceCollectionExtensions
                 .Index(x => x.UserId)
                 .Index(x => x.TenantSlug);
 
-            // Register Workflow Projection (Async)
             options.Projections.Add(new WorkflowProjection(sp), JasperFx.Events.Projections.ProjectionLifecycle.Async);
 
             // The public event stream learns about content changes after the session that wrote
@@ -901,7 +895,6 @@ public static class ServiceCollectionExtensions
             configuration.GetSection(barakoCMS.Infrastructure.Multitenancy.MultitenancyOptions.SectionName));
         services.AddScoped<barakoCMS.Infrastructure.Services.IConfigurationService, barakoCMS.Infrastructure.Services.ConfigurationService>();
 
-        // Workflow Action Plugins
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.EmailAction>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.SmsAction>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.WebhookAction>();
@@ -914,7 +907,6 @@ public static class ServiceCollectionExtensions
         services.AddScoped<barakoCMS.Features.Workflows.WorkflowEngine>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowEngine>(sp => sp.GetRequiredService<barakoCMS.Features.Workflows.WorkflowEngine>());
 
-        // Workflow Tools
         services.AddScoped<IWorkflowPluginRegistry, WorkflowPluginRegistry>();
         services.AddScoped<IWorkflowSchemaValidator, WorkflowSchemaValidator>();
         services.AddScoped<ITemplateVariableExtractor, TemplateVariableExtractor>();
@@ -950,7 +942,6 @@ public static class ServiceCollectionExtensions
         // ISensitivityService, not as a post-processor: a post-processor's edits did not reach the
         // serialized response, so field-level masking was silently dropped.
 
-        // Background service for cleaning up expired tokens
         services.AddHostedService<TokenCleanupService>();
 
         // Background service that applies scheduled publish/unpublish across all tenants
@@ -995,7 +986,6 @@ public static class ServiceCollectionExtensions
                 barakoCMS.Infrastructure.Security.RateLimitSetup.Configure(
                     options, barakoCMS.Infrastructure.Security.RateLimitSetup.Read(current)));
 
-        // Health Checks UI (Config-Gated)
         if (configuration.GetValue<bool>("HealthChecksUI:Enabled"))
         {
             services.AddHealthChecksUI(setup =>
@@ -1176,14 +1166,12 @@ public static class ServiceCollectionExtensions
             app.UseForwardedHeaders();
         }
 
-        // HTTPS Redirection and HSTS (Production only)
         if (env != "Development")
         {
             app.UseHttpsRedirection();
             app.UseHsts();
         }
 
-        // Security Headers
         var csp = barakoCMS.Infrastructure.Security.SecurityHeaders.ContentSecurityPolicy(env);
         var healthDashboardCsp =
             barakoCMS.Infrastructure.Security.SecurityHeaders.HealthDashboardContentSecurityPolicy(env);
@@ -1291,7 +1279,6 @@ public static class ServiceCollectionExtensions
             }
         });
 
-        // Rate Limiting
         app.UseRateLimiter();
 
         // OBSERVABILITY MIDDLEWARE
@@ -1455,7 +1442,6 @@ public static class ServiceCollectionExtensions
         app.UseHealthChecks("/health/ready", Probe(check => check.Tags.Contains("ready")));
         app.UseHealthChecks("/health", Probe(_ => true));
 
-        // Health Checks UI Dashboard (Config-Gated)
         if (configuration.GetValue<bool>("HealthChecksUI:Enabled"))
         {
             app.UseHealthChecksUI(options =>

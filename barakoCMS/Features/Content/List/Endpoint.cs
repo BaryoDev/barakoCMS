@@ -66,7 +66,6 @@ internal class Endpoint(
     public override void Configure()
     {
         Get("/api/contents");
-        // Removed AllowAnonymous - requires authentication
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)

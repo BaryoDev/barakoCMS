@@ -201,7 +201,6 @@ internal class Endpoint : Endpoint<Request, Response>
             return;
         }
 
-        // Successful login - reset failed attempts
         if (user.FailedLoginAttempts > 0 || user.LockoutUntil.HasValue)
         {
             user.FailedLoginAttempts = 0;

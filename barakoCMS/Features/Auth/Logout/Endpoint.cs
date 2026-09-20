@@ -20,7 +20,6 @@ internal class Endpoint(
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        // Extract JTI from current token
         var jtiClaim = User.FindFirst(JwtRegisteredClaimNames.Jti);
         var userIdClaim = User.FindFirst("UserId");
 
@@ -33,7 +32,6 @@ internal class Endpoint(
 
         var jti = jtiClaim.Value;
 
-        // Get token expiry from claims
         var expClaim = User.FindFirst(JwtRegisteredClaimNames.Exp);
         DateTime expiry = DateTime.UtcNow.AddMinutes(15); // Default fallback
         
@@ -42,10 +40,8 @@ internal class Endpoint(
             expiry = DateTimeOffset.FromUnixTimeSeconds(expUnix).UtcDateTime;
         }
 
-        // Revoke the access token
         await revocationService.RevokeTokenAsync(jti, userId, "logout", expiry, ct);
 
-        // Revoke all refresh tokens for the user
         await revocationService.RevokeAllUserTokensAsync(userId, "logout", ct);
 
         var device = barakoCMS.Infrastructure.DeviceContext.From(HttpContext);

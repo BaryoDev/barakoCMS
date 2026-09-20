@@ -7,7 +7,6 @@ namespace barakoCMS.Features.Roles.List;
 
 internal class Request : PaginatedRequest
 {
-    // No additional filters for roles list
 }
 
 internal class Endpoint(
@@ -23,21 +22,17 @@ internal class Endpoint(
     {
         var query = session.Query<Role>().AsQueryable();
 
-        // Get total count
         var totalCount = await query.CountAsync(ct);
 
-        // Apply sorting (by name)
         query = req.SortOrder.ToLower() == "asc"
             ? query.OrderBy(r => r.Name)
             : query.OrderByDescending(r => r.Name);
 
-        // Apply pagination
         var roles = await query
             .Skip(req.Skip)
             .Take(req.Take)
             .ToListAsync(ct);
 
-        // Return paginated response
         await Send.ResponseAsync(new PaginatedResponse<barakoCMS.Features.Roles.RoleResponse>
         {
             Items = roles.Select(barakoCMS.Features.Roles.RoleResponse.From).ToList(),

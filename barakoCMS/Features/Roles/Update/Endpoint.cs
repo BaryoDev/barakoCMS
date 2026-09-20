@@ -44,7 +44,6 @@ internal class Endpoint(
             ThrowIfAnyErrors();
         }
 
-        // Update role properties
         role.Name = req.Name;
         role.Description = req.Description;
         role.Permissions = req.Permissions;
