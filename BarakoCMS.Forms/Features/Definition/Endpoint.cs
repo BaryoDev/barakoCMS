@@ -4,6 +4,12 @@ using Marten;
 
 namespace BarakoCMS.Forms.Features.Definition;
 
+internal sealed class OptionResponse
+{
+    public string Value { get; set; } = string.Empty;
+    public string Label { get; set; } = string.Empty;
+}
+
 internal sealed class FieldResponse
 {
     public string Name { get; set; } = string.Empty;
@@ -11,6 +17,10 @@ internal sealed class FieldResponse
     public string Type { get; set; } = string.Empty;
     public bool Required { get; set; }
     public Dictionary<string, object> ValidationRules { get; set; } = new();
+    /// <summary>For a choice field, its options in display order. Empty for any other type.</summary>
+    public List<OptionResponse> Options { get; set; } = new();
+    /// <summary>For a choice field, whether it takes a list of options rather than one.</summary>
+    public bool Multiple { get; set; }
 }
 
 internal sealed class Response
@@ -60,6 +70,10 @@ internal sealed class Endpoint(IQuerySession session) : EndpointWithoutRequest<R
                 Type = f.Type,
                 Required = f.IsRequired,
                 ValidationRules = f.ValidationRules,
+                Options = (f.Options ?? new List<FieldOption>())
+                    .Select(o => new OptionResponse { Value = o.Value, Label = o.Label })
+                    .ToList(),
+                Multiple = f.Multiple,
             }).ToList(),
         }, ct);
     }

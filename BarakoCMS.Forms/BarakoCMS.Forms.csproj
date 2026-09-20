@@ -5,7 +5,7 @@
 
     <IsPackable>true</IsPackable>
     <PackageId>BarakoCMS.Forms</PackageId>
-    <Version>4.2.0</Version>
+    <Version>4.3.0</Version>
     <Description>Public forms for barakoCMS: a content type marked as a form accepts anonymous submissions at POST /api/public/forms/{slug}, validated against its own schema and stored as a Sensitive entry that delivery never serves, with a per-client rate limit, a honeypot and optional Cloudflare Turnstile.</Description>
   </PropertyGroup>
 
