@@ -131,96 +131,7 @@ public static class ServiceCollectionExtensions
 
             MapTenantScopedDocuments(options);
 
-            options.Schema.For<EmailSettings>()
-                .SingleTenanted() // one mail provider for the deployment, not one per tenant
-                .DocumentAlias("email_settings");
-
-            options.Schema.For<Models.Role>()
-                .SingleTenanted() // roles are global; per-tenant assignment lives on Membership
-                .DocumentAlias("roles")
-                .Index(x => x.Name, idx => idx.IsUnique = true);
-
-            options.Schema.For<RefreshToken>()
-                .SingleTenanted() // token lifecycle is global, independent of which club is in the URL
-                .DocumentAlias("refresh_tokens")
-                // Optimistic concurrency so a single refresh token cannot be rotated twice
-                // concurrently (defeats refresh-token reuse/replay).
-                .UseOptimisticConcurrency(true)
-                .Index(x => x.Token, idx => idx.IsUnique = true)  // Index for fast lookup
-                .Index(x => x.UserId)  // Index for user queries
-                .Index(x => x.ExpiresAt);  // Index for cleanup queries
-
-            options.Schema.For<RevokedToken>()
-                .SingleTenanted() // a revoked token must be revoked everywhere
-                .DocumentAlias("revoked_tokens")
-                .Index(x => x.TokenJti, idx => idx.IsUnique = true)  // Index for fast revocation check
-                .Index(x => x.ExpiresAt);  // Index for cleanup queries
-
-            options.Schema.For<IdempotencyRecord>()
-                .SingleTenanted()
-                .DocumentAlias("idempotency_records")
-                .Index(x => x.Key, idx => idx.IsUnique = true);  // Unique constraint prevents race condition
-
-            options.Schema.For<OtpCode>()
-                .SingleTenanted() // sign-in codes are keyed by global email, not by club
-                .DocumentAlias("otp_codes")
-                // Same reason RefreshToken and MfaSecret above have it, and this one was the odd
-                // one out. Consuming a code is a read, a check and a write with nothing between
-                // them, so two requests carrying the same code could both see Consumed still false
-                // and both mint tokens. Device approval and passwordless sign-in both rest on this
-                // path, and the login endpoint next door already uses an atomic Patch().Increment
-                // for exactly this class of race.
-                .UseOptimisticConcurrency(true)
-                .Index(x => x.Email)
-                .Index(x => x.ExpiresAt);
-
-            options.Schema.For<PendingRegistration>()
-                .SingleTenanted() // a registration is for a global identity, like the user it becomes
-                .DocumentAlias("pending_registrations")
-                // Same reason OtpCode above has it. Consuming a token is a read, a check and a
-                // write with nothing between them, and two requests carrying one token must not both
-                // create an account.
-                .UseOptimisticConcurrency(true)
-                // No unique index on Username or Email, deliberately. Reserving either before
-                // anybody proved the address would let an unauthenticated caller hold names and
-                // block addresses without owning a mailbox. Uniqueness is enforced where it counts,
-                // on the users table, and re-checked at verification.
-                .Index(x => x.Email)
-                .Index(x => x.ExpiresAt);
-
-            options.Schema.For<MfaSecret>()
-                .SingleTenanted() // second factor is per global identity, like the user and OTP codes
-                .DocumentAlias("mfa_secrets")
-                // Serialize concurrent verifies so the replay guard can't be beaten by a race: two
-                // requests with the same code can't both read the old LastUsedTimeStep and both win.
-                .UseOptimisticConcurrency(true);
-
-            options.Schema.For<ApiKey>()
-                .SingleTenanted() // credentials are global, like users and tokens
-                .DocumentAlias("api_keys")
-                .Index(x => x.KeyHash, idx => idx.IsUnique = true) // hash lookup at auth time
-                .Index(x => x.UserId)
-                .Index(x => x.TenantSlug);
-
-            options.Schema.For<Models.AuditEvent>()
-                .SingleTenanted() // one global chain per tenant, kept as data like ApiKey.TenantSlug
-                .DocumentAlias("audit_events")
-                .Index(x => x.TenantSlug)
-                .Index(x => x.CreatedAt)
-                .Index(x => x.Action)
-                .Index(x => x.ActorUserId)
-                .Index(x => new { x.TenantSlug, x.CreatedAt }); // the RecordAsync "latest entry" lookup
-
-            // Multi-tenancy registry (global documents — not tenant-scoped).
-            options.Schema.For<Models.Tenant>()
-                .SingleTenanted() // the tenant registry itself is global
-                .DocumentAlias("tenants")
-                .Index(x => x.Slug, idx => idx.IsUnique = true);
-            options.Schema.For<Models.Membership>()
-                .SingleTenanted() // maps global users to tenants — necessarily cross-tenant
-                .DocumentAlias("memberships")
-                .Index(x => x.UserId)
-                .Index(x => x.TenantSlug);
+            MapGlobalDocuments(options);
 
             options.Projections.Add(new WorkflowProjection(sp), JasperFx.Events.Projections.ProjectionLifecycle.Async);
 
@@ -1077,6 +988,100 @@ public static class ServiceCollectionExtensions
             .Index(x => x.QueueID)
             .Index(x => x.State)
             .Index(x => x.ExecuteAfter);
+    }
+
+    private static void MapGlobalDocuments(StoreOptions options)
+    {
+        options.Schema.For<EmailSettings>()
+            .SingleTenanted() // one mail provider for the deployment, not one per tenant
+            .DocumentAlias("email_settings");
+
+        options.Schema.For<Models.Role>()
+            .SingleTenanted() // roles are global; per-tenant assignment lives on Membership
+            .DocumentAlias("roles")
+            .Index(x => x.Name, idx => idx.IsUnique = true);
+
+        options.Schema.For<RefreshToken>()
+            .SingleTenanted() // token lifecycle is global, independent of which club is in the URL
+            .DocumentAlias("refresh_tokens")
+            // Optimistic concurrency so a single refresh token cannot be rotated twice
+            // concurrently (defeats refresh-token reuse/replay).
+            .UseOptimisticConcurrency(true)
+            .Index(x => x.Token, idx => idx.IsUnique = true)  // Index for fast lookup
+            .Index(x => x.UserId)  // Index for user queries
+            .Index(x => x.ExpiresAt);  // Index for cleanup queries
+
+        options.Schema.For<RevokedToken>()
+            .SingleTenanted() // a revoked token must be revoked everywhere
+            .DocumentAlias("revoked_tokens")
+            .Index(x => x.TokenJti, idx => idx.IsUnique = true)  // Index for fast revocation check
+            .Index(x => x.ExpiresAt);  // Index for cleanup queries
+
+        options.Schema.For<IdempotencyRecord>()
+            .SingleTenanted()
+            .DocumentAlias("idempotency_records")
+            .Index(x => x.Key, idx => idx.IsUnique = true);  // Unique constraint prevents race condition
+
+        options.Schema.For<OtpCode>()
+            .SingleTenanted() // sign-in codes are keyed by global email, not by club
+            .DocumentAlias("otp_codes")
+            // Same reason RefreshToken and MfaSecret above have it, and this one was the odd
+            // one out. Consuming a code is a read, a check and a write with nothing between
+            // them, so two requests carrying the same code could both see Consumed still false
+            // and both mint tokens. Device approval and passwordless sign-in both rest on this
+            // path, and the login endpoint next door already uses an atomic Patch().Increment
+            // for exactly this class of race.
+            .UseOptimisticConcurrency(true)
+            .Index(x => x.Email)
+            .Index(x => x.ExpiresAt);
+
+        options.Schema.For<PendingRegistration>()
+            .SingleTenanted() // a registration is for a global identity, like the user it becomes
+            .DocumentAlias("pending_registrations")
+            // Same reason OtpCode above has it. Consuming a token is a read, a check and a
+            // write with nothing between them, and two requests carrying one token must not both
+            // create an account.
+            .UseOptimisticConcurrency(true)
+            // No unique index on Username or Email, deliberately. Reserving either before
+            // anybody proved the address would let an unauthenticated caller hold names and
+            // block addresses without owning a mailbox. Uniqueness is enforced where it counts,
+            // on the users table, and re-checked at verification.
+            .Index(x => x.Email)
+            .Index(x => x.ExpiresAt);
+
+        options.Schema.For<MfaSecret>()
+            .SingleTenanted() // second factor is per global identity, like the user and OTP codes
+            .DocumentAlias("mfa_secrets")
+            // Serialize concurrent verifies so the replay guard can't be beaten by a race: two
+            // requests with the same code can't both read the old LastUsedTimeStep and both win.
+            .UseOptimisticConcurrency(true);
+
+        options.Schema.For<ApiKey>()
+            .SingleTenanted() // credentials are global, like users and tokens
+            .DocumentAlias("api_keys")
+            .Index(x => x.KeyHash, idx => idx.IsUnique = true) // hash lookup at auth time
+            .Index(x => x.UserId)
+            .Index(x => x.TenantSlug);
+
+        options.Schema.For<Models.AuditEvent>()
+            .SingleTenanted() // one global chain per tenant, kept as data like ApiKey.TenantSlug
+            .DocumentAlias("audit_events")
+            .Index(x => x.TenantSlug)
+            .Index(x => x.CreatedAt)
+            .Index(x => x.Action)
+            .Index(x => x.ActorUserId)
+            .Index(x => new { x.TenantSlug, x.CreatedAt }); // the RecordAsync "latest entry" lookup
+
+        // Multi-tenancy registry (global documents — not tenant-scoped).
+        options.Schema.For<Models.Tenant>()
+            .SingleTenanted() // the tenant registry itself is global
+            .DocumentAlias("tenants")
+            .Index(x => x.Slug, idx => idx.IsUnique = true);
+        options.Schema.For<Models.Membership>()
+            .SingleTenanted() // maps global users to tenants — necessarily cross-tenant
+            .DocumentAlias("memberships")
+            .Index(x => x.UserId)
+            .Index(x => x.TenantSlug);
     }
 
     private static readonly Dictionary<string, string> SslModeMap = new(StringComparer.OrdinalIgnoreCase)
