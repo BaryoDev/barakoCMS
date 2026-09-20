@@ -69,28 +69,7 @@ public static class ServiceCollectionExtensions
 
         AddOutboundHttp(services, configuration);
 
-        // Defaults registered with TryAdd so an opted-in module or the host can substitute a real
-        // provider (e.g. a Resend email module) without being clobbered by these mocks.
-        services.TryAddScoped<barakoCMS.Core.Interfaces.IEmailService, barakoCMS.Infrastructure.Services.MockEmailService>();
-        services.TryAddScoped<barakoCMS.Core.Interfaces.ISmsService, barakoCMS.Infrastructure.Services.MockSmsService>();
-        services.AddScoped<barakoCMS.Core.Interfaces.ISensitivityService, barakoCMS.Infrastructure.Services.SensitivityService>();
-        services.AddScoped<barakoCMS.Core.Interfaces.IContentSourcingPolicy, barakoCMS.Infrastructure.Services.ContentSourcingPolicyService>();
-        // The public projection, so a module serving its own anonymous route does not hold a second
-        // copy of the published/sensitivity/opt-in/field-allowlist checks.
-        services.AddScoped<barakoCMS.Core.Interfaces.IPublicContentProjector, barakoCMS.Infrastructure.Services.PublicContentProjector>();
-        // Constructed by hand rather than by type, so the configuration-reading constructor is the
-        // one that runs. Both constructors are satisfiable from the container and the selection would
-        // otherwise be a container detail, which is how EventSourcing:DocumentTypesAppend would end
-        // up being a setting nothing reads.
-        services.AddScoped<barakoCMS.Core.Interfaces.IContentWriter>(sp =>
-            new barakoCMS.Infrastructure.Services.ContentWriter(
-                sp.GetRequiredService<IDocumentSession>(),
-                sp.GetRequiredService<barakoCMS.Core.Interfaces.IContentSourcingPolicy>(),
-                sp.GetRequiredService<IConfiguration>()));
-        services.AddScoped<barakoCMS.Infrastructure.Services.IContentRebuilder, barakoCMS.Infrastructure.Services.ContentRebuilder>();
-        // Runs any per-content-type domain rules a module registered (IContentLifecycleHook), so a
-        // domain with real invariants can still be modelled as ordinary content.
-        services.AddScoped<barakoCMS.Infrastructure.Services.IContentLifecycleRunner, barakoCMS.Infrastructure.Services.ContentLifecycleRunner>();
+        AddContentServices(services);
 
         // Erasure policy. Validated here rather than at first use: the failure being guarded against
         // is an operator believing a mode is in force when it is not, and startup is the only moment
@@ -1095,6 +1074,32 @@ public static class ServiceCollectionExtensions
                     sp.GetRequiredService<barakoCMS.Infrastructure.Http.OutboundAddressGuard>(),
                     allowWebhookProxy))
                 .AddStandardResilienceHandler();
+    }
+
+    private static void AddContentServices(IServiceCollection services)
+    {
+        // Defaults registered with TryAdd so an opted-in module or the host can substitute a real
+        // provider (e.g. a Resend email module) without being clobbered by these mocks.
+        services.TryAddScoped<barakoCMS.Core.Interfaces.IEmailService, barakoCMS.Infrastructure.Services.MockEmailService>();
+        services.TryAddScoped<barakoCMS.Core.Interfaces.ISmsService, barakoCMS.Infrastructure.Services.MockSmsService>();
+        services.AddScoped<barakoCMS.Core.Interfaces.ISensitivityService, barakoCMS.Infrastructure.Services.SensitivityService>();
+        services.AddScoped<barakoCMS.Core.Interfaces.IContentSourcingPolicy, barakoCMS.Infrastructure.Services.ContentSourcingPolicyService>();
+        // The public projection, so a module serving its own anonymous route does not hold a second
+        // copy of the published/sensitivity/opt-in/field-allowlist checks.
+        services.AddScoped<barakoCMS.Core.Interfaces.IPublicContentProjector, barakoCMS.Infrastructure.Services.PublicContentProjector>();
+        // Constructed by hand rather than by type, so the configuration-reading constructor is the
+        // one that runs. Both constructors are satisfiable from the container and the selection would
+        // otherwise be a container detail, which is how EventSourcing:DocumentTypesAppend would end
+        // up being a setting nothing reads.
+        services.AddScoped<barakoCMS.Core.Interfaces.IContentWriter>(sp =>
+            new barakoCMS.Infrastructure.Services.ContentWriter(
+                sp.GetRequiredService<IDocumentSession>(),
+                sp.GetRequiredService<barakoCMS.Core.Interfaces.IContentSourcingPolicy>(),
+                sp.GetRequiredService<IConfiguration>()));
+        services.AddScoped<barakoCMS.Infrastructure.Services.IContentRebuilder, barakoCMS.Infrastructure.Services.ContentRebuilder>();
+        // Runs any per-content-type domain rules a module registered (IContentLifecycleHook), so a
+        // domain with real invariants can still be modelled as ordinary content.
+        services.AddScoped<barakoCMS.Infrastructure.Services.IContentLifecycleRunner, barakoCMS.Infrastructure.Services.ContentLifecycleRunner>();
     }
 
     private static readonly Dictionary<string, string> SslModeMap = new(StringComparer.OrdinalIgnoreCase)
