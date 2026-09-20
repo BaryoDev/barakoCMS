@@ -1203,3 +1203,65 @@ the old members go in 5.0.0, as section 6 requires. Endpoints thin out as each s
 
 **Why.** A Marten or FastEndpoints major upgrade should cost core a migration, not break every module
 someone else wrote.
+
+## D35. The package contract is an assembly, not a paragraph
+
+**Decided:** 20 Sept 2026. **Status:** accepted, with one question open. **Extends:** D34.
+
+Section 6 of `CLAUDE.md` said the package surface was `Modules/*`, `Core/Interfaces/*`, `Models/*`
+and `Events/*`. That was true in the document and nowhere in the build: a module took a project
+reference to the whole core, 344 files with 22 package dependencies, and used almost none of it.
+
+`BarakoCMS.Abstractions` now holds those types plus the three workflow extension points a custom
+action implements, 64 files, namespaces unchanged so not one `using` moved. A test fails if that
+assembly ever gains a reference back to the core, and a second reads the project file, because the
+compiler drops a reference nothing uses yet and the reflection check alone would pass a bad csproj.
+
+**This is tranche 1 and it makes nothing lighter.** A module references the contract and the core,
+its transitive package list is identical before and after, and its output folder gained an assembly
+rather than losing one. What it buys is that the boundary is a compiler rule, and every remaining
+reach into the core is now an explicit second reference somebody can count. Measured from assembly
+metadata rather than `using` lines, that is 36 references across 17 projects, and one type,
+`CapabilityGate`, accounts for eleven of them.
+
+**Why now rather than at 5.0.0.** Moving public types between assemblies is binary breaking, which
+normally means a major version, type forwarding and a deprecation window. None of that is needed
+while nothing outside this repository is built against these packages. The cost only goes up.
+
+**The open question, which tranche 2 (#972) has to answer first.** Module discovery loads a library
+only if its dependency closure reaches `BarakoCMS`. The extraction deliberately pinned that reaching
+the contract is not reaching the core, with a test, because that was the behaviour before the split
+and widening it by accident was the bug being fixed: `CoreLibraryNames` read the core's name off
+`typeof(IBarakoModule).Assembly`, which after the move is the contract, so the core would have been
+scanned as a module host and any library on the contract alone would have become a candidate. So a
+module that drops its core reference today stops being discovered, even with every type it needs
+moved. Three ways out: widen the name set to include the contract and accept that anything
+referencing it is scanned; keep the core reference purely for discovery and settle for a
+compile-time contract only; or discover by an assembly attribute the contract defines rather than by
+the dependency graph. `MODULES.md` documents the current rule in prose, so whichever is chosen, that
+section moves with it.
+
+## D36. No configured origins outside Development means no cross-origin access
+
+**Decided:** 20 Sept 2026. **Status:** accepted. **Breaking for a deployment that relied on the
+fallback.**
+
+With `CORS:AllowedOrigins` unset, the policy fell back to `http://localhost:3000`,
+`http://localhost:3001` and `https://localhost:7049` with `AllowCredentials()`, and it did that in
+every environment rather than only Development. This API puts the refresh token in a cookie, so a
+page served on one of those three ports could drive any deployment that had forgotten the setting.
+Both live deployments set it, so this was latent rather than exploited.
+
+Outside Development, no configured origins now means no origins at all. A deployment with no browser
+client needs none, and one that has a client sees a CORS error naming the setting rather than a hole
+nobody looks for. Development is unchanged, so `dotnet run` and the quickstart behave exactly as
+before.
+
+**Why the decision is worth recording rather than just the fix.** The rule it establishes is that a
+missing security setting fails closed, even when failing open is more convenient for the person who
+forgot it. The same reasoning applies to the next setting of this shape.
+
+**What made it invisible.** The decision lived inside a policy builder lambda, and every CORS
+integration test ran in Development, so no test could reach the other branch. It moved into
+`ResolveCorsOrigins`, which takes the environment as an argument and can be asserted without a host.
+A decision that only one environment can execute is a decision nothing tests.
