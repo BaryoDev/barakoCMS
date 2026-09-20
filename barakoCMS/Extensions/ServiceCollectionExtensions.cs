@@ -51,58 +51,7 @@ public static class ServiceCollectionExtensions
         AddRequestLimits(services, configuration);
         AddOpenApiDocument(services, configuration);
 
-        var connectionString = ResolveConnectionString(configuration);
-
-        // Thresholds are configurable. The memory default is deliberately generous:
-        // .NET's server GC holds ~1.3GB of private memory on an idle container, so a
-        // 1GB ceiling reports Unhealthy on a perfectly healthy boot.
-        var maxMemoryMb = configuration.GetValue<long?>("HealthChecks:MaxPrivateMemoryMegabytes") ?? 4096;
-        var minFreeDiskMb = configuration.GetValue<long?>("HealthChecks:MinimumFreeDiskMegabytes") ?? 512;
-
-        // Liveness answers "is this process wedged, restart it". Readiness answers "can this process
-        // serve traffic right now". Only a check a restart can actually fix belongs on liveness, so
-        // the tags split like this:
-        //
-        //   live  : Memory                         a process past its private-memory ceiling is
-        //                                          exactly what a restart clears.
-        //   ready : Database, Disk Space, Memory,  none of these is fixed by killing the process,
-        //           Startup Seeding                and the database one is shared, so tagging it
-        //                                          live would restart every replica at once on a
-        //                                          single Postgres blip.
-        //
-        // See issue #281.
-        services.AddSingleton<barakoCMS.Infrastructure.Health.StartupSeedGate>();
-
-        // A stopped projection shard halts every workflow and is invisible to the checks above:
-        // the database is up, the disk is fine, memory is fine, and nothing fires. Degraded rather
-        // than Unhealthy on purpose; see ProjectionLag.
-        var maxProjectionLag = configuration.GetValue<long?>("HealthChecks:MaxProjectionLagEvents")
-            ?? barakoCMS.Infrastructure.Health.ProjectionLag.DefaultTolerance;
-
-        services.AddHealthChecks()
-            .AddNpgSql(connectionString, name: "Database", tags: new[] { "db", "ready" })
-            .AddDiskStorageHealthCheck(setup =>
-            {
-                setup.AddDrive(@"/", minimumFreeMegabytes: minFreeDiskMb);
-                setup.CheckAllDrives = false;
-            }, name: "Disk Space", tags: new[] { "disk", "ready" })
-            .AddPrivateMemoryHealthCheck(
-                maxMemoryMb * 1024 * 1024,
-                name: "Memory",
-                tags: new[] { "memory", "live", "ready" })
-            .AddCheck<barakoCMS.Infrastructure.Health.StartupSeedHealthCheck>(
-                "Startup Seeding",
-                tags: new[] { "seed", "ready" })
-            // Neither live nor ready on purpose. A halted shard is not fixed by killing this
-            // process, and it reports Degraded rather than Unhealthy, so putting it on readiness
-            // would risk pulling every replica out of service over workflow lag. It is here to be
-            // seen on the health page, not to gate traffic. See ProjectionLag.
-            .AddCheck<barakoCMS.Infrastructure.Health.WorkflowProjectionHealthCheck>(
-                barakoCMS.Infrastructure.Health.WorkflowProjectionHealthCheck.Name,
-                tags: new[] { "workflow", "projection" });
-
-        services.AddSingleton(sp => new barakoCMS.Infrastructure.Health.WorkflowProjectionHealthCheck(
-            sp.GetRequiredService<IDocumentStore>(), maxProjectionLag));
+        AddHealthProbes(services, configuration);
 
         // Validate JWT key exists and has minimum length for security. Fail fast rather than
         // booting with broken or insecure auth. Check both config and the JWT__Key env var.
@@ -247,7 +196,7 @@ public static class ServiceCollectionExtensions
         // See #545: this was missing, so every endpoint's CacheOutput policy was silently ignored.
         services.AddOutputCache();
 
-        connectionString = ResolveConnectionString(configuration);
+        var connectionString = ResolveConnectionString(configuration);
         services.AddMarten((IServiceProvider sp) =>
         {
             var options = new StoreOptions();
@@ -1032,6 +981,62 @@ public static class ServiceCollectionExtensions
         // only under a config flag is a startup failure waiting for the first deployment that turns
         // the flag off. Nothing populates it when Swagger is off, so it costs an empty dictionary.
         services.AddSingleton<barakoCMS.Infrastructure.OpenApi.DeliveryDocumentCache>();
+    }
+
+    private static void AddHealthProbes(IServiceCollection services, IConfiguration configuration)
+    {
+        var connectionString = ResolveConnectionString(configuration);
+
+        // Thresholds are configurable. The memory default is deliberately generous:
+        // .NET's server GC holds ~1.3GB of private memory on an idle container, so a
+        // 1GB ceiling reports Unhealthy on a perfectly healthy boot.
+        var maxMemoryMb = configuration.GetValue<long?>("HealthChecks:MaxPrivateMemoryMegabytes") ?? 4096;
+        var minFreeDiskMb = configuration.GetValue<long?>("HealthChecks:MinimumFreeDiskMegabytes") ?? 512;
+
+        // Liveness answers "is this process wedged, restart it". Readiness answers "can this process
+        // serve traffic right now". Only a check a restart can actually fix belongs on liveness, so
+        // the tags split like this:
+        //
+        //   live  : Memory                         a process past its private-memory ceiling is
+        //                                          exactly what a restart clears.
+        //   ready : Database, Disk Space, Memory,  none of these is fixed by killing the process,
+        //           Startup Seeding                and the database one is shared, so tagging it
+        //                                          live would restart every replica at once on a
+        //                                          single Postgres blip.
+        //
+        // See issue #281.
+        services.AddSingleton<barakoCMS.Infrastructure.Health.StartupSeedGate>();
+
+        // A stopped projection shard halts every workflow and is invisible to the checks above:
+        // the database is up, the disk is fine, memory is fine, and nothing fires. Degraded rather
+        // than Unhealthy on purpose; see ProjectionLag.
+        var maxProjectionLag = configuration.GetValue<long?>("HealthChecks:MaxProjectionLagEvents")
+            ?? barakoCMS.Infrastructure.Health.ProjectionLag.DefaultTolerance;
+
+        services.AddHealthChecks()
+            .AddNpgSql(connectionString, name: "Database", tags: new[] { "db", "ready" })
+            .AddDiskStorageHealthCheck(setup =>
+            {
+                setup.AddDrive(@"/", minimumFreeMegabytes: minFreeDiskMb);
+                setup.CheckAllDrives = false;
+            }, name: "Disk Space", tags: new[] { "disk", "ready" })
+            .AddPrivateMemoryHealthCheck(
+                maxMemoryMb * 1024 * 1024,
+                name: "Memory",
+                tags: new[] { "memory", "live", "ready" })
+            .AddCheck<barakoCMS.Infrastructure.Health.StartupSeedHealthCheck>(
+                "Startup Seeding",
+                tags: new[] { "seed", "ready" })
+            // Neither live nor ready on purpose. A halted shard is not fixed by killing this
+            // process, and it reports Degraded rather than Unhealthy, so putting it on readiness
+            // would risk pulling every replica out of service over workflow lag. It is here to be
+            // seen on the health page, not to gate traffic. See ProjectionLag.
+            .AddCheck<barakoCMS.Infrastructure.Health.WorkflowProjectionHealthCheck>(
+                barakoCMS.Infrastructure.Health.WorkflowProjectionHealthCheck.Name,
+                tags: new[] { "workflow", "projection" });
+
+        services.AddSingleton(sp => new barakoCMS.Infrastructure.Health.WorkflowProjectionHealthCheck(
+            sp.GetRequiredService<IDocumentStore>(), maxProjectionLag));
     }
 
     private static readonly Dictionary<string, string> SslModeMap = new(StringComparer.OrdinalIgnoreCase)
