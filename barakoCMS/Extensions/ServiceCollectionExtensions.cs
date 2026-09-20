@@ -1340,13 +1340,7 @@ public static class ServiceCollectionExtensions
 
         UseHealthEndpoints(app, configuration);
 
-        if (configuration.GetValue("Swagger:Enabled", env == "Development"))
-        {
-            // Before UseSwaggerGen, because it rewrites that middleware's response: content types
-            // are created at runtime, so /api/public/students can only reach the document here.
-            app.UseMiddleware<barakoCMS.Infrastructure.OpenApi.DeliveryDocumentMiddleware>();
-            app.UseSwaggerGen();
-        }
+        UseOpenApi(app, configuration, env);
 
         return app;
     }
@@ -1701,6 +1695,17 @@ public static class ServiceCollectionExtensions
                 options.UIPath = "/health-ui";
                 options.ApiPath = "/health-ui-api";
             });
+        }
+    }
+
+    private static void UseOpenApi(IApplicationBuilder app, IConfiguration configuration, string? env)
+    {
+        if (configuration.GetValue("Swagger:Enabled", env == "Development"))
+        {
+            // Before UseSwaggerGen, because it rewrites that middleware's response: content types
+            // are created at runtime, so /api/public/students can only reach the document here.
+            app.UseMiddleware<barakoCMS.Infrastructure.OpenApi.DeliveryDocumentMiddleware>();
+            app.UseSwaggerGen();
         }
     }
 
