@@ -23,7 +23,7 @@ public interface IQueryRunner
     Task<string?> ValidateAsync(QueryDefinition definition, CancellationToken ct);
 }
 
-internal sealed class QueryRunner : IQueryRunner
+internal sealed class QueryRunner(IQuerySession session) : IQueryRunner
 {
     private static readonly Dictionary<string, FilterOp> Ops = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -39,13 +39,9 @@ internal sealed class QueryRunner : IQueryRunner
     /// <summary>Matches the cap the public delivery filters use, for the same reason.</summary>
     private const int MaxFilters = 10;
 
-    private readonly IQuerySession _session;
-
-    public QueryRunner(IQuerySession session) => _session = session;
-
     public async Task<string?> ValidateAsync(QueryDefinition definition, CancellationToken ct)
     {
-        var schema = await _session.Query<ContentTypeDefinition>()
+        var schema = await session.Query<ContentTypeDefinition>()
             .FirstOrDefaultAsync(d => d.Name == definition.ContentType, ct);
 
         if (schema is null)
@@ -134,14 +130,14 @@ internal sealed class QueryRunner : IQueryRunner
         var refusal = await ValidateAsync(definition, ct);
         if (refusal is not null) return QueryResult.Refused(refusal);
 
-        var schema = (await _session.Query<ContentTypeDefinition>()
+        var schema = (await session.Query<ContentTypeDefinition>()
             .FirstOrDefaultAsync(d => d.Name == definition.ContentType, ct))!;
 
         var typeOf = schema.Fields.ToDictionary(f => f.Name, f => f.Type ?? string.Empty, StringComparer.OrdinalIgnoreCase);
         var canonical = schema.Fields.ToDictionary(f => f.Name, f => f.Name, StringComparer.OrdinalIgnoreCase);
         var lists = DeliveryQuery.ListFields(schema);
 
-        var query = _session.Query<Content>()
+        var query = session.Query<Content>()
             .Where(c => c.ContentType == definition.ContentType);
 
         foreach (var filter in definition.Filters)

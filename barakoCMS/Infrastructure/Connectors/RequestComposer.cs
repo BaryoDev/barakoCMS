@@ -42,7 +42,10 @@ public interface IRequestComposer
         RequestDefinition definition, Connector connector, Content content, string? idempotencyKey, CancellationToken ct);
 }
 
-internal sealed class RequestComposer : IRequestComposer
+internal sealed class RequestComposer(
+    IQuerySession session,
+    IConfiguration config,
+    IQueryRunner queryRunner) : IRequestComposer
 {
     /// <summary>The same <c>{{name}}</c> syntax workflow actions already use.</summary>
     private static readonly Regex Hole = new(@"\{\{\s*([A-Za-z0-9_.\[\]]+)\s*\}\}", RegexOptions.Compiled);
@@ -50,21 +53,10 @@ internal sealed class RequestComposer : IRequestComposer
     /// <summary>Sent when a connector names no header of its own. See <see cref="IdempotencyHeaderName"/>.</summary>
     private const string DefaultIdempotencyHeader = "Idempotency-Key";
 
-    private readonly IQuerySession _session;
-    private readonly IConfiguration _config;
-    private readonly IQueryRunner _queryRunner;
-
-    public RequestComposer(IQuerySession session, IConfiguration config, IQueryRunner queryRunner)
-    {
-        _session = session;
-        _config = config;
-        _queryRunner = queryRunner;
-    }
-
     public async Task<ComposedRequest> ComposeAsync(
         RequestDefinition definition, Connector connector, Content content, string? idempotencyKey, CancellationToken ct)
     {
-        var schema = await _session.Query<ContentTypeDefinition>()
+        var schema = await session.Query<ContentTypeDefinition>()
             .FirstOrDefaultAsync(d => d.Name == content.ContentType, ct);
 
         // Refused rather than composed against no schema. Without the field definitions there is no
@@ -253,7 +245,7 @@ internal sealed class RequestComposer : IRequestComposer
                 + "Set QuerySlug or remove the hole.");
         }
 
-        var queryDefinition = await _session.Query<QueryDefinition>()
+        var queryDefinition = await session.Query<QueryDefinition>()
             .FirstOrDefaultAsync(q => q.Slug == definition.QuerySlug, ct);
 
         if (queryDefinition is null)
@@ -261,7 +253,7 @@ internal sealed class RequestComposer : IRequestComposer
             return new QueryContext([], $"'{hole}' needs a query, and '{definition.QuerySlug}' does not exist.");
         }
 
-        var result = await _queryRunner.RunAsync(queryDefinition, ct);
+        var result = await queryRunner.RunAsync(queryDefinition, ct);
         if (!result.Ok)
         {
             return new QueryContext([], $"'{hole}' cannot run: {result.Refusal}");
@@ -452,7 +444,7 @@ internal sealed class RequestComposer : IRequestComposer
             // where there is no request, and a host header is not somewhere to learn your own name.
             case "publicurl":
             {
-                var baseUrl = _config[CanonicalHost.BaseUrlKey]?.Trim().TrimEnd('/');
+                var baseUrl = config[CanonicalHost.BaseUrlKey]?.Trim().TrimEnd('/');
                 if (string.IsNullOrEmpty(baseUrl)) return null;
 
                 var slug = content.Data.TryGetValue("Slug", out var s) ? s?.ToString() : null;

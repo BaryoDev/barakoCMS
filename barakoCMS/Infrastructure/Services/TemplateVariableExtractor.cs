@@ -59,15 +59,8 @@ public interface ITemplateVariableExtractor
 /// <summary>
 /// Extracts and documents available template variables for workflows.
 /// </summary>
-public class TemplateVariableExtractor : ITemplateVariableExtractor
+public class TemplateVariableExtractor(IDocumentSession session) : ITemplateVariableExtractor
 {
-    private readonly IDocumentSession _session;
-
-    public TemplateVariableExtractor(IDocumentSession session)
-    {
-        _session = session;
-    }
-
     public async Task<TemplateVariableCollection> GetVariablesAsync(string contentType, CancellationToken ct = default)
     {
         var collection = new TemplateVariableCollection
@@ -76,7 +69,7 @@ public class TemplateVariableExtractor : ITemplateVariableExtractor
         };
 
         // Get sample content to extract data fields
-        var sampleContent = await _session.Query<Content>()
+        var sampleContent = await session.Query<Content>()
             .Where(c => c.ContentType == contentType)
             .Take(1)
             .FirstOrDefaultAsync(ct);

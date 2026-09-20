@@ -6,21 +6,12 @@ using System.Security.Claims;
 
 namespace barakoCMS.Features.Content.Create;
 
-internal class Endpoint : Endpoint<Request, Response>
+internal class Endpoint(
+    IDocumentSession session,
+    barakoCMS.Infrastructure.Services.IContentValidatorService validator,
+    barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver,
+    IContentWriter contentWriter) : Endpoint<Request, Response>
 {
-    private readonly IDocumentSession _session;
-    private readonly IContentWriter _contentWriter;
-    private readonly barakoCMS.Infrastructure.Services.IContentValidatorService _validator;
-    private readonly barakoCMS.Infrastructure.Services.IPermissionResolver _permissionResolver;
-
-    public Endpoint(IDocumentSession session, barakoCMS.Infrastructure.Services.IContentValidatorService validator, barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver, IContentWriter contentWriter)
-    {
-        _contentWriter = contentWriter;
-        _session = session;
-        _validator = validator;
-        _permissionResolver = permissionResolver;
-    }
-
     public override void Configure()
     {
         Post("/api/contents");
@@ -40,14 +31,13 @@ internal class Endpoint : Endpoint<Request, Response>
             ThrowError("Invalid User ID format");
         }
 
-        // PERMISSION CHECK
-        var user = await _session.LoadAsync<User>(userId, ct);
+        var user = await session.LoadAsync<User>(userId, ct);
         if (user == null)
         {
             ThrowError("User not found", 401);
         }
 
-        if (!await _permissionResolver.CanPerformActionAsync(user, req.ContentType, "create", null, ct))
+        if (!await permissionResolver.CanPerformActionAsync(user, req.ContentType, "create", null, ct))
         {
             await Send.ForbiddenAsync(ct);
             return;
@@ -58,8 +48,7 @@ internal class Endpoint : Endpoint<Request, Response>
         await Resolve<barakoCMS.Core.Interfaces.ISensitivityService>()
             .ApplyWriteAsync(req.ContentType, req.Data, existing: null, HttpContext, ct);
 
-        // DYNAMIC VALIDATION
-        var validationResult = await _validator.ValidateAsync(req.ContentType, req.Data, existing: null);
+        var validationResult = await validator.ValidateAsync(req.ContentType, req.Data, existing: null);
         if (!validationResult.IsValid)
         {
             // One entry per failure rather than one flattened string, so a client can show the
@@ -88,7 +77,7 @@ internal class Endpoint : Endpoint<Request, Response>
             ThrowIfAnyErrors();
         }
 
-        var definition = await _session.Query<ContentTypeDefinition>()
+        var definition = await session.Query<ContentTypeDefinition>()
             .FirstOrDefaultAsync(d => d.Name == req.ContentType, ct);
 
         var publicFields = definition?.Fields
@@ -112,7 +101,7 @@ internal class Endpoint : Endpoint<Request, Response>
         // every ledger and trial balance into zero rows, silently, with the postings still in place.
         var @event = new barakoCMS.Events.ContentCreated(contentId, req.ContentType, req.Data, req.Status, userId, searchText, req.Sensitivity, DateTime.UtcNow);
 
-        var created = await _contentWriter.CreateAsync(@event, ct);
+        var created = await contentWriter.CreateAsync(@event, ct);
 
         // A type with its own lifecycle starts its entries at the state it declared. Set on the
         // document rather than carried in ContentCreated, because the event is public API under
@@ -122,10 +111,10 @@ internal class Endpoint : Endpoint<Request, Response>
         if (definition?.Lifecycle is { } lifecycle)
         {
             created.LifecycleState = lifecycle.InitialState;
-            _session.Store(created);
+            session.Store(created);
         }
 
-        await _session.SaveChangesAsync(ct);
+        await session.SaveChangesAsync(ct);
 
         // Workflows are triggered out-of-band by the async WorkflowProjection reacting to the
         // committed ContentCreated event — deliberately NOT awaited here, so a slow or failing

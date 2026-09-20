@@ -19,12 +19,8 @@ public sealed class WebsitesResponse
 }
 
 /// <summary>GET /api/analytics/websites — the sites Umami is tracking, for the admin's picker.</summary>
-public sealed class WebsitesEndpoint : EndpointWithoutRequest<WebsitesResponse>
+public sealed class WebsitesEndpoint(IUmamiClient umami) : EndpointWithoutRequest<WebsitesResponse>
 {
-    private readonly IUmamiClient _umami;
-
-    public WebsitesEndpoint(IUmamiClient umami) => _umami = umami;
-
     public override void Configure()
     {
         Get("/api/analytics/websites");
@@ -34,13 +30,13 @@ public sealed class WebsitesEndpoint : EndpointWithoutRequest<WebsitesResponse>
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        if (!_umami.IsConfigured)
+        if (!umami.IsConfigured)
         {
             await Send.OkAsync(new WebsitesResponse { Configured = false }, ct);
             return;
         }
 
-        var sites = await _umami.GetWebsitesAsync(ct);
+        var sites = await umami.GetWebsitesAsync(ct);
         await Send.OkAsync(new WebsitesResponse
         {
             Configured = true,

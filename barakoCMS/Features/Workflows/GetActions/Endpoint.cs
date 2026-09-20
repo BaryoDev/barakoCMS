@@ -9,17 +9,8 @@ namespace barakoCMS.Features.Workflows.GetActions;
 /// <summary>
 /// Endpoint to list all available workflow action plugins with metadata.
 /// </summary>
-internal class Endpoint : EndpointWithoutRequest
+internal class Endpoint(IWorkflowPluginRegistry registry, ILogger<Endpoint> logger) : EndpointWithoutRequest
 {
-    private readonly IWorkflowPluginRegistry _registry;
-    private readonly ILogger<Endpoint> _logger;
-
-    public Endpoint(IWorkflowPluginRegistry registry, ILogger<Endpoint> logger)
-    {
-        _registry = registry;
-        _logger = logger;
-    }
-
     public override void Configure()
     {
         Get("/api/workflows/actions");
@@ -34,12 +25,12 @@ internal class Endpoint : EndpointWithoutRequest
     {
         try
         {
-            var actions = _registry.GetAllActions();
+            var actions = registry.GetAllActions();
             await Send.ResponseAsync(actions, cancellation: ct);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to retrieve workflow actions");
+            logger.LogError(ex, "Failed to retrieve workflow actions");
             await Send.ErrorsAsync(cancellation: ct);
         }
     }

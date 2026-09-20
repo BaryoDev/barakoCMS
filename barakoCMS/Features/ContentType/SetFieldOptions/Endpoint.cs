@@ -27,25 +27,12 @@ namespace barakoCMS.Features.ContentType.SetFieldOptions;
 /// Only this field is validated, not the whole type, so a type created before some later rule
 /// existed can still have its options changed.
 /// </remarks>
-internal class Endpoint : Endpoint<Request, Response>
+internal class Endpoint(
+    IDocumentSession session,
+    barakoCMS.Infrastructure.Services.IContentTypeValidatorService validator,
+    barakoCMS.Infrastructure.OpenApi.DeliveryDocumentCache openApiCache,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<Request, Response>
 {
-    private readonly IDocumentSession _session;
-    private readonly barakoCMS.Infrastructure.Services.IContentTypeValidatorService _validator;
-    private readonly barakoCMS.Infrastructure.OpenApi.DeliveryDocumentCache _openApiCache;
-    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
-
-    public Endpoint(
-        IDocumentSession session,
-        barakoCMS.Infrastructure.Services.IContentTypeValidatorService validator,
-        barakoCMS.Infrastructure.OpenApi.DeliveryDocumentCache openApiCache,
-        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
-    {
-        _session = session;
-        _validator = validator;
-        _openApiCache = openApiCache;
-        _tenant = tenant;
-    }
-
     public override void Configure()
     {
         Put("/api/content-types/{name}/fields/{field}/options");
@@ -58,7 +45,7 @@ internal class Endpoint : Endpoint<Request, Response>
         var name = barakoCMS.Core.ContentTypeName.Normalize(Route<string>("name") ?? string.Empty);
         var fieldName = Route<string>("field") ?? string.Empty;
 
-        var def = await _session.Query<ContentTypeDefinition>()
+        var def = await session.Query<ContentTypeDefinition>()
             .FirstOrDefaultAsync(d => d.Name.ToLower() == name, ct);
 
         var field = def?.Fields.FirstOrDefault(
@@ -87,7 +74,7 @@ internal class Endpoint : Endpoint<Request, Response>
             Multiple = field.Multiple,
         };
 
-        var (valid, errors) = _validator.Validate(def.Name, def.DisplayName, [proposed]);
+        var (valid, errors) = validator.Validate(def.Name, def.DisplayName, [proposed]);
         if (!valid)
         {
             foreach (var error in errors) AddError(error);
@@ -119,12 +106,12 @@ internal class Endpoint : Endpoint<Request, Response>
         var before = field.Options?.Count ?? 0;
         field.Options = options;
         def.UpdatedAt = DateTimeOffset.UtcNow;
-        _session.Store(def);
+        session.Store(def);
 
         var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
         await AuditLog.RecordAsync(
-            _session,
-            _tenant.Slug,
+            session,
+            tenant.Slug,
             "contenttype.field.options.changed",
             actorId,
             User.FindFirst("Username")?.Value,
@@ -141,10 +128,10 @@ internal class Endpoint : Endpoint<Request, Response>
             },
             ct: ct);
 
-        await _session.SaveChangesAsync(ct);
+        await session.SaveChangesAsync(ct);
 
         // The OpenAPI document lists the options as an enum.
-        _openApiCache.Invalidate(_tenant.Slug);
+        openApiCache.Invalidate(tenant.Slug);
 
         await Send.OkAsync(new Response
         {
@@ -174,7 +161,7 @@ internal class Endpoint : Endpoint<Request, Response>
             parameters.AddRange(bound);
         }
 
-        return await _session.Query<ContentDoc>()
+        return await session.Query<ContentDoc>()
             .Where(c => c.ContentType == type && c.MatchesSql(string.Join(" OR ", sql), parameters.ToArray()))
             .CountAsync(ct);
     }

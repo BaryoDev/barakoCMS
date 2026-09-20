@@ -122,9 +122,11 @@ public class ModuleDiscoveryTests
             compileLibraries: [],
             runtimeLibraries:
             [
-                Library("BarakoCMS"),
+                Library("BarakoCMS.Abstractions"),
+                Library("BarakoCMS", "BarakoCMS.Abstractions"),
                 Library("Acme.Crm", "BarakoCMS"),
                 Library("Acme.Crm.Extras", "Acme.Crm"),
+                Library("Acme.ContractOnly", "BarakoCMS.Abstractions"),
                 Library("Newtonsoft.Json"),
                 Library("Unrelated", "Newtonsoft.Json"),
             ],
@@ -135,7 +137,12 @@ public class ModuleDiscoveryTests
         reaches("Acme.Crm").Should().BeTrue("a direct reference to core");
         reaches("Acme.Crm.Extras").Should().BeTrue("reach is transitive, the way Files.S3 sits on Files");
         reaches("Unrelated").Should().BeFalse("an unrelated package is never loaded on the chance it holds a module");
-        reaches("BarakoCMS").Should().BeFalse("core does not depend on itself");
+        reaches("BarakoCMS").Should().BeFalse("core does not depend on itself, and depending on the "
+          + "contract package is not depending on core. Reading the core's name off the assembly "
+          + "holding IBarakoModule makes this true, and core is then scanned for modules");
+        reaches("Acme.ContractOnly").Should().BeFalse("a library that compiles against the contract "
+          + "alone is not discovered today. Every module still references core as well; changing "
+          + "that means changing this deliberately, not by accident");
     }
 
     private static RuntimeLibrary Library(string name, params string[] dependsOn) =>

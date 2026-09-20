@@ -206,7 +206,6 @@ public static class DataSeeder
 
         // Roles are now using deterministic IDs, no validation needed
 
-        // Create configured admin
         var adminConfig = configuration.GetSection("InitialAdmin");
         var username = adminConfig["Username"];
         var password = adminConfig["Password"];
@@ -255,7 +254,6 @@ public static class DataSeeder
 
         if (userCount == 0 && isDevelopment)
         {
-            // Create sample HR user
             var hrUser = new User
             {
                 Id = Guid.NewGuid(),
@@ -268,7 +266,6 @@ public static class DataSeeder
             session.Store(hrUser);
             Console.WriteLine("[DataSeeder] Created HR user: hr_manager");
 
-            // Create sample standard user
             var standardUser = new User
             {
                 Id = Guid.NewGuid(),

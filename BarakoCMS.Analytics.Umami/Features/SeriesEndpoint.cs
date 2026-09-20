@@ -17,12 +17,8 @@ public sealed class SeriesResponse
 }
 
 /// <summary>GET /api/analytics/{websiteId}/series?range=7d — pageviews/sessions over time, for the trend chart.</summary>
-public sealed class SeriesEndpoint : Endpoint<AnalyticsWindowRequest, SeriesResponse>
+public sealed class SeriesEndpoint(IUmamiClient umami) : Endpoint<AnalyticsWindowRequest, SeriesResponse>
 {
-    private readonly IUmamiClient _umami;
-
-    public SeriesEndpoint(IUmamiClient umami) => _umami = umami;
-
     public override void Configure()
     {
         Get("/api/analytics/{websiteId}/series");
@@ -33,7 +29,7 @@ public sealed class SeriesEndpoint : Endpoint<AnalyticsWindowRequest, SeriesResp
     public override async Task HandleAsync(AnalyticsWindowRequest req, CancellationToken ct)
     {
         var (startAt, endAt, unit) = AnalyticsRange.Resolve(req.Range);
-        var s = await _umami.GetSeriesAsync(req.WebsiteId, startAt, endAt, unit, ct);
+        var s = await umami.GetSeriesAsync(req.WebsiteId, startAt, endAt, unit, ct);
         await Send.OkAsync(new SeriesResponse
         {
             Unit = unit,

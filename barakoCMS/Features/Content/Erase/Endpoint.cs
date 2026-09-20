@@ -24,22 +24,11 @@ internal class Request
 /// SuperAdmin only. This is the one operation in the product that destroys the audit trail's own
 /// subject matter, so it sits at the highest role rather than with content editing.
 /// </remarks>
-internal class Endpoint : Endpoint<Request>
+internal class Endpoint(
+    IContentEraser eraser,
+    IDocumentSession session,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<Request>
 {
-    private readonly IContentEraser _eraser;
-    private readonly IDocumentSession _session;
-    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
-
-    public Endpoint(
-        IContentEraser eraser,
-        IDocumentSession session,
-        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
-    {
-        _eraser = eraser;
-        _session = session;
-        _tenant = tenant;
-    }
-
     public override void Configure()
     {
         Delete("/api/contents/{id}/erase");
@@ -52,7 +41,7 @@ internal class Endpoint : Endpoint<Request>
     {
         Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId);
 
-        var found = await _eraser.QueueEraseAsync(req.Id, ct);
+        var found = await eraser.QueueEraseAsync(req.Id, ct);
         if (!found)
         {
             await Send.NotFoundAsync(ct);
@@ -65,11 +54,11 @@ internal class Endpoint : Endpoint<Request>
         // returns not found: an erasure nobody can prove happened.
         //
         // The id only. An audit entry that quotes what was erased puts the data back.
-        await AuditLog.RecordAsync(_session, _tenant.Slug, "content.erased", userId,
+        await AuditLog.RecordAsync(session, tenant.Slug, "content.erased", userId,
             User.FindFirst("Username")?.Value,
             targetType: "content", targetId: req.Id.ToString(), ct: ct);
 
-        await _session.SaveChangesAsync(ct);
+        await session.SaveChangesAsync(ct);
 
         await Send.NoContentAsync(ct);
     }

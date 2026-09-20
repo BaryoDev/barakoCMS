@@ -18,11 +18,8 @@ internal static class Gg
 }
 
 /// <summary>GET /api/auth/google/start?club={handle}</summary>
-public class GoogleStartEndpoint : EndpointWithoutRequest
+public class GoogleStartEndpoint(IConfiguration config) : EndpointWithoutRequest
 {
-    private readonly IConfiguration _config;
-    public GoogleStartEndpoint(IConfiguration config) => _config = config;
-
     public override void Configure()
     {
         Get("/api/auth/google/start");
@@ -31,15 +28,15 @@ public class GoogleStartEndpoint : EndpointWithoutRequest
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        if (!ExternalAuthSupport.ProviderEnabled(_config, "Google", "ClientId")) { await Send.NotFoundAsync(ct); return; }
+        if (!ExternalAuthSupport.ProviderEnabled(config, "Google", "ClientId")) { await Send.NotFoundAsync(ct); return; }
         var club = (Query<string>("club", isRequired: false) ?? "").Trim().ToLowerInvariant();
         var state = ExternalAuthSupport.NewState();
         HttpContext.Response.Cookies.Append("gg_state", state, ExternalAuthSupport.ShortCookie());
         HttpContext.Response.Cookies.Append("gg_club", club, ExternalAuthSupport.ShortCookie());
 
-        var redirect = Gg.CallbackUrl(_config, HttpContext);
+        var redirect = Gg.CallbackUrl(config, HttpContext);
         var url =
-            $"{Gg.Authorize}?response_type=code&client_id={_config["Google:ClientId"]}" +
+            $"{Gg.Authorize}?response_type=code&client_id={config["Google:ClientId"]}" +
             $"&redirect_uri={Uri.EscapeDataString(redirect)}" +
             $"&state={state}&scope={Uri.EscapeDataString(Gg.Scope)}";
         await Send.ResultAsync(Results.Redirect(url));
@@ -47,25 +44,13 @@ public class GoogleStartEndpoint : EndpointWithoutRequest
 }
 
 /// <summary>GET /api/auth/google/callback</summary>
-public class GoogleCallbackEndpoint : EndpointWithoutRequest
+public class GoogleCallbackEndpoint(
+    IHttpClientFactory httpFactory,
+    IDocumentSession session,
+    IConfiguration config,
+    barakoCMS.Core.Interfaces.IDeviceGate deviceGate,
+    barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer) : EndpointWithoutRequest
 {
-    private readonly IHttpClientFactory _httpFactory;
-    private readonly IDocumentSession _session;
-    private readonly IConfiguration _config;
-    private readonly barakoCMS.Core.Interfaces.IDeviceGate _deviceGate;
-    private readonly barakoCMS.Infrastructure.Auth.ITokenIssuer _tokenIssuer;
-
-    public GoogleCallbackEndpoint(IHttpClientFactory httpFactory, IDocumentSession session,
-        IConfiguration config, barakoCMS.Core.Interfaces.IDeviceGate deviceGate,
-        barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer)
-    {
-        _httpFactory = httpFactory;
-        _session = session;
-        _config = config;
-        _deviceGate = deviceGate;
-        _tokenIssuer = tokenIssuer;
-    }
-
     public override void Configure()
     {
         Get("/api/auth/google/callback");
@@ -74,7 +59,7 @@ public class GoogleCallbackEndpoint : EndpointWithoutRequest
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        var baseUrl = ExternalAuthSupport.BaseUrl(_config, HttpContext);
+        var baseUrl = ExternalAuthSupport.BaseUrl(config, HttpContext);
         var club = HttpContext.Request.Cookies["gg_club"] ?? "";
         var cookieState = HttpContext.Request.Cookies["gg_state"];
         var code = Query<string>("code", isRequired: false);
@@ -100,14 +85,14 @@ public class GoogleCallbackEndpoint : EndpointWithoutRequest
         SocialSignIn.ProfileData profile;
         try
         {
-            var http = _httpFactory.CreateClient();
+            var http = httpFactory.CreateClient();
             var form = new FormUrlEncodedContent(new Dictionary<string, string>
             {
                 ["grant_type"] = "authorization_code",
                 ["code"] = code,
-                ["redirect_uri"] = Gg.CallbackUrl(_config, HttpContext),
-                ["client_id"] = _config["Google:ClientId"] ?? "",
-                ["client_secret"] = _config["Google:ClientSecret"] ?? "",
+                ["redirect_uri"] = Gg.CallbackUrl(config, HttpContext),
+                ["client_id"] = config["Google:ClientId"] ?? "",
+                ["client_secret"] = config["Google:ClientSecret"] ?? "",
             });
             var tokenResp = await http.PostAsync(Gg.Token, form, ct);
             tokenResp.EnsureSuccessStatusCode();
@@ -143,7 +128,7 @@ public class GoogleCallbackEndpoint : EndpointWithoutRequest
         }
 
         var mfa = Resolve<barakoCMS.Infrastructure.Auth.Mfa.IMfaService>();
-        var tokens = await SocialSignIn.IssueAsync(_session, _config, _deviceGate, _tokenIssuer, mfa, HttpContext, email, emailVerified, club, ct, profile);
+        var tokens = await SocialSignIn.IssueAsync(session, config, deviceGate, tokenIssuer, mfa, HttpContext, email, emailVerified, club, ct, profile);
         if (tokens.RequiresMfa)
         {
             await Send.ResultAsync(Results.Redirect(SocialSignIn.FrontendMfaCallback(baseUrl, tokens.MfaChallenge!, club)));

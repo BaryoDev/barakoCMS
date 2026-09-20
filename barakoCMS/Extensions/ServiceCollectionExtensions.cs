@@ -42,6 +42,71 @@ public static class ServiceCollectionExtensions
         IConfiguration configuration,
         Action<BarakoModuleBuilder>? configureModules)
     {
+        var (seen, enabled, modules) = AddModules(services, configuration, configureModules);
+
+        AddModuleEndpoints(services, seen, enabled, modules);
+
+        AddJobQueue(services);
+
+        AddRequestLimits(services, configuration);
+        AddOpenApiDocument(services, configuration);
+
+        AddHealthProbes(services, configuration);
+
+        AddJwtAndApiKeyAuth(services, configuration);
+
+        AddHstsAndCors(services, configuration);
+        AddPermissionResolution(services);
+        
+        AddSecurityServices(services);
+        
+        AddCaches(services);
+
+        AddMartenStore(services, configuration, modules);
+
+        // services.AddHealthChecks()
+        //    .AddNpgSql(configuration.GetConnectionString("DefaultConnection")!, tags: new[] { "db", "ready" });
+
+        AddOutboundHttp(services, configuration);
+
+        AddContentServices(services);
+
+        AddErasureAndPolicyChecks(services, configuration);
+        AddOtpAndEmailVerification(services, configuration);
+
+        AddSecretProtection(services);
+        AddConnectorServices(services);
+
+        AddWorkflowRunner(services);
+
+        AddContentEvents(services);
+        AddRetentionServices(services);
+        AddMfaAndDeviceTrust(services);
+        AddTenancyAndConfiguration(services, configuration);
+
+        AddWorkflowActions(services);
+
+        AddWorkflowTooling(services);
+        AddValidationAndMonitoring(services);
+
+        AddGlobalProcessors(services);
+
+        AddBackgroundServices(services, configuration);
+
+        AddForwardedHeaders(services, configuration);
+
+        AddRateLimiting(services, configuration);
+
+        AddHealthChecksDashboard(services, configuration);
+
+        return services;
+    }
+
+    private static (IReadOnlyList<IBarakoModule> Seen, IReadOnlyList<IBarakoModule> Enabled, IReadOnlyList<IBarakoModule> Ordered) AddModules(
+        IServiceCollection services,
+        IConfiguration configuration,
+        Action<BarakoModuleBuilder>? configureModules)
+    {
         // Collect modules first, so their endpoint assemblies and Marten config are available when
         // we wire up FastEndpoints and Marten below. Configuration sets the discovery default and
         // the callback can override it, so a host that wants only its explicit list says so in code.
@@ -113,6 +178,15 @@ public static class ServiceCollectionExtensions
             module.ConfigureServices(services, ModuleConfiguration(configuration, module));
         }
 
+        return (seen, enabled, modules);
+    }
+
+    private static void AddModuleEndpoints(
+        IServiceCollection services,
+        IReadOnlyList<IBarakoModule> seen,
+        IReadOnlyList<IBarakoModule> enabled,
+        IReadOnlyList<IBarakoModule> modules)
+    {
         // FastEndpoints scans the entry (host) assembly by default; add each module's assembly so
         // endpoints shipped inside a module DLL are discovered too. DisableAutoDiscovery stays false,
         // so this augments rather than replaces the host scan.
@@ -131,7 +205,7 @@ public static class ServiceCollectionExtensions
             .Except(enabled)
             .SelectMany(m => m.EndpointAssemblies)
             .Except(moduleAssemblies)
-            .Where(a => a != typeof(IBarakoModule).Assembly && a != System.Reflection.Assembly.GetEntryAssembly())
+            .Where(a => a != typeof(ServiceCollectionExtensions).Assembly && a != System.Reflection.Assembly.GetEntryAssembly())
             .ToHashSet();
 
         services.AddFastEndpoints(o =>
@@ -141,7 +215,10 @@ public static class ServiceCollectionExtensions
             if (switchedOff.Count > 0)
                 o.Filter = type => !switchedOff.Contains(type.Assembly);
         });
+    }
 
+    private static void AddJobQueue(IServiceCollection services)
+    {
         // The job queue. The storage provider is a singleton that reaches the request's scoped
         // session through IHttpContextAccessor, which is what makes an enqueue commit with the
         // request; see MartenJobStorageProvider and docs/background-jobs.md.
@@ -161,7 +238,10 @@ public static class ServiceCollectionExtensions
         services.AddHttpContextAccessor();
         services.AddSingleton<barakoCMS.Infrastructure.Jobs.JobStorageGate>();
         services.AddJobQueues<barakoCMS.Models.JobRecord, barakoCMS.Infrastructure.Jobs.MartenJobStorageProvider>();
+    }
 
+    private static void AddRequestLimits(IServiceCollection services, IConfiguration configuration)
+    {
         // Request body size limit (defends against large-payload memory pressure / DoS on the
         // arbitrary-JSON content endpoints). Configurable via RequestLimits:MaxBodyBytes; default 10 MB.
         var maxBodyBytes = configuration.GetValue<long?>("RequestLimits:MaxBodyBytes") ?? 10L * 1024 * 1024;
@@ -175,11 +255,15 @@ public static class ServiceCollectionExtensions
         {
             o.MultipartBodyLengthLimit = maxBodyBytes;
         });
+    }
+
+    private static void AddOpenApiDocument(IServiceCollection services, IConfiguration configuration)
+    {
         // Config wins, and the environment supplies the default, so Development keeps Swagger with
         // no configuration at all while production stays off unless it is asked for. Defaulting to
         // false everywhere would have removed it for every developer.
         var swaggerOnByDefault =
-            Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development";
+            IsDevelopmentEnvironment();
         if (configuration.GetValue("Swagger:Enabled", swaggerOnByDefault))
         {
             services.SwaggerDocument(o =>
@@ -199,7 +283,10 @@ public static class ServiceCollectionExtensions
         // only under a config flag is a startup failure waiting for the first deployment that turns
         // the flag off. Nothing populates it when Swagger is off, so it costs an empty dictionary.
         services.AddSingleton<barakoCMS.Infrastructure.OpenApi.DeliveryDocumentCache>();
+    }
 
+    private static void AddHealthProbes(IServiceCollection services, IConfiguration configuration)
+    {
         var connectionString = ResolveConnectionString(configuration);
 
         // Thresholds are configurable. The memory default is deliberately generous:
@@ -252,7 +339,10 @@ public static class ServiceCollectionExtensions
 
         services.AddSingleton(sp => new barakoCMS.Infrastructure.Health.WorkflowProjectionHealthCheck(
             sp.GetRequiredService<IDocumentStore>(), maxProjectionLag));
+    }
 
+    private static void AddJwtAndApiKeyAuth(IServiceCollection services, IConfiguration configuration)
+    {
         // Validate JWT key exists and has minimum length for security. Fail fast rather than
         // booting with broken or insecure auth. Check both config and the JWT__Key env var.
         var jwtKey = configuration["JWT:Key"];
@@ -275,7 +365,6 @@ public static class ServiceCollectionExtensions
                 p.ValidIssuer = configuration["JWT:Issuer"];
                 p.ValidAudience = configuration["JWT:Audience"];
 
-                // Explicitly map claims
                 p.NameClaimType = "Username";
                 p.RoleClaimType = System.Security.Claims.ClaimTypes.Role;
 
@@ -308,7 +397,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<barakoCMS.Infrastructure.Auth.ApiKeyService>();
 
         services.AddAuthorization();
+    }
 
+    private static void AddHstsAndCors(IServiceCollection services, IConfiguration configuration)
+    {
         // Strict-Transport-Security. Registered here, applied by UseHsts outside Development.
         services.AddHsts(options =>
             barakoCMS.Infrastructure.Security.HstsPolicy.Configure(options, configuration));
@@ -343,11 +435,11 @@ public static class ServiceCollectionExtensions
             // would buy nothing.
             options.AddPolicy("SecurePolicy", builder =>
             {
-                // Get allowed origins from configuration (comma-separated list)
-                // Priority: CORS__AllowedOrigins env var > appsettings.json CORS:AllowedOrigins
-                var allowedOrigins = configuration["CORS:AllowedOrigins"]?
-                    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                    ?? Array.Empty<string>();
+                // CORS__AllowedOrigins as an environment variable, CORS:AllowedOrigins in
+                // appsettings.json; configuration binding treats them as the same key.
+                var allowedOrigins = ResolveCorsOrigins(
+                    configuration["CORS:AllowedOrigins"],
+                    IsDevelopmentEnvironment());
 
                 if (allowedOrigins.Length > 0)
                 {
@@ -359,25 +451,24 @@ public static class ServiceCollectionExtensions
                 }
                 else
                 {
-                    // Fallback to localhost for development if no origins configured
-                    builder.WithOrigins("http://localhost:3000", "http://localhost:3001", "https://localhost:7049")
-                           .AllowAnyMethod()
-                           .AllowAnyHeader()
-                           .WithExposedHeaders(BrowserReadableHeaders)
-                           .AllowCredentials();
+                    builder.WithOrigins().WithExposedHeaders(BrowserReadableHeaders);
                 }
             });
         });
-        // Repository registration
+    }
+
+    private static void AddPermissionResolution(IServiceCollection services)
+    {
         services.AddScoped<IUserRepository, MartenUserRepository>();
 
-        // RBAC Services
         services.AddScoped<IConditionEvaluator, ConditionEvaluator>();
         
-        // Permission Resolver with Caching
         services.AddScoped<PermissionResolver>(); // Inner resolver
         services.AddScoped<IPermissionResolver, CachedPermissionResolver>(); // Cached decorator
-        
+    }
+
+    private static void AddSecurityServices(IServiceCollection services)
+    {
         // Security Services
         // The only place an access token is minted — it owns the "may this user hold a token for
         // this tenant?" check, so no endpoint can skip it by omission. See ITokenIssuer.
@@ -388,7 +479,10 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ITokenRevocationService, TokenRevocationService>();
         services.AddScoped<ISessionEpochService, SessionEpochService>();
         services.AddScoped<IPasswordPolicyValidator, PasswordPolicyValidator>();
-        
+    }
+
+    private static void AddCaches(IServiceCollection services)
+    {
         // Memory Cache for token revocation and permissions
         services.AddMemoryCache(options =>
         {
@@ -399,8 +493,294 @@ public static class ServiceCollectionExtensions
         // Output Cache, so an endpoint's Options(x => x.CacheOutput(...)) is more than metadata.
         // See #545: this was missing, so every endpoint's CacheOutput policy was silently ignored.
         services.AddOutputCache();
+    }
 
-        connectionString = ResolveConnectionString(configuration);
+    private static void MapContentDocuments(StoreOptions options)
+    {
+        options.Schema.For<Content>()
+            .DocumentAlias("contents")
+            // #565 / D16: the document a client reads and writes through GET/PUT gets the same
+            // protection WorkflowRun, JobRecord and the rest already have below. Event-sourced
+            // types keep their own expected-version check on the stream (D3); this is the
+            // document itself, which every content type is stored as regardless of sourcing mode.
+            // The Update endpoint reads the version via MetadataForAsync and binds it back with
+            // UpdateExpectedVersion, so GET's ETag and PUT's If-Match round-trip through it.
+            .UseOptimisticConcurrency(true)
+            .Index(x => x.ContentType)  // Frequently filtered
+            .Index(x => x.CreatedAt)    // Frequently sorted
+            .Index(x => x.UpdatedAt)
+            .Index(x => x.Status)
+            .Index(x => new { x.ContentType, x.CreatedAt })
+            .Index(x => new { x.ContentType, x.Status }); // Composite for status filtering
+            // NOTE: no dedicated index on ScheduledPublishAt/ScheduledUnpublishAt. The scheduler
+            // sweep leads with Status (indexed above), which is the selective predicate; the
+            // schedule-time comparison is a cheap secondary filter. Adding indexes here would be a
+            // delta on the existing mt_doc_contents table, which the prod/playground AutoCreate.
+            // CreateOnly policy refuses at startup (there is no online-migration step yet — H.40).
+
+        // The name is the lookup key for a content type: ContentValidatorService, SensitivityService
+        // and the search-text backfill all resolve a definition by it, and each resolved a
+        // duplicate differently. Uniqueness was enforced only by a read before the write, so two
+        // concurrent creates both missed the read and both inserted. PerTenant, not global: under
+        // conjoined tenancy one customer's "article" must not block another's.
+        //
+        // On an existing database this index is NOT created: production runs AutoCreate.CreateOnly,
+        // which never alters an object that already exists. Such a store keeps today's
+        // read-then-write behaviour until the index is applied by hand. See
+        // migrations/4.0.0/3.x-to-4.0.sql, which also finds the duplicates that would make the
+        // CREATE UNIQUE INDEX fail.
+        // The sourcing decision, keyed by the content type NAME rather than by the definition's
+        // id, so deleting a type and creating it again finds the standing answer instead of
+        // arriving at the opposite one. Tenant-scoped like the definitions it describes: one
+        // customer's "article" being event sourced says nothing about another's.
+        options.Schema.For<ContentTypeSourcingPolicy>()
+            .DocumentAlias("content_type_sourcing_policies")
+            .Identity(x => x.Name);
+
+        options.Schema.For<ContentTypeDefinition>()
+            .Index(x => x.Name, idx =>
+            {
+                idx.IsUnique = true;
+                idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
+            });
+
+        // Navigation menus are a "menu" content type served through public delivery, not a bespoke
+        // doc. Keeping them as content keeps them pluggable and drops a whole CRUD surface. The old
+        // Menu document + /api/menus endpoints were removed; existing "menus" tables are just left
+        // orphaned (safe under AutoCreate.CreateOnly, which never alters or drops them).
+    }
+
+    private static void MapIdentityAndSettingsDocuments(StoreOptions options)
+    {
+        // Unique on the normalised values, because that is what every lookup compares. Indexed on
+        // the stored Username and Email, two accounts could hold "A@example.com" and
+        // "a@example.com": two values to the index, one to the query that checked first. An
+        // existing database needs migrations/4.2.0/user-normalized-identity.sql (#638).
+        options.Schema.For<User>()
+            .SingleTenanted() // global identity — a user exists once across all tenants
+            .DocumentAlias("users")
+            .Index(x => x.NormalizedUsername, idx => idx.IsUnique = true)
+            .Index(x => x.NormalizedEmail, idx => idx.IsUnique = true);
+        
+        // Global (single-tenanted) platform + auth infrastructure. Identity, roles, tokens, OTP,
+        // idempotency and settings live once across all tenants — otherwise per-club role
+        // resolution (Membership references global role ids) and token revocation would silently
+        // fail inside a club's partition. Only domain content below stays tenant-scoped.
+        options.Schema.For<SystemSetting>()
+            .SingleTenanted()
+            .DocumentAlias("system_settings");
+    }
+
+    private static void MapTenantScopedDocuments(StoreOptions options)
+    {
+        // Conjoined multi-tenant, deliberately, unlike the settings documents above. A credential
+        // belongs to the tenant that added it, and one tenant's admin reaching another's is the
+        // exact failure #287 found in the daemon.
+        // Conjoined, and the unique index is PerTenant for the same reason the connector slug is:
+        // one tenant taking "/about" must not stop every other tenant having one.
+        options.Schema.For<UrlRedirect>()
+            .MultiTenanted()
+            .DocumentAlias("url_redirects")
+            .Index(x => x.FromPath, idx =>
+            {
+                idx.IsUnique = true;
+                idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
+            });
+
+        // Conjoined: a share link opens one tenant's site and must never redeem on another's.
+        options.Schema.For<SiteShareLink>()
+            .MultiTenanted()
+            .DocumentAlias("site_share_links")
+            .Index(x => x.ExpiresAt)
+            .Index(x => x.KeyHash, idx =>
+            {
+                idx.IsUnique = true;
+                idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
+            });
+
+        options.Schema.For<Connector>()
+            .MultiTenanted()
+            .DocumentAlias("connectors")
+            .Index(x => x.Slug, idx =>
+            {
+                idx.IsUnique = true;
+                // PerTenant, or the index is global and the first tenant to take "company-jira"
+                // stops every other tenant using that name. Marten does not infer this from the
+                // document being multi-tenanted, which is why ContentTypeDefinition says it too.
+                idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
+            });
+
+        options.Schema.For<RequestDefinition>()
+            .MultiTenanted()
+            .DocumentAlias("request_definitions")
+            .Index(x => x.Slug, idx =>
+            {
+                idx.IsUnique = true;
+                idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
+            });
+
+        options.Schema.For<QueryDefinition>()
+            .MultiTenanted()
+            .DocumentAlias("query_definitions")
+            .Index(x => x.Slug, idx =>
+            {
+                idx.IsUnique = true;
+                idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
+            });
+
+        options.Schema.For<CollectionSync>()
+            .MultiTenanted()
+            .DocumentAlias("collection_syncs")
+            .Index(x => x.Slug, idx =>
+            {
+                idx.IsUnique = true;
+                idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
+            });
+
+        options.Schema.For<WorkflowRun>()
+            .MultiTenanted()
+            .DocumentAlias("workflow_runs")
+            // The claim is a read, a check and a write with nothing between them, and two nodes
+            // must not both take the same attempt. This is what refuses the second one.
+            .UseOptimisticConcurrency(true)
+            .Index(x => x.Status)
+            .Index(x => x.CreatedAt);
+
+        options.Schema.For<WebhookDelivery>()
+            .MultiTenanted()
+            .DocumentAlias("webhook_deliveries")
+            .Index(x => x.WorkflowId)
+            .Index(x => x.CreatedAt);
+
+        options.Schema.For<WorkflowFieldApplyMarker>()
+            .MultiTenanted()
+            .DocumentAlias("workflow_field_apply_markers")
+            // Same reason WorkflowRun above has it: loading it, deciding, and saving it is a
+            // read, a check and a write with nothing between them, and two nodes racing the
+            // same key must not both silently win.
+            .UseOptimisticConcurrency(true)
+            .Index(x => x.AppliedAt);
+
+        options.Schema.For<ConnectorSecret>()
+            .MultiTenanted()
+            .DocumentAlias("connector_secrets")
+            .Index(x => x.ConnectorId);
+
+        // Conjoined: a job belongs to the tenant of the request that queued it, and the list
+        // shows one tenant's. The tenant column is mapped onto the document so a worker, which
+        // has no request, can open a session for the right partition when it updates a record.
+        // Optimistic concurrency is the claim: two nodes polling the same table both load a
+        // pending job and only one save wins.
+        options.Schema.For<JobRecord>()
+            .MultiTenanted()
+            .DocumentAlias("jobs")
+            .UseOptimisticConcurrency(true)
+            .Metadata(m => m.TenantId.MapTo(x => x.TenantId))
+            .Index(x => x.QueueID)
+            .Index(x => x.State)
+            .Index(x => x.ExecuteAfter);
+    }
+
+    private static void MapGlobalDocuments(StoreOptions options)
+    {
+        options.Schema.For<EmailSettings>()
+            .SingleTenanted() // one mail provider for the deployment, not one per tenant
+            .DocumentAlias("email_settings");
+
+        options.Schema.For<Models.Role>()
+            .SingleTenanted() // roles are global; per-tenant assignment lives on Membership
+            .DocumentAlias("roles")
+            .Index(x => x.Name, idx => idx.IsUnique = true);
+
+        options.Schema.For<RefreshToken>()
+            .SingleTenanted() // token lifecycle is global, independent of which club is in the URL
+            .DocumentAlias("refresh_tokens")
+            // Optimistic concurrency so a single refresh token cannot be rotated twice
+            // concurrently (defeats refresh-token reuse/replay).
+            .UseOptimisticConcurrency(true)
+            .Index(x => x.Token, idx => idx.IsUnique = true)  // Index for fast lookup
+            .Index(x => x.UserId)  // Index for user queries
+            .Index(x => x.ExpiresAt);  // Index for cleanup queries
+
+        options.Schema.For<RevokedToken>()
+            .SingleTenanted() // a revoked token must be revoked everywhere
+            .DocumentAlias("revoked_tokens")
+            .Index(x => x.TokenJti, idx => idx.IsUnique = true)  // Index for fast revocation check
+            .Index(x => x.ExpiresAt);  // Index for cleanup queries
+
+        options.Schema.For<IdempotencyRecord>()
+            .SingleTenanted()
+            .DocumentAlias("idempotency_records")
+            .Index(x => x.Key, idx => idx.IsUnique = true);  // Unique constraint prevents race condition
+
+        options.Schema.For<OtpCode>()
+            .SingleTenanted() // sign-in codes are keyed by global email, not by club
+            .DocumentAlias("otp_codes")
+            // Same reason RefreshToken and MfaSecret above have it, and this one was the odd
+            // one out. Consuming a code is a read, a check and a write with nothing between
+            // them, so two requests carrying the same code could both see Consumed still false
+            // and both mint tokens. Device approval and passwordless sign-in both rest on this
+            // path, and the login endpoint next door already uses an atomic Patch().Increment
+            // for exactly this class of race.
+            .UseOptimisticConcurrency(true)
+            .Index(x => x.Email)
+            .Index(x => x.ExpiresAt);
+
+        options.Schema.For<PendingRegistration>()
+            .SingleTenanted() // a registration is for a global identity, like the user it becomes
+            .DocumentAlias("pending_registrations")
+            // Same reason OtpCode above has it. Consuming a token is a read, a check and a
+            // write with nothing between them, and two requests carrying one token must not both
+            // create an account.
+            .UseOptimisticConcurrency(true)
+            // No unique index on Username or Email, deliberately. Reserving either before
+            // anybody proved the address would let an unauthenticated caller hold names and
+            // block addresses without owning a mailbox. Uniqueness is enforced where it counts,
+            // on the users table, and re-checked at verification.
+            .Index(x => x.Email)
+            .Index(x => x.ExpiresAt);
+
+        options.Schema.For<MfaSecret>()
+            .SingleTenanted() // second factor is per global identity, like the user and OTP codes
+            .DocumentAlias("mfa_secrets")
+            // Serialize concurrent verifies so the replay guard can't be beaten by a race: two
+            // requests with the same code can't both read the old LastUsedTimeStep and both win.
+            .UseOptimisticConcurrency(true);
+
+        options.Schema.For<ApiKey>()
+            .SingleTenanted() // credentials are global, like users and tokens
+            .DocumentAlias("api_keys")
+            .Index(x => x.KeyHash, idx => idx.IsUnique = true) // hash lookup at auth time
+            .Index(x => x.UserId)
+            .Index(x => x.TenantSlug);
+
+        options.Schema.For<Models.AuditEvent>()
+            .SingleTenanted() // one global chain per tenant, kept as data like ApiKey.TenantSlug
+            .DocumentAlias("audit_events")
+            .Index(x => x.TenantSlug)
+            .Index(x => x.CreatedAt)
+            .Index(x => x.Action)
+            .Index(x => x.ActorUserId)
+            .Index(x => new { x.TenantSlug, x.CreatedAt }); // the RecordAsync "latest entry" lookup
+
+        // Multi-tenancy registry (global documents — not tenant-scoped).
+        options.Schema.For<Models.Tenant>()
+            .SingleTenanted() // the tenant registry itself is global
+            .DocumentAlias("tenants")
+            .Index(x => x.Slug, idx => idx.IsUnique = true);
+        options.Schema.For<Models.Membership>()
+            .SingleTenanted() // maps global users to tenants — necessarily cross-tenant
+            .DocumentAlias("memberships")
+            .Index(x => x.UserId)
+            .Index(x => x.TenantSlug);
+    }
+
+    private static void AddMartenStore(
+        IServiceCollection services,
+        IConfiguration configuration,
+        IReadOnlyList<IBarakoModule> modules)
+    {
+        var connectionString = ResolveConnectionString(configuration);
         services.AddMarten((IServiceProvider sp) =>
         {
             var options = new StoreOptions();
@@ -433,7 +813,7 @@ public static class ServiceCollectionExtensions
             // a frictionless local loop. NOTE: changing Events.TenancyStyle on an existing store is
             // still not auto-migratable — it requires an event-store rebuild, never a live migration.
             var isDevelopment =
-                Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development";
+                IsDevelopmentEnvironment();
             options.AutoCreateSchemaObjects = isDevelopment
                 ? JasperFx.AutoCreate.CreateOrUpdate
                 : JasperFx.AutoCreate.CreateOnly;
@@ -463,276 +843,14 @@ public static class ServiceCollectionExtensions
                 options.UseRowLevelSecurity();
             }
 
-            // Configure document versioning and indexes
-            options.Schema.For<Content>()
-                .DocumentAlias("contents")
-                // #565 / D16: the document a client reads and writes through GET/PUT gets the same
-                // protection WorkflowRun, JobRecord and the rest already have below. Event-sourced
-                // types keep their own expected-version check on the stream (D3); this is the
-                // document itself, which every content type is stored as regardless of sourcing mode.
-                // The Update endpoint reads the version via MetadataForAsync and binds it back with
-                // UpdateExpectedVersion, so GET's ETag and PUT's If-Match round-trip through it.
-                .UseOptimisticConcurrency(true)
-                .Index(x => x.ContentType)  // Frequently filtered
-                .Index(x => x.CreatedAt)    // Frequently sorted
-                .Index(x => x.UpdatedAt)
-                .Index(x => x.Status)
-                .Index(x => new { x.ContentType, x.CreatedAt })
-                .Index(x => new { x.ContentType, x.Status }); // Composite for status filtering
-                // NOTE: no dedicated index on ScheduledPublishAt/ScheduledUnpublishAt. The scheduler
-                // sweep leads with Status (indexed above), which is the selective predicate; the
-                // schedule-time comparison is a cheap secondary filter. Adding indexes here would be a
-                // delta on the existing mt_doc_contents table, which the prod/playground AutoCreate.
-                // CreateOnly policy refuses at startup (there is no online-migration step yet — H.40).
+            MapContentDocuments(options);
 
-            // The name is the lookup key for a content type: ContentValidatorService, SensitivityService
-            // and the search-text backfill all resolve a definition by it, and each resolved a
-            // duplicate differently. Uniqueness was enforced only by a read before the write, so two
-            // concurrent creates both missed the read and both inserted. PerTenant, not global: under
-            // conjoined tenancy one customer's "article" must not block another's.
-            //
-            // On an existing database this index is NOT created: production runs AutoCreate.CreateOnly,
-            // which never alters an object that already exists. Such a store keeps today's
-            // read-then-write behaviour until the index is applied by hand. See
-            // migrations/4.0.0/3.x-to-4.0.sql, which also finds the duplicates that would make the
-            // CREATE UNIQUE INDEX fail.
-            // The sourcing decision, keyed by the content type NAME rather than by the definition's
-            // id, so deleting a type and creating it again finds the standing answer instead of
-            // arriving at the opposite one. Tenant-scoped like the definitions it describes: one
-            // customer's "article" being event sourced says nothing about another's.
-            options.Schema.For<ContentTypeSourcingPolicy>()
-                .DocumentAlias("content_type_sourcing_policies")
-                .Identity(x => x.Name);
+            MapIdentityAndSettingsDocuments(options);
 
-            options.Schema.For<ContentTypeDefinition>()
-                .Index(x => x.Name, idx =>
-                {
-                    idx.IsUnique = true;
-                    idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
-                });
+            MapTenantScopedDocuments(options);
 
-            // Navigation menus are a "menu" content type served through public delivery, not a bespoke
-            // doc. Keeping them as content keeps them pluggable and drops a whole CRUD surface. The old
-            // Menu document + /api/menus endpoints were removed; existing "menus" tables are just left
-            // orphaned (safe under AutoCreate.CreateOnly, which never alters or drops them).
+            MapGlobalDocuments(options);
 
-            // Unique on the normalised values, because that is what every lookup compares. Indexed on
-            // the stored Username and Email, two accounts could hold "A@example.com" and
-            // "a@example.com": two values to the index, one to the query that checked first. An
-            // existing database needs migrations/4.2.0/user-normalized-identity.sql (#638).
-            options.Schema.For<User>()
-                .SingleTenanted() // global identity — a user exists once across all tenants
-                .DocumentAlias("users")
-                .Index(x => x.NormalizedUsername, idx => idx.IsUnique = true)
-                .Index(x => x.NormalizedEmail, idx => idx.IsUnique = true);
-            
-            // Global (single-tenanted) platform + auth infrastructure. Identity, roles, tokens, OTP,
-            // idempotency and settings live once across all tenants — otherwise per-club role
-            // resolution (Membership references global role ids) and token revocation would silently
-            // fail inside a club's partition. Only domain content below stays tenant-scoped.
-            options.Schema.For<SystemSetting>()
-                .SingleTenanted()
-                .DocumentAlias("system_settings");
-
-            // Conjoined multi-tenant, deliberately, unlike the settings documents above. A credential
-            // belongs to the tenant that added it, and one tenant's admin reaching another's is the
-            // exact failure #287 found in the daemon.
-            // Conjoined, and the unique index is PerTenant for the same reason the connector slug is:
-            // one tenant taking "/about" must not stop every other tenant having one.
-            options.Schema.For<UrlRedirect>()
-                .MultiTenanted()
-                .DocumentAlias("url_redirects")
-                .Index(x => x.FromPath, idx =>
-                {
-                    idx.IsUnique = true;
-                    idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
-                });
-
-            // Conjoined: a share link opens one tenant's site and must never redeem on another's.
-            options.Schema.For<SiteShareLink>()
-                .MultiTenanted()
-                .DocumentAlias("site_share_links")
-                .Index(x => x.ExpiresAt)
-                .Index(x => x.KeyHash, idx =>
-                {
-                    idx.IsUnique = true;
-                    idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
-                });
-
-            options.Schema.For<Connector>()
-                .MultiTenanted()
-                .DocumentAlias("connectors")
-                .Index(x => x.Slug, idx =>
-                {
-                    idx.IsUnique = true;
-                    // PerTenant, or the index is global and the first tenant to take "company-jira"
-                    // stops every other tenant using that name. Marten does not infer this from the
-                    // document being multi-tenanted, which is why ContentTypeDefinition says it too.
-                    idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
-                });
-
-            options.Schema.For<RequestDefinition>()
-                .MultiTenanted()
-                .DocumentAlias("request_definitions")
-                .Index(x => x.Slug, idx =>
-                {
-                    idx.IsUnique = true;
-                    idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
-                });
-
-            options.Schema.For<QueryDefinition>()
-                .MultiTenanted()
-                .DocumentAlias("query_definitions")
-                .Index(x => x.Slug, idx =>
-                {
-                    idx.IsUnique = true;
-                    idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
-                });
-
-            options.Schema.For<CollectionSync>()
-                .MultiTenanted()
-                .DocumentAlias("collection_syncs")
-                .Index(x => x.Slug, idx =>
-                {
-                    idx.IsUnique = true;
-                    idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
-                });
-
-            options.Schema.For<WorkflowRun>()
-                .MultiTenanted()
-                .DocumentAlias("workflow_runs")
-                // The claim is a read, a check and a write with nothing between them, and two nodes
-                // must not both take the same attempt. This is what refuses the second one.
-                .UseOptimisticConcurrency(true)
-                .Index(x => x.Status)
-                .Index(x => x.CreatedAt);
-
-            options.Schema.For<WebhookDelivery>()
-                .MultiTenanted()
-                .DocumentAlias("webhook_deliveries")
-                .Index(x => x.WorkflowId)
-                .Index(x => x.CreatedAt);
-
-            options.Schema.For<WorkflowFieldApplyMarker>()
-                .MultiTenanted()
-                .DocumentAlias("workflow_field_apply_markers")
-                // Same reason WorkflowRun above has it: loading it, deciding, and saving it is a
-                // read, a check and a write with nothing between them, and two nodes racing the
-                // same key must not both silently win.
-                .UseOptimisticConcurrency(true)
-                .Index(x => x.AppliedAt);
-
-            options.Schema.For<ConnectorSecret>()
-                .MultiTenanted()
-                .DocumentAlias("connector_secrets")
-                .Index(x => x.ConnectorId);
-
-            // Conjoined: a job belongs to the tenant of the request that queued it, and the list
-            // shows one tenant's. The tenant column is mapped onto the document so a worker, which
-            // has no request, can open a session for the right partition when it updates a record.
-            // Optimistic concurrency is the claim: two nodes polling the same table both load a
-            // pending job and only one save wins.
-            options.Schema.For<JobRecord>()
-                .MultiTenanted()
-                .DocumentAlias("jobs")
-                .UseOptimisticConcurrency(true)
-                .Metadata(m => m.TenantId.MapTo(x => x.TenantId))
-                .Index(x => x.QueueID)
-                .Index(x => x.State)
-                .Index(x => x.ExecuteAfter);
-
-            options.Schema.For<EmailSettings>()
-                .SingleTenanted() // one mail provider for the deployment, not one per tenant
-                .DocumentAlias("email_settings");
-
-            options.Schema.For<Models.Role>()
-                .SingleTenanted() // roles are global; per-tenant assignment lives on Membership
-                .DocumentAlias("roles")
-                .Index(x => x.Name, idx => idx.IsUnique = true);
-
-            options.Schema.For<RefreshToken>()
-                .SingleTenanted() // token lifecycle is global, independent of which club is in the URL
-                .DocumentAlias("refresh_tokens")
-                // Optimistic concurrency so a single refresh token cannot be rotated twice
-                // concurrently (defeats refresh-token reuse/replay).
-                .UseOptimisticConcurrency(true)
-                .Index(x => x.Token, idx => idx.IsUnique = true)  // Index for fast lookup
-                .Index(x => x.UserId)  // Index for user queries
-                .Index(x => x.ExpiresAt);  // Index for cleanup queries
-
-            options.Schema.For<RevokedToken>()
-                .SingleTenanted() // a revoked token must be revoked everywhere
-                .DocumentAlias("revoked_tokens")
-                .Index(x => x.TokenJti, idx => idx.IsUnique = true)  // Index for fast revocation check
-                .Index(x => x.ExpiresAt);  // Index for cleanup queries
-
-            options.Schema.For<IdempotencyRecord>()
-                .SingleTenanted()
-                .DocumentAlias("idempotency_records")
-                .Index(x => x.Key, idx => idx.IsUnique = true);  // Unique constraint prevents race condition
-
-            options.Schema.For<OtpCode>()
-                .SingleTenanted() // sign-in codes are keyed by global email, not by club
-                .DocumentAlias("otp_codes")
-                // Same reason RefreshToken and MfaSecret above have it, and this one was the odd
-                // one out. Consuming a code is a read, a check and a write with nothing between
-                // them, so two requests carrying the same code could both see Consumed still false
-                // and both mint tokens. Device approval and passwordless sign-in both rest on this
-                // path, and the login endpoint next door already uses an atomic Patch().Increment
-                // for exactly this class of race.
-                .UseOptimisticConcurrency(true)
-                .Index(x => x.Email)
-                .Index(x => x.ExpiresAt);
-
-            options.Schema.For<PendingRegistration>()
-                .SingleTenanted() // a registration is for a global identity, like the user it becomes
-                .DocumentAlias("pending_registrations")
-                // Same reason OtpCode above has it. Consuming a token is a read, a check and a
-                // write with nothing between them, and two requests carrying one token must not both
-                // create an account.
-                .UseOptimisticConcurrency(true)
-                // No unique index on Username or Email, deliberately. Reserving either before
-                // anybody proved the address would let an unauthenticated caller hold names and
-                // block addresses without owning a mailbox. Uniqueness is enforced where it counts,
-                // on the users table, and re-checked at verification.
-                .Index(x => x.Email)
-                .Index(x => x.ExpiresAt);
-
-            options.Schema.For<MfaSecret>()
-                .SingleTenanted() // second factor is per global identity, like the user and OTP codes
-                .DocumentAlias("mfa_secrets")
-                // Serialize concurrent verifies so the replay guard can't be beaten by a race: two
-                // requests with the same code can't both read the old LastUsedTimeStep and both win.
-                .UseOptimisticConcurrency(true);
-
-            options.Schema.For<ApiKey>()
-                .SingleTenanted() // credentials are global, like users and tokens
-                .DocumentAlias("api_keys")
-                .Index(x => x.KeyHash, idx => idx.IsUnique = true) // hash lookup at auth time
-                .Index(x => x.UserId)
-                .Index(x => x.TenantSlug);
-
-            options.Schema.For<Models.AuditEvent>()
-                .SingleTenanted() // one global chain per tenant, kept as data like ApiKey.TenantSlug
-                .DocumentAlias("audit_events")
-                .Index(x => x.TenantSlug)
-                .Index(x => x.CreatedAt)
-                .Index(x => x.Action)
-                .Index(x => x.ActorUserId)
-                .Index(x => new { x.TenantSlug, x.CreatedAt }); // the RecordAsync "latest entry" lookup
-
-            // Multi-tenancy registry (global documents — not tenant-scoped).
-            options.Schema.For<Models.Tenant>()
-                .SingleTenanted() // the tenant registry itself is global
-                .DocumentAlias("tenants")
-                .Index(x => x.Slug, idx => idx.IsUnique = true);
-            options.Schema.For<Models.Membership>()
-                .SingleTenanted() // maps global users to tenants — necessarily cross-tenant
-                .DocumentAlias("memberships")
-                .Index(x => x.UserId)
-                .Index(x => x.TenantSlug);
-
-            // Register Workflow Projection (Async)
             options.Projections.Add(new WorkflowProjection(sp), JasperFx.Events.Projections.ProjectionLifecycle.Async);
 
             // The public event stream learns about content changes after the session that wrote
@@ -777,10 +895,10 @@ public static class ServiceCollectionExtensions
         // registers a hosted service that runs during app.Run(), but the seeders run before that, so
         // with CreateOnly's no-on-demand-DDL they'd hit tables that don't exist yet on a fresh
         // database.
+    }
 
-        // services.AddHealthChecks()
-        //    .AddNpgSql(configuration.GetConnectionString("DefaultConnection")!, tags: new[] { "db", "ready" });
-
+    private static void AddOutboundHttp(IServiceCollection services, IConfiguration configuration)
+    {
         // AllowAutoRedirect defaults to true, and WebhookAction validates only the URL it was given.
         // A webhook target that answers 302 Location: http://169.254.169.254/... was therefore
         // followed to the metadata service with the block list never consulted for that address:
@@ -807,7 +925,10 @@ public static class ServiceCollectionExtensions
                     sp.GetRequiredService<barakoCMS.Infrastructure.Http.OutboundAddressGuard>(),
                     allowWebhookProxy))
                 .AddStandardResilienceHandler();
+    }
 
+    private static void AddContentServices(IServiceCollection services)
+    {
         // Defaults registered with TryAdd so an opted-in module or the host can substitute a real
         // provider (e.g. a Resend email module) without being clobbered by these mocks.
         services.TryAddScoped<barakoCMS.Core.Interfaces.IEmailService, barakoCMS.Infrastructure.Services.MockEmailService>();
@@ -830,7 +951,10 @@ public static class ServiceCollectionExtensions
         // Runs any per-content-type domain rules a module registered (IContentLifecycleHook), so a
         // domain with real invariants can still be modelled as ordinary content.
         services.AddScoped<barakoCMS.Infrastructure.Services.IContentLifecycleRunner, barakoCMS.Infrastructure.Services.ContentLifecycleRunner>();
+    }
 
+    private static void AddErasureAndPolicyChecks(IServiceCollection services, IConfiguration configuration)
+    {
         // Erasure policy. Validated here rather than at first use: the failure being guarded against
         // is an operator believing a mode is in force when it is not, and startup is the only moment
         // that belief is cheap to correct. See DECISIONS.md D9.
@@ -849,6 +973,10 @@ public static class ServiceCollectionExtensions
         barakoCMS.Infrastructure.Connectors.ConnectorOptions.FromConfiguration(configuration).Validate(configuration);
         services.AddSingleton(erasure);
         services.AddScoped<barakoCMS.Infrastructure.Erasure.IContentEraser, barakoCMS.Infrastructure.Erasure.ContentEraser>();
+    }
+
+    private static void AddOtpAndEmailVerification(IServiceCollection services, IConfiguration configuration)
+    {
         services.AddScoped<barakoCMS.Core.Interfaces.IOtpService, barakoCMS.Infrastructure.Services.OtpService>();
 
         // Email verification for self-registration. Validated at startup for the same reason erasure
@@ -860,11 +988,18 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(emailVerification);
         services.AddScoped<barakoCMS.Core.Interfaces.IEmailVerificationService,
                            barakoCMS.Infrastructure.Services.EmailVerificationService>();
+    }
 
+    private static void AddSecretProtection(IServiceCollection services)
+    {
         // MFA (TOTP): secret protection (AES-GCM) + enrollment/verification.
         services.AddSingleton<barakoCMS.Infrastructure.Auth.Mfa.IMfaSecretProtector, barakoCMS.Infrastructure.Auth.Mfa.MfaSecretProtector>();
         services.AddSingleton<barakoCMS.Infrastructure.Security.ISecretProtector, barakoCMS.Infrastructure.Security.SecretProtector>();
         services.AddScoped<barakoCMS.Core.Interfaces.IEmailSettingsProvider, barakoCMS.Infrastructure.Services.EmailSettingsProvider>();
+    }
+
+    private static void AddConnectorServices(IServiceCollection services)
+    {
         services.AddSingleton<barakoCMS.Infrastructure.Connectors.IConnectorSecretProtector, barakoCMS.Infrastructure.Connectors.ConnectorSecretProtector>();
         services.AddScoped<barakoCMS.Infrastructure.Connectors.IConnectorSender, barakoCMS.Infrastructure.Connectors.ConnectorSender>();
         services.AddScoped<barakoCMS.Infrastructure.Connectors.IRequestComposer, barakoCMS.Infrastructure.Connectors.RequestComposer>();
@@ -873,23 +1008,41 @@ public static class ServiceCollectionExtensions
         // response body. One outbound path, one address guard, one place credentials are attached.
         services.AddScoped<barakoCMS.Infrastructure.Connectors.IConnectorFetcher, barakoCMS.Infrastructure.Connectors.ConnectorSender>();
         services.AddScoped<barakoCMS.Infrastructure.Sync.ICollectionSyncRunner, barakoCMS.Infrastructure.Sync.CollectionSyncRunner>();
+    }
 
+    private static void AddWorkflowRunner(IServiceCollection services)
+    {
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowRunQueue, barakoCMS.Features.Workflows.WorkflowRunQueue>();
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowRunner>();
+    }
 
+    private static void AddContentEvents(IServiceCollection services)
+    {
         // GET /api/public/events. The options resolve the container's configuration at first use
         // rather than the one passed in here, so a host that layers settings on after this call
         // (the test fixtures do) is read as configured.
         services.AddSingleton<barakoCMS.Features.Public.Events.ContentChangeBroadcaster>();
         services.AddSingleton(sp => barakoCMS.Features.Public.Events.ContentEventsOptions.FromConfiguration(
             sp.GetRequiredService<IConfiguration>()));
+    }
+
+    private static void AddRetentionServices(IServiceCollection services)
+    {
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowRunRetentionService>();
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowCredentialMigrationService>();
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowExecutionLogRedactionService>();
         services.AddHostedService<barakoCMS.Features.WebhookDeliveries.WebhookDeliveryRetentionService>();
+    }
+
+    private static void AddMfaAndDeviceTrust(IServiceCollection services)
+    {
         services.AddScoped<barakoCMS.Infrastructure.Auth.Mfa.IMfaService, barakoCMS.Infrastructure.Auth.Mfa.MfaService>();
         // Device trust is opt-in: the default gate does nothing. The DeviceTrust module overrides it.
         services.TryAddScoped<barakoCMS.Core.Interfaces.IDeviceGate, barakoCMS.Core.Interfaces.NoopDeviceGate>();
+    }
+
+    private static void AddTenancyAndConfiguration(IServiceCollection services, IConfiguration configuration)
+    {
         // Per-request tenant, resolved from a registered custom domain or the subdomain by
         // TenantResolutionMiddleware.
         services.AddScoped<barakoCMS.Infrastructure.Multitenancy.TenantContext>();
@@ -900,8 +1053,10 @@ public static class ServiceCollectionExtensions
         services.Configure<barakoCMS.Infrastructure.Multitenancy.MultitenancyOptions>(
             configuration.GetSection(barakoCMS.Infrastructure.Multitenancy.MultitenancyOptions.SectionName));
         services.AddScoped<barakoCMS.Infrastructure.Services.IConfigurationService, barakoCMS.Infrastructure.Services.ConfigurationService>();
+    }
 
-        // Workflow Action Plugins
+    private static void AddWorkflowActions(IServiceCollection services)
+    {
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.EmailAction>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.SmsAction>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.WebhookAction>();
@@ -913,12 +1068,18 @@ public static class ServiceCollectionExtensions
 
         services.AddScoped<barakoCMS.Features.Workflows.WorkflowEngine>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowEngine>(sp => sp.GetRequiredService<barakoCMS.Features.Workflows.WorkflowEngine>());
+    }
 
-        // Workflow Tools
+    private static void AddWorkflowTooling(IServiceCollection services)
+    {
         services.AddScoped<IWorkflowPluginRegistry, WorkflowPluginRegistry>();
         services.AddScoped<IWorkflowSchemaValidator, WorkflowSchemaValidator>();
         services.AddScoped<ITemplateVariableExtractor, TemplateVariableExtractor>();
         services.AddScoped<IWorkflowDebugger, WorkflowDebugger>();
+    }
+
+    private static void AddValidationAndMonitoring(IServiceCollection services)
+    {
         services.AddScoped<IContentValidatorService, ContentValidatorService>();
         services.AddScoped<IContentTypeValidatorService, ContentTypeValidatorService>();
         services.AddScoped<barakoCMS.Features.ContentType.Blueprints.BlueprintCatalog>();
@@ -929,7 +1090,10 @@ public static class ServiceCollectionExtensions
         // itself up. It did not: backup is scripts/backup-cron.sh, run by the deployment, and
         // restore is scripts/restore-check.sh's procedure. A registered service that claims a
         // capability nothing invokes is worse than no service, because it stops people looking.
+    }
 
+    private static void AddGlobalProcessors(IServiceCollection services)
+    {
         // Confines API-key callers to the content surface and enforces their scopes. A no-op for JWT
         // callers (they carry no scope claims).
         services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Auth.ApiKeyScopeProcessor>();
@@ -949,8 +1113,10 @@ public static class ServiceCollectionExtensions
         // Sensitivity is applied explicitly by the read endpoints (Get/List/History) via
         // ISensitivityService, not as a post-processor: a post-processor's edits did not reach the
         // serialized response, so field-level masking was silently dropped.
+    }
 
-        // Background service for cleaning up expired tokens
+    private static void AddBackgroundServices(IServiceCollection services, IConfiguration configuration)
+    {
         services.AddHostedService<TokenCleanupService>();
 
         // Background service that applies scheduled publish/unpublish across all tenants
@@ -963,7 +1129,10 @@ public static class ServiceCollectionExtensions
         {
             services.AddHostedService<barakoCMS.Infrastructure.Sync.CollectionSyncService>();
         }
+    }
 
+    private static void AddForwardedHeaders(IServiceCollection services, IConfiguration configuration)
+    {
         // Forwarded headers. Off unless configured, because reading X-Forwarded-For from an
         // untrusted peer would let a caller choose the IP the rate limiter partitions on.
         if (barakoCMS.Infrastructure.Security.ForwardedHeadersSetup.IsEnabled(configuration))
@@ -976,7 +1145,10 @@ public static class ServiceCollectionExtensions
             services.Configure<Microsoft.AspNetCore.Builder.ForwardedHeadersOptions>(
                 options => barakoCMS.Infrastructure.Security.ForwardedHeadersSetup.Configure(options, configuration));
         }
+    }
 
+    private static void AddRateLimiting(IServiceCollection services, IConfiguration configuration)
+    {
         // Rate limiting. Read and validated here so a bad value stops the host before anything else
         // starts. The renderer key is never logged; see RateLimitSetup.
         var rateLimits = barakoCMS.Infrastructure.Security.RateLimitSetup.Read(configuration);
@@ -994,8 +1166,10 @@ public static class ServiceCollectionExtensions
             .Configure<IConfiguration>((options, current) =>
                 barakoCMS.Infrastructure.Security.RateLimitSetup.Configure(
                     options, barakoCMS.Infrastructure.Security.RateLimitSetup.Read(current)));
+    }
 
-        // Health Checks UI (Config-Gated)
+    private static void AddHealthChecksDashboard(IServiceCollection services, IConfiguration configuration)
+    {
         if (configuration.GetValue<bool>("HealthChecksUI:Enabled"))
         {
             services.AddHealthChecksUI(setup =>
@@ -1006,8 +1180,6 @@ public static class ServiceCollectionExtensions
             })
             .AddInMemoryStorage();
         }
-
-        return services;
     }
 
     private static readonly Dictionary<string, string> SslModeMap = new(StringComparer.OrdinalIgnoreCase)
@@ -1024,6 +1196,32 @@ public static class ServiceCollectionExtensions
 
     private static bool IsDevelopmentEnvironment() =>
         IsDevelopment(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"));
+
+    /// <summary>The ports the quickstart and <c>dotnet run</c> serve a frontend on.</summary>
+    private static readonly string[] DevelopmentOrigins =
+        ["http://localhost:3000", "http://localhost:3001", "https://localhost:7049"];
+
+    /// <summary>The origins SecurePolicy allows, empty when nothing may call this API cross-origin.</summary>
+    /// <remarks>
+    /// The localhost fallback used to apply in every environment, so a deployment that forgot
+    /// CORS:AllowedOrigins accepted credentialed requests from a page on one of three localhost
+    /// ports, and this API puts the refresh token in a cookie. Outside Development, no configured
+    /// origins now means no cross-origin access: a deployment with no browser client needs none,
+    /// and one that has a client sees a CORS error naming the setting rather than a hole nobody
+    /// looks for.
+    /// </remarks>
+    internal static string[] ResolveCorsOrigins(string? configured, bool isDevelopment)
+    {
+        var configuredOrigins =
+            configured?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) ?? [];
+
+        if (configuredOrigins.Length > 0)
+        {
+            return configuredOrigins;
+        }
+
+        return isDevelopment ? DevelopmentOrigins : [];
+    }
 
     /// <summary>Whether an environment name means Development.</summary>
     /// <remarks>
@@ -1139,6 +1337,37 @@ public static class ServiceCollectionExtensions
         var configuration = app.ApplicationServices.GetRequiredService<IConfiguration>();
         var env = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
 
+        UseExceptionHandling(app);
+
+        UseForwardedHeadersAndHttps(app, configuration, env);
+
+        UseSecurityHeaders(app, configuration, env);
+
+        UseApiContractHeader(app);
+
+        UseMetricsScrapeGuard(app, configuration);
+
+        app.UseRateLimiter();
+
+        UseObservability(app);
+
+        UseTenantAndAuthentication(app);
+
+        UseOutputCaching(app);
+
+        UseFastEndpointsPipeline(app);
+
+        UseJobWorkers(app);
+
+        UseHealthEndpoints(app, configuration);
+
+        UseOpenApi(app, configuration, env);
+
+        return app;
+    }
+
+    private static void UseExceptionHandling(IApplicationBuilder app)
+    {
         // Global exception handler, first so it wraps every downstream middleware and endpoint. The
         // exception and its message are logged; the 500 body carries a fixed reason, because a
         // message can name a table, a setting or a value from the request and the caller may be
@@ -1168,7 +1397,10 @@ public static class ServiceCollectionExtensions
                 await context.Response.WriteAsync(barakoCMS.Infrastructure.Security.CanonicalHost.NotConfiguredResponse);
             }
         });
+    }
 
+    private static void UseForwardedHeadersAndHttps(IApplicationBuilder app, IConfiguration configuration, string? env)
+    {
         // Forwarded headers, before anything that reads the client IP or the scheme. Only added
         // when ForwardedHeaders:Enabled names a trusted proxy; see ForwardedHeadersSetup.
         if (barakoCMS.Infrastructure.Security.ForwardedHeadersSetup.IsEnabled(configuration))
@@ -1176,14 +1408,15 @@ public static class ServiceCollectionExtensions
             app.UseForwardedHeaders();
         }
 
-        // HTTPS Redirection and HSTS (Production only)
         if (env != "Development")
         {
             app.UseHttpsRedirection();
             app.UseHsts();
         }
+    }
 
-        // Security Headers
+    private static void UseSecurityHeaders(IApplicationBuilder app, IConfiguration configuration, string? env)
+    {
         var csp = barakoCMS.Infrastructure.Security.SecurityHeaders.ContentSecurityPolicy(env);
         var healthDashboardCsp =
             barakoCMS.Infrastructure.Security.SecurityHeaders.HealthDashboardContentSecurityPolicy(env);
@@ -1236,7 +1469,10 @@ public static class ServiceCollectionExtensions
 
             await next();
         });
+    }
 
+    private static void UseApiContractHeader(IApplicationBuilder app)
+    {
         // The HTTP contract version, on every response including a 401, so a console can read it
         // before it ever signs in and again mid-session after a rolling upgrade moves it. See
         // barakoCMS.Features.Monitoring.Meta.ApiContract and CLAUDE.md section 6. Written on start,
@@ -1254,7 +1490,10 @@ public static class ServiceCollectionExtensions
 
             await next();
         });
+    }
 
+    private static void UseMetricsScrapeGuard(IApplicationBuilder app, IConfiguration configuration)
+    {
         // The Prometheus endpoint is mapped by the host (barakoCMS/Program.cs) and publishes route
         // names, per-endpoint traffic and process internals. It is guarded here, before endpoint
         // routing can execute it, rather than at the mapping. A scraper cannot sign in, so the
@@ -1290,17 +1529,20 @@ public static class ServiceCollectionExtensions
                     return;
             }
         });
+    }
 
-        // Rate Limiting
-        app.UseRateLimiter();
-
+    private static void UseObservability(IApplicationBuilder app)
+    {
         // OBSERVABILITY MIDDLEWARE
         // 1. Correlation ID (Must be early to tag everything)
         app.UseMiddleware<barakoCMS.Infrastructure.Middleware.CorrelationIdMiddleware>();
 
         // 2. Request Logging (Must be after Correlation ID)
         app.UseMiddleware<barakoCMS.Infrastructure.Middleware.RequestResponseLoggingMiddleware>();
+    }
 
+    private static void UseTenantAndAuthentication(IApplicationBuilder app)
+    {
         // Resolve the tenant from the subdomain, early so downstream code can read it.
         app.UseMiddleware<barakoCMS.Infrastructure.Multitenancy.TenantResolutionMiddleware>();
 
@@ -1316,7 +1558,10 @@ public static class ServiceCollectionExtensions
         app.UseMiddleware<barakoCMS.Infrastructure.Multitenancy.TenantAccessMiddleware>();
 
         app.UseAuthorization();
+    }
 
+    private static void UseOutputCaching(IApplicationBuilder app)
+    {
         // Output Cache, after CORS/Authentication/Authorization and before the endpoints that read
         // CacheOutput policies, matching Microsoft's documented order. Placed after
         // TenantResolutionMiddleware (above) so a cache key can vary by tenant; placed after
@@ -1334,7 +1579,10 @@ public static class ServiceCollectionExtensions
         app.UseWhen(
             context => !barakoCMS.Infrastructure.Health.HealthProbePaths.IsHealthPath(context.Request.Path.Value),
             branch => branch.UseOutputCache());
+    }
 
+    private static void UseFastEndpointsPipeline(IApplicationBuilder app)
+    {
         // Global pre/post processors come from DI, so modules can contribute their own (e.g. the
         // DeviceTrust enforcement pre-processor) simply by registering IGlobalPreProcessor/PostProcessor.
         var globalPreProcessors = app.ApplicationServices.GetServices<FastEndpoints.IGlobalPreProcessor>().ToArray();
@@ -1377,7 +1625,10 @@ public static class ServiceCollectionExtensions
                     ep.PostProcessors(Order.After, globalPostProcessors);
             };
         });
+    }
 
+    private static void UseJobWorkers(IApplicationBuilder app)
+    {
         // Starts one worker per command type. Every instance runs workers; the provider's lease
         // is what stops two of them running the same job.
         //
@@ -1393,7 +1644,10 @@ public static class ServiceCollectionExtensions
             o.StorageProbeDelay = TimeSpan.FromSeconds(jobOptions.StorageProbeSeconds);
             o.ExecutionTimeLimit = TimeSpan.FromSeconds(jobOptions.LeaseSeconds);
         });
+    }
 
+    private static void UseHealthEndpoints(IApplicationBuilder app, IConfiguration configuration)
+    {
         // Health check endpoints, unauthenticated because kubelet cannot present a token. The
         // response body stays minimal on all three so anonymous callers cannot enumerate internal
         // check names, descriptions or timings.
@@ -1455,7 +1709,6 @@ public static class ServiceCollectionExtensions
         app.UseHealthChecks("/health/ready", Probe(check => check.Tags.Contains("ready")));
         app.UseHealthChecks("/health", Probe(_ => true));
 
-        // Health Checks UI Dashboard (Config-Gated)
         if (configuration.GetValue<bool>("HealthChecksUI:Enabled"))
         {
             app.UseHealthChecksUI(options =>
@@ -1464,7 +1717,10 @@ public static class ServiceCollectionExtensions
                 options.ApiPath = "/health-ui-api";
             });
         }
+    }
 
+    private static void UseOpenApi(IApplicationBuilder app, IConfiguration configuration, string? env)
+    {
         if (configuration.GetValue("Swagger:Enabled", env == "Development"))
         {
             // Before UseSwaggerGen, because it rewrites that middleware's response: content types
@@ -1472,8 +1728,6 @@ public static class ServiceCollectionExtensions
             app.UseMiddleware<barakoCMS.Infrastructure.OpenApi.DeliveryDocumentMiddleware>();
             app.UseSwaggerGen();
         }
-
-        return app;
     }
 
     /// <summary>

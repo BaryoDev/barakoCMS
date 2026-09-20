@@ -52,28 +52,21 @@ internal static class WorkflowRetryPolicy
 /// action that posts to three third parties used to hold a Marten daemon shard for the duration,
 /// so a slow provider stalled workflow processing for every tenant and a hanging one stopped it.
 /// </remarks>
-internal sealed class WorkflowRunner : BackgroundService
+internal sealed class WorkflowRunner(
+    IServiceProvider services,
+    ILogger<WorkflowRunner> logger,
+    IConfiguration config) : BackgroundService
 {
     private static readonly TimeSpan Idle = TimeSpan.FromSeconds(5);
 
-    private readonly IServiceProvider _services;
-    private readonly ILogger<WorkflowRunner> _logger;
-    private readonly IConfiguration _config;
     private readonly string _node = $"{Environment.MachineName}-{Guid.NewGuid():N}"[..40];
     private readonly Random _random = new();
 
-    public WorkflowRunner(IServiceProvider services, ILogger<WorkflowRunner> logger, IConfiguration config)
-    {
-        _services = services;
-        _logger = logger;
-        _config = config;
-    }
-
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (!_config.GetValue("Workflows:RunnerEnabled", true))
+        if (!config.GetValue("Workflows:RunnerEnabled", true))
         {
-            _logger.LogInformation("Workflows:RunnerEnabled is off, so queued workflow actions will not run.");
+            logger.LogInformation("Workflows:RunnerEnabled is off, so queued workflow actions will not run.");
             return;
         }
 
@@ -94,7 +87,7 @@ internal sealed class WorkflowRunner : BackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "The workflow runner failed a pass and will try again");
+                logger.LogError(ex, "The workflow runner failed a pass and will try again");
             }
 
             if (!did)
@@ -111,10 +104,10 @@ internal sealed class WorkflowRunner : BackgroundService
     /// <summary>Claims one attempt and runs it. Returns whether there was anything to do.</summary>
     internal async Task<bool> RunOnceAsync(CancellationToken ct)
     {
-        using var scope = _services.CreateScope();
+        using var scope = services.CreateScope();
         var store = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
 
-        foreach (var tenantId in await TenantPartitions.ListAsync(store, _config, PartitionsWithWorkSql, ct))
+        foreach (var tenantId in await TenantPartitions.ListAsync(store, config, PartitionsWithWorkSql, ct))
         {
             await using var query = store.QuerySession(tenantId);
 
@@ -209,7 +202,7 @@ internal sealed class WorkflowRunner : BackgroundService
             // attempts precisely so the duplicate call is absorbed downstream.
             if (attempt.Status != AttemptStatus.Running || attempt.LeasedBy != _node)
             {
-                _logger.LogWarning(
+                logger.LogWarning(
                     "Discarding the outcome of run {RunId} action {Ordinal}: the lease is now held by "
                   + "{Holder} and the attempt is {Status}. This node ran past its lease.",
                     runId, claimed.Ordinal, attempt.LeasedBy ?? "(nobody)", attempt.Status);
@@ -230,7 +223,7 @@ internal sealed class WorkflowRunner : BackgroundService
             {
                 // The outcome is lost, the lease expires, and the attempt runs again. That is why
                 // the idempotency key is stable across attempts rather than generated per try.
-                _logger.LogWarning("Could not record the outcome of run {RunId} action {Ordinal}", runId, claimed.Ordinal);
+                logger.LogWarning("Could not record the outcome of run {RunId} action {Ordinal}", runId, claimed.Ordinal);
             }
         }
 
@@ -276,7 +269,7 @@ internal sealed class WorkflowRunner : BackgroundService
     private async Task<Outcome> ExecuteAsync(
         IDocumentStore store, WorkflowRun run, WorkflowActionAttempt attempt, string tenantId, CancellationToken ct)
     {
-        using var scope = _services.CreateScopeForTenant(tenantId);
+        using var scope = services.CreateScopeForTenant(tenantId);
         var handlers = scope.ServiceProvider.GetServices<IWorkflowAction>();
         var handler = handlers.FirstOrDefault(h => h.Type == attempt.ActionType);
 
@@ -369,7 +362,7 @@ internal sealed class WorkflowRunner : BackgroundService
             // Keep the exception message in logs only. A provider's error body can carry the
             // credential that was sent, so only the exception type reaches the run record; the
             // message stays in the log above.
-            _logger.LogWarning(ex, "Workflow action {Type} failed in run {RunId}", attempt.ActionType, run.Id);
+            logger.LogWarning(ex, "Workflow action {Type} failed in run {RunId}", attempt.ActionType, run.Id);
             return new Outcome(AttemptStatus.Failed, ex.GetType().Name, timer.ElapsedMilliseconds);
         }
     }

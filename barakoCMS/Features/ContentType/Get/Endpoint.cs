@@ -5,15 +5,9 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.ContentType.Get;
 
-internal class Endpoint : Endpoint<ListRequest, PaginatedResponse<barakoCMS.Features.ContentType.ContentTypeResponse>>
+internal class Endpoint(
+    IQuerySession session) : Endpoint<ListRequest, PaginatedResponse<barakoCMS.Features.ContentType.ContentTypeResponse>>
 {
-    private readonly IQuerySession _session;
-
-    public Endpoint(IQuerySession session)
-    {
-        _session = session;
-    }
-
     public override void Configure()
     {
         // The content-type resource lived at two route names: read at /api/schemas, create at
@@ -28,7 +22,7 @@ internal class Endpoint : Endpoint<ListRequest, PaginatedResponse<barakoCMS.Feat
 
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)
     {
-        var page = await _session.Query<ContentTypeDefinition>()
+        var page = await session.Query<ContentTypeDefinition>()
             .OrderBy(x => x.Name)
             .ToPagedResponseAsync(req, ct);
 
@@ -36,7 +30,7 @@ internal class Endpoint : Endpoint<ListRequest, PaginatedResponse<barakoCMS.Feat
         // the definitions carry, and a name with no policy is not event sourced.
         var policies = page.Items.Count == 0
             ? new List<ContentTypeSourcingPolicy>()
-            : (await _session.LoadManyAsync<ContentTypeSourcingPolicy>(
+            : (await session.LoadManyAsync<ContentTypeSourcingPolicy>(
                 page.Items.Select(x => x.Name).ToArray())).ToList();
 
         var eventSourced = policies

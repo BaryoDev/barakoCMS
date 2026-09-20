@@ -6,17 +6,10 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.Users.RemoveGroup;
 
-internal class Endpoint : Endpoint<Request, Response>
+internal class Endpoint(
+    IDocumentSession session,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<Request, Response>
 {
-    private readonly IDocumentSession _session;
-    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
-
-    public Endpoint(IDocumentSession session, barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
-    {
-        _session = session;
-        _tenant = tenant;
-    }
-
     public override void Configure()
     {
         Delete("/api/users/{userId}/groups/{groupId}");
@@ -25,7 +18,7 @@ internal class Endpoint : Endpoint<Request, Response>
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        var user = await _session.LoadAsync<User>(req.UserId, ct);
+        var user = await session.LoadAsync<User>(req.UserId, ct);
 
         if (user == null)
         {
@@ -34,11 +27,11 @@ internal class Endpoint : Endpoint<Request, Response>
         }
 
         user.GroupIds.Remove(req.GroupId);
-        _session.Store(user);
+        session.Store(user);
         Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
-        await AuditLog.RecordAsync(_session, _tenant.Slug, "user.group.removed", actorId, User.FindFirst("Username")?.Value,
+        await AuditLog.RecordAsync(session, tenant.Slug, "user.group.removed", actorId, User.FindFirst("Username")?.Value,
             targetType: "User", targetId: req.UserId.ToString(), metadata: new() { ["groupId"] = req.GroupId.ToString() }, ct: ct);
-        await _session.SaveChangesAsync(ct);
+        await session.SaveChangesAsync(ct);
 
         await Send.OkAsync(new Response { Message = "User removed from group successfully" }, ct);
     }

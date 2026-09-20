@@ -53,17 +53,10 @@ internal static class Members
 }
 
 /// <summary>GET /api/tenants/members: the roster for the caller's tenant, newest first.</summary>
-internal sealed class ListMembersEndpoint : Endpoint<ListRequest, PaginatedResponse<MemberResponse>>
+internal sealed class ListMembersEndpoint(
+    IQuerySession session,
+    TenantContext tenant) : Endpoint<ListRequest, PaginatedResponse<MemberResponse>>
 {
-    private readonly IQuerySession _session;
-    private readonly TenantContext _tenant;
-
-    public ListMembersEndpoint(IQuerySession session, TenantContext tenant)
-    {
-        _session = session;
-        _tenant = tenant;
-    }
-
     public override void Configure()
     {
         Get("/api/tenants/members");
@@ -72,17 +65,17 @@ internal sealed class ListMembersEndpoint : Endpoint<ListRequest, PaginatedRespo
 
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)
     {
-        var slug = _tenant.Slug;
+        var slug = tenant.Slug;
 
         // Membership is SingleTenanted (it maps global users to tenants, so it cannot live inside a
         // tenant's partition). The slug filter is therefore the whole isolation guarantee on this
         // query, not a convenience on top of one Marten applies.
-        var memberships = await _session.Query<Membership>()
+        var memberships = await session.Query<Membership>()
             .Where(m => m.TenantSlug == slug && m.Status != MembershipStatus.Removed)
             .ToListAsync(ct);
 
         var userIds = memberships.Select(m => m.UserId).Distinct().ToList();
-        var users = (await _session.Query<User>()
+        var users = (await session.Query<User>()
                 .Where(u => userIds.Contains(u.Id))
                 .ToListAsync(ct))
             .ToDictionary(u => u.Id);
@@ -107,22 +100,11 @@ internal sealed class AddMemberRequest
 /// <summary>
 /// POST /api/tenants/members: add a person to the caller's tenant by email.
 /// </summary>
-internal sealed class AddMemberEndpoint : Endpoint<AddMemberRequest, MemberResponse>
+internal sealed class AddMemberEndpoint(
+    IDocumentSession session,
+    TenantContext tenant,
+    barakoCMS.Infrastructure.Services.IPermissionResolver permissions) : Endpoint<AddMemberRequest, MemberResponse>
 {
-    private readonly IDocumentSession _session;
-    private readonly TenantContext _tenant;
-    private readonly barakoCMS.Infrastructure.Services.IPermissionResolver _permissions;
-
-    public AddMemberEndpoint(
-        IDocumentSession session,
-        TenantContext tenant,
-        barakoCMS.Infrastructure.Services.IPermissionResolver permissions)
-    {
-        _session = session;
-        _tenant = tenant;
-        _permissions = permissions;
-    }
-
     public override void Configure()
     {
         Post("/api/tenants/members");
@@ -131,7 +113,7 @@ internal sealed class AddMemberEndpoint : Endpoint<AddMemberRequest, MemberRespo
 
     public override async Task HandleAsync(AddMemberRequest req, CancellationToken ct)
     {
-        var slug = _tenant.Slug;
+        var slug = tenant.Slug;
         var email = (req.Email ?? string.Empty).Trim().ToLowerInvariant();
 
         if (string.IsNullOrWhiteSpace(email) || !email.Contains('@'))
@@ -145,7 +127,7 @@ internal sealed class AddMemberEndpoint : Endpoint<AddMemberRequest, MemberRespo
 
         if (roleIds.Count > 0)
         {
-            var known = await _session.Query<Role>().Where(r => roleIds.Contains(r.Id)).CountAsync(ct);
+            var known = await session.Query<Role>().Where(r => roleIds.Contains(r.Id)).CountAsync(ct);
             if (known != roleIds.Count)
             {
                 AddError(r => r.RoleIds, "One or more roles do not exist.");
@@ -153,7 +135,7 @@ internal sealed class AddMemberEndpoint : Endpoint<AddMemberRequest, MemberRespo
             }
         }
 
-        var user = await _session.Query<User>().FirstOrDefaultAsync(u => u.NormalizedEmail == email, ct);
+        var user = await session.Query<User>().FirstOrDefaultAsync(u => u.NormalizedEmail == email, ct);
         var invited = user is null;
 
         if (user is null)
@@ -168,10 +150,10 @@ internal sealed class AddMemberEndpoint : Endpoint<AddMemberRequest, MemberRespo
                 PasswordHash = string.Empty,
                 RoleIds = new List<Guid>(),
             };
-            _session.Store(user);
+            session.Store(user);
         }
 
-        var membership = await _session.Query<Membership>()
+        var membership = await session.Query<Membership>()
             .FirstOrDefaultAsync(m => m.UserId == user.Id && m.TenantSlug == slug, ct);
 
         if (membership is null)
@@ -195,17 +177,17 @@ internal sealed class AddMemberEndpoint : Endpoint<AddMemberRequest, MemberRespo
             membership.RoleIds = roleIds;
         }
 
-        _session.Store(membership);
+        session.Store(membership);
 
         Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
-        await AuditLog.RecordAsync(_session, slug, "tenant.member.added", actorId,
+        await AuditLog.RecordAsync(session, slug, "tenant.member.added", actorId,
             User.FindFirst("Username")?.Value,
             targetType: "User", targetId: user.Id.ToString(),
             metadata: new() { ["invited"] = invited, ["roleIds"] = roleIds.Select(r => r.ToString()).ToList() },
             ct: ct);
 
-        await _session.SaveChangesAsync(ct);
-        _permissions.InvalidateUserPermissions(user.Id);
+        await session.SaveChangesAsync(ct);
+        permissions.InvalidateUserPermissions(user.Id);
 
         await Send.OkAsync(Members.ToResponse(membership, user), ct);
     }
@@ -216,7 +198,7 @@ internal sealed class AddMemberEndpoint : Endpoint<AddMemberRequest, MemberRespo
     /// </summary>
     private async Task<string> AvailableUsernameAsync(string email, CancellationToken ct)
     {
-        if (!await _session.Query<User>().AnyAsync(u => u.NormalizedUsername == email, ct))
+        if (!await session.Query<User>().AnyAsync(u => u.NormalizedUsername == email, ct))
             return email;
 
         return $"{email}+{Guid.NewGuid():N}"[..(email.Length + 9)];
@@ -233,22 +215,11 @@ internal sealed class UpdateMemberRequest
 /// <summary>
 /// PUT /api/tenants/members/{userId}: change a member's roles or status within the caller's tenant.
 /// </summary>
-internal sealed class UpdateMemberEndpoint : Endpoint<UpdateMemberRequest, MemberResponse>
+internal sealed class UpdateMemberEndpoint(
+    IDocumentSession session,
+    TenantContext tenant,
+    barakoCMS.Infrastructure.Services.IPermissionResolver permissions) : Endpoint<UpdateMemberRequest, MemberResponse>
 {
-    private readonly IDocumentSession _session;
-    private readonly TenantContext _tenant;
-    private readonly barakoCMS.Infrastructure.Services.IPermissionResolver _permissions;
-
-    public UpdateMemberEndpoint(
-        IDocumentSession session,
-        TenantContext tenant,
-        barakoCMS.Infrastructure.Services.IPermissionResolver permissions)
-    {
-        _session = session;
-        _tenant = tenant;
-        _permissions = permissions;
-    }
-
     public override void Configure()
     {
         Put("/api/tenants/members/{userId}");
@@ -257,7 +228,7 @@ internal sealed class UpdateMemberEndpoint : Endpoint<UpdateMemberRequest, Membe
 
     public override async Task HandleAsync(UpdateMemberRequest req, CancellationToken ct)
     {
-        var slug = _tenant.Slug;
+        var slug = tenant.Slug;
 
         var roleIds = (req.RoleIds ?? new List<Guid>()).Distinct().ToList();
         if (roleIds.Any(id => !Members.IsAssignable(id)))
@@ -270,7 +241,7 @@ internal sealed class UpdateMemberEndpoint : Endpoint<UpdateMemberRequest, Membe
 
         if (roleIds.Count > 0)
         {
-            var known = await _session.Query<Role>().Where(r => roleIds.Contains(r.Id)).CountAsync(ct);
+            var known = await session.Query<Role>().Where(r => roleIds.Contains(r.Id)).CountAsync(ct);
             if (known != roleIds.Count)
             {
                 AddError(r => r.RoleIds, "One or more roles do not exist.");
@@ -278,7 +249,7 @@ internal sealed class UpdateMemberEndpoint : Endpoint<UpdateMemberRequest, Membe
             }
         }
 
-        var membership = await _session.Query<Membership>()
+        var membership = await session.Query<Membership>()
             .FirstOrDefaultAsync(m => m.UserId == req.UserId
                                       && m.TenantSlug == slug
                                       && m.Status != MembershipStatus.Removed, ct);
@@ -290,19 +261,19 @@ internal sealed class UpdateMemberEndpoint : Endpoint<UpdateMemberRequest, Membe
 
         membership.RoleIds = roleIds;
         membership.Status = req.Status;
-        _session.Store(membership);
+        session.Store(membership);
 
         Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
-        await AuditLog.RecordAsync(_session, slug, "tenant.member.updated", actorId,
+        await AuditLog.RecordAsync(session, slug, "tenant.member.updated", actorId,
             User.FindFirst("Username")?.Value,
             targetType: "User", targetId: req.UserId.ToString(),
             metadata: new() { ["status"] = req.Status.ToString(), ["roleIds"] = roleIds.Select(r => r.ToString()).ToList() },
             ct: ct);
 
-        await _session.SaveChangesAsync(ct);
-        _permissions.InvalidateUserPermissions(req.UserId);
+        await session.SaveChangesAsync(ct);
+        permissions.InvalidateUserPermissions(req.UserId);
 
-        var user = await _session.LoadAsync<User>(req.UserId, ct);
+        var user = await session.LoadAsync<User>(req.UserId, ct);
         await Send.OkAsync(Members.ToResponse(membership, user), ct);
     }
 }
@@ -320,22 +291,11 @@ internal sealed class RemoveMemberResponse
 /// <summary>
 /// DELETE /api/tenants/members/{userId}: mark a member Removed in the caller's tenant.
 /// </summary>
-internal sealed class RemoveMemberEndpoint : Endpoint<RemoveMemberRequest, RemoveMemberResponse>
+internal sealed class RemoveMemberEndpoint(
+    IDocumentSession session,
+    TenantContext tenant,
+    barakoCMS.Infrastructure.Services.IPermissionResolver permissions) : Endpoint<RemoveMemberRequest, RemoveMemberResponse>
 {
-    private readonly IDocumentSession _session;
-    private readonly TenantContext _tenant;
-    private readonly barakoCMS.Infrastructure.Services.IPermissionResolver _permissions;
-
-    public RemoveMemberEndpoint(
-        IDocumentSession session,
-        TenantContext tenant,
-        barakoCMS.Infrastructure.Services.IPermissionResolver permissions)
-    {
-        _session = session;
-        _tenant = tenant;
-        _permissions = permissions;
-    }
-
     public override void Configure()
     {
         Delete("/api/tenants/members/{userId}");
@@ -344,9 +304,9 @@ internal sealed class RemoveMemberEndpoint : Endpoint<RemoveMemberRequest, Remov
 
     public override async Task HandleAsync(RemoveMemberRequest req, CancellationToken ct)
     {
-        var slug = _tenant.Slug;
+        var slug = tenant.Slug;
 
-        var membership = await _session.Query<Membership>()
+        var membership = await session.Query<Membership>()
             .FirstOrDefaultAsync(m => m.UserId == req.UserId
                                       && m.TenantSlug == slug
                                       && m.Status != MembershipStatus.Removed, ct);
@@ -359,15 +319,15 @@ internal sealed class RemoveMemberEndpoint : Endpoint<RemoveMemberRequest, Remov
         // Marked, never deleted. The row is what the audit trail and a later re-add both read, and
         // deleting it would silently start somebody's history over.
         membership.Status = MembershipStatus.Removed;
-        _session.Store(membership);
+        session.Store(membership);
 
         Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
-        await AuditLog.RecordAsync(_session, slug, "tenant.member.removed", actorId,
+        await AuditLog.RecordAsync(session, slug, "tenant.member.removed", actorId,
             User.FindFirst("Username")?.Value,
             targetType: "User", targetId: req.UserId.ToString(), ct: ct);
 
-        await _session.SaveChangesAsync(ct);
-        _permissions.InvalidateUserPermissions(req.UserId);
+        await session.SaveChangesAsync(ct);
+        permissions.InvalidateUserPermissions(req.UserId);
 
         await Send.OkAsync(new RemoveMemberResponse { Message = "Member removed from this tenant." }, ct);
     }
@@ -376,12 +336,9 @@ internal sealed class RemoveMemberEndpoint : Endpoint<RemoveMemberRequest, Remov
 /// <summary>
 /// GET /api/tenants/members/roles: the roles an administrator may assign inside a tenant.
 /// </summary>
-internal sealed class AssignableRolesEndpoint : Endpoint<ListRequest, PaginatedResponse<AssignableRoleResponse>>
+internal sealed class AssignableRolesEndpoint(
+    IQuerySession session) : Endpoint<ListRequest, PaginatedResponse<AssignableRoleResponse>>
 {
-    private readonly IQuerySession _session;
-
-    public AssignableRolesEndpoint(IQuerySession session) => _session = session;
-
     public override void Configure()
     {
         Get("/api/tenants/members/roles");
@@ -390,7 +347,7 @@ internal sealed class AssignableRolesEndpoint : Endpoint<ListRequest, PaginatedR
 
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)
     {
-        var roles = await _session.Query<Role>().OrderBy(r => r.Name).ToListAsync(ct);
+        var roles = await session.Query<Role>().OrderBy(r => r.Name).ToListAsync(ct);
 
         // Filtered by the same predicate the write paths refuse on, so the list a client is offered
         // and the list the server accepts cannot drift apart.

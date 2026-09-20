@@ -18,12 +18,11 @@ namespace barakoCMS.Infrastructure.Sync;
 /// because the work needs the request composer, the connector fetcher and the content writer, and
 /// all three are scoped services that have to see the same session and the same partition.
 /// </remarks>
-internal sealed class CollectionSyncService : BackgroundService
+internal sealed class CollectionSyncService(
+    IServiceProvider services,
+    IDocumentStore store,
+    ILogger<CollectionSyncService> logger) : BackgroundService
 {
-    private readonly IServiceProvider _services;
-    private readonly IDocumentStore _store;
-    private readonly ILogger<CollectionSyncService> _logger;
-
     /// <summary>
     /// How often due syncs are looked for, which is not how often any sync runs.
     /// </summary>
@@ -66,17 +65,9 @@ internal sealed class CollectionSyncService : BackgroundService
 
     public static bool IsEnabled(IConfiguration configuration) => configuration.GetValue(EnabledKey, true);
 
-    public CollectionSyncService(
-        IServiceProvider services, IDocumentStore store, ILogger<CollectionSyncService> logger)
-    {
-        _services = services;
-        _store = store;
-        _logger = logger;
-    }
-
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("Collection sync service started. Sweep interval: {Interval}", SweepInterval);
+        logger.LogInformation("Collection sync service started. Sweep interval: {Interval}", SweepInterval);
 
         // Let the app, the Marten schema and the projection daemon warm up before the first sweep,
         // the same delay the scheduled content sweep takes for the same reason.
@@ -94,13 +85,13 @@ internal sealed class CollectionSyncService : BackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error during collection sync sweep");
+                logger.LogError(ex, "Error during collection sync sweep");
             }
 
             await Task.Delay(SweepInterval, stoppingToken);
         }
 
-        _logger.LogInformation("Collection sync service stopped");
+        logger.LogInformation("Collection sync service stopped");
     }
 
     /// <summary>Runs the due syncs in every partition, if this instance can take the lock.</summary>
@@ -109,7 +100,7 @@ internal sealed class CollectionSyncService : BackgroundService
     {
         // The connection object, not a new one built from its ConnectionString: Npgsql redacts the
         // password out of ConnectionString unless Persist Security Info is set.
-        await using var lockConnection = _store.Storage.Database.CreateConnection();
+        await using var lockConnection = store.Storage.Database.CreateConnection();
         await lockConnection.OpenAsync(ct);
 
         await using (var acquire = lockConnection.CreateCommand())
@@ -119,7 +110,7 @@ internal sealed class CollectionSyncService : BackgroundService
             var acquired = (bool?)await acquire.ExecuteScalarAsync(ct) ?? false;
             if (!acquired)
             {
-                _logger.LogDebug("Another instance is running collection syncs; skipping this tick.");
+                logger.LogDebug("Another instance is running collection syncs; skipping this tick.");
                 return false;
             }
         }
@@ -143,7 +134,7 @@ internal sealed class CollectionSyncService : BackgroundService
         // null is the default partition, where a single-deployment site keeps its content; named
         // slugs are the path-based tenants.
         var partitions = new List<string?> { null };
-        await using (var query = _store.QuerySession())
+        await using (var query = store.QuerySession())
         {
             var tenants = await query.Query<Tenant>().Where(t => t.IsActive).ToListAsync(ct);
             partitions.AddRange(tenants.Select(t => (string?)t.Slug));
@@ -163,7 +154,7 @@ internal sealed class CollectionSyncService : BackgroundService
     /// <returns>How many were run.</returns>
     public async Task<int> SweepTenantAsync(string? martenTenantId, DateTime nowUtc, int budget, CancellationToken ct)
     {
-        using var scope = _services.CreateScopeForTenant(martenTenantId);
+        using var scope = services.CreateScopeForTenant(martenTenantId);
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
 
         var due = (await session.Query<CollectionSync>()
@@ -189,7 +180,7 @@ internal sealed class CollectionSyncService : BackgroundService
                 var outcome = await runner.RunAsync(sync, ct);
                 run++;
 
-                _logger.LogInformation(
+                logger.LogInformation(
                     "Collection sync {Slug} for tenant {Tenant}: {Created} created, {Updated} updated, "
                   + "{Unchanged} unchanged, {Skipped} skipped",
                     sync.Slug, martenTenantId ?? "(default)",
@@ -204,7 +195,7 @@ internal sealed class CollectionSyncService : BackgroundService
                 // One sync that throws must not stop the others in the same tenant. The runner
                 // already records an expected failure on the sync itself; reaching here means a
                 // defect rather than a provider being down, so it is logged with the exception.
-                _logger.LogError(ex, "Collection sync {Slug} threw", sync.Slug);
+                logger.LogError(ex, "Collection sync {Slug} threw", sync.Slug);
 
                 // Nothing of this sync's is left staged, or the next one's save would carry it.
                 session.EjectAllPendingChanges();

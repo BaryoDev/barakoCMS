@@ -20,17 +20,8 @@ internal class OtpRequestResponse
 /// POST /api/auth/otp/request — email a 6-digit sign-in code to a registered user.
 /// Always responds 200 with the same message so callers can't probe which emails exist.
 /// </summary>
-internal class RequestEndpoint : Endpoint<OtpRequest, OtpRequestResponse>
+internal class RequestEndpoint(IDocumentSession session, IOtpService otp) : Endpoint<OtpRequest, OtpRequestResponse>
 {
-    private readonly IDocumentSession _session;
-    private readonly IOtpService _otp;
-
-    public RequestEndpoint(IDocumentSession session, IOtpService otp)
-    {
-        _session = session;
-        _otp = otp;
-    }
-
     public override void Configure()
     {
         Post("/api/auth/otp/request");
@@ -49,7 +40,7 @@ internal class RequestEndpoint : Endpoint<OtpRequest, OtpRequestResponse>
             return;
         }
 
-        var user = await _session.Query<User>()
+        var user = await session.Query<User>()
             .Where(u => u.NormalizedEmail == email)
             .FirstOrDefaultAsync(ct);
         if (user == null)
@@ -67,7 +58,7 @@ internal class RequestEndpoint : Endpoint<OtpRequest, OtpRequestResponse>
         //
         // The device approval path in Features/Auth/Login is different: the caller has already
         // proved the password, so there is nothing left to enumerate and it does report the failure.
-        _ = await _otp.SendCodeAsync(user.Email, DeviceContext.From(HttpContext), ct);
+        _ = await otp.SendCodeAsync(user.Email, DeviceContext.From(HttpContext), ct);
         await Send.ResponseAsync(ok, cancellation: ct);
     }
 }

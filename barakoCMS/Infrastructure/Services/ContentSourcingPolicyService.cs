@@ -10,10 +10,8 @@ namespace barakoCMS.Infrastructure.Services;
 /// writer against its own session has to be able to build one of these too, or its writes would take
 /// the document path whatever the type's policy says.
 /// </remarks>
-public sealed class ContentSourcingPolicyService : IContentSourcingPolicy
+public sealed class ContentSourcingPolicyService(IDocumentSession session) : IContentSourcingPolicy
 {
-    private readonly IDocumentSession _session;
-
     /// <summary>Policies already resolved in this request.</summary>
     /// <remarks>
     /// A single content write asks the same question up to three times (the writer on append, the
@@ -23,8 +21,6 @@ public sealed class ContentSourcingPolicyService : IContentSourcingPolicy
     /// </remarks>
     private readonly Dictionary<string, ContentTypeSourcingPolicy?> _resolved =
         new(StringComparer.OrdinalIgnoreCase);
-
-    public ContentSourcingPolicyService(IDocumentSession session) => _session = session;
 
     /// <inheritdoc />
     public async Task<ContentTypeSourcingPolicy?> GetAsync(string contentTypeName, CancellationToken cancellationToken)
@@ -40,7 +36,7 @@ public sealed class ContentSourcingPolicyService : IContentSourcingPolicy
             return cached;
         }
 
-        var policy = await _session.LoadAsync<ContentTypeSourcingPolicy>(key, cancellationToken);
+        var policy = await session.LoadAsync<ContentTypeSourcingPolicy>(key, cancellationToken);
         _resolved[key] = policy;
         return policy;
     }
@@ -67,7 +63,7 @@ public sealed class ContentSourcingPolicyService : IContentSourcingPolicy
             DecidedAt = DateTimeOffset.UtcNow,
         };
 
-        _session.Store(policy);
+        session.Store(policy);
         _resolved[key] = policy;
         return policy;
     }

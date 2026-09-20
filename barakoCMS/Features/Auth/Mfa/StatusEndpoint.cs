@@ -4,12 +4,8 @@ using barakoCMS.Infrastructure.Auth.Mfa;
 namespace barakoCMS.Features.Auth.Mfa;
 
 /// <summary>GET /api/auth/mfa/status — whether the signed-in user has MFA enabled.</summary>
-internal class StatusEndpoint : EndpointWithoutRequest<StatusResponse>
+internal class StatusEndpoint(IMfaService mfa) : EndpointWithoutRequest<StatusResponse>
 {
-    private readonly IMfaService _mfa;
-
-    public StatusEndpoint(IMfaService mfa) => _mfa = mfa;
-
     public override void Configure()
     {
         Get("/api/auth/mfa/status");
@@ -24,6 +20,6 @@ internal class StatusEndpoint : EndpointWithoutRequest<StatusResponse>
             return;
         }
 
-        await Send.ResponseAsync(new StatusResponse { Enabled = await _mfa.IsEnabledAsync(userId, ct) }, cancellation: ct);
+        await Send.ResponseAsync(new StatusResponse { Enabled = await mfa.IsEnabledAsync(userId, ct) }, cancellation: ct);
     }
 }

@@ -13,22 +13,11 @@ internal class RollbackRequest
     public Guid VersionId { get; set; } // The ID of the event to rollback to
 }
 
-internal class RollbackEndpoint : Endpoint<RollbackRequest, RollbackResponse>
+internal class RollbackEndpoint(
+    IDocumentSession session,
+    IContentWriter contentWriter,
+    barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver) : Endpoint<RollbackRequest, RollbackResponse>
 {
-    private readonly IDocumentSession _session;
-    private readonly IContentWriter _contentWriter;
-    private readonly barakoCMS.Infrastructure.Services.IPermissionResolver _permissionResolver;
-
-    public RollbackEndpoint(
-        IDocumentSession session,
-        IContentWriter contentWriter,
-        barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver)
-    {
-        _contentWriter = contentWriter;
-        _session = session;
-        _permissionResolver = permissionResolver;
-    }
-
     public override void Configure()
     {
         Post("/api/contents/{id}/rollback/{versionId}");
@@ -63,7 +52,7 @@ internal class RollbackEndpoint : Endpoint<RollbackRequest, RollbackResponse>
         // the status code, and did the work of reading every event for them on the way. A missing
         // content answers 404, which is what an unknown id already produced from the event check
         // below, so nothing observable changes for a caller who is allowed to be here.
-        var content = await _session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct);
+        var content = await session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct);
         if (content == null)
         {
             await Send.NotFoundAsync(ct);
@@ -78,8 +67,8 @@ internal class RollbackEndpoint : Endpoint<RollbackRequest, RollbackResponse>
         //
         // It runs before the stream is read, so a caller who may not write learns nothing about
         // what versions exist. See #447.
-        var actor = await _session.LoadAsync<barakoCMS.Models.User>(userId, ct);
-        if (actor == null || !await _permissionResolver.CanPerformActionAsync(
+        var actor = await session.LoadAsync<barakoCMS.Models.User>(userId, ct);
+        if (actor == null || !await permissionResolver.CanPerformActionAsync(
                 actor, content.ContentType, "update", content, ct))
         {
             await Send.ForbiddenAsync(ct);
@@ -87,7 +76,7 @@ internal class RollbackEndpoint : Endpoint<RollbackRequest, RollbackResponse>
         }
 
         // 3. Fetch the event stream
-        var events = await _session.Events.FetchStreamAsync(req.Id, token: ct);
+        var events = await session.Events.FetchStreamAsync(req.Id, token: ct);
 
         // 4. Find the target event
         var targetEvent = events.FirstOrDefault(e => e.Id == req.VersionId);
@@ -162,7 +151,7 @@ internal class RollbackEndpoint : Endpoint<RollbackRequest, RollbackResponse>
 
         // Rebuild SearchText using the current field-sensitivity definition so a rollback
         // cannot reintroduce values that are no longer Public into the searchable text.
-        var definition = await _session.Query<ContentTypeDefinition>()
+        var definition = await session.Query<ContentTypeDefinition>()
             .FirstOrDefaultAsync(d => d.Name == content.ContentType, ct);
 
         var publicFields = definition?.Fields
@@ -182,9 +171,9 @@ internal class RollbackEndpoint : Endpoint<RollbackRequest, RollbackResponse>
         var rollbackEvent = new ContentUpdated(req.Id, data, userId, searchText, DateTime.UtcNow);
 
         // 6. Append the new event and update the document together
-        await _contentWriter.AppendAsync(content, rollbackEvent, ct);
+        await contentWriter.AppendAsync(content, rollbackEvent, ct);
 
-        await _session.SaveChangesAsync(ct);
+        await session.SaveChangesAsync(ct);
 
         // 8. Return the new state
         await Send.ResponseAsync(RollbackResponse.From(content), cancellation: ct);

@@ -28,7 +28,7 @@ internal class Endpoint : Endpoint<Request, Response>
         IQuerySession session,
         IDocumentSession documentSession,
         IDocumentStore store,
-        IConfiguration _config,
+        IConfiguration config,
         ILogger<Endpoint> logger,
         barakoCMS.Core.Interfaces.IDeviceGate deviceGate,
         barakoCMS.Core.Interfaces.IOtpService otp,
@@ -42,7 +42,7 @@ internal class Endpoint : Endpoint<Request, Response>
         _session = session;
         _documentSession = documentSession;
         _store = store;
-        this._config = _config;
+        _config = config;
         _logger = logger;
         _deviceGate = deviceGate;
         _otp = otp;
@@ -201,7 +201,6 @@ internal class Endpoint : Endpoint<Request, Response>
             return;
         }
 
-        // Successful login - reset failed attempts
         if (user.FailedLoginAttempts > 0 || user.LockoutUntil.HasValue)
         {
             user.FailedLoginAttempts = 0;

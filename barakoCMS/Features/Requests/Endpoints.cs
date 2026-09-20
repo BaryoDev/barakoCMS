@@ -124,12 +124,9 @@ internal static class RequestRules
     }
 }
 
-internal sealed class ListRequestsEndpoint : Endpoint<ListRequest, PaginatedResponse<RequestResponse>>
+internal sealed class ListRequestsEndpoint(
+    IQuerySession session) : Endpoint<ListRequest, PaginatedResponse<RequestResponse>>
 {
-    private readonly IQuerySession _session;
-
-    public ListRequestsEndpoint(IQuerySession session) => _session = session;
-
     public override void Configure()
     {
         Get("/api/requests");
@@ -138,7 +135,7 @@ internal sealed class ListRequestsEndpoint : Endpoint<ListRequest, PaginatedResp
 
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)
     {
-        var page = await _session.Query<RequestDefinition>().OrderBy(r => r.Name).ToPagedResponseAsync(req, ct);
+        var page = await session.Query<RequestDefinition>().OrderBy(r => r.Name).ToPagedResponseAsync(req, ct);
 
         await Send.ResponseAsync(new PaginatedResponse<RequestResponse>
         {
@@ -150,12 +147,8 @@ internal sealed class ListRequestsEndpoint : Endpoint<ListRequest, PaginatedResp
     }
 }
 
-internal sealed class GetRequestEndpoint : EndpointWithoutRequest<RequestResponse>
+internal sealed class GetRequestEndpoint(IQuerySession session) : EndpointWithoutRequest<RequestResponse>
 {
-    private readonly IQuerySession _session;
-
-    public GetRequestEndpoint(IQuerySession session) => _session = session;
-
     public override void Configure()
     {
         Get("/api/requests/{slug}");
@@ -172,7 +165,7 @@ internal sealed class GetRequestEndpoint : EndpointWithoutRequest<RequestRespons
             return;
         }
 
-        var found = await _session.Query<RequestDefinition>().FirstOrDefaultAsync(r => r.Slug == slug, ct);
+        var found = await session.Query<RequestDefinition>().FirstOrDefaultAsync(r => r.Slug == slug, ct);
         if (found is null)
         {
             await Send.NotFoundAsync(ct);
@@ -183,17 +176,10 @@ internal sealed class GetRequestEndpoint : EndpointWithoutRequest<RequestRespons
     }
 }
 
-internal sealed class SaveRequestEndpoint : Endpoint<SaveRequestRequest, RequestResponse>
+internal sealed class SaveRequestEndpoint(
+    IDocumentSession session,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<SaveRequestRequest, RequestResponse>
 {
-    private readonly IDocumentSession _session;
-    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
-
-    public SaveRequestEndpoint(IDocumentSession session, barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
-    {
-        _session = session;
-        _tenant = tenant;
-    }
-
     public override void Configure()
     {
         Post("/api/requests");
@@ -211,7 +197,7 @@ internal sealed class SaveRequestEndpoint : Endpoint<SaveRequestRequest, Request
 
         // The connector has to exist. A request naming one that does not is a workflow that fails at
         // run time with a message about something the operator cannot see from this screen.
-        var connector = await _session.Query<Connector>()
+        var connector = await session.Query<Connector>()
             .FirstOrDefaultAsync(c => c.Slug == req.ConnectorSlug, ct);
 
         if (connector is null)
@@ -220,7 +206,7 @@ internal sealed class SaveRequestEndpoint : Endpoint<SaveRequestRequest, Request
             return;
         }
 
-        var existing = await _session.Query<RequestDefinition>().FirstOrDefaultAsync(r => r.Slug == req.Slug, ct);
+        var existing = await session.Query<RequestDefinition>().FirstOrDefaultAsync(r => r.Slug == req.Slug, ct);
         var definition = existing ?? new RequestDefinition { Id = Guid.NewGuid(), Slug = req.Slug.ToLowerInvariant() };
 
         definition.Name = req.Name.Trim();
@@ -235,10 +221,10 @@ internal sealed class SaveRequestEndpoint : Endpoint<SaveRequestRequest, Request
         definition.SuccessJsonPath = req.SuccessJsonPath;
         definition.UpdatedAt = DateTime.UtcNow;
 
-        _session.Store(definition);
+        session.Store(definition);
 
         var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
-        await AuditLog.RecordAsync(_session, _tenant.Slug,
+        await AuditLog.RecordAsync(session, tenant.Slug,
             existing is null ? "request.created" : "request.updated",
             actorId, User.FindFirst("Username")?.Value,
             targetType: nameof(RequestDefinition), targetId: definition.Id.ToString(),
@@ -252,23 +238,16 @@ internal sealed class SaveRequestEndpoint : Endpoint<SaveRequestRequest, Request
                 ["path"] = definition.PathTemplate,
             }, ct: ct);
 
-        await _session.SaveChangesAsync(ct);
+        await session.SaveChangesAsync(ct);
 
         await Send.ResponseAsync(RequestResponse.From(definition), cancellation: ct);
     }
 }
 
-internal sealed class DeleteRequestEndpoint : EndpointWithoutRequest
+internal sealed class DeleteRequestEndpoint(
+    IDocumentSession session,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : EndpointWithoutRequest
 {
-    private readonly IDocumentSession _session;
-    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
-
-    public DeleteRequestEndpoint(IDocumentSession session, barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
-    {
-        _session = session;
-        _tenant = tenant;
-    }
-
     public override void Configure()
     {
         Delete("/api/requests/{slug}");
@@ -285,22 +264,22 @@ internal sealed class DeleteRequestEndpoint : EndpointWithoutRequest
             return;
         }
 
-        var found = await _session.Query<RequestDefinition>().FirstOrDefaultAsync(r => r.Slug == slug, ct);
+        var found = await session.Query<RequestDefinition>().FirstOrDefaultAsync(r => r.Slug == slug, ct);
         if (found is null)
         {
             await Send.NotFoundAsync(ct);
             return;
         }
 
-        _session.Delete(found);
+        session.Delete(found);
 
         var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
-        await AuditLog.RecordAsync(_session, _tenant.Slug, "request.deleted", actorId,
+        await AuditLog.RecordAsync(session, tenant.Slug, "request.deleted", actorId,
             User.FindFirst("Username")?.Value,
             targetType: nameof(RequestDefinition), targetId: found.Id.ToString(),
             metadata: new Dictionary<string, object> { ["slug"] = found.Slug }, ct: ct);
 
-        await _session.SaveChangesAsync(ct);
+        await session.SaveChangesAsync(ct);
         await Send.NoContentAsync(ct);
     }
 }
@@ -316,17 +295,10 @@ internal sealed class DeleteRequestEndpoint : EndpointWithoutRequest
 /// No credential appears here. The connector's secrets are attached by the sender, after this, so
 /// there is nothing for this endpoint to redact: it never had one.
 /// </remarks>
-internal sealed class DryRunRequestEndpoint : EndpointWithoutRequest<DryRunResponse>
+internal sealed class DryRunRequestEndpoint(
+    IQuerySession session,
+    IRequestComposer composer) : EndpointWithoutRequest<DryRunResponse>
 {
-    private readonly IQuerySession _session;
-    private readonly IRequestComposer _composer;
-
-    public DryRunRequestEndpoint(IQuerySession session, IRequestComposer composer)
-    {
-        _session = session;
-        _composer = composer;
-    }
-
     public override void Configure()
     {
         Post("/api/requests/{slug}/dry-run/{contentId}");
@@ -349,14 +321,14 @@ internal sealed class DryRunRequestEndpoint : EndpointWithoutRequest<DryRunRespo
             return;
         }
 
-        var definition = await _session.Query<RequestDefinition>().FirstOrDefaultAsync(r => r.Slug == slug, ct);
+        var definition = await session.Query<RequestDefinition>().FirstOrDefaultAsync(r => r.Slug == slug, ct);
         if (definition is null)
         {
             await Send.NotFoundAsync(ct);
             return;
         }
 
-        var connector = await _session.Query<Connector>()
+        var connector = await session.Query<Connector>()
             .FirstOrDefaultAsync(c => c.Slug == definition.ConnectorSlug, ct);
 
         if (connector is null)
@@ -369,7 +341,7 @@ internal sealed class DryRunRequestEndpoint : EndpointWithoutRequest<DryRunRespo
             return;
         }
 
-        var content = await _session.LoadAsync<barakoCMS.Models.Content>(contentId, ct);
+        var content = await session.LoadAsync<barakoCMS.Models.Content>(contentId, ct);
         if (content is null)
         {
             await Send.NotFoundAsync(ct);
@@ -378,7 +350,7 @@ internal sealed class DryRunRequestEndpoint : EndpointWithoutRequest<DryRunRespo
 
         // No workflow run behind a dry run, so no idempotency key exists to show: the preview
         // composes without one, the same as any other action invoked outside the runner.
-        var composed = await _composer.ComposeAsync(definition, connector, content, idempotencyKey: null, ct);
+        var composed = await composer.ComposeAsync(definition, connector, content, idempotencyKey: null, ct);
 
         await Send.ResponseAsync(new DryRunResponse
         {

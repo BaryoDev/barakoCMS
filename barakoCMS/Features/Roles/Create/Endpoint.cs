@@ -5,25 +5,12 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.Roles.Create;
 
-internal class Endpoint : Endpoint<Request, Response>
+internal class Endpoint(
+    IDocumentSession session,
+    CapabilityVocabulary vocabulary,
+    IConfiguration configuration,
+    ILogger<Endpoint> logger) : Endpoint<Request, Response>
 {
-    private readonly IDocumentSession _session;
-    private readonly CapabilityVocabulary _vocabulary;
-    private readonly IConfiguration _configuration;
-    private readonly ILogger<Endpoint> _logger;
-
-    public Endpoint(
-        IDocumentSession session,
-        CapabilityVocabulary vocabulary,
-        IConfiguration configuration,
-        ILogger<Endpoint> logger)
-    {
-        _session = session;
-        _vocabulary = vocabulary;
-        _configuration = configuration;
-        _logger = logger;
-    }
-
     public override void Configure()
     {
         Post("/api/roles");
@@ -35,8 +22,8 @@ internal class Endpoint : Endpoint<Request, Response>
         if (SystemRoles.IsReservedName(req.Name))
             AddError(r => r.Name, SystemRoles.ReservedNameMessage(req.Name));
 
-        var unknown = _vocabulary.Unknown(req.SystemCapabilities);
-        if (_configuration.GetValue(CapabilityVocabulary.RefuseUnknownKey, false))
+        var unknown = vocabulary.Unknown(req.SystemCapabilities);
+        if (configuration.GetValue(CapabilityVocabulary.RefuseUnknownKey, false))
         {
             foreach (var name in unknown)
                 AddError(r => r.SystemCapabilities, CapabilityVocabulary.UnknownMessage(name));
@@ -53,12 +40,12 @@ internal class Endpoint : Endpoint<Request, Response>
             CreatedAt = DateTime.UtcNow
         };
 
-        _session.Store(role);
-        await _session.SaveChangesAsync(ct);
+        session.Store(role);
+        await session.SaveChangesAsync(ct);
 
         if (unknown.Count > 0)
         {
-            _logger.LogWarning(
+            logger.LogWarning(
                 "Role {RoleName} ({RoleId}) holds capabilities this instance does not know: {UnknownCapabilities}",
                 role.Name, role.Id, string.Join(", ", unknown));
         }

@@ -116,9 +116,10 @@ public class PackagingTests
     [MemberData(nameof(PackableProjects))]
     public void Every_module_readme_teaches_the_package_reference_as_the_install(string project)
     {
-        // Core is not a module and has no install section. The test host and the dotnet new template
-        // are packages too, and not modules either: there is nothing in them to enable.
-        if (project is "barakoCMS" or "BarakoCMS.Testing" or "BarakoCMS.Templates") return;
+        // Core is not a module and has no install section. The test host, the dotnet new template
+        // and the contract package are packages too, and not modules either: there is nothing in
+        // them to enable.
+        if (project is "barakoCMS" or "BarakoCMS.Testing" or "BarakoCMS.Templates" or "BarakoCMS.Abstractions") return;
 
         // The README is the package page on nuget.org. Since discovery from the dependency context
         // (#172), the install is the package reference plus a restart and the enabled list decides

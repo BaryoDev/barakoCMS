@@ -22,12 +22,9 @@ public sealed class InstallDto
 
 /// <summary>GET /api/pwa/installs — devices that have run the app, newest activity first, with who
 /// (when signed in) and whether they're running it installed. Admin only.</summary>
-public sealed class InstallsEndpoint : Endpoint<barakoCMS.Models.ListRequest, barakoCMS.Models.PaginatedResponse<InstallDto>>
+public sealed class InstallsEndpoint(
+    IQuerySession session) : Endpoint<barakoCMS.Models.ListRequest, barakoCMS.Models.PaginatedResponse<InstallDto>>
 {
-    private readonly IQuerySession _session;
-
-    public InstallsEndpoint(IQuerySession session) => _session = session;
-
     public override void Configure()
     {
         Get("/api/pwa/installs");
@@ -39,7 +36,7 @@ public sealed class InstallsEndpoint : Endpoint<barakoCMS.Models.ListRequest, ba
     {
         // The Take(1000) cap is gone: the envelope is the bound now, and a cap that silently drops
         // the 1001st row is the kind of quiet wrong answer paging exists to replace.
-        var page = await _session.Query<PwaInstall>()
+        var page = await session.Query<PwaInstall>()
             .OrderByDescending(p => p.LastSeenAt)
             .ToPagedResponseAsync(req, ct);
 

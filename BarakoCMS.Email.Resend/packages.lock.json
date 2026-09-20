@@ -1057,6 +1057,7 @@
           "AspNetCore.HealthChecks.UI.Client": "[9.0.0, )",
           "AspNetCore.HealthChecks.UI.InMemory.Storage": "[9.0.0, )",
           "BCrypt.Net-Next": "[4.2.0, )",
+          "BarakoCMS.Abstractions": "[4.3.0, )",
           "FastEndpoints": "[8.3.0, )",
           "FastEndpoints.Security": "[8.3.0, )",
           "FastEndpoints.Swagger": "[8.3.0, )",
@@ -1073,6 +1074,15 @@
           "Serilog.Sinks.File": "[7.0.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.22.0, )",
           "prometheus-net.AspNetCore": "[8.2.1, )"
+        }
+      },
+      "barakocms.abstractions": {
+        "type": "Project",
+        "dependencies": {
+          "FastEndpoints": "[8.3.0, )",
+          "JasperFx": "[2.72.0, )",
+          "Marten": "[9.37.0, )",
+          "Microsoft.Extensions.DependencyModel": "[10.0.11, )"
         }
       },
       "AspNetCore.HealthChecks.NpgSql": {

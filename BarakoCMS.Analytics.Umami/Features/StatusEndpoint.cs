@@ -19,12 +19,8 @@ public sealed class SiteStatusResponse
 /// GET /api/analytics/{websiteId}/status — has this site started sending data? Powers the
 /// "add the snippet" instructions and the "verify installation" check in the admin.
 /// </summary>
-public sealed class StatusEndpoint : Endpoint<AnalyticsWindowRequest, SiteStatusResponse>
+public sealed class StatusEndpoint(IUmamiClient umami) : Endpoint<AnalyticsWindowRequest, SiteStatusResponse>
 {
-    private readonly IUmamiClient _umami;
-
-    public StatusEndpoint(IUmamiClient umami) => _umami = umami;
-
     public override void Configure()
     {
         Get("/api/analytics/{websiteId}/status");
@@ -36,15 +32,15 @@ public sealed class StatusEndpoint : Endpoint<AnalyticsWindowRequest, SiteStatus
     {
         // All-time window: from the Unix epoch to now.
         var endAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        var summary = await _umami.GetSummaryAsync(req.WebsiteId, 0, endAt, ct);
-        var active = await _umami.GetActiveAsync(req.WebsiteId, ct);
+        var summary = await umami.GetSummaryAsync(req.WebsiteId, 0, endAt, ct);
+        var active = await umami.GetActiveAsync(req.WebsiteId, ct);
 
         await Send.OkAsync(new SiteStatusResponse
         {
             Pageviews = summary.Pageviews.Value,
             ActiveNow = active,
             Installed = summary.Pageviews.Value > 0 || active > 0,
-            Snippet = _umami.TrackingSnippet(req.WebsiteId),
+            Snippet = umami.TrackingSnippet(req.WebsiteId),
         }, ct);
     }
 }

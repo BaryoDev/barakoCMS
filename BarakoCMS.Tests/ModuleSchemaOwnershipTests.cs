@@ -139,7 +139,7 @@ public class ModuleSchemaOwnershipTests
     {
         public string Name => "ClaimsCore";
         public IEnumerable<System.Reflection.Assembly> EndpointAssemblies =>
-            new[] { GetType().Assembly, typeof(Content).Assembly };
+            new[] { GetType().Assembly, typeof(Content).Assembly, typeof(barakoCMS.Data.DataSeeder).Assembly };
     }
 
     [Fact]

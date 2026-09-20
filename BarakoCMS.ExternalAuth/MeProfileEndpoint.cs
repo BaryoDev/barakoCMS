@@ -4,11 +4,8 @@ using Marten;
 namespace BarakoCMS.ExternalAuth;
 
 /// <summary>GET /api/me/profile — the signed-in user's social profile (name, photo, birthday, location).</summary>
-public class MeProfileEndpoint : EndpointWithoutRequest
+public class MeProfileEndpoint(IQuerySession session) : EndpointWithoutRequest
 {
-    private readonly IQuerySession _session;
-    public MeProfileEndpoint(IQuerySession session) => _session = session;
-
     public override void Configure()
     {
         Get("/api/me/profile"); // authenticated; /api/me/* is exempt from the tenant lock
@@ -17,7 +14,7 @@ public class MeProfileEndpoint : EndpointWithoutRequest
     public override async Task HandleAsync(CancellationToken ct)
     {
         Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId);
-        var p = await _session.Query<SocialProfile>().FirstOrDefaultAsync(x => x.UserId == userId, ct);
+        var p = await session.Query<SocialProfile>().FirstOrDefaultAsync(x => x.UserId == userId, ct);
         await Send.OkAsync(new
         {
             name = p?.Name,

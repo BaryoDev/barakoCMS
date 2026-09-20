@@ -14,37 +14,16 @@ namespace barakoCMS.Features.Auth.Mfa;
 /// refresh token password login issues. Wrong codes count toward the same lockout as password failures,
 /// so the 6-digit space can't be brute-forced.
 /// </summary>
-internal class VerifyEndpoint : Endpoint<VerifyRequest, VerifyResponse>
+internal class VerifyEndpoint(
+    IMfaService mfa,
+    IDocumentSession session,
+    IQuerySession query,
+    IConfiguration config,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
+    barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer,
+    barakoCMS.Core.Interfaces.IDeviceGate deviceGate,
+    barakoCMS.Infrastructure.Auth.AccountLockout lockout) : Endpoint<VerifyRequest, VerifyResponse>
 {
-    private readonly IMfaService _mfa;
-    private readonly IDocumentSession _session;
-    private readonly IQuerySession _query;
-    private readonly IConfiguration _config;
-    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
-    private readonly barakoCMS.Infrastructure.Auth.ITokenIssuer _tokenIssuer;
-    private readonly barakoCMS.Core.Interfaces.IDeviceGate _deviceGate;
-    private readonly barakoCMS.Infrastructure.Auth.AccountLockout _lockout;
-
-    public VerifyEndpoint(
-        IMfaService mfa,
-        IDocumentSession session,
-        IQuerySession query,
-        IConfiguration config,
-        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
-        barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer,
-        barakoCMS.Core.Interfaces.IDeviceGate deviceGate,
-        barakoCMS.Infrastructure.Auth.AccountLockout lockout)
-    {
-        _lockout = lockout;
-        _mfa = mfa;
-        _session = session;
-        _query = query;
-        _config = config;
-        _tenant = tenant;
-        _tokenIssuer = tokenIssuer;
-        _deviceGate = deviceGate;
-    }
-
     public override void Configure()
     {
         Post("/api/auth/mfa/verify");
@@ -56,15 +35,15 @@ internal class VerifyEndpoint : Endpoint<VerifyRequest, VerifyResponse>
     {
         var device = barakoCMS.Infrastructure.DeviceContext.From(HttpContext);
 
-        var userId = MfaChallengeToken.ValidatedUserId(_config, req.ChallengeToken);
+        var userId = MfaChallengeToken.ValidatedUserId(config, req.ChallengeToken);
         if (userId is null)
         {
             ThrowError("Your sign-in session expired. Enter your password again.");
             return;
         }
 
-        var user = await _query.LoadAsync<User>(userId.Value, ct);
-        if (user is null || !await _mfa.IsEnabledAsync(user.Id, ct))
+        var user = await query.LoadAsync<User>(userId.Value, ct);
+        if (user is null || !await mfa.IsEnabledAsync(user.Id, ct))
         {
             // The challenge was minted for this user, so this is an odd state; stay generic.
             ThrowError("Invalid code.");
@@ -79,21 +58,21 @@ internal class VerifyEndpoint : Endpoint<VerifyRequest, VerifyResponse>
             return;
         }
 
-        if (!await _mfa.VerifyCodeAsync(user.Id, req.Code, ct))
+        if (!await mfa.VerifyCodeAsync(user.Id, req.Code, ct))
         {
-            _session.Patch<User>(user.Id).Increment(x => x.FailedLoginAttempts);
-            await _session.SaveChangesAsync(ct);
+            session.Patch<User>(user.Id).Increment(x => x.FailedLoginAttempts);
+            await session.SaveChangesAsync(ct);
 
-            var attempts = (await _query.LoadAsync<User>(user.Id, ct))?.FailedLoginAttempts ?? 0;
+            var attempts = (await query.LoadAsync<User>(user.Id, ct))?.FailedLoginAttempts ?? 0;
             if (attempts >= barakoCMS.Infrastructure.Auth.AccountLockout.MaxFailedAttempts
-                && await _lockout.TryLockAsync(user, ct))
+                && await lockout.TryLockAsync(user, ct))
             {
-                await AuditLog.RecordAsync(_session, _tenant.Slug, "auth.account.locked", user.Id, user.Username,
+                await AuditLog.RecordAsync(session, tenant.Slug, "auth.account.locked", user.Id, user.Username,
                     metadata: new() { ["attempts"] = attempts, ["factor"] = "mfa" }, ipAddress: device.IpAddress, ct: ct);
             }
-            await AuditLog.RecordAsync(_session, _tenant.Slug, "auth.mfa.failed", user.Id, user.Username,
+            await AuditLog.RecordAsync(session, tenant.Slug, "auth.mfa.failed", user.Id, user.Username,
                 metadata: new() { ["attempts"] = attempts }, ipAddress: device.IpAddress, ct: ct);
-            await _session.SaveChangesAsync(ct);
+            await session.SaveChangesAsync(ct);
 
             ThrowError("Invalid code.");
             return;
@@ -103,24 +82,24 @@ internal class VerifyEndpoint : Endpoint<VerifyRequest, VerifyResponse>
         // tenant-access check), and drop a refresh token — the same shape as password login.
         if (user.FailedLoginAttempts > 0 || user.LockoutUntil.HasValue)
         {
-            _session.Patch<User>(user.Id).Set(x => x.FailedLoginAttempts, 0);
-            _session.Patch<User>(user.Id).Set(x => x.LockoutUntil, (DateTime?)null);
+            session.Patch<User>(user.Id).Set(x => x.FailedLoginAttempts, 0);
+            session.Patch<User>(user.Id).Set(x => x.LockoutUntil, (DateTime?)null);
         }
 
         // Completing MFA proves possession of this device; trust it and bind the token to it, so
         // MFA-issued tokens carry the same device claim (did) as the password and OTP paths.
-        var deviceClaims = await _deviceGate.TrustOnOtpAsync(user, device, ct);
-        var issued = await _tokenIssuer.IssueAccessTokenAsync(user, _tenant.Slug, deviceClaims, ct);
+        var deviceClaims = await deviceGate.TrustOnOtpAsync(user, device, ct);
+        var issued = await tokenIssuer.IssueAccessTokenAsync(user, tenant.Slug, deviceClaims, ct);
         if (!issued.Allowed)
         {
-            await _session.SaveChangesAsync(ct);
+            await session.SaveChangesAsync(ct);
             ThrowError("Invalid code.");
             return;
         }
 
         var refreshTokenString = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
         var refreshTokenExpiry = DateTime.UtcNow.AddDays(7);
-        _session.Store(new RefreshToken
+        session.Store(new RefreshToken
         {
             Id = Guid.NewGuid(),
             Token = refreshTokenString,
@@ -130,9 +109,9 @@ internal class VerifyEndpoint : Endpoint<VerifyRequest, VerifyResponse>
             IsRevoked = false,
             DeviceId = device.DeviceId,
         });
-        await AuditLog.RecordAsync(_session, _tenant.Slug, "auth.mfa.succeeded", user.Id, user.Username,
+        await AuditLog.RecordAsync(session, tenant.Slug, "auth.mfa.succeeded", user.Id, user.Username,
             ipAddress: device.IpAddress, ct: ct);
-        await _session.SaveChangesAsync(ct);
+        await session.SaveChangesAsync(ct);
 
         // Also in a cookie page script cannot read. The body still carries it for
         // non-browser callers; see RefreshTokenCookie for why this is an addition.

@@ -39,19 +39,16 @@ builder.Host.UseSerilog((context, services, configuration) =>
 // has no handler for, so the host logged the error and spun instead of exiting (#763).
 try
 {
-    // Add services to the container.
     builder.Services.AddBarakoCMS(builder.Configuration);
 
     var app = builder.Build();
 
-    // Configure the HTTP request pipeline.
     app.UseBarakoCMS();
 
     // NOTE: /health, /health/live and /health/ready are mapped inside UseBarakoCMS (see
     // ServiceCollectionExtensions), each with a minimal response writer so they don't leak internal
     // check details to anonymous callers.
 
-    // Prometheus Metrics
     app.UseHttpMetrics();
     app.MapMetrics();
 

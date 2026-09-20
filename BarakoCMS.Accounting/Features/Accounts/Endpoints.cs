@@ -7,11 +7,9 @@ using Marten;
 namespace BarakoCMS.Accounting.Features.Accounts;
 
 /// <summary>POST /api/accounting/accounts — create a chart-of-accounts entry.</summary>
-public class CreateAccountEndpoint : Endpoint<CreateAccountEndpoint.Request, CreateAccountEndpoint.Result>
+public class CreateAccountEndpoint(
+    IDocumentSession session) : Endpoint<CreateAccountEndpoint.Request, CreateAccountEndpoint.Result>
 {
-    private readonly IDocumentSession _session;
-    public CreateAccountEndpoint(IDocumentSession session) => _session = session;
-
     public class Request
     {
         public string Code { get; set; } = string.Empty;
@@ -47,14 +45,14 @@ public class CreateAccountEndpoint : Endpoint<CreateAccountEndpoint.Request, Cre
         // Accounts are a content type now. Written here as content so this endpoint and the generic
         // /api/contents endpoint share one store — otherwise an account created through this route
         // would be invisible to reporting, which reads content.
-        var chart = await AccountingContentReader.AccountsAsync(_session, ct);
+        var chart = await AccountingContentReader.AccountsAsync(session, ct);
         if (chart.Any(a => string.Equals(a.Code, req.Code, StringComparison.OrdinalIgnoreCase)))
         {
             await Send.ResponseAsync(new Result { Code = req.Code, Created = false }, cancellation: ct);
             return;
         }
 
-        _session.Store(new barakoCMS.Models.Content
+        session.Store(new barakoCMS.Models.Content
         {
             Id = Guid.NewGuid(),
             ContentType = AccountingContentTypes.Account,
@@ -71,18 +69,16 @@ public class CreateAccountEndpoint : Endpoint<CreateAccountEndpoint.Request, Cre
                 ["IsActive"] = true,
             },
         });
-        await _session.SaveChangesAsync(ct);
+        await session.SaveChangesAsync(ct);
 
         await Send.ResponseAsync(new Result { Code = req.Code, Created = true }, 201, ct);
     }
 }
 
 /// <summary>GET /api/accounting/accounts — list the chart of accounts.</summary>
-public class ListAccountsEndpoint : Endpoint<barakoCMS.Models.ListRequest, barakoCMS.Models.PaginatedResponse<Account>>
+public class ListAccountsEndpoint(
+    IQuerySession session) : Endpoint<barakoCMS.Models.ListRequest, barakoCMS.Models.PaginatedResponse<Account>>
 {
-    private readonly IQuerySession _session;
-    public ListAccountsEndpoint(IQuerySession session) => _session = session;
-
     public override void Configure()
     {
         Get("/api/accounting/accounts");
@@ -94,7 +90,7 @@ public class ListAccountsEndpoint : Endpoint<barakoCMS.Models.ListRequest, barak
     {
         // Paged in memory: accounts are read back out of content documents rather than queried as
         // their own table, so there is no IQueryable to page against.
-        var accounts = await AccountingContentReader.AccountsAsync(_session, ct);
+        var accounts = await AccountingContentReader.AccountsAsync(session, ct);
         await Send.ResponseAsync(
             accounts.OrderBy(a => a.Code).ToList().ToPagedResponse(req), cancellation: ct);
     }

@@ -27,7 +27,7 @@ public class ObsoleteDeadlineTests
     [Fact]
     public void No_obsolete_member_names_a_deadline_this_release_has_already_reached()
     {
-        var currentMajor = typeof(barakoCMS.Models.Content).Assembly.GetName().Version!.Major;
+        var currentMajor = typeof(barakoCMS.Data.DataSeeder).Assembly.GetName().Version!.Major;
         var offenders = new List<string>();
 
         foreach (var file in SourceFiles())

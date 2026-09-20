@@ -26,7 +26,9 @@ SAMPLE=Acme.BarakoCMS.Sample
 
 if [ -z "${BARAKO_TEMPLATE_FEED:-}" ]; then
   mkdir -p "$FEED"
-  for p in barakoCMS BarakoCMS.Testing BarakoCMS.Templates; do
+  # BarakoCMS.Abstractions is in the list because the core package now declares a dependency on it,
+  # so a feed without it restores the core and then fails on the contract it asks for (NU1101).
+  for p in BarakoCMS.Abstractions barakoCMS BarakoCMS.Testing BarakoCMS.Templates; do
     # Build, then pack --no-build, the way the release does. Core sets GeneratePackageOnBuild, and
     # a pack that builds as it goes reaches the packing step before the runtime config it packs
     # has been written (NU5026).

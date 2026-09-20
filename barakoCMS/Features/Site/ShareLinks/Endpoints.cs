@@ -145,19 +145,11 @@ internal sealed class CreateShareLinkResponse
 }
 
 /// <summary>POST /api/site/share-links: create a link and return its key once.</summary>
-internal sealed class CreateShareLinkEndpoint : Endpoint<CreateShareLinkRequest, CreateShareLinkResponse>
+internal sealed class CreateShareLinkEndpoint(
+    IDocumentSession session,
+    IPermissionResolver permissions,
+    TenantContext tenant) : Endpoint<CreateShareLinkRequest, CreateShareLinkResponse>
 {
-    private readonly IDocumentSession _session;
-    private readonly IPermissionResolver _permissions;
-    private readonly TenantContext _tenant;
-
-    public CreateShareLinkEndpoint(IDocumentSession session, IPermissionResolver permissions, TenantContext tenant)
-    {
-        _session = session;
-        _permissions = permissions;
-        _tenant = tenant;
-    }
-
     public override void Configure()
     {
         Post("/api/site/share-links");
@@ -166,14 +158,14 @@ internal sealed class CreateShareLinkEndpoint : Endpoint<CreateShareLinkRequest,
 
     public override async Task HandleAsync(CreateShareLinkRequest req, CancellationToken ct)
     {
-        if (!await ShareLinkKeys.MayManageAsync(_session, _permissions, User, ct))
+        if (!await ShareLinkKeys.MayManageAsync(session, permissions, User, ct))
         {
             await Send.ForbiddenAsync(ct);
             return;
         }
 
         var now = DateTimeOffset.UtcNow;
-        var active = await _session.Query<SiteShareLink>()
+        var active = await session.Query<SiteShareLink>()
             .CountAsync(l => l.RevokedAt == null && l.ExpiresAt > now, ct);
         if (active >= ShareLinkKeys.MaxActive)
         {
@@ -192,10 +184,10 @@ internal sealed class CreateShareLinkEndpoint : Endpoint<CreateShareLinkRequest,
             CreatedBy = User.FindFirst("Username")?.Value,
             ExpiresAt = req.ExpiresAt?.ToUniversalTime() ?? now.Add(ShareLinkKeys.DefaultLifetime),
         };
-        _session.Store(link);
+        session.Store(link);
 
         Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
-        await AuditLog.RecordAsync(_session, _tenant.Slug, "site.share_link.created", actorId,
+        await AuditLog.RecordAsync(session, tenant.Slug, "site.share_link.created", actorId,
             User.FindFirst("Username")?.Value, targetType: nameof(SiteShareLink), targetId: link.Id.ToString(),
             metadata: new Dictionary<string, object>
             {
@@ -203,7 +195,7 @@ internal sealed class CreateShareLinkEndpoint : Endpoint<CreateShareLinkRequest,
                 ["expiresAt"] = link.ExpiresAt.ToString("O"),
             }, ct: ct);
 
-        await _session.SaveChangesAsync(ct);
+        await session.SaveChangesAsync(ct);
 
         HttpContext.Response.Headers.CacheControl = "no-store";
         await Send.ResponseAsync(new CreateShareLinkResponse
@@ -218,17 +210,10 @@ internal sealed class CreateShareLinkEndpoint : Endpoint<CreateShareLinkRequest,
 }
 
 /// <summary>GET /api/site/share-links: the tenant's links, newest first, without keys or hashes.</summary>
-internal sealed class ListShareLinksEndpoint : Endpoint<PaginatedRequest, PaginatedResponse<ShareLinkResponse>>
+internal sealed class ListShareLinksEndpoint(
+    IQuerySession session,
+    IPermissionResolver permissions) : Endpoint<PaginatedRequest, PaginatedResponse<ShareLinkResponse>>
 {
-    private readonly IQuerySession _session;
-    private readonly IPermissionResolver _permissions;
-
-    public ListShareLinksEndpoint(IQuerySession session, IPermissionResolver permissions)
-    {
-        _session = session;
-        _permissions = permissions;
-    }
-
     public override void Configure()
     {
         Get("/api/site/share-links");
@@ -237,14 +222,14 @@ internal sealed class ListShareLinksEndpoint : Endpoint<PaginatedRequest, Pagina
 
     public override async Task HandleAsync(PaginatedRequest req, CancellationToken ct)
     {
-        if (!await ShareLinkKeys.MayManageAsync(_session, _permissions, User, ct))
+        if (!await ShareLinkKeys.MayManageAsync(session, permissions, User, ct))
         {
             await Send.ForbiddenAsync(ct);
             return;
         }
 
-        var total = await _session.Query<SiteShareLink>().CountAsync(ct);
-        var page = await _session.Query<SiteShareLink>()
+        var total = await session.Query<SiteShareLink>().CountAsync(ct);
+        var page = await session.Query<SiteShareLink>()
             .OrderByDescending(l => l.CreatedAt)
             .Skip(req.Skip)
             .Take(req.Take)
@@ -261,19 +246,11 @@ internal sealed class ListShareLinksEndpoint : Endpoint<PaginatedRequest, Pagina
 }
 
 /// <summary>DELETE /api/site/share-links/{id}: revoke a link. Revoking twice is still 204.</summary>
-internal sealed class RevokeShareLinkEndpoint : EndpointWithoutRequest
+internal sealed class RevokeShareLinkEndpoint(
+    IDocumentSession session,
+    IPermissionResolver permissions,
+    TenantContext tenant) : EndpointWithoutRequest
 {
-    private readonly IDocumentSession _session;
-    private readonly IPermissionResolver _permissions;
-    private readonly TenantContext _tenant;
-
-    public RevokeShareLinkEndpoint(IDocumentSession session, IPermissionResolver permissions, TenantContext tenant)
-    {
-        _session = session;
-        _permissions = permissions;
-        _tenant = tenant;
-    }
-
     public override void Configure()
     {
         Delete("/api/site/share-links/{id}");
@@ -282,14 +259,14 @@ internal sealed class RevokeShareLinkEndpoint : EndpointWithoutRequest
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        if (!await ShareLinkKeys.MayManageAsync(_session, _permissions, User, ct))
+        if (!await ShareLinkKeys.MayManageAsync(session, permissions, User, ct))
         {
             await Send.ForbiddenAsync(ct);
             return;
         }
 
         var link = Guid.TryParse(Route<string>("id"), out var id)
-            ? await _session.LoadAsync<SiteShareLink>(id, ct)
+            ? await session.LoadAsync<SiteShareLink>(id, ct)
             : null;
         if (link is null)
         {
@@ -299,14 +276,14 @@ internal sealed class RevokeShareLinkEndpoint : EndpointWithoutRequest
 
         if (link.RevokedAt is null)
         {
-            ShareLinkKeys.Revoke(_session, link, DateTimeOffset.UtcNow);
+            ShareLinkKeys.Revoke(session, link, DateTimeOffset.UtcNow);
 
             Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
-            await AuditLog.RecordAsync(_session, _tenant.Slug, "site.share_link.revoked", actorId,
+            await AuditLog.RecordAsync(session, tenant.Slug, "site.share_link.revoked", actorId,
                 User.FindFirst("Username")?.Value, targetType: nameof(SiteShareLink), targetId: link.Id.ToString(),
                 metadata: new Dictionary<string, object> { ["label"] = link.Label }, ct: ct);
 
-            await _session.SaveChangesAsync(ct);
+            await session.SaveChangesAsync(ct);
         }
 
         await Send.NoContentAsync(ct);
@@ -328,12 +305,9 @@ internal sealed class RedeemShareLinkResponse
 /// 200 or 404 and nothing else. A wrong key, an expired or revoked link and another tenant's key all
 /// answer the same 404, so the route says nothing about which links exist.
 /// </remarks>
-internal sealed class RedeemShareLinkEndpoint : Endpoint<RedeemShareLinkRequest, RedeemShareLinkResponse>
+internal sealed class RedeemShareLinkEndpoint(
+    IDocumentSession session) : Endpoint<RedeemShareLinkRequest, RedeemShareLinkResponse>
 {
-    private readonly IDocumentSession _session;
-
-    public RedeemShareLinkEndpoint(IDocumentSession session) => _session = session;
-
     public override void Configure()
     {
         Post("/api/public/site/share-links/redeem");
@@ -346,15 +320,15 @@ internal sealed class RedeemShareLinkEndpoint : Endpoint<RedeemShareLinkRequest,
         HttpContext.Response.Headers.CacheControl = "no-store";
 
         var now = DateTimeOffset.UtcNow;
-        var link = await ShareLinkKeys.FindActiveAsync(_session, req.Key, now, ct);
+        var link = await ShareLinkKeys.FindActiveAsync(session, req.Key, now, ct);
         if (link is null)
         {
             await Send.NotFoundAsync(ct);
             return;
         }
 
-        ShareLinkKeys.RecordUse(_session, link, now);
-        await _session.SaveChangesAsync(ct);
+        ShareLinkKeys.RecordUse(session, link, now);
+        await session.SaveChangesAsync(ct);
 
         await Send.OkAsync(new RedeemShareLinkResponse { ExpiresAt = link.ExpiresAt }, ct);
     }

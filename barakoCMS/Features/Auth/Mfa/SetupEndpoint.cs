@@ -9,17 +9,8 @@ namespace barakoCMS.Features.Auth.Mfa;
 /// otpauth URI to display once. Enrollment is not active until confirmed via /enable, so calling this
 /// again before enabling simply replaces the pending secret. 409 if MFA is already enabled.
 /// </summary>
-internal class SetupEndpoint : EndpointWithoutRequest<SetupResponse>
+internal class SetupEndpoint(IMfaService mfa, IQuerySession session) : EndpointWithoutRequest<SetupResponse>
 {
-    private readonly IMfaService _mfa;
-    private readonly IQuerySession _session;
-
-    public SetupEndpoint(IMfaService mfa, IQuerySession session)
-    {
-        _mfa = mfa;
-        _session = session;
-    }
-
     public override void Configure()
     {
         Post("/api/auth/mfa/setup");
@@ -34,20 +25,20 @@ internal class SetupEndpoint : EndpointWithoutRequest<SetupResponse>
             return;
         }
 
-        if (await _mfa.IsEnabledAsync(userId, ct))
+        if (await mfa.IsEnabledAsync(userId, ct))
         {
             await Send.ResponseAsync(new SetupResponse(), 409, ct);
             return;
         }
 
-        var user = await _session.LoadAsync<barakoCMS.Models.User>(userId, ct);
+        var user = await session.LoadAsync<barakoCMS.Models.User>(userId, ct);
         if (user is null)
         {
             await Send.UnauthorizedAsync(ct);
             return;
         }
 
-        var (secret, uri) = await _mfa.BeginSetupAsync(user, ct);
+        var (secret, uri) = await mfa.BeginSetupAsync(user, ct);
         await Send.ResponseAsync(new SetupResponse { Secret = secret, OtpauthUri = uri }, cancellation: ct);
     }
 }

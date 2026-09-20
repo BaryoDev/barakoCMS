@@ -21,17 +21,10 @@ namespace barakoCMS.Features.Modules.List;
 /// <c>RoleGateTests.The_core_routes_still_on_a_role_name_are_the_two_that_are_meant_to_be</c> for the
 /// pinned list this belongs to now that #443 has migrated everything else.
 /// </remarks>
-internal sealed class Endpoint : Endpoint<ListModulesRequest, PaginatedResponse<ModuleSummary>>
+internal sealed class Endpoint(
+    ModuleCatalogue catalogue,
+    ModuleSchemaReport schema) : Endpoint<ListModulesRequest, PaginatedResponse<ModuleSummary>>
 {
-    private readonly ModuleCatalogue _catalogue;
-    private readonly ModuleSchemaReport _schema;
-
-    public Endpoint(ModuleCatalogue catalogue, ModuleSchemaReport schema)
-    {
-        _catalogue = catalogue;
-        _schema = schema;
-    }
-
     public override void Configure()
     {
         Get("/api/modules");
@@ -42,7 +35,7 @@ internal sealed class Endpoint : Endpoint<ListModulesRequest, PaginatedResponse<
     {
         // Ordered by name so two calls, and two deployments of the same set, agree. Registration
         // order is meaningful to the host (it decides who configures first) and meaningless here.
-        IReadOnlyList<ModuleSummary> modules = _catalogue.Entries
+        IReadOnlyList<ModuleSummary> modules = catalogue.Entries
             .Select(Summarise)
             .OrderBy(m => m.Name, StringComparer.Ordinal)
             .ToArray();
@@ -56,7 +49,7 @@ internal sealed class Endpoint : Endpoint<ListModulesRequest, PaginatedResponse<
     /// </summary>
     private ModuleSummary Summarise(ModuleCatalogueEntry entry)
     {
-        var finding = entry.Enabled ? _schema.For(entry.Name) : null;
+        var finding = entry.Enabled ? schema.For(entry.Name) : null;
         return finding is null
             ? new ModuleSummary(entry.Name, entry.ContractVersion, entry.Enabled, ModuleSchemaState.Unknown, [])
             : new ModuleSummary(entry.Name, entry.ContractVersion, entry.Enabled, finding.State,

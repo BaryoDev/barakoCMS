@@ -2,15 +2,9 @@ using Serilog.Context;
 
 namespace barakoCMS.Infrastructure.Middleware;
 
-public class CorrelationIdMiddleware
+public class CorrelationIdMiddleware(RequestDelegate next)
 {
-    private readonly RequestDelegate _next;
     private const string CorrelationIdHeaderName = "X-Correlation-ID";
-
-    public CorrelationIdMiddleware(RequestDelegate next)
-    {
-        _next = next;
-    }
 
     public async Task Invoke(HttpContext context)
     {
@@ -27,7 +21,7 @@ public class CorrelationIdMiddleware
         // This ensures the ID is attached to every log message generated during this request
         using (LogContext.PushProperty("CorrelationId", correlationId))
         {
-            await _next(context);
+            await next(context);
         }
     }
 

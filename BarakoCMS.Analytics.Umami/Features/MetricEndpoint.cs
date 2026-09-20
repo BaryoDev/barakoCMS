@@ -20,15 +20,11 @@ public sealed class MetricRow
 
 /// <summary>GET /api/analytics/{websiteId}/metric?type=url&amp;range=7d — a top-N breakdown
 /// (pages, referrers, countries, …) for the window.</summary>
-public sealed class MetricEndpoint : Endpoint<MetricRequest, List<MetricRow>>
+public sealed class MetricEndpoint(IUmamiClient umami) : Endpoint<MetricRequest, List<MetricRow>>
 {
     // Umami v3 metric types. Pages are "path" (v2 called it "url").
     private static readonly HashSet<string> Allowed =
         new(StringComparer.OrdinalIgnoreCase) { "path", "referrer", "country", "browser", "os", "device", "event" };
-
-    private readonly IUmamiClient _umami;
-
-    public MetricEndpoint(IUmamiClient umami) => _umami = umami;
 
     public override void Configure()
     {
@@ -42,7 +38,7 @@ public sealed class MetricEndpoint : Endpoint<MetricRequest, List<MetricRow>>
         var type = Allowed.Contains(req.Type) ? req.Type.ToLowerInvariant() : "path";
         var limit = Math.Clamp(req.Limit, 1, 50);
         var (startAt, endAt, _) = AnalyticsRange.Resolve(req.Range);
-        var rows = await _umami.GetMetricsAsync(req.WebsiteId, type, startAt, endAt, limit, ct);
+        var rows = await umami.GetMetricsAsync(req.WebsiteId, type, startAt, endAt, limit, ct);
         await Send.OkAsync(rows.Select(r => new MetricRow { X = r.X, Y = r.Y }).ToList(), ct);
     }
 }

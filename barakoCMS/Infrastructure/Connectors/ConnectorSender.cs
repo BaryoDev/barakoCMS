@@ -73,25 +73,12 @@ public interface IConnectorSender
         Connector connector, ComposedRequest request, SuccessRule rule, string? successJsonPath, CancellationToken ct);
 }
 
-internal sealed class ConnectorSender : IConnectorSender, IConnectorFetcher
+internal sealed class ConnectorSender(
+    IHttpClientFactory httpClientFactory,
+    IQuerySession session,
+    IConnectorSecretProtector protector,
+    ILogger<ConnectorSender> logger) : IConnectorSender, IConnectorFetcher
 {
-    private readonly IHttpClientFactory _httpClientFactory;
-    private readonly IQuerySession _session;
-    private readonly IConnectorSecretProtector _protector;
-    private readonly ILogger<ConnectorSender> _logger;
-
-    public ConnectorSender(
-        IHttpClientFactory httpClientFactory,
-        IQuerySession session,
-        IConnectorSecretProtector protector,
-        ILogger<ConnectorSender> logger)
-    {
-        _httpClientFactory = httpClientFactory;
-        _session = session;
-        _protector = protector;
-        _logger = logger;
-    }
-
     public async Task<ConnectorCallResult> ProbeAsync(Connector connector, CancellationToken ct)
     {
         if (!Uri.TryCreate(connector.BaseUrl, UriKind.Absolute, out var baseUri)
@@ -109,7 +96,7 @@ internal sealed class ConnectorSender : IConnectorSender, IConnectorFetcher
         // which resolves the name once and opens the socket to an address that answer survived, with
         // redirects off. Checking here as well would only re-resolve, and a name whose answer changes
         // between the check and the connection is the whole of #258. Send time means socket time.
-        var client = _httpClientFactory.CreateClient("ExternalApi");
+        var client = httpClientFactory.CreateClient("ExternalApi");
 
         using var request = new HttpRequestMessage(HttpMethod.Get, target);
 
@@ -144,7 +131,7 @@ internal sealed class ConnectorSender : IConnectorSender, IConnectorFetcher
             // The exception type and message, not the exception. A connector's own base URL can
             // carry a credential in the userinfo part, and ToString() on an HttpRequestException
             // chain has printed the request URI before.
-            _logger.LogWarning("Connector {Slug} probe failed: {Reason}", connector.Slug, ex.GetType().Name);
+            logger.LogWarning("Connector {Slug} probe failed: {Reason}", connector.Slug, ex.GetType().Name);
             return new ConnectorCallResult(false, null, timer.ElapsedMilliseconds, Describe(ex));
         }
     }
@@ -167,7 +154,7 @@ internal sealed class ConnectorSender : IConnectorSender, IConnectorFetcher
         // which resolves once and opens the socket to an address that answer survived, with
         // redirects off. A name that resolves publicly when the request is composed and privately
         // when it is sent is the case a check here could not see.
-        var client = _httpClientFactory.CreateClient("ExternalApi");
+        var client = httpClientFactory.CreateClient("ExternalApi");
 
         using var request = new HttpRequestMessage(new HttpMethod(composed.Method), target);
 
@@ -217,7 +204,7 @@ internal sealed class ConnectorSender : IConnectorSender, IConnectorFetcher
         catch (Exception ex)
         {
             timer.Stop();
-            _logger.LogWarning("Connector {Slug} send failed: {Reason}", connector.Slug, ex.GetType().Name);
+            logger.LogWarning("Connector {Slug} send failed: {Reason}", connector.Slug, ex.GetType().Name);
             return new ConnectorCallResult(false, null, timer.ElapsedMilliseconds, Describe(ex));
         }
     }
@@ -240,7 +227,7 @@ internal sealed class ConnectorSender : IConnectorSender, IConnectorFetcher
 
         // The same client the send path uses, so the address guard, the redirect policy and the
         // proxy decision are the ones already reviewed rather than a second set.
-        var client = _httpClientFactory.CreateClient("ExternalApi");
+        var client = httpClientFactory.CreateClient("ExternalApi");
 
         using var request = new HttpRequestMessage(new HttpMethod(composed.Method), target);
 
@@ -313,7 +300,7 @@ internal sealed class ConnectorSender : IConnectorSender, IConnectorFetcher
         catch (Exception ex)
         {
             timer.Stop();
-            _logger.LogWarning(
+            logger.LogWarning(
                 "Connector {Slug} fetch failed: {Reason}", connector?.Slug ?? "(none)", ex.GetType().Name);
             return new ConnectorFetchResult(false, null, timer.ElapsedMilliseconds, Describe(ex), null);
         }
@@ -350,7 +337,7 @@ internal sealed class ConnectorSender : IConnectorSender, IConnectorFetcher
     {
         if (connector.Auth == ConnectorAuth.None) return null;
 
-        if (!_protector.IsConfigured)
+        if (!protector.IsConfigured)
         {
             return "Connectors:Key is not configured, so the stored credential cannot be decrypted.";
         }
@@ -404,11 +391,11 @@ internal sealed class ConnectorSender : IConnectorSender, IConnectorFetcher
 
     private async Task<string?> SecretAsync(Guid connectorId, string key, CancellationToken ct)
     {
-        var stored = await _session.Query<ConnectorSecret>()
+        var stored = await session.Query<ConnectorSecret>()
             .Where(s => s.ConnectorId == connectorId && s.Key == key)
             .FirstOrDefaultAsync(ct);
 
-        return stored is null ? null : _protector.Unprotect(stored.ProtectedValue);
+        return stored is null ? null : protector.Unprotect(stored.ProtectedValue);
     }
 
     private static string Missing(string key) =>

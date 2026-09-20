@@ -21,17 +21,10 @@ internal sealed record TenantByHostResponse(string Handle);
 /// names a handle without looking it up, so that branch checks the tenant exists and is active
 /// before answering. Otherwise any made-up subdomain would come back as a handle.
 /// </remarks>
-internal sealed class TenantByHostEndpoint : EndpointWithoutRequest<TenantByHostResponse>
+internal sealed class TenantByHostEndpoint(
+    ITenantDomainSource domains,
+    IQuerySession session) : EndpointWithoutRequest<TenantByHostResponse>
 {
-    private readonly ITenantDomainSource _domains;
-    private readonly IQuerySession _session;
-
-    public TenantByHostEndpoint(ITenantDomainSource domains, IQuerySession session)
-    {
-        _domains = domains;
-        _session = session;
-    }
-
     public override void Configure()
     {
         Get("/api/tenants/by-host/{host}");
@@ -44,13 +37,13 @@ internal sealed class TenantByHostEndpoint : EndpointWithoutRequest<TenantByHost
         // dots and would otherwise read "100.64.0.1:8080" as the handle "100".
         var raw = Route<string>("host");
         var host = string.IsNullOrWhiteSpace(raw) ? raw : new HostString(raw).Host;
-        var map = await _domains.GetAsync(ct);
+        var map = await domains.GetAsync(ct);
         var resolved = TenantResolutionMiddleware.Resolve(host, map);
         var slug = resolved.Slug;
 
         if (slug is not null && map.Find(host) is null)
         {
-            slug = await _session.Query<Tenant>()
+            slug = await session.Query<Tenant>()
                 .Where(t => t.Slug == slug && t.IsActive)
                 .Select(t => t.Slug)
                 .FirstOrDefaultAsync(ct);

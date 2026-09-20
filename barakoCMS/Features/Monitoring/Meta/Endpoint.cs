@@ -6,15 +6,8 @@ namespace barakoCMS.Features.Monitoring.Meta;
 // Authenticated on purpose, and deliberately not role-restricted. Handing an exact CMS version to
 // anonymous callers is free CVE matching, but every signed-in backoffice user needs to be able to
 // answer "what am I running" when something behaves unexpectedly.
-internal class Endpoint : EndpointWithoutRequest<MetaResponse>
+internal class Endpoint(IConfiguration configuration) : EndpointWithoutRequest<MetaResponse>
 {
-    private readonly IConfiguration _configuration;
-
-    public Endpoint(IConfiguration configuration)
-    {
-        _configuration = configuration;
-    }
-
     public override void Configure()
     {
         Get("/api/meta");
@@ -31,7 +24,7 @@ internal class Endpoint : EndpointWithoutRequest<MetaResponse>
             {
                 Version = ReadVersion(),
                 ApiContractVersion = ApiContract.Version,
-                SwaggerEnabled = _configuration.GetValue(
+                SwaggerEnabled = configuration.GetValue(
                     "Swagger:Enabled",
                     Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development"),
             },

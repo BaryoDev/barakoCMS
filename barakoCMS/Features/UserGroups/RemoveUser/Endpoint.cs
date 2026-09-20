@@ -5,15 +5,8 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.UserGroups.RemoveUser;
 
-internal class Endpoint : Endpoint<Request, Response>
+internal class Endpoint(IDocumentSession session) : Endpoint<Request, Response>
 {
-    private readonly IDocumentSession _session;
-
-    public Endpoint(IDocumentSession session)
-    {
-        _session = session;
-    }
-
     public override void Configure()
     {
         Delete("/api/user-groups/{groupId}/users/{userId}");
@@ -22,7 +15,7 @@ internal class Endpoint : Endpoint<Request, Response>
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        var group = await _session.LoadAsync<UserGroup>(req.GroupId, ct);
+        var group = await session.LoadAsync<UserGroup>(req.GroupId, ct);
 
         if (group == null)
         {
@@ -31,8 +24,8 @@ internal class Endpoint : Endpoint<Request, Response>
         }
 
         group.UserIds.Remove(req.UserId);
-        _session.Store(group);
-        await _session.SaveChangesAsync(ct);
+        session.Store(group);
+        await session.SaveChangesAsync(ct);
 
         await Send.OkAsync(new Response { Message = "User removed from group successfully" }, ct);
     }

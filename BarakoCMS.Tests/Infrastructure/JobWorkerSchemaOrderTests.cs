@@ -113,7 +113,7 @@ public class JobWorkerSchemaOrderTests
         builder.Services.AddFastEndpoints(o =>
         {
             o.DisableAutoDiscovery = true;
-            o.Assemblies = [typeof(barakoCMS.Modules.IBarakoModule).Assembly];
+            o.Assemblies = [typeof(barakoCMS.Data.DataSeeder).Assembly];
         });
         return builder.Build();
     }

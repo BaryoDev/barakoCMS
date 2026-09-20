@@ -17,7 +17,10 @@ namespace barakoCMS.Features.ContentType.Blueprints;
 /// rather than discovered by the apply. Validation is the same <see cref="IContentTypeValidatorService"/>
 /// the create endpoint runs, so a blueprint cannot describe a type the API would refuse.
 /// </remarks>
-internal sealed class BlueprintCatalog
+internal sealed class BlueprintCatalog(
+    IConfiguration configuration,
+    IContentTypeValidatorService validator,
+    ILogger<BlueprintCatalog> logger)
 {
     public const string PathKey = "Blueprints:Path";
 
@@ -49,21 +52,7 @@ internal sealed class BlueprintCatalog
         },
     };
 
-    private readonly IConfiguration _configuration;
-    private readonly IContentTypeValidatorService _validator;
-    private readonly ILogger<BlueprintCatalog> _logger;
-
-    public BlueprintCatalog(
-        IConfiguration configuration,
-        IContentTypeValidatorService validator,
-        ILogger<BlueprintCatalog> logger)
-    {
-        _configuration = configuration;
-        _validator = validator;
-        _logger = logger;
-    }
-
-    public string? CustomPath => _configuration[PathKey] is { Length: > 0 } path ? path : null;
+    public string? CustomPath => configuration[PathKey] is { Length: > 0 } path ? path : null;
 
     /// <summary>Every blueprint, built-ins first, each group sorted by name.</summary>
     /// <param name="problems">Directory-level problems: a path that does not exist, or too many files.</param>
@@ -83,7 +72,7 @@ internal sealed class BlueprintCatalog
             if (!Directory.Exists(path))
             {
                 found.Add($"{PathKey} is set but the directory does not exist.");
-                _logger.LogWarning("Blueprints directory is configured but missing");
+                logger.LogWarning("Blueprints directory is configured but missing");
             }
             else
             {
@@ -114,7 +103,7 @@ internal sealed class BlueprintCatalog
                         // The OS message carries the absolute server path (IOException especially),
                         // which is not this caller's business even with manage_content_types. The
                         // full exception still goes to the log, keyed on the base name there too.
-                        _logger.LogWarning(ex, "Custom blueprint {File} could not be read", Path.GetFileName(file));
+                        logger.LogWarning(ex, "Custom blueprint {File} could not be read", Path.GetFileName(file));
                         entries.Add(Unreadable(file));
                         continue;
                     }
@@ -242,13 +231,13 @@ internal sealed class BlueprintCatalog
         {
             var label = type.Name is { Length: > 0 } ? type.Name : "(unnamed)";
 
-            var (valid, typeErrors) = _validator.Validate(type.Name, type.DisplayName, type.Fields);
+            var (valid, typeErrors) = validator.Validate(type.Name, type.DisplayName, type.Fields);
             if (!valid)
             {
                 errors.AddRange(typeErrors.Select(e => $"Type '{label}': {e}"));
             }
 
-            var (lifecycleValid, lifecycleErrors) = _validator.ValidateLifecycle(type.Lifecycle);
+            var (lifecycleValid, lifecycleErrors) = validator.ValidateLifecycle(type.Lifecycle);
             if (!lifecycleValid)
             {
                 errors.AddRange(lifecycleErrors.Select(e => $"Type '{label}': {e}"));

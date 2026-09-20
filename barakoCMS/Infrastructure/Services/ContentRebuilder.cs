@@ -30,23 +30,14 @@ internal interface IContentRebuilder
 /// stream over the document would be an overwrite dressed as a repair: anything written to the
 /// document by a path that appends nothing would silently disappear.
 /// </remarks>
-internal sealed class ContentRebuilder : IContentRebuilder
+internal sealed class ContentRebuilder(IDocumentSession session, IContentSourcingPolicy policy) : IContentRebuilder
 {
-    private readonly IDocumentSession _session;
-    private readonly IContentSourcingPolicy _policy;
-
-    public ContentRebuilder(IDocumentSession session, IContentSourcingPolicy policy)
-    {
-        _session = session;
-        _policy = policy;
-    }
-
     /// <inheritdoc />
     public async Task<ContentRebuildResult> RebuildAsync(string contentTypeName, CancellationToken cancellationToken)
     {
         var name = barakoCMS.Core.ContentTypeName.Normalize(contentTypeName);
 
-        if (!await _policy.IsEventSourcedAsync(name, cancellationToken))
+        if (!await policy.IsEventSourcedAsync(name, cancellationToken))
         {
             return new ContentRebuildResult(false, 0);
         }
@@ -60,7 +51,7 @@ internal sealed class ContentRebuilder : IContentRebuilder
         // endpoint normalised the name carry whatever the caller typed, so an exact match skips
         // every entry created as "Article" and reports a rebuild of zero. Normalising the writes
         // fixes the future; this is what reaches the past.
-        var ids = await _session.Events.QueryRawEventDataOnly<ContentCreated>()
+        var ids = await session.Events.QueryRawEventDataOnly<ContentCreated>()
             .Where(e => e.ContentType.ToLower() == name)
             .Select(e => e.Id)
             .ToListAsync(cancellationToken);
@@ -70,7 +61,7 @@ internal sealed class ContentRebuilder : IContentRebuilder
 
         foreach (var id in ids.Distinct())
         {
-            var stream = await _session.Events.FetchStreamAsync(id, token: cancellationToken);
+            var stream = await session.Events.FetchStreamAsync(id, token: cancellationToken);
             var folded = ContentProjection.Fold(stream);
             if (folded is null)
             {
@@ -86,20 +77,20 @@ internal sealed class ContentRebuilder : IContentRebuilder
             //
             // The editor's own write already stored the correct fold of version 6, so there is
             // nothing to repair here and skipping is the whole fix.
-            var current = await _session.Events.FetchStreamStateAsync(id, cancellationToken);
+            var current = await session.Events.FetchStreamStateAsync(id, cancellationToken);
             if (current is null || current.Version != stream.Count)
             {
                 skipped++;
                 continue;
             }
 
-            _session.Store(folded);
+            session.Store(folded);
             rebuilt++;
 
             // One item per commit, not two hundred. Batching meant the first stream of a batch waited
             // on 199 more fetches before its write landed, which made the window above as wide as the
             // batch rather than as wide as one fold.
-            await _session.SaveChangesAsync(cancellationToken);
+            await session.SaveChangesAsync(cancellationToken);
         }
 
         return new ContentRebuildResult(true, rebuilt, skipped);

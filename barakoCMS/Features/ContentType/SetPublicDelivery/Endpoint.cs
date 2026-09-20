@@ -22,25 +22,12 @@ namespace barakoCMS.Features.ContentType.SetPublicDelivery;
 /// to a whole content type is a decision worth making on purpose, and worth being able to audit,
 /// rather than something that rides along inside a larger edit.
 /// </remarks>
-internal class Endpoint : Endpoint<Request, Response>
+internal class Endpoint(
+    IDocumentSession session,
+    barakoCMS.Infrastructure.OpenApi.DeliveryDocumentCache openApiCache,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
+    IConfiguration configuration) : Endpoint<Request, Response>
 {
-    private readonly IDocumentSession _session;
-    private readonly barakoCMS.Infrastructure.OpenApi.DeliveryDocumentCache _openApiCache;
-    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
-    private readonly IConfiguration _configuration;
-
-    public Endpoint(
-        IDocumentSession session,
-        barakoCMS.Infrastructure.OpenApi.DeliveryDocumentCache openApiCache,
-        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
-        IConfiguration configuration)
-    {
-        _session = session;
-        _openApiCache = openApiCache;
-        _tenant = tenant;
-        _configuration = configuration;
-    }
-
     public override void Configure()
     {
         Put("/api/content-types/{name}/public-delivery");
@@ -51,7 +38,7 @@ internal class Endpoint : Endpoint<Request, Response>
     {
         var name = Route<string>("name") ?? string.Empty;
 
-        var def = await _session.Query<ContentTypeDefinition>()
+        var def = await session.Query<ContentTypeDefinition>()
             .FirstOrDefaultAsync(d => d.Name == name, ct);
 
         if (def is null)
@@ -63,13 +50,13 @@ internal class Endpoint : Endpoint<Request, Response>
         // Published entries, not all of them. A draft is not served to anonymous callers whatever
         // this setting says, so counting every entry would overstate the exposure and the number
         // would stop meaning anything.
-        var published = await _session.Query<ContentDoc>()
+        var published = await session.Query<ContentDoc>()
             .CountAsync(c => c.ContentType == def.Name && c.Status == ContentStatus.Published, ct);
 
         if (req.Enabled
             && !def.IsPubliclyDeliverable
             && !req.AcknowledgeExposure
-            && _configuration.GetValue("PublicDelivery:RequireAcknowledgement", false))
+            && configuration.GetValue("PublicDelivery:RequireAcknowledgement", false))
         {
             AddError(
                 $"Turning public delivery on for '{def.Name}' serves {published} published "
@@ -86,7 +73,7 @@ internal class Endpoint : Endpoint<Request, Response>
 
         def.IsPubliclyDeliverable = req.Enabled;
         def.UpdatedAt = DateTimeOffset.UtcNow;
-        _session.Store(def);
+        session.Store(def);
 
         if (changed)
         {
@@ -96,8 +83,8 @@ internal class Endpoint : Endpoint<Request, Response>
             var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
 
             await AuditLog.RecordAsync(
-                _session,
-                _tenant.Slug,
+                session,
+                tenant.Slug,
                 req.Enabled ? "contenttype.publicdelivery.enabled" : "contenttype.publicdelivery.disabled",
                 actorId,
                 User.FindFirst("Username")?.Value,
@@ -115,10 +102,10 @@ internal class Endpoint : Endpoint<Request, Response>
                 ct: ct);
         }
 
-        await _session.SaveChangesAsync(ct);
+        await session.SaveChangesAsync(ct);
 
         // The OpenAPI document lists the deliverable types, so turning one on or off changes it.
-        _openApiCache.Invalidate(_tenant.Slug);
+        openApiCache.Invalidate(tenant.Slug);
 
         await Send.OkAsync(new Response
         {

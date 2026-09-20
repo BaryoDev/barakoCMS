@@ -7,20 +7,11 @@ namespace barakoCMS.Infrastructure.Multitenancy;
 /// are automatically scoped to it. The default tenant opens sessions with no explicit tenant id,
 /// which maps to Marten's default partition — preserving single-tenant deployments unchanged.
 /// </summary>
-public sealed class TenantSessionFactory : ISessionFactory
+public sealed class TenantSessionFactory(IDocumentStore store, TenantContext tenant) : ISessionFactory
 {
-    private readonly IDocumentStore _store;
-    private readonly TenantContext _tenant;
-
-    public TenantSessionFactory(IDocumentStore store, TenantContext tenant)
-    {
-        _store = store;
-        _tenant = tenant;
-    }
-
     public IQuerySession QuerySession() =>
-        _tenant.IsDefault ? _store.QuerySession() : _store.QuerySession(_tenant.Slug);
+        tenant.IsDefault ? store.QuerySession() : store.QuerySession(tenant.Slug);
 
     public IDocumentSession OpenSession() =>
-        _tenant.IsDefault ? _store.LightweightSession() : _store.LightweightSession(_tenant.Slug);
+        tenant.IsDefault ? store.LightweightSession() : store.LightweightSession(tenant.Slug);
 }
