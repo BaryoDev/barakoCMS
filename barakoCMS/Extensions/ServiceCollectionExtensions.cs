@@ -60,16 +60,7 @@ public static class ServiceCollectionExtensions
         
         AddSecurityServices(services);
         
-        // Memory Cache for token revocation and permissions
-        services.AddMemoryCache(options =>
-        {
-            options.SizeLimit = 10000; // Max 10000 cached items
-            options.CompactionPercentage = 0.25; // Remove 25% when limit hit
-        });
-
-        // Output Cache, so an endpoint's Options(x => x.CacheOutput(...)) is more than metadata.
-        // See #545: this was missing, so every endpoint's CacheOutput policy was silently ignored.
-        services.AddOutputCache();
+        AddCaches(services);
 
         var connectionString = ResolveConnectionString(configuration);
         services.AddMarten((IServiceProvider sp) =>
@@ -1057,6 +1048,20 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ITokenRevocationService, TokenRevocationService>();
         services.AddScoped<ISessionEpochService, SessionEpochService>();
         services.AddScoped<IPasswordPolicyValidator, PasswordPolicyValidator>();
+    }
+
+    private static void AddCaches(IServiceCollection services)
+    {
+        // Memory Cache for token revocation and permissions
+        services.AddMemoryCache(options =>
+        {
+            options.SizeLimit = 10000; // Max 10000 cached items
+            options.CompactionPercentage = 0.25; // Remove 25% when limit hit
+        });
+
+        // Output Cache, so an endpoint's Options(x => x.CacheOutput(...)) is more than metadata.
+        // See #545: this was missing, so every endpoint's CacheOutput policy was silently ignored.
+        services.AddOutputCache();
     }
 
     private static readonly Dictionary<string, string> SslModeMap = new(StringComparer.OrdinalIgnoreCase)
