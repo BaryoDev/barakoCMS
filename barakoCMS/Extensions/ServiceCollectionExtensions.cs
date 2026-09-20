@@ -1322,23 +1322,7 @@ public static class ServiceCollectionExtensions
 
         UseSecurityHeaders(app, configuration, env);
 
-        // The HTTP contract version, on every response including a 401, so a console can read it
-        // before it ever signs in and again mid-session after a rolling upgrade moves it. See
-        // barakoCMS.Features.Monitoring.Meta.ApiContract and CLAUDE.md section 6. Written on start,
-        // for the same reason as the security headers above: an error answered outside this block
-        // clears the response first.
-        var contractVersion = barakoCMS.Features.Monitoring.Meta.ApiContract.Version.ToString();
-        app.Use(async (context, next) =>
-        {
-            context.Response.OnStarting(() =>
-            {
-                context.Response.Headers.TryAdd(
-                    barakoCMS.Features.Monitoring.Meta.ApiContract.HeaderName, contractVersion);
-                return Task.CompletedTask;
-            });
-
-            await next();
-        });
+        UseApiContractHeader(app);
 
         // The Prometheus endpoint is mapped by the host (barakoCMS/Program.cs) and publishes route
         // names, per-endpoint traffic and process internals. It is guarded here, before endpoint
@@ -1659,6 +1643,27 @@ public static class ServiceCollectionExtensions
             // request, in every environment: browsers take the first value and ignore the rest, so
             // the effective policy was the framework default rather than the one written here, and a
             // developer on https://localhost was being pinned too.
+
+            await next();
+        });
+    }
+
+    private static void UseApiContractHeader(IApplicationBuilder app)
+    {
+        // The HTTP contract version, on every response including a 401, so a console can read it
+        // before it ever signs in and again mid-session after a rolling upgrade moves it. See
+        // barakoCMS.Features.Monitoring.Meta.ApiContract and CLAUDE.md section 6. Written on start,
+        // for the same reason as the security headers above: an error answered outside this block
+        // clears the response first.
+        var contractVersion = barakoCMS.Features.Monitoring.Meta.ApiContract.Version.ToString();
+        app.Use(async (context, next) =>
+        {
+            context.Response.OnStarting(() =>
+            {
+                context.Response.Headers.TryAdd(
+                    barakoCMS.Features.Monitoring.Meta.ApiContract.HeaderName, contractVersion);
+                return Task.CompletedTask;
+            });
 
             await next();
         });
