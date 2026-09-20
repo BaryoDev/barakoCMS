@@ -1320,58 +1320,7 @@ public static class ServiceCollectionExtensions
 
         UseForwardedHeadersAndHttps(app, configuration, env);
 
-        var csp = barakoCMS.Infrastructure.Security.SecurityHeaders.ContentSecurityPolicy(env);
-        var healthDashboardCsp =
-            barakoCMS.Infrastructure.Security.SecurityHeaders.HealthDashboardContentSecurityPolicy(env);
-        var healthDashboardEnabled = configuration.GetValue<bool>("HealthChecksUI:Enabled");
-
-        // Written as the response starts rather than before next. The exception handler, the
-        // malformed request refusal and the 503 above all sit outside this block and clear the
-        // response before writing theirs, which wiped headers set here up front. An OnStarting
-        // callback survives that clear. Each header is only added when missing, so an endpoint that
-        // sets its own Cache-Control still wins.
-        app.Use(async (context, next) =>
-        {
-            context.Response.OnStarting(() =>
-            {
-                var headers = context.Response.Headers;
-                headers.TryAdd("X-Content-Type-Options", "nosniff");
-                headers.TryAdd("X-Frame-Options", "DENY");
-                headers.TryAdd("Referrer-Policy", "strict-origin-when-cross-origin");
-
-                // X-XSS-Protection is deliberately not written. Every current browser ignores it, and
-                // the auditor it was there to satisfy is not a threat model. While it was honoured its
-                // filter introduced holes of its own: "1; mode=block" gave a cross-origin attacker a
-                // way to detect content on the page by watching which loads were blocked. The CSP
-                // below is the control that actually applies. See issue #271.
-
-                // Content Security Policy. The looser style-src is reached only by the health
-                // dashboard, and only while the dashboard is switched on.
-                var policy = healthDashboardEnabled &&
-                             barakoCMS.Infrastructure.Security.SecurityHeaders.IsHealthDashboardPath(context.Request.Path)
-                    ? healthDashboardCsp
-                    : csp;
-                headers.TryAdd("Content-Security-Policy", policy);
-
-                // A token, a key or the caller's own details: no browser or proxy keeps a copy. Pragma
-                // is for HTTP/1.0 caches, which do not read Cache-Control.
-                if (barakoCMS.Infrastructure.Security.SecurityHeaders.IsNoStorePath(context.Request.Path))
-                {
-                    headers.TryAdd("Cache-Control", "no-store");
-                    headers.TryAdd("Pragma", "no-cache");
-                }
-
-                return Task.CompletedTask;
-            });
-
-            // Strict-Transport-Security is NOT written here. UseHsts above owns it, configured by
-            // HstsPolicy. This block used to append a second copy of the header on every HTTPS
-            // request, in every environment: browsers take the first value and ignore the rest, so
-            // the effective policy was the framework default rather than the one written here, and a
-            // developer on https://localhost was being pinned too.
-
-            await next();
-        });
+        UseSecurityHeaders(app, configuration, env);
 
         // The HTTP contract version, on every response including a 401, so a console can read it
         // before it ever signs in and again mid-session after a rolling upgrade moves it. See
@@ -1657,6 +1606,62 @@ public static class ServiceCollectionExtensions
             app.UseHttpsRedirection();
             app.UseHsts();
         }
+    }
+
+    private static void UseSecurityHeaders(IApplicationBuilder app, IConfiguration configuration, string? env)
+    {
+        var csp = barakoCMS.Infrastructure.Security.SecurityHeaders.ContentSecurityPolicy(env);
+        var healthDashboardCsp =
+            barakoCMS.Infrastructure.Security.SecurityHeaders.HealthDashboardContentSecurityPolicy(env);
+        var healthDashboardEnabled = configuration.GetValue<bool>("HealthChecksUI:Enabled");
+
+        // Written as the response starts rather than before next. The exception handler, the
+        // malformed request refusal and the 503 above all sit outside this block and clear the
+        // response before writing theirs, which wiped headers set here up front. An OnStarting
+        // callback survives that clear. Each header is only added when missing, so an endpoint that
+        // sets its own Cache-Control still wins.
+        app.Use(async (context, next) =>
+        {
+            context.Response.OnStarting(() =>
+            {
+                var headers = context.Response.Headers;
+                headers.TryAdd("X-Content-Type-Options", "nosniff");
+                headers.TryAdd("X-Frame-Options", "DENY");
+                headers.TryAdd("Referrer-Policy", "strict-origin-when-cross-origin");
+
+                // X-XSS-Protection is deliberately not written. Every current browser ignores it, and
+                // the auditor it was there to satisfy is not a threat model. While it was honoured its
+                // filter introduced holes of its own: "1; mode=block" gave a cross-origin attacker a
+                // way to detect content on the page by watching which loads were blocked. The CSP
+                // below is the control that actually applies. See issue #271.
+
+                // Content Security Policy. The looser style-src is reached only by the health
+                // dashboard, and only while the dashboard is switched on.
+                var policy = healthDashboardEnabled &&
+                             barakoCMS.Infrastructure.Security.SecurityHeaders.IsHealthDashboardPath(context.Request.Path)
+                    ? healthDashboardCsp
+                    : csp;
+                headers.TryAdd("Content-Security-Policy", policy);
+
+                // A token, a key or the caller's own details: no browser or proxy keeps a copy. Pragma
+                // is for HTTP/1.0 caches, which do not read Cache-Control.
+                if (barakoCMS.Infrastructure.Security.SecurityHeaders.IsNoStorePath(context.Request.Path))
+                {
+                    headers.TryAdd("Cache-Control", "no-store");
+                    headers.TryAdd("Pragma", "no-cache");
+                }
+
+                return Task.CompletedTask;
+            });
+
+            // Strict-Transport-Security is NOT written here. UseHsts above owns it, configured by
+            // HstsPolicy. This block used to append a second copy of the header on every HTTPS
+            // request, in every environment: browsers take the first value and ignore the rest, so
+            // the effective policy was the framework default rather than the one written here, and a
+            // developer on https://localhost was being pinned too.
+
+            await next();
+        });
     }
 
     /// <summary>
