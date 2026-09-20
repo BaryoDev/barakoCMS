@@ -26,7 +26,7 @@ public sealed class BarakoModuleBuilder
     /// Registering the same module class twice is refused. It used to be skipped and nothing was
     /// said, so a host that deliberately added two configured instances got one of them and no
     /// explanation. A repeat is a configuration mistake, not a preference, and this matches how
-    /// <see cref="ModuleOrder"/> already treats two modules sharing a name.
+    /// <c>ModuleOrder</c> already treats two modules sharing a name.
     /// </remarks>
     /// <exception cref="InvalidOperationException">The module's type is already registered.</exception>
     public BarakoModuleBuilder Add(IBarakoModule module)
