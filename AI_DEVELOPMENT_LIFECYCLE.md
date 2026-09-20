@@ -58,7 +58,7 @@ Two rules hold the checklist together:
 
 | Tier | URL | Purpose | Deploy trigger |
 |---|---|---|---|
-| **dev-playground** | dev-playground.baryo.dev | Breakable staging. Break it freely. | Push to `dev` |
+| **dev-playground** | dev-playground.baryo.dev | Breakable staging. Break it freely. | Push to a branch |
 | **playground** | playground.baryo.dev | Public demo. Released versions only. | Version-gated `master` release |
 | **production** | (private) | Real user data. | By hand, on purpose |
 
@@ -232,17 +232,66 @@ behind a deliberate version bump. The fix for a bad package release is a new, hi
 
 ## Branch model
 
-- `dev` is **long-lived**. Feature branches merge into it; it auto-deploys to dev-playground.
-- Release = a `dev → master` PR merged with a **merge commit**, then sync `dev` back so the next
-  cycle starts aligned:
+**Trunk based, through a merge queue.** A feature branch is cut from `master`, opens a pull request
+against `master`, and merges through the queue, which rebuilds the batch against master before
+letting anything in. There is no promotion step and no long-lived integration branch.
 
-  ```bash
-  git checkout master && git pull
-  git checkout dev && git merge master && git push   # keep dev == master
-  ```
+`dev` still exists as a ref and is dead: 799 commits behind and last moved on 30 July 2026. CI's
+pull request trigger only fires on pull requests targeting `master`, so a branch cut from `dev`
+gets a two month old tree and a pull request nothing runs. Do not use it. It is kept only because
+deleting a branch that old is a separate decision from documenting that nobody uses it.
 
-- Never squash `dev → master` (it diverges the two branches). Squash is fine for a feature branch
-  into `dev`.
+Release is a version bump on `master` plus `release.yml`, which refuses to publish a version already
+on the registry, so a merge that forgets the bump is a no-op rather than a bad publish.
+
+## Guardrails
+
+The rules are scripts, not paragraphs, because an instruction in a prompt is forgotten within a day
+and a script is not.
+
+| Script | What it refuses |
+|---|---|
+| `scripts/preflight.sh` | The single entry point. Locked restore before any build, the named test classes, the holdout check, changelog fragments, both version gates, the house style scan. Run this, not whichever gate seems relevant: a check that demands a change and a check that consumes it are different checks, and the second is the one nobody thinks of. |
+| `scripts/holdout.sh` | A test that passes with and without the change it claims to cover. Each declared test is bound to the hunk it covers, the hunk is reverted, and the test has to fail. |
+| `scripts/needs-review.sh` | Nothing. It is advisory and always exits 0, printing one line per rule the diff fires so a reviewer knows where to look. |
+| `scripts/sync-master.sh` | A merge left half done, and a lock file left stale after a project file changed. |
+| `scripts/check-module-versions.sh` | A module whose source changed without its version moving, which the release would silently drop. |
+| `scripts/check-pinned-versions.sh` | The core, the template package and the version a scaffolded module targets disagreeing. CI does not run this one, which is how it broke master unnoticed. |
+| `.claude/hooks/` | Inline and floating package versions, and AI attribution in a commit message. These run on every machine, which is why changes to them need review. |
+
+## Running agents over a backlog
+
+This document is what the process is. [The lean agent method](https://github.com/arnelirobles/lean-agent-method)
+is how to run agents through it without burning a plan in a night: triage tiers, a cheaper model
+drafting with an adversarial critic on every change, at most four changes in flight, and cost
+measured per change rather than per token. The two are deliberately separate. Change the process
+here; change how agents are driven there.
+
+## What draws review findings, and what to do before pushing
+
+Twelve percent of commits across the three repositories exist only because a review found something.
+That is not a failure rate, it is the review working, but it is predictable enough to act on. From
+the history, a change is likely to draw findings when it touches:
+
+- **An endpoint near auth, tokens, sensitivity or a public download.** Already covered by the
+  security gate above, which is the strongest single predictor in this repository.
+- **A workflow file, `dependabot.yml`, or a `.csproj`.** Supply chain and packaging changes draw
+  findings at roughly the same rate as auth code and nobody expects it.
+- **A test harness helper.** A runner that checks something answered rather than that it was the
+  process it started will pass a whole suite against the wrong tree.
+- **A limit, budget or page size.** The recurring defect is one code path clamping it and another
+  not, and a limit that is hit silently rather than reported.
+- **Two lifetimes that have to agree.** A cache generation that expires while the thing it guards
+  does not.
+- **A guard written separately from the work it protects.** A claim recorded before the work
+  succeeds tells the retry it already happened.
+- **A regular expression over markup, CSS or a URL.** End tags written with a space, a single pass
+  that closes up what it removes, catastrophic backtracking, and `$` tokens in a replacement string
+  have each shipped here.
+
+For each of these the cheapest thing is not a better reviewer. It is a test that crosses the
+boundary before the push, because the same finding after the push costs a push, a CI round, a
+review, a fix, another push and another round.
 
 ## Where the human decides
 
