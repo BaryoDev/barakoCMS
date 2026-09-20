@@ -1318,18 +1318,7 @@ public static class ServiceCollectionExtensions
 
         UseExceptionHandling(app);
 
-        // Forwarded headers, before anything that reads the client IP or the scheme. Only added
-        // when ForwardedHeaders:Enabled names a trusted proxy; see ForwardedHeadersSetup.
-        if (barakoCMS.Infrastructure.Security.ForwardedHeadersSetup.IsEnabled(configuration))
-        {
-            app.UseForwardedHeaders();
-        }
-
-        if (env != "Development")
-        {
-            app.UseHttpsRedirection();
-            app.UseHsts();
-        }
+        UseForwardedHeadersAndHttps(app, configuration, env);
 
         var csp = barakoCMS.Infrastructure.Security.SecurityHeaders.ContentSecurityPolicy(env);
         var healthDashboardCsp =
@@ -1652,6 +1641,22 @@ public static class ServiceCollectionExtensions
                 await context.Response.WriteAsync(barakoCMS.Infrastructure.Security.CanonicalHost.NotConfiguredResponse);
             }
         });
+    }
+
+    private static void UseForwardedHeadersAndHttps(IApplicationBuilder app, IConfiguration configuration, string? env)
+    {
+        // Forwarded headers, before anything that reads the client IP or the scheme. Only added
+        // when ForwardedHeaders:Enabled names a trusted proxy; see ForwardedHeadersSetup.
+        if (barakoCMS.Infrastructure.Security.ForwardedHeadersSetup.IsEnabled(configuration))
+        {
+            app.UseForwardedHeaders();
+        }
+
+        if (env != "Development")
+        {
+            app.UseHttpsRedirection();
+            app.UseHsts();
+        }
     }
 
     /// <summary>
