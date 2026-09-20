@@ -49,30 +49,7 @@ public static class ServiceCollectionExtensions
         AddJobQueue(services);
 
         AddRequestLimits(services, configuration);
-        // Config wins, and the environment supplies the default, so Development keeps Swagger with
-        // no configuration at all while production stays off unless it is asked for. Defaulting to
-        // false everywhere would have removed it for every developer.
-        var swaggerOnByDefault =
-            Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development";
-        if (configuration.GetValue("Swagger:Enabled", swaggerOnByDefault))
-        {
-            services.SwaggerDocument(o =>
-            {
-                // FastEndpoints tags by path segment, and every route here starts /api/, so all but
-                // the three endpoints that tag themselves landed on one tag: "Api". A generator
-                // groups methods by tag, so that document generates one class with every method on
-                // it. Off, and NamespaceTagProcessor tags by namespace instead.
-                o.AutoTagPathSegmentIndex = 0;
-                o.DocumentSettings = s =>
-                    s.OperationProcessors.Add(new barakoCMS.Infrastructure.OpenApi.NamespaceTagProcessor());
-            });
-        }
-
-        // Holds the rendered OpenAPI document per tenant. Registered whether or not Swagger is on,
-        // because the content-type endpoints invalidate it and a constructor dependency that exists
-        // only under a config flag is a startup failure waiting for the first deployment that turns
-        // the flag off. Nothing populates it when Swagger is off, so it costs an empty dictionary.
-        services.AddSingleton<barakoCMS.Infrastructure.OpenApi.DeliveryDocumentCache>();
+        AddOpenApiDocument(services, configuration);
 
         var connectionString = ResolveConnectionString(configuration);
 
@@ -1027,6 +1004,34 @@ public static class ServiceCollectionExtensions
         {
             o.MultipartBodyLengthLimit = maxBodyBytes;
         });
+    }
+
+    private static void AddOpenApiDocument(IServiceCollection services, IConfiguration configuration)
+    {
+        // Config wins, and the environment supplies the default, so Development keeps Swagger with
+        // no configuration at all while production stays off unless it is asked for. Defaulting to
+        // false everywhere would have removed it for every developer.
+        var swaggerOnByDefault =
+            Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development";
+        if (configuration.GetValue("Swagger:Enabled", swaggerOnByDefault))
+        {
+            services.SwaggerDocument(o =>
+            {
+                // FastEndpoints tags by path segment, and every route here starts /api/, so all but
+                // the three endpoints that tag themselves landed on one tag: "Api". A generator
+                // groups methods by tag, so that document generates one class with every method on
+                // it. Off, and NamespaceTagProcessor tags by namespace instead.
+                o.AutoTagPathSegmentIndex = 0;
+                o.DocumentSettings = s =>
+                    s.OperationProcessors.Add(new barakoCMS.Infrastructure.OpenApi.NamespaceTagProcessor());
+            });
+        }
+
+        // Holds the rendered OpenAPI document per tenant. Registered whether or not Swagger is on,
+        // because the content-type endpoints invalidate it and a constructor dependency that exists
+        // only under a config flag is a startup failure waiting for the first deployment that turns
+        // the flag off. Nothing populates it when Swagger is off, so it costs an empty dictionary.
+        services.AddSingleton<barakoCMS.Infrastructure.OpenApi.DeliveryDocumentCache>();
     }
 
     private static readonly Dictionary<string, string> SslModeMap = new(StringComparer.OrdinalIgnoreCase)
