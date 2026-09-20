@@ -43,6 +43,7 @@ half-filled theme renders rather than breaks.
 | `Fonts` | json | Font families by role |
 | `Radii` | json | Corner radii |
 | `Layout` | json | Content widths |
+| `Collections` | json | Content types rendered as lists and detail pages |
 | `OptionColors` | json | A colour per option of a choice field |
 | `Variants` | json | Themes a visitor can switch between |
 | `TopBar` | json | The strip above the header |
@@ -83,12 +84,58 @@ Family names as Google Fonts spells them. The renderer loads them and adds a fal
 
 CSS lengths.
 
-### OptionColors
+### Collections
 
-Keyed by `type.field`, then by option, naming a colour from `Colors`.
+Keyed by a name of the tenant's choosing, each entry a content type rendered as a list and a detail
+page: a hospital's doctors, a law firm's people, an association's events. This is the shape
+barakoPress reads (BaryoDev/barakoPress#5); a key that does not read as one below is left out whole
+rather than half applied.
 
 ```json
-{ "project.AreaOfFocus": { "Providing clean water": "sky", "Supporting education": "gold" } }
+{
+  "events": {
+    "type": "event",
+    "route": "/events",
+    "fields": {
+      "title": "Title",
+      "slug": "Slug",
+      "summary": "Description",
+      "date": "StartDate",
+      "image": "CoverImage",
+      "tags": "Tags"
+    },
+    "sort": "-StartDate",
+    "colorBy": "EntryType",
+    "label": "Upcoming events",
+    "noun": ["event", "events"]
+  }
+}
+```
+
+| Key | What |
+| :--- | :--- |
+| `type` | Required. The content type holding the items |
+| `route` | The index is served here, an item at `{route}/{slug}`. Absent, items are listed but never linked |
+| `fields.title` | Required. A field name, or several tried in order until one holds a value |
+| `fields.slug`, `summary`, `body`, `date`, `image`, `imageAlt`, `featured`, `tags`, `url`, `photo`, `progress` | Optional field roles, each the same shape as `title` |
+| `references` | Reference fields by field name, for example `{ "Speaker": { "collection": "person", "label": "with" } }` |
+| `sort` | Sent to the API as is, for example `-StartDate` |
+| `feed`, `sitemap`, `index` | Booleans. `feed` is off, `sitemap` and `index` are on, unless said otherwise |
+| `pageSize` | Items on its index, 1 to 100 |
+| `label`, `noun` | The index heading, and a singular and plural for a count, for example `["event", "events"]` |
+| `colorBy` | A choice field whose option colours the item, resolved through `OptionColors` below |
+| `related` | `"reference"`, `"semantic"`, or `false`. `"reference"` unless set |
+| `readingTime` | Shows a read time worked out from the body |
+| `layout` | `"list"` or `"article"`. `"list"` unless set |
+| `tree` | Turns the collection into a documentation manual: field names for `section`, `order`, `parent` and `product`, plus `sections`, `products`, `searchPath`, `editBase`, `editPath` and `limit` for the sidebar and product switcher |
+
+### OptionColors
+
+Keyed by `type.field`, then by option, naming a colour from `Colors`. The `events` collection above
+colours its `EntryType` choice field this way:
+
+```json
+{ "project.AreaOfFocus": { "Providing clean water": "sky", "Supporting education": "gold" }, "event.EntryType": { "Fundraiser": "gold", "Outreach": "sky" } }
 ```
 
 ### Variants

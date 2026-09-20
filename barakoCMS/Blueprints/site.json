@@ -25,6 +25,7 @@
         { "name": "Layout", "displayName": "Widths", "type": "json" },
         { "name": "Space", "displayName": "Spacing scale", "type": "json" },
         { "name": "Text", "displayName": "Type scale", "type": "json" },
+        { "name": "Collections", "displayName": "Collections", "type": "json" },
         { "name": "OptionColors", "displayName": "Colours per option", "type": "json" },
         { "name": "Variants", "displayName": "Visitor theme variants", "type": "json" },
         { "name": "TopBar", "displayName": "Top bar", "type": "json" },

@@ -130,6 +130,65 @@ public class SiteBlueprintTests
     }
 
     [Fact]
+    public async Task Applying_site_creates_a_json_collections_field()
+    {
+        var client = await AdminInAsync(await TenantAsync());
+
+        (await client.PostAsync("/api/content-types/blueprints/site", null, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var types = await client.GetAsync("/api/content-types?pageSize=100", Ct);
+        using var doc = JsonDocument.Parse(await types.Content.ReadAsStringAsync(Ct));
+        var site = doc.RootElement.GetProperty("items").EnumerateArray().Single(i => i.GetProperty("name").GetString() == "site");
+        var fields = site.GetProperty("fields").EnumerateArray()
+            .ToDictionary(f => f.GetProperty("name").GetString()!, f => f);
+        fields.Should().ContainKey("Collections");
+        fields["Collections"].GetProperty("type").GetString().Should().Be("json");
+        fields["Collections"].GetProperty("isRequired").GetBoolean().Should().BeFalse("a tenant with no collections behaves exactly as it does today");
+    }
+
+    [Fact]
+    public async Task A_published_sites_collections_setting_round_trips_in_the_shape_barakoPress_reads()
+    {
+        var tenant = await TenantAsync();
+        var admin = await AdminInAsync(tenant);
+        (await admin.PostAsync("/api/content-types/blueprints/site", null, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+        var data = (Dictionary<string, object>)SiteData("Events club");
+        data["Collections"] = new Dictionary<string, object>
+        {
+            ["events"] = new Dictionary<string, object>
+            {
+                ["type"] = "event",
+                ["route"] = "/events",
+                ["fields"] = new Dictionary<string, object>
+                {
+                    ["title"] = "Title",
+                    ["date"] = "StartDate",
+                },
+                ["sort"] = "-StartDate",
+                ["colorBy"] = "EntryType",
+            },
+        };
+        var created = await admin.PostAsJsonAsync("/api/contents", new { contentType = "site", data }, Ct);
+        created.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", created.StatusCode, await created.Content.ReadAsStringAsync(Ct));
+        using (var createdBody = JsonDocument.Parse(await created.Content.ReadAsStringAsync(Ct)))
+        {
+            await PublishAsync(admin, createdBody.RootElement.GetProperty("id").GetGuid());
+        }
+
+        var live = await AnonymousIn(tenant).GetAsync("/api/public/site", Ct);
+
+        live.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var body = JsonDocument.Parse(await live.Content.ReadAsStringAsync(Ct));
+        var items = body.RootElement.GetProperty("items");
+        items.GetArrayLength().Should().Be(1);
+        var events = items[0].GetProperty("data").GetProperty("Collections").GetProperty("events");
+        events.GetProperty("type").GetString().Should().Be("event");
+        events.GetProperty("route").GetString().Should().Be("/events");
+        events.GetProperty("colorBy").GetString().Should().Be("EntryType");
+        events.GetProperty("fields").GetProperty("date").GetString().Should().Be("StartDate");
+    }
+
+    [Fact]
     public async Task A_second_site_entry_in_the_same_tenant_is_refused()
     {
         var client = await AdminInAsync(await TenantAsync());
