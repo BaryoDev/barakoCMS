@@ -93,18 +93,7 @@ public static class ServiceCollectionExtensions
 
         AddBackgroundServices(services, configuration);
 
-        // Forwarded headers. Off unless configured, because reading X-Forwarded-For from an
-        // untrusted peer would let a caller choose the IP the rate limiter partitions on.
-        if (barakoCMS.Infrastructure.Security.ForwardedHeadersSetup.IsEnabled(configuration))
-        {
-            // Run the same parse once here so a bad proxy list stops the host at startup rather
-            // than on the first request that happens to resolve the options.
-            barakoCMS.Infrastructure.Security.ForwardedHeadersSetup.Configure(
-                new Microsoft.AspNetCore.Builder.ForwardedHeadersOptions(), configuration);
-
-            services.Configure<Microsoft.AspNetCore.Builder.ForwardedHeadersOptions>(
-                options => barakoCMS.Infrastructure.Security.ForwardedHeadersSetup.Configure(options, configuration));
-        }
+        AddForwardedHeaders(services, configuration);
 
         // Rate limiting. Read and validated here so a bad value stops the host before anything else
         // starts. The renderer key is never logged; see RateLimitSetup.
@@ -1169,6 +1158,22 @@ public static class ServiceCollectionExtensions
         if (barakoCMS.Infrastructure.Sync.CollectionSyncService.IsEnabled(configuration))
         {
             services.AddHostedService<barakoCMS.Infrastructure.Sync.CollectionSyncService>();
+        }
+    }
+
+    private static void AddForwardedHeaders(IServiceCollection services, IConfiguration configuration)
+    {
+        // Forwarded headers. Off unless configured, because reading X-Forwarded-For from an
+        // untrusted peer would let a caller choose the IP the rate limiter partitions on.
+        if (barakoCMS.Infrastructure.Security.ForwardedHeadersSetup.IsEnabled(configuration))
+        {
+            // Run the same parse once here so a bad proxy list stops the host at startup rather
+            // than on the first request that happens to resolve the options.
+            barakoCMS.Infrastructure.Security.ForwardedHeadersSetup.Configure(
+                new Microsoft.AspNetCore.Builder.ForwardedHeadersOptions(), configuration);
+
+            services.Configure<Microsoft.AspNetCore.Builder.ForwardedHeadersOptions>(
+                options => barakoCMS.Infrastructure.Security.ForwardedHeadersSetup.Configure(options, configuration));
         }
     }
 
