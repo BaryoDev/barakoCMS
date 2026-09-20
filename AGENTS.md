@@ -15,7 +15,8 @@ is one source of truth rather than three that drift.
 
 ## The short version
 
-Full detail is in `CLAUDE.md`. The rules people break most often:
+Full detail is in `CLAUDE.md`. The rules broken most often, in the order they have actually cost
+time rather than in the order they seem important:
 
 1. **A bug fix ships with a test that failed before the fix.** Write it first, or revert your change
    and confirm the test goes red. A test that passes both ways proves nothing.
@@ -30,7 +31,19 @@ Full detail is in `CLAUDE.md`. The rules people break most often:
 6. **Integration tests need Docker.** `DockerUnavailableException` across many tests means Docker
    is not running, not that you broke something.
 7. **Public API is compiled against by other people.** Within a major version, add an overload and
-   obsolete the old member rather than changing a signature.
+   obsolete the old member rather than changing a signature. Since 4.3.0 that surface is an
+   assembly, `BarakoCMS.Abstractions`, not a paragraph: a test fails if it ever references the core.
+   See D35 in `DECISIONS.md`.
+8. **Run `scripts/preflight.sh`, not the one gate you have in mind.** It runs every gate in order:
+   a locked restore before any build, the named test classes, the holdout check, changelog
+   fragments, both version gates and the house style scan. A check that demands a change and a
+   check that consumes it are different checks, and the second is the one nobody thinks of. That
+   distinction broke the default branch once: bumping a module version to satisfy one gate left
+   three pinned versions disagreeing, which only the other gate reads, and which CI does not run at
+   all.
+9. **Work in your own git worktree.** Two agents sharing a checkout is not a theoretical problem.
+   One moved the other off its branch mid-edit, and two test runs on a fixed port drove each
+   other's code, which is how a pack goes green about a branch it never loaded.
 
 ## Enforcement
 

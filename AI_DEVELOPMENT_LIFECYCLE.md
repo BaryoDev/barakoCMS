@@ -12,7 +12,7 @@ the checklist in "Shipping a feature, step by step" and use the rest as referenc
 
 An agent produces plausible code quickly. Plausible is not correct. The lifecycle closes that gap:
 
-- **Tests gate every promotion.** Not "the model says it's fine" — the suite runs, red stops the line.
+- **Tests gate every promotion.** Not "the model says it's fine", the suite runs, red stops the line.
 - **Prove it locally first.** Unit and integration tests run on your machine before the branch is
   pushed. CI is the backstop, not the first discovery.
 - **A breakable tier absorbs mistakes.** New builds land on dev-playground first, on an empty
@@ -22,7 +22,7 @@ An agent produces plausible code quickly. Plausible is not correct. The lifecycl
   went green.
 
 That last point is not hypothetical. `AutoCreate.None` looked correct in review and passed on every
-existing environment — because they already had schema. Standing up dev-playground on an empty
+existing environment, because they already had schema. Standing up dev-playground on an empty
 database is what surfaced the boot crash (`relation "mt_doc_roles" does not exist`) before a real
 user hit it. Writing the field-types e2e is what surfaced a dashboard crash on partial metrics data.
 The process finds the bugs; that is the point of it.
@@ -31,7 +31,7 @@ The process finds the bugs; that is the point of it.
 
 A generated endpoint compiles, returns 200, and looks complete. That is where the review starts, not
 where it ends. "Working" and "production-ready" are different claims, and the gap is always the same
-short list of things the first draft leaves out. Every change runs against this checklist — some by an
+short list of things the first draft leaves out. Every change runs against this checklist: some by an
 adversarial review sub-agent, some by tests, some by a human looking at the real artifact.
 
 | What the draft usually omits | How we catch it | Caught here, for real |
@@ -58,11 +58,11 @@ Two rules hold the checklist together:
 
 | Tier | URL | Purpose | Deploy trigger |
 |---|---|---|---|
-| **dev-playground** | dev-playground.baryo.dev | Breakable staging. Break it freely. | Push to `dev` |
+| **dev-playground** | dev-playground.baryo.dev | Breakable staging. Break it freely. | Push to a branch |
 | **playground** | playground.baryo.dev | Public demo. Released versions only. | Version-gated `master` release |
 | **production** | (private) | Real user data. | By hand, on purpose |
 
-Production is never in the automated pipeline — real people, separate blast radius. Do not wire it in.
+Production is never in the automated pipeline. Real people, separate blast radius. Do not wire it in.
 
 ## The loop
 
@@ -95,10 +95,10 @@ A checklist. The field-types feature (F.1/F.2) is the worked example throughout.
 Write the feature and its tests together, then run everything on your machine. Nothing is pushed
 until this is green.
 
-- **Backend unit tests** for the logic, edge cases included — malformed input, boundaries, aliases,
+- **Backend unit tests** for the logic, edge cases included: malformed input, boundaries, aliases,
   empty values. Example: `FieldTypeRegistryTests` checks each new type's format, the parity between
   validators, and JsonElement handling.
-- **Backend integration tests** for the API path, against a real Postgres (Testcontainers) — no
+- **Backend integration tests** for the API path, against a real Postgres (Testcontainers), with no
   mocking your own layer. Example: `ValidationIntegrationTests` posts to the real `/api/content-types`
   and `/api/contents`, asserting a valid value is accepted (200) and a malformed one rejected (400).
 
@@ -112,7 +112,7 @@ Rule of thumb: **whatever you'll later verify by hand on dev-playground, pin it 
 #### Security-sensitive changes get an extra gate
 
 A change is security-sensitive when it touches **authentication, tokens, permissions, tenancy,
-secrets, or crypto**, OR when it **exposes data anonymously or publicly**: a new unauthenticated
+secrets, or crypto** OR when it **exposes data anonymously or publicly**: a new unauthenticated
 endpoint, or any change to which fields or documents leave the API. That last trigger is easy to miss
 because it isn't "auth" in the usual sense, but the public content delivery API was exactly this, and
 the review caught two high-severity data leaks in it. If a change widens what an untrusted caller can
@@ -147,12 +147,12 @@ ship it.
 Work on a branch off `dev`. Push it and open a PR. CI (`ci.yml`) runs on every push (except master)
 and every PR:
 
-- **Backend** — build + full `dotnet test` (Testcontainers Postgres).
-- **Security** — gitleaks secret scan + a vulnerable-dependency report (both report-only for now;
+- **Backend.** Build plus the full `dotnet test` run, with Testcontainers Postgres.
+- **Security.** A gitleaks secret scan + a vulnerable-dependency report (both report-only for now;
   see the security note below).
 
 Red blocks the merge (the security job is informational until its backlogs are cleared). It is the same gate for a person or an agent. These are the same tests that
-already passed locally — CI confirms, it does not discover.
+already passed locally, CI confirms, it does not discover.
 
 ### 2. Merge to `dev` → dev-playground
 
@@ -160,7 +160,7 @@ Merging to `dev` triggers `deploy-dev-playground.yml`:
 
 1. Run the test suite again (a merge is not a PR).
 2. Build the `:dev` suite image natively on an arm64 runner (the Ampere VM is arm64; no QEMU).
-3. Deploy over SSH with a **forced-command key** — the key in `authorized_keys` can only run
+3. Deploy over SSH with a **forced-command key**. The key in `authorized_keys` can only run
    `/home/opc/deploy-dev-playground.sh`, nothing else, so a leaked key can't open a shell. The script
    pulls the image, recreates the stack, and fails unless the API answers 200.
 4. **Smoke test** (`scripts/smoke-test.sh`, write tier): log in, create a content type, post a valid
@@ -179,19 +179,19 @@ which tenant the data came from. Screenshots of the console are barakoBrew's job
 
 The single source of truth for a release is `<Version>` in `barakoCMS/barakoCMS.csproj`:
 
-- **Bump it** in the PR — merging to master publishes that version and promotes it to playground.
-- **Leave it unchanged** — the master merge is a no-op; the gate sees the version is already on
+- **Bump it** in the pull request. Merging to master publishes that version and promotes it to playground.
+- **Leave it unchanged.** The master merge is a no-op, because the gate sees the version is already on
   NuGet and stops.
 
 No auto-bumping. A merge never publishes by surprise, and a published version's Docker tags are never
 overwritten with different bits. **To ship, bump the version.** Update `CHANGELOG.md` in the same PR.
 
-Open the PR from `dev` to `master` and merge it with a **merge commit** (not squash — `dev` is
+Open the PR from `dev` to `master` and merge it with a **merge commit** (not squash, `dev` is
 long-lived; see Branch model). When the version is new, `release.yml`:
 
-1. **Gate** — read the version, check NuGet, decide if there's anything to release.
-2. **Test** — the suite, once more.
-3. **Publish** — core + 11 modules to NuGet.org and GitHub Packages; Docker images
+1. **Gate.** Read the version, check NuGet, decide if there's anything to release.
+2. **Test.** Run the suite once more.
+3. **Publish.** Core and 11 modules to NuGet.org and GitHub Packages; Docker images
    (`barako-cms`, `barako-cms-decaf`) for amd64 and arm64, mirrored to Docker Hub.
 4. **Build arm64 `:playground` images** on an arm64 runner, so the VM runs them natively.
 5. **Deploy** the full stack to playground via forced command, verify 200, then a read-only smoke
@@ -202,7 +202,7 @@ long-lived; see Branch model). When the version is new, `release.yml`:
 ## What CI runs (`ci.yml`)
 
 - **backend**: `dotnet build` + `dotnet test` (unit + integration, real Postgres).
-- **security**: gitleaks secret scan + `dotnet list package --vulnerable`. Both report-only for now —
+- **security**: gitleaks secret scan + `dotnet list package --vulnerable`. Both report-only for now , 
   dev-only secrets still live in git history (roadmap 0.4) and there's a dependency backlog to burn
   down. Flip gitleaks to a hard gate once history is scrubbed.
 
@@ -210,9 +210,9 @@ long-lived; see Branch model). When the version is new, `release.yml`:
 
 Runs after every deploy. Tiers, each gated on the previous:
 
-1. Always — `/health` returns 200 (app up, DB reachable) and `/api/schemas` returns 401 (API routing live, anonymous still refused).
-2. With `SMOKE_USER`/`SMOKE_PASS` — login returns a token (auth works).
-3. With `SMOKE_WRITE=1` — create a content type with an email field, post a valid entry (200) and a
+1. Always, `/health` returns 200 (app up, DB reachable) and `/api/schemas` returns 401 (API routing live, anonymous still refused).
+2. With `SMOKE_USER`/`SMOKE_PASS`, login returns a token (auth works).
+3. With `SMOKE_WRITE=1`, create a content type with an email field, post a valid entry (200) and a
    malformed one (400). **Write tier only where test data is fine (dev-playground), never the public
    demo.** The release runs the read-only tiers against playground.
 
@@ -224,31 +224,80 @@ SMOKE_USER=dev_admin SMOKE_PASS=… SMOKE_WRITE=1 \
 ## Rollback
 
 Every release pushes immutable `:playground-<version>` images. To roll back, run the **Rollback
-playground** workflow (`rollback-playground.yml`) with the target version — it repoints the moving
+playground** workflow (`rollback-playground.yml`) with the target version, it repoints the moving
 `:playground` tag at that version (no rebuild), redeploys, and smoke-tests. Boring and fast.
 
-NuGet versions are immutable and can't be cleanly unpublished — which is *why* publishing is gated
+NuGet versions are immutable and can't be cleanly unpublished, which is *why* publishing is gated
 behind a deliberate version bump. The fix for a bad package release is a new, higher version.
 
 ## Branch model
 
-- `dev` is **long-lived**. Feature branches merge into it; it auto-deploys to dev-playground.
-- Release = a `dev → master` PR merged with a **merge commit**, then sync `dev` back so the next
-  cycle starts aligned:
+**Trunk based, through a merge queue.** A feature branch is cut from `master`, opens a pull request
+against `master`, and merges through the queue, which rebuilds the batch against master before
+letting anything in. There is no promotion step and no long-lived integration branch.
 
-  ```bash
-  git checkout master && git pull
-  git checkout dev && git merge master && git push   # keep dev == master
-  ```
+`dev` still exists as a ref and is dead: 799 commits behind and last moved on 30 July 2026. CI's
+pull request trigger only fires on pull requests targeting `master`, so a branch cut from `dev`
+gets a two month old tree and a pull request nothing runs. Do not use it. It is kept only because
+deleting a branch that old is a separate decision from documenting that nobody uses it.
 
-- Never squash `dev → master` (it diverges the two branches). Squash is fine for a feature branch
-  into `dev`.
+Release is a version bump on `master` plus `release.yml`, which refuses to publish a version already
+on the registry, so a merge that forgets the bump is a no-op rather than a bad publish.
+
+## Guardrails
+
+The rules are scripts, not paragraphs, because an instruction in a prompt is forgotten within a day
+and a script is not.
+
+| Script | What it refuses |
+|---|---|
+| `scripts/preflight.sh` | The single entry point. Locked restore before any build, the named test classes, the holdout check, changelog fragments, both version gates, the house style scan. Run this, not whichever gate seems relevant: a check that demands a change and a check that consumes it are different checks, and the second is the one nobody thinks of. |
+| `scripts/holdout.sh` | A test that passes with and without the change it claims to cover. Each declared test is bound to the hunk it covers, the hunk is reverted, and the test has to fail. |
+| `scripts/needs-review.sh` | Nothing. It is advisory and always exits 0, printing one line per rule the diff fires so a reviewer knows where to look. |
+| `scripts/sync-master.sh` | A merge left half done, and a lock file left stale after a project file changed. |
+| `scripts/check-module-versions.sh` | A module whose source changed without its version moving, which the release would silently drop. |
+| `scripts/check-pinned-versions.sh` | The core, the template package and the version a scaffolded module targets disagreeing. CI does not run this one, which is how it broke master unnoticed. |
+| `.claude/hooks/` | Inline and floating package versions, and AI attribution in a commit message. These run on every machine, which is why changes to them need review. |
+
+## Running agents over a backlog
+
+This document is what the process is. [The lean agent method](https://github.com/arnelirobles/lean-agent-method)
+is how to run agents through it without burning a plan in a night: triage tiers, a cheaper model
+drafting with an adversarial critic on every change, at most four changes in flight, and cost
+measured per change rather than per token. The two are deliberately separate. Change the process
+here; change how agents are driven there.
+
+## What draws review findings, and what to do before pushing
+
+Twelve percent of commits across the three repositories exist only because a review found something.
+That is not a failure rate, it is the review working, but it is predictable enough to act on. From
+the history, a change is likely to draw findings when it touches:
+
+- **An endpoint near auth, tokens, sensitivity or a public download.** Already covered by the
+  security gate above, which is the strongest single predictor in this repository.
+- **A workflow file, `dependabot.yml`, or a `.csproj`.** Supply chain and packaging changes draw
+  findings at roughly the same rate as auth code and nobody expects it.
+- **A test harness helper.** A runner that checks something answered rather than that it was the
+  process it started will pass a whole suite against the wrong tree.
+- **A limit, budget or page size.** The recurring defect is one code path clamping it and another
+  not, and a limit that is hit silently rather than reported.
+- **Two lifetimes that have to agree.** A cache generation that expires while the thing it guards
+  does not.
+- **A guard written separately from the work it protects.** A claim recorded before the work
+  succeeds tells the retry it already happened.
+- **A regular expression over markup, CSS or a URL.** End tags written with a space, a single pass
+  that closes up what it removes, catastrophic backtracking, and `$` tokens in a replacement string
+  have each shipped here.
+
+For each of these the cheapest thing is not a better reviewer. It is a test that crosses the
+boundary before the push, because the same finding after the push costs a push, a CI round, a
+review, a fix, another push and another round.
 
 ## Where the human decides
 
 The pipeline is automated; the judgment is not. A person, not the agent, decides:
 
-- **When to cut a release** — by bumping the version. Publishing to NuGet is irreversible and
+- **When to cut a release** by bumping the version. Publishing to NuGet is irreversible and
   outward-facing, so it is deliberate, never a side effect of merging.
 - **What "stable enough" means** on dev-playground before promotion.
 - **Anything touching the club.**
