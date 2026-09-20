@@ -1334,48 +1334,7 @@ public static class ServiceCollectionExtensions
 
         UseOutputCaching(app);
 
-        // Global pre/post processors come from DI, so modules can contribute their own (e.g. the
-        // DeviceTrust enforcement pre-processor) simply by registering IGlobalPreProcessor/PostProcessor.
-        var globalPreProcessors = app.ApplicationServices.GetServices<FastEndpoints.IGlobalPreProcessor>().ToArray();
-        var globalPostProcessors = app.ApplicationServices.GetServices<FastEndpoints.IGlobalPostProcessor>().ToArray();
-        app.UseFastEndpoints(c =>
-        {
-            // AllowDuplicateErrors keeps every failure that shares a field name. Without it a
-            // content type with three bad fields reports one of them, so the caller fixes it, posts
-            // again and is told about the next one.
-            c.Errors.UseProblemDetails(x => x.AllowDuplicateErrors = true);
-
-            // Deserialize incoming Dictionary<string, object> bodies (a content entry's Data, a
-            // permission rule's Conditions) exactly the way they are stored — see ObjectJsonConverter.
-            // Without this the two halves disagree: money in a request body would arrive as double
-            // while the same value round-trips from Postgres as decimal, and nested values would
-            // arrive as raw JsonElement, so a lifecycle hook validating a request could not read the
-            // payload it is meant to be guarding.
-            c.Serializer.Options.Converters.Add(
-                new barakoCMS.Infrastructure.Serialization.ObjectJsonConverter());
-
-            // Enums cross the wire as names, not numbers. An int enum renumbers every client the
-            // moment a member is inserted, and the admin had the numbering transcribed into its own
-            // source to cope.
-            //
-            // This is the HTTP serializer only. The Marten one above must NOT get this converter:
-            // documents are stored with Status as a number and mt_doc_contents_idx_status indexes
-            // ((data ->> 'Status')::integer), so writing names there breaks the index cast and every
-            // LINQ query that filters on it. Changing storage is a data migration, not a contract
-            // change. Reading still accepts a number, so an existing caller keeps working.
-            c.Serializer.Options.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
-
-            c.Serializer.RequestDeserializer =
-                barakoCMS.Infrastructure.Serialization.BodilessRequestDeserializer.Create(c.Serializer.Options);
-
-            c.Endpoints.Configurator = ep =>
-            {
-                if (globalPreProcessors.Length > 0)
-                    ep.PreProcessors(Order.Before, globalPreProcessors);
-                if (globalPostProcessors.Length > 0)
-                    ep.PostProcessors(Order.After, globalPostProcessors);
-            };
-        });
+        UseFastEndpointsPipeline(app);
 
         // Starts one worker per command type. Every instance runs workers; the provider's lease
         // is what stops two of them running the same job.
@@ -1687,6 +1646,52 @@ public static class ServiceCollectionExtensions
         app.UseWhen(
             context => !barakoCMS.Infrastructure.Health.HealthProbePaths.IsHealthPath(context.Request.Path.Value),
             branch => branch.UseOutputCache());
+    }
+
+    private static void UseFastEndpointsPipeline(IApplicationBuilder app)
+    {
+        // Global pre/post processors come from DI, so modules can contribute their own (e.g. the
+        // DeviceTrust enforcement pre-processor) simply by registering IGlobalPreProcessor/PostProcessor.
+        var globalPreProcessors = app.ApplicationServices.GetServices<FastEndpoints.IGlobalPreProcessor>().ToArray();
+        var globalPostProcessors = app.ApplicationServices.GetServices<FastEndpoints.IGlobalPostProcessor>().ToArray();
+        app.UseFastEndpoints(c =>
+        {
+            // AllowDuplicateErrors keeps every failure that shares a field name. Without it a
+            // content type with three bad fields reports one of them, so the caller fixes it, posts
+            // again and is told about the next one.
+            c.Errors.UseProblemDetails(x => x.AllowDuplicateErrors = true);
+
+            // Deserialize incoming Dictionary<string, object> bodies (a content entry's Data, a
+            // permission rule's Conditions) exactly the way they are stored — see ObjectJsonConverter.
+            // Without this the two halves disagree: money in a request body would arrive as double
+            // while the same value round-trips from Postgres as decimal, and nested values would
+            // arrive as raw JsonElement, so a lifecycle hook validating a request could not read the
+            // payload it is meant to be guarding.
+            c.Serializer.Options.Converters.Add(
+                new barakoCMS.Infrastructure.Serialization.ObjectJsonConverter());
+
+            // Enums cross the wire as names, not numbers. An int enum renumbers every client the
+            // moment a member is inserted, and the admin had the numbering transcribed into its own
+            // source to cope.
+            //
+            // This is the HTTP serializer only. The Marten one above must NOT get this converter:
+            // documents are stored with Status as a number and mt_doc_contents_idx_status indexes
+            // ((data ->> 'Status')::integer), so writing names there breaks the index cast and every
+            // LINQ query that filters on it. Changing storage is a data migration, not a contract
+            // change. Reading still accepts a number, so an existing caller keeps working.
+            c.Serializer.Options.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+
+            c.Serializer.RequestDeserializer =
+                barakoCMS.Infrastructure.Serialization.BodilessRequestDeserializer.Create(c.Serializer.Options);
+
+            c.Endpoints.Configurator = ep =>
+            {
+                if (globalPreProcessors.Length > 0)
+                    ep.PreProcessors(Order.Before, globalPreProcessors);
+                if (globalPostProcessors.Length > 0)
+                    ep.PostProcessors(Order.After, globalPostProcessors);
+            };
+        });
     }
 
     /// <summary>
