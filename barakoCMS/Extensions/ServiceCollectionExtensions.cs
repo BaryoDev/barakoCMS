@@ -80,10 +80,7 @@ public static class ServiceCollectionExtensions
         AddWorkflowRunner(services);
 
         AddContentEvents(services);
-        services.AddHostedService<barakoCMS.Features.Workflows.WorkflowRunRetentionService>();
-        services.AddHostedService<barakoCMS.Features.Workflows.WorkflowCredentialMigrationService>();
-        services.AddHostedService<barakoCMS.Features.Workflows.WorkflowExecutionLogRedactionService>();
-        services.AddHostedService<barakoCMS.Features.WebhookDeliveries.WebhookDeliveryRetentionService>();
+        AddRetentionServices(services);
         services.AddScoped<barakoCMS.Infrastructure.Auth.Mfa.IMfaService, barakoCMS.Infrastructure.Auth.Mfa.MfaService>();
         // Device trust is opt-in: the default gate does nothing. The DeviceTrust module overrides it.
         services.TryAddScoped<barakoCMS.Core.Interfaces.IDeviceGate, barakoCMS.Core.Interfaces.NoopDeviceGate>();
@@ -1130,6 +1127,14 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<barakoCMS.Features.Public.Events.ContentChangeBroadcaster>();
         services.AddSingleton(sp => barakoCMS.Features.Public.Events.ContentEventsOptions.FromConfiguration(
             sp.GetRequiredService<IConfiguration>()));
+    }
+
+    private static void AddRetentionServices(IServiceCollection services)
+    {
+        services.AddHostedService<barakoCMS.Features.Workflows.WorkflowRunRetentionService>();
+        services.AddHostedService<barakoCMS.Features.Workflows.WorkflowCredentialMigrationService>();
+        services.AddHostedService<barakoCMS.Features.Workflows.WorkflowExecutionLogRedactionService>();
+        services.AddHostedService<barakoCMS.Features.WebhookDeliveries.WebhookDeliveryRetentionService>();
     }
 
     private static readonly Dictionary<string, string> SslModeMap = new(StringComparer.OrdinalIgnoreCase)
