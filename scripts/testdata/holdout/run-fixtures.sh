@@ -46,6 +46,10 @@ public class Added {
     public int Value => 1;
 }
 CS
+  mkdir -p BarakoCMS.Tests
+  cat > BarakoCMS.Tests/RedeemTests.cs <<'CS'
+public class RedeemTests { }
+CS
   git add -A && git commit -qm "reject revoked keys and add a new file"
 ) >/dev/null 2>&1
 
@@ -93,6 +97,9 @@ spec allunt    '```holdout
 - untested: barakoCMS/Features/Added.cs #1
   why: added outright
 ```'
+spec nonenotests '```holdout
+none: a refactor with no new tests
+```'
 spec nonelie   '```holdout
 none: claiming nothing while the diff touches production
 ```'
@@ -129,6 +136,7 @@ check "ordinal out of range"    2 outrange
 check "malformed block line"    2 junk
 check "binding to a new file"   2 newfile
 check "none over real changes"  2 nonelie
+check "none, tests added"       2 nonenotests
 check "none plus a binding"     2 noneplus
 check "every hunk untested"     0 allunt
 check "no holdout block"        2 noblock
