@@ -27,17 +27,10 @@ namespace barakoCMS.Features.Public.Events;
 /// Nothing may escape. This runs inside the caller's SaveChangesAsync after the transaction has
 /// committed, and a failure here would report a write that succeeded as one that did not.
 /// </remarks>
-internal sealed class ContentChangeListener : DocumentSessionListenerBase
+internal sealed class ContentChangeListener(
+    ContentChangeBroadcaster broadcaster,
+    ILogger<ContentChangeListener> logger) : DocumentSessionListenerBase
 {
-    private readonly ContentChangeBroadcaster _broadcaster;
-    private readonly ILogger<ContentChangeListener> _logger;
-
-    public ContentChangeListener(ContentChangeBroadcaster broadcaster, ILogger<ContentChangeListener> logger)
-    {
-        _broadcaster = broadcaster;
-        _logger = logger;
-    }
-
     public override async Task AfterCommitAsync(IDocumentSession session, IChangeSet commit, CancellationToken token)
     {
         try
@@ -46,7 +39,7 @@ internal sealed class ContentChangeListener : DocumentSessionListenerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Content event stream failed to broadcast a committed change; the write itself succeeded");
+            logger.LogError(ex, "Content event stream failed to broadcast a committed change; the write itself succeeded");
         }
     }
 
@@ -61,7 +54,7 @@ internal sealed class ContentChangeListener : DocumentSessionListenerBase
         // One session, one tenant. Read from the event rather than the session so the slug is the
         // one the write was recorded under, which is also the key a subscriber registered with.
         var tenant = TenantScopes.SlugFor(events[0].TenantId);
-        if (!_broadcaster.HasSubscribers(tenant))
+        if (!broadcaster.HasSubscribers(tenant))
         {
             return;
         }
@@ -105,7 +98,7 @@ internal sealed class ContentChangeListener : DocumentSessionListenerBase
                 var name = stream.Any(e => BecamePublic(e.Data))
                     ? ContentChangeEvents.Published
                     : ContentChangeEvents.Updated;
-                _broadcaster.Publish(tenant, new ContentChange(
+                broadcaster.Publish(tenant, new ContentChange(
                     name, projected.Id, projected.ContentType, projected.Slug, projected));
                 continue;
             }
@@ -116,7 +109,7 @@ internal sealed class ContentChangeListener : DocumentSessionListenerBase
             if (stream.Any(e => LeftPublic(e.Data))
                 && await WasPublicBeforeAsync(session, stream.Key, stream, def!, slugField, token))
             {
-                _broadcaster.Publish(tenant, new ContentChange(
+                broadcaster.Publish(tenant, new ContentChange(
                     ContentChangeEvents.Unpublished,
                     content.Id,
                     content.ContentType,

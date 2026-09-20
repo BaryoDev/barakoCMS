@@ -17,15 +17,8 @@ internal class UpdateSettingResponse
     public string Message { get; set; } = string.Empty;
 }
 
-internal class UpdateSettingEndpoint : Endpoint<UpdateSettingRequest, UpdateSettingResponse>
+internal class UpdateSettingEndpoint(IDocumentSession session) : Endpoint<UpdateSettingRequest, UpdateSettingResponse>
 {
-    private readonly IDocumentSession _session;
-
-    public UpdateSettingEndpoint(IDocumentSession session)
-    {
-        _session = session;
-    }
-
     public override void Configure()
     {
         Post("/api/settings");
@@ -60,7 +53,7 @@ internal class UpdateSettingEndpoint : Endpoint<UpdateSettingRequest, UpdateSett
         }
 
         // Find existing setting or create new
-        var setting = await _session.Query<SystemSetting>()
+        var setting = await session.Query<SystemSetting>()
             .FirstOrDefaultAsync(s => s.Key == req.Key, ct);
 
         if (setting == null)
@@ -75,17 +68,17 @@ internal class UpdateSettingEndpoint : Endpoint<UpdateSettingRequest, UpdateSett
                 Description = GetDescription(req.Key),
                 UpdatedAt = DateTime.UtcNow
             };
-            _session.Store(setting);
+            session.Store(setting);
         }
         else
         {
             // Update existing
             setting.Value = req.Value;
             setting.UpdatedAt = DateTime.UtcNow;
-            _session.Update(setting);
+            session.Update(setting);
         }
 
-        await _session.SaveChangesAsync(ct);
+        await session.SaveChangesAsync(ct);
 
         await Send.ResponseAsync(new UpdateSettingResponse
         {

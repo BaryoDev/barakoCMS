@@ -10,15 +10,9 @@ internal class Request : PaginatedRequest
     // No additional filters for roles list
 }
 
-internal class Endpoint : Endpoint<Request, PaginatedResponse<barakoCMS.Features.Roles.RoleResponse>>
+internal class Endpoint(
+    IDocumentSession session) : Endpoint<Request, PaginatedResponse<barakoCMS.Features.Roles.RoleResponse>>
 {
-    private readonly IDocumentSession _session;
-
-    public Endpoint(IDocumentSession session)
-    {
-        _session = session;
-    }
-
     public override void Configure()
     {
         Get("/api/roles");
@@ -27,7 +21,7 @@ internal class Endpoint : Endpoint<Request, PaginatedResponse<barakoCMS.Features
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        var query = _session.Query<Role>().AsQueryable();
+        var query = session.Query<Role>().AsQueryable();
 
         // Get total count
         var totalCount = await query.CountAsync(ct);

@@ -69,12 +69,9 @@ internal static class QueryGate
         System.Text.RegularExpressions.Regex.IsMatch(value, "^[a-z0-9][a-z0-9-]{0,62}$");
 }
 
-internal sealed class ListQueriesEndpoint : Endpoint<ListRequest, PaginatedResponse<QueryResponse>>
+internal sealed class ListQueriesEndpoint(
+    IQuerySession session) : Endpoint<ListRequest, PaginatedResponse<QueryResponse>>
 {
-    private readonly IQuerySession _session;
-
-    public ListQueriesEndpoint(IQuerySession session) => _session = session;
-
     public override void Configure()
     {
         Get("/api/queries");
@@ -83,7 +80,7 @@ internal sealed class ListQueriesEndpoint : Endpoint<ListRequest, PaginatedRespo
 
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)
     {
-        var page = await _session.Query<QueryDefinition>().OrderBy(q => q.Name).ToPagedResponseAsync(req, ct);
+        var page = await session.Query<QueryDefinition>().OrderBy(q => q.Name).ToPagedResponseAsync(req, ct);
 
         await Send.ResponseAsync(new PaginatedResponse<QueryResponse>
         {
@@ -95,12 +92,8 @@ internal sealed class ListQueriesEndpoint : Endpoint<ListRequest, PaginatedRespo
     }
 }
 
-internal sealed class GetQueryEndpoint : EndpointWithoutRequest<QueryResponse>
+internal sealed class GetQueryEndpoint(IQuerySession session) : EndpointWithoutRequest<QueryResponse>
 {
-    private readonly IQuerySession _session;
-
-    public GetQueryEndpoint(IQuerySession session) => _session = session;
-
     public override void Configure()
     {
         Get("/api/queries/{slug}");
@@ -117,7 +110,7 @@ internal sealed class GetQueryEndpoint : EndpointWithoutRequest<QueryResponse>
             return;
         }
 
-        var found = await _session.Query<QueryDefinition>().FirstOrDefaultAsync(q => q.Slug == slug, ct);
+        var found = await session.Query<QueryDefinition>().FirstOrDefaultAsync(q => q.Slug == slug, ct);
         if (found is null)
         {
             await Send.NotFoundAsync(ct);
@@ -128,22 +121,11 @@ internal sealed class GetQueryEndpoint : EndpointWithoutRequest<QueryResponse>
     }
 }
 
-internal sealed class SaveQueryEndpoint : Endpoint<SaveQueryRequest, QueryResponse>
+internal sealed class SaveQueryEndpoint(
+    IDocumentSession session,
+    IQueryRunner runner,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<SaveQueryRequest, QueryResponse>
 {
-    private readonly IDocumentSession _session;
-    private readonly IQueryRunner _runner;
-    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
-
-    public SaveQueryEndpoint(
-        IDocumentSession session,
-        IQueryRunner runner,
-        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
-    {
-        _session = session;
-        _runner = runner;
-        _tenant = tenant;
-    }
-
     public override void Configure()
     {
         Post("/api/queries");
@@ -159,7 +141,7 @@ internal sealed class SaveQueryEndpoint : Endpoint<SaveQueryRequest, QueryRespon
             return;
         }
 
-        var existing = await _session.Query<QueryDefinition>().FirstOrDefaultAsync(q => q.Slug == req.Slug, ct);
+        var existing = await session.Query<QueryDefinition>().FirstOrDefaultAsync(q => q.Slug == req.Slug, ct);
         var definition = existing ?? new QueryDefinition { Id = Guid.NewGuid(), Slug = req.Slug.ToLowerInvariant() };
 
         definition.Name = req.Name.Trim();
@@ -174,17 +156,17 @@ internal sealed class SaveQueryEndpoint : Endpoint<SaveQueryRequest, QueryRespon
         // Validated against the schema before it is stored, so an unknown or non-Public field is a
         // 400 while the operator is still looking at the form, rather than a workflow that fails
         // later with a message about a field they thought they had.
-        var refusal = await _runner.ValidateAsync(definition, ct);
+        var refusal = await runner.ValidateAsync(definition, ct);
         if (refusal is not null)
         {
             ThrowError(refusal, 400);
             return;
         }
 
-        _session.Store(definition);
+        session.Store(definition);
 
         var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
-        await AuditLog.RecordAsync(_session, _tenant.Slug,
+        await AuditLog.RecordAsync(session, tenant.Slug,
             existing is null ? "query.created" : "query.updated",
             actorId, User.FindFirst("Username")?.Value,
             targetType: nameof(QueryDefinition), targetId: definition.Id.ToString(),
@@ -197,23 +179,16 @@ internal sealed class SaveQueryEndpoint : Endpoint<SaveQueryRequest, QueryRespon
                 ["limit"] = definition.Limit,
             }, ct: ct);
 
-        await _session.SaveChangesAsync(ct);
+        await session.SaveChangesAsync(ct);
 
         await Send.ResponseAsync(QueryResponse.From(definition), cancellation: ct);
     }
 }
 
-internal sealed class DeleteQueryEndpoint : EndpointWithoutRequest
+internal sealed class DeleteQueryEndpoint(
+    IDocumentSession session,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : EndpointWithoutRequest
 {
-    private readonly IDocumentSession _session;
-    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
-
-    public DeleteQueryEndpoint(IDocumentSession session, barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
-    {
-        _session = session;
-        _tenant = tenant;
-    }
-
     public override void Configure()
     {
         Delete("/api/queries/{slug}");
@@ -230,22 +205,22 @@ internal sealed class DeleteQueryEndpoint : EndpointWithoutRequest
             return;
         }
 
-        var found = await _session.Query<QueryDefinition>().FirstOrDefaultAsync(q => q.Slug == slug, ct);
+        var found = await session.Query<QueryDefinition>().FirstOrDefaultAsync(q => q.Slug == slug, ct);
         if (found is null)
         {
             await Send.NotFoundAsync(ct);
             return;
         }
 
-        _session.Delete(found);
+        session.Delete(found);
 
         var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
-        await AuditLog.RecordAsync(_session, _tenant.Slug, "query.deleted", actorId,
+        await AuditLog.RecordAsync(session, tenant.Slug, "query.deleted", actorId,
             User.FindFirst("Username")?.Value,
             targetType: nameof(QueryDefinition), targetId: found.Id.ToString(),
             metadata: new Dictionary<string, object> { ["slug"] = found.Slug }, ct: ct);
 
-        await _session.SaveChangesAsync(ct);
+        await session.SaveChangesAsync(ct);
         await Send.NoContentAsync(ct);
     }
 }
@@ -258,17 +233,10 @@ internal sealed class DeleteQueryEndpoint : EndpointWithoutRequest
 /// schema and its rows are read by a third party, and the gap between those is where a recipient
 /// list is wrong in ways nobody sees until it is sent.
 /// </remarks>
-internal sealed class PreviewQueryEndpoint : EndpointWithoutRequest<QueryPreviewResponse>
+internal sealed class PreviewQueryEndpoint(
+    IQuerySession session,
+    IQueryRunner runner) : EndpointWithoutRequest<QueryPreviewResponse>
 {
-    private readonly IQuerySession _session;
-    private readonly IQueryRunner _runner;
-
-    public PreviewQueryEndpoint(IQuerySession session, IQueryRunner runner)
-    {
-        _session = session;
-        _runner = runner;
-    }
-
     public override void Configure()
     {
         Post("/api/queries/{slug}/preview");
@@ -285,14 +253,14 @@ internal sealed class PreviewQueryEndpoint : EndpointWithoutRequest<QueryPreview
             return;
         }
 
-        var definition = await _session.Query<QueryDefinition>().FirstOrDefaultAsync(q => q.Slug == slug, ct);
+        var definition = await session.Query<QueryDefinition>().FirstOrDefaultAsync(q => q.Slug == slug, ct);
         if (definition is null)
         {
             await Send.NotFoundAsync(ct);
             return;
         }
 
-        var result = await _runner.RunAsync(definition, ct);
+        var result = await runner.RunAsync(definition, ct);
 
         await Send.ResponseAsync(new QueryPreviewResponse
         {

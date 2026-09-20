@@ -287,17 +287,10 @@ internal static class PublicDelivery
 internal sealed class PublicListRequest : PaginatedRequest { }
 
 /// <summary>GET /api/public/{type} — paged Published entries of a content type, masked and cacheable.</summary>
-internal class ListPublishedEndpoint : Endpoint<PublicListRequest, PaginatedResponse<PublicContentResponse>>
+internal class ListPublishedEndpoint(
+    IQuerySession session,
+    IConfiguration config) : Endpoint<PublicListRequest, PaginatedResponse<PublicContentResponse>>
 {
-    private readonly IQuerySession _session;
-    private readonly IConfiguration _config;
-
-    public ListPublishedEndpoint(IQuerySession session, IConfiguration config)
-    {
-        _session = session;
-        _config = config;
-    }
-
     /// <summary>
     /// <c>Delivery:MaxRadiusKm</c>, the widest near filter a caller may ask for. Defaults to
     /// <see cref="DeliveryQuery.DefaultMaxRadiusKm"/>; a value that is not a positive number is
@@ -305,7 +298,7 @@ internal class ListPublishedEndpoint : Endpoint<PublicListRequest, PaginatedResp
     /// </summary>
     private double MaxRadiusKm()
     {
-        var raw = _config["Delivery:MaxRadiusKm"];
+        var raw = config["Delivery:MaxRadiusKm"];
         return double.TryParse(raw, System.Globalization.NumberStyles.Float,
                    System.Globalization.CultureInfo.InvariantCulture, out var v) && v > 0
             ? v
@@ -321,7 +314,7 @@ internal class ListPublishedEndpoint : Endpoint<PublicListRequest, PaginatedResp
     public override async Task HandleAsync(PublicListRequest req, CancellationToken ct)
     {
         var type = Route<string>("type") ?? string.Empty;
-        var def = await _session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
+        var def = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
         if (!PublicDelivery.IsDeliverable(def)) { await Send.NotFoundAsync(ct); return; }
         var slugField = PublicDelivery.SlugField(def!);
 
@@ -356,7 +349,7 @@ internal class ListPublishedEndpoint : Endpoint<PublicListRequest, PaginatedResp
         }
 
         /* Published + document-Public only; the DB filters the rest out. */
-        var baseQuery = _session.Query<ContentDoc>()
+        var baseQuery = session.Query<ContentDoc>()
             .Where(c => c.ContentType == type
                         && c.Status == ContentStatus.Published
                         && c.Sensitivity == SensitivityLevel.Public);
@@ -415,7 +408,7 @@ internal class ListPublishedEndpoint : Endpoint<PublicListRequest, PaginatedResp
         // Resolved after projection, never before. Projecting first means the reference id being
         // resolved has already survived the field allowlist, so a Sensitive reference field is not
         // resolvable by asking for it.
-        items = await PublicDelivery.ResolveIncludesAsync(items, includes, def, _session, ct);
+        items = await PublicDelivery.ResolveIncludesAsync(items, includes, def, session, ct);
 
         PublicDelivery.SetCache(HttpContext);
         await Send.ResponseAsync(new PaginatedResponse<PublicContentResponse>
@@ -448,11 +441,8 @@ internal sealed record PublicSearchResponse(IReadOnlyList<PublicContentResponse>
 /// can never surface a result. A title/name hit outranks a body hit. Scans a bounded, recent window;
 /// swap in Postgres full-text search for larger corpora.
 /// </summary>
-internal class PublicSearchEndpoint : EndpointWithoutRequest<PublicSearchResponse>
+internal class PublicSearchEndpoint(IQuerySession session) : EndpointWithoutRequest<PublicSearchResponse>
 {
-    private readonly IQuerySession _session;
-    public PublicSearchEndpoint(IQuerySession session) => _session = session;
-
     private const int MaxResults = 50;
     private const int ScanCap = 1000;
 
@@ -471,7 +461,7 @@ internal class PublicSearchEndpoint : EndpointWithoutRequest<PublicSearchRespons
         /* Eligibility first. Answering the short-query case before this gate returned 200 for a type
          * that is not deliverable, which confirms the type exists — the existence oracle the 404 is
          * meant to close. */
-        var def = await _session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
+        var def = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
         if (!PublicDelivery.IsDeliverable(def)) { await Send.NotFoundAsync(ct); return; }
         var slugField = PublicDelivery.SlugField(def!);
 
@@ -483,7 +473,7 @@ internal class PublicSearchEndpoint : EndpointWithoutRequest<PublicSearchRespons
             await Send.OkAsync(new PublicSearchResponse(Array.Empty<PublicContentResponse>(), 0, q), ct);
             return;
         }
-        var candidates = await _session.Query<ContentDoc>()
+        var candidates = await session.Query<ContentDoc>()
                     .Where(c => c.ContentType == type
                                 && c.Status == ContentStatus.Published
                                 && c.Sensitivity == SensitivityLevel.Public
@@ -528,19 +518,11 @@ internal class PublicSearchEndpoint : EndpointWithoutRequest<PublicSearchRespons
 /// an unpublished entry is returned too — the token authorizes only that one entry, and the response is
 /// still projected to Public fields and marked no-store. An invalid token falls back to published-only.
 /// </summary>
-internal class GetBySlugEndpoint : EndpointWithoutRequest<PublicContentResponse>
+internal class GetBySlugEndpoint(
+    IQuerySession session,
+    IConfiguration config,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : EndpointWithoutRequest<PublicContentResponse>
 {
-    private readonly IQuerySession _session;
-    private readonly IConfiguration _config;
-    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
-
-    public GetBySlugEndpoint(IQuerySession session, IConfiguration config, barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
-    {
-        _session = session;
-        _config = config;
-        _tenant = tenant;
-    }
-
     public override void Configure()
     {
         Get("/api/public/{type}/{slug}");
@@ -552,7 +534,7 @@ internal class GetBySlugEndpoint : EndpointWithoutRequest<PublicContentResponse>
         var type = Route<string>("type") ?? string.Empty;
         var slug = Route<string>("slug") ?? string.Empty;
 
-        var def = await _session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
+        var def = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
         if (!PublicDelivery.IsDeliverable(def)) { await Send.NotFoundAsync(ct); return; }
         var slugField = PublicDelivery.SlugField(def!);
         if (slugField is null) { await Send.NotFoundAsync(ct); return; } /* not slug-addressable */
@@ -563,13 +545,13 @@ internal class GetBySlugEndpoint : EndpointWithoutRequest<PublicContentResponse>
         var previewToken = Query<string>(barakoCMS.Infrastructure.Preview.PreviewToken.QueryParam, isRequired: false);
         var previewId = string.IsNullOrEmpty(previewToken)
             ? null
-            : barakoCMS.Infrastructure.Preview.PreviewToken.ValidatedEntryId(_config, previewToken!, _tenant.Slug, type, slug);
+            : barakoCMS.Infrastructure.Preview.PreviewToken.ValidatedEntryId(config, previewToken!, tenant.Slug, type, slug);
 
         ContentDoc? match;
         if (previewId is Guid id)
         {
             /* Serve exactly the authorized entry (tenant-scoped session), and re-check it still matches. */
-            var entry = await _session.LoadAsync<ContentDoc>(id, ct);
+            var entry = await session.LoadAsync<ContentDoc>(id, ct);
             match = entry is not null
                     && entry.ContentType == type
                     && string.Equals(PublicDelivery.SlugValue(entry, slugField), slug, StringComparison.OrdinalIgnoreCase)
@@ -589,7 +571,7 @@ internal class GetBySlugEndpoint : EndpointWithoutRequest<PublicContentResponse>
              * between requests after a vacuum or a plan change. Ordering does not make the data
              * unambiguous, it makes the answer stable, and the entry that held the slug first is
              * the one whose links are already out there. */
-            match = await _session.Query<ContentDoc>()
+            match = await session.Query<ContentDoc>()
                 .Where(c => c.ContentType == type
                             && c.Status == ContentStatus.Published
                             && c.Sensitivity == SensitivityLevel.Public
