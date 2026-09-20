@@ -8,21 +8,12 @@ public interface IConfigurationService
     Task<T> GetConfigValueAsync<T>(string key, T defaultValue, CancellationToken ct = default);
 }
 
-public class ConfigurationService : IConfigurationService
+public class ConfigurationService(IDocumentSession session, IConfiguration configuration) : IConfigurationService
 {
-    private readonly IDocumentSession _session;
-    private readonly IConfiguration _configuration;
-
-    public ConfigurationService(IDocumentSession session, IConfiguration configuration)
-    {
-        _session = session;
-        _configuration = configuration;
-    }
-
     public async Task<T> GetConfigValueAsync<T>(string key, T defaultValue, CancellationToken ct = default)
     {
         // 1. Check database for override (an admin-editable, possibly malformed value).
-        var setting = await _session.Query<SystemSetting>()
+        var setting = await session.Query<SystemSetting>()
             .FirstOrDefaultAsync(s => s.Key == key, ct);
 
         if (setting != null && TryConvertValue<T>(setting.Value, out var dbValue))
@@ -31,7 +22,7 @@ public class ConfigurationService : IConfigurationService
         }
 
         // 2. Check environment variable (supports both __ and : separators)
-        var envValue = _configuration[key] ?? _configuration[key.Replace("__", ":")];
+        var envValue = configuration[key] ?? configuration[key.Replace("__", ":")];
         if (envValue != null && TryConvertValue<T>(envValue, out var envConverted))
         {
             return envConverted;

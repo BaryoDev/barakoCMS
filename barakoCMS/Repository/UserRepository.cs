@@ -16,37 +16,30 @@ internal interface IUserRepository
     Task SaveChangesAsync(CancellationToken ct = default);
 }
 
-internal class MartenUserRepository : IUserRepository
+internal class MartenUserRepository(IDocumentSession session) : IUserRepository
 {
-    private readonly IDocumentSession _session;
-
-    public MartenUserRepository(IDocumentSession session)
-    {
-        _session = session;
-    }
-
     public async Task<User?> GetByUsernameOrEmailAsync(string username, string email, CancellationToken ct = default)
     {
         var normalizedUsername = User.NormalizeIdentity(username);
         var normalizedEmail = User.NormalizeIdentity(email);
-        return await _session.Query<User>()
+        return await session.Query<User>()
             .FirstOrDefaultAsync(u => u.NormalizedUsername == normalizedUsername || u.NormalizedEmail == normalizedEmail, ct);
     }
 
     public async Task<User?> GetByUsernameAsync(string username, CancellationToken ct = default)
     {
         var normalized = User.NormalizeIdentity(username);
-        return await _session.Query<User>()
+        return await session.Query<User>()
             .FirstOrDefaultAsync(u => u.NormalizedUsername == normalized, ct);
     }
 
     public void Store(User user)
     {
-        _session.Store(user);
+        session.Store(user);
     }
 
     public async Task SaveChangesAsync(CancellationToken ct = default)
     {
-        await _session.SaveChangesAsync(ct);
+        await session.SaveChangesAsync(ct);
     }
 }

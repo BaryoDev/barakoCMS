@@ -25,16 +25,12 @@ public readonly record struct TenantResolution(string? Slug, bool Unrecognised);
 /// selects exactly the same set of tenants by a longer route, and reaches exactly the same data.
 /// Nothing here builds a URL from the host, which is the part of #147 that was a real problem.
 /// </summary>
-public class TenantResolutionMiddleware
+public class TenantResolutionMiddleware(RequestDelegate next)
 {
     public const string TenantHeader = "X-Tenant";
 
     private static readonly HashSet<string> InfraSubdomains =
         new(StringComparer.OrdinalIgnoreCase) { "www", "app", "api", "admin" };
-
-    private readonly RequestDelegate _next;
-
-    public TenantResolutionMiddleware(RequestDelegate next) => _next = next;
 
     public async Task InvokeAsync(
         HttpContext context, TenantContext tenant, ITenantDomainSource domains)
@@ -44,7 +40,7 @@ public class TenantResolutionMiddleware
         if (!string.IsNullOrWhiteSpace(header))
         {
             tenant.Slug = header.Trim().ToLowerInvariant();
-            await _next(context);
+            await next(context);
             return;
         }
 
@@ -63,7 +59,7 @@ public class TenantResolutionMiddleware
             return;
         }
 
-        await _next(context);
+        await next(context);
     }
 
     /// <summary>

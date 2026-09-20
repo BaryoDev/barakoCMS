@@ -7,22 +7,12 @@ namespace barakoCMS.Infrastructure.Services;
 /// <summary>
 /// Implementation of token revocation service with database storage and in-memory caching.
 /// </summary>
-public class TokenRevocationService : ITokenRevocationService
+public class TokenRevocationService(
+    IDocumentSession session,
+    IMemoryCache cache,
+    ILogger<TokenRevocationService> logger) : ITokenRevocationService
 {
-    private readonly IDocumentSession _session;
-    private readonly IMemoryCache _cache;
-    private readonly ILogger<TokenRevocationService> _logger;
     private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(15);
-
-    public TokenRevocationService(
-        IDocumentSession session,
-        IMemoryCache cache,
-        ILogger<TokenRevocationService> logger)
-    {
-        _session = session;
-        _cache = cache;
-        _logger = logger;
-    }
 
     public async Task RevokeTokenAsync(string jti, Guid userId, string reason, DateTime expiry, CancellationToken ct = default)
     {
@@ -36,22 +26,22 @@ public class TokenRevocationService : ITokenRevocationService
             Reason = reason
         };
 
-        _session.Store(revokedToken);
-        await _session.SaveChangesAsync(ct);
+        session.Store(revokedToken);
+        await session.SaveChangesAsync(ct);
 
         // Cache the revocation for fast lookup
         var cacheKey = $"revoked:{jti}";
         var ttl = expiry - DateTime.UtcNow;
         if (ttl > TimeSpan.Zero)
         {
-            _cache.Set(cacheKey, true, new MemoryCacheEntryOptions
+            cache.Set(cacheKey, true, new MemoryCacheEntryOptions
             {
                 AbsoluteExpirationRelativeToNow = ttl,
                 Size = 1,
             });
         }
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "Token revoked: JTI={Jti}, UserId={UserId}, Reason={Reason}",
             jti, userId, reason);
     }
@@ -64,27 +54,27 @@ public class TokenRevocationService : ITokenRevocationService
         var cacheKey = $"revoked:{jti}";
 
         // Check cache first
-        if (_cache.TryGetValue(cacheKey, out bool _))
+        if (cache.TryGetValue(cacheKey, out bool _))
         {
-            _logger.LogDebug("Token revocation cache hit: {Jti}", jti);
+            logger.LogDebug("Token revocation cache hit: {Jti}", jti);
             return true;
         }
 
         // Fallback to database
         try
         {
-            var isRevoked = await _session.Query<RevokedToken>()
+            var isRevoked = await session.Query<RevokedToken>()
                 .AnyAsync(r => r.TokenJti == jti && r.ExpiresAt > DateTime.UtcNow, ct);
 
             if (isRevoked)
             {
                 // Cache the result
-                _cache.Set(cacheKey, true, new MemoryCacheEntryOptions
+                cache.Set(cacheKey, true, new MemoryCacheEntryOptions
                 {
                     AbsoluteExpirationRelativeToNow = CacheDuration,
                     Size = 1,
                 });
-                _logger.LogDebug("Token revocation database hit: {Jti}", jti);
+                logger.LogDebug("Token revocation database hit: {Jti}", jti);
             }
 
             return isRevoked;
@@ -94,7 +84,7 @@ public class TokenRevocationService : ITokenRevocationService
             // The one case where "not revoked" is the true answer rather than a guess: with no
             // table, nothing has ever been revoked. This is first run, before the schema apply,
             // which is what the original catch was written for.
-            _logger.LogDebug(ex, "Revocation table does not exist yet; nothing can be revoked");
+            logger.LogDebug(ex, "Revocation table does not exist yet; nothing can be revoked");
             return false;
         }
         catch (Exception ex)
@@ -107,7 +97,7 @@ public class TokenRevocationService : ITokenRevocationService
             // Throwing rather than returning true, on purpose. Both refuse the request, but a 401
             // tells the caller their session expired, which is a lie that sends them to sign in and
             // fail again. This surfaces as a server error, which is what it is.
-            _logger.LogError(ex, "Could not check token revocation for {Jti}; refusing the request", jti);
+            logger.LogError(ex, "Could not check token revocation for {Jti}; refusing the request", jti);
             throw new InvalidOperationException(
                 "Token revocation could not be checked, so the request cannot be authorised.", ex);
         }
@@ -118,7 +108,7 @@ public class TokenRevocationService : ITokenRevocationService
         // Revokes every unexpired refresh token the user holds, so no new access token can be
         // minted. Access tokens already issued stay valid until they expire; a user-level
         // "tokens_revoked_after" timestamp that would cut those short is issue #82.
-        var refreshTokens = await _session.Query<RefreshToken>()
+        var refreshTokens = await session.Query<RefreshToken>()
             .Where(rt => rt.UserId == userId && !rt.IsRevoked && rt.ExpiresAt > DateTime.UtcNow)
             .ToListAsync(ct);
 
@@ -127,12 +117,12 @@ public class TokenRevocationService : ITokenRevocationService
             token.IsRevoked = true;
             token.RevokedReason = reason;
             token.RevokedAt = DateTime.UtcNow;
-            _session.Update(token);
+            session.Update(token);
         }
 
-        await _session.SaveChangesAsync(ct);
+        await session.SaveChangesAsync(ct);
         
-        _logger.LogInformation(
+        logger.LogInformation(
             "Revoked {Count} refresh tokens for UserId={UserId}",
             refreshTokens.Count, userId);
     }

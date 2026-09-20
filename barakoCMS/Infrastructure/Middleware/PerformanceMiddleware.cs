@@ -7,17 +7,9 @@ namespace barakoCMS.Infrastructure.Middleware;
 /// Middleware to monitor and log slow API requests.
 /// Logs a warning when requests exceed the configured threshold.
 /// </summary>
-public class PerformanceMiddleware
+public class PerformanceMiddleware(RequestDelegate next, ILogger<PerformanceMiddleware> logger)
 {
-    private readonly RequestDelegate _next;
-    private readonly ILogger<PerformanceMiddleware> _logger;
     private const int SlowRequestThresholdMs = 200;
-
-    public PerformanceMiddleware(RequestDelegate next, ILogger<PerformanceMiddleware> logger)
-    {
-        _next = next;
-        _logger = logger;
-    }
 
     public async Task InvokeAsync(HttpContext context)
     {
@@ -25,7 +17,7 @@ public class PerformanceMiddleware
         
         try
         {
-            await _next(context);
+            await next(context);
         }
         finally
         {
@@ -33,7 +25,7 @@ public class PerformanceMiddleware
 
             if (sw.ElapsedMilliseconds > SlowRequestThresholdMs)
             {
-                _logger.LogWarning(
+                logger.LogWarning(
                     "Slow request: {Method} {Path} took {ElapsedMs}ms (Status: {StatusCode})",
                     LogSafe.Value(context.Request.Method),
                     LogSafe.Value(context.Request.Path),
@@ -42,7 +34,7 @@ public class PerformanceMiddleware
             }
             else
             {
-                _logger.LogDebug(
+                logger.LogDebug(
                     "Request: {Method} {Path} took {ElapsedMs}ms",
                     LogSafe.Value(context.Request.Method),
                     LogSafe.Value(context.Request.Path),

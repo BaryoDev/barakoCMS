@@ -43,7 +43,12 @@ internal interface ICollectionSyncRunner
 /// The inbound half writes ordinary <see cref="Content"/> through <see cref="IContentWriter"/>, so a
 /// synced entry has a stream, a history and a workflow trigger exactly like an entry somebody typed.
 /// </remarks>
-internal sealed class CollectionSyncRunner : ICollectionSyncRunner
+internal sealed class CollectionSyncRunner(
+    IDocumentSession session,
+    IRequestComposer composer,
+    IConnectorFetcher fetcher,
+    IContentWriter writer,
+    ILogger<CollectionSyncRunner> logger) : ICollectionSyncRunner
 {
     /// <summary>The largest response body a sync will read.</summary>
     /// <remarks>
@@ -52,26 +57,6 @@ internal sealed class CollectionSyncRunner : ICollectionSyncRunner
     /// something unbounded cannot be the reason the sweep runs out of memory.
     /// </remarks>
     public const int MaxResponseBytes = 2 * 1024 * 1024;
-
-    private readonly IDocumentSession _session;
-    private readonly IRequestComposer _composer;
-    private readonly IConnectorFetcher _fetcher;
-    private readonly IContentWriter _writer;
-    private readonly ILogger<CollectionSyncRunner> _logger;
-
-    public CollectionSyncRunner(
-        IDocumentSession session,
-        IRequestComposer composer,
-        IConnectorFetcher fetcher,
-        IContentWriter writer,
-        ILogger<CollectionSyncRunner> logger)
-    {
-        _session = session;
-        _composer = composer;
-        _fetcher = fetcher;
-        _writer = writer;
-        _logger = logger;
-    }
 
     /// <summary>The actor a synced write is attributed to. Not a user, because no user did it.</summary>
     public static readonly Guid SystemActor = Guid.Empty;
@@ -98,20 +83,20 @@ internal sealed class CollectionSyncRunner : ICollectionSyncRunner
             sync.LastError = outcome.Error;
             sync.ConsecutiveFailures++;
 
-            _logger.LogWarning(
+            logger.LogWarning(
                 "Collection sync {Slug} failed ({Failures} in a row): {Reason}",
                 sync.Slug, sync.ConsecutiveFailures, outcome.Error);
         }
 
-        _session.Store(sync);
-        await _session.SaveChangesAsync(ct);
+        session.Store(sync);
+        await session.SaveChangesAsync(ct);
 
         return outcome;
     }
 
     private async Task<CollectionSyncOutcome> ApplyAsync(CollectionSync sync, CancellationToken ct)
     {
-        var schema = await _session.Query<ContentTypeDefinition>()
+        var schema = await session.Query<ContentTypeDefinition>()
             .FirstOrDefaultAsync(d => d.Name == sync.ContentType, ct);
 
         if (schema is null)
@@ -154,17 +139,17 @@ internal sealed class CollectionSyncRunner : ICollectionSyncRunner
             }
 
             var id = EntryId(sync.ContentType, key);
-            var existing = await _session.LoadAsync<Content>(id, ct);
+            var existing = await session.LoadAsync<Content>(id, ct);
 
             if (existing is null)
             {
-                await _writer.CreateAsync(
+                await writer.CreateAsync(
                     new ContentCreated(
                         id, sync.ContentType, mapped, sync.EntryStatus, SystemActor,
                         SearchText(mapped, schema), SensitivityLevel.Public, DateTime.UtcNow),
                     ct);
 
-                await _session.SaveChangesAsync(ct);
+                await session.SaveChangesAsync(ct);
                 created++;
                 continue;
             }
@@ -183,12 +168,12 @@ internal sealed class CollectionSyncRunner : ICollectionSyncRunner
                 continue;
             }
 
-            await _writer.AppendAsync(
+            await writer.AppendAsync(
                 existing,
                 new ContentUpdated(id, merged, SystemActor, SearchText(merged, schema), DateTime.UtcNow),
                 ct);
 
-            await _session.SaveChangesAsync(ct);
+            await session.SaveChangesAsync(ct);
             updated++;
         }
 
@@ -214,7 +199,7 @@ internal sealed class CollectionSyncRunner : ICollectionSyncRunner
                 return (null, "The feed URL is not an absolute http or https URL.");
             }
 
-            var feedResult = await _fetcher.FetchAsync(
+            var feedResult = await fetcher.FetchAsync(
                 connector: null,
                 new ComposedRequest("GET", feed.AbsoluteUri, new Dictionary<string, string>(), null, null),
                 MaxResponseBytes, ct);
@@ -222,7 +207,7 @@ internal sealed class CollectionSyncRunner : ICollectionSyncRunner
             return feedResult.Succeeded ? (feedResult.Body, null) : (null, Describe(feedResult));
         }
 
-        var definition = await _session.Query<RequestDefinition>()
+        var definition = await session.Query<RequestDefinition>()
             .FirstOrDefaultAsync(r => r.Slug == sync.RequestSlug, ct);
 
         if (definition is null)
@@ -230,7 +215,7 @@ internal sealed class CollectionSyncRunner : ICollectionSyncRunner
             return (null, $"No request definition with the slug '{sync.RequestSlug}'.");
         }
 
-        var connector = await _session.Query<Connector>()
+        var connector = await session.Query<Connector>()
             .FirstOrDefaultAsync(c => c.Slug == definition.ConnectorSlug, ct);
 
         if (connector is null)
@@ -247,7 +232,7 @@ internal sealed class CollectionSyncRunner : ICollectionSyncRunner
         // Composed against an empty entry of the target type. A sync request's templates address the
         // source rather than an entry, so there is nothing for a {{field}} hole to resolve against,
         // and passing the type means the composer's refusal of a Sensitive field still runs.
-        var composed = await _composer.ComposeAsync(
+        var composed = await composer.ComposeAsync(
             definition,
             connector,
             new Content { ContentType = sync.ContentType },
@@ -259,7 +244,7 @@ internal sealed class CollectionSyncRunner : ICollectionSyncRunner
             return (null, composed.Refusal);
         }
 
-        var result = await _fetcher.FetchAsync(connector, composed, MaxResponseBytes, ct);
+        var result = await fetcher.FetchAsync(connector, composed, MaxResponseBytes, ct);
 
         return result.Succeeded ? (result.Body, null) : (null, Describe(result));
     }

@@ -23,22 +23,11 @@ namespace barakoCMS.Infrastructure.OpenApi;
 /// The document is per tenant because <see cref="ContentTypeDefinition"/> is, and the session this
 /// resolves is already scoped to the tenant the resolution middleware picked.
 /// </remarks>
-internal sealed class DeliveryDocumentMiddleware
+internal sealed class DeliveryDocumentMiddleware(
+    RequestDelegate next,
+    DeliveryDocumentCache cache,
+    ILogger<DeliveryDocumentMiddleware> logger)
 {
-    private readonly RequestDelegate _next;
-    private readonly DeliveryDocumentCache _cache;
-    private readonly ILogger<DeliveryDocumentMiddleware> _logger;
-
-    public DeliveryDocumentMiddleware(
-        RequestDelegate next,
-        DeliveryDocumentCache cache,
-        ILogger<DeliveryDocumentMiddleware> logger)
-    {
-        _next = next;
-        _cache = cache;
-        _logger = logger;
-    }
-
     /// <summary>The FastEndpoints/NSwag document route: /swagger/{documentName}/swagger.json.</summary>
     internal static string? DocumentName(PathString path)
     {
@@ -61,13 +50,13 @@ internal sealed class DeliveryDocumentMiddleware
 
         if (documentName is null)
         {
-            await _next(context);
+            await next(context);
             return;
         }
 
         var tenant = context.RequestServices.GetRequiredService<TenantContext>().Slug;
 
-        var cached = _cache.Get(tenant, documentName);
+        var cached = cache.Get(tenant, documentName);
         if (cached is not null)
         {
             await WriteAsync(context, cached);
@@ -80,7 +69,7 @@ internal sealed class DeliveryDocumentMiddleware
 
         try
         {
-            await _next(context);
+            await next(context);
         }
         finally
         {
@@ -102,7 +91,7 @@ internal sealed class DeliveryDocumentMiddleware
         try
         {
             var merged = await MergeAsync(context, generated);
-            _cache.Set(tenant, documentName, merged);
+            cache.Set(tenant, documentName, merged);
             await WriteAsync(context, merged);
         }
         catch (Exception ex)
@@ -110,7 +99,7 @@ internal sealed class DeliveryDocumentMiddleware
             // The generated document is still correct without the content-type paths, and serving
             // it beats a 500 on the page a developer opens to find out what the API does. Not
             // cached, so a transient database failure costs one request rather than a minute.
-            _logger.LogError(ex, "Could not add the delivery paths to the OpenAPI document; serving it unchanged");
+            logger.LogError(ex, "Could not add the delivery paths to the OpenAPI document; serving it unchanged");
             await WriteAsync(context, generated);
         }
     }

@@ -33,17 +33,10 @@ public interface IContentLifecycleRunner
 /// All hooks for a type run even if an earlier one fails, so the caller sees every problem at once
 /// rather than fixing them one round-trip at a time.
 /// </summary>
-public class ContentLifecycleRunner : IContentLifecycleRunner
+public class ContentLifecycleRunner(
+    IEnumerable<IContentLifecycleHook> hooks,
+    IDocumentSession session) : IContentLifecycleRunner
 {
-    private readonly IEnumerable<IContentLifecycleHook> _hooks;
-    private readonly IDocumentSession _session;
-
-    public ContentLifecycleRunner(IEnumerable<IContentLifecycleHook> hooks, IDocumentSession session)
-    {
-        _hooks = hooks;
-        _session = session;
-    }
-
     public async Task<IReadOnlyList<string>> RunBeforeSaveAsync(
         string contentType,
         Guid? entryId,
@@ -52,7 +45,7 @@ public class ContentLifecycleRunner : IContentLifecycleRunner
         Guid userId,
         CancellationToken ct)
     {
-        var matching = _hooks
+        var matching = hooks
             .Where(h => string.Equals(h.ContentType, contentType, StringComparison.OrdinalIgnoreCase))
             .ToList();
 
@@ -65,7 +58,7 @@ public class ContentLifecycleRunner : IContentLifecycleRunner
             EntryId = entryId,
             Data = data,
             Existing = existing,
-            Session = _session,
+            Session = session,
             UserId = userId,
         };
 

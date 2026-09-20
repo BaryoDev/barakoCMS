@@ -9,21 +9,15 @@ namespace barakoCMS.Infrastructure.Services;
 /// IdempotencyRecords to prevent
 /// unbounded database growth.
 /// </summary>
-public class TokenCleanupService : BackgroundService
+public class TokenCleanupService(
+    IServiceProvider serviceProvider,
+    ILogger<TokenCleanupService> logger) : BackgroundService
 {
-    private readonly IServiceProvider _serviceProvider;
-    private readonly ILogger<TokenCleanupService> _logger;
     private readonly TimeSpan _cleanupInterval = TimeSpan.FromHours(1); // Run every hour
-
-    public TokenCleanupService(IServiceProvider serviceProvider, ILogger<TokenCleanupService> logger)
-    {
-        _serviceProvider = serviceProvider;
-        _logger = logger;
-    }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("Token cleanup service started. Cleanup interval: {Interval}", _cleanupInterval);
+        logger.LogInformation("Token cleanup service started. Cleanup interval: {Interval}", _cleanupInterval);
 
         // Initial delay to let the application warm up
         await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
@@ -41,13 +35,13 @@ public class TokenCleanupService : BackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error during token cleanup");
+                logger.LogError(ex, "Error during token cleanup");
             }
 
             await Task.Delay(_cleanupInterval, stoppingToken);
         }
 
-        _logger.LogInformation("Token cleanup service stopped");
+        logger.LogInformation("Token cleanup service stopped");
     }
 
     /// <summary>
@@ -60,7 +54,7 @@ public class TokenCleanupService : BackgroundService
     /// </remarks>
     internal async Task CleanupExpiredTokensAsync(CancellationToken ct)
     {
-        using var scope = _serviceProvider.CreateScope();
+        using var scope = serviceProvider.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
 
         var now = DateTime.UtcNow;
@@ -83,6 +77,6 @@ public class TokenCleanupService : BackgroundService
 
         await session.SaveChangesAsync(ct);
 
-        _logger.LogInformation("Token cleanup swept expired refresh tokens, revoked tokens, OTP codes, unconfirmed registrations and idempotency records older than {Cutoff}", idempotencyCutoff);
+        logger.LogInformation("Token cleanup swept expired refresh tokens, revoked tokens, OTP codes, unconfirmed registrations and idempotency records older than {Cutoff}", idempotencyCutoff);
     }
 }

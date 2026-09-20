@@ -25,18 +25,18 @@ namespace barakoCMS.Infrastructure.Services;
 /// There is no version arithmetic left to get wrong, and the sources live in a plain dictionary that
 /// nothing expires or evicts.
 /// </remarks>
-public class CachedPermissionResolver : IPermissionResolver
+public class CachedPermissionResolver(
+    PermissionResolver inner,
+    IMemoryCache cache,
+    ILogger<CachedPermissionResolver> logger,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : IPermissionResolver
 {
-    private readonly PermissionResolver _inner;
-    private readonly IMemoryCache _cache;
-    private readonly ILogger<CachedPermissionResolver> _logger;
     private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
     private const string CacheKeyPrefix = "perm:";
 
     // Well-known SuperAdmin role ID (matches DataSeeder.SuperAdminRoleId)
     private static readonly Guid SuperAdminRoleId = barakoCMS.Data.DataSeeder.SuperAdminRoleId;
 
-    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
 
     /// <summary>
     /// One cancellation source per user, plus one global, held outside the cache on purpose.
@@ -50,18 +50,6 @@ public class CachedPermissionResolver : IPermissionResolver
 
     private static CancellationTokenSource _globalToken = new();
 
-    public CachedPermissionResolver(
-        PermissionResolver inner,
-        IMemoryCache cache,
-        ILogger<CachedPermissionResolver> logger,
-        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
-    {
-        _inner = inner;
-        _cache = cache;
-        _logger = logger;
-        _tenant = tenant;
-    }
-
     /// <summary>
     /// Forwarded, never cached.
     /// </summary>
@@ -73,7 +61,7 @@ public class CachedPermissionResolver : IPermissionResolver
     /// </remarks>
     public Task<ReadPredicate> ReadPredicateAsync(
         User user, string contentTypeSlug, CancellationToken cancellationToken = default) =>
-        _inner.ReadPredicateAsync(user, contentTypeSlug, cancellationToken);
+        inner.ReadPredicateAsync(user, contentTypeSlug, cancellationToken);
 
     /// <summary>
     /// Invalidates all cached permissions for a specific user.
@@ -89,7 +77,7 @@ public class CachedPermissionResolver : IPermissionResolver
             existing.Dispose();
         }
 
-        _logger.LogInformation("Invalidated permission cache for user {UserId}", userId);
+        logger.LogInformation("Invalidated permission cache for user {UserId}", userId);
     }
 
     /// <summary>
@@ -112,7 +100,7 @@ public class CachedPermissionResolver : IPermissionResolver
             }
         }
 
-        _logger.LogInformation("Invalidated all permission caches");
+        logger.LogInformation("Invalidated all permission caches");
     }
 
     /// <summary>
@@ -120,7 +108,7 @@ public class CachedPermissionResolver : IPermissionResolver
     /// cache any more. Eviction is what invalidates, not a changed key.
     /// </summary>
     private string GetCacheKey(User user, string contentTypeSlug, string action) =>
-        $"{CacheKeyPrefix}{_tenant.Slug}:{user.Id}:{contentTypeSlug}:{action}";
+        $"{CacheKeyPrefix}{tenant.Slug}:{user.Id}:{contentTypeSlug}:{action}";
 
     public async Task<bool> CanPerformActionAsync(
         User user,
@@ -132,7 +120,7 @@ public class CachedPermissionResolver : IPermissionResolver
         // SuperAdmin bypass - no caching needed (always true)
         if (user.RoleIds != null && user.RoleIds.Contains(SuperAdminRoleId))
         {
-            _logger.LogDebug("SuperAdmin bypass for user {UserId}", user.Id);
+            logger.LogDebug("SuperAdmin bypass for user {UserId}", user.Id);
             return true;
         }
 
@@ -153,21 +141,21 @@ public class CachedPermissionResolver : IPermissionResolver
         // ConditionEvaluator reads dictionaries in memory, so what is left here is no I/O per item.
         if (content != null)
         {
-            return await _inner.CanPerformActionAsync(user, contentTypeSlug, action, content, cancellationToken);
+            return await inner.CanPerformActionAsync(user, contentTypeSlug, action, content, cancellationToken);
         }
 
         var cacheKey = GetCacheKey(user, contentTypeSlug, action);
 
         // Check cache
-        if (_cache.TryGetValue(cacheKey, out bool cachedResult))
+        if (cache.TryGetValue(cacheKey, out bool cachedResult))
         {
-            _logger.LogDebug("Permission cache HIT: {CacheKey} = {Result}", cacheKey, cachedResult);
+            logger.LogDebug("Permission cache HIT: {CacheKey} = {Result}", cacheKey, cachedResult);
             return cachedResult;
         }
 
         // Cache miss - call inner resolver
-        _logger.LogDebug("Permission cache MISS: {CacheKey}", cacheKey);
-        var result = await _inner.CanPerformActionAsync(user, contentTypeSlug, action, content: null, cancellationToken);
+        logger.LogDebug("Permission cache MISS: {CacheKey}", cacheKey);
+        var result = await inner.CanPerformActionAsync(user, contentTypeSlug, action, content: null, cancellationToken);
 
         // Cache the result
         var cacheOptions = new MemoryCacheEntryOptions
@@ -182,8 +170,8 @@ public class CachedPermissionResolver : IPermissionResolver
         cacheOptions.AddExpirationToken(new CancellationChangeToken(TokenFor(user.Id)));
         cacheOptions.AddExpirationToken(new CancellationChangeToken(Volatile.Read(ref _globalToken).Token));
 
-        _cache.Set(cacheKey, result, cacheOptions);
-        _logger.LogDebug("Permission cached: {CacheKey} = {Result} (TTL: {Duration})",
+        cache.Set(cacheKey, result, cacheOptions);
+        logger.LogDebug("Permission cached: {CacheKey} = {Result} (TTL: {Duration})",
             cacheKey, result, CacheDuration);
 
         return result;
@@ -201,12 +189,12 @@ public class CachedPermissionResolver : IPermissionResolver
         string capability,
         CancellationToken cancellationToken = default)
     {
-        var cacheKey = $"{CapabilityKeyPrefix}{_tenant.Slug}:{userId}:{capability}";
+        var cacheKey = $"{CapabilityKeyPrefix}{tenant.Slug}:{userId}:{capability}";
 
-        if (_cache.TryGetValue(cacheKey, out bool cachedResult))
+        if (cache.TryGetValue(cacheKey, out bool cachedResult))
             return cachedResult;
 
-        var result = await _inner.HasCapabilityAsync(userId, capability, cancellationToken);
+        var result = await inner.HasCapabilityAsync(userId, capability, cancellationToken);
 
         var cacheOptions = new MemoryCacheEntryOptions
         {
@@ -216,7 +204,7 @@ public class CachedPermissionResolver : IPermissionResolver
         cacheOptions.AddExpirationToken(new CancellationChangeToken(TokenFor(userId)));
         cacheOptions.AddExpirationToken(new CancellationChangeToken(Volatile.Read(ref _globalToken).Token));
 
-        _cache.Set(cacheKey, result, cacheOptions);
+        cache.Set(cacheKey, result, cacheOptions);
 
         return result;
     }
