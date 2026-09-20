@@ -53,60 +53,7 @@ public static class ServiceCollectionExtensions
 
         AddHealthProbes(services, configuration);
 
-        // Validate JWT key exists and has minimum length for security. Fail fast rather than
-        // booting with broken or insecure auth. Check both config and the JWT__Key env var.
-        var jwtKey = configuration["JWT:Key"];
-        if (string.IsNullOrWhiteSpace(jwtKey))
-        {
-            jwtKey = Environment.GetEnvironmentVariable("JWT__Key");
-        }
-        // Fail fast on a missing, too-short, or placeholder key. See JwtKeyGuard for why a length
-        // check alone is not enough (the shipped k8s manifest carries a length-valid placeholder).
-        jwtKey = barakoCMS.Infrastructure.Security.JwtKeyGuard.Validate(jwtKey);
-
-        services.AddAuthenticationJwtBearer(
-            s => s.SigningKey = jwtKey,
-            o =>
-            {
-                var p = o.TokenValidationParameters;
-                p.ValidateIssuerSigningKey = true;
-                p.ValidateIssuer = true;
-                p.ValidateAudience = true;
-                p.ValidIssuer = configuration["JWT:Issuer"];
-                p.ValidAudience = configuration["JWT:Audience"];
-
-                p.NameClaimType = "Username";
-                p.RoleClaimType = System.Security.Claims.ClaimTypes.Role;
-
-                // Strict token expiration - no clock skew tolerance
-                p.ClockSkew = TimeSpan.Zero;
-            });
-
-        // Second auth scheme for machine callers: `Authorization: Bearer bcms_...` API keys. A policy
-        // scheme sniffs the bearer token and forwards bcms_ tokens to the API-key handler, everything
-        // else to the JWT handler — so both credential types work on the same endpoints and all
-        // existing Roles()/permission checks apply to whichever principal comes out.
-        const string smartScheme = "JwtOrApiKey";
-        services.AddAuthentication(options =>
-            {
-                options.DefaultAuthenticateScheme = smartScheme;
-                options.DefaultChallengeScheme = smartScheme;
-            })
-            .AddScheme<barakoCMS.Infrastructure.Auth.ApiKeyAuthenticationOptions, barakoCMS.Infrastructure.Auth.ApiKeyAuthenticationHandler>(
-                barakoCMS.Infrastructure.Auth.ApiKeyAuthenticationHandler.SchemeName, _ => { })
-            .AddPolicyScheme(smartScheme, smartScheme, options =>
-            {
-                options.ForwardDefaultSelector = ctx =>
-                {
-                    var header = ctx.Request.Headers.Authorization.ToString();
-                    return header.StartsWith("Bearer " + barakoCMS.Infrastructure.Auth.ApiKeyService.Prefix, StringComparison.Ordinal)
-                        ? barakoCMS.Infrastructure.Auth.ApiKeyAuthenticationHandler.SchemeName
-                        : Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerDefaults.AuthenticationScheme;
-                };
-            });
-        services.AddSingleton<barakoCMS.Infrastructure.Auth.ApiKeyService>();
-
-        services.AddAuthorization();
+        AddJwtAndApiKeyAuth(services, configuration);
 
         // Strict-Transport-Security. Registered here, applied by UseHsts outside Development.
         services.AddHsts(options =>
@@ -1037,6 +984,64 @@ public static class ServiceCollectionExtensions
 
         services.AddSingleton(sp => new barakoCMS.Infrastructure.Health.WorkflowProjectionHealthCheck(
             sp.GetRequiredService<IDocumentStore>(), maxProjectionLag));
+    }
+
+    private static void AddJwtAndApiKeyAuth(IServiceCollection services, IConfiguration configuration)
+    {
+        // Validate JWT key exists and has minimum length for security. Fail fast rather than
+        // booting with broken or insecure auth. Check both config and the JWT__Key env var.
+        var jwtKey = configuration["JWT:Key"];
+        if (string.IsNullOrWhiteSpace(jwtKey))
+        {
+            jwtKey = Environment.GetEnvironmentVariable("JWT__Key");
+        }
+        // Fail fast on a missing, too-short, or placeholder key. See JwtKeyGuard for why a length
+        // check alone is not enough (the shipped k8s manifest carries a length-valid placeholder).
+        jwtKey = barakoCMS.Infrastructure.Security.JwtKeyGuard.Validate(jwtKey);
+
+        services.AddAuthenticationJwtBearer(
+            s => s.SigningKey = jwtKey,
+            o =>
+            {
+                var p = o.TokenValidationParameters;
+                p.ValidateIssuerSigningKey = true;
+                p.ValidateIssuer = true;
+                p.ValidateAudience = true;
+                p.ValidIssuer = configuration["JWT:Issuer"];
+                p.ValidAudience = configuration["JWT:Audience"];
+
+                p.NameClaimType = "Username";
+                p.RoleClaimType = System.Security.Claims.ClaimTypes.Role;
+
+                // Strict token expiration - no clock skew tolerance
+                p.ClockSkew = TimeSpan.Zero;
+            });
+
+        // Second auth scheme for machine callers: `Authorization: Bearer bcms_...` API keys. A policy
+        // scheme sniffs the bearer token and forwards bcms_ tokens to the API-key handler, everything
+        // else to the JWT handler — so both credential types work on the same endpoints and all
+        // existing Roles()/permission checks apply to whichever principal comes out.
+        const string smartScheme = "JwtOrApiKey";
+        services.AddAuthentication(options =>
+            {
+                options.DefaultAuthenticateScheme = smartScheme;
+                options.DefaultChallengeScheme = smartScheme;
+            })
+            .AddScheme<barakoCMS.Infrastructure.Auth.ApiKeyAuthenticationOptions, barakoCMS.Infrastructure.Auth.ApiKeyAuthenticationHandler>(
+                barakoCMS.Infrastructure.Auth.ApiKeyAuthenticationHandler.SchemeName, _ => { })
+            .AddPolicyScheme(smartScheme, smartScheme, options =>
+            {
+                options.ForwardDefaultSelector = ctx =>
+                {
+                    var header = ctx.Request.Headers.Authorization.ToString();
+                    return header.StartsWith("Bearer " + barakoCMS.Infrastructure.Auth.ApiKeyService.Prefix, StringComparison.Ordinal)
+                        ? barakoCMS.Infrastructure.Auth.ApiKeyAuthenticationHandler.SchemeName
+                        : Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerDefaults.AuthenticationScheme;
+                };
+            });
+        services.AddSingleton<barakoCMS.Infrastructure.Auth.ApiKeyService>();
+
+        services.AddAuthorization();
     }
 
     private static readonly Dictionary<string, string> SslModeMap = new(StringComparer.OrdinalIgnoreCase)
