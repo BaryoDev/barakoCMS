@@ -34,21 +34,15 @@ internal class Response
 /// </summary>
 internal class Endpoint : Endpoint<Request, Response>
 {
-    private readonly IDocumentSession _session;
-    private readonly IEnumerable<IWorkflowAction> _actions;
     private readonly IWorkflowDebugger _debugger;
     private readonly ITemplateVariableExtractor _variableExtractor;
     private readonly ILogger<Endpoint> _logger;
 
     public Endpoint(
-        IDocumentSession session,
-        IEnumerable<IWorkflowAction> actions,
         IWorkflowDebugger debugger,
         ITemplateVariableExtractor variableExtractor,
         ILogger<Endpoint> logger)
     {
-        _session = session;
-        _actions = actions;
         _debugger = debugger;
         _variableExtractor = variableExtractor;
         _logger = logger;
