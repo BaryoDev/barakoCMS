@@ -77,8 +77,7 @@ public static class ServiceCollectionExtensions
         AddSecretProtection(services);
         AddConnectorServices(services);
 
-        services.AddScoped<barakoCMS.Features.Workflows.IWorkflowRunQueue, barakoCMS.Features.Workflows.WorkflowRunQueue>();
-        services.AddHostedService<barakoCMS.Features.Workflows.WorkflowRunner>();
+        AddWorkflowRunner(services);
 
         // GET /api/public/events. The options resolve the container's configuration at first use
         // rather than the one passed in here, so a host that layers settings on after this call
@@ -1120,6 +1119,12 @@ public static class ServiceCollectionExtensions
         // response body. One outbound path, one address guard, one place credentials are attached.
         services.AddScoped<barakoCMS.Infrastructure.Connectors.IConnectorFetcher, barakoCMS.Infrastructure.Connectors.ConnectorSender>();
         services.AddScoped<barakoCMS.Infrastructure.Sync.ICollectionSyncRunner, barakoCMS.Infrastructure.Sync.CollectionSyncRunner>();
+    }
+
+    private static void AddWorkflowRunner(IServiceCollection services)
+    {
+        services.AddScoped<barakoCMS.Features.Workflows.IWorkflowRunQueue, barakoCMS.Features.Workflows.WorkflowRunQueue>();
+        services.AddHostedService<barakoCMS.Features.Workflows.WorkflowRunner>();
     }
 
     private static readonly Dictionary<string, string> SslModeMap = new(StringComparer.OrdinalIgnoreCase)
