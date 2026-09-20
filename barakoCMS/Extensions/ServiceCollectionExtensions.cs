@@ -1330,21 +1330,7 @@ public static class ServiceCollectionExtensions
 
         UseObservability(app);
 
-        // Resolve the tenant from the subdomain, early so downstream code can read it.
-        app.UseMiddleware<barakoCMS.Infrastructure.Multitenancy.TenantResolutionMiddleware>();
-
-        // CORS (Must be before Authentication/Authorization)
-        app.UseCors("SecurePolicy");
-
-        app.UseAuthentication();
-        
-        // Token Revocation Check (Must be after Authentication)
-        app.UseMiddleware<barakoCMS.Infrastructure.Middleware.TokenValidationMiddleware>();
-
-        // Reject tokens minted for a different tenant than the resolved host.
-        app.UseMiddleware<barakoCMS.Infrastructure.Multitenancy.TenantAccessMiddleware>();
-
-        app.UseAuthorization();
+        UseTenantAndAuthentication(app);
 
         // Output Cache, after CORS/Authentication/Authorization and before the endpoints that read
         // CacheOutput policies, matching Microsoft's documented order. Placed after
@@ -1677,6 +1663,25 @@ public static class ServiceCollectionExtensions
 
         // 2. Request Logging (Must be after Correlation ID)
         app.UseMiddleware<barakoCMS.Infrastructure.Middleware.RequestResponseLoggingMiddleware>();
+    }
+
+    private static void UseTenantAndAuthentication(IApplicationBuilder app)
+    {
+        // Resolve the tenant from the subdomain, early so downstream code can read it.
+        app.UseMiddleware<barakoCMS.Infrastructure.Multitenancy.TenantResolutionMiddleware>();
+
+        // CORS (Must be before Authentication/Authorization)
+        app.UseCors("SecurePolicy");
+
+        app.UseAuthentication();
+        
+        // Token Revocation Check (Must be after Authentication)
+        app.UseMiddleware<barakoCMS.Infrastructure.Middleware.TokenValidationMiddleware>();
+
+        // Reject tokens minted for a different tenant than the resolved host.
+        app.UseMiddleware<barakoCMS.Infrastructure.Multitenancy.TenantAccessMiddleware>();
+
+        app.UseAuthorization();
     }
 
     /// <summary>
