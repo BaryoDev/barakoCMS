@@ -205,7 +205,7 @@ public static class ServiceCollectionExtensions
             .Except(enabled)
             .SelectMany(m => m.EndpointAssemblies)
             .Except(moduleAssemblies)
-            .Where(a => a != typeof(IBarakoModule).Assembly && a != System.Reflection.Assembly.GetEntryAssembly())
+            .Where(a => a != typeof(ServiceCollectionExtensions).Assembly && a != System.Reflection.Assembly.GetEntryAssembly())
             .ToHashSet();
 
         services.AddFastEndpoints(o =>

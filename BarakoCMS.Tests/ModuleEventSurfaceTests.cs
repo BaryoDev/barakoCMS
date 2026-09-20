@@ -39,7 +39,7 @@ public class ModuleEventSurfaceTests
         _factory = factory;
     }
 
-    private static readonly Assembly Core = typeof(barakoCMS.Modules.IBarakoModule).Assembly;
+    private static readonly Assembly Core = typeof(barakoCMS.Data.DataSeeder).Assembly;
 
     private sealed record Surface(Assembly[] Assemblies, Type[] Responses);
 

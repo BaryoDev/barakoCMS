@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests;
 /// </remarks>
 public class ResourceContractTests
 {
-    private static readonly Assembly Core = typeof(barakoCMS.Modules.IBarakoModule).Assembly;
+    private static readonly Assembly Core = typeof(barakoCMS.Data.DataSeeder).Assembly;
 
     /// <summary>The stored documents that must not be a response type.</summary>
     private static readonly Type[] StoredDocuments =
