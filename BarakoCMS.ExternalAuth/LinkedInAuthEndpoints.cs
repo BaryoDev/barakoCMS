@@ -19,11 +19,8 @@ internal static class Li
 }
 
 /// <summary>GET /api/auth/linkedin/start?club={handle} — redirect to LinkedIn's consent dialog.</summary>
-public class LinkedInStartEndpoint : EndpointWithoutRequest
+public class LinkedInStartEndpoint(IConfiguration config) : EndpointWithoutRequest
 {
-    private readonly IConfiguration _config;
-    public LinkedInStartEndpoint(IConfiguration config) => _config = config;
-
     public override void Configure()
     {
         Get("/api/auth/linkedin/start");
@@ -32,16 +29,16 @@ public class LinkedInStartEndpoint : EndpointWithoutRequest
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        if (!ExternalAuthSupport.ProviderEnabled(_config, "LinkedIn", "ClientId")) { await Send.NotFoundAsync(ct); return; }
+        if (!ExternalAuthSupport.ProviderEnabled(config, "LinkedIn", "ClientId")) { await Send.NotFoundAsync(ct); return; }
         var club = (Query<string>("club", isRequired: false) ?? "").Trim().ToLowerInvariant();
         var state = ExternalAuthSupport.NewState();
 
         HttpContext.Response.Cookies.Append("li_state", state, ExternalAuthSupport.ShortCookie());
         HttpContext.Response.Cookies.Append("li_club", club, ExternalAuthSupport.ShortCookie());
 
-        var redirect = Li.CallbackUrl(_config, HttpContext);
+        var redirect = Li.CallbackUrl(config, HttpContext);
         var url =
-            $"{Li.Authorize}?response_type=code&client_id={_config["LinkedIn:ClientId"]}" +
+            $"{Li.Authorize}?response_type=code&client_id={config["LinkedIn:ClientId"]}" +
             $"&redirect_uri={Uri.EscapeDataString(redirect)}" +
             $"&state={state}&scope={Uri.EscapeDataString(Li.Scope)}";
         await Send.ResultAsync(Results.Redirect(url));
@@ -49,28 +46,13 @@ public class LinkedInStartEndpoint : EndpointWithoutRequest
 }
 
 /// <summary>GET /api/auth/linkedin/callback — exchange the code, resolve the user, mint our token.</summary>
-public class LinkedInCallbackEndpoint : EndpointWithoutRequest
+public class LinkedInCallbackEndpoint(
+    IHttpClientFactory httpFactory,
+    IDocumentSession session,
+    IConfiguration config,
+    barakoCMS.Core.Interfaces.IDeviceGate deviceGate,
+    barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer) : EndpointWithoutRequest
 {
-    private readonly IHttpClientFactory _httpFactory;
-    private readonly IDocumentSession _session;
-    private readonly IConfiguration _config;
-    private readonly barakoCMS.Core.Interfaces.IDeviceGate _deviceGate;
-    private readonly barakoCMS.Infrastructure.Auth.ITokenIssuer _tokenIssuer;
-
-    public LinkedInCallbackEndpoint(
-        IHttpClientFactory httpFactory,
-        IDocumentSession session,
-        IConfiguration config,
-        barakoCMS.Core.Interfaces.IDeviceGate deviceGate,
-        barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer)
-    {
-        _httpFactory = httpFactory;
-        _session = session;
-        _config = config;
-        _deviceGate = deviceGate;
-        _tokenIssuer = tokenIssuer;
-    }
-
     public override void Configure()
     {
         Get("/api/auth/linkedin/callback");
@@ -79,7 +61,7 @@ public class LinkedInCallbackEndpoint : EndpointWithoutRequest
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        var baseUrl = ExternalAuthSupport.BaseUrl(_config, HttpContext);
+        var baseUrl = ExternalAuthSupport.BaseUrl(config, HttpContext);
         var club = HttpContext.Request.Cookies["li_club"] ?? "";
         var cookieState = HttpContext.Request.Cookies["li_state"];
         var code = Query<string>("code", isRequired: false);
@@ -106,15 +88,15 @@ public class LinkedInCallbackEndpoint : EndpointWithoutRequest
         SocialSignIn.ProfileData profile;
         try
         {
-            var http = _httpFactory.CreateClient();
+            var http = httpFactory.CreateClient();
 
             var form = new FormUrlEncodedContent(new Dictionary<string, string>
             {
                 ["grant_type"] = "authorization_code",
                 ["code"] = code,
-                ["redirect_uri"] = Li.CallbackUrl(_config, HttpContext),
-                ["client_id"] = _config["LinkedIn:ClientId"] ?? "",
-                ["client_secret"] = _config["LinkedIn:ClientSecret"] ?? "",
+                ["redirect_uri"] = Li.CallbackUrl(config, HttpContext),
+                ["client_id"] = config["LinkedIn:ClientId"] ?? "",
+                ["client_secret"] = config["LinkedIn:ClientSecret"] ?? "",
             });
             var tokenResp = await http.PostAsync(Li.Token, form, ct);
             tokenResp.EnsureSuccessStatusCode();
@@ -148,7 +130,7 @@ public class LinkedInCallbackEndpoint : EndpointWithoutRequest
         }
 
         var mfa = Resolve<barakoCMS.Infrastructure.Auth.Mfa.IMfaService>();
-        var tokens = await SocialSignIn.IssueAsync(_session, _config, _deviceGate, _tokenIssuer, mfa, HttpContext, email, emailVerified, club, ct, profile);
+        var tokens = await SocialSignIn.IssueAsync(session, config, deviceGate, tokenIssuer, mfa, HttpContext, email, emailVerified, club, ct, profile);
         if (tokens.RequiresMfa)
         {
             await Send.ResultAsync(Results.Redirect(SocialSignIn.FrontendMfaCallback(baseUrl, tokens.MfaChallenge!, club)));

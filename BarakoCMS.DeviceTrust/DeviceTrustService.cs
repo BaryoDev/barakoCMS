@@ -21,18 +21,14 @@ public interface IDeviceTrustService
     Task<bool> RevokeAsync(Guid userId, Guid deviceRecordId, CancellationToken token);
 }
 
-public sealed class DeviceTrustService : IDeviceTrustService
+public sealed class DeviceTrustService(IDocumentSession session) : IDeviceTrustService
 {
-    private readonly IDocumentSession _session;
-
-    public DeviceTrustService(IDocumentSession session) => _session = session;
-
     public async Task<Device> TrustAsync(Guid userId, DeviceContext ctx, CancellationToken token)
     {
         var deviceId = ctx.DeviceId ?? string.Empty;
         var device = string.IsNullOrEmpty(deviceId)
             ? null
-            : await _session.Query<Device>().FirstOrDefaultAsync(d => d.UserId == userId && d.DeviceId == deviceId, token);
+            : await session.Query<Device>().FirstOrDefaultAsync(d => d.UserId == userId && d.DeviceId == deviceId, token);
 
         var now = DateTime.UtcNow;
         if (device == null)
@@ -57,8 +53,8 @@ public sealed class DeviceTrustService : IDeviceTrustService
         device.UserAgent = ctx.UserAgent;
         device.Description = ctx.Description;
 
-        _session.Store(device);
-        await _session.SaveChangesAsync(token);
+        session.Store(device);
+        await session.SaveChangesAsync(token);
         return device;
     }
 
@@ -66,7 +62,7 @@ public sealed class DeviceTrustService : IDeviceTrustService
     {
         if (string.IsNullOrEmpty(deviceId))
             return false;
-        var device = await _session.Query<Device>()
+        var device = await session.Query<Device>()
             .FirstOrDefaultAsync(d => d.UserId == userId && d.DeviceId == deviceId, token);
         return device is { Status: DeviceStatus.Trusted };
     }
@@ -75,19 +71,19 @@ public sealed class DeviceTrustService : IDeviceTrustService
     {
         if (string.IsNullOrEmpty(ctx.DeviceId))
             return;
-        var device = await _session.Query<Device>()
+        var device = await session.Query<Device>()
             .FirstOrDefaultAsync(d => d.UserId == userId && d.DeviceId == ctx.DeviceId, token);
         if (device == null)
             return;
         device.LastUsedAt = DateTime.UtcNow;
         device.LastSeenIp = ctx.IpAddress;
-        _session.Store(device);
-        await _session.SaveChangesAsync(token);
+        session.Store(device);
+        await session.SaveChangesAsync(token);
     }
 
     public async Task<IReadOnlyList<Device>> ListAsync(Guid userId, CancellationToken token)
     {
-        var devices = await _session.Query<Device>()
+        var devices = await session.Query<Device>()
             .Where(d => d.UserId == userId && d.Status != DeviceStatus.Revoked)
             .ToListAsync(token);
         return devices.OrderByDescending(d => d.LastUsedAt).ToList();
@@ -95,13 +91,13 @@ public sealed class DeviceTrustService : IDeviceTrustService
 
     public async Task<bool> RevokeAsync(Guid userId, Guid deviceRecordId, CancellationToken token)
     {
-        var device = await _session.LoadAsync<Device>(deviceRecordId, token);
+        var device = await session.LoadAsync<Device>(deviceRecordId, token);
         if (device == null || device.UserId != userId)
             return false;
         device.Status = DeviceStatus.Revoked;
-        _session.Store(device);
+        session.Store(device);
         // Also revoke refresh tokens bound to this device so its sessions can't be refreshed.
-        var tokens = await _session.Query<barakoCMS.Models.RefreshToken>()
+        var tokens = await session.Query<barakoCMS.Models.RefreshToken>()
             .Where(t => t.UserId == userId && t.DeviceId == device.DeviceId && !t.IsRevoked)
             .ToListAsync(token);
         foreach (var t in tokens)
@@ -109,9 +105,9 @@ public sealed class DeviceTrustService : IDeviceTrustService
             t.IsRevoked = true;
             t.RevokedReason = "device_revoked";
             t.RevokedAt = DateTime.UtcNow;
-            _session.Store(t);
+            session.Store(t);
         }
-        await _session.SaveChangesAsync(token);
+        await session.SaveChangesAsync(token);
         return true;
     }
 }

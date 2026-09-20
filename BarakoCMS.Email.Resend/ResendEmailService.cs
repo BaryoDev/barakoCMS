@@ -13,25 +13,16 @@ namespace BarakoCMS.Email.Resend;
 /// variable) and <c>Resend:From</c>, which is how a deployment with no database yet is seeded; what
 /// an admin stored wins per field.
 /// </remarks>
-public class ResendEmailService : IEmailService
+public class ResendEmailService(HttpClient http, IEmailSettingsProvider settings) : IEmailService
 {
     private const string Endpoint = "https://api.resend.com/emails";
 
     /// <summary>Resend's shared testing sender, which works without a verified domain.</summary>
     private const string DefaultFrom = "BarakoCMS <onboarding@resend.dev>";
 
-    private readonly HttpClient _http;
-    private readonly IEmailSettingsProvider _settings;
-
-    public ResendEmailService(HttpClient http, IEmailSettingsProvider settings)
-    {
-        _http = http;
-        _settings = settings;
-    }
-
     public async Task SendEmailAsync(string to, string subject, string body, CancellationToken cancellationToken = default)
     {
-        var resolved = await _settings.GetAsync(cancellationToken);
+        var resolved = await settings.GetAsync(cancellationToken);
 
         var apiKey = resolved.ApiKey;
         if (string.IsNullOrWhiteSpace(apiKey))
@@ -50,7 +41,7 @@ public class ResendEmailService : IEmailService
             html = body,
         });
 
-        using var response = await _http.SendAsync(request, cancellationToken);
+        using var response = await http.SendAsync(request, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
             var detail = await response.Content.ReadAsStringAsync(cancellationToken);

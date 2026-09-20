@@ -30,11 +30,8 @@ public class ReportRequest
 /// <see cref="ClientErrorRecorder"/>) so it can't be used to flood storage. Repeated faults are
 /// deduplicated by fingerprint rather than stored again.
 /// </summary>
-public class Endpoint : Endpoint<ReportRequest>
+public class Endpoint(IDocumentSession session) : Endpoint<ReportRequest>
 {
-    private readonly IDocumentSession _session;
-    public Endpoint(IDocumentSession session) => _session = session;
-
     public override void Configure()
     {
         Post("/api/client-errors");
@@ -53,10 +50,10 @@ public class Endpoint : Endpoint<ReportRequest>
 
         foreach (var item in req.Items.Take(ClientErrorRecorder.MaxItems))
         {
-            await ClientErrorRecorder.RecordAsync(_session, item, userAgent, userId, username, ct);
+            await ClientErrorRecorder.RecordAsync(session, item, userAgent, userId, username, ct);
         }
 
-        await _session.SaveChangesAsync(ct);
+        await session.SaveChangesAsync(ct);
         await Send.OkAsync(ct);
     }
 }

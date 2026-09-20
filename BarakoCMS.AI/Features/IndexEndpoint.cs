@@ -13,17 +13,8 @@ public sealed record IndexResponse(string Type, int Indexed, int Skipped);
 /// the embedding backend. Returns how many were indexed vs skipped (skips mean the backend was
 /// unreachable for that item).
 /// </summary>
-public class IndexEndpoint : EndpointWithoutRequest<IndexResponse>
+public class IndexEndpoint(IDocumentSession session, IEmbeddingClient embed) : EndpointWithoutRequest<IndexResponse>
 {
-    private readonly IDocumentSession _session;
-    private readonly IEmbeddingClient _embed;
-
-    public IndexEndpoint(IDocumentSession session, IEmbeddingClient embed)
-    {
-        _session = session;
-        _embed = embed;
-    }
-
     private const int Cap = 500;
 
     public override void Configure()
@@ -37,16 +28,16 @@ public class IndexEndpoint : EndpointWithoutRequest<IndexResponse>
     {
         var type = Route<string>("type") ?? string.Empty;
 
-        if (!_embed.IsConfigured)
+        if (!embed.IsConfigured)
         {
             await Send.ResponseAsync(new IndexResponse(type, 0, 0), 503, ct);
             return;
         }
 
-        var def = await _session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
+        var def = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
         if (def is null) { await Send.NotFoundAsync(ct); return; }
 
-        var items = await _session.Query<Content>()
+        var items = await session.Query<Content>()
             .Where(c => c.ContentType == type
                         && c.Status == ContentStatus.Published
                         && c.Sensitivity == SensitivityLevel.Public)
@@ -56,10 +47,10 @@ public class IndexEndpoint : EndpointWithoutRequest<IndexResponse>
         int indexed = 0, skipped = 0;
         foreach (var c in items)
         {
-            var vector = await _embed.EmbedAsync(PublicText.ToEmbeddableText(c, def), ct);
+            var vector = await embed.EmbedAsync(PublicText.ToEmbeddableText(c, def), ct);
             if (vector is null) { skipped++; continue; }
 
-            _session.Store(new ContentEmbedding
+            session.Store(new ContentEmbedding
             {
                 Id = c.Id,
                 ContentType = type,
@@ -71,7 +62,7 @@ public class IndexEndpoint : EndpointWithoutRequest<IndexResponse>
             indexed++;
         }
 
-        await _session.SaveChangesAsync(ct);
+        await session.SaveChangesAsync(ct);
         await Send.OkAsync(new IndexResponse(type, indexed, skipped), ct);
     }
 }

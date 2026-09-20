@@ -35,21 +35,12 @@ public class Response
 /// /api/import/analyze after column mapping). Reuses the CMS's content-type validation, per-type
 /// create permission, and event-sourced creation; all creates commit in one transaction.
 /// </summary>
-public class Endpoint : Endpoint<Request, Response>
+public class Endpoint(
+    IDocumentSession session,
+    IContentValidatorService validator,
+    IPermissionResolver permissions,
+    IContentWriter contentWriter) : Endpoint<Request, Response>
 {
-    private readonly IDocumentSession _session;
-    private readonly IContentWriter _contentWriter;
-    private readonly IContentValidatorService _validator;
-    private readonly IPermissionResolver _permissions;
-
-    public Endpoint(IDocumentSession session, IContentValidatorService validator, IPermissionResolver permissions, IContentWriter contentWriter)
-    {
-        _contentWriter = contentWriter;
-        _session = session;
-        _validator = validator;
-        _permissions = permissions;
-    }
-
     public override void Configure()
     {
         Post("/api/import/content");
@@ -72,14 +63,14 @@ public class Endpoint : Endpoint<Request, Response>
             return;
         }
 
-        var user = await _session.LoadAsync<User>(userId, ct);
+        var user = await session.LoadAsync<User>(userId, ct);
         if (user == null)
         {
             await Send.UnauthorizedAsync(ct);
             return;
         }
 
-        if (!await _permissions.CanPerformActionAsync(user, req.ContentType, "create", null, ct))
+        if (!await permissions.CanPerformActionAsync(user, req.ContentType, "create", null, ct))
         {
             await Send.ForbiddenAsync(ct);
             return;
@@ -90,7 +81,7 @@ public class Endpoint : Endpoint<Request, Response>
         // match finds no definition at all: the batch cap below would be off and the public-field set
         // would come out empty.
         var lowered = req.ContentType.ToLower();
-        var definition = await _session.Query<ContentTypeDefinition>()
+        var definition = await session.Query<ContentTypeDefinition>()
             .FirstOrDefaultAsync(d => d.Name.ToLower() == lowered, ct);
 
         // Validate every record first so an all-or-nothing import can reject before writing anything.
@@ -98,7 +89,7 @@ public class Endpoint : Endpoint<Request, Response>
         var valid = new List<(int Row, Dictionary<string, object> Data)>();
         for (var i = 0; i < req.Records.Count; i++)
         {
-            var (isValid, msgs) = await _validator.ValidateAsync(req.ContentType, req.Records[i], existing: null);
+            var (isValid, msgs) = await validator.ValidateAsync(req.ContentType, req.Records[i], existing: null);
             if (isValid) valid.Add((i, req.Records[i]));
             else errors.Add(new Response.RowError { Row = i, Messages = msgs });
         }
@@ -147,10 +138,10 @@ public class Endpoint : Endpoint<Request, Response>
 
             var @event = new ContentCreated(id, req.ContentType, data, req.Status, userId, searchText, SensitivityLevel.Public, DateTime.UtcNow);
 
-            await _contentWriter.CreateAsync(@event, ct);
+            await contentWriter.CreateAsync(@event, ct);
         }
         // All content items (and their event streams) commit atomically.
-        await _session.SaveChangesAsync(ct);
+        await session.SaveChangesAsync(ct);
 
         await Send.ResponseAsync(new Response
         {

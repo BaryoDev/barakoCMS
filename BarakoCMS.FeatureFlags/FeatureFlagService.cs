@@ -5,15 +5,12 @@ using Marten;
 namespace BarakoCMS.FeatureFlags;
 
 /// <summary>Reads and evaluates feature flags for a request context.</summary>
-public class FeatureFlagService
+public class FeatureFlagService(IQuerySession session)
 {
-    private readonly IQuerySession _session;
-    public FeatureFlagService(IQuerySession session) => _session = session;
-
     /// <summary>Is a flag on for this context? Returns <paramref name="fallback"/> if the flag doesn't exist.</summary>
     public async Task<bool> IsEnabledAsync(string key, FlagContext ctx, bool fallback = false, CancellationToken ct = default)
     {
-        var flag = await _session.Query<FeatureFlag>().FirstOrDefaultAsync(f => f.Key == key, ct);
+        var flag = await session.Query<FeatureFlag>().FirstOrDefaultAsync(f => f.Key == key, ct);
         return flag is null ? fallback : Evaluate(flag, ctx);
     }
 
@@ -25,7 +22,7 @@ public class FeatureFlagService
     /// </summary>
     public async Task<Dictionary<string, bool>> EvaluateAllAsync(FlagContext ctx, FlagAudience audience, CancellationToken ct = default)
     {
-        var flags = await _session.Query<FeatureFlag>().ToListAsync(ct);
+        var flags = await session.Query<FeatureFlag>().ToListAsync(ct);
         var result = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
         foreach (var f in flags)
         {

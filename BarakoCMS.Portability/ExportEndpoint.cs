@@ -7,22 +7,11 @@ using Marten;
 namespace BarakoCMS.Portability;
 
 /// <summary>GET /api/portability/export?types=member,event — download a content bundle (all types if omitted).</summary>
-public class ExportEndpoint : Endpoint<ExportEndpoint.Req, PortabilityBundle>
+public class ExportEndpoint(
+    IQuerySession session,
+    IDocumentSession documentSession,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<ExportEndpoint.Req, PortabilityBundle>
 {
-    private readonly IQuerySession _session;
-    private readonly IDocumentSession _documentSession;
-    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
-
-    public ExportEndpoint(
-        IQuerySession session,
-        IDocumentSession documentSession,
-        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
-    {
-        _session = session;
-        _documentSession = documentSession;
-        _tenant = tenant;
-    }
-
     public class Req { public string? Types { get; set; } }
 
     public override void Configure()
@@ -39,16 +28,16 @@ public class ExportEndpoint : Endpoint<ExportEndpoint.Req, PortabilityBundle>
             : req.Types.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                        .Select(s => s.ToLowerInvariant()).ToHashSet();
 
-        var types = (await _session.Query<ContentTypeDefinition>().ToListAsync(ct)).ToList();
+        var types = (await session.Query<ContentTypeDefinition>().ToListAsync(ct)).ToList();
         if (filter != null) types = types.Where(t => filter.Contains(t.Name.ToLowerInvariant())).ToList();
 
-        var contents = await _session.Query<barakoCMS.Models.Content>().ToListAsync(ct);
+        var contents = await session.Query<barakoCMS.Models.Content>().ToListAsync(ct);
         if (filter != null) contents = contents.Where(c => filter.Contains(c.ContentType.ToLowerInvariant())).ToList();
 
         Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
-        await AuditLog.RecordAsync(_documentSession, _tenant.Slug, "portability.exported", actorId, User.FindFirst("Username")?.Value,
+        await AuditLog.RecordAsync(documentSession, tenant.Slug, "portability.exported", actorId, User.FindFirst("Username")?.Value,
             metadata: new() { ["contentTypes"] = types.Count, ["contents"] = contents.Count }, ct: ct);
-        await _documentSession.SaveChangesAsync(ct);
+        await documentSession.SaveChangesAsync(ct);
 
         await Send.ResponseAsync(new PortabilityBundle
         {

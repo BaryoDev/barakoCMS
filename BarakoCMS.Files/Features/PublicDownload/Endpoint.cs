@@ -19,19 +19,8 @@ public class Request
 /// bytes. The literal "files" segment wins over the /api/public/{type}/{slug} content route.
 /// Add <c>?w=400</c> for a narrower copy of an image; see <c>docs/image-variants.md</c>.
 /// </summary>
-public class Endpoint : Endpoint<Request>
+public class Endpoint(IQuerySession session, IFileStorage storage, ImageVariants variants) : Endpoint<Request>
 {
-    private readonly IQuerySession _session;
-    private readonly IFileStorage _storage;
-    private readonly ImageVariants _variants;
-
-    public Endpoint(IQuerySession session, IFileStorage storage, ImageVariants variants)
-    {
-        _session = session;
-        _storage = storage;
-        _variants = variants;
-    }
-
     public override void Configure()
     {
         Get("/api/public/files/{id}");
@@ -40,7 +29,7 @@ public class Endpoint : Endpoint<Request>
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        var file = await _session.LoadAsync<StoredFile>(req.Id, ct);
+        var file = await session.LoadAsync<StoredFile>(req.Id, ct);
         if (file is null || !file.IsPublic) { await Send.NotFoundAsync(ct); return; } /* fail closed */
 
         // A cached resize is reached as ?w= on the file it came from, never by its own id, so this
@@ -50,7 +39,7 @@ public class Endpoint : Endpoint<Request>
         // After the public check, not before. A resize is the most expensive thing this anonymous
         // route can be made to do, so nothing that costs CPU happens for a file the caller is about
         // to be told does not exist.
-        var resolved = await _variants.ResolveAsync(file, req.Width, ct);
+        var resolved = await variants.ResolveAsync(file, req.Width, ct);
         if (resolved.Refused is not null)
         {
             AddError(resolved.Refused);
@@ -74,7 +63,7 @@ public class Endpoint : Endpoint<Request>
             return;
         }
 
-        var bytes = await _storage.GetAsync(served.StorageKey, ct);
+        var bytes = await storage.GetAsync(served.StorageKey, ct);
         if (bytes is null) { await Send.NotFoundAsync(ct); return; }
 
         await Send.BytesAsync(bytes, served.FileName, served.ContentType, cancellation: ct);

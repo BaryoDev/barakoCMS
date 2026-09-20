@@ -31,11 +31,8 @@ public sealed class ResolveValidator : Validator<ResolveRequest>
 }
 
 /// <summary>POST /api/client-errors/{id}/resolve: mark an error done, or reopen it.</summary>
-public class Endpoint : Endpoint<ResolveRequest>
+public class Endpoint(IDocumentSession session) : Endpoint<ResolveRequest>
 {
-    private readonly IDocumentSession _session;
-    public Endpoint(IDocumentSession session) => _session = session;
-
     public override void Configure()
     {
         Post("/api/client-errors/{id}/resolve");
@@ -45,7 +42,7 @@ public class Endpoint : Endpoint<ResolveRequest>
 
     public override async Task HandleAsync(ResolveRequest req, CancellationToken ct)
     {
-        var error = await _session.LoadAsync<ClientError>(req.Id, ct);
+        var error = await session.LoadAsync<ClientError>(req.Id, ct);
         if (error is null) { await Send.NotFoundAsync(ct); return; }
 
         error.Resolved = req.Resolved;
@@ -57,8 +54,8 @@ public class Endpoint : Endpoint<ResolveRequest>
         error.ResolutionReference = req.Resolved ? Blank(req.Reference) : null;
         error.ResolutionNote = req.Resolved ? Blank(req.Note) : null;
 
-        _session.Store(error);
-        await _session.SaveChangesAsync(ct);
+        session.Store(error);
+        await session.SaveChangesAsync(ct);
         await Send.OkAsync(ct);
     }
 

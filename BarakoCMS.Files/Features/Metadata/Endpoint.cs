@@ -12,12 +12,8 @@ public class Request
 /// <summary>
 /// GET /api/files/{id}/meta. The record without the bytes, for an editor's file panel.
 /// </summary>
-public class Endpoint : Endpoint<Request, FileMetadata>
+public class Endpoint(IQuerySession session) : Endpoint<Request, FileMetadata>
 {
-    private readonly IQuerySession _session;
-
-    public Endpoint(IQuerySession session) => _session = session;
-
     public override void Configure()
     {
         Get("/api/files/{id}/meta");
@@ -26,7 +22,7 @@ public class Endpoint : Endpoint<Request, FileMetadata>
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        var file = await _session.LoadAsync<StoredFile>(req.Id, ct);
+        var file = await session.LoadAsync<StoredFile>(req.Id, ct);
         if (file is null || file.ParentFileId is not null)
         {
             await Send.NotFoundAsync(ct);

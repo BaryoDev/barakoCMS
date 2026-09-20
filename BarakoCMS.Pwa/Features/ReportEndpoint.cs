@@ -25,12 +25,8 @@ public sealed class ReportRequest
 /// launch and on install. Anonymous by default; when a signed-in user reports, their identity is
 /// recorded so the admin can see who installed the app. Idempotent per device.
 /// </summary>
-public sealed class ReportEndpoint : Endpoint<ReportRequest>
+public sealed class ReportEndpoint(IDocumentSession session) : Endpoint<ReportRequest>
 {
-    private readonly IDocumentSession _session;
-
-    public ReportEndpoint(IDocumentSession session) => _session = session;
-
     public override void Configure()
     {
         Post("/api/pwa/report");
@@ -58,12 +54,12 @@ public sealed class ReportEndpoint : Endpoint<ReportRequest>
             || req.DisplayMode is "standalone" or "fullscreen" or "minimal-ui";
         var now = DateTime.UtcNow;
 
-        var existing = await _session.Query<PwaInstall>()
+        var existing = await session.Query<PwaInstall>()
             .FirstOrDefaultAsync(p => p.DeviceId == req.DeviceId, ct);
 
         if (existing is null)
         {
-            _session.Store(new PwaInstall
+            session.Store(new PwaInstall
             {
                 DeviceId = req.DeviceId,
                 UserId = userId,
@@ -93,10 +89,10 @@ public sealed class ReportEndpoint : Endpoint<ReportRequest>
                 existing.Installed = true;
                 existing.InstalledAt ??= now;
             }
-            _session.Update(existing);
+            session.Update(existing);
         }
 
-        await _session.SaveChangesAsync(ct);
+        await session.SaveChangesAsync(ct);
         await Send.NoContentAsync(ct);
     }
 

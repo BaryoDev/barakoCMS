@@ -24,16 +24,12 @@ public class Response
 /// POST /api/import/analyze, which accepts an .xlsx/CSV upload and return a typed preview grid so a UI can
 /// build a column mapping. Parses only; nothing is stored. Any authenticated user may analyze.
 /// </summary>
-public class Endpoint : EndpointWithoutRequest<Response>
+public class Endpoint(
+    Microsoft.Extensions.Configuration.IConfiguration configuration) : EndpointWithoutRequest<Response>
 {
     // Cap the preview so a huge upload can't balloon the response. This bounds what comes back and
     // nothing about what it costs to produce: see SpreadsheetLimits for the half that does.
     private const int MaxPreviewRows = 500;
-
-    private readonly Microsoft.Extensions.Configuration.IConfiguration _configuration;
-
-    public Endpoint(Microsoft.Extensions.Configuration.IConfiguration configuration) =>
-        _configuration = configuration;
 
     public override void Configure()
     {
@@ -71,7 +67,7 @@ public class Endpoint : EndpointWithoutRequest<Response>
         // cost of this request is set by the expanded size rather than the uploaded size, and an
         // xlsx is a zip: a file well inside the body limit expands to many times its size. See
         // SpreadsheetLimits for the measurement that produced the default.
-        var limit = SpreadsheetLimits.MaxExpandedBytes(_configuration);
+        var limit = SpreadsheetLimits.MaxExpandedBytes(configuration);
         if (SpreadsheetLimits.DeclaredExpandedBytes(buffer) is { } expanded && expanded > limit)
         {
             AddError(
