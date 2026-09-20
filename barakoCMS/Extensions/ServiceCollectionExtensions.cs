@@ -42,76 +42,7 @@ public static class ServiceCollectionExtensions
         IConfiguration configuration,
         Action<BarakoModuleBuilder>? configureModules)
     {
-        // Collect modules first, so their endpoint assemblies and Marten config are available when
-        // we wire up FastEndpoints and Marten below. Configuration sets the discovery default and
-        // the callback can override it, so a host that wants only its explicit list says so in code.
-        var moduleBuilder = new BarakoModuleBuilder
-        {
-            Discover = configuration.GetValue(ModuleEnablement.DiscoverKey, true),
-        };
-        configureModules?.Invoke(moduleBuilder);
-        if (moduleBuilder.Discover)
-            moduleBuilder.DiscoverFrom();
-
-        var seen = moduleBuilder.Modules;
-        var enabledNames = ModuleEnablement.ReadEnabled(configuration);
-        IReadOnlyList<IBarakoModule> enabled;
-        if (enabledNames is null)
-        {
-            // Unset keeps today's behaviour: everything runs. Warned once per boot, and only when
-            // there is something the list would decide; a core-only host has nothing to switch off.
-            enabled = seen;
-            if (seen.Count > 0)
-            {
-                Log.Warning(ModuleEnablement.UnsetWarning,
-                    string.Join(", ", seen.Select(m => m.Name).OrderBy(n => n, StringComparer.Ordinal)));
-            }
-        }
-        else
-        {
-            enabled = ModuleEnablement.Apply(seen, enabledNames);
-        }
-
-        // Every module seen and whether it runs, for GET /api/modules. The IBarakoModule singletons
-        // below hold only the ones that run, so "off" and "not installed" would otherwise look alike.
-        services.AddSingleton(ModuleCatalogue.Of(seen, enabled));
-
-        // Filled by the schema preflight at boot; empty until then, which the endpoint reports as
-        // unknown rather than guessing.
-        services.AddSingleton<ModuleSchemaReport>();
-
-        // Sorted before anything runs, so DI registration, schema and seeding all see the same
-        // order and a module that must configure after another actually does. Independent modules
-        // keep their declared order.
-        var modules = ModuleOrder.Sort(enabled);
-
-        // Contract compatibility, checked before anything is registered. A module that states a
-        // version core cannot honour is refused here rather than allowed to half-configure and fail
-        // somewhere that does not name it. Discovered modules go through the same check as added
-        // ones, and only the enabled ones are checked: a module switched off cannot fail anything.
-        var unsupported = modules
-            .Where(m => m.ContractVersion != 0
-                        && (m.ContractVersion < ModuleContract.MinimumSupported
-                            || m.ContractVersion > ModuleContract.Version))
-            .Select(m => $"{m.Name} (declares contract v{m.ContractVersion})")
-            .ToList();
-
-        if (unsupported.Count > 0)
-        {
-            throw new InvalidOperationException(
-                $"This barakoCMS implements module contract v{ModuleContract.Version} and supports "
-                + $"v{ModuleContract.MinimumSupported} through v{ModuleContract.Version}. Refusing to load: "
-                + string.Join(", ", unsupported)
-                + ". Update the module, or run a core that implements its contract version.");
-        }
-
-
-        foreach (var module in modules)
-        {
-            // Keep the instance discoverable at runtime (used by the seed runner).
-            services.AddSingleton<IBarakoModule>(module);
-            module.ConfigureServices(services, ModuleConfiguration(configuration, module));
-        }
+        var (seen, enabled, modules) = AddModules(services, configuration, configureModules);
 
         // FastEndpoints scans the entry (host) assembly by default; add each module's assembly so
         // endpoints shipped inside a module DLL are discovered too. DisableAutoDiscovery stays false,
@@ -998,6 +929,85 @@ public static class ServiceCollectionExtensions
         }
 
         return services;
+    }
+
+    private static (IReadOnlyList<IBarakoModule> Seen, IReadOnlyList<IBarakoModule> Enabled, IReadOnlyList<IBarakoModule> Ordered) AddModules(
+        IServiceCollection services,
+        IConfiguration configuration,
+        Action<BarakoModuleBuilder>? configureModules)
+    {
+        // Collect modules first, so their endpoint assemblies and Marten config are available when
+        // we wire up FastEndpoints and Marten below. Configuration sets the discovery default and
+        // the callback can override it, so a host that wants only its explicit list says so in code.
+        var moduleBuilder = new BarakoModuleBuilder
+        {
+            Discover = configuration.GetValue(ModuleEnablement.DiscoverKey, true),
+        };
+        configureModules?.Invoke(moduleBuilder);
+        if (moduleBuilder.Discover)
+            moduleBuilder.DiscoverFrom();
+
+        var seen = moduleBuilder.Modules;
+        var enabledNames = ModuleEnablement.ReadEnabled(configuration);
+        IReadOnlyList<IBarakoModule> enabled;
+        if (enabledNames is null)
+        {
+            // Unset keeps today's behaviour: everything runs. Warned once per boot, and only when
+            // there is something the list would decide; a core-only host has nothing to switch off.
+            enabled = seen;
+            if (seen.Count > 0)
+            {
+                Log.Warning(ModuleEnablement.UnsetWarning,
+                    string.Join(", ", seen.Select(m => m.Name).OrderBy(n => n, StringComparer.Ordinal)));
+            }
+        }
+        else
+        {
+            enabled = ModuleEnablement.Apply(seen, enabledNames);
+        }
+
+        // Every module seen and whether it runs, for GET /api/modules. The IBarakoModule singletons
+        // below hold only the ones that run, so "off" and "not installed" would otherwise look alike.
+        services.AddSingleton(ModuleCatalogue.Of(seen, enabled));
+
+        // Filled by the schema preflight at boot; empty until then, which the endpoint reports as
+        // unknown rather than guessing.
+        services.AddSingleton<ModuleSchemaReport>();
+
+        // Sorted before anything runs, so DI registration, schema and seeding all see the same
+        // order and a module that must configure after another actually does. Independent modules
+        // keep their declared order.
+        var modules = ModuleOrder.Sort(enabled);
+
+        // Contract compatibility, checked before anything is registered. A module that states a
+        // version core cannot honour is refused here rather than allowed to half-configure and fail
+        // somewhere that does not name it. Discovered modules go through the same check as added
+        // ones, and only the enabled ones are checked: a module switched off cannot fail anything.
+        var unsupported = modules
+            .Where(m => m.ContractVersion != 0
+                        && (m.ContractVersion < ModuleContract.MinimumSupported
+                            || m.ContractVersion > ModuleContract.Version))
+            .Select(m => $"{m.Name} (declares contract v{m.ContractVersion})")
+            .ToList();
+
+        if (unsupported.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"This barakoCMS implements module contract v{ModuleContract.Version} and supports "
+                + $"v{ModuleContract.MinimumSupported} through v{ModuleContract.Version}. Refusing to load: "
+                + string.Join(", ", unsupported)
+                + ". Update the module, or run a core that implements its contract version.");
+        }
+
+
+        foreach (var module in modules)
+        {
+            // Keep the instance discoverable at runtime (used by the seed runner).
+            services.AddSingleton<IBarakoModule>(module);
+            module.ConfigureServices(services, ModuleConfiguration(configuration, module));
+        }
+
+        return (seen, enabled, modules);
     }
 
     private static readonly Dictionary<string, string> SslModeMap = new(StringComparer.OrdinalIgnoreCase)
