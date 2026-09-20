@@ -95,23 +95,7 @@ public static class ServiceCollectionExtensions
 
         AddForwardedHeaders(services, configuration);
 
-        // Rate limiting. Read and validated here so a bad value stops the host before anything else
-        // starts. The renderer key is never logged; see RateLimitSetup.
-        var rateLimits = barakoCMS.Infrastructure.Security.RateLimitSetup.Read(configuration);
-        foreach (var warning in barakoCMS.Infrastructure.Security.RateLimitSetup.Warnings(rateLimits))
-        {
-            Log.Warning("{RateLimitWarning}", warning);
-        }
-
-        // The limiter itself is built from the container's IConfiguration when UseRateLimiter
-        // resolves it, for the reason given on the job queue above: under WebApplicationFactory a
-        // test host's settings arrive after this method has run. In production both reads see the
-        // same values.
-        services.AddRateLimiter(_ => { });
-        services.AddOptions<Microsoft.AspNetCore.RateLimiting.RateLimiterOptions>()
-            .Configure<IConfiguration>((options, current) =>
-                barakoCMS.Infrastructure.Security.RateLimitSetup.Configure(
-                    options, barakoCMS.Infrastructure.Security.RateLimitSetup.Read(current)));
+        AddRateLimiting(services, configuration);
 
         if (configuration.GetValue<bool>("HealthChecksUI:Enabled"))
         {
@@ -1175,6 +1159,27 @@ public static class ServiceCollectionExtensions
             services.Configure<Microsoft.AspNetCore.Builder.ForwardedHeadersOptions>(
                 options => barakoCMS.Infrastructure.Security.ForwardedHeadersSetup.Configure(options, configuration));
         }
+    }
+
+    private static void AddRateLimiting(IServiceCollection services, IConfiguration configuration)
+    {
+        // Rate limiting. Read and validated here so a bad value stops the host before anything else
+        // starts. The renderer key is never logged; see RateLimitSetup.
+        var rateLimits = barakoCMS.Infrastructure.Security.RateLimitSetup.Read(configuration);
+        foreach (var warning in barakoCMS.Infrastructure.Security.RateLimitSetup.Warnings(rateLimits))
+        {
+            Log.Warning("{RateLimitWarning}", warning);
+        }
+
+        // The limiter itself is built from the container's IConfiguration when UseRateLimiter
+        // resolves it, for the reason given on the job queue above: under WebApplicationFactory a
+        // test host's settings arrive after this method has run. In production both reads see the
+        // same values.
+        services.AddRateLimiter(_ => { });
+        services.AddOptions<Microsoft.AspNetCore.RateLimiting.RateLimiterOptions>()
+            .Configure<IConfiguration>((options, current) =>
+                barakoCMS.Infrastructure.Security.RateLimitSetup.Configure(
+                    options, barakoCMS.Infrastructure.Security.RateLimitSetup.Read(current)));
     }
 
     private static readonly Dictionary<string, string> SslModeMap = new(StringComparer.OrdinalIgnoreCase)
