@@ -74,10 +74,7 @@ public static class ServiceCollectionExtensions
         AddErasureAndPolicyChecks(services, configuration);
         AddOtpAndEmailVerification(services, configuration);
 
-        // MFA (TOTP): secret protection (AES-GCM) + enrollment/verification.
-        services.AddSingleton<barakoCMS.Infrastructure.Auth.Mfa.IMfaSecretProtector, barakoCMS.Infrastructure.Auth.Mfa.MfaSecretProtector>();
-        services.AddSingleton<barakoCMS.Infrastructure.Security.ISecretProtector, barakoCMS.Infrastructure.Security.SecretProtector>();
-        services.AddScoped<barakoCMS.Core.Interfaces.IEmailSettingsProvider, barakoCMS.Infrastructure.Services.EmailSettingsProvider>();
+        AddSecretProtection(services);
         services.AddSingleton<barakoCMS.Infrastructure.Connectors.IConnectorSecretProtector, barakoCMS.Infrastructure.Connectors.ConnectorSecretProtector>();
         services.AddScoped<barakoCMS.Infrastructure.Connectors.IConnectorSender, barakoCMS.Infrastructure.Connectors.ConnectorSender>();
         services.AddScoped<barakoCMS.Infrastructure.Connectors.IRequestComposer, barakoCMS.Infrastructure.Connectors.RequestComposer>();
@@ -1110,6 +1107,14 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(emailVerification);
         services.AddScoped<barakoCMS.Core.Interfaces.IEmailVerificationService,
                            barakoCMS.Infrastructure.Services.EmailVerificationService>();
+    }
+
+    private static void AddSecretProtection(IServiceCollection services)
+    {
+        // MFA (TOTP): secret protection (AES-GCM) + enrollment/verification.
+        services.AddSingleton<barakoCMS.Infrastructure.Auth.Mfa.IMfaSecretProtector, barakoCMS.Infrastructure.Auth.Mfa.MfaSecretProtector>();
+        services.AddSingleton<barakoCMS.Infrastructure.Security.ISecretProtector, barakoCMS.Infrastructure.Security.SecretProtector>();
+        services.AddScoped<barakoCMS.Core.Interfaces.IEmailSettingsProvider, barakoCMS.Infrastructure.Services.EmailSettingsProvider>();
     }
 
     private static readonly Dictionary<string, string> SslModeMap = new(StringComparer.OrdinalIgnoreCase)
