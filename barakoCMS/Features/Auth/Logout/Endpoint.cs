@@ -6,25 +6,12 @@ using System.IdentityModel.Tokens.Jwt;
 
 namespace barakoCMS.Features.Auth.Logout;
 
-internal class Endpoint : EndpointWithoutRequest<Response>
+internal class Endpoint(
+    ITokenRevocationService revocationService,
+    ILogger<Endpoint> logger,
+    IDocumentSession documentSession,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : EndpointWithoutRequest<Response>
 {
-    private readonly ITokenRevocationService _revocationService;
-    private readonly ILogger<Endpoint> _logger;
-    private readonly IDocumentSession _documentSession;
-    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
-
-    public Endpoint(
-        ITokenRevocationService revocationService,
-        ILogger<Endpoint> logger,
-        IDocumentSession documentSession,
-        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
-    {
-        _revocationService = revocationService;
-        _logger = logger;
-        _documentSession = documentSession;
-        _tenant = tenant;
-    }
-
     public override void Configure()
     {
         Post("/api/auth/logout");
@@ -39,7 +26,7 @@ internal class Endpoint : EndpointWithoutRequest<Response>
 
         if (jtiClaim == null || userIdClaim == null || !Guid.TryParse(userIdClaim.Value, out var userId))
         {
-            _logger.LogWarning("Logout attempt with invalid token claims");
+            logger.LogWarning("Logout attempt with invalid token claims");
             await Send.UnauthorizedAsync(ct);
             return;
         }
@@ -56,17 +43,17 @@ internal class Endpoint : EndpointWithoutRequest<Response>
         }
 
         // Revoke the access token
-        await _revocationService.RevokeTokenAsync(jti, userId, "logout", expiry, ct);
+        await revocationService.RevokeTokenAsync(jti, userId, "logout", expiry, ct);
 
         // Revoke all refresh tokens for the user
-        await _revocationService.RevokeAllUserTokensAsync(userId, "logout", ct);
+        await revocationService.RevokeAllUserTokensAsync(userId, "logout", ct);
 
         var device = barakoCMS.Infrastructure.DeviceContext.From(HttpContext);
-        await AuditLog.RecordAsync(_documentSession, _tenant.Slug, "auth.logout", userId, User.FindFirst("Username")?.Value,
+        await AuditLog.RecordAsync(documentSession, tenant.Slug, "auth.logout", userId, User.FindFirst("Username")?.Value,
             ipAddress: device.IpAddress, ct: ct);
-        await _documentSession.SaveChangesAsync(ct);
+        await documentSession.SaveChangesAsync(ct);
 
-        _logger.LogInformation("User logged out: UserId={UserId}", userId);
+        logger.LogInformation("User logged out: UserId={UserId}", userId);
 
         // Signing out clears the cookie too, or the browser keeps presenting a refresh token the
         // server has already revoked and the next refresh is a 401 nobody can explain.

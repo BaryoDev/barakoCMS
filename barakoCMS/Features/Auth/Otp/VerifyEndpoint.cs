@@ -33,28 +33,16 @@ internal class OtpVerifyResponse
 /// POST /api/auth/otp/verify — exchange a valid email code for the same JWT + refresh token that
 /// password login issues. Single-use, expiry-checked, with a per-code attempt cap.
 /// </summary>
-internal class VerifyEndpoint : Endpoint<OtpVerifyRequest, OtpVerifyResponse>
+internal class VerifyEndpoint(
+    IDocumentSession session,
+    IConfiguration config,
+    barakoCMS.Core.Interfaces.IDeviceGate deviceGate,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
+    barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer,
+    barakoCMS.Infrastructure.Auth.Mfa.IMfaService mfa) : Endpoint<OtpVerifyRequest, OtpVerifyResponse>
 {
     private const int MaxAttempts = 5;
 
-    private readonly IDocumentSession _session;
-    private readonly IConfiguration _config;
-
-    private readonly barakoCMS.Infrastructure.Auth.ITokenIssuer _tokenIssuer;
-
-    public VerifyEndpoint(IDocumentSession session, IConfiguration config, barakoCMS.Core.Interfaces.IDeviceGate deviceGate, barakoCMS.Infrastructure.Multitenancy.TenantContext tenant, barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer, barakoCMS.Infrastructure.Auth.Mfa.IMfaService mfa)
-    {
-        _session = session;
-        _config = config;
-        _deviceGate = deviceGate;
-        _tenant = tenant;
-        _tokenIssuer = tokenIssuer;
-        _mfa = mfa;
-    }
-
-    private readonly barakoCMS.Core.Interfaces.IDeviceGate _deviceGate;
-    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
-    private readonly barakoCMS.Infrastructure.Auth.Mfa.IMfaService _mfa;
 
     public override void Configure()
     {
@@ -77,7 +65,7 @@ internal class VerifyEndpoint : Endpoint<OtpVerifyRequest, OtpVerifyResponse>
     {
         try
         {
-            await _session.SaveChangesAsync(ct);
+            await session.SaveChangesAsync(ct);
             return true;
         }
         catch (JasperFx.ConcurrencyException)
@@ -91,7 +79,7 @@ internal class VerifyEndpoint : Endpoint<OtpVerifyRequest, OtpVerifyResponse>
         var email = (req.Email ?? string.Empty).Trim().ToLowerInvariant();
         var code = (req.Code ?? string.Empty).Trim();
 
-        var otp = (await _session.Query<OtpCode>()
+        var otp = (await session.Query<OtpCode>()
                 .Where(o => o.Email == email && !o.Consumed)
                 .ToListAsync(ct))
             .OrderByDescending(o => o.CreatedAt)
@@ -111,7 +99,7 @@ internal class VerifyEndpoint : Endpoint<OtpVerifyRequest, OtpVerifyResponse>
         if (!BCrypt.Net.BCrypt.Verify(code, otp.CodeHash))
         {
             otp.Attempts += 1;
-            _session.Update(otp);
+            session.Update(otp);
             // A lost race here means a concurrent request already touched this code. The answer is
             // the same either way, so the result of the save does not change it.
             await TrySaveAsync(ct);
@@ -121,9 +109,9 @@ internal class VerifyEndpoint : Endpoint<OtpVerifyRequest, OtpVerifyResponse>
 
         // Consume the code so it can't be reused.
         otp.Consumed = true;
-        _session.Update(otp);
+        session.Update(otp);
 
-        var user = await _session.Query<User>()
+        var user = await session.Query<User>()
             .Where(u => u.NormalizedEmail == email)
             .FirstOrDefaultAsync(ct);
         if (user == null)
@@ -136,12 +124,12 @@ internal class VerifyEndpoint : Endpoint<OtpVerifyRequest, OtpVerifyResponse>
         // Mailbox possession is only a first factor. If the account has MFA enrolled, a valid email code
         // must NOT mint tokens on its own — otherwise an inbox compromise defeats the second factor.
         // Return the same challenge the password path does; the client completes /api/auth/mfa/verify.
-        if (await _mfa.IsEnabledAsync(user.Id, ct))
+        if (await mfa.IsEnabledAsync(user.Id, ct))
         {
             // Refuse on a lost race instead of issuing the challenge: the code was consumed by
             // the request that won, and one code must not yield two challenges.
             if (!await TrySaveAsync(ct)) { ThrowError("Invalid or expired code."); return; }
-            var (challenge, _) = barakoCMS.Infrastructure.Auth.Mfa.MfaChallengeToken.Create(_config, user.Id);
+            var (challenge, _) = barakoCMS.Infrastructure.Auth.Mfa.MfaChallengeToken.Create(config, user.Id);
             await Send.ResponseAsync(new OtpVerifyResponse { RequiresMfa = true, MfaChallengeToken = challenge });
             return;
         }
@@ -149,11 +137,11 @@ internal class VerifyEndpoint : Endpoint<OtpVerifyRequest, OtpVerifyResponse>
         // OTP proves possession of this device, so trust it. The gate (DeviceTrust module, if
         // installed) records/trusts the device and returns claims to bind the token to it.
         var device = barakoCMS.Infrastructure.DeviceContext.From(HttpContext);
-        var deviceClaims = await _deviceGate.TrustOnOtpAsync(user, device, ct);
+        var deviceClaims = await deviceGate.TrustOnOtpAsync(user, device, ct);
 
         // Proving control of the mailbox says who you are, not which tenants you belong to — the
         // issuer still decides whether a token for this tenant may be minted.
-        var issued = await _tokenIssuer.IssueAccessTokenAsync(user, _tenant.Slug, deviceClaims, ct);
+        var issued = await tokenIssuer.IssueAccessTokenAsync(user, tenant.Slug, deviceClaims, ct);
         if (!issued.Allowed)
         {
             await TrySaveAsync(ct); // keep the code consumed; refused either way
@@ -167,7 +155,7 @@ internal class VerifyEndpoint : Endpoint<OtpVerifyRequest, OtpVerifyResponse>
 
         var refreshTokenString = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
         var refreshTokenExpiry = DateTime.UtcNow.AddDays(7);
-        _session.Store(new RefreshToken
+        session.Store(new RefreshToken
         {
             Id = Guid.NewGuid(),
             Token = refreshTokenString,

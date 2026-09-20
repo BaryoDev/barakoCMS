@@ -52,16 +52,10 @@ internal class AuditEventDto
 }
 
 /// <summary>GET /api/audit — browse the audit trail, newest first.</summary>
-internal class Endpoint : Endpoint<ListRequest, PaginatedResponse<AuditEventDto>>
+internal class Endpoint(
+    IQuerySession session,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<ListRequest, PaginatedResponse<AuditEventDto>>
 {
-    private readonly IQuerySession _session;
-    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
-    public Endpoint(IQuerySession session, barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
-    {
-        _session = session;
-        _tenant = tenant;
-    }
-
     public override void Configure()
     {
         Get("/api/audit");
@@ -70,7 +64,7 @@ internal class Endpoint : Endpoint<ListRequest, PaginatedResponse<AuditEventDto>
 
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)
     {
-        var query = _session.Query<AuditEvent>().AsQueryable();
+        var query = session.Query<AuditEvent>().AsQueryable();
 
         // AuditEvent is SingleTenanted (one global table), so the conjoined session provides no
         // tenant isolation here; the tenant boundary is the caller's to prove, not the session's.
@@ -78,7 +72,7 @@ internal class Endpoint : Endpoint<ListRequest, PaginatedResponse<AuditEventDto>
         // global, may read across tenants and narrow with ?tenant=. Without this, any tenant admin
         // reads every tenant's audit log by leaving ?tenant unset.
         Guid.TryParse(User.FindFirst("UserId")?.Value, out var callerId);
-        var caller = await _session.LoadAsync<User>(callerId, ct);
+        var caller = await session.LoadAsync<User>(callerId, ct);
         var isSuperAdmin = caller?.RoleIds.Contains(SystemRoles.SuperAdminRoleId) == true;
         if (isSuperAdmin)
         {
@@ -87,7 +81,7 @@ internal class Endpoint : Endpoint<ListRequest, PaginatedResponse<AuditEventDto>
         }
         else
         {
-            query = query.Where(e => e.TenantSlug == _tenant.Slug);
+            query = query.Where(e => e.TenantSlug == tenant.Slug);
         }
 
         if (req.ActorUserId is Guid actorId)
