@@ -7,22 +7,11 @@ using Marten;
 
 namespace barakoCMS.Features.Workflows;
 
-internal class CreateWorkflowEndpoint : Endpoint<WorkflowDefinition, barakoCMS.Features.Workflows.WorkflowResponse>
+internal class CreateWorkflowEndpoint(
+    IDocumentSession session,
+    barakoCMS.Infrastructure.Services.IWorkflowSchemaValidator validator,
+    ISecretProtector protector) : Endpoint<WorkflowDefinition, barakoCMS.Features.Workflows.WorkflowResponse>
 {
-    private readonly IDocumentSession _session;
-    private readonly barakoCMS.Infrastructure.Services.IWorkflowSchemaValidator _validator;
-    private readonly ISecretProtector _protector;
-
-    public CreateWorkflowEndpoint(
-        IDocumentSession session,
-        barakoCMS.Infrastructure.Services.IWorkflowSchemaValidator validator,
-        ISecretProtector protector)
-    {
-        _session = session;
-        _validator = validator;
-        _protector = protector;
-    }
-
     public override void Configure()
     {
         Post("/api/workflows");
@@ -33,7 +22,7 @@ internal class CreateWorkflowEndpoint : Endpoint<WorkflowDefinition, barakoCMS.F
     {
         // Validate before persisting so invalid trigger events / unknown action types / missing
         // required parameters are rejected up front rather than silently never firing (or firing twice).
-        var validation = await _validator.ValidateAsync(req, ct);
+        var validation = await validator.ValidateAsync(req, ct);
         if (!validation.IsValid)
         {
             foreach (var error in validation.Errors)
@@ -56,24 +45,18 @@ internal class CreateWorkflowEndpoint : Endpoint<WorkflowDefinition, barakoCMS.F
 
         // Encrypted before it is stored, so the definition, the runs that copy its parameters and
         // the execution log all hold ciphertext. Only the webhook action decrypts it, when sending.
-        WebhookSigning.ProtectSecrets(req, _protector);
+        WebhookSigning.ProtectSecrets(req, protector);
 
         req.Id = Guid.NewGuid();
-        _session.Store(req);
-        await _session.SaveChangesAsync(ct);
+        session.Store(req);
+        await session.SaveChangesAsync(ct);
         await Send.ResponseAsync(barakoCMS.Features.Workflows.WorkflowResponse.From(req), cancellation: ct);
     }
 }
 
-internal class ListWorkflowsEndpoint : Endpoint<ListRequest, PaginatedResponse<barakoCMS.Features.Workflows.WorkflowResponse>>
+internal class ListWorkflowsEndpoint(
+    IDocumentSession session) : Endpoint<ListRequest, PaginatedResponse<barakoCMS.Features.Workflows.WorkflowResponse>>
 {
-    private readonly IDocumentSession _session;
-
-    public ListWorkflowsEndpoint(IDocumentSession session)
-    {
-        _session = session;
-    }
-
     public override void Configure()
     {
         Get("/api/workflows");
@@ -82,7 +65,7 @@ internal class ListWorkflowsEndpoint : Endpoint<ListRequest, PaginatedResponse<b
 
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)
     {
-        var page = await _session.Query<WorkflowDefinition>()
+        var page = await session.Query<WorkflowDefinition>()
             .OrderBy(w => w.Name)
             .ToPagedResponseAsync(req, ct);
 

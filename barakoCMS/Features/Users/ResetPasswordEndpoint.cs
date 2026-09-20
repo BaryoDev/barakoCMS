@@ -19,17 +19,10 @@ internal class ResetPasswordRequest
 /// tokens; no current-password check, since this is an administrative reset. Outstanding
 /// short-lived access tokens expire on their own rather than being individually revoked.
 /// </summary>
-internal class ResetPasswordEndpoint : Endpoint<ResetPasswordRequest>
+internal class ResetPasswordEndpoint(
+    IDocumentSession session,
+    IPasswordPolicyValidator passwordValidator) : Endpoint<ResetPasswordRequest>
 {
-    private readonly IDocumentSession _session;
-    private readonly IPasswordPolicyValidator _passwordValidator;
-
-    public ResetPasswordEndpoint(IDocumentSession session, IPasswordPolicyValidator passwordValidator)
-    {
-        _session = session;
-        _passwordValidator = passwordValidator;
-    }
-
     public override void Configure()
     {
         Post("/api/users/{userId}/password");
@@ -38,14 +31,14 @@ internal class ResetPasswordEndpoint : Endpoint<ResetPasswordRequest>
 
     public override async Task HandleAsync(ResetPasswordRequest req, CancellationToken ct)
     {
-        var user = await _session.LoadAsync<User>(req.UserId, ct);
+        var user = await session.LoadAsync<User>(req.UserId, ct);
         if (user is null)
         {
             await Send.NotFoundAsync(ct);
             return;
         }
 
-        var (isValid, errorMessage) = _passwordValidator.Validate(req.NewPassword);
+        var (isValid, errorMessage) = passwordValidator.Validate(req.NewPassword);
         if (!isValid)
         {
             ThrowError(r => r.NewPassword, errorMessage!);
@@ -53,12 +46,12 @@ internal class ResetPasswordEndpoint : Endpoint<ResetPasswordRequest>
         }
 
         user.PasswordHash = barakoCMS.Infrastructure.Auth.PasswordHashing.Hash(req.NewPassword);
-        _session.Store(user);
+        session.Store(user);
 
         // Revoke the user's refresh tokens so existing sessions can't be refreshed after the reset.
-        await RevokeRefreshTokens.ForUserAsync(_session, user.Id, "Password reset by administrator", ct, Resolve<barakoCMS.Infrastructure.Services.ISessionEpochService>());
+        await RevokeRefreshTokens.ForUserAsync(session, user.Id, "Password reset by administrator", ct, Resolve<barakoCMS.Infrastructure.Services.ISessionEpochService>());
 
-        await _session.SaveChangesAsync(ct);
+        await session.SaveChangesAsync(ct);
 
         await Send.OkAsync(ct);
     }

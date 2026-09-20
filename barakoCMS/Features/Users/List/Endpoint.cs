@@ -17,15 +17,8 @@ internal class UserResponse
     public DateTime CreatedAt { get; set; }
 }
 
-internal class Endpoint : Endpoint<Request, PaginatedResponse<UserResponse>>
+internal class Endpoint(IDocumentSession session) : Endpoint<Request, PaginatedResponse<UserResponse>>
 {
-    private readonly IDocumentSession _session;
-
-    public Endpoint(IDocumentSession session)
-    {
-        _session = session;
-    }
-
     public override void Configure()
     {
         Get("/api/users");
@@ -34,7 +27,7 @@ internal class Endpoint : Endpoint<Request, PaginatedResponse<UserResponse>>
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        var query = _session.Query<User>();
+        var query = session.Query<User>();
 
         var totalCount = await query.CountAsync(ct);
 

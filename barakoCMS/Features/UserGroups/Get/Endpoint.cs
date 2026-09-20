@@ -5,15 +5,8 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.UserGroups.Get;
 
-internal class Endpoint : Endpoint<Request, barakoCMS.Features.UserGroups.UserGroupResponse>
+internal class Endpoint(IDocumentSession session) : Endpoint<Request, barakoCMS.Features.UserGroups.UserGroupResponse>
 {
-    private readonly IDocumentSession _session;
-
-    public Endpoint(IDocumentSession session)
-    {
-        _session = session;
-    }
-
     public override void Configure()
     {
         Get("/api/user-groups/{id}");
@@ -22,7 +15,7 @@ internal class Endpoint : Endpoint<Request, barakoCMS.Features.UserGroups.UserGr
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        var group = await _session.LoadAsync<UserGroup>(req.Id, ct);
+        var group = await session.LoadAsync<UserGroup>(req.Id, ct);
 
         if (group == null)
         {
