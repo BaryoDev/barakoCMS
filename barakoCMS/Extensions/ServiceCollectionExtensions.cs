@@ -1316,35 +1316,7 @@ public static class ServiceCollectionExtensions
         var configuration = app.ApplicationServices.GetRequiredService<IConfiguration>();
         var env = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
 
-        // Global exception handler, first so it wraps every downstream middleware and endpoint. The
-        // exception and its message are logged; the 500 body carries a fixed reason, because a
-        // message can name a table, a setting or a value from the request and the caller may be
-        // anonymous.
-        app.UseDefaultExceptionHandler(useGenericReason: true);
-        app.UseMiddleware<barakoCMS.Infrastructure.Http.MalformedRequestMiddleware>();
-
-        // Inside the handler above, so it is reached first. A missing base URL is a deployment that
-        // cannot serve this yet rather than a fault, so it answers 503, and its message names
-        // configuration keys, which is for the operator rather than an anonymous caller (#654).
-        var notConfiguredLog = app.ApplicationServices.GetRequiredService<ILoggerFactory>()
-            .CreateLogger("barakoCMS.Infrastructure.Security.CanonicalHost");
-        app.Use(async (context, next) =>
-        {
-            try
-            {
-                await next();
-            }
-            catch (barakoCMS.Infrastructure.Security.BaseUrlNotConfiguredException ex) when (!context.Response.HasStarted)
-            {
-                // The path is caller input and stays out of the log; the message names the setting,
-                // which is all the operator needs.
-                notConfiguredLog.LogWarning("A link could not be built: {Reason}", ex.Message);
-                context.Response.Clear();
-                context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
-                context.Response.ContentType = "text/plain; charset=utf-8";
-                await context.Response.WriteAsync(barakoCMS.Infrastructure.Security.CanonicalHost.NotConfiguredResponse);
-            }
-        });
+        UseExceptionHandling(app);
 
         // Forwarded headers, before anything that reads the client IP or the scheme. Only added
         // when ForwardedHeaders:Enabled names a trusted proxy; see ForwardedHeadersSetup.
@@ -1647,6 +1619,39 @@ public static class ServiceCollectionExtensions
         }
 
         return app;
+    }
+
+    private static void UseExceptionHandling(IApplicationBuilder app)
+    {
+        // Global exception handler, first so it wraps every downstream middleware and endpoint. The
+        // exception and its message are logged; the 500 body carries a fixed reason, because a
+        // message can name a table, a setting or a value from the request and the caller may be
+        // anonymous.
+        app.UseDefaultExceptionHandler(useGenericReason: true);
+        app.UseMiddleware<barakoCMS.Infrastructure.Http.MalformedRequestMiddleware>();
+
+        // Inside the handler above, so it is reached first. A missing base URL is a deployment that
+        // cannot serve this yet rather than a fault, so it answers 503, and its message names
+        // configuration keys, which is for the operator rather than an anonymous caller (#654).
+        var notConfiguredLog = app.ApplicationServices.GetRequiredService<ILoggerFactory>()
+            .CreateLogger("barakoCMS.Infrastructure.Security.CanonicalHost");
+        app.Use(async (context, next) =>
+        {
+            try
+            {
+                await next();
+            }
+            catch (barakoCMS.Infrastructure.Security.BaseUrlNotConfiguredException ex) when (!context.Response.HasStarted)
+            {
+                // The path is caller input and stays out of the log; the message names the setting,
+                // which is all the operator needs.
+                notConfiguredLog.LogWarning("A link could not be built: {Reason}", ex.Message);
+                context.Response.Clear();
+                context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+                context.Response.ContentType = "text/plain; charset=utf-8";
+                await context.Response.WriteAsync(barakoCMS.Infrastructure.Security.CanonicalHost.NotConfiguredResponse);
+            }
+        });
     }
 
     /// <summary>
