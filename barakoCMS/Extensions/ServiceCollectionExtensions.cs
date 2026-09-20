@@ -1328,12 +1328,7 @@ public static class ServiceCollectionExtensions
 
         app.UseRateLimiter();
 
-        // OBSERVABILITY MIDDLEWARE
-        // 1. Correlation ID (Must be early to tag everything)
-        app.UseMiddleware<barakoCMS.Infrastructure.Middleware.CorrelationIdMiddleware>();
-
-        // 2. Request Logging (Must be after Correlation ID)
-        app.UseMiddleware<barakoCMS.Infrastructure.Middleware.RequestResponseLoggingMiddleware>();
+        UseObservability(app);
 
         // Resolve the tenant from the subdomain, early so downstream code can read it.
         app.UseMiddleware<barakoCMS.Infrastructure.Multitenancy.TenantResolutionMiddleware>();
@@ -1672,6 +1667,16 @@ public static class ServiceCollectionExtensions
                     return;
             }
         });
+    }
+
+    private static void UseObservability(IApplicationBuilder app)
+    {
+        // OBSERVABILITY MIDDLEWARE
+        // 1. Correlation ID (Must be early to tag everything)
+        app.UseMiddleware<barakoCMS.Infrastructure.Middleware.CorrelationIdMiddleware>();
+
+        // 2. Request Logging (Must be after Correlation ID)
+        app.UseMiddleware<barakoCMS.Infrastructure.Middleware.RequestResponseLoggingMiddleware>();
     }
 
     /// <summary>
