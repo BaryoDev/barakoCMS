@@ -91,18 +91,7 @@ public static class ServiceCollectionExtensions
 
         AddGlobalProcessors(services);
 
-        services.AddHostedService<TokenCleanupService>();
-
-        // Background service that applies scheduled publish/unpublish across all tenants
-        services.AddHostedService<barakoCMS.Infrastructure.Services.ScheduledContentService>();
-
-        // Background service that refills collections from their outside sources across all tenants.
-        // On unless a deployment says otherwise: a staging copy of a production database would
-        // otherwise call every one of production's providers on production's interval.
-        if (barakoCMS.Infrastructure.Sync.CollectionSyncService.IsEnabled(configuration))
-        {
-            services.AddHostedService<barakoCMS.Infrastructure.Sync.CollectionSyncService>();
-        }
+        AddBackgroundServices(services, configuration);
 
         // Forwarded headers. Off unless configured, because reading X-Forwarded-For from an
         // untrusted peer would let a caller choose the IP the rate limiter partitions on.
@@ -1165,6 +1154,22 @@ public static class ServiceCollectionExtensions
         // Sensitivity is applied explicitly by the read endpoints (Get/List/History) via
         // ISensitivityService, not as a post-processor: a post-processor's edits did not reach the
         // serialized response, so field-level masking was silently dropped.
+    }
+
+    private static void AddBackgroundServices(IServiceCollection services, IConfiguration configuration)
+    {
+        services.AddHostedService<TokenCleanupService>();
+
+        // Background service that applies scheduled publish/unpublish across all tenants
+        services.AddHostedService<barakoCMS.Infrastructure.Services.ScheduledContentService>();
+
+        // Background service that refills collections from their outside sources across all tenants.
+        // On unless a deployment says otherwise: a staging copy of a production database would
+        // otherwise call every one of production's providers on production's interval.
+        if (barakoCMS.Infrastructure.Sync.CollectionSyncService.IsEnabled(configuration))
+        {
+            services.AddHostedService<barakoCMS.Infrastructure.Sync.CollectionSyncService>();
+        }
     }
 
     private static readonly Dictionary<string, string> SslModeMap = new(StringComparer.OrdinalIgnoreCase)
