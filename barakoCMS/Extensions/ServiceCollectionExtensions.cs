@@ -75,14 +75,7 @@ public static class ServiceCollectionExtensions
         AddOtpAndEmailVerification(services, configuration);
 
         AddSecretProtection(services);
-        services.AddSingleton<barakoCMS.Infrastructure.Connectors.IConnectorSecretProtector, barakoCMS.Infrastructure.Connectors.ConnectorSecretProtector>();
-        services.AddScoped<barakoCMS.Infrastructure.Connectors.IConnectorSender, barakoCMS.Infrastructure.Connectors.ConnectorSender>();
-        services.AddScoped<barakoCMS.Infrastructure.Connectors.IRequestComposer, barakoCMS.Infrastructure.Connectors.RequestComposer>();
-        services.AddScoped<barakoCMS.Infrastructure.Connectors.IQueryRunner, barakoCMS.Infrastructure.Connectors.QueryRunner>();
-        // The same class as the sender above, registered again under the interface that hands back a
-        // response body. One outbound path, one address guard, one place credentials are attached.
-        services.AddScoped<barakoCMS.Infrastructure.Connectors.IConnectorFetcher, barakoCMS.Infrastructure.Connectors.ConnectorSender>();
-        services.AddScoped<barakoCMS.Infrastructure.Sync.ICollectionSyncRunner, barakoCMS.Infrastructure.Sync.CollectionSyncRunner>();
+        AddConnectorServices(services);
 
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowRunQueue, barakoCMS.Features.Workflows.WorkflowRunQueue>();
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowRunner>();
@@ -1115,6 +1108,18 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<barakoCMS.Infrastructure.Auth.Mfa.IMfaSecretProtector, barakoCMS.Infrastructure.Auth.Mfa.MfaSecretProtector>();
         services.AddSingleton<barakoCMS.Infrastructure.Security.ISecretProtector, barakoCMS.Infrastructure.Security.SecretProtector>();
         services.AddScoped<barakoCMS.Core.Interfaces.IEmailSettingsProvider, barakoCMS.Infrastructure.Services.EmailSettingsProvider>();
+    }
+
+    private static void AddConnectorServices(IServiceCollection services)
+    {
+        services.AddSingleton<barakoCMS.Infrastructure.Connectors.IConnectorSecretProtector, barakoCMS.Infrastructure.Connectors.ConnectorSecretProtector>();
+        services.AddScoped<barakoCMS.Infrastructure.Connectors.IConnectorSender, barakoCMS.Infrastructure.Connectors.ConnectorSender>();
+        services.AddScoped<barakoCMS.Infrastructure.Connectors.IRequestComposer, barakoCMS.Infrastructure.Connectors.RequestComposer>();
+        services.AddScoped<barakoCMS.Infrastructure.Connectors.IQueryRunner, barakoCMS.Infrastructure.Connectors.QueryRunner>();
+        // The same class as the sender above, registered again under the interface that hands back a
+        // response body. One outbound path, one address guard, one place credentials are attached.
+        services.AddScoped<barakoCMS.Infrastructure.Connectors.IConnectorFetcher, barakoCMS.Infrastructure.Connectors.ConnectorSender>();
+        services.AddScoped<barakoCMS.Infrastructure.Sync.ICollectionSyncRunner, barakoCMS.Infrastructure.Sync.CollectionSyncRunner>();
     }
 
     private static readonly Dictionary<string, string> SslModeMap = new(StringComparer.OrdinalIgnoreCase)
