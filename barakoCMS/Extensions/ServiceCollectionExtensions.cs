@@ -82,16 +82,7 @@ public static class ServiceCollectionExtensions
         AddContentEvents(services);
         AddRetentionServices(services);
         AddMfaAndDeviceTrust(services);
-        // Per-request tenant, resolved from a registered custom domain or the subdomain by
-        // TenantResolutionMiddleware.
-        services.AddScoped<barakoCMS.Infrastructure.Multitenancy.TenantContext>();
-        // Singleton because the domain map is cached and read on every request; a scoped source
-        // would rebuild the cache lookup per request for no benefit.
-        services.AddSingleton<barakoCMS.Infrastructure.Multitenancy.ITenantDomainSource,
-                              barakoCMS.Infrastructure.Multitenancy.TenantDomainSource>();
-        services.Configure<barakoCMS.Infrastructure.Multitenancy.MultitenancyOptions>(
-            configuration.GetSection(barakoCMS.Infrastructure.Multitenancy.MultitenancyOptions.SectionName));
-        services.AddScoped<barakoCMS.Infrastructure.Services.IConfigurationService, barakoCMS.Infrastructure.Services.ConfigurationService>();
+        AddTenancyAndConfiguration(services, configuration);
 
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.EmailAction>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.SmsAction>();
@@ -1140,6 +1131,20 @@ public static class ServiceCollectionExtensions
         services.AddScoped<barakoCMS.Infrastructure.Auth.Mfa.IMfaService, barakoCMS.Infrastructure.Auth.Mfa.MfaService>();
         // Device trust is opt-in: the default gate does nothing. The DeviceTrust module overrides it.
         services.TryAddScoped<barakoCMS.Core.Interfaces.IDeviceGate, barakoCMS.Core.Interfaces.NoopDeviceGate>();
+    }
+
+    private static void AddTenancyAndConfiguration(IServiceCollection services, IConfiguration configuration)
+    {
+        // Per-request tenant, resolved from a registered custom domain or the subdomain by
+        // TenantResolutionMiddleware.
+        services.AddScoped<barakoCMS.Infrastructure.Multitenancy.TenantContext>();
+        // Singleton because the domain map is cached and read on every request; a scoped source
+        // would rebuild the cache lookup per request for no benefit.
+        services.AddSingleton<barakoCMS.Infrastructure.Multitenancy.ITenantDomainSource,
+                              barakoCMS.Infrastructure.Multitenancy.TenantDomainSource>();
+        services.Configure<barakoCMS.Infrastructure.Multitenancy.MultitenancyOptions>(
+            configuration.GetSection(barakoCMS.Infrastructure.Multitenancy.MultitenancyOptions.SectionName));
+        services.AddScoped<barakoCMS.Infrastructure.Services.IConfigurationService, barakoCMS.Infrastructure.Services.ConfigurationService>();
     }
 
     private static readonly Dictionary<string, string> SslModeMap = new(StringComparer.OrdinalIgnoreCase)
