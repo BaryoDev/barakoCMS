@@ -127,23 +127,7 @@ public static class ServiceCollectionExtensions
 
             MapContentDocuments(options);
 
-            // Unique on the normalised values, because that is what every lookup compares. Indexed on
-            // the stored Username and Email, two accounts could hold "A@example.com" and
-            // "a@example.com": two values to the index, one to the query that checked first. An
-            // existing database needs migrations/4.2.0/user-normalized-identity.sql (#638).
-            options.Schema.For<User>()
-                .SingleTenanted() // global identity — a user exists once across all tenants
-                .DocumentAlias("users")
-                .Index(x => x.NormalizedUsername, idx => idx.IsUnique = true)
-                .Index(x => x.NormalizedEmail, idx => idx.IsUnique = true);
-            
-            // Global (single-tenanted) platform + auth infrastructure. Identity, roles, tokens, OTP,
-            // idempotency and settings live once across all tenants — otherwise per-club role
-            // resolution (Membership references global role ids) and token revocation would silently
-            // fail inside a club's partition. Only domain content below stays tenant-scoped.
-            options.Schema.For<SystemSetting>()
-                .SingleTenanted()
-                .DocumentAlias("system_settings");
+            MapIdentityAndSettingsDocuments(options);
 
             // Conjoined multi-tenant, deliberately, unlike the settings documents above. A credential
             // belongs to the tenant that added it, and one tenant's admin reaching another's is the
@@ -1067,6 +1051,27 @@ public static class ServiceCollectionExtensions
         // doc. Keeping them as content keeps them pluggable and drops a whole CRUD surface. The old
         // Menu document + /api/menus endpoints were removed; existing "menus" tables are just left
         // orphaned (safe under AutoCreate.CreateOnly, which never alters or drops them).
+    }
+
+    private static void MapIdentityAndSettingsDocuments(StoreOptions options)
+    {
+        // Unique on the normalised values, because that is what every lookup compares. Indexed on
+        // the stored Username and Email, two accounts could hold "A@example.com" and
+        // "a@example.com": two values to the index, one to the query that checked first. An
+        // existing database needs migrations/4.2.0/user-normalized-identity.sql (#638).
+        options.Schema.For<User>()
+            .SingleTenanted() // global identity — a user exists once across all tenants
+            .DocumentAlias("users")
+            .Index(x => x.NormalizedUsername, idx => idx.IsUnique = true)
+            .Index(x => x.NormalizedEmail, idx => idx.IsUnique = true);
+        
+        // Global (single-tenanted) platform + auth infrastructure. Identity, roles, tokens, OTP,
+        // idempotency and settings live once across all tenants — otherwise per-club role
+        // resolution (Membership references global role ids) and token revocation would silently
+        // fail inside a club's partition. Only domain content below stays tenant-scoped.
+        options.Schema.For<SystemSetting>()
+            .SingleTenanted()
+            .DocumentAlias("system_settings");
     }
 
     private static readonly Dictionary<string, string> SslModeMap = new(StringComparer.OrdinalIgnoreCase)
