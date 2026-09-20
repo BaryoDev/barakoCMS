@@ -129,112 +129,7 @@ public static class ServiceCollectionExtensions
 
             MapIdentityAndSettingsDocuments(options);
 
-            // Conjoined multi-tenant, deliberately, unlike the settings documents above. A credential
-            // belongs to the tenant that added it, and one tenant's admin reaching another's is the
-            // exact failure #287 found in the daemon.
-            // Conjoined, and the unique index is PerTenant for the same reason the connector slug is:
-            // one tenant taking "/about" must not stop every other tenant having one.
-            options.Schema.For<UrlRedirect>()
-                .MultiTenanted()
-                .DocumentAlias("url_redirects")
-                .Index(x => x.FromPath, idx =>
-                {
-                    idx.IsUnique = true;
-                    idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
-                });
-
-            // Conjoined: a share link opens one tenant's site and must never redeem on another's.
-            options.Schema.For<SiteShareLink>()
-                .MultiTenanted()
-                .DocumentAlias("site_share_links")
-                .Index(x => x.ExpiresAt)
-                .Index(x => x.KeyHash, idx =>
-                {
-                    idx.IsUnique = true;
-                    idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
-                });
-
-            options.Schema.For<Connector>()
-                .MultiTenanted()
-                .DocumentAlias("connectors")
-                .Index(x => x.Slug, idx =>
-                {
-                    idx.IsUnique = true;
-                    // PerTenant, or the index is global and the first tenant to take "company-jira"
-                    // stops every other tenant using that name. Marten does not infer this from the
-                    // document being multi-tenanted, which is why ContentTypeDefinition says it too.
-                    idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
-                });
-
-            options.Schema.For<RequestDefinition>()
-                .MultiTenanted()
-                .DocumentAlias("request_definitions")
-                .Index(x => x.Slug, idx =>
-                {
-                    idx.IsUnique = true;
-                    idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
-                });
-
-            options.Schema.For<QueryDefinition>()
-                .MultiTenanted()
-                .DocumentAlias("query_definitions")
-                .Index(x => x.Slug, idx =>
-                {
-                    idx.IsUnique = true;
-                    idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
-                });
-
-            options.Schema.For<CollectionSync>()
-                .MultiTenanted()
-                .DocumentAlias("collection_syncs")
-                .Index(x => x.Slug, idx =>
-                {
-                    idx.IsUnique = true;
-                    idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
-                });
-
-            options.Schema.For<WorkflowRun>()
-                .MultiTenanted()
-                .DocumentAlias("workflow_runs")
-                // The claim is a read, a check and a write with nothing between them, and two nodes
-                // must not both take the same attempt. This is what refuses the second one.
-                .UseOptimisticConcurrency(true)
-                .Index(x => x.Status)
-                .Index(x => x.CreatedAt);
-
-            options.Schema.For<WebhookDelivery>()
-                .MultiTenanted()
-                .DocumentAlias("webhook_deliveries")
-                .Index(x => x.WorkflowId)
-                .Index(x => x.CreatedAt);
-
-            options.Schema.For<WorkflowFieldApplyMarker>()
-                .MultiTenanted()
-                .DocumentAlias("workflow_field_apply_markers")
-                // Same reason WorkflowRun above has it: loading it, deciding, and saving it is a
-                // read, a check and a write with nothing between them, and two nodes racing the
-                // same key must not both silently win.
-                .UseOptimisticConcurrency(true)
-                .Index(x => x.AppliedAt);
-
-            options.Schema.For<ConnectorSecret>()
-                .MultiTenanted()
-                .DocumentAlias("connector_secrets")
-                .Index(x => x.ConnectorId);
-
-            // Conjoined: a job belongs to the tenant of the request that queued it, and the list
-            // shows one tenant's. The tenant column is mapped onto the document so a worker, which
-            // has no request, can open a session for the right partition when it updates a record.
-            // Optimistic concurrency is the claim: two nodes polling the same table both load a
-            // pending job and only one save wins.
-            options.Schema.For<JobRecord>()
-                .MultiTenanted()
-                .DocumentAlias("jobs")
-                .UseOptimisticConcurrency(true)
-                .Metadata(m => m.TenantId.MapTo(x => x.TenantId))
-                .Index(x => x.QueueID)
-                .Index(x => x.State)
-                .Index(x => x.ExecuteAfter);
+            MapTenantScopedDocuments(options);
 
             options.Schema.For<EmailSettings>()
                 .SingleTenanted() // one mail provider for the deployment, not one per tenant
@@ -1072,6 +967,116 @@ public static class ServiceCollectionExtensions
         options.Schema.For<SystemSetting>()
             .SingleTenanted()
             .DocumentAlias("system_settings");
+    }
+
+    private static void MapTenantScopedDocuments(StoreOptions options)
+    {
+        // Conjoined multi-tenant, deliberately, unlike the settings documents above. A credential
+        // belongs to the tenant that added it, and one tenant's admin reaching another's is the
+        // exact failure #287 found in the daemon.
+        // Conjoined, and the unique index is PerTenant for the same reason the connector slug is:
+        // one tenant taking "/about" must not stop every other tenant having one.
+        options.Schema.For<UrlRedirect>()
+            .MultiTenanted()
+            .DocumentAlias("url_redirects")
+            .Index(x => x.FromPath, idx =>
+            {
+                idx.IsUnique = true;
+                idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
+            });
+
+        // Conjoined: a share link opens one tenant's site and must never redeem on another's.
+        options.Schema.For<SiteShareLink>()
+            .MultiTenanted()
+            .DocumentAlias("site_share_links")
+            .Index(x => x.ExpiresAt)
+            .Index(x => x.KeyHash, idx =>
+            {
+                idx.IsUnique = true;
+                idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
+            });
+
+        options.Schema.For<Connector>()
+            .MultiTenanted()
+            .DocumentAlias("connectors")
+            .Index(x => x.Slug, idx =>
+            {
+                idx.IsUnique = true;
+                // PerTenant, or the index is global and the first tenant to take "company-jira"
+                // stops every other tenant using that name. Marten does not infer this from the
+                // document being multi-tenanted, which is why ContentTypeDefinition says it too.
+                idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
+            });
+
+        options.Schema.For<RequestDefinition>()
+            .MultiTenanted()
+            .DocumentAlias("request_definitions")
+            .Index(x => x.Slug, idx =>
+            {
+                idx.IsUnique = true;
+                idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
+            });
+
+        options.Schema.For<QueryDefinition>()
+            .MultiTenanted()
+            .DocumentAlias("query_definitions")
+            .Index(x => x.Slug, idx =>
+            {
+                idx.IsUnique = true;
+                idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
+            });
+
+        options.Schema.For<CollectionSync>()
+            .MultiTenanted()
+            .DocumentAlias("collection_syncs")
+            .Index(x => x.Slug, idx =>
+            {
+                idx.IsUnique = true;
+                idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
+            });
+
+        options.Schema.For<WorkflowRun>()
+            .MultiTenanted()
+            .DocumentAlias("workflow_runs")
+            // The claim is a read, a check and a write with nothing between them, and two nodes
+            // must not both take the same attempt. This is what refuses the second one.
+            .UseOptimisticConcurrency(true)
+            .Index(x => x.Status)
+            .Index(x => x.CreatedAt);
+
+        options.Schema.For<WebhookDelivery>()
+            .MultiTenanted()
+            .DocumentAlias("webhook_deliveries")
+            .Index(x => x.WorkflowId)
+            .Index(x => x.CreatedAt);
+
+        options.Schema.For<WorkflowFieldApplyMarker>()
+            .MultiTenanted()
+            .DocumentAlias("workflow_field_apply_markers")
+            // Same reason WorkflowRun above has it: loading it, deciding, and saving it is a
+            // read, a check and a write with nothing between them, and two nodes racing the
+            // same key must not both silently win.
+            .UseOptimisticConcurrency(true)
+            .Index(x => x.AppliedAt);
+
+        options.Schema.For<ConnectorSecret>()
+            .MultiTenanted()
+            .DocumentAlias("connector_secrets")
+            .Index(x => x.ConnectorId);
+
+        // Conjoined: a job belongs to the tenant of the request that queued it, and the list
+        // shows one tenant's. The tenant column is mapped onto the document so a worker, which
+        // has no request, can open a session for the right partition when it updates a record.
+        // Optimistic concurrency is the claim: two nodes polling the same table both load a
+        // pending job and only one save wins.
+        options.Schema.For<JobRecord>()
+            .MultiTenanted()
+            .DocumentAlias("jobs")
+            .UseOptimisticConcurrency(true)
+            .Metadata(m => m.TenantId.MapTo(x => x.TenantId))
+            .Index(x => x.QueueID)
+            .Index(x => x.State)
+            .Index(x => x.ExecuteAfter);
     }
 
     private static readonly Dictionary<string, string> SslModeMap = new(StringComparer.OrdinalIgnoreCase)
