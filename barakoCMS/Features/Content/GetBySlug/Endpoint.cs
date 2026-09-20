@@ -27,22 +27,11 @@ namespace barakoCMS.Features.Content.GetBySlug;
 /// Not gated on <c>IsPubliclyDeliverable</c>. That flag decides what anonymous callers get; here the
 /// read permission decides.
 /// </remarks>
-internal class Endpoint : Endpoint<Request, Response>
+internal class Endpoint(
+    IQuerySession session,
+    barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver,
+    IContentSourcingPolicy sourcing) : Endpoint<Request, Response>
 {
-    private readonly IQuerySession _session;
-    private readonly barakoCMS.Infrastructure.Services.IPermissionResolver _permissionResolver;
-    private readonly IContentSourcingPolicy _sourcing;
-
-    public Endpoint(
-        IQuerySession session,
-        barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver,
-        IContentSourcingPolicy sourcing)
-    {
-        _session = session;
-        _permissionResolver = permissionResolver;
-        _sourcing = sourcing;
-    }
-
     public override void Configure()
     {
         Get("/api/contents/by-slug/{type}/{slug}");
@@ -57,14 +46,14 @@ internal class Endpoint : Endpoint<Request, Response>
             return;
         }
 
-        var user = await _session.LoadAsync<User>(userId, ct);
+        var user = await session.LoadAsync<User>(userId, ct);
 
         barakoCMS.Models.Content? content = null;
         if (user != null)
         {
             foreach (var candidate in await FindAsync(req.Type, req.Slug, ct))
             {
-                if (await _permissionResolver.CanPerformActionAsync(user, candidate.ContentType, "read", candidate, ct))
+                if (await permissionResolver.CanPerformActionAsync(user, candidate.ContentType, "read", candidate, ct))
                 {
                     content = candidate;
                     break;
@@ -79,7 +68,7 @@ internal class Endpoint : Endpoint<Request, Response>
         }
 
         Response = await EntryResponse.BuildAsync(
-            content, _session, _sourcing, Resolve<ISensitivityService>(), HttpContext, ct);
+            content, session, sourcing, Resolve<ISensitivityService>(), HttpContext, ct);
     }
 
     /// <summary>The entries holding this slug, in the request's tenant, oldest first, at most a handful.</summary>
@@ -95,7 +84,7 @@ internal class Endpoint : Endpoint<Request, Response>
     /// </remarks>
     private async Task<IReadOnlyList<barakoCMS.Models.Content>> FindAsync(string type, string slug, CancellationToken ct)
     {
-        var def = await _session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
+        var def = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
         if (def is null) return [];
 
         var slugField = PublicDelivery.SlugField(def);
@@ -103,7 +92,7 @@ internal class Endpoint : Endpoint<Request, Response>
 
         var (sql, parameters) = DeliveryQuery.FieldEqualsIgnoreCaseSql(slugField, slug);
 
-        return await _session.Query<barakoCMS.Models.Content>()
+        return await session.Query<barakoCMS.Models.Content>()
             .Where(c => c.ContentType == type && c.MatchesSql(sql, parameters))
             .OrderBy(c => c.CreatedAt)
             .ThenBy(c => c.Id)

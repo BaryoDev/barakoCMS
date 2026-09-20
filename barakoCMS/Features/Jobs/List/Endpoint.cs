@@ -53,12 +53,8 @@ internal sealed class JobResponse
 /// The session is the request's tenant-scoped one, so the filter that keeps one tenant's jobs from
 /// another is Marten's, the same as every other list here. Nothing in this endpoint reaches across.
 /// </remarks>
-internal sealed class Endpoint : Endpoint<ListJobsRequest, PaginatedResponse<JobResponse>>
+internal sealed class Endpoint(IQuerySession session) : Endpoint<ListJobsRequest, PaginatedResponse<JobResponse>>
 {
-    private readonly IQuerySession _session;
-
-    public Endpoint(IQuerySession session) => _session = session;
-
     public override void Configure()
     {
         Get("/api/jobs");
@@ -67,7 +63,7 @@ internal sealed class Endpoint : Endpoint<ListJobsRequest, PaginatedResponse<Job
 
     public override async Task HandleAsync(ListJobsRequest req, CancellationToken ct)
     {
-        var query = _session.Query<JobRecord>().AsQueryable();
+        var query = session.Query<JobRecord>().AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(req.State))
         {

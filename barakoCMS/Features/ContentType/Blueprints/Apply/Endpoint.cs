@@ -38,28 +38,13 @@ internal sealed class CreatedType
 /// document sourced, sourcing policy recorded against the name. It does not go through the
 /// Portability import, which upserts by name and would overwrite the clash this refuses.
 /// </remarks>
-internal sealed class Endpoint : Endpoint<Request, Response>
+internal sealed class Endpoint(
+    IDocumentSession session,
+    BlueprintCatalog catalog,
+    barakoCMS.Core.Interfaces.IContentSourcingPolicy sourcing,
+    barakoCMS.Infrastructure.OpenApi.DeliveryDocumentCache openApiCache,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<Request, Response>
 {
-    private readonly IDocumentSession _session;
-    private readonly BlueprintCatalog _catalog;
-    private readonly barakoCMS.Core.Interfaces.IContentSourcingPolicy _sourcing;
-    private readonly barakoCMS.Infrastructure.OpenApi.DeliveryDocumentCache _openApiCache;
-    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
-
-    public Endpoint(
-        IDocumentSession session,
-        BlueprintCatalog catalog,
-        barakoCMS.Core.Interfaces.IContentSourcingPolicy sourcing,
-        barakoCMS.Infrastructure.OpenApi.DeliveryDocumentCache openApiCache,
-        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
-    {
-        _session = session;
-        _catalog = catalog;
-        _sourcing = sourcing;
-        _openApiCache = openApiCache;
-        _tenant = tenant;
-    }
-
     public override void Configure()
     {
         Post("/api/content-types/blueprints/{name}");
@@ -69,7 +54,7 @@ internal sealed class Endpoint : Endpoint<Request, Response>
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        var entry = _catalog.Find(req.Name);
+        var entry = catalog.Find(req.Name);
         if (entry is null)
         {
             await Send.NotFoundAsync(ct);
@@ -97,7 +82,7 @@ internal sealed class Endpoint : Endpoint<Request, Response>
             // Lowered on both sides for the reason the create endpoint gives: a 3.x import could
             // have stored "Article", and every reader treats that as the same type as "article".
             var name = type.Name;
-            var existing = await _session.Query<ContentTypeDefinition>()
+            var existing = await session.Query<ContentTypeDefinition>()
                 .FirstOrDefaultAsync(x => x.Name.ToLower() == name, ct);
             if (existing is not null)
             {
@@ -118,7 +103,7 @@ internal sealed class Endpoint : Endpoint<Request, Response>
         {
             // The decision belongs to the name and outlives the definition. A name decided as event
             // sourced cannot be recreated document sourced, which is what a blueprint type is.
-            var standing = await _sourcing.GetAsync(type.Name, ct);
+            var standing = await sourcing.GetAsync(type.Name, ct);
             if (standing is { EventSourced: true })
             {
                 ThrowError(
@@ -131,12 +116,12 @@ internal sealed class Endpoint : Endpoint<Request, Response>
 
         foreach (var type in types)
         {
-            _session.Store(type);
-            await _sourcing.DecideAsync(type.Name, false, ct);
+            session.Store(type);
+            await sourcing.DecideAsync(type.Name, false, ct);
         }
 
         var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
-        await AuditLog.RecordAsync(_session, _tenant.Slug, "contenttype.blueprint_applied", actorId,
+        await AuditLog.RecordAsync(session, tenant.Slug, "contenttype.blueprint_applied", actorId,
             User.FindFirst("Username")?.Value,
             targetType: "Blueprint", targetId: entry.Name,
             metadata: new Dictionary<string, object>
@@ -146,7 +131,7 @@ internal sealed class Endpoint : Endpoint<Request, Response>
 
         try
         {
-            await _session.SaveChangesAsync(ct);
+            await session.SaveChangesAsync(ct);
         }
         catch (Exception ex) when (IsUniqueViolation(ex))
         {
@@ -160,7 +145,7 @@ internal sealed class Endpoint : Endpoint<Request, Response>
 
         if (types.Any(t => t.IsPubliclyDeliverable))
         {
-            _openApiCache.Invalidate(_tenant.Slug);
+            openApiCache.Invalidate(tenant.Slug);
         }
 
         await Send.OkAsync(new Response

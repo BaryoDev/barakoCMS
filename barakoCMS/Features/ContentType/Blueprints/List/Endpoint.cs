@@ -25,15 +25,8 @@ internal sealed class Item
 }
 
 /// <summary>GET /api/content-types/blueprints. The blueprints this instance can apply.</summary>
-internal sealed class Endpoint : EndpointWithoutRequest<Response>
+internal sealed class Endpoint(BlueprintCatalog catalog) : EndpointWithoutRequest<Response>
 {
-    private readonly BlueprintCatalog _catalog;
-
-    public Endpoint(BlueprintCatalog catalog)
-    {
-        _catalog = catalog;
-    }
-
     public override void Configure()
     {
         Get("/api/content-types/blueprints");
@@ -43,7 +36,7 @@ internal sealed class Endpoint : EndpointWithoutRequest<Response>
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        var entries = _catalog.All(out var problems);
+        var entries = catalog.All(out var problems);
 
         await Send.OkAsync(new Response
         {

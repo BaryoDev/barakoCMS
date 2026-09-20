@@ -5,22 +5,11 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.Content.Get;
 
-internal class Endpoint : Endpoint<Request, Response>
+internal class Endpoint(
+    IQuerySession session,
+    barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver,
+    IContentSourcingPolicy sourcing) : Endpoint<Request, Response>
 {
-    private readonly IQuerySession _session;
-    private readonly barakoCMS.Infrastructure.Services.IPermissionResolver _permissionResolver;
-    private readonly IContentSourcingPolicy _sourcing;
-
-    public Endpoint(
-        IQuerySession session,
-        barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver,
-        IContentSourcingPolicy sourcing)
-    {
-        _session = session;
-        _permissionResolver = permissionResolver;
-        _sourcing = sourcing;
-    }
-
     public override void Configure()
     {
         Get("/api/contents/{id}");
@@ -42,7 +31,7 @@ internal class Endpoint : Endpoint<Request, Response>
         {
             // We need full user for roles.
             // Using IQuerySession to load user is fine.
-            user = await _session.LoadAsync<Models.User>(userId, ct);
+            user = await session.LoadAsync<Models.User>(userId, ct);
         }
         else
         {
@@ -54,7 +43,7 @@ internal class Endpoint : Endpoint<Request, Response>
             return;
         }
 
-        var content = await _session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct);
+        var content = await session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct);
         if (content == null)
         {
             await Send.NotFoundAsync(ct);
@@ -62,7 +51,7 @@ internal class Endpoint : Endpoint<Request, Response>
         }
 
         // 2. Authorize Read
-        if (user == null || !await _permissionResolver.CanPerformActionAsync(user, content.ContentType, "read", content, ct))
+        if (user == null || !await permissionResolver.CanPerformActionAsync(user, content.ContentType, "read", content, ct))
         {
             // 403 Forbidden
             await Send.ForbiddenAsync(ct);
@@ -70,6 +59,6 @@ internal class Endpoint : Endpoint<Request, Response>
         }
 
         Response = await EntryResponse.BuildAsync(
-            content, _session, _sourcing, Resolve<ISensitivityService>(), HttpContext, ct);
+            content, session, sourcing, Resolve<ISensitivityService>(), HttpContext, ct);
     }
 }

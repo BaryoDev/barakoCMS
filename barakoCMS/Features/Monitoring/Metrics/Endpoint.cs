@@ -5,15 +5,8 @@ using FastEndpoints;
 
 namespace barakoCMS.Features.Monitoring.Metrics;
 
-internal class Endpoint : EndpointWithoutRequest<MetricsSummary>
+internal class Endpoint(IMetricsService metricsService) : EndpointWithoutRequest<MetricsSummary>
 {
-    private readonly IMetricsService _metricsService;
-
-    public Endpoint(IMetricsService metricsService)
-    {
-        _metricsService = metricsService;
-    }
-
     public override void Configure()
     {
         Get("/api/monitoring/metrics");
@@ -27,6 +20,6 @@ internal class Endpoint : EndpointWithoutRequest<MetricsSummary>
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        await Send.OkAsync(_metricsService.GetSummary(), ct);
+        await Send.OkAsync(metricsService.GetSummary(), ct);
     }
 }
