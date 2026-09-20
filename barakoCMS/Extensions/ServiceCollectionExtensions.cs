@@ -1332,23 +1332,7 @@ public static class ServiceCollectionExtensions
 
         UseTenantAndAuthentication(app);
 
-        // Output Cache, after CORS/Authentication/Authorization and before the endpoints that read
-        // CacheOutput policies, matching Microsoft's documented order. Placed after
-        // TenantResolutionMiddleware (above) so a cache key can vary by tenant; placed after
-        // UseAuthorization so an endpoint that also requires auth is not served to a caller who
-        // never passed it.
-        //
-        // The health probes branch around it entirely rather than relying on nobody ever calling
-        // .CacheOutput() on them. Today's default policy only caches an endpoint that opts in, so
-        // /health/ready is not cached either way, but that is one future AddOutputCache base policy
-        // away from changing: the health middleware here is registered the classic way (UseHealthChecks
-        // on IApplicationBuilder), not as a routed Endpoint, so it has no metadata of its own to carry
-        // a NoCache() override. A kubelet reading a stale ready response either kills a healthy pod or
-        // keeps sending traffic to a broken one, so this is excluded by path rather than trusted to
-        // stay unconfigured.
-        app.UseWhen(
-            context => !barakoCMS.Infrastructure.Health.HealthProbePaths.IsHealthPath(context.Request.Path.Value),
-            branch => branch.UseOutputCache());
+        UseOutputCaching(app);
 
         // Global pre/post processors come from DI, so modules can contribute their own (e.g. the
         // DeviceTrust enforcement pre-processor) simply by registering IGlobalPreProcessor/PostProcessor.
@@ -1682,6 +1666,27 @@ public static class ServiceCollectionExtensions
         app.UseMiddleware<barakoCMS.Infrastructure.Multitenancy.TenantAccessMiddleware>();
 
         app.UseAuthorization();
+    }
+
+    private static void UseOutputCaching(IApplicationBuilder app)
+    {
+        // Output Cache, after CORS/Authentication/Authorization and before the endpoints that read
+        // CacheOutput policies, matching Microsoft's documented order. Placed after
+        // TenantResolutionMiddleware (above) so a cache key can vary by tenant; placed after
+        // UseAuthorization so an endpoint that also requires auth is not served to a caller who
+        // never passed it.
+        //
+        // The health probes branch around it entirely rather than relying on nobody ever calling
+        // .CacheOutput() on them. Today's default policy only caches an endpoint that opts in, so
+        // /health/ready is not cached either way, but that is one future AddOutputCache base policy
+        // away from changing: the health middleware here is registered the classic way (UseHealthChecks
+        // on IApplicationBuilder), not as a routed Endpoint, so it has no metadata of its own to carry
+        // a NoCache() override. A kubelet reading a stale ready response either kills a healthy pod or
+        // keeps sending traffic to a broken one, so this is excluded by path rather than trusted to
+        // stay unconfigured.
+        app.UseWhen(
+            context => !barakoCMS.Infrastructure.Health.HealthProbePaths.IsHealthPath(context.Request.Path.Value),
+            branch => branch.UseOutputCache());
     }
 
     /// <summary>
