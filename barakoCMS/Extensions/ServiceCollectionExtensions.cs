@@ -1336,21 +1336,7 @@ public static class ServiceCollectionExtensions
 
         UseFastEndpointsPipeline(app);
 
-        // Starts one worker per command type. Every instance runs workers; the provider's lease
-        // is what stops two of them running the same job.
-        //
-        // The workers start here, before the host applies the schema, so they wait on JobStorageGate
-        // before touching storage (#686). ApplyMartenSchemaAsync opens it; starting the host opens it
-        // too, for a host that assembles its own startup without the explicit apply. A db-* command
-        // does neither, so its workers never create job storage.
-        var jobGate = app.ApplicationServices.GetRequiredService<barakoCMS.Infrastructure.Jobs.JobStorageGate>();
-        app.ApplicationServices.GetRequiredService<IHostApplicationLifetime>().ApplicationStarted.Register(jobGate.Open);
-        var jobOptions = app.ApplicationServices.GetRequiredService<barakoCMS.Infrastructure.Jobs.JobOptions>();
-        app.ApplicationServices.UseJobQueues(o =>
-        {
-            o.StorageProbeDelay = TimeSpan.FromSeconds(jobOptions.StorageProbeSeconds);
-            o.ExecutionTimeLimit = TimeSpan.FromSeconds(jobOptions.LeaseSeconds);
-        });
+        UseJobWorkers(app);
 
         // Health check endpoints, unauthenticated because kubelet cannot present a token. The
         // response body stays minimal on all three so anonymous callers cannot enumerate internal
@@ -1691,6 +1677,25 @@ public static class ServiceCollectionExtensions
                 if (globalPostProcessors.Length > 0)
                     ep.PostProcessors(Order.After, globalPostProcessors);
             };
+        });
+    }
+
+    private static void UseJobWorkers(IApplicationBuilder app)
+    {
+        // Starts one worker per command type. Every instance runs workers; the provider's lease
+        // is what stops two of them running the same job.
+        //
+        // The workers start here, before the host applies the schema, so they wait on JobStorageGate
+        // before touching storage (#686). ApplyMartenSchemaAsync opens it; starting the host opens it
+        // too, for a host that assembles its own startup without the explicit apply. A db-* command
+        // does neither, so its workers never create job storage.
+        var jobGate = app.ApplicationServices.GetRequiredService<barakoCMS.Infrastructure.Jobs.JobStorageGate>();
+        app.ApplicationServices.GetRequiredService<IHostApplicationLifetime>().ApplicationStarted.Register(jobGate.Open);
+        var jobOptions = app.ApplicationServices.GetRequiredService<barakoCMS.Infrastructure.Jobs.JobOptions>();
+        app.ApplicationServices.UseJobQueues(o =>
+        {
+            o.StorageProbeDelay = TimeSpan.FromSeconds(jobOptions.StorageProbeSeconds);
+            o.ExecutionTimeLimit = TimeSpan.FromSeconds(jobOptions.LeaseSeconds);
         });
     }
 
