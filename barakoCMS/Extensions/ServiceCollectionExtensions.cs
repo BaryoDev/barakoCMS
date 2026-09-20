@@ -44,34 +44,7 @@ public static class ServiceCollectionExtensions
     {
         var (seen, enabled, modules) = AddModules(services, configuration, configureModules);
 
-        // FastEndpoints scans the entry (host) assembly by default; add each module's assembly so
-        // endpoints shipped inside a module DLL are discovered too. DisableAutoDiscovery stays false,
-        // so this augments rather than replaces the host scan.
-        var moduleAssemblies = modules
-            .SelectMany(m => m.EndpointAssemblies)
-            .Distinct()
-            .ToArray();
-
-        // Auto discovery also scans every other loaded assembly, which includes the module
-        // assemblies the enabled list switched off. Their endpoints would be mapped with none of
-        // their services registered, and the host fails at startup resolving them. Those
-        // assemblies are excluded by type, so validators and processors in them stay out too. An
-        // assembly an enabled module also claims, core and the host's own assembly are never
-        // excluded.
-        var switchedOff = seen
-            .Except(enabled)
-            .SelectMany(m => m.EndpointAssemblies)
-            .Except(moduleAssemblies)
-            .Where(a => a != typeof(IBarakoModule).Assembly && a != System.Reflection.Assembly.GetEntryAssembly())
-            .ToHashSet();
-
-        services.AddFastEndpoints(o =>
-        {
-            if (moduleAssemblies.Length > 0)
-                o.Assemblies = moduleAssemblies;
-            if (switchedOff.Count > 0)
-                o.Filter = type => !switchedOff.Contains(type.Assembly);
-        });
+        AddModuleEndpoints(services, seen, enabled, modules);
 
         // The job queue. The storage provider is a singleton that reaches the request's scoped
         // session through IHttpContextAccessor, which is what makes an enqueue commit with the
@@ -1008,6 +981,42 @@ public static class ServiceCollectionExtensions
         }
 
         return (seen, enabled, modules);
+    }
+
+    private static void AddModuleEndpoints(
+        IServiceCollection services,
+        IReadOnlyList<IBarakoModule> seen,
+        IReadOnlyList<IBarakoModule> enabled,
+        IReadOnlyList<IBarakoModule> modules)
+    {
+        // FastEndpoints scans the entry (host) assembly by default; add each module's assembly so
+        // endpoints shipped inside a module DLL are discovered too. DisableAutoDiscovery stays false,
+        // so this augments rather than replaces the host scan.
+        var moduleAssemblies = modules
+            .SelectMany(m => m.EndpointAssemblies)
+            .Distinct()
+            .ToArray();
+
+        // Auto discovery also scans every other loaded assembly, which includes the module
+        // assemblies the enabled list switched off. Their endpoints would be mapped with none of
+        // their services registered, and the host fails at startup resolving them. Those
+        // assemblies are excluded by type, so validators and processors in them stay out too. An
+        // assembly an enabled module also claims, core and the host's own assembly are never
+        // excluded.
+        var switchedOff = seen
+            .Except(enabled)
+            .SelectMany(m => m.EndpointAssemblies)
+            .Except(moduleAssemblies)
+            .Where(a => a != typeof(IBarakoModule).Assembly && a != System.Reflection.Assembly.GetEntryAssembly())
+            .ToHashSet();
+
+        services.AddFastEndpoints(o =>
+        {
+            if (moduleAssemblies.Length > 0)
+                o.Assemblies = moduleAssemblies;
+            if (switchedOff.Count > 0)
+                o.Filter = type => !switchedOff.Contains(type.Assembly);
+        });
     }
 
     private static readonly Dictionary<string, string> SslModeMap = new(StringComparer.OrdinalIgnoreCase)
