@@ -58,16 +58,7 @@ public static class ServiceCollectionExtensions
         AddHstsAndCors(services, configuration);
         AddPermissionResolution(services);
         
-        // Security Services
-        // The only place an access token is minted — it owns the "may this user hold a token for
-        // this tenant?" check, so no endpoint can skip it by omission. See ITokenIssuer.
-        services.AddScoped<barakoCMS.Infrastructure.Auth.ITokenIssuer, barakoCMS.Infrastructure.Auth.TokenIssuer>();
-        services.AddSingleton<barakoCMS.Infrastructure.Auth.LockoutNoticeSender>();
-        services.AddHostedService(sp => sp.GetRequiredService<barakoCMS.Infrastructure.Auth.LockoutNoticeSender>());
-        services.AddSingleton<barakoCMS.Infrastructure.Auth.AccountLockout>();
-        services.AddScoped<ITokenRevocationService, TokenRevocationService>();
-        services.AddScoped<ISessionEpochService, SessionEpochService>();
-        services.AddScoped<IPasswordPolicyValidator, PasswordPolicyValidator>();
+        AddSecurityServices(services);
         
         // Memory Cache for token revocation and permissions
         services.AddMemoryCache(options =>
@@ -1052,6 +1043,20 @@ public static class ServiceCollectionExtensions
         
         services.AddScoped<PermissionResolver>(); // Inner resolver
         services.AddScoped<IPermissionResolver, CachedPermissionResolver>(); // Cached decorator
+    }
+
+    private static void AddSecurityServices(IServiceCollection services)
+    {
+        // Security Services
+        // The only place an access token is minted — it owns the "may this user hold a token for
+        // this tenant?" check, so no endpoint can skip it by omission. See ITokenIssuer.
+        services.AddScoped<barakoCMS.Infrastructure.Auth.ITokenIssuer, barakoCMS.Infrastructure.Auth.TokenIssuer>();
+        services.AddSingleton<barakoCMS.Infrastructure.Auth.LockoutNoticeSender>();
+        services.AddHostedService(sp => sp.GetRequiredService<barakoCMS.Infrastructure.Auth.LockoutNoticeSender>());
+        services.AddSingleton<barakoCMS.Infrastructure.Auth.AccountLockout>();
+        services.AddScoped<ITokenRevocationService, TokenRevocationService>();
+        services.AddScoped<ISessionEpochService, SessionEpochService>();
+        services.AddScoped<IPasswordPolicyValidator, PasswordPolicyValidator>();
     }
 
     private static readonly Dictionary<string, string> SslModeMap = new(StringComparer.OrdinalIgnoreCase)
