@@ -125,57 +125,7 @@ public static class ServiceCollectionExtensions
                 options.UseRowLevelSecurity();
             }
 
-            options.Schema.For<Content>()
-                .DocumentAlias("contents")
-                // #565 / D16: the document a client reads and writes through GET/PUT gets the same
-                // protection WorkflowRun, JobRecord and the rest already have below. Event-sourced
-                // types keep their own expected-version check on the stream (D3); this is the
-                // document itself, which every content type is stored as regardless of sourcing mode.
-                // The Update endpoint reads the version via MetadataForAsync and binds it back with
-                // UpdateExpectedVersion, so GET's ETag and PUT's If-Match round-trip through it.
-                .UseOptimisticConcurrency(true)
-                .Index(x => x.ContentType)  // Frequently filtered
-                .Index(x => x.CreatedAt)    // Frequently sorted
-                .Index(x => x.UpdatedAt)
-                .Index(x => x.Status)
-                .Index(x => new { x.ContentType, x.CreatedAt })
-                .Index(x => new { x.ContentType, x.Status }); // Composite for status filtering
-                // NOTE: no dedicated index on ScheduledPublishAt/ScheduledUnpublishAt. The scheduler
-                // sweep leads with Status (indexed above), which is the selective predicate; the
-                // schedule-time comparison is a cheap secondary filter. Adding indexes here would be a
-                // delta on the existing mt_doc_contents table, which the prod/playground AutoCreate.
-                // CreateOnly policy refuses at startup (there is no online-migration step yet — H.40).
-
-            // The name is the lookup key for a content type: ContentValidatorService, SensitivityService
-            // and the search-text backfill all resolve a definition by it, and each resolved a
-            // duplicate differently. Uniqueness was enforced only by a read before the write, so two
-            // concurrent creates both missed the read and both inserted. PerTenant, not global: under
-            // conjoined tenancy one customer's "article" must not block another's.
-            //
-            // On an existing database this index is NOT created: production runs AutoCreate.CreateOnly,
-            // which never alters an object that already exists. Such a store keeps today's
-            // read-then-write behaviour until the index is applied by hand. See
-            // migrations/4.0.0/3.x-to-4.0.sql, which also finds the duplicates that would make the
-            // CREATE UNIQUE INDEX fail.
-            // The sourcing decision, keyed by the content type NAME rather than by the definition's
-            // id, so deleting a type and creating it again finds the standing answer instead of
-            // arriving at the opposite one. Tenant-scoped like the definitions it describes: one
-            // customer's "article" being event sourced says nothing about another's.
-            options.Schema.For<ContentTypeSourcingPolicy>()
-                .DocumentAlias("content_type_sourcing_policies")
-                .Identity(x => x.Name);
-
-            options.Schema.For<ContentTypeDefinition>()
-                .Index(x => x.Name, idx =>
-                {
-                    idx.IsUnique = true;
-                    idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
-                });
-
-            // Navigation menus are a "menu" content type served through public delivery, not a bespoke
-            // doc. Keeping them as content keeps them pluggable and drops a whole CRUD surface. The old
-            // Menu document + /api/menus endpoints were removed; existing "menus" tables are just left
-            // orphaned (safe under AutoCreate.CreateOnly, which never alters or drops them).
+            MapContentDocuments(options);
 
             // Unique on the normalised values, because that is what every lookup compares. Indexed on
             // the stored Username and Email, two accounts could hold "A@example.com" and
@@ -1062,6 +1012,61 @@ public static class ServiceCollectionExtensions
         // Output Cache, so an endpoint's Options(x => x.CacheOutput(...)) is more than metadata.
         // See #545: this was missing, so every endpoint's CacheOutput policy was silently ignored.
         services.AddOutputCache();
+    }
+
+    private static void MapContentDocuments(StoreOptions options)
+    {
+        options.Schema.For<Content>()
+            .DocumentAlias("contents")
+            // #565 / D16: the document a client reads and writes through GET/PUT gets the same
+            // protection WorkflowRun, JobRecord and the rest already have below. Event-sourced
+            // types keep their own expected-version check on the stream (D3); this is the
+            // document itself, which every content type is stored as regardless of sourcing mode.
+            // The Update endpoint reads the version via MetadataForAsync and binds it back with
+            // UpdateExpectedVersion, so GET's ETag and PUT's If-Match round-trip through it.
+            .UseOptimisticConcurrency(true)
+            .Index(x => x.ContentType)  // Frequently filtered
+            .Index(x => x.CreatedAt)    // Frequently sorted
+            .Index(x => x.UpdatedAt)
+            .Index(x => x.Status)
+            .Index(x => new { x.ContentType, x.CreatedAt })
+            .Index(x => new { x.ContentType, x.Status }); // Composite for status filtering
+            // NOTE: no dedicated index on ScheduledPublishAt/ScheduledUnpublishAt. The scheduler
+            // sweep leads with Status (indexed above), which is the selective predicate; the
+            // schedule-time comparison is a cheap secondary filter. Adding indexes here would be a
+            // delta on the existing mt_doc_contents table, which the prod/playground AutoCreate.
+            // CreateOnly policy refuses at startup (there is no online-migration step yet — H.40).
+
+        // The name is the lookup key for a content type: ContentValidatorService, SensitivityService
+        // and the search-text backfill all resolve a definition by it, and each resolved a
+        // duplicate differently. Uniqueness was enforced only by a read before the write, so two
+        // concurrent creates both missed the read and both inserted. PerTenant, not global: under
+        // conjoined tenancy one customer's "article" must not block another's.
+        //
+        // On an existing database this index is NOT created: production runs AutoCreate.CreateOnly,
+        // which never alters an object that already exists. Such a store keeps today's
+        // read-then-write behaviour until the index is applied by hand. See
+        // migrations/4.0.0/3.x-to-4.0.sql, which also finds the duplicates that would make the
+        // CREATE UNIQUE INDEX fail.
+        // The sourcing decision, keyed by the content type NAME rather than by the definition's
+        // id, so deleting a type and creating it again finds the standing answer instead of
+        // arriving at the opposite one. Tenant-scoped like the definitions it describes: one
+        // customer's "article" being event sourced says nothing about another's.
+        options.Schema.For<ContentTypeSourcingPolicy>()
+            .DocumentAlias("content_type_sourcing_policies")
+            .Identity(x => x.Name);
+
+        options.Schema.For<ContentTypeDefinition>()
+            .Index(x => x.Name, idx =>
+            {
+                idx.IsUnique = true;
+                idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
+            });
+
+        // Navigation menus are a "menu" content type served through public delivery, not a bespoke
+        // doc. Keeping them as content keeps them pluggable and drops a whole CRUD surface. The old
+        // Menu document + /api/menus endpoints were removed; existing "menus" tables are just left
+        // orphaned (safe under AutoCreate.CreateOnly, which never alters or drops them).
     }
 
     private static readonly Dictionary<string, string> SslModeMap = new(StringComparer.OrdinalIgnoreCase)
