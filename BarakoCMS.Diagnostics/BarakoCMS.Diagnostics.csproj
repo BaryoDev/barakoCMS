@@ -19,6 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\BarakoCMS.Abstractions\BarakoCMS.Abstractions.csproj" />
     <ProjectReference Include="..\barakoCMS\barakoCMS.csproj" />
   </ItemGroup>
 

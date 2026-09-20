@@ -716,6 +716,7 @@
         "type": "Project",
         "dependencies": {
           "BarakoCMS": "[4.2.1, )",
+          "BarakoCMS.Abstractions": "[4.3.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.22.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.22.0, )"
         }
@@ -724,6 +725,7 @@
         "type": "Project",
         "dependencies": {
           "BarakoCMS": "[4.2.1, )",
+          "BarakoCMS.Abstractions": "[4.3.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.22.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.22.0, )"
         }
@@ -732,6 +734,7 @@
         "type": "Project",
         "dependencies": {
           "BarakoCMS": "[4.2.1, )",
+          "BarakoCMS.Abstractions": "[4.3.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.22.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.22.0, )"
         }
@@ -740,6 +743,7 @@
         "type": "Project",
         "dependencies": {
           "BarakoCMS": "[4.2.1, )",
+          "BarakoCMS.Abstractions": "[4.3.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.22.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.22.0, )"
         }
@@ -748,6 +752,7 @@
         "type": "Project",
         "dependencies": {
           "BarakoCMS": "[4.2.1, )",
+          "BarakoCMS.Abstractions": "[4.3.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.22.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.22.0, )"
         }
@@ -756,6 +761,7 @@
         "type": "Project",
         "dependencies": {
           "BarakoCMS": "[4.2.1, )",
+          "BarakoCMS.Abstractions": "[4.3.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.22.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.22.0, )"
         }
@@ -764,6 +770,7 @@
         "type": "Project",
         "dependencies": {
           "BarakoCMS": "[4.2.1, )",
+          "BarakoCMS.Abstractions": "[4.3.0, )",
           "MailKit": "[4.17.0, )"
         }
       },
@@ -771,6 +778,7 @@
         "type": "Project",
         "dependencies": {
           "BarakoCMS": "[4.2.1, )",
+          "BarakoCMS.Abstractions": "[4.3.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.22.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.22.0, )"
         }
@@ -779,6 +787,7 @@
         "type": "Project",
         "dependencies": {
           "BarakoCMS": "[4.2.1, )",
+          "BarakoCMS.Abstractions": "[4.3.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.22.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.22.0, )"
         }
@@ -787,6 +796,7 @@
         "type": "Project",
         "dependencies": {
           "BarakoCMS": "[4.2.1, )",
+          "BarakoCMS.Abstractions": "[4.3.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.22.0, )",
           "SixLabors.ImageSharp": "[3.1.12, )",
           "System.IdentityModel.Tokens.Jwt": "[8.22.0, )"
@@ -796,6 +806,7 @@
         "type": "Project",
         "dependencies": {
           "AWSSDK.S3": "[3.7.511.8, )",
+          "BarakoCMS.Abstractions": "[4.3.0, )",
           "BarakoCMS.Files": "[4.2.1, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.22.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.22.0, )"
@@ -805,6 +816,7 @@
         "type": "Project",
         "dependencies": {
           "BarakoCMS": "[4.2.1, )",
+          "BarakoCMS.Abstractions": "[4.3.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.22.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.22.0, )"
         }
@@ -813,6 +825,7 @@
         "type": "Project",
         "dependencies": {
           "BarakoCMS": "[4.2.1, )",
+          "BarakoCMS.Abstractions": "[4.3.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.22.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.22.0, )",
           "Talaan": "[0.1.0, )"
@@ -822,6 +835,7 @@
         "type": "Project",
         "dependencies": {
           "BarakoCMS": "[4.2.1, )",
+          "BarakoCMS.Abstractions": "[4.3.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.22.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.22.0, )"
         }
@@ -830,6 +844,7 @@
         "type": "Project",
         "dependencies": {
           "BarakoCMS": "[4.2.1, )",
+          "BarakoCMS.Abstractions": "[4.3.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.22.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.22.0, )"
         }
@@ -838,6 +853,7 @@
         "type": "Project",
         "dependencies": {
           "BarakoCMS": "[4.2.1, )",
+          "BarakoCMS.Abstractions": "[4.3.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.22.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.22.0, )"
         }

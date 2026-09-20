@@ -8,6 +8,7 @@
 
   <!-- "Barako" — the full pour. The engine plus every module, registered and ready. -->
   <ItemGroup>
+    <ProjectReference Include="..\BarakoCMS.Abstractions\BarakoCMS.Abstractions.csproj" />
     <ProjectReference Include="..\barakoCMS\barakoCMS.csproj" />
     <ProjectReference Include="..\BarakoCMS.Accounting\BarakoCMS.Accounting.csproj" />
     <ProjectReference Include="..\BarakoCMS.Import\BarakoCMS.Import.csproj" />

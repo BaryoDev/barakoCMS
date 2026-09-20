@@ -16,6 +16,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
+    <ProjectReference Include="..\BarakoCMS.Abstractions\BarakoCMS.Abstractions.csproj" />
     <ProjectReference Include="..\barakoCMS\barakoCMS.csproj" />
     <!-- Talaan is consumed as a published NuGet package so this module builds standalone (CI, NuGet). -->
     <PackageReference Include="Talaan" />

@@ -706,6 +706,7 @@
         "type": "Project",
         "dependencies": {
           "BarakoCMS": "[4.2.1, )",
+          "BarakoCMS.Abstractions": "[4.3.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.22.0, )",
           "SixLabors.ImageSharp": "[3.1.12, )",
           "System.IdentityModel.Tokens.Jwt": "[8.22.0, )"
