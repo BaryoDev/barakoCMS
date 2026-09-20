@@ -72,17 +72,7 @@ public static class ServiceCollectionExtensions
         AddContentServices(services);
 
         AddErasureAndPolicyChecks(services, configuration);
-        services.AddScoped<barakoCMS.Core.Interfaces.IOtpService, barakoCMS.Infrastructure.Services.OtpService>();
-
-        // Email verification for self-registration. Validated at startup for the same reason erasure
-        // is: an operator who turned verification off has to have said so, because the failure is a
-        // deployment that believes registration proves an address while it does not. See
-        // DECISIONS.md D10.
-        var emailVerification = barakoCMS.Infrastructure.Auth.EmailVerificationOptions.FromConfiguration(configuration);
-        emailVerification.Validate();
-        services.AddSingleton(emailVerification);
-        services.AddScoped<barakoCMS.Core.Interfaces.IEmailVerificationService,
-                           barakoCMS.Infrastructure.Services.EmailVerificationService>();
+        AddOtpAndEmailVerification(services, configuration);
 
         // MFA (TOTP): secret protection (AES-GCM) + enrollment/verification.
         services.AddSingleton<barakoCMS.Infrastructure.Auth.Mfa.IMfaSecretProtector, barakoCMS.Infrastructure.Auth.Mfa.MfaSecretProtector>();
@@ -1105,6 +1095,21 @@ public static class ServiceCollectionExtensions
         barakoCMS.Infrastructure.Connectors.ConnectorOptions.FromConfiguration(configuration).Validate(configuration);
         services.AddSingleton(erasure);
         services.AddScoped<barakoCMS.Infrastructure.Erasure.IContentEraser, barakoCMS.Infrastructure.Erasure.ContentEraser>();
+    }
+
+    private static void AddOtpAndEmailVerification(IServiceCollection services, IConfiguration configuration)
+    {
+        services.AddScoped<barakoCMS.Core.Interfaces.IOtpService, barakoCMS.Infrastructure.Services.OtpService>();
+
+        // Email verification for self-registration. Validated at startup for the same reason erasure
+        // is: an operator who turned verification off has to have said so, because the failure is a
+        // deployment that believes registration proves an address while it does not. See
+        // DECISIONS.md D10.
+        var emailVerification = barakoCMS.Infrastructure.Auth.EmailVerificationOptions.FromConfiguration(configuration);
+        emailVerification.Validate();
+        services.AddSingleton(emailVerification);
+        services.AddScoped<barakoCMS.Core.Interfaces.IEmailVerificationService,
+                           barakoCMS.Infrastructure.Services.EmailVerificationService>();
     }
 
     private static readonly Dictionary<string, string> SslModeMap = new(StringComparer.OrdinalIgnoreCase)
