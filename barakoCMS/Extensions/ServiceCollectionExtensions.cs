@@ -97,16 +97,7 @@ public static class ServiceCollectionExtensions
 
         AddRateLimiting(services, configuration);
 
-        if (configuration.GetValue<bool>("HealthChecksUI:Enabled"))
-        {
-            services.AddHealthChecksUI(setup =>
-            {
-                setup.SetEvaluationTimeInSeconds(10); // Check every 10 seconds
-                setup.MaximumHistoryEntriesPerEndpoint(60);
-                setup.AddHealthCheckEndpoint("BarakoCMS", "/health");
-            })
-            .AddInMemoryStorage();
-        }
+        AddHealthChecksDashboard(services, configuration);
 
         return services;
     }
@@ -1180,6 +1171,20 @@ public static class ServiceCollectionExtensions
             .Configure<IConfiguration>((options, current) =>
                 barakoCMS.Infrastructure.Security.RateLimitSetup.Configure(
                     options, barakoCMS.Infrastructure.Security.RateLimitSetup.Read(current)));
+    }
+
+    private static void AddHealthChecksDashboard(IServiceCollection services, IConfiguration configuration)
+    {
+        if (configuration.GetValue<bool>("HealthChecksUI:Enabled"))
+        {
+            services.AddHealthChecksUI(setup =>
+            {
+                setup.SetEvaluationTimeInSeconds(10); // Check every 10 seconds
+                setup.MaximumHistoryEntriesPerEndpoint(60);
+                setup.AddHealthCheckEndpoint("BarakoCMS", "/health");
+            })
+            .AddInMemoryStorage();
+        }
     }
 
     private static readonly Dictionary<string, string> SslModeMap = new(StringComparer.OrdinalIgnoreCase)
