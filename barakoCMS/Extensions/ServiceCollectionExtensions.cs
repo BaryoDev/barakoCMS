@@ -86,10 +86,7 @@ public static class ServiceCollectionExtensions
 
         AddWorkflowActions(services);
 
-        services.AddScoped<IWorkflowPluginRegistry, WorkflowPluginRegistry>();
-        services.AddScoped<IWorkflowSchemaValidator, WorkflowSchemaValidator>();
-        services.AddScoped<ITemplateVariableExtractor, TemplateVariableExtractor>();
-        services.AddScoped<IWorkflowDebugger, WorkflowDebugger>();
+        AddWorkflowTooling(services);
         services.AddScoped<IContentValidatorService, ContentValidatorService>();
         services.AddScoped<IContentTypeValidatorService, ContentTypeValidatorService>();
         services.AddScoped<barakoCMS.Features.ContentType.Blueprints.BlueprintCatalog>();
@@ -1150,6 +1147,14 @@ public static class ServiceCollectionExtensions
 
         services.AddScoped<barakoCMS.Features.Workflows.WorkflowEngine>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowEngine>(sp => sp.GetRequiredService<barakoCMS.Features.Workflows.WorkflowEngine>());
+    }
+
+    private static void AddWorkflowTooling(IServiceCollection services)
+    {
+        services.AddScoped<IWorkflowPluginRegistry, WorkflowPluginRegistry>();
+        services.AddScoped<IWorkflowSchemaValidator, WorkflowSchemaValidator>();
+        services.AddScoped<ITemplateVariableExtractor, TemplateVariableExtractor>();
+        services.AddScoped<IWorkflowDebugger, WorkflowDebugger>();
     }
 
     private static readonly Dictionary<string, string> SslModeMap = new(StringComparer.OrdinalIgnoreCase)
