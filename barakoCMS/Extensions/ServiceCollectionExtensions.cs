@@ -71,24 +71,7 @@ public static class ServiceCollectionExtensions
 
         AddContentServices(services);
 
-        // Erasure policy. Validated here rather than at first use: the failure being guarded against
-        // is an operator believing a mode is in force when it is not, and startup is the only moment
-        // that belief is cheap to correct. See DECISIONS.md D9.
-        var erasure = barakoCMS.Infrastructure.Erasure.ErasureOptions.FromConfiguration(configuration);
-        erasure.Validate();
-
-        // Sensitivity mode, validated for the same reason as erasure above. All is declared but not
-        // implemented: SensitivityService branches on Off and nothing else, so a deployment that
-        // asks for strict lockdown gets SensitiveOnly and a clean startup. Refused here rather than
-        // served inert, because the operator who sets it is the one who needs it.
-        barakoCMS.Infrastructure.Services.SensitivityService.ValidateMode(configuration);
-
-        // Connectors hold live third-party credentials, so a key that is present and wrong is
-        // refused before the host is built rather than at the first send. An absent key is not an
-        // error: it means the feature is off, and the endpoints say so with the setting named.
-        barakoCMS.Infrastructure.Connectors.ConnectorOptions.FromConfiguration(configuration).Validate(configuration);
-        services.AddSingleton(erasure);
-        services.AddScoped<barakoCMS.Infrastructure.Erasure.IContentEraser, barakoCMS.Infrastructure.Erasure.ContentEraser>();
+        AddErasureAndPolicyChecks(services, configuration);
         services.AddScoped<barakoCMS.Core.Interfaces.IOtpService, barakoCMS.Infrastructure.Services.OtpService>();
 
         // Email verification for self-registration. Validated at startup for the same reason erasure
@@ -1100,6 +1083,28 @@ public static class ServiceCollectionExtensions
         // Runs any per-content-type domain rules a module registered (IContentLifecycleHook), so a
         // domain with real invariants can still be modelled as ordinary content.
         services.AddScoped<barakoCMS.Infrastructure.Services.IContentLifecycleRunner, barakoCMS.Infrastructure.Services.ContentLifecycleRunner>();
+    }
+
+    private static void AddErasureAndPolicyChecks(IServiceCollection services, IConfiguration configuration)
+    {
+        // Erasure policy. Validated here rather than at first use: the failure being guarded against
+        // is an operator believing a mode is in force when it is not, and startup is the only moment
+        // that belief is cheap to correct. See DECISIONS.md D9.
+        var erasure = barakoCMS.Infrastructure.Erasure.ErasureOptions.FromConfiguration(configuration);
+        erasure.Validate();
+
+        // Sensitivity mode, validated for the same reason as erasure above. All is declared but not
+        // implemented: SensitivityService branches on Off and nothing else, so a deployment that
+        // asks for strict lockdown gets SensitiveOnly and a clean startup. Refused here rather than
+        // served inert, because the operator who sets it is the one who needs it.
+        barakoCMS.Infrastructure.Services.SensitivityService.ValidateMode(configuration);
+
+        // Connectors hold live third-party credentials, so a key that is present and wrong is
+        // refused before the host is built rather than at the first send. An absent key is not an
+        // error: it means the feature is off, and the endpoints say so with the setting named.
+        barakoCMS.Infrastructure.Connectors.ConnectorOptions.FromConfiguration(configuration).Validate(configuration);
+        services.AddSingleton(erasure);
+        services.AddScoped<barakoCMS.Infrastructure.Erasure.IContentEraser, barakoCMS.Infrastructure.Erasure.ContentEraser>();
     }
 
     private static readonly Dictionary<string, string> SslModeMap = new(StringComparer.OrdinalIgnoreCase)
