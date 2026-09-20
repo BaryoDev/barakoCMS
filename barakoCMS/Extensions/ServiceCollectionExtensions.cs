@@ -62,121 +62,7 @@ public static class ServiceCollectionExtensions
         
         AddCaches(services);
 
-        var connectionString = ResolveConnectionString(configuration);
-        services.AddMarten((IServiceProvider sp) =>
-        {
-            var options = new StoreOptions();
-
-            // Marten 9 flips several event-store defaults (QuickWithServerTimestamps append,
-            // bigint event columns, advanced async tracking). Two of those imply schema
-            // migrations, and production runs AutoCreate.CreateOnly, which refuses live
-            // migrations by design; the daemon would break on first append instead. Keep the
-            // V8 behaviour this upgrade was tested against, and adopt the new defaults
-            // deliberately, with a migration step, not as a side effect of a version bump.
-            options.RestoreV8Defaults();
-
-            // Not part of the V8 contract worth keeping: V8 forwarded Npgsql's internal
-            // logger, which is pure noise next to Marten's own structured logs.
-            options.DisableNpgsqlLogging = true;
-
-            options.Connection(connectionString);
-
-            // Schema management. Marten's default (CreateOrUpdate) attempts a migration whenever a
-            // write finds the schema out of date — so a schema mismatch surfaces as random 500s on
-            // user requests, in a loop, since the failed migration is retried every write. That is
-            // how a single→conjoined event-tenancy change (which is NOT a safe live migration) took
-            // down content creation on a live instance.
-            //
-            // Production uses CreateOnly (Marten's recommended prod setting): it creates missing
-            // objects — so a fresh database and any document type not explicitly registered below
-            // still work — but NEVER updates or drops an existing object, so it can't attempt the
-            // failing live migration. None is too strict: it requires every document type to be
-            // pre-registered and can't stand up a fresh database. Development keeps CreateOrUpdate for
-            // a frictionless local loop. NOTE: changing Events.TenancyStyle on an existing store is
-            // still not auto-migratable — it requires an event-store rebuild, never a live migration.
-            var isDevelopment =
-                Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development";
-            options.AutoCreateSchemaObjects = isDevelopment
-                ? JasperFx.AutoCreate.CreateOrUpdate
-                : JasperFx.AutoCreate.CreateOnly;
-
-            // Every `object`-typed JSON value (content Data bags, permission Conditions, audit
-            // Metadata, workflow parameters) goes through ObjectJsonConverter so fractional numbers
-            // land as decimal instead of double, and nested values are plain CLR types at every depth
-            // rather than raw JsonElement. See that converter for the two real bugs this prevents.
-            options.UseSystemTextJsonForSerialization(configure: json =>
-            {
-                json.Converters.Add(new barakoCMS.Infrastructure.Serialization.ObjectJsonConverter());
-            });
-
-            // Conjoined multi-tenancy: every document and event stream is tagged with a tenant id and
-            // auto-filtered by the session's tenant. Global identity/registry docs opt out below.
-            options.Policies.AllDocumentsAreMultiTenanted();
-            options.Events.TenancyStyle = JasperFx.MultiTenancy.TenancyStyle.Conjoined;
-
-            // Postgres enforces the tenant filter too, when a deployment has been set up for it.
-            // Off by default, because turning it on is not a setting change: it needs the app to
-            // connect as a role that is not the table owner's superuser, and that is a connection
-            // string and an ops step. See docs/tenancy-at-the-database.md and
-            // DatabaseTenancy.AssertUsableAsync, which refuses to start rather than let this be on
-            // and inert.
-            if (configuration.GetValue(barakoCMS.Infrastructure.Multitenancy.DatabaseTenancy.EnabledKey, false))
-            {
-                options.UseRowLevelSecurity();
-            }
-
-            MapContentDocuments(options);
-
-            MapIdentityAndSettingsDocuments(options);
-
-            MapTenantScopedDocuments(options);
-
-            MapGlobalDocuments(options);
-
-            options.Projections.Add(new WorkflowProjection(sp), JasperFx.Events.Projections.ProjectionLifecycle.Async);
-
-            // The public event stream learns about content changes after the session that wrote
-            // them commits, on this instance. See ContentChangeListener for why it is not a
-            // projection.
-            options.Listeners.Add(new barakoCMS.Features.Public.Events.ContentChangeListener(
-                sp.GetRequiredService<barakoCMS.Features.Public.Events.ContentChangeBroadcaster>(),
-                sp.GetRequiredService<ILogger<barakoCMS.Features.Public.Events.ContentChangeListener>>()));
-
-            // Each module registers its own document types through a surface that only accepts
-            // types it ships. ConfigureMarten still runs for modules that predate ConfigureSchema,
-            // and is warned about, because removing it inside a major would break them silently.
-            foreach (var module in modules)
-            {
-                module.ConfigureSchema(new ModuleSchema(options, module));
-
-#pragma warning disable CS0618 // deliberately calling the obsolete hook during its deprecation window
-                if (OverridesConfigureMarten(module))
-                {
-                    Log.Warning(
-                        "Module {Module} uses the deprecated ConfigureMarten(StoreOptions), which can "
-                        + "reach core's documents and the event store. Move to ConfigureSchema(IModuleSchema); "
-                        + "ConfigureMarten is removed in barakoCMS 5.0.",
-                        module.Name);
-                }
-                module.ConfigureMarten(options);
-#pragma warning restore CS0618
-            }
-
-            return options;
-        })
-        .BuildSessionsWith<barakoCMS.Infrastructure.Multitenancy.TenantSessionFactory>(Microsoft.Extensions.DependencyInjection.ServiceLifetime.Scoped)
-        // HotCold, not Solo. Solo assumes there is never more than one node, and every node that
-        // starts under it runs every projection. Two instances therefore both process the same
-        // events, and WorkflowProjection has external side effects: an email, an SMS, a webhook, a
-        // created task. Scaling out sent every one of them twice.
-        //
-        // HotCold takes a Postgres advisory lock per projection so exactly one process runs each.
-        .AddAsyncDaemon(JasperFx.Events.Daemon.DaemonMode.HotCold);
-        // Schema is applied explicitly at startup via host.ApplyMartenSchemaAsync() (below), called
-        // BEFORE the data seeders run. ApplyAllDatabaseChangesOnStartup() can't be used here: it
-        // registers a hosted service that runs during app.Run(), but the seeders run before that, so
-        // with CreateOnly's no-on-demand-DDL they'd hit tables that don't exist yet on a fresh
-        // database.
+        AddMartenStore(services, configuration, modules);
 
         // services.AddHealthChecks()
         //    .AddNpgSql(configuration.GetConnectionString("DefaultConnection")!, tags: new[] { "db", "ready" });
@@ -1082,6 +968,128 @@ public static class ServiceCollectionExtensions
             .DocumentAlias("memberships")
             .Index(x => x.UserId)
             .Index(x => x.TenantSlug);
+    }
+
+    private static void AddMartenStore(
+        IServiceCollection services,
+        IConfiguration configuration,
+        IReadOnlyList<IBarakoModule> modules)
+    {
+        var connectionString = ResolveConnectionString(configuration);
+        services.AddMarten((IServiceProvider sp) =>
+        {
+            var options = new StoreOptions();
+
+            // Marten 9 flips several event-store defaults (QuickWithServerTimestamps append,
+            // bigint event columns, advanced async tracking). Two of those imply schema
+            // migrations, and production runs AutoCreate.CreateOnly, which refuses live
+            // migrations by design; the daemon would break on first append instead. Keep the
+            // V8 behaviour this upgrade was tested against, and adopt the new defaults
+            // deliberately, with a migration step, not as a side effect of a version bump.
+            options.RestoreV8Defaults();
+
+            // Not part of the V8 contract worth keeping: V8 forwarded Npgsql's internal
+            // logger, which is pure noise next to Marten's own structured logs.
+            options.DisableNpgsqlLogging = true;
+
+            options.Connection(connectionString);
+
+            // Schema management. Marten's default (CreateOrUpdate) attempts a migration whenever a
+            // write finds the schema out of date — so a schema mismatch surfaces as random 500s on
+            // user requests, in a loop, since the failed migration is retried every write. That is
+            // how a single→conjoined event-tenancy change (which is NOT a safe live migration) took
+            // down content creation on a live instance.
+            //
+            // Production uses CreateOnly (Marten's recommended prod setting): it creates missing
+            // objects — so a fresh database and any document type not explicitly registered below
+            // still work — but NEVER updates or drops an existing object, so it can't attempt the
+            // failing live migration. None is too strict: it requires every document type to be
+            // pre-registered and can't stand up a fresh database. Development keeps CreateOrUpdate for
+            // a frictionless local loop. NOTE: changing Events.TenancyStyle on an existing store is
+            // still not auto-migratable — it requires an event-store rebuild, never a live migration.
+            var isDevelopment =
+                Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development";
+            options.AutoCreateSchemaObjects = isDevelopment
+                ? JasperFx.AutoCreate.CreateOrUpdate
+                : JasperFx.AutoCreate.CreateOnly;
+
+            // Every `object`-typed JSON value (content Data bags, permission Conditions, audit
+            // Metadata, workflow parameters) goes through ObjectJsonConverter so fractional numbers
+            // land as decimal instead of double, and nested values are plain CLR types at every depth
+            // rather than raw JsonElement. See that converter for the two real bugs this prevents.
+            options.UseSystemTextJsonForSerialization(configure: json =>
+            {
+                json.Converters.Add(new barakoCMS.Infrastructure.Serialization.ObjectJsonConverter());
+            });
+
+            // Conjoined multi-tenancy: every document and event stream is tagged with a tenant id and
+            // auto-filtered by the session's tenant. Global identity/registry docs opt out below.
+            options.Policies.AllDocumentsAreMultiTenanted();
+            options.Events.TenancyStyle = JasperFx.MultiTenancy.TenancyStyle.Conjoined;
+
+            // Postgres enforces the tenant filter too, when a deployment has been set up for it.
+            // Off by default, because turning it on is not a setting change: it needs the app to
+            // connect as a role that is not the table owner's superuser, and that is a connection
+            // string and an ops step. See docs/tenancy-at-the-database.md and
+            // DatabaseTenancy.AssertUsableAsync, which refuses to start rather than let this be on
+            // and inert.
+            if (configuration.GetValue(barakoCMS.Infrastructure.Multitenancy.DatabaseTenancy.EnabledKey, false))
+            {
+                options.UseRowLevelSecurity();
+            }
+
+            MapContentDocuments(options);
+
+            MapIdentityAndSettingsDocuments(options);
+
+            MapTenantScopedDocuments(options);
+
+            MapGlobalDocuments(options);
+
+            options.Projections.Add(new WorkflowProjection(sp), JasperFx.Events.Projections.ProjectionLifecycle.Async);
+
+            // The public event stream learns about content changes after the session that wrote
+            // them commits, on this instance. See ContentChangeListener for why it is not a
+            // projection.
+            options.Listeners.Add(new barakoCMS.Features.Public.Events.ContentChangeListener(
+                sp.GetRequiredService<barakoCMS.Features.Public.Events.ContentChangeBroadcaster>(),
+                sp.GetRequiredService<ILogger<barakoCMS.Features.Public.Events.ContentChangeListener>>()));
+
+            // Each module registers its own document types through a surface that only accepts
+            // types it ships. ConfigureMarten still runs for modules that predate ConfigureSchema,
+            // and is warned about, because removing it inside a major would break them silently.
+            foreach (var module in modules)
+            {
+                module.ConfigureSchema(new ModuleSchema(options, module));
+
+#pragma warning disable CS0618 // deliberately calling the obsolete hook during its deprecation window
+                if (OverridesConfigureMarten(module))
+                {
+                    Log.Warning(
+                        "Module {Module} uses the deprecated ConfigureMarten(StoreOptions), which can "
+                        + "reach core's documents and the event store. Move to ConfigureSchema(IModuleSchema); "
+                        + "ConfigureMarten is removed in barakoCMS 5.0.",
+                        module.Name);
+                }
+                module.ConfigureMarten(options);
+#pragma warning restore CS0618
+            }
+
+            return options;
+        })
+        .BuildSessionsWith<barakoCMS.Infrastructure.Multitenancy.TenantSessionFactory>(Microsoft.Extensions.DependencyInjection.ServiceLifetime.Scoped)
+        // HotCold, not Solo. Solo assumes there is never more than one node, and every node that
+        // starts under it runs every projection. Two instances therefore both process the same
+        // events, and WorkflowProjection has external side effects: an email, an SMS, a webhook, a
+        // created task. Scaling out sent every one of them twice.
+        //
+        // HotCold takes a Postgres advisory lock per projection so exactly one process runs each.
+        .AddAsyncDaemon(JasperFx.Events.Daemon.DaemonMode.HotCold);
+        // Schema is applied explicitly at startup via host.ApplyMartenSchemaAsync() (below), called
+        // BEFORE the data seeders run. ApplyAllDatabaseChangesOnStartup() can't be used here: it
+        // registers a hosted service that runs during app.Run(), but the seeders run before that, so
+        // with CreateOnly's no-on-demand-DDL they'd hit tables that don't exist yet on a fresh
+        // database.
     }
 
     private static readonly Dictionary<string, string> SslModeMap = new(StringComparer.OrdinalIgnoreCase)
