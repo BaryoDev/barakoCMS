@@ -16,9 +16,9 @@
       },
       "JasperFx": {
         "type": "Direct",
-        "requested": "[2.72.0, )",
-        "resolved": "2.72.0",
-        "contentHash": "9vpo7qCkG+toPItIZm9BIWs+nT1wIP0MTJFChr2uTHzjZSkdQAvrc5HV7ZmScNSssAaqfK53gcrX1jbfV50agQ==",
+        "requested": "[2.73.2, )",
+        "resolved": "2.73.2",
+        "contentHash": "K/F0fvgtFlBkxV6Tf+hkC6OiniG35tuCyRUZVH9H7A+h173hEdbVgz7ppVu6akv5IQ+mfKY0Gxe9ZweliDToIw==",
         "dependencies": {
           "FastExpressionCompiler": "5.4.1",
           "ImTools": "4.0.0",
@@ -42,9 +42,9 @@
       },
       "Microsoft.Extensions.DependencyModel": {
         "type": "Direct",
-        "requested": "[10.0.11, )",
-        "resolved": "10.0.11",
-        "contentHash": "PJPtFYsZ+r+uz9qqXWUTEyKeJ1EiBGIJtqavkg9ZXijjGSFAk4Fgi5sqIxj+uAyLZwEKgexDUQXhWhvU6l3+og=="
+        "requested": "[10.0.12, )",
+        "resolved": "10.0.12",
+        "contentHash": "rDPQVTxh/zMTDF7wHlRqL/jjZbwjAP6315ydBxj51pZW7qkAwGwjoSiMutxYI91xmOE3ZXjAGHbYRqzyJV7Urw=="
       },
       "DistributedLock.Core": {
         "type": "Transitive",
