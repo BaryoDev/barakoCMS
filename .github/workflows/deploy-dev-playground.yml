@@ -10,7 +10,7 @@ on:
     branches: ["dev"]
   workflow_dispatch:
 
-# One deploy at a time. Queue rather than cancel — a half-applied deploy is
+# One deploy at a time. Queue rather than cancel: a half-applied deploy is
 # worse than a slow one.
 concurrency:
   group: deploy-dev-playground
@@ -34,7 +34,7 @@ jobs:
         env:
           DOCKER_HOST: unix:///var/run/docker.sock
 
-  # Native arm64 — the Oracle VM is Ampere. Free for public repos; QEMU emulation
+  # Native arm64 : the Oracle VM is Ampere. Free for public repos; QEMU emulation
   # would make the .NET suite build painfully slow.
   build-api:
     name: Build API (suite) image
@@ -45,17 +45,20 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
       - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and push Barako (full suite)
+
+      - name: Build and push
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: .
-          file: Dockerfile.suite
+          file: barakoCMS/Dockerfile
           platforms: linux/arm64
           push: true
           tags: |
@@ -73,20 +76,93 @@ jobs:
       name: dev-playground
       url: https://dev-playground.baryo.dev/barakocms-api/health
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (for scripts/smoke-test.sh)
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      # The key is pinned to a forced command (/home/opc/deploy-dev-playground.sh)
-      # in the VM's authorized_keys: whatever we send is ignored and that script
-      # runs. It pulls the :dev image, recreates the dev stack, and fails if the
-      # API does not answer 200. A leaked key cannot open a shell.
-      - name: Pull and restart dev stack over SSH
-        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
-        with:
-          host: ${{ secrets.ORACLE_HOST }}
-          username: ${{ secrets.ORACLE_USER }}
-          key: ${{ secrets.DEV_DEPLOY_KEY }}
-          command_timeout: 8m
-          script: deploy
+      # BaryoVM drives the deploy, the same tool used to run this VM by hand, so
+      # a change to how a stack is deployed is made in one place rather than in a
+      # script on the box that nothing tests.
+      #
+      # The trade this makes, stated plainly because it is a real one: the key
+      # this job uses is NOT pinned to a forced command the way the release keys
+      # are. BaryoVM runs arbitrary remote commands by design, so DEV_DEPLOY_KEY
+      # can reach anything the `opc` user can, on every stack that VM hosts. It
+      # is a separate key from the playground and admin deploy keys, so it can be
+      # revoked on its own without touching them.
+
+      # Pinned to a version, and the checksum is verified against the release's
+      # own checksums.txt. An install step that curls a tarball and runs it is a
+      # supply chain step whatever else it is called.
+      #
+      # REQUIRES a BaryoVM release carrying host key verification (#96) and
+      # strict mode (#97). v0.3.0 predates both: run this against it and the
+      # strict environment variable is ignored, every deploy trusts whatever
+      # answers, and nothing says so.
+      - name: Install BaryoVM
+        run: |
+          set -euo pipefail
+          base="https://github.com/BaryoDev/BaryoVM/releases/download/v${BARYOVM_VERSION}"
+          curl -fsSL -o /tmp/baryovm.tar.gz "${base}/baryovm_${BARYOVM_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL -o /tmp/checksums.txt "${base}/checksums.txt"
+          ( cd /tmp && grep " baryovm_${BARYOVM_VERSION}_linux_amd64.tar.gz\$" checksums.txt | sha256sum -c - )
+          tar -xzf /tmp/baryovm.tar.gz -C /tmp baryovm
+          sudo install -m 0755 /tmp/baryovm /usr/local/bin/baryovm
+          baryovm version
+        env:
+          BARYOVM_VERSION: "0.4.0"
+
+      # The host key is pinned from a file in this repository, not fetched at
+      # deploy time. An ssh-keyscan here would trust whatever answered, which is
+      # the thing strict mode exists to refuse. Changing the VM's identity now
+      # requires a reviewed commit.
+      - name: Pin the VM host key
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.baryovm
+          install -m 0600 .github/baryovm/known_hosts ~/.baryovm/known_hosts
+          ssh-keygen -lf ~/.baryovm/known_hosts
+
+      - name: Write the deploy key
+        run: |
+          set -euo pipefail
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "${DEPLOY_KEY}" > ~/.ssh/dev_deploy_key
+          chmod 0600 ~/.ssh/dev_deploy_key
+        env:
+          DEPLOY_KEY: ${{ secrets.DEV_DEPLOY_KEY }}
+
+      # A runner has no fleet, so the VM and stack are registered each run. This
+      # is what BaryoDev/BaryoVM#84 (a committed project file) exists to remove;
+      # until it lands, the registration lives here.
+      - name: Register the VM and stack
+        run: |
+          set -euo pipefail
+          baryovm vm add oracle \
+            --host "${ORACLE_HOST}" \
+            --user "${ORACLE_USER}" \
+            --key ~/.ssh/dev_deploy_key
+          baryovm stack add dev-barakocms \
+            --vm oracle \
+            --path /home/opc/dev-barakocms \
+            --health-url http://127.0.0.1:5006/health
+        env:
+          ORACLE_HOST: ${{ secrets.ORACLE_HOST }}
+          ORACLE_USER: ${{ secrets.ORACLE_USER }}
+
+      # `stack update` pulls, recreates only the services whose images actually
+      # changed, waits for the health URL, and restores the previous images if it
+      # does not come back. The script this replaces had no rollback: it recreated
+      # and then reported whether the health check passed.
+      #
+      # --no-backup because dev-playground is the breakable tier and its database
+      # is disposable. Do not copy that to the playground or production workflow.
+      #
+      # Strict host keys: an unknown host is an error rather than a key learned on
+      # faith. A runner has no memory between runs, so without this every deploy
+      # would trust whatever answered on that address.
+      - name: Pull and recreate the dev stack
+        run: baryovm stack update dev-barakocms --no-backup
+        env:
+          BARYOVM_STRICT_HOST_KEYS: "1"
 
       # Deeper than an HTTP 200: log in, create a content type, post a valid value and a malformed
       # one, and confirm validation still rejects the bad one. SMOKE_WRITE=1 because dev-playground
@@ -113,6 +189,7 @@ jobs:
             echo "## dev-playground deploy"
             echo ""
             echo "- API image: \`ghcr.io/baryodev/barako-cms:dev-${{ github.sha }}\`"
+            echo "- deployed by: \`baryovm stack update\`"
             echo "- url: https://dev-playground.baryo.dev/barakocms-api/health"
             echo "- result: ${{ job.status }}"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -129,5 +206,5 @@ jobs:
         run: |
           [ -z "${DISCORD_WEBHOOK:-}" ] && { echo "no webhook; skipping"; exit 0; }
           payload=$(jq -n --arg u "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-            '{content: ("⚠️ dev-playground deploy failed — <" + $u + ">")}')
+            '{content: ("dev-playground deploy failed: <" + $u + ">")}')
           curl -s -o /dev/null -H "Content-Type: application/json" -X POST -d "$payload" "$DISCORD_WEBHOOK" || true
