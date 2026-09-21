@@ -7,6 +7,169 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.3.0] - 2026-09-21
+
+### Added
+
+- **A `devsite` blueprint: the shape barakocms.com needs.** `page`, `post`, `category`, `author` and a
+  flat `doc` type carrying its own section, order and parent fields for a documentation tree, plus
+  five types meant to be filled by a collection sync (#794) rather than typed by hand: `package`
+  (NuGet), `release` and `contributor` (GitHub), `up-for-grabs` (open issues), `milestone` (open
+  GitHub milestones, one per product, with no date field, matching the roadmap page it feeds). Every
+  reference in it points at a type the same blueprint declares, so it applies on a fresh tenant with
+  nothing else applied first, and applying it twice is refused with 409 like any other blueprint.
+  Ships under the existing `barakoCMS/Blueprints` directory rather than a separate repository, since
+  nothing outside this project reads a kit yet; moving it later is one JSON file. (closes #721)
+- **A collection's entries could only come from somebody typing them, so three sites each carried
+  their own code to read NuGet, GitHub, Medium and an RSS feed at build time.** A collection sync is
+  configuration now: `/api/collection-syncs` names the content type to fill, the source (a request
+  definition sent through its connector, or an RSS or Atom URL), which response path becomes which
+  content field, and which field is the stable key, so a re-sync updates an entry rather than adding
+  another one. A field can be given a floor, keeping the greater of the stored and the fetched value,
+  so a lagging registry index cannot walk a download count backwards. A background sweep runs each
+  sync on its own interval, one instance at a time under a Postgres advisory lock, and a response
+  that says the same thing writes nothing. A failed fetch leaves the last good entries in place and
+  records the reason on the sync, where `GET /api/collection-syncs/{slug}` shows it along with the
+  last success, so an operator can tell a stale page from an empty one. Entries are ordinary content,
+  so blocks, delivery and search treat them like anything else. The schedule is on by default and
+  `CollectionSyncs:Enabled=false` turns it off without disabling the syncs. Additive on both
+  surfaces, so `ApiContract.Version` does not move. (#794)
+- **A sensitivity change can be scheduled, the way publish and unpublish can.** `PUT
+  /api/contents/{id}/schedule` takes `scheduledSensitivity` and `scheduledSensitivityAt` (both or
+  neither; the time has to be in the future and the level different from the current one), the entry
+  and its history report what is armed, and the scheduled sweep applies it as a real
+  `ContentSensitivityChanged`, so delivery, masking, change webhooks and the history see it the way
+  they see a manual change. The entry stays Published throughout: an unpublish time is "gone from the
+  public site at a date", this is "still published, but only these roles may read it from that date".
+  Resolution is the sweep interval, one minute. Additive on the request and the response, so
+  `ApiContract.Version` does not move. (#824)
+- **Forms accept a choice field.** The Forms module predates the choice type, so a join form asking
+  for an area of focus or a race sign-up asking for an entry type and a shirt size had nowhere to put
+  the answer. `POST /api/public/forms/{slug}` now takes a `choice` field among the ones it accepts,
+  validated the same way any write is: a value not offered is a 400 naming what is accepted, and a
+  multiple choice field takes a list, even of one. `GET /api/public/forms/{slug}` lists each choice
+  field's `options` (value and label, in order) and whether it is `multiple`, so a widget can draw a
+  select, radios or checkboxes (BaryoDev/barakoPress#21). Additive, so `ApiContract.Version` does not
+  move. (closes #845)
+- **The `site` blueprint declares `Collections`, the setting barakoPress reads to render a tenant's
+  configured lists.** Each entry names a content type, a route, a field map, references, a sort, and
+  how the list behaves: whether it feeds, whether it is in the sitemap, a page size, a label and a
+  noun, related items, a read time, and a choice field to colour it by (BaryoDev/barakoPress#5). A
+  fresh tenant applying the `site` blueprint gets the field; a tenant that applied it earlier adds it
+  by hand with `POST /api/content-types/site/fields`, the same as any field added since. Nothing
+  changes for a tenant that leaves it unset. Additive, so `ApiContract.Version` does not move.
+  (closes #873)
+- **Preflight now runs holdout on the change in hand, not just on its fixtures.** Until now the
+  fixtures proved holdout still worked and nothing ran it against the pull request being prepared,
+  so the check existed and was never asked anything. `--body <file>` points it at the pull request
+  body. It is required when the diff touches production code and ignored when it does not, because
+  a release, a changelog or a docs pass has no hunk to bind and demanding a declaration there is
+  friction that buys nothing. A change that touches production with no `--body` fails rather than
+  skipping: a check that quietly does nothing when its input is missing is the hole this script
+  keeps closing one level at a time. Each holdout exit code maps to its own message, so a caught
+  test, an unresolved binding and an inconclusive build do not collapse into one failure.
+- **`scripts/holdout.sh` decides whether a test added by a pull request notices the change that
+  pull request made.** The method has required this since September 5 and nothing ran it: preflight
+  had no revert step, no pull request body carried a binding, and the review checklist item that
+  reads "mutation reverted and the named tests failed" was being answered yes over a revert that
+  never happened. The script reads a fenced `holdout` block naming, for each new test, the
+  production hunk it depends on; it holds that hunk out in a throwaway worktree, rebuilds, and
+  requires the named test to fail, then restores and requires it to pass again. A hunk that is
+  bound to no test and not listed under `untested:` with a reason fails the run, so an omission has
+  to be written down rather than simply left out. A held-out tree that does not build is
+  inconclusive rather than a pass, because a revert that breaks compilation would otherwise read as
+  a test failing for the right reason forever. Exit codes are distinct (0 pass, 1 caught,
+  2 unresolved, 3 inconclusive) so a caller cannot collapse them into "non-zero, whatever".
+  `scripts/testdata/holdout/run-fixtures.sh` runs a known one-hunk change past all eight cases,
+  every failure path included, and preflight fails if any of them stops producing its exit code.
+- **The `site` blueprint declares the four settings barakoPress and barakoBrew read but could not
+  be given.** `Currency` is the three-letter code the `money` binding format formats against, and
+  without it a bound amount falls back to a plain number, because a default currency is one client's
+  currency. `Space` and `Text` are the spacing and type scales a tenant overrides, which is what
+  stops a theme from being pixel sizes written into blocks. `Presets` holds the saved blocks a
+  designer builds in barakoBrew, which barakoPress reads and renders. Each is a field on the site
+  singleton, so a deployment sets them per tenant with no release. Nothing changes for a site that
+  leaves them empty: every one falls back to what the theme or the configuration already supplies.
+  Additive, so `ApiContract.Version` does not move. (BaryoDev/barakoPress#33,
+  BaryoDev/barakoBrew#140)
+
+### Changed
+
+- **The package contract was a list in a document, and nothing checked it.** `BarakoCMS.Abstractions`
+  now holds the module interfaces, the documents and events, the service interfaces and the three
+  workflow extension points, in an assembly that does not reference the core. A type reaching back
+  into the host is a compile error instead of something review has to catch. Namespaces are
+  unchanged, so no `using` moves and no module needs an edit; every module and the core reference
+  the new package alongside what they referenced before.
+- **Marten moves from 9.30.0 to 9.37.0, and the event store gains the columns that make the
+  projection daemon observable.** `mt_event_progression` now records, per shard, which node holds it
+  and its heartbeat, whether it is paused and why, how far behind it is against a warning and a
+  critical threshold, and the sequence, type and tenant of the event that failed it. Until now a
+  projection that died took every workflow with it and said nothing beyond a health check we wrote
+  ourselves, which is the failure `WorkflowProjection` documents against itself. `mt_streams` gains
+  the compaction watermark Marten 9.32.0 added. Both are ALTER statements on tables that already
+  exist, and the app runs `AutoCreate.CreateOnly`, so an upgraded database needs
+  `migrations/4.3.0/marten-9-37-event-store-columns.sql` applied while the old build is still
+  serving. On PostgreSQL 11 and later each statement is a catalogue change rather than a table
+  rewrite, so it is fast on an event store of any size. Rolling back needs the matching file in the
+  same directory, because a pre-4.3.0 build refuses to start against a database carrying the new
+  columns. JasperFx moves to 2.72.0 with it.
+
+### Fixed
+
+- **The 4.2.1 notes said the 4.2.0 release had skipped three modules. It had not.** The 4.2.0 run
+  pushed `BarakoCMS.ExternalAuth`, `BarakoCMS.Files` and `BarakoCMS.Portability` at 4.1.1, a number
+  none of them had been published under, so the 4.1.1 packages hold the 4.2.0 work and 4.2.1 is the
+  same code under the version the release check expects. The changelog and the GitHub release say
+  so now. The 4.2.0 and 4.2.1 sections were written by hand with their fragments left in
+  `changelog.d`, so the next assemble would have announced sixty shipped changes as new; the
+  entries those sections left out are added to 4.2.0 and 4.1.0, and the fragments are gone. The
+  playground deploy runs `db-assert` against the pulled image before it recreates the app, which
+  the 4.2.1 notes claimed and nothing did.
+- **A deployment that never set `CORS:AllowedOrigins` no longer accepts credentialed requests from
+  localhost.** With no origins configured the CORS policy fell back to `http://localhost:3000`,
+  `http://localhost:3001` and `https://localhost:7049` with `AllowCredentials()`, and it did that in
+  every environment, not only Development. This API puts the refresh token in a cookie, so a page
+  served on one of those three ports could drive any deployment that had forgotten the setting.
+  Outside Development, no configured origins now means no cross-origin access at all: a deployment
+  with no browser client needs none, and one with a client gets a CORS error naming the setting
+  rather than a hole nobody looks for. Development is unchanged, so `dotnet run` and the quickstart
+  behave exactly as before. If your deployment relied on the fallback, set `CORS:AllowedOrigins`
+  (the `CORS__AllowedOrigins` environment variable) to the origins your console and site are served
+  from. Two environment checks beside it were case-sensitive, so `ASPNETCORE_ENVIRONMENT=development`
+  took Development's connection string but production's schema policy, no Swagger and HSTS; both now
+  compare the way the rest of the code does.
+- **Holdout asked for 245 declarations on a refactor that had no bindings to make, and its
+  production list counted files no test can be bound to.** Found by pointing it at the assembly
+  split in #971: the unfiltered list named 286 files, 41 of them `.csproj` and `packages.lock.json`,
+  which have no behaviour to hold out and change on every dependency bump. Build metadata is
+  excluded now, as are pure renames, which have no hunk at all. The two copies of that file list,
+  one for `none:` and one for the unclaimed check, are one definition, so they cannot drift apart.
+  `none:` is also accepted when the change adds or edits no test file: there are no new tests, so
+  there are no bindings to make. It cannot be used to dodge one, because touching a single test
+  makes it fail again, and that is exactly the change for which a binding is owed. The guard was
+  written with `--diff-filter=ad` copied from the production list, which excludes added paths and
+  so could never notice an added test; the fixture caught it before it shipped.
+- **Three things the first real holdout runs found, and `none:` which the check had never supported
+  despite its own pull request declaring it.** Running it against a feature branch, a merged bug fix
+  and a synthetic one-line change surfaced: the script resolved the repository from its own file
+  location, so a copy run from anywhere else reported "cannot find merge base" and read as a git
+  problem rather than a path one; a file the change adds outright is a single hunk covering the
+  whole file, and holding it out deletes the file, which never compiles, so the run spent two builds
+  to reach an inconclusive it could have predicted from the diff; and a class whose every test fails
+  on the clean tree is usually a stopped Docker rather than a broken branch, which the message now
+  says when the daemon is unreachable. `none: <reason>` is now parsed, and a change declaring it
+  while touching production files fails rather than passing, so it cannot be used to opt out. The
+  fixture suite covers all four, eleven cases now.
+- **A holdout run with every hunk declared untested reported that all bindings had been held out
+  and had failed as required, having held out nothing.** Found by pointing it at a pull request that
+  changes a shipped blueprint and a changelog. The exit code was right, since declaring every hunk
+  untested is a legitimate answer for a change that ships data rather than behaviour, but the
+  sentence borrowed the words of a run that proved something. Pasted onto a pull request it would
+  read as evidence of a check that never ran, which is the failure holdout exists to catch. It now
+  names what happened and lists the untested hunks, and it stops before building a tree it has no
+  binding to test. The success line counts the bindings it actually held out.
+
 ## [4.2.1] - 2026-09-18
 
 A republish. Core has no changes of its own.
