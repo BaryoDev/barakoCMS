@@ -157,7 +157,7 @@ public class ContentTypeBlueprintTests
         var list = await ListAsync(client);
 
         var builtIn = list.Items.Where(i => i.BuiltIn).ToList();
-        builtIn.Select(i => i.Name).Should().BeEquivalentTo(["blog", "docs", "events", "portfolio", "site"]);
+        builtIn.Select(i => i.Name).Should().BeEquivalentTo(["blog", "devsite", "docs", "events", "portfolio", "site"]);
         builtIn.Should().OnlyContain(i => i.Errors.Count == 0,
             "a shipped blueprint that fails its own validation is a bug, and this is where it shows");
         builtIn.Should().OnlyContain(i => i.Description.Length > 0);
@@ -169,6 +169,8 @@ public class ContentTypeBlueprintTests
         builtIn.Single(i => i.Name == "portfolio").ContentTypes.Should().Equal("project", "client");
         builtIn.Single(i => i.Name == "docs").ContentTypes.Should().Equal("article", "section");
         builtIn.Single(i => i.Name == "site").ContentTypes.Should().Equal("site");
+        builtIn.Single(i => i.Name == "devsite").ContentTypes.Should().Equal(
+            "page", "post", "category", "author", "doc", "package", "release", "contributor", "up-for-grabs", "milestone");
     }
 
     [Fact]
@@ -330,7 +332,7 @@ public class ContentTypeBlueprintTests
         var list = await ListAsync(client);
 
         list.Problems.Should().BeEmpty();
-        list.Items.Where(i => i.BuiltIn).Should().HaveCount(5, "a custom directory adds to the built-ins");
+        list.Items.Where(i => i.BuiltIn).Should().HaveCount(6, "a custom directory adds to the built-ins");
         var agency = list.Items.Single(i => i.Name == "agency");
         agency.BuiltIn.Should().BeFalse();
         agency.Source.Should().Be("agency.json");
@@ -443,7 +445,7 @@ public class ContentTypeBlueprintTests
         var list = await ListAsync(client);
 
         list.Problems.Should().ContainSingle().Which.Should().Contain("Blueprints:Path");
-        list.Items.Where(i => i.BuiltIn).Should().HaveCount(5);
+        list.Items.Where(i => i.BuiltIn).Should().HaveCount(6);
     }
 
     [Fact]

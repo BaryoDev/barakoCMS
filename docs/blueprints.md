@@ -28,7 +28,7 @@ gives.
 
 The audit log records `contenttype.blueprint_applied` with the names created.
 
-## The built-in five
+## The built-in six
 
 Every addressable type has a `Slug` field of type `slug`, which is what makes
 `/api/public/{type}/{slug}` exist, and every type is publicly deliverable. The `site` type is the
@@ -42,6 +42,7 @@ team and not the public are marked `Sensitive` (masked on the way out) or `Hidde
 | `portfolio` | `project`, `client` | Project has a client reference, a gallery array, a live URL and a testimonial. Client contact name and email are Sensitive, internal notes are Hidden. |
 | `docs` | `article`, `section` | Article has a markdown body, a required section reference and an order within it. Section can nest under a parent section. |
 | `site` | `site` | A singleton holding the site's identity, theme and chrome, read by the renderer from `/api/public/site`. The theme and chrome fields are JSON; [site-settings.md](site-settings.md) gives their shapes. |
+| `devsite` | `page`, `post`, `category`, `author`, `doc`, `package`, `release`, `contributor`, `up-for-grabs`, `milestone` | A product site: the blog types under their own names, plus a flat `doc` type carrying its own section, order and parent fields for a documentation tree, and five types meant to be filled by collection syncs (#794) rather than typed by hand: `package` (NuGet), `release` and `contributor` (GitHub), `up-for-grabs` (open issues), `milestone` (open GitHub milestones, one per product). The shape barakocms.com runs on (BaryoDev/barakoCMS#959); see below for wiring it into a site's `Collections` setting. |
 
 The blueprints carry no SEO fields. Run `POST /api/content-types/{name}/seo-fields` on the types a
 frontend renders as pages; see [seo-fields.md](seo-fields.md).
@@ -55,6 +56,69 @@ it. Choose `richtext` only where the deployment sanitises on its own side.
 
 There is no media content type in the core, so an image is a `url` field. If a deployment models
 media as content, a custom blueprint can reference it instead.
+
+### Wiring devsite into a renderer
+
+Applying `devsite` only creates the types. A renderer reads them as lists and detail pages through
+the site's `Collections` setting, in the shape [site-settings.md](site-settings.md#collections)
+documents. `post`, `author` and `category` need no entry: their field names already match
+barakoPress's own defaults, the same way applying `blog` needs none. `doc`, `package`, `release`,
+`contributor`, `up-for-grabs` and `milestone` do, because a renderer has no default for a type it did
+not name:
+
+```json
+{
+  "doc": {
+    "type": "doc",
+    "route": "/docs",
+    "fields": { "title": "Title", "slug": "Slug", "summary": "Summary", "body": "Body" },
+    "tree": { "section": "Section", "order": "Order", "parent": "ParentDoc", "product": "Product", "editPath": "EditPath" }
+  },
+  "package": {
+    "type": "package",
+    "route": "/modules",
+    "fields": { "title": "Name", "slug": "Slug", "summary": "Summary", "image": "IconUrl", "url": "Url" }
+  },
+  "release": {
+    "type": "release",
+    "route": "/changelog",
+    "fields": { "title": "Title", "slug": "Slug", "body": "Body", "date": "PublishedAt", "url": "Url" },
+    "sort": "-PublishedAt"
+  },
+  "contributor": {
+    "type": "contributor",
+    "fields": { "title": "Name", "slug": "Slug", "photo": "Photo", "url": "ProfileUrl" },
+    "index": false
+  },
+  "up-for-grabs": {
+    "type": "up-for-grabs",
+    "fields": { "title": "Title", "slug": "Slug", "summary": "Summary", "tags": "Tags", "url": "Url" },
+    "index": false
+  },
+  "milestone": {
+    "type": "milestone",
+    "fields": { "title": "Version", "slug": "Slug", "summary": "Description", "url": "Url" },
+    "index": false
+  }
+}
+```
+
+`release` and `contributor` both feed the changelog page, `contributor` and `up-for-grabs` both feed
+the community page, and `milestone` feeds the roadmap page grouped by product. None of those three
+pages is one collection's index: each composes from blocks that draw on one or two collections, the
+way any page of blocks does. `index: false` on `contributor`, `up-for-grabs` and `milestone` keeps
+them out of a bare listing that no site has ever linked to, while leaving them fully readable by key
+for that composition.
+
+Every field named above is a field the collection sync in [collection-syncs.md](collection-syncs.md)
+can write to directly: `package.Downloads`, `release.PublishedAt`, `contributor.Contributions`,
+`up-for-grabs.RepositoryName` and `milestone.Product`/`Open`/`Closed` are ordinary data fields with no
+renderer role, there for the sync to fill and for a custom block to read, but not required by the
+shapes above. `milestone` has no date field: `app/roadmap/page.tsx` on barakocms-site shows a
+version, a description, an open and a closed count and a link, grouped by product, and says why in
+its own copy: "There are no dates here on purpose... a date would be a guess presented as a
+commitment." Reading what the page actually renders, rather than guessing at a shape, is why this
+type has no `PublishedAt`.
 
 ## Custom blueprints
 
