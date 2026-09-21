@@ -170,7 +170,7 @@ public class ContentTypeBlueprintTests
         builtIn.Single(i => i.Name == "docs").ContentTypes.Should().Equal("article", "section");
         builtIn.Single(i => i.Name == "site").ContentTypes.Should().Equal("site");
         builtIn.Single(i => i.Name == "devsite").ContentTypes.Should().Equal(
-            "page", "post", "category", "author", "doc", "package", "release", "contributor", "up-for-grabs");
+            "page", "post", "category", "author", "doc", "package", "release", "contributor", "up-for-grabs", "milestone");
     }
 
     [Fact]

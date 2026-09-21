@@ -30,7 +30,7 @@ public class DevsiteBlueprintTests
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private static readonly string[] ExpectedTypes =
-        ["page", "post", "category", "author", "doc", "package", "release", "contributor", "up-for-grabs"];
+        ["page", "post", "category", "author", "doc", "package", "release", "contributor", "up-for-grabs", "milestone"];
 
     private async Task<string> TenantAsync()
     {
@@ -139,6 +139,29 @@ public class DevsiteBlueprintTests
         article.GetProperty("fields").EnumerateArray()
             .Single(f => f.GetProperty("name").GetString() == "ParentDoc")
             .GetProperty("referenceType").GetString().Should().Be("doc");
+    }
+
+    /// <summary>
+    /// `app/roadmap/page.tsx` on barakocms-site shows a version, a description, an open and a closed
+    /// count, and a link, grouped by product, and says in its own copy why there is no date: "There
+    /// are no dates here on purpose... a date would be a guess presented as a commitment." A milestone
+    /// type that carried one anyway would be describing a page that does not exist.
+    /// </summary>
+    [Fact]
+    public async Task Milestone_matches_what_the_roadmap_page_actually_renders_and_carries_no_date()
+    {
+        var client = await AdminInAsync(await TenantAsync());
+        (await ApplyAsync(client)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var milestone = await TypeAsync(client, "milestone");
+
+        var fields = milestone.GetProperty("fields").EnumerateArray()
+            .ToDictionary(f => f.GetProperty("name").GetString()!, f => f);
+        fields.Should().ContainKeys("Version", "Slug", "Description", "Product", "Open", "Closed", "Url");
+        fields.Keys.Should().NotContain(k => k.Contains("Date") || k.Contains("At"),
+            "the roadmap page shows no date for a milestone, by design");
+        fields["Open"].GetProperty("type").GetString().Should().Be("int");
+        fields["Closed"].GetProperty("type").GetString().Should().Be("int");
     }
 
     [Fact]

@@ -1,6 +1,6 @@
 {
   "name": "devsite",
-  "description": "A product site: a blog, a docs manual, and community pages backed by outside data (NuGet, releases, contributors, open issues) through collection syncs. The shape barakocms.com runs on.",
+  "description": "A product site: a blog, a docs manual, and community pages backed by outside data (NuGet, releases, contributors, open issues, milestones) through collection syncs. The shape barakocms.com runs on.",
   "contentTypes": [
     {
       "name": "page",
@@ -132,6 +132,21 @@
         { "name": "Summary", "displayName": "Summary", "type": "text" },
         { "name": "RepositoryName", "displayName": "Repository", "type": "string" },
         { "name": "Tags", "displayName": "Labels", "type": "array" },
+        { "name": "Url", "displayName": "GitHub URL", "type": "url" }
+      ]
+    },
+    {
+      "name": "milestone",
+      "displayName": "Milestone",
+      "description": "An open GitHub milestone for one of the four products, refreshed by a collection sync. Feeds the roadmap page. No date field: the roadmap deliberately shows no dates, since a hand-set one would be a guess presented as a commitment.",
+      "isPubliclyDeliverable": true,
+      "fields": [
+        { "name": "Version", "displayName": "Version", "type": "string", "isRequired": true },
+        { "name": "Slug", "displayName": "Slug", "type": "slug", "isRequired": true },
+        { "name": "Description", "displayName": "Description", "type": "text" },
+        { "name": "Product", "displayName": "Product", "type": "string" },
+        { "name": "Open", "displayName": "Open issues", "type": "int" },
+        { "name": "Closed", "displayName": "Closed issues", "type": "int" },
         { "name": "Url", "displayName": "GitHub URL", "type": "url" }
       ]
     }
