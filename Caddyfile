@@ -4,5 +4,9 @@
 }
 
 {$DOMAIN_API} {
+    # No cache handler here on purpose: edge caching is expected from a CDN in
+    # front of this stack. See docs/deploy-in-production.md ("Putting a shared
+    # cache or CDN in front of it"). Self-hosting with only this reverse_proxy
+    # reaches Postgres on every public read.
     reverse_proxy app:8080
 }
