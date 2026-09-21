@@ -101,10 +101,16 @@ jobs:
         run: |
           set -euo pipefail
           base="https://github.com/BaryoDev/BaryoVM/releases/download/v${BARYOVM_VERSION}"
-          curl -fsSL -o /tmp/baryovm.tar.gz "${base}/baryovm_${BARYOVM_VERSION}_linux_amd64.tar.gz"
-          curl -fsSL -o /tmp/checksums.txt "${base}/checksums.txt"
-          ( cd /tmp && grep " baryovm_${BARYOVM_VERSION}_linux_amd64.tar.gz\$" checksums.txt | sha256sum -c - )
-          tar -xzf /tmp/baryovm.tar.gz -C /tmp baryovm
+          asset="baryovm_${BARYOVM_VERSION}_linux_amd64.tar.gz"
+          cd /tmp
+          # Downloaded under its own name, not renamed: sha256sum -c reads the
+          # filename out of checksums.txt and checks the file on disk by that
+          # name. Fetching it as baryovm.tar.gz makes the check fail every run,
+          # which reads as a tampered download rather than a naming mistake.
+          curl -fsSL -O "${base}/${asset}"
+          curl -fsSL -O "${base}/checksums.txt"
+          grep " ${asset}\$" checksums.txt | sha256sum -c -
+          tar -xzf "${asset}" -C /tmp baryovm
           sudo install -m 0755 /tmp/baryovm /usr/local/bin/baryovm
           baryovm version
         env:
