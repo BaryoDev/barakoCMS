@@ -1,0 +1,139 @@
+{
+  "name": "devsite",
+  "description": "A product site: a blog, a docs manual, and community pages backed by outside data (NuGet, releases, contributors, open issues) through collection syncs. The shape barakocms.com runs on.",
+  "contentTypes": [
+    {
+      "name": "page",
+      "displayName": "Page",
+      "description": "A standalone page such as the home page, built from blocks.",
+      "isPubliclyDeliverable": true,
+      "fields": [
+        { "name": "Title", "displayName": "Title", "type": "string", "isRequired": true },
+        { "name": "Slug", "displayName": "Slug", "type": "slug", "isRequired": true },
+        { "name": "Summary", "displayName": "Summary", "type": "text" },
+        { "name": "Body", "displayName": "Body", "type": "markdown" },
+        { "name": "Blocks", "displayName": "Blocks", "type": "json" },
+        { "name": "ParentPage", "displayName": "Parent page", "type": "reference", "referenceType": "page" },
+        { "name": "ShowInNavigation", "displayName": "Show in navigation", "type": "bool" },
+        { "name": "NavigationOrder", "displayName": "Navigation order", "type": "int" }
+      ]
+    },
+    {
+      "name": "post",
+      "displayName": "Post",
+      "description": "A blog post.",
+      "isPubliclyDeliverable": true,
+      "fields": [
+        { "name": "Title", "displayName": "Title", "type": "string", "isRequired": true },
+        { "name": "Slug", "displayName": "Slug", "type": "slug", "isRequired": true },
+        { "name": "Excerpt", "displayName": "Excerpt", "type": "text" },
+        { "name": "Body", "displayName": "Body", "type": "markdown", "isRequired": true },
+        { "name": "CoverImage", "displayName": "Cover image", "type": "url" },
+        { "name": "CoverImageAlt", "displayName": "Cover image alt text", "type": "string" },
+        { "name": "PublishedAt", "displayName": "Published at", "type": "datetime" },
+        { "name": "Author", "displayName": "Author", "type": "reference", "referenceType": "author" },
+        { "name": "Category", "displayName": "Category", "type": "reference", "referenceType": "category" },
+        { "name": "Tags", "displayName": "Tags", "type": "array" },
+        { "name": "Featured", "displayName": "Featured", "type": "bool" }
+      ]
+    },
+    {
+      "name": "category",
+      "displayName": "Category",
+      "description": "A topic posts are filed under.",
+      "isPubliclyDeliverable": true,
+      "fields": [
+        { "name": "Name", "displayName": "Name", "type": "string", "isRequired": true },
+        { "name": "Slug", "displayName": "Slug", "type": "slug", "isRequired": true },
+        { "name": "Description", "displayName": "Description", "type": "text" },
+        { "name": "SortOrder", "displayName": "Sort order", "type": "int" }
+      ]
+    },
+    {
+      "name": "author",
+      "displayName": "Author",
+      "description": "Someone who writes posts. The email is for the editorial team, not the public.",
+      "isPubliclyDeliverable": true,
+      "fields": [
+        { "name": "Name", "displayName": "Name", "type": "string", "isRequired": true },
+        { "name": "Slug", "displayName": "Slug", "type": "slug", "isRequired": true },
+        { "name": "Bio", "displayName": "Bio", "type": "markdown" },
+        { "name": "Photo", "displayName": "Photo", "type": "url" },
+        { "name": "Website", "displayName": "Website", "type": "url" },
+        { "name": "Email", "displayName": "Email", "type": "email", "sensitivity": "Sensitive" }
+      ]
+    },
+    {
+      "name": "doc",
+      "displayName": "Doc",
+      "description": "One page of the docs manual. Section, order and a parent are flat fields, not a separate section type, because that is the shape a documentation tree reads directly.",
+      "isPubliclyDeliverable": true,
+      "fields": [
+        { "name": "Title", "displayName": "Title", "type": "string", "isRequired": true },
+        { "name": "Slug", "displayName": "Slug", "type": "slug", "isRequired": true },
+        { "name": "Section", "displayName": "Section", "type": "string" },
+        { "name": "Order", "displayName": "Order", "type": "int" },
+        { "name": "ParentDoc", "displayName": "Parent doc", "type": "reference", "referenceType": "doc" },
+        { "name": "Product", "displayName": "Product", "type": "string" },
+        { "name": "EditPath", "displayName": "Edit path", "type": "string" },
+        { "name": "Summary", "displayName": "Summary", "type": "text" },
+        { "name": "Body", "displayName": "Body", "type": "markdown", "isRequired": true }
+      ]
+    },
+    {
+      "name": "package",
+      "displayName": "Package",
+      "description": "A NuGet package, refreshed by a collection sync against the NuGet search API. Feeds the modules page.",
+      "isPubliclyDeliverable": true,
+      "fields": [
+        { "name": "Name", "displayName": "Name", "type": "string", "isRequired": true },
+        { "name": "Slug", "displayName": "Slug", "type": "slug", "isRequired": true },
+        { "name": "Summary", "displayName": "Summary", "type": "text" },
+        { "name": "Version", "displayName": "Latest version", "type": "string" },
+        { "name": "Downloads", "displayName": "Downloads", "type": "int" },
+        { "name": "IconUrl", "displayName": "Icon", "type": "url" },
+        { "name": "Url", "displayName": "NuGet URL", "type": "url" }
+      ]
+    },
+    {
+      "name": "release",
+      "displayName": "Release",
+      "description": "A GitHub release, refreshed by a collection sync. Feeds the changelog page.",
+      "isPubliclyDeliverable": true,
+      "fields": [
+        { "name": "Title", "displayName": "Title", "type": "string", "isRequired": true },
+        { "name": "Slug", "displayName": "Slug", "type": "slug", "isRequired": true },
+        { "name": "Body", "displayName": "Release notes", "type": "markdown" },
+        { "name": "PublishedAt", "displayName": "Published at", "type": "datetime" },
+        { "name": "Url", "displayName": "GitHub URL", "type": "url" }
+      ]
+    },
+    {
+      "name": "contributor",
+      "displayName": "Contributor",
+      "description": "Someone who contributed on GitHub, refreshed by a collection sync. Feeds both the changelog and the community page.",
+      "isPubliclyDeliverable": true,
+      "fields": [
+        { "name": "Name", "displayName": "Name", "type": "string", "isRequired": true },
+        { "name": "Slug", "displayName": "Slug", "type": "slug", "isRequired": true },
+        { "name": "Photo", "displayName": "Avatar", "type": "url" },
+        { "name": "ProfileUrl", "displayName": "GitHub profile", "type": "url" },
+        { "name": "Contributions", "displayName": "Contributions", "type": "int" }
+      ]
+    },
+    {
+      "name": "up-for-grabs",
+      "displayName": "Up for grabs",
+      "description": "An open issue looking for a contributor, refreshed by a collection sync. Feeds the community page.",
+      "isPubliclyDeliverable": true,
+      "fields": [
+        { "name": "Title", "displayName": "Title", "type": "string", "isRequired": true },
+        { "name": "Slug", "displayName": "Slug", "type": "slug", "isRequired": true },
+        { "name": "Summary", "displayName": "Summary", "type": "text" },
+        { "name": "RepositoryName", "displayName": "Repository", "type": "string" },
+        { "name": "Tags", "displayName": "Labels", "type": "array" },
+        { "name": "Url", "displayName": "GitHub URL", "type": "url" }
+      ]
+    }
+  ]
+}
