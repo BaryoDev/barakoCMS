@@ -108,10 +108,10 @@
       },
       "JasperFx.Events": {
         "type": "Transitive",
-        "resolved": "2.72.0",
-        "contentHash": "gCadWzhl0+EO9isHkjfKIogq+4OmcbqQ9wvk6KTHhCkTeva5NSLQc03a2e4mlE62r3USmoFfFFNhfyA3gayMpA==",
+        "resolved": "2.73.2",
+        "contentHash": "B+lEwW9yMcDkgV8IzDCDM+W8uWiiXQgBNuLWf6b6WlOYb09PYN1WR2D/g9GcpihFYYnkFXj//ywc00C/9FBCiw==",
         "dependencies": {
-          "JasperFx": "2.72.0"
+          "JasperFx": "2.73.2"
         }
       },
       "Microsoft.AspNetCore.Authentication.JwtBearer": {
@@ -667,7 +667,7 @@
           "IdentityModel": "[7.0.0, )",
           "JasperFx": "[2.73.2, )",
           "KubernetesClient": "[18.0.13, )",
-          "Marten": "[9.37.0, )",
+          "Marten": "[9.38.0, )",
           "Microsoft.Extensions.DependencyModel": "[10.0.12, )",
           "Microsoft.Extensions.Http.Resilience": "[10.10.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
@@ -684,7 +684,7 @@
         "dependencies": {
           "FastEndpoints": "[8.3.0, )",
           "JasperFx": "[2.73.2, )",
-          "Marten": "[9.37.0, )",
+          "Marten": "[9.38.0, )",
           "Microsoft.Extensions.DependencyModel": "[10.0.12, )"
         }
       },
@@ -805,12 +805,12 @@
       },
       "Marten": {
         "type": "CentralTransitive",
-        "requested": "[9.37.0, )",
-        "resolved": "9.37.0",
-        "contentHash": "Hup11gYVy4knuypRIDtmSdUDj4Z3hnHGcRn0oWMSWoh4P+IHj3bgzBXk0xSxjmBGU+xaRTAYKvICx6pFUcj0sA==",
+        "requested": "[9.38.0, )",
+        "resolved": "9.38.0",
+        "contentHash": "yCl9g1LBHNRK038g4pPBhQRhomb0j9X26xawUfFQFdkWgDzRCNPEgMXSYlnIq22VS3E+zMuZ0uwvzebDfKID5g==",
         "dependencies": {
-          "JasperFx": "2.72.0",
-          "JasperFx.Events": "2.72.0",
+          "JasperFx": "2.73.2",
+          "JasperFx.Events": "2.73.2",
           "Microsoft.IO.RecyclableMemoryStream": "3.0.1",
           "Weasel.Postgresql": "9.32.0",
           "Weasel.Storage": "9.32.0"
