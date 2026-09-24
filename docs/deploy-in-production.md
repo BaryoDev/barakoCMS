@@ -90,6 +90,10 @@ CORS in the browser and looks like the API is down.
 
 ## Putting a shared cache or CDN in front of it
 
+The shipped production `Caddyfile` is a plain `reverse_proxy` with no cache handler, so a stack
+running only that file reaches Postgres on every public read. This section describes what you put in
+front of it, not something the stack does for you.
+
 The delivery API (`docs/delivery-api.md`) marks its responses `Cache-Control: public, max-age=60`,
 which is an invitation to put a CDN in front of it. Whether that is safe depends on how tenants are
 routed (`docs/multi-tenancy.md`), because the response is cacheable per tenant, not globally.
