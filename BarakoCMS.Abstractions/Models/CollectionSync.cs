@@ -77,6 +77,23 @@ public class CollectionSync
     public Dictionary<string, string> FieldMap { get; set; } = new();
 
     /// <summary>
+    /// Content fields whose value is built rather than read as it is, keyed by the content field's
+    /// name. A field is named here or in <see cref="FieldMap"/>, never both.
+    /// </summary>
+    /// <remarks>
+    /// Beside <see cref="FieldMap"/> rather than inside it, so a definition saved before rules
+    /// existed reads, saves and runs exactly as it did. See <see cref="SyncFieldRule"/>.
+    /// </remarks>
+    public Dictionary<string, SyncFieldRule> FieldRules { get; set; } = new();
+
+    /// <summary>Items skipped before they are mapped. An item matching any one rule is skipped.</summary>
+    /// <remarks>
+    /// An excluded item is not a failure. A run where every item is excluded succeeds with no
+    /// entries, where a run where no item could be mapped fails.
+    /// </remarks>
+    public List<SyncExcludeRule> Exclude { get; set; } = new();
+
+    /// <summary>
     /// The content field holding the stable key, so a re-sync updates an entry rather than adding
     /// another one.
     /// </summary>
@@ -151,4 +168,59 @@ public class CollectionSync
     /// <summary>Is this sync due at <paramref name="nowUtc"/>?</summary>
     public bool IsDue(DateTime nowUtc) =>
         Enabled && (LastRunAt is not { } last || last.AddMinutes(IntervalMinutes) <= nowUtc);
+}
+
+/// <summary>How one content field's value is built from a source item.</summary>
+/// <remarks>
+/// Exactly one of <see cref="Const"/>, <see cref="Path"/> or <see cref="Ratio"/>. The transforms
+/// apply to a <see cref="Path"/> only, in the order prefix strip, regex, then join or contains.
+///
+/// A path may address every element of an array with <c>[]</c>: <c>labels[].name</c> reads the
+/// name of each label. Such a path needs <see cref="Join"/> or <see cref="Contains"/>, or a content
+/// field of type array, which then holds the list.
+/// </remarks>
+public class SyncFieldRule
+{
+    /// <summary>A value written as given, the same for every item.</summary>
+    public string? Const { get; set; }
+
+    /// <summary>A dotted path into the item, as in <see cref="CollectionSync.FieldMap"/>.</summary>
+    public string? Path { get; set; }
+
+    /// <summary>Removed from the start of the value when the value starts with it.</summary>
+    public string? PrefixStrip { get; set; }
+
+    /// <summary>
+    /// A pattern with exactly one capture group. The group is the value; a value the pattern does
+    /// not match writes nothing.
+    /// </summary>
+    public string? Regex { get; set; }
+
+    /// <summary>The separator the values of an array path are joined with.</summary>
+    public string? Join { get; set; }
+
+    /// <summary>
+    /// Writes true when any value of the path equals this, ignoring case, and false otherwise.
+    /// </summary>
+    public string? Contains { get; set; }
+
+    /// <summary>
+    /// Two paths, closed then open. Writes closed over closed plus open as a percent rounded to a
+    /// whole number, and 0 when both are 0.
+    /// </summary>
+    public List<string>? Ratio { get; set; }
+}
+
+/// <summary>When a source item is skipped rather than written.</summary>
+/// <remarks>Exactly one of <see cref="NotEmpty"/> or <see cref="EqualTo"/>.</remarks>
+public class SyncExcludeRule
+{
+    /// <summary>A dotted path into the item. May use <c>[]</c> for every element of an array.</summary>
+    public string Path { get; set; } = string.Empty;
+
+    /// <summary>Skip the item when the path holds any value: a string, a number, or a non-empty array or object.</summary>
+    public bool NotEmpty { get; set; }
+
+    /// <summary>Skip the item when any value of the path equals this, ignoring case.</summary>
+    public string? EqualTo { get; set; }
 }

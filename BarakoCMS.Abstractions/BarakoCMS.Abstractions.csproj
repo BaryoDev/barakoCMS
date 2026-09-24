@@ -5,7 +5,7 @@
 
     <IsPackable>true</IsPackable>
     <PackageId>BarakoCMS.Abstractions</PackageId>
-    <Version>4.3.0</Version>
+    <Version>4.4.0</Version>
     <Description>The barakoCMS package contract: the documents and events a consumer stores and reads, the module interfaces a module implements, and the workflow extension points a custom action compiles against. It does not reference the core, so a module built on it does not compile against the host.</Description>
   </PropertyGroup>
 

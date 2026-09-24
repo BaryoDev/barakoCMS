@@ -78,7 +78,9 @@ internal static class CollectionSyncRules
             return $"There is no content type called '{req.ContentType}' to fill.";
         }
 
-        foreach (var field in req.FieldMap.Keys)
+        var rules = req.FieldRules ?? new();
+
+        foreach (var field in req.FieldMap.Keys.Concat(rules.Keys))
         {
             var definition = schema.Fields.FirstOrDefault(
                 f => string.Equals(f.Name, field, StringComparison.OrdinalIgnoreCase));
@@ -97,6 +99,11 @@ internal static class CollectionSyncRules
                 return $"'{field}' is {definition.Sensitivity} on '{req.ContentType}', so it cannot be "
                      + "filled from an outside source.";
             }
+        }
+
+        foreach (var (field, rule) in rules)
+        {
+            if (RuleProblem(schema, field, rule) is { } problem) return problem;
         }
 
         foreach (var floor in req.FloorFields)
@@ -125,7 +132,11 @@ internal static class CollectionSyncRules
             // anything. Left unchecked, a mapping onto "pubDate" or "description" would save, run
             // and fill nothing, which is the same silent emptiness the field checks above exist to
             // stop.
-            foreach (var path in req.FieldMap.Values)
+            var paths = req.FieldMap.Values
+                .Concat(rules.Values.SelectMany(SyncRules.PathsOf))
+                .Concat((req.Exclude ?? []).Select(e => e.Path));
+
+            foreach (var path in paths)
             {
                 if (!SyncPayloadReader.FeedFields.All.Contains(path, StringComparer.OrdinalIgnoreCase))
                 {
@@ -154,6 +165,39 @@ internal static class CollectionSyncRules
         return null;
     }
 
+    /// <summary>Why a rule does not fit the field it fills, or null.</summary>
+    /// <remarks>
+    /// The validator has already checked the rule's own shape. What is left needs the field's type:
+    /// a rule that writes true or false, a percent or a list into a field that cannot hold it would
+    /// save, run, and write nothing on every item.
+    /// </remarks>
+    private static string? RuleProblem(ContentTypeDefinition schema, string field, SyncFieldRule rule)
+    {
+        var type = schema.Fields.FirstOrDefault(
+            f => string.Equals(f.Name, field, StringComparison.OrdinalIgnoreCase))?.Type;
+
+        if (type is null || rule is null) return null;
+
+        if (rule.Contains is not null && !type.Equals("bool", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"'{field}' is a {type} field, and contains writes true or false, so it needs a bool field.";
+        }
+
+        if (rule.Ratio is not null && !(type.Equals("int", StringComparison.OrdinalIgnoreCase)
+                                        || type.Equals("decimal", StringComparison.OrdinalIgnoreCase)))
+        {
+            return $"'{field}' is a {type} field, and a ratio writes a whole-number percent, so it needs an int or decimal field.";
+        }
+
+        if (SyncRules.IsArrayPath(rule.Path) && rule.Join is null && rule.Contains is null
+            && !type.Equals("array", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"'{field}' reads every element of '{rule.Path}', so it needs join, contains, or an array field.";
+        }
+
+        return null;
+    }
+
     private static bool IsNumeric(string fieldType) =>
         fieldType.ToLowerInvariant() is "int" or "decimal" or "money";
 
@@ -168,6 +212,8 @@ internal static class CollectionSyncRules
         sync.FeedUrl = sync.Source == SyncSource.Feed ? req.FeedUrl?.Trim() : null;
         sync.ItemsPath = req.ItemsPath.Trim();
         sync.FieldMap = req.FieldMap;
+        sync.FieldRules = req.FieldRules ?? new();
+        sync.Exclude = req.Exclude ?? new();
         sync.KeyField = req.KeyField.Trim();
         sync.FloorFields = req.FloorFields;
         sync.IntervalMinutes = req.IntervalMinutes;
@@ -407,6 +453,7 @@ internal sealed class RunCollectionSyncEndpoint(
             Updated = outcome.Updated,
             Unchanged = outcome.Unchanged,
             Skipped = outcome.Skipped,
+            Excluded = outcome.Excluded,
             Error = outcome.Error,
         }, cancellation: ct);
     }

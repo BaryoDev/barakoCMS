@@ -28,7 +28,7 @@ namespace BarakoCMS.Tests.Features.Collections;
 /// connector's credentials and the fetcher.
 /// </remarks>
 [Collection("Sequential")]
-public class CollectionSyncTests
+public partial class CollectionSyncTests
 {
     private readonly IntegrationTestFixture _factory;
 
@@ -484,7 +484,8 @@ public class CollectionSyncTests
         Func<(HttpStatusCode, string)> answer,
         bool floorDownloads = false,
         bool publiclyDeliverable = false,
-        bool save = true)
+        bool save = true,
+        List<FieldDefinition>? fields = null)
     {
         var suffix = Guid.NewGuid().ToString("n")[..10];
         var type = "pkg" + suffix;
@@ -501,7 +502,7 @@ public class CollectionSyncTests
                 Name = type,
                 DisplayName = "Package",
                 IsPubliclyDeliverable = publiclyDeliverable,
-                Fields =
+                Fields = fields ??
                 [
                     new FieldDefinition { Name = "packageId", Type = "string" },
                     new FieldDefinition { Name = "downloads", Type = "int" },
