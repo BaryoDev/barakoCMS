@@ -9,6 +9,9 @@ A collection sync is that code as configuration. It names a content type, a sour
 becomes which field. The entries it writes are ordinary content, so blocks, delivery, search and the
 admin treat them like anything else. Nothing marks an entry as synced.
 
+A sync is the CMS deciding when to look. When the source knows the moment it changed, a repository's
+changelog for instance, let it push instead: see [collection-push.md](collection-push.md).
+
 ## Managing them
 
 `GET /api/collection-syncs` lists, `GET /api/collection-syncs/{slug}` reads one,
@@ -74,6 +77,96 @@ definition or connector that does not exist: each is a 400 while you still have 
 failure this guards against is a sync that is configured, looks fine in the list, and quietly writes
 nothing at three in the morning.
 
+## Field rules
+
+`fieldMap` copies a value the item already holds. `fieldRules` builds one, keyed by the content field
+the same way. A field is named in one of the two, never both, and a definition without `fieldRules`
+runs exactly as it always did.
+
+Each rule has exactly one of `const`, `path` or `ratio`.
+
+**A constant.** The same value for every item, for a source that cannot say what the field needs. A
+GitHub milestone does not name its repository, so each of four milestone syncs says which product
+it is for:
+
+```json
+"fieldRules": { "Product": { "const": "cms" } }
+```
+
+**A path with a transform.** `path` is a dotted path as in `fieldMap`. On top of it:
+
+- `prefixStrip` removes a prefix when the value starts with it, and leaves any other value alone.
+- `regex` takes a pattern with exactly one capture group, and the group is the value. A value the
+  pattern does not match writes nothing. Patterns run in linear time, so lookarounds and
+  backreferences are refused when you save.
+- `join` joins every element of an array path with a separator.
+
+When more than one applies, the order is prefix strip, then regex, then join.
+
+```json
+"fieldRules": {
+  "Path":           { "path": "html_url", "prefixStrip": "https://github.com/" },
+  "RepositoryName": { "path": "repository_url", "regex": "repos/[^/]+/([^/]+)$" },
+  "Tags":           { "path": "labels[].name", "join": ", " }
+}
+```
+
+`labels[].name` is an array path: `[]` stands for every element, in order. An array path needs
+`join` or `contains`, or a content field of type `array`, which then holds the list itself:
+
+```json
+"fieldRules": { "Labels": { "path": "labels[].name" } }
+```
+
+**Contains.** True when any value of the path equals the given text, ignoring case, and false
+otherwise, including when the array is empty. The field must be `bool`.
+
+```json
+"fieldRules": { "FirstIssue": { "path": "labels[].name", "contains": "good first issue" } }
+```
+
+**A ratio.** Two paths, closed then open. Writes closed over closed plus open as a percent rounded
+to a whole number, and 0 when both are 0. The field must be `int` or `decimal`.
+
+```json
+"fieldRules": { "Percent": { "ratio": ["closed_issues", "open_issues"] } }
+```
+
+A milestone with 3 closed and 1 open writes 75; 2 and 1 writes 67.
+
+The key field may be a path rule, so a key can come out of a regex. It cannot be a `const`, `ratio`
+or `contains` rule, since every item would share the key.
+
+## Excluding items
+
+`exclude` is a list of rules, and an item matching any one of them is skipped before it is mapped.
+Each rule has a `path` and exactly one of:
+
+- `"notEmpty": true` skips the item when the path holds anything: a value, or a non-empty array or
+  object.
+- `"equalTo": "..."` skips it when any value of the path equals the text, ignoring case.
+
+```json
+"exclude": [
+  { "path": "assignees", "notEmpty": true },
+  { "path": "id", "equalTo": "BarakoCMS" }
+]
+```
+
+An excluded item is counted as `excluded` in a run's result, not as `skipped`, and it is not a
+failure: a run that excludes every item succeeds with no entries. `maxEntries` counts items before
+exclusion.
+
+Exclusion decides what a run writes. It does not remove an entry an earlier run wrote, for the reason
+the next section gives: an issue that gets an assignee stays in the collection until somebody
+archives it.
+
+Every rule is checked when you save, the same as `fieldMap`: an unknown or non-`Public` field, a
+rule with no source or two, a regex that does not compile or does not have one capture group, a
+`contains` into a field that is not `bool`, a ratio into one that is not a number, an array path
+with nowhere to put a list, and for a feed, a path outside the feed vocabulary. Each is a 400 naming
+the field.
+
 ## The key
 
 `keyField` names the field holding the stable key. The entry's id is derived from the content type
@@ -107,7 +200,8 @@ most twenty syncs per tick. `maxEntries` caps how many items of one response are
 nothing here follows a source's paging, and a source answering ten thousand items must not turn one
 tick into ten thousand writes.
 
-A response that says the same thing writes nothing at all. Without that, every tick would append a
+A response that says the same thing writes nothing at all. A datetime is compared as an instant,
+so the same moment written with or without fractional seconds is the same value. Without that, every tick would append a
 `ContentUpdated` to every entry's stream, fire every Updated workflow, and move the whole collection
 to the top of any recently-updated list once an hour, forever.
 

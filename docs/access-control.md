@@ -300,7 +300,7 @@ as its owner, so it can never do more than the owner's own roles and capabilitie
 | Scope | What it allows |
 | --- | --- |
 | `content:read` | `GET` under `/api/contents` |
-| `content:write` | `POST`, `PUT`, `PATCH` and `DELETE` under `/api/contents`, except erase and rollback |
+| `content:write` | `POST`, `PUT`, `PATCH` and `DELETE` under `/api/contents`, except erase and rollback, and `POST /api/collections/{type}/push` |
 | `content:destructive` | `DELETE /api/contents/{id}/erase` and `POST /api/contents/{id}/rollback/{versionId}` |
 | `contenttype:read` | `GET` under `/api/content-types` and `/api/schemas` |
 | `contenttype:write` | `POST`, `PUT`, `PATCH` and `DELETE` under `/api/content-types` and `/api/schemas` |
@@ -309,6 +309,11 @@ as its owner, so it can never do more than the owner's own roles and capabilitie
 `content:destructive` does not include `content:write`, and `content:write` does not include it. Before
 #653 a `content:write` key could erase and roll back; such a key now gets 403 on both routes and needs
 `content:destructive` added. A `*` key is unchanged.
+
+A key can also name content types (`contentTypes` on `POST /api/api-keys`). That makes it a push key:
+it reaches `POST /api/collections/{type}/push` for the types it names and gets 403 everywhere else,
+whatever its scopes. A key that names none, which is every key made before this existed, is not
+limited by type. See [collection-push.md](collection-push.md).
 
 ## Administrative endpoints: system capabilities
 

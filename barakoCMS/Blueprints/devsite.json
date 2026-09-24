@@ -15,7 +15,8 @@
         { "name": "Blocks", "displayName": "Blocks", "type": "json" },
         { "name": "ParentPage", "displayName": "Parent page", "type": "reference", "referenceType": "page" },
         { "name": "ShowInNavigation", "displayName": "Show in navigation", "type": "bool" },
-        { "name": "NavigationOrder", "displayName": "Navigation order", "type": "int" }
+        { "name": "NavigationOrder", "displayName": "Navigation order", "type": "int" },
+        { "name": "HideTitle", "displayName": "Hide title", "type": "bool" }
       ]
     },
     {

@@ -53,6 +53,8 @@ half-filled theme renders rather than breaks.
 | `Copyright` | string | The footer's copyright line |
 | `Mode` | string | `Live` or `Holding`. Unset means `Live`. See [Holding a site back](#holding-a-site-back) |
 | `HoldingPath` | string | The site path of the page shown while holding, such as `/holding` |
+| `HeaderPath`, `FooterPath` | string | The site path of a page drawn as the header or footer region in place of the built-in one |
+| `HeaderTone`, `FooterTone` | choice | The tone behind that region: `page`, `surface`, `accent`, `inverse`, `gradient` or `wash` |
 
 ### Colors
 

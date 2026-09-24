@@ -217,6 +217,26 @@ public class ContentTypeBlueprintTests
         (await TypeNamesAsync(client)).Count(n => n == "post").Should().Be(1);
     }
 
+    /// <summary>
+    /// barakoPress skips a page's title when <c>HideTitle</c> is true, for a page whose first block
+    /// already opens with that heading. Every blueprint that declares <c>page</c> offers it.
+    /// </summary>
+    [Theory]
+    [InlineData("blog")]
+    [InlineData("devsite")]
+    public async Task A_blueprint_page_has_an_optional_hide_title_flag(string blueprint)
+    {
+        var client = await AdminInAsync(await TenantAsync());
+        (await ApplyAsync(client, blueprint)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var fields = (await TypeAsync(client, "page")).GetProperty("fields").EnumerateArray().ToList();
+
+        fields.Should().NotBeEmpty();
+        var hideTitle = fields.Single(f => f.GetProperty("name").GetString() == "HideTitle");
+        hideTitle.GetProperty("type").GetString().Should().Be("bool");
+        hideTitle.GetProperty("isRequired").GetBoolean().Should().BeFalse("unset draws the title, as every page does today");
+    }
+
     [Fact]
     public async Task Applying_on_a_tenant_that_already_has_an_unrelated_type_succeeds()
     {

@@ -35,6 +35,10 @@
         { "name": "Copyright", "displayName": "Copyright line", "type": "string" },
         { "name": "Mode", "displayName": "Site mode (Live or Holding)", "type": "string" },
         { "name": "HoldingPath", "displayName": "Holding page path", "type": "string" },
+        { "name": "HeaderPath", "displayName": "Header page path", "type": "string" },
+        { "name": "HeaderTone", "displayName": "Header tone", "type": "choice", "options": [ { "value": "page", "label": "Page" }, { "value": "surface", "label": "Surface" }, { "value": "accent", "label": "Accent" }, { "value": "inverse", "label": "Inverse" }, { "value": "gradient", "label": "Gradient" }, { "value": "wash", "label": "Wash" } ] },
+        { "name": "FooterPath", "displayName": "Footer page path", "type": "string" },
+        { "name": "FooterTone", "displayName": "Footer tone", "type": "choice", "options": [ { "value": "page", "label": "Page" }, { "value": "surface", "label": "Surface" }, { "value": "accent", "label": "Accent" }, { "value": "inverse", "label": "Inverse" }, { "value": "gradient", "label": "Gradient" }, { "value": "wash", "label": "Wash" } ] },
         { "name": "Presets", "displayName": "Saved blocks", "type": "json" }
       ]
     }

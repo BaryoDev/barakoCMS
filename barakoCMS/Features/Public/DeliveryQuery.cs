@@ -327,6 +327,23 @@ internal sealed class DeliveryQuery
     public static (string Sql, object[] Parameters) FieldEqualsIgnoreCaseSql(string field, string value)
         => ($"lower({KeyLookup} #>> '{{}}') = lower(?)", [field, value]);
 
+    /// <summary>
+    /// Entries whose value in one data field is any of <paramref name="values"/>, compared the way
+    /// <see cref="FieldEqualsIgnoreCaseSql"/> compares.
+    /// </summary>
+    public static (string Sql, object[] Parameters) FieldInIgnoreCaseSql(string field, IEnumerable<string> values)
+        => ($"lower({KeyLookup} #>> '{{}}') = ANY(?)",
+            [field, values.Select(v => v.ToLowerInvariant()).ToArray()]);
+
+    /// <summary>
+    /// Entries whose value in one data field is none of <paramref name="values"/>, compared the way
+    /// <see cref="FieldEqualsIgnoreCaseSql"/> compares. An entry with no value in the field does not
+    /// match.
+    /// </summary>
+    public static (string Sql, object[] Parameters) FieldNotInIgnoreCaseSql(string field, IEnumerable<string> values)
+        => ($"lower({KeyLookup} #>> '{{}}') <> ALL(?)",
+            [field, values.Select(v => v.ToLowerInvariant()).ToArray()]);
+
     /// <summary>Mean Earth radius in kilometres. The one constant the SQL and the C# share.</summary>
     private const double EarthRadiusKm = 6371.0088;
 

@@ -402,7 +402,8 @@ In this repo: [your first module](docs/your-first-module.md) (from a fresh clone
 lifecycle hook, an endpoint and passing tests), [delivering a client project](docs/delivering-a-client-project.md) (the whole path from
 a clean machine to handover, and what is not solved yet),
 [the public delivery API](docs/delivery-api.md) (pagination, the `filter[field][op]`
-syntax, sorting, resolving references), [idempotency on the authoring API](docs/idempotency.md)
+syntax, sorting, resolving references), [collections filled from outside](docs/collection-syncs.md)
+and [pushed to from CI](docs/collection-push.md), [idempotency on the authoring API](docs/idempotency.md)
 (the `Idempotency-Key` header on `POST`, `PUT` and `PATCH`), [upgrading to 4.0](docs/upgrading-to-4.0.md),
 [event-sourced content types](docs/event-sourced-content-types.md),
 [deploying on a managed platform](docs/deploy-on-a-managed-platform.md) (App Service, Fargate,
