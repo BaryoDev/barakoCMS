@@ -75,6 +75,7 @@ public partial class CollectionSyncTests
         new FieldDefinition { Name = "labels", Type = "array" },
         new FieldDefinition { Name = "firstIssue", Type = "bool" },
         new FieldDefinition { Name = "percent", Type = "int" },
+        new FieldDefinition { Name = "total", Type = "int" },
         new FieldDefinition { Name = "published", Type = "datetime" },
     ];
 
@@ -179,6 +180,68 @@ public partial class CollectionSyncTests
         Value(Titled(entries, "Fix the importer"), "percent").Should().Be("75");
         Value(Titled(entries, "Write the guide"), "percent").Should().Be("67", "two of three rounds to 67");
         Value(Titled(entries, "Plan the release"), "percent").Should().Be("0", "a milestone with no issues is not done");
+    }
+
+    [Fact]
+    public async Task A_sum_rule_writes_its_paths_added()
+    {
+        var setup = await ArrangeIssuesAsync(
+            """{ "total": { "sum": ["closed_issues", "open_issues"] } }""");
+
+        (await RunAsync(setup)).GetProperty("created").GetInt32().Should().Be(5);
+
+        var entries = await EntriesAsync(setup.Type);
+        entries.Should().HaveCount(5);
+        Value(Titled(entries, "Fix the importer"), "total").Should().Be("4");
+        Value(Titled(entries, "Write the guide"), "total").Should().Be("3");
+        Value(Titled(entries, "Plan the release"), "total").Should().Be("0");
+        Value(Titled(entries, "BarakoCMS"), "total").Should().Be("10");
+    }
+
+    [Fact]
+    public async Task A_replace_rule_changes_each_text_it_names_after_the_prefix_is_stripped()
+    {
+        var setup = await ArrangeIssuesAsync(
+            """{ "path": { "path": "html_url", "prefixStrip": "https://github.com/BaryoDev/", "replace": { "/issues/": " #", "/": " · " } } }""");
+
+        (await RunAsync(setup)).GetProperty("created").GetInt32().Should().Be(5);
+
+        var entries = await EntriesAsync(setup.Type);
+        entries.Should().HaveCount(5);
+        Value(Titled(entries, "Fix the importer"), "path").Should().Be("barakoCMS #1");
+        Value(Titled(entries, "Write the guide"), "path").Should().Be("barakoPress #7");
+        Value(Titled(entries, "BarakoCMS"), "path").Should().Be("BarakoCMS");
+    }
+
+    [Fact]
+    public async Task A_map_rule_writes_the_entry_a_value_names_and_nothing_for_one_it_does_not()
+    {
+        var setup = await ArrangeIssuesAsync(
+            """{ "repo": { "path": "repository_url", "regex": "repos/[^/]+/([^/]+)$", "map": { "barakoCMS": "API", "barakoPress": "Renderer" } } }""");
+
+        (await RunAsync(setup)).GetProperty("created").GetInt32().Should().Be(5);
+
+        var entries = await EntriesAsync(setup.Type);
+        entries.Should().HaveCount(5);
+        Value(Titled(entries, "Fix the importer"), "repo").Should().Be("API");
+        Value(Titled(entries, "Write the guide"), "repo").Should().Be("Renderer");
+        Value(Titled(entries, "BarakoCMS"), "repo").Should().BeNull("the map compares exactly, and names barakoCMS, not BarakoCMS");
+    }
+
+    [Fact]
+    public async Task A_sum_rule_cannot_be_the_key()
+    {
+        var setup = await ArrangeAsync(() => (HttpStatusCode.OK, Issues), save: false, fields: IssueFields());
+
+        var body = IssueSyncBody(setup, """{ "total": { "sum": ["closed_issues", "open_issues"] } }""", null, null);
+        body["keyField"] = "total";
+
+        var response = await (await AdminAsync()).PostAsJsonAsync(
+            "/api/collection-syncs", body, TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))
+            .Should().Contain("cannot be a const, ratio, sum or contains rule");
     }
 
     [Fact]
@@ -311,14 +374,23 @@ public partial class CollectionSyncTests
     }
 
     [Theory]
-    [InlineData("""{ "product": {} }""", null, "needs exactly one of const, path or ratio")]
-    [InlineData("""{ "product": { "const": "cms", "path": "title" } }""", null, "needs exactly one of const, path or ratio")]
+    [InlineData("""{ "product": {} }""", null, "needs exactly one of const, path, ratio or sum")]
+    [InlineData("""{ "product": { "const": "cms", "path": "title" } }""", null, "needs exactly one of const, path, ratio or sum")]
     [InlineData("""{ "product": { "const": "cms", "join": ", " } }""", null, "only apply to a path")]
     [InlineData("""{ "repo": { "path": "repository_url", "regex": "([a-z" } }""", null, "does not compile")]
     [InlineData("""{ "repo": { "path": "repository_url", "regex": "repos/.+" } }""", null, "exactly one capture group")]
     [InlineData("""{ "repo": { "path": "repository_url", "regex": "(a)(b)" } }""", null, "exactly one capture group")]
     [InlineData("""{ "tags": { "path": "labels[].name", "join": ",", "contains": "bug" } }""", null, "join or contains")]
     [InlineData("""{ "percent": { "ratio": ["closed_issues"] } }""", null, "exactly two paths")]
+    [InlineData("""{ "total": { "sum": ["closed_issues"] } }""", null, "sum needs 2 to 10 paths")]
+    [InlineData("""{ "total": { "sum": ["closed_issues", ""] } }""", null, "sum needs 2 to 10 paths")]
+    [InlineData("""{ "tags": { "sum": ["closed_issues", "open_issues"] } }""", null, "a sum writes a number")]
+    [InlineData("""{ "total": { "sum": ["closed_issues", "open_issues"], "path": "title" } }""", null, "needs exactly one of const, path, ratio or sum")]
+    [InlineData("""{ "product": { "const": "cms", "map": { "cms": "API" } } }""", null, "only apply to a path")]
+    [InlineData("""{ "repo": { "path": "repository_url", "replace": {} } }""", null, "replace needs 1 to 20 replacements")]
+    [InlineData("""{ "repo": { "path": "repository_url", "replace": { "": "x" } } }""", null, "replace needs 1 to 20 replacements")]
+    [InlineData("""{ "repo": { "path": "repository_url", "map": {} } }""", null, "map needs 1 to 500 values")]
+    [InlineData("""{ "firstIssue": { "path": "labels[].name", "contains": "bug", "map": { "bug": "x" } } }""", null, "map or contains")]
     [InlineData("""{ "title": { "path": "html_url" } }""", null, "both fieldMap and fieldRules")]
     [InlineData("""{ "nosuchfield": { "const": "cms" } }""", null, "nosuchfield")]
     [InlineData("""{ "tags": { "path": "labels[].name", "contains": "bug" } }""", null, "needs a bool field")]
@@ -352,7 +424,7 @@ public partial class CollectionSyncTests
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))
-            .Should().Contain("cannot be a const, ratio or contains rule");
+            .Should().Contain("cannot be a const, ratio, sum or contains rule");
     }
 
     [Fact]
