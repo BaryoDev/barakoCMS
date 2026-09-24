@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure.Sync;
 using barakoCMS.Models;
 using FastEndpoints;
 using FluentValidation;
@@ -43,7 +44,7 @@ internal sealed class SaveCollectionSyncValidator : Validator<SaveCollectionSync
             .InclusiveBetween(1, CollectionSync.MaxEntriesCeiling);
 
         RuleFor(x => x.FieldMap)
-            .Must(m => m.Count > 0)
+            .Must((req, m) => m.Count + (req.FieldRules?.Count ?? 0) > 0)
             .WithMessage("FieldMap must name at least one content field and the source path it reads.");
 
         RuleFor(x => x.FieldMap)
@@ -52,13 +53,43 @@ internal sealed class SaveCollectionSyncValidator : Validator<SaveCollectionSync
 
         RuleFor(x => x.KeyField)
             .NotEmpty()
-            .Must((req, key) => req.FieldMap.Keys.Any(k => string.Equals(k, key, StringComparison.OrdinalIgnoreCase)))
-            .WithMessage("KeyField must be one of the fields FieldMap names, since it is read from the same item.");
+            .Must((req, key) => Mapped(req).Any(k => string.Equals(k, key, StringComparison.OrdinalIgnoreCase)))
+            .WithMessage("KeyField must be one of the fields FieldMap or FieldRules names, since it is read from the same item.");
+
+        // Every item would get the same key from a constant, and a ratio or a true/false collides
+        // just as surely, so the second item would overwrite the first on every run.
+        RuleFor(x => x.KeyField)
+            .Must((req, key) => !(req.FieldRules ?? new()).Any(r =>
+                string.Equals(r.Key, key, StringComparison.OrdinalIgnoreCase)
+                && r.Value is { } rule
+                && (rule.Const is not null || rule.Ratio is not null || rule.Contains is not null)))
+            .WithMessage("KeyField cannot be a const, ratio or contains rule, since items would share the key.");
 
         RuleFor(x => x.FloorFields)
             .Must((req, floors) => floors.All(f =>
-                req.FieldMap.Keys.Any(k => string.Equals(k, f, StringComparison.OrdinalIgnoreCase))))
-            .WithMessage("Every FloorField must be one of the fields FieldMap names.");
+                Mapped(req).Any(k => string.Equals(k, f, StringComparison.OrdinalIgnoreCase))))
+            .WithMessage("Every FloorField must be one of the fields FieldMap or FieldRules names.");
+
+        RuleFor(x => x).Custom((req, context) =>
+        {
+            foreach (var (field, rule) in req.FieldRules ?? new())
+            {
+                if (req.FieldMap.Keys.Any(k => string.Equals(k, field, StringComparison.OrdinalIgnoreCase)))
+                {
+                    context.AddFailure(nameof(req.FieldRules), $"'{field}' is in both fieldMap and fieldRules; name it in one.");
+                }
+
+                if (SyncRules.ShapeProblem(field, rule) is { } problem)
+                {
+                    context.AddFailure(nameof(req.FieldRules), problem);
+                }
+            }
+
+            if ((req.Exclude ?? []).Any(e => SyncRules.ShapeProblem(e) is not null))
+            {
+                context.AddFailure(nameof(req.Exclude), SyncRules.ShapeProblem(null)!);
+            }
+        });
 
         // An early refusal rather than the guard. The address that gets dialled is checked when the
         // socket opens, which is the only check a DNS answer that changes afterwards cannot evade.
@@ -73,4 +104,7 @@ internal sealed class SaveCollectionSyncValidator : Validator<SaveCollectionSync
             .When(x => !string.Equals(x.Source, nameof(SyncSource.Feed), StringComparison.OrdinalIgnoreCase))
             .WithMessage("A Request sync needs RequestSlug to name a request definition.");
     }
+
+    private static IEnumerable<string> Mapped(SaveCollectionSyncRequest req) =>
+        req.FieldMap.Keys.Concat((req.FieldRules ?? new()).Keys);
 }

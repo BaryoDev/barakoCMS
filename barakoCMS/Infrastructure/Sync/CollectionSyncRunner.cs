@@ -9,9 +9,12 @@ using Marten;
 
 namespace barakoCMS.Infrastructure.Sync;
 
-/// <summary>What one run of a collection sync did.</summary>
+/// <summary>
+/// What one run of a collection sync did. Excluded counts items an exclude rule skipped, which
+/// unlike Skipped is not a fault.
+/// </summary>
 internal sealed record CollectionSyncOutcome(
-    bool Succeeded, int Created, int Updated, int Unchanged, int Skipped, string? Error)
+    bool Succeeded, int Created, int Updated, int Unchanged, int Skipped, string? Error, int Excluded = 0)
 {
     public static CollectionSyncOutcome Failed(string error) => new(false, 0, 0, 0, 0, error);
 
@@ -130,6 +133,8 @@ internal sealed class CollectionSyncRunner(
         {
             ct.ThrowIfCancellationRequested();
 
+            if (SyncRules.Excluded(sync.Exclude, row)) continue;
+
             var mapped = Map(sync, schema, row, out var key, out var reason);
             if (mapped is null || string.IsNullOrWhiteSpace(key))
             {
@@ -186,7 +191,10 @@ internal sealed class CollectionSyncRunner(
                 $"None of the {skipped} item(s) in the response could be mapped: {firstSkip}.");
         }
 
-        return new CollectionSyncOutcome(true, created, updated, unchanged, skipped, null);
+        // Every row lands in exactly one of the other four, so the rest were excluded.
+        var excluded = payload.Rows.Count - created - updated - unchanged - skipped;
+
+        return new CollectionSyncOutcome(true, created, updated, unchanged, skipped, null, excluded);
     }
 
     private async Task<(string? Body, string? Error)> FetchAsync(CollectionSync sync, CancellationToken ct)
@@ -296,6 +304,36 @@ internal sealed class CollectionSyncRunner(
             if (string.Equals(field, sync.KeyField, StringComparison.OrdinalIgnoreCase))
             {
                 key = text;
+            }
+        }
+
+        foreach (var (field, rule) in sync.FieldRules)
+        {
+            var definition = schema.Fields.FirstOrDefault(
+                f => string.Equals(f.Name, field, StringComparison.OrdinalIgnoreCase));
+
+            if (definition is null) continue;
+
+            switch (SyncRules.Evaluate(rule, row))
+            {
+                case List<string> list when string.Equals(definition.Type, "array", StringComparison.OrdinalIgnoreCase):
+                    mapped[definition.Name] = list;
+                    break;
+
+                case string text:
+                    if (!TryConvert(text, definition.Type, out var value))
+                    {
+                        reason = $"the rule for '{field}' made '{text}', which does not convert to the {definition.Type} field";
+                        return null;
+                    }
+
+                    mapped[definition.Name] = value!;
+
+                    if (string.Equals(field, sync.KeyField, StringComparison.OrdinalIgnoreCase))
+                    {
+                        key = text;
+                    }
+                    break;
             }
         }
 
@@ -411,11 +449,44 @@ internal sealed class CollectionSyncRunner(
         foreach (var (field, value) in merged)
         {
             if (!stored.TryGetValue(field, out var current)) return true;
-            if (!string.Equals(Text(current), Text(value), StringComparison.Ordinal)) return true;
+            if (!Same(current, value)) return true;
         }
 
         return false;
     }
+
+    /// <summary>Is a stored value the same as the one about to be written?</summary>
+    /// <remarks>
+    /// A fetched datetime is compared as an instant. The stored one is the text the serializer
+    /// wrote, "2026-09-21T10:12:29Z", and formatting the fetched one gives seven fractional digits,
+    /// so compared as text they never matched and every run rewrote every entry (#987).
+    /// </remarks>
+    private static bool Same(object? stored, object? fresh) => fresh switch
+    {
+        DateTime moment => Instant(stored) == moment.ToUniversalTime(),
+        System.Collections.IEnumerable items and not string and not System.Collections.IDictionary
+            => Elements(stored) is { } was && was.Select(Text).SequenceEqual(items.Cast<object?>().Select(Text)),
+        _ => string.Equals(Text(stored), Text(fresh), StringComparison.Ordinal),
+    };
+
+    private static DateTime? Instant(object? value) => value switch
+    {
+        DateTime moment => moment.ToUniversalTime(),
+        DateTimeOffset moment => moment.UtcDateTime,
+        string or System.Text.Json.JsonElement { ValueKind: System.Text.Json.JsonValueKind.String }
+            when DateTimeOffset.TryParse(Text(value), CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal, out var parsed) => parsed.UtcDateTime,
+        _ => null,
+    };
+
+    private static IEnumerable<object?>? Elements(object? value) => value switch
+    {
+        System.Text.Json.JsonElement { ValueKind: System.Text.Json.JsonValueKind.Array } array
+            => array.EnumerateArray().Select(e => (object?)e),
+        System.Collections.IEnumerable items and not string and not System.Collections.IDictionary
+            => items.Cast<object?>(),
+        _ => null,
+    };
 
     private static string Text(object? value) => value switch
     {
@@ -425,6 +496,8 @@ internal sealed class CollectionSyncRunner(
             : element.GetRawText(),
         DateTime moment => moment.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
         DateTimeOffset moment => moment.UtcDateTime.ToString("O", CultureInfo.InvariantCulture),
+        System.Collections.IEnumerable items and not string and not System.Collections.IDictionary
+            => string.Join(' ', items.Cast<object?>().Select(Text)),
         IFormattable formattable => formattable.ToString(null, CultureInfo.InvariantCulture),
         _ => value.ToString() ?? string.Empty,
     };

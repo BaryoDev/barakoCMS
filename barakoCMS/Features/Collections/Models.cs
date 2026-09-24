@@ -25,6 +25,8 @@ internal sealed class CollectionSyncResponse
     public string? FeedUrl { get; init; }
     public string ItemsPath { get; init; } = string.Empty;
     public Dictionary<string, string> FieldMap { get; init; } = new();
+    public Dictionary<string, SyncFieldRule> FieldRules { get; init; } = new();
+    public List<SyncExcludeRule> Exclude { get; init; } = new();
     public string KeyField { get; init; } = string.Empty;
     public List<string> FloorFields { get; init; } = new();
     public int IntervalMinutes { get; init; }
@@ -53,6 +55,8 @@ internal sealed class CollectionSyncResponse
         FeedUrl = s.FeedUrl,
         ItemsPath = s.ItemsPath,
         FieldMap = s.FieldMap,
+        FieldRules = s.FieldRules ?? new(),
+        Exclude = s.Exclude ?? new(),
         KeyField = s.KeyField,
         FloorFields = s.FloorFields,
         IntervalMinutes = s.IntervalMinutes,
@@ -85,6 +89,12 @@ internal sealed class SaveCollectionSyncRequest
     /// <summary>Content field name to the dotted source path it reads.</summary>
     public Dictionary<string, string> FieldMap { get; set; } = new();
 
+    /// <summary>Content field name to a rule that builds its value. See <see cref="SyncFieldRule"/>.</summary>
+    public Dictionary<string, SyncFieldRule>? FieldRules { get; set; } = new();
+
+    /// <summary>Rules that skip an item before it is mapped.</summary>
+    public List<SyncExcludeRule>? Exclude { get; set; } = new();
+
     public string KeyField { get; set; } = string.Empty;
     public List<string> FloorFields { get; set; } = new();
     public int IntervalMinutes { get; set; } = 60;
@@ -100,6 +110,9 @@ internal sealed class RunCollectionSyncResponse
     public int Updated { get; init; }
     public int Unchanged { get; init; }
     public int Skipped { get; init; }
+
+    /// <summary>Items an exclude rule skipped. Not a fault, unlike <see cref="Skipped"/>.</summary>
+    public int Excluded { get; init; }
 
     /// <summary>Why it failed, or null. Never a response body from the provider.</summary>
     public string? Error { get; init; }
