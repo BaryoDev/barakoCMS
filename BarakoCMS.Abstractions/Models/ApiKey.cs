@@ -30,6 +30,16 @@ public class ApiKey
     /// <summary>What the key may do — see <see cref="ApiKeyScopes"/>. Limited to the content surface.</summary>
     public List<string> Scopes { get; set; } = new();
 
+    /// <summary>
+    /// The content types this key may push to, or empty for no restriction.
+    /// </summary>
+    /// <remarks>
+    /// A key naming types is a push key: it reaches <c>POST /api/collections/{type}/push</c> for those
+    /// types and nothing else on the content surface. Empty is what every key made before this
+    /// existed holds, so they keep reaching everything their scopes allow.
+    /// </remarks>
+    public List<string> ContentTypes { get; set; } = new();
+
     /// <summary>Optional expiry. Null means it never expires (until revoked).</summary>
     public DateTime? ExpiresAt { get; set; }
 

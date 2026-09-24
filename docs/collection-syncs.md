@@ -9,6 +9,9 @@ A collection sync is that code as configuration. It names a content type, a sour
 becomes which field. The entries it writes are ordinary content, so blocks, delivery, search and the
 admin treat them like anything else. Nothing marks an entry as synced.
 
+A sync is the CMS deciding when to look. When the source knows the moment it changed, a repository's
+changelog for instance, let it push instead: see [collection-push.md](collection-push.md).
+
 ## Managing them
 
 `GET /api/collection-syncs` lists, `GET /api/collection-syncs/{slug}` reads one,

@@ -26,6 +26,9 @@ public sealed class ApiKeyAuthenticationHandler : AuthenticationHandler<ApiKeyAu
 {
     public const string SchemeName = "ApiKey";
 
+    /// <summary>One claim per content type a push key is limited to. Absent on an unrestricted key.</summary>
+    public const string ContentTypeClaim = "apikey_content_type";
+
     public ApiKeyAuthenticationHandler(
         IOptionsMonitor<ApiKeyAuthenticationOptions> options,
         ILoggerFactory logger,
@@ -94,6 +97,8 @@ public sealed class ApiKeyAuthenticationHandler : AuthenticationHandler<ApiKeyAu
             claims.Add(new Claim(ClaimTypes.Role, "User")); // same fallback the JWT issuer uses
         foreach (var scope in key.Scopes)
             claims.Add(new Claim("scope", scope));
+        foreach (var type in key.ContentTypes ?? [])
+            claims.Add(new Claim(ContentTypeClaim, type));
 
         _ = TouchLastUsedAsync(store, key.Id, key.LastUsedAt); // best-effort, non-blocking
 

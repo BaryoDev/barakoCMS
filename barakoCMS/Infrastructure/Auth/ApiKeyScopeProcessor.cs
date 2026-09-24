@@ -6,8 +6,9 @@ namespace barakoCMS.Infrastructure.Auth;
 /// <summary>
 /// Enforces API-key scope. Runs for every request but only acts when the caller authenticated with an
 /// API key (<c>auth_method=apikey</c>). API keys are confined to the content surface (content,
-/// content types, schemas) and to read vs write by HTTP method, except that erasing and rolling back
-/// an entry need <c>content:destructive</c>. Everything else (managing users,
+/// content types, schemas, collection pushes) and to read vs write by HTTP method, except that
+/// erasing and rolling back an entry need <c>content:destructive</c>. A key that names content types
+/// reaches only the push route for those types. Everything else (managing users,
 /// roles, tenants, or keys themselves) stays behind human JWTs, so a leaked key can never escalate
 /// into platform administration. Human JWT callers are untouched: they carry no scope claims and use
 /// the role gate + permission resolver as before.
@@ -26,6 +27,13 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
                       || HttpMethods.IsPut(http.Request.Method)
                       || HttpMethods.IsPatch(http.Request.Method)
                       || HttpMethods.IsDelete(http.Request.Method);
+
+        var contentTypes = user.FindAll(ApiKeyAuthenticationHandler.ContentTypeClaim).Select(c => c.Value).ToList();
+        if (contentTypes.Count > 0 && !IsPushTo(path, contentTypes))
+        {
+            await Deny(http, "This API key is limited to pushing to the content types it names.", ct);
+            return;
+        }
 
         var required = RequiredScope(path, isWrite);
         if (required is null)
@@ -48,6 +56,8 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
                 return ApiKeyScopes.ContentDestructive;
             return isWrite ? ApiKeyScopes.ContentWrite : ApiKeyScopes.ContentRead;
         }
+        if (PushedType(path) is not null)
+            return ApiKeyScopes.ContentWrite;
         if (Match(path, "/api/content-types") || Match(path, "/api/schemas"))
             return isWrite ? ApiKeyScopes.ContentTypeWrite : ApiKeyScopes.ContentTypeRead;
         return null;
@@ -69,6 +79,21 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
             _ => false,
         };
     }
+
+    // POST /api/collections/{type}/push, the one route a key limited to named types reaches (#991).
+    private static string? PushedType(string path)
+    {
+        var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return segments.Length == 4
+               && segments[0].Equals("api", StringComparison.OrdinalIgnoreCase)
+               && segments[1].Equals("collections", StringComparison.OrdinalIgnoreCase)
+               && segments[3].Equals("push", StringComparison.OrdinalIgnoreCase)
+            ? segments[2]
+            : null;
+    }
+
+    private static bool IsPushTo(string path, List<string> contentTypes) =>
+        PushedType(path) is { } type && contentTypes.Contains(type, StringComparer.OrdinalIgnoreCase);
 
     private static bool Match(string path, string prefix) =>
         path.Equals(prefix, StringComparison.OrdinalIgnoreCase)
