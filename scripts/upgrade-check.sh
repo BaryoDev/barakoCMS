@@ -11,8 +11,9 @@
 #   1. stand up a database with the released FROM_VERSION and put real content in it
 #   2. db-assert must FAIL on both hosts, because 4.0's schema does not match a 3.x database
 #   3. apply the reviewed core migrations, migrations/4.0.0/3.x-to-4.0.sql,
-#      migrations/4.2.0/user-normalized-identity.sql, migrations/4.3.0/collection-syncs.sql
-#      and migrations/4.3.0/marten-9-37-event-store-columns.sql
+#      migrations/4.2.0/user-normalized-identity.sql, migrations/4.3.0/collection-syncs.sql,
+#      migrations/4.3.0/marten-9-37-event-store-columns.sql and
+#      migrations/4.4.0/marten-9-38-quick-append-events.sql
 #   4. db-assert must PASS on the core host, so those files are exactly what core needs
 #   5. apply the module migrations, migrations/4.2.0/stored-files-parent-index.sql and
 #      migrations/4.2.0/forms-public-forms.sql
@@ -21,6 +22,7 @@
 #   8. an event appends to a stream that already existed, and the projection daemon resumes from
 #      its stored progression rather than restarting from zero
 #   9. 4.0 stops, and the rollback files are applied newest first:
+#      migrations/4.4.0/rollback-marten-9-38-quick-append-events.sql,
 #      migrations/4.3.0/rollback-collection-syncs.sql,
 #      migrations/4.3.0/rollback-marten-9-37-event-store-columns.sql,
 #      migrations/4.2.0/rollback-user-normalized-identity.sql and
@@ -222,6 +224,10 @@ step "applying migrations/4.3.0/marten-9-37-event-store-columns.sql"
 docker cp migrations/4.3.0/marten-9-37-event-store-columns.sql "$PG:/tmp/marten937.sql"
 docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/marten937.sql >/dev/null
 
+step "applying migrations/4.4.0/marten-9-38-quick-append-events.sql"
+docker cp migrations/4.4.0/marten-9-38-quick-append-events.sql "$PG:/tmp/marten938.sql"
+docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/marten938.sql >/dev/null
+
 step "the migration left the daemon's progression alone"
 PROGRESSION_MIGRATED=$(psql_q "select coalesce(max(last_seq_id), 0) from mt_event_progression where name like '%WorkflowProjection%';")
 [ "$PROGRESSION_MIGRATED" = "$PROGRESSION_BEFORE" ] \
@@ -313,6 +319,10 @@ HOST_PID=""
 # schema and refuses to boot while anything it does not declare is still there, whether that is a
 # table or a column. The two 4.3.0 files touch different objects, so their order between
 # themselves does not matter; both have to run before the older rollbacks.
+step "applying migrations/4.4.0/rollback-marten-9-38-quick-append-events.sql"
+docker cp migrations/4.4.0/rollback-marten-9-38-quick-append-events.sql "$PG:/tmp/marten938-down.sql"
+docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/marten938-down.sql >/dev/null
+
 step "applying migrations/4.3.0/rollback-collection-syncs.sql"
 docker cp migrations/4.3.0/rollback-collection-syncs.sql "$PG:/tmp/collection-syncs-down.sql"
 docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/collection-syncs-down.sql >/dev/null
@@ -366,4 +376,4 @@ EVENTS_ROLLED_BACK=$(psql_q "select count(*) from mt_events where stream_id = '$
     || fail "expected $EVENTS_AFTER events on stream $CONTENT_ID after rollback, found $EVENTS_ROLLED_BACK. A rollback must not lose events."
 echo "${FROM_VERSION} reads it back: FirstName $ROLLBACK_FIRST_NAME, Status $ROLLBACK_STATUS, $EVENTS_ROLLED_BACK events on the stream"
 
-printf '\nThe %s to 4.0 upgrade works on the Suite host, with migrations/4.0.0/3.x-to-4.0.sql, migrations/4.2.0/user-normalized-identity.sql, migrations/4.3.0/collection-syncs.sql, migrations/4.3.0/marten-9-37-event-store-columns.sql, migrations/4.2.0/stored-files-parent-index.sql and migrations/4.2.0/forms-public-forms.sql applied first, and rolls back cleanly with migrations/4.3.0/rollback-collection-syncs.sql, migrations/4.3.0/rollback-marten-9-37-event-store-columns.sql, migrations/4.2.0/rollback-user-normalized-identity.sql and migrations/4.0.0/rollback-to-3.x.sql.\n' "$FROM_VERSION"
+printf '\nThe %s to 4.0 upgrade works on the Suite host, with migrations/4.0.0/3.x-to-4.0.sql, migrations/4.2.0/user-normalized-identity.sql, migrations/4.3.0/collection-syncs.sql, migrations/4.3.0/marten-9-37-event-store-columns.sql, migrations/4.4.0/marten-9-38-quick-append-events.sql, migrations/4.2.0/stored-files-parent-index.sql and migrations/4.2.0/forms-public-forms.sql applied first, and rolls back cleanly with migrations/4.4.0/rollback-marten-9-38-quick-append-events.sql, migrations/4.3.0/rollback-collection-syncs.sql, migrations/4.3.0/rollback-marten-9-37-event-store-columns.sql, migrations/4.2.0/rollback-user-normalized-identity.sql and migrations/4.0.0/rollback-to-3.x.sql.\n' "$FROM_VERSION"
