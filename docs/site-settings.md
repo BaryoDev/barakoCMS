@@ -55,6 +55,12 @@ half-filled theme renders rather than breaks.
 | `HoldingPath` | string | The site path of the page shown while holding, such as `/holding` |
 | `HeaderPath`, `FooterPath` | string | The site path of a page drawn as the header or footer region in place of the built-in one |
 | `HeaderTone`, `FooterTone` | choice | The tone behind that region: `page`, `surface`, `accent`, `inverse`, `gradient` or `wash` |
+| `Tokens` | json | Named colours, lengths and font stacks. See [Tokens and Tones](#tokens-and-tones) |
+| `Tones` | json | Named tones built from tokens. See [Tokens and Tones](#tokens-and-tones) |
+| `StyleRecipes` | json | Named looks a block wears with `recipe`. See [StyleRecipes](#stylerecipes) |
+| `MenuLinks` | json | The phone menu's rows. See [MenuLinks and HeaderActions](#menulinks-and-headeractions) |
+| `HeaderActions` | json | Call to action links after the header links. See [MenuLinks and HeaderActions](#menulinks-and-headeractions) |
+| `Plugins` | json | The plugins this tenant renders. See [Plugins](#plugins) |
 
 ### Colors
 
@@ -129,7 +135,9 @@ rather than half applied.
 | `related` | `"reference"`, `"semantic"`, or `false`. `"reference"` unless set |
 | `readingTime` | Shows a read time worked out from the body |
 | `layout` | `"list"` or `"article"`. `"list"` unless set |
-| `tree` | Turns the collection into a documentation manual: field names for `section`, `order`, `parent` and `product`, plus `sections`, `products`, `searchPath`, `editBase`, `editPath` and `limit` for the sidebar and product switcher |
+| `index` | Also takes an object of the index's own words (`eyebrow`, `heading`, `lede`, `empty`, `unavailable`), which turns the index on |
+| `indexPage` | A site path whose page's blocks are drawn above the list on the index |
+| `tree` | Turns the collection into a documentation manual: field names for `section`, `order`, `parent` and `product`, plus `sections`, `products` (each may carry a `note`), `searchPath`, `searchIndex`, `variant`, `editBase`, `editPath` and `limit` for the sidebar and product switcher |
 
 ### OptionColors
 
@@ -168,6 +176,65 @@ Each variant overrides colours only. A visitor's choice is remembered in their b
 
 An `href` is either a path on the site or an absolute http or https URL. The renderer drops any other
 scheme.
+
+A header link may also carry `activeOn`, space separated site paths it is current on, and
+`children`, links drawn as a dropdown one level deep:
+
+```json
+[ { "label": "Docs", "href": "/docs", "activeOn": "/docs /guides", "children": [ { "label": "API", "href": "/docs/api" } ] } ]
+```
+
+### MenuLinks and HeaderActions
+
+`MenuLinks` has the shape of `HeaderLinks` and holds the phone menu's rows. Unset or empty, the phone
+menu shows `HeaderLinks`. `HeaderActions` is up to four links after the header links, each with a
+`variant` of `primary`, `secondary` or `plain`; unset or unknown is `primary`.
+
+```json
+[ { "label": "Donate", "href": "/donate", "variant": "primary" }, { "label": "Contact", "href": "/contact", "variant": "plain" } ]
+```
+
+The barakoPress README has the rest, in [The built-in header](https://github.com/BaryoDev/barakoPress#the-built-in-header).
+
+### Tokens and Tones
+
+```json
+{ "accent": "#E4572E", "cms-ink": "#1D3A8A", "cms-bg": "#E8EEFD", "gutter": "24px", "serif": "'Zilla Slab', Georgia, serif" }
+```
+
+```json
+{ "cms": { "ink": "cms-ink", "bg": "cms-bg", "edge": "#B9C8F5" } }
+```
+
+A token is a name and one value: a colour, a CSS length or a font stack. The renderer emits each one
+as `--t-<name>`. A tone is a name and three colours, `ink`, `bg` and `edge`, each a token name, a
+`Colors` slot or a colour written out. Block tone fields, `HeaderTone` and `FooterTone` included,
+offer the site's tones after the built-in six. The renderer drops a token or tone that fails its
+check and keeps the rest. See [Tokens and tones](https://github.com/BaryoDev/barakoPress#tokens-and-tones).
+
+### StyleRecipes
+
+Keyed by a recipe name, each with an optional `class` and an optional `style` of CSS property to
+value. `{name}` in a value stands for a token, and `{colors.<slot>}`, `{space.<step>}` and the like
+for the theme's own values.
+
+```json
+{ "card": { "class": "lift", "style": { "padding": "22px 24px", "background": "{colors.surface}", "border-radius": "16px" } } }
+```
+
+The renderer keeps a fixed list of properties and a narrow value shape, and drops what falls
+outside them. See [Style recipes](https://github.com/BaryoDev/barakoPress#style-recipes).
+
+### Plugins
+
+A list of plugin names, from the plugins the deployment's barakoPress image has installed.
+
+```json
+[ "tally" ]
+```
+
+Unset, the renderer uses the plugins its own config names. Saved as an empty list, every plugin is
+off for this tenant. See [Plugin packages](https://github.com/BaryoDev/barakoPress#plugin-packages).
 
 ## Holding a site back
 
