@@ -11,12 +11,24 @@ namespace barakoCMS.Infrastructure.Sync;
 
 /// <summary>
 /// What one run of a collection sync did. Excluded counts items an exclude rule skipped, which
-/// unlike Skipped is not a fault.
+/// unlike Skipped is not a fault. Archived counts entries archived because the run no longer
+/// produced them.
 /// </summary>
 internal sealed record CollectionSyncOutcome(
     bool Succeeded, int Created, int Updated, int Unchanged, int Skipped, string? Error, int Excluded = 0)
 {
     public static CollectionSyncOutcome Failed(string error) => new(false, 0, 0, 0, 0, error);
+
+    public int Archived { get; init; }
+
+    /// <summary>The keys of the entries this run created, updated or left unchanged.</summary>
+    public IReadOnlySet<string> Produced { get; init; } = new HashSet<string>();
+
+    /// <summary>
+    /// Whether the run read everything the source holds: no <c>MaxEntries</c> cut, no next page,
+    /// and no item skipped, whose key would be unknown.
+    /// </summary>
+    public bool ReadAll { get; init; }
 
     /// <summary>Entries this run left standing, whether or not it had to write them.</summary>
     public int Entries => Created + Updated + Unchanged;
@@ -68,6 +80,11 @@ internal sealed class CollectionSyncRunner(
     {
         var outcome = await ApplyAsync(sync, ct);
 
+        if (outcome.Succeeded && sync.ArchiveMissing)
+        {
+            outcome = outcome with { Archived = await ArchiveMissingAsync(sync, outcome.Produced, outcome.ReadAll, ct) };
+        }
+
         sync.LastRunAt = DateTime.UtcNow;
         sync.UpdatedAt = sync.LastRunAt.Value;
 
@@ -97,6 +114,53 @@ internal sealed class CollectionSyncRunner(
         return outcome;
     }
 
+    /// <summary>
+    /// Archives the published entries this sync owns that a complete run did not produce, and
+    /// records what it owns now.
+    /// </summary>
+    /// <returns>How many entries were archived.</returns>
+    /// <remarks>
+    /// A run that is not complete archives nothing and only adds to what the sync owns: an item it
+    /// did not read may still be at the source. A skipped item counts as incomplete too, since its
+    /// key is unknown and its entry would otherwise look missing.
+    ///
+    /// Archived rather than erased, through the same ContentStatusChanged the status endpoint and the
+    /// schedule append, so history and workflows see it. Only a Published entry is archived: a draft
+    /// or an entry somebody already archived is left as it is.
+    /// </remarks>
+    private async Task<int> ArchiveMissingAsync(
+        CollectionSync sync, IReadOnlySet<string> produced, bool complete, CancellationToken ct)
+    {
+        var archivedKeys = sync.ArchivedKeys.Where(k => !produced.Contains(k)).ToList();
+
+        if (!complete)
+        {
+            sync.SyncedKeys = sync.SyncedKeys.Union(produced, StringComparer.Ordinal).ToList();
+            sync.ArchivedKeys = archivedKeys;
+            return 0;
+        }
+
+        var archived = 0;
+
+        foreach (var key in sync.SyncedKeys.Where(k => !produced.Contains(k)))
+        {
+            var entry = await session.LoadAsync<Content>(EntryId(sync.ContentType, key), ct);
+            if (entry is not { Status: ContentStatus.Published }) continue;
+
+            await writer.AppendAsync(
+                entry, new ContentStatusChanged(entry.Id, ContentStatus.Archived, SystemActor, DateTime.UtcNow), ct);
+            await session.SaveChangesAsync(ct);
+
+            archivedKeys.Add(key);
+            archived++;
+        }
+
+        sync.SyncedKeys = produced.Order(StringComparer.Ordinal).ToList();
+        sync.ArchivedKeys = archivedKeys.TakeLast(CollectionSync.MaxArchivedKeys).ToList();
+
+        return archived;
+    }
+
     private async Task<CollectionSyncOutcome> ApplyAsync(CollectionSync sync, CancellationToken ct)
     {
         var schema = await session.Query<ContentTypeDefinition>()
@@ -116,7 +180,7 @@ internal sealed class CollectionSyncRunner(
 
         var payload = sync.Source == SyncSource.Feed
             ? SyncPayloadReader.ReadFeed(fetched.Body!, sync.MaxEntries)
-            : SyncPayloadReader.ReadJson(fetched.Body!, sync.ItemsPath, sync.MaxEntries);
+            : SyncPayloadReader.ReadJson(fetched.Body!, sync.ItemsPath, sync.MaxEntries, MappedPaths(sync));
 
         if (!payload.Ok)
         {
@@ -125,6 +189,7 @@ internal sealed class CollectionSyncRunner(
 
         var created = 0;
         var updated = 0;
+        var produced = new HashSet<string>(StringComparer.Ordinal);
         var unchanged = 0;
         var skipped = 0;
         string? firstSkip = null;
@@ -145,6 +210,7 @@ internal sealed class CollectionSyncRunner(
 
             var id = EntryId(sync.ContentType, key);
             var existing = await session.LoadAsync<Content>(id, ct);
+            produced.Add(key);
 
             if (existing is null)
             {
@@ -167,16 +233,30 @@ internal sealed class CollectionSyncRunner(
                 merged[field] = Floor(sync, field, existing.Data, value);
             }
 
-            if (!Changed(existing.Data, merged))
+            var changed = Changed(existing.Data, merged);
+            var restore = sync.ArchiveMissing
+                && existing.Status == ContentStatus.Archived
+                && sync.ArchivedKeys.Contains(key, StringComparer.Ordinal);
+
+            if (!changed && !restore)
             {
                 unchanged++;
                 continue;
             }
 
-            await writer.AppendAsync(
-                existing,
-                new ContentUpdated(id, merged, SystemActor, SearchText(merged, schema), DateTime.UtcNow),
-                ct);
+            if (changed)
+            {
+                await writer.AppendAsync(
+                    existing,
+                    new ContentUpdated(id, merged, SystemActor, SearchText(merged, schema), DateTime.UtcNow),
+                    ct);
+            }
+
+            if (restore)
+            {
+                await writer.AppendAsync(
+                    existing, new ContentStatusChanged(id, sync.EntryStatus, SystemActor, DateTime.UtcNow), ct);
+            }
 
             await session.SaveChangesAsync(ct);
             updated++;
@@ -194,17 +274,21 @@ internal sealed class CollectionSyncRunner(
         // Every row lands in exactly one of the other four, so the rest were excluded.
         var excluded = payload.Rows.Count - created - updated - unchanged - skipped;
 
-        return new CollectionSyncOutcome(true, created, updated, unchanged, skipped, null, excluded);
+        return new CollectionSyncOutcome(true, created, updated, unchanged, skipped, null, excluded)
+        {
+            Produced = produced,
+            ReadAll = !payload.Truncated && !fetched.HasNextPage && skipped == 0,
+        };
     }
 
-    private async Task<(string? Body, string? Error)> FetchAsync(CollectionSync sync, CancellationToken ct)
+    private async Task<(string? Body, string? Error, bool HasNextPage)> FetchAsync(CollectionSync sync, CancellationToken ct)
     {
         if (sync.Source == SyncSource.Feed)
         {
             if (!Uri.TryCreate(sync.FeedUrl, UriKind.Absolute, out var feed)
                 || (feed.Scheme != Uri.UriSchemeHttp && feed.Scheme != Uri.UriSchemeHttps))
             {
-                return (null, "The feed URL is not an absolute http or https URL.");
+                return (null, "The feed URL is not an absolute http or https URL.", false);
             }
 
             var feedResult = await fetcher.FetchAsync(
@@ -212,7 +296,9 @@ internal sealed class CollectionSyncRunner(
                 new ComposedRequest("GET", feed.AbsoluteUri, new Dictionary<string, string>(), null, null),
                 MaxResponseBytes, ct);
 
-            return feedResult.Succeeded ? (feedResult.Body, null) : (null, Describe(feedResult));
+            return feedResult.Succeeded
+                ? (feedResult.Body, null, feedResult.HasNextPage)
+                : (null, Describe(feedResult), false);
         }
 
         var definition = await session.Query<RequestDefinition>()
@@ -220,7 +306,7 @@ internal sealed class CollectionSyncRunner(
 
         if (definition is null)
         {
-            return (null, $"No request definition with the slug '{sync.RequestSlug}'.");
+            return (null, $"No request definition with the slug '{sync.RequestSlug}'.", false);
         }
 
         var connector = await session.Query<Connector>()
@@ -229,12 +315,12 @@ internal sealed class CollectionSyncRunner(
         if (connector is null)
         {
             return (null,
-                $"Request '{definition.Slug}' names connector '{definition.ConnectorSlug}', which does not exist.");
+                $"Request '{definition.Slug}' names connector '{definition.ConnectorSlug}', which does not exist.", false);
         }
 
         if (!connector.Enabled)
         {
-            return (null, $"Connector '{connector.Slug}' is disabled.");
+            return (null, $"Connector '{connector.Slug}' is disabled.", false);
         }
 
         // Composed against an empty entry of the target type. A sync request's templates address the
@@ -249,12 +335,12 @@ internal sealed class CollectionSyncRunner(
 
         if (!composed.Ok)
         {
-            return (null, composed.Refusal);
+            return (null, composed.Refusal, false);
         }
 
         var result = await fetcher.FetchAsync(connector, composed, MaxResponseBytes, ct);
 
-        return result.Succeeded ? (result.Body, null) : (null, Describe(result));
+        return result.Succeeded ? (result.Body, null, result.HasNextPage) : (null, Describe(result), false);
     }
 
     private static string Describe(ConnectorFetchResult result) =>
@@ -501,6 +587,13 @@ internal sealed class CollectionSyncRunner(
         IFormattable formattable => formattable.ToString(null, CultureInfo.InvariantCulture),
         _ => value.ToString() ?? string.Empty,
     };
+
+    /// <summary>Every path the sync's mapping, rules and exclusions read.</summary>
+    private static List<string> MappedPaths(CollectionSync sync) =>
+        sync.FieldMap.Values
+            .Concat(sync.FieldRules.Values.SelectMany(SyncRules.PathsOf))
+            .Concat(sync.Exclude.Select(e => e.Path))
+            .ToList();
 
     /// <summary>The same derived search text the create and update endpoints write.</summary>
     private static string SearchText(IReadOnlyDictionary<string, object> data, ContentTypeDefinition schema)

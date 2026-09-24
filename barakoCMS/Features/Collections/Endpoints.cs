@@ -204,6 +204,14 @@ internal static class CollectionSyncRules
     /// <summary>Copies a validated request onto the document.</summary>
     internal static void Apply(CollectionSync sync, SaveCollectionSyncRequest req)
     {
+        // Keys address entries of one content type, so pointing the sync at another type means it
+        // owns nothing there yet.
+        if (!string.Equals(sync.ContentType, req.ContentType.Trim(), StringComparison.Ordinal))
+        {
+            sync.SyncedKeys = new();
+            sync.ArchivedKeys = new();
+        }
+
         sync.Name = req.Name.Trim();
         sync.ContentType = req.ContentType.Trim();
         sync.Enabled = req.Enabled;
@@ -214,6 +222,7 @@ internal static class CollectionSyncRules
         sync.FieldMap = req.FieldMap;
         sync.FieldRules = req.FieldRules ?? new();
         sync.Exclude = req.Exclude ?? new();
+        sync.ArchiveMissing = req.ArchiveMissing;
         sync.KeyField = req.KeyField.Trim();
         sync.FloorFields = req.FloorFields;
         sync.IntervalMinutes = req.IntervalMinutes;
@@ -454,6 +463,7 @@ internal sealed class RunCollectionSyncEndpoint(
             Unchanged = outcome.Unchanged,
             Skipped = outcome.Skipped,
             Excluded = outcome.Excluded,
+            Archived = outcome.Archived,
             Error = outcome.Error,
         }, cancellation: ct);
     }

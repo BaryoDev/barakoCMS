@@ -33,7 +33,14 @@ public sealed record ConnectorCallResult(bool Succeeded, int? StatusCode, long E
 /// caller, where the operator's own field mapping decides what is kept.
 /// </remarks>
 public sealed record ConnectorFetchResult(
-    bool Succeeded, int? StatusCode, long ElapsedMs, string? Error, string? Body);
+    bool Succeeded, int? StatusCode, long ElapsedMs, string? Error, string? Body)
+{
+    /// <summary>
+    /// The provider answered with a <c>Link</c> header naming a next page, so the body is not the
+    /// whole of what it holds.
+    /// </summary>
+    public bool HasNextPage { get; init; }
+}
 
 /// <summary>Sends a composed request and hands back what the provider answered.</summary>
 /// <remarks>
@@ -291,7 +298,12 @@ internal sealed class ConnectorSender(
                     $"The response is larger than the {maxBytes} byte limit.", null);
             }
 
-            return new ConnectorFetchResult(true, (int)response.StatusCode, timer.ElapsedMilliseconds, null, body);
+            return new ConnectorFetchResult(true, (int)response.StatusCode, timer.ElapsedMilliseconds, null, body)
+            {
+                HasNextPage = response.Headers.TryGetValues("Link", out var links)
+                    && links.Any(l => l.Contains("rel=\"next\"", StringComparison.OrdinalIgnoreCase)
+                                   || l.Contains("rel=next", StringComparison.OrdinalIgnoreCase)),
+            };
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {

@@ -21,6 +21,7 @@ namespace barakoCMS.Infrastructure.Sync;
 internal sealed class CollectionSyncService(
     IServiceProvider services,
     IDocumentStore store,
+    IConfiguration configuration,
     ILogger<CollectionSyncService> logger) : BackgroundService
 {
     /// <summary>
@@ -67,6 +68,15 @@ internal sealed class CollectionSyncService(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // Asked again here, not only at registration. Registration reads configuration before a
+        // source added later in host building is applied, which is how a test host that turned the
+        // schedule off still swept every minute and ran a sync between a test saving it and running it.
+        if (!IsEnabled(configuration))
+        {
+            logger.LogInformation("Collection sync schedule is off ({Key}=false).", EnabledKey);
+            return;
+        }
+
         logger.LogInformation("Collection sync service started. Sweep interval: {Interval}", SweepInterval);
 
         // Let the app, the Marten schema and the projection daemon warm up before the first sweep,

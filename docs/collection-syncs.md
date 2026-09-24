@@ -70,6 +70,11 @@ covering both dialects, so a mapping written against RSS keeps working if the pu
 Atom: `id`, `title`, `link`, `summary`, `content`, `published`, `author`, `category`. Dates arrive as
 UTC ISO 8601 whichever dialect they were written in.
 
+From a JSON item the sync keeps only the paths `fieldMap`, `fieldRules` and `exclude` name, and the
+values beneath them, up to 200 values per item, five levels deep. It used to keep the first 200 of
+every path, and a real GitHub search result for one issue is close to 200 paths on its own, so one
+more label pushed `state_reason` out.
+
 Everything is checked when you save, not on the first sweep. A field the content type does not have,
 a field that is not `Public`, a floor on a field that is not numeric, a feed path outside the
 vocabulary above (`pubDate` is a common one; both dialects read into `published`), a request
@@ -157,9 +162,9 @@ An excluded item is counted as `excluded` in a run's result, not as `skipped`, a
 failure: a run that excludes every item succeeds with no entries. `maxEntries` counts items before
 exclusion.
 
-Exclusion decides what a run writes. It does not remove an entry an earlier run wrote, for the reason
-the next section gives: an issue that gets an assignee stays in the collection until somebody
-archives it.
+Exclusion decides what a run writes. On its own it does not remove an entry an earlier run wrote,
+so an issue that gets an assignee stays in the collection. `archiveMissing`, below, is what takes it
+off the page.
 
 Every rule is checked when you save, the same as `fieldMap`: an unknown or non-`Public` field, a
 rule with no source or two, a regex that does not compile or does not have one capture group, a
@@ -177,11 +182,48 @@ It is keyed on the content type rather than on the sync, so renaming a sync does
 everything it has written, and two syncs filling one collection with the same key are writing the
 same entry.
 
-A sync never removes an entry. A key the source stops answering with is simply not refreshed, so a
-package delisted from a registry stays on the page until somebody archives or erases it. That is
-deliberate: an entry is ordinary content, a source having a bad afternoon is indistinguishable from
-a source that dropped something on purpose, and the recoverable mistake is the one that leaves too
-much rather than too little.
+By default a sync never removes an entry. A key the source stops answering with is simply not
+refreshed, so a package delisted from a registry stays on the page until somebody archives or erases
+it. That is deliberate: an entry is ordinary content, a source having a bad afternoon is
+indistinguishable from a source that dropped something on purpose, and the recoverable mistake is the
+one that leaves too much rather than too little.
+
+## Archiving what the source dropped
+
+`"archiveMissing": true` archives the published entries this sync owns that a run did not produce:
+a milestone that closed, or an issue an exclude rule now skips because somebody took it. The run
+result reports how many as `archived`. It is off by default.
+
+```json
+POST /api/collection-syncs
+{
+  "slug": "up-for-grabs",
+  "itemsPath": "items",
+  "fieldMap": { "Title": "title", "Url": "html_url" },
+  "keyField": "Url",
+  "exclude": [ { "path": "assignees", "notEmpty": true } ],
+  "archiveMissing": true
+}
+```
+
+It only acts on a complete read. A run archives nothing when it failed, when the source held more
+items than `maxEntries` let it read, when the provider's `Link` header names a next page, or when it
+skipped an item it could not map, since that item's key is unknown. Each of those runs cannot tell an
+item that is gone from one it did not read.
+
+What a sync owns is the set of keys it has written while `archiveMissing` is on, kept on the sync.
+Turning it on for an existing sync archives nothing on the first run, which only records the keys.
+An entry typed by hand has an id no key derives, so it is never touched, and an entry another sync
+wrote is not in this sync's keys. The exception is two syncs producing the same key, which is the
+same entry by design (see the key, above). Changing the sync's content type clears the keys.
+
+Archiving goes through the same status change the status endpoint and the schedule use, so the
+entry's history and the workflow trigger see it like any other status change. Nothing is erased. Only a Published entry is
+archived; a draft, or an entry an editor already archived, is left as it is.
+
+When an item the sync archived comes back, the next run publishes the entry again (to the sync's
+`entryStatus`). An entry an editor archived stays archived even while the source still answers with
+it. The sync remembers the last 1000 keys it archived.
 
 ## The floor
 
@@ -196,7 +238,7 @@ floor applies to the named field and nothing else, so an edited description stil
 
 `intervalMinutes` is how long after a run the next one is due, at least 5. A background sweep looks
 for due syncs once a minute, takes a Postgres advisory lock so only one instance sweeps, and runs at
-most twenty syncs per tick. `maxEntries` caps how many items of one response are written, up to 500:
+most twenty syncs per tick. `maxEntries` caps how many items of one response are read, up to 500:
 nothing here follows a source's paging, and a source answering ten thousand items must not turn one
 tick into ten thousand writes.
 

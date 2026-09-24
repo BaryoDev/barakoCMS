@@ -6,3 +6,9 @@
   an item when a path is not empty or equals a value. Every rule is checked on save with a 400
   naming the field. Both properties are optional, and a definition without them runs as before.
   See docs/collection-syncs.md.
+- **A sync could not take an entry off the page when its source dropped it.** A closed milestone
+  or an issue somebody took stayed published. `archiveMissing: true` archives the published entries
+  a sync owns that a complete run did not produce, and publishes one again if it comes back. It
+  acts only when the run read everything: no `maxEntries` cut, no next page in the `Link` header,
+  no skipped item. Entries typed by hand or written by another sync are never touched. Off by
+  default, and the run result reports `archived`.

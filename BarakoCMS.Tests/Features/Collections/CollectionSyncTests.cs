@@ -37,6 +37,9 @@ public partial class CollectionSyncTests
     /// <summary>What the stub answers, keyed by the path the request asks for.</summary>
     private static readonly ConcurrentDictionary<string, Func<(HttpStatusCode Status, string Body)>> Routes = new();
 
+    /// <summary>A Link header the stub adds for a path, as a paged API sends one.</summary>
+    private static readonly ConcurrentDictionary<string, string> LinkHeaders = new();
+
     private sealed class SourceStub : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
@@ -53,10 +56,14 @@ public partial class CollectionSyncTests
 
             var (status, body) = answer();
 
-            return Task.FromResult(new HttpResponseMessage(status)
+            var response = new HttpResponseMessage(status)
             {
                 Content = new StringContent(body, Encoding.UTF8, "application/json"),
-            });
+            };
+
+            if (LinkHeaders.TryGetValue(path, out var link)) response.Headers.TryAddWithoutValidation("Link", link);
+
+            return Task.FromResult(response);
         }
     }
 
