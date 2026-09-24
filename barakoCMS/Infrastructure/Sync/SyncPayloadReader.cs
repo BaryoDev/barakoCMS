@@ -17,6 +17,9 @@ internal sealed record SyncPayload(IReadOnlyList<IReadOnlyDictionary<string, str
     public static SyncPayload Failed(string error) => new([], error);
 
     public bool Ok => Error is null;
+
+    /// <summary>The source held more items than were read, so the rows are not all of it.</summary>
+    public bool Truncated { get; init; }
 }
 
 /// <summary>
@@ -39,6 +42,11 @@ internal static class SyncPayloadReader
     private const int MaxDepth = 5;
 
     /// <summary>How many paths one item contributes before the rest are ignored.</summary>
+    /// <remarks>
+    /// Counted over the paths a mapping names when the caller says which those are. Counted over
+    /// every path, a real GitHub search result for one issue flattens to about 200, so one more
+    /// label pushed <c>state_reason</c> past the cap.
+    /// </remarks>
     private const int MaxPathsPerItem = 200;
 
     /// <summary>Reads the items out of a JSON document.</summary>
@@ -47,7 +55,13 @@ internal static class SyncPayloadReader
     /// A dotted path to the array, or empty when the document is itself the array.
     /// </param>
     /// <param name="maxItems">How many items are read before the rest are ignored.</param>
-    public static SyncPayload ReadJson(string body, string itemsPath, int maxItems)
+    /// <param name="paths">
+    /// The paths a mapping reads, or null for every path. A path keeps the values beneath it too, so
+    /// <c>assignees</c> keeps <c>assignees[0].login</c>, and an index matches any index, so
+    /// <c>labels[].name</c> and <c>labels[0].name</c> both keep every label's name.
+    /// </param>
+    public static SyncPayload ReadJson(
+        string body, string itemsPath, int maxItems, IReadOnlyCollection<string>? paths = null)
     {
         JsonDocument document;
         try
@@ -86,24 +100,45 @@ internal static class SyncPayloadReader
             }
 
             var rows = new List<IReadOnlyDictionary<string, string>>();
+            var wanted = paths?.Select(Unindexed).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
             foreach (var item in element.EnumerateArray())
             {
                 if (rows.Count >= maxItems) break;
 
                 var row = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                Flatten(item, prefix: string.Empty, depth: 0, row);
+                Flatten(item, prefix: string.Empty, depth: 0, row, wanted);
                 rows.Add(row);
             }
 
-            return new SyncPayload(rows, null);
+            return new SyncPayload(rows, null) { Truncated = element.GetArrayLength() > rows.Count };
         }
     }
 
     private static IEnumerable<string> Segments(string path) =>
         path.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-    private static void Flatten(JsonElement element, string prefix, int depth, Dictionary<string, string> row)
+    private static string Unindexed(string path) =>
+        System.Text.RegularExpressions.Regex.Replace(path, @"\[\d*\]", "[]");
+
+    private static bool Wanted(string path, HashSet<string>? wanted)
+    {
+        if (wanted is null) return true;
+
+        var plain = Unindexed(path);
+        if (wanted.Contains(plain)) return true;
+
+        // A value beneath a wanted path: "assignees" wants "assignees[].login".
+        for (var i = 0; i < plain.Length; i++)
+        {
+            if ((plain[i] == '.' || plain[i] == '[') && wanted.Contains(plain[..i])) return true;
+        }
+
+        return false;
+    }
+
+    private static void Flatten(
+        JsonElement element, string prefix, int depth, Dictionary<string, string> row, HashSet<string>? wanted = null)
     {
         if (row.Count >= MaxPathsPerItem) return;
 
@@ -113,7 +148,7 @@ internal static class SyncPayloadReader
                 if (depth >= MaxDepth) return;
                 foreach (var property in element.EnumerateObject())
                 {
-                    Flatten(property.Value, Join(prefix, property.Name), depth + 1, row);
+                    Flatten(property.Value, Join(prefix, property.Name), depth + 1, row, wanted);
                 }
                 return;
 
@@ -122,7 +157,7 @@ internal static class SyncPayloadReader
                 var index = 0;
                 foreach (var item in element.EnumerateArray())
                 {
-                    Flatten(item, $"{prefix}[{index}]", depth + 1, row);
+                    Flatten(item, $"{prefix}[{index}]", depth + 1, row, wanted);
                     index++;
                     if (row.Count >= MaxPathsPerItem) return;
                 }
@@ -132,13 +167,13 @@ internal static class SyncPayloadReader
                 return;
 
             case JsonValueKind.String:
-                if (prefix.Length > 0) row[prefix] = element.GetString() ?? string.Empty;
+                if (prefix.Length > 0 && Wanted(prefix, wanted)) row[prefix] = element.GetString() ?? string.Empty;
                 return;
 
             default:
                 // Numbers and booleans by their raw text, so a large integer or a decimal keeps the
                 // digits the provider sent rather than passing through a double.
-                if (prefix.Length > 0) row[prefix] = element.GetRawText();
+                if (prefix.Length > 0 && Wanted(prefix, wanted)) row[prefix] = element.GetRawText();
                 return;
         }
     }
@@ -205,11 +240,12 @@ internal static class SyncPayloadReader
             ? root.Elements(Atom + "entry").Select(ReadAtomEntry)
             : root.Descendants("item").Select(ReadRssItem);
 
-        var rows = items.Take(maxItems).ToList();
+        var read = items.Take(maxItems + 1).ToList();
+        var rows = read.Take(maxItems).ToList();
 
         return rows.Count == 0
             ? SyncPayload.Failed("The feed holds no items. It is neither RSS with <item> nor Atom with <entry>.")
-            : new SyncPayload(rows, null);
+            : new SyncPayload(rows, null) { Truncated = read.Count > maxItems };
     }
 
     private static IReadOnlyDictionary<string, string> ReadRssItem(XElement item)

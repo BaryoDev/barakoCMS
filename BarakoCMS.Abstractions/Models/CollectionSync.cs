@@ -94,6 +94,39 @@ public class CollectionSync
     public List<SyncExcludeRule> Exclude { get; set; } = new();
 
     /// <summary>
+    /// Archive the published entries this sync owns that a complete run did not produce. Off by
+    /// default.
+    /// </summary>
+    /// <remarks>
+    /// Complete means the run succeeded, read at least one item, skipped no item it could not map,
+    /// read fewer items than <see cref="MaxEntries"/> allows, and the provider named no next page. A
+    /// partial read cannot tell an item that is gone from one that was not read, so it archives
+    /// nothing, and neither does an empty one, which a provider having a bad moment also sends.
+    ///
+    /// What this sync owns is <see cref="SyncedKeys"/>, recorded while this is on. An entry written
+    /// by hand has an id no key derives, and an entry another sync wrote is not in this sync's keys,
+    /// unless both syncs produce the same key, in which case it is the same entry by design.
+    /// </remarks>
+    public bool ArchiveMissing { get; set; }
+
+    /// <summary>
+    /// The keys of the entries this sync has written and not archived, recorded while
+    /// <see cref="ArchiveMissing"/> is on.
+    /// </summary>
+    /// <remarks>
+    /// Only the newest <see cref="MaxSyncedKeys"/> are kept. A key dropped from here is never
+    /// archived, which is the safe way to lose one.
+    /// </remarks>
+    public List<string> SyncedKeys { get; set; } = new();
+
+    /// <summary>
+    /// The keys of entries this sync archived, so an item that comes back is published again. An
+    /// entry archived by anyone else is left archived.
+    /// </summary>
+    /// <remarks>Only the newest <see cref="MaxArchivedKeys"/> are kept.</remarks>
+    public List<string> ArchivedKeys { get; set; } = new();
+
+    /// <summary>
     /// The content field holding the stable key, so a re-sync updates an entry rather than adding
     /// another one.
     /// </summary>
@@ -161,6 +194,12 @@ public class CollectionSync
 
     /// <summary>The largest <see cref="MaxEntries"/> a sync may be saved with.</summary>
     public const int MaxEntriesCeiling = 500;
+
+    /// <summary>How many <see cref="ArchivedKeys"/> a sync keeps.</summary>
+    public const int MaxArchivedKeys = 1000;
+
+    /// <summary>How many <see cref="SyncedKeys"/> a sync keeps.</summary>
+    public const int MaxSyncedKeys = 1000;
 
     /// <summary>The shortest <see cref="IntervalMinutes"/> a sync may be saved with.</summary>
     public const int MinIntervalMinutes = 5;

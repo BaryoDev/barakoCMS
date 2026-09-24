@@ -27,6 +27,7 @@ internal sealed class CollectionSyncResponse
     public Dictionary<string, string> FieldMap { get; init; } = new();
     public Dictionary<string, SyncFieldRule> FieldRules { get; init; } = new();
     public List<SyncExcludeRule> Exclude { get; init; } = new();
+    public bool ArchiveMissing { get; init; }
     public string KeyField { get; init; } = string.Empty;
     public List<string> FloorFields { get; init; } = new();
     public int IntervalMinutes { get; init; }
@@ -57,6 +58,7 @@ internal sealed class CollectionSyncResponse
         FieldMap = s.FieldMap,
         FieldRules = s.FieldRules ?? new(),
         Exclude = s.Exclude ?? new(),
+        ArchiveMissing = s.ArchiveMissing,
         KeyField = s.KeyField,
         FloorFields = s.FloorFields,
         IntervalMinutes = s.IntervalMinutes,
@@ -95,6 +97,9 @@ internal sealed class SaveCollectionSyncRequest
     /// <summary>Rules that skip an item before it is mapped.</summary>
     public List<SyncExcludeRule>? Exclude { get; set; } = new();
 
+    /// <summary>Archive this sync's entries a complete run did not produce. Off unless set.</summary>
+    public bool ArchiveMissing { get; set; }
+
     public string KeyField { get; set; } = string.Empty;
     public List<string> FloorFields { get; set; } = new();
     public int IntervalMinutes { get; set; } = 60;
@@ -113,6 +118,9 @@ internal sealed class RunCollectionSyncResponse
 
     /// <summary>Items an exclude rule skipped. Not a fault, unlike <see cref="Skipped"/>.</summary>
     public int Excluded { get; init; }
+
+    /// <summary>Entries archived because a complete run no longer produced them.</summary>
+    public int Archived { get; init; }
 
     /// <summary>Why it failed, or null. Never a response body from the provider.</summary>
     public string? Error { get; init; }
