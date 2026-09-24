@@ -301,4 +301,75 @@ public class SiteBlueprintTests
         delivered.GetProperty("HoldingPath").GetString().Should().Be("/holding");
         text.Should().NotContain(hash).And.NotContain(key).And.NotContainEquivalentOf("KeyHash");
     }
+
+    /// <summary>
+    /// The four region settings barakoPress reads (site.ts, <c>regions</c>). A tone is one of the
+    /// renderer's tones, so the field offers exactly those and nothing a renderer would drop.
+    /// </summary>
+    [Fact]
+    public async Task Applying_site_creates_optional_header_and_footer_region_fields()
+    {
+        var client = await AdminInAsync(await TenantAsync());
+
+        (await client.PostAsync("/api/content-types/blueprints/site", null, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var types = await client.GetAsync("/api/content-types?pageSize=100", Ct);
+        using var doc = JsonDocument.Parse(await types.Content.ReadAsStringAsync(Ct));
+        var site = doc.RootElement.GetProperty("items").EnumerateArray().Single(i => i.GetProperty("name").GetString() == "site");
+        var fields = site.GetProperty("fields").EnumerateArray()
+            .ToDictionary(f => f.GetProperty("name").GetString()!, f => f);
+        fields.Should().ContainKeys("HeaderPath", "FooterPath", "HeaderTone", "FooterTone");
+        foreach (var path in new[] { "HeaderPath", "FooterPath" })
+        {
+            fields[path].GetProperty("type").GetString().Should().Be("string");
+            fields[path].GetProperty("isRequired").GetBoolean().Should().BeFalse("unset keeps the built-in header and footer");
+        }
+
+        foreach (var tone in new[] { "HeaderTone", "FooterTone" })
+        {
+            fields[tone].GetProperty("type").GetString().Should().Be("choice");
+            fields[tone].GetProperty("isRequired").GetBoolean().Should().BeFalse();
+            var options = fields[tone].GetProperty("options").EnumerateArray()
+                .Select(o => o.GetProperty("value").GetString()).ToList();
+            options.Should().HaveCount(6);
+            options.Should().Equal("page", "surface", "accent", "inverse", "gradient", "wash");
+        }
+    }
+
+    [Fact]
+    public async Task A_published_sites_region_settings_are_delivered_and_an_unknown_tone_is_refused()
+    {
+        var tenant = await TenantAsync();
+        var admin = await AdminInAsync(tenant);
+        (await admin.PostAsync("/api/content-types/blueprints/site", null, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var wrong = (Dictionary<string, object>)SiteData("Regions club");
+        wrong["HeaderTone"] = "neon";
+        (await admin.PostAsJsonAsync("/api/contents", new { contentType = "site", data = wrong }, Ct))
+            .IsSuccessStatusCode.Should().BeFalse("a tone the renderer does not know would be dropped without a word");
+
+        var data = (Dictionary<string, object>)SiteData("Regions club");
+        data["HeaderPath"] = "/regions/header";
+        data["HeaderTone"] = "inverse";
+        data["FooterPath"] = "/regions/footer";
+        data["FooterTone"] = "wash";
+        var created = await admin.PostAsJsonAsync("/api/contents", new { contentType = "site", data }, Ct);
+        created.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", created.StatusCode, await created.Content.ReadAsStringAsync(Ct));
+        using (var createdBody = JsonDocument.Parse(await created.Content.ReadAsStringAsync(Ct)))
+        {
+            await PublishAsync(admin, createdBody.RootElement.GetProperty("id").GetGuid());
+        }
+
+        var live = await AnonymousIn(tenant).GetAsync("/api/public/site", Ct);
+
+        live.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var body = JsonDocument.Parse(await live.Content.ReadAsStringAsync(Ct));
+        var items = body.RootElement.GetProperty("items");
+        items.GetArrayLength().Should().Be(1);
+        var delivered = items[0].GetProperty("data");
+        delivered.GetProperty("HeaderPath").GetString().Should().Be("/regions/header");
+        delivered.GetProperty("HeaderTone").GetString().Should().Be("inverse");
+        delivered.GetProperty("FooterPath").GetString().Should().Be("/regions/footer");
+        delivered.GetProperty("FooterTone").GetString().Should().Be("wash");
+    }
 }
