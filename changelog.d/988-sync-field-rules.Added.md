@@ -9,6 +9,7 @@
 - **A sync could not take an entry off the page when its source dropped it.** A closed milestone
   or an issue somebody took stayed published. `archiveMissing: true` archives the published entries
   a sync owns that a complete run did not produce, and publishes one again if it comes back. It
-  acts only when the run read everything: no `maxEntries` cut, no next page in the `Link` header,
-  no skipped item. Entries typed by hand or written by another sync are never touched. Off by
-  default, and the run result reports `archived`.
+  acts only when the run read everything: at least one item, no `maxEntries` cut, no next page in
+  the `Link` header, no skipped item. Entries typed by hand are never touched, nor are another
+  sync's, unless both syncs produce the same key and so write the same entry. Off by default, and
+  the run result reports `archived`.

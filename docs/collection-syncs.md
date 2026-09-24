@@ -206,9 +206,11 @@ POST /api/collection-syncs
 }
 ```
 
-It only acts on a complete read. A run archives nothing when it failed, when the source held more
-items than `maxEntries` let it read, when the provider's `Link` header names a next page, or when it
-skipped an item it could not map, since that item's key is unknown. Each of those runs cannot tell an
+It only acts on a complete read. A run archives nothing when it failed, when the source answered
+with no items at all, when the source held more items than `maxEntries` let it read, when the
+provider's `Link` header names a next page, or when it skipped an item it could not map, since that
+item's key is unknown. A next page carried in the body instead (a `total_count`, a cursor) is not
+detected, so set `maxEntries` above what such a source returns in one page, or leave this off. Each of those runs cannot tell an
 item that is gone from one it did not read.
 
 What a sync owns is the set of keys it has written while `archiveMissing` is on, kept on the sync.
@@ -223,7 +225,8 @@ archived; a draft, or an entry an editor already archived, is left as it is.
 
 When an item the sync archived comes back, the next run publishes the entry again (to the sync's
 `entryStatus`). An entry an editor archived stays archived even while the source still answers with
-it. The sync remembers the last 1000 keys it archived.
+it. The sync remembers the last 1000 keys it archived, and the last 1000 it owns; a key it forgets
+is never archived.
 
 ## The floor
 

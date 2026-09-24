@@ -65,6 +65,13 @@ internal sealed class SaveCollectionSyncValidator : Validator<SaveCollectionSync
                 && (rule.Const is not null || rule.Ratio is not null || rule.Contains is not null)))
             .WithMessage("KeyField cannot be a const, ratio or contains rule, since items would share the key.");
 
+        RuleFor(x => x.KeyField)
+            .Must((req, key) => !(req.FieldRules ?? new()).Any(r =>
+                string.Equals(r.Key, key, StringComparison.OrdinalIgnoreCase)
+                && r.Value is { Join: null } rule
+                && SyncRules.IsArrayPath(rule.Path)))
+            .WithMessage("KeyField cannot be an array path without join, since a list is not a key.");
+
         RuleFor(x => x.FloorFields)
             .Must((req, floors) => floors.All(f =>
                 Mapped(req).Any(k => string.Equals(k, f, StringComparison.OrdinalIgnoreCase))))

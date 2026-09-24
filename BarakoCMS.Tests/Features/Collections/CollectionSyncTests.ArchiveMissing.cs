@@ -4,6 +4,8 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using barakoCMS.Models;
 using FluentAssertions;
+using Marten;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace BarakoCMS.Tests.Features.Collections;
@@ -238,5 +240,106 @@ public partial class CollectionSyncTests
         statuses.Should().HaveCount(3);
         statuses["C"].Should().Be(ContentStatus.Published, "the sync archived it, so the sync restores it");
         statuses["A"].Should().Be(ContentStatus.Archived, "an editor archived it, and that decision stands");
+    }
+
+    [Fact]
+    public async Task A_run_that_skipped_an_item_archives_nothing()
+    {
+        var source = new Source { Body = IssueList("A", "B", "C") };
+        var setup = await ArrangeArchivingAsync(source);
+
+        (await RunAsync(setup)).GetProperty("created").GetInt32().Should().Be(3);
+
+        // An item with no title has no key, so this run cannot tell whether it was C.
+        source.Body = IssueList("A", "B", "");
+        var skipped = await RunAsync(setup);
+
+        skipped.GetProperty("skipped").GetInt32().Should().Be(1);
+        skipped.GetProperty("archived").GetInt32().Should().Be(0);
+        (await StatusesAsync(setup.Type))["C"].Should().Be(ContentStatus.Published);
+
+        source.Body = IssueList("A", "B");
+        (await RunAsync(setup)).GetProperty("archived").GetInt32().Should().Be(1, "the control: nothing skipped");
+    }
+
+    [Fact]
+    public async Task An_empty_answer_archives_nothing()
+    {
+        var source = new Source { Body = IssueList("A", "B", "C") };
+        var setup = await ArrangeArchivingAsync(source);
+
+        (await RunAsync(setup)).GetProperty("created").GetInt32().Should().Be(3);
+
+        source.Body = IssueList(Array.Empty<string>());
+        var empty = await RunAsync(setup);
+
+        empty.GetProperty("archived").GetInt32().Should().Be(0, "a provider having a bad moment answers with an empty list too");
+        var statuses = await StatusesAsync(setup.Type);
+        statuses.Should().HaveCount(3);
+        statuses.Values.Should().OnlyContain(s => s == ContentStatus.Published);
+
+        source.Body = IssueList("A", "B");
+        (await RunAsync(setup)).GetProperty("archived").GetInt32().Should().Be(1, "the control: the keys survived the empty run");
+    }
+
+    [Fact]
+    public async Task A_draft_the_source_dropped_is_left_a_draft()
+    {
+        var source = new Source { Body = IssueList("A", "B", "C") };
+        var setup = await ArrangeArchivingAsync(source);
+
+        (await RunAsync(setup)).GetProperty("created").GetInt32().Should().Be(3);
+
+        var c = (await EntriesAsync(setup.Type)).Single(e => Value(e, "title") == "C");
+        var drafted = await (await AdminAsync()).PutAsJsonAsync(
+            $"/api/contents/{c.Id}/status", new { id = c.Id, newStatus = "Draft" },
+            TestContext.Current.CancellationToken);
+        drafted.IsSuccessStatusCode.Should().BeTrue(
+            await drafted.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+
+        source.Body = IssueList("A");
+        (await RunAsync(setup)).GetProperty("archived").GetInt32().Should().Be(1, "B was published, C a draft");
+
+        var statuses = await StatusesAsync(setup.Type);
+        statuses["B"].Should().Be(ContentStatus.Archived);
+        statuses["C"].Should().Be(ContentStatus.Draft);
+    }
+
+    [Fact]
+    public async Task Moving_a_sync_to_another_content_type_forgets_the_keys_it_owned()
+    {
+        var source = new Source { Body = IssueList("A", "B") };
+        var setup = await ArrangeArchivingAsync(source);
+
+        (await RunAsync(setup)).GetProperty("created").GetInt32().Should().Be(2);
+        (await StoredSyncAsync(setup)).SyncedKeys.Should().BeEquivalentTo(["A", "B"]);
+
+        var moved = setup.Type + "b";
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(), Name = moved, DisplayName = "Issue", Fields = IssueFields(),
+            });
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        var body = IssueSyncBody(setup, "{}", null, null);
+        body["contentType"] = moved;
+        body["archiveMissing"] = true;
+        var put = await (await AdminAsync()).PutAsJsonAsync(
+            $"/api/collection-syncs/{setup.Slug}", body, TestContext.Current.CancellationToken);
+        put.IsSuccessStatusCode.Should().BeTrue(await put.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+
+        (await StoredSyncAsync(setup)).SyncedKeys.Should().BeEmpty();
+    }
+
+    private async Task<CollectionSync> StoredSyncAsync(Setup setup)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+        return (await session.Query<CollectionSync>()
+            .FirstOrDefaultAsync(s => s.Slug == setup.Slug, TestContext.Current.CancellationToken))!;
     }
 }

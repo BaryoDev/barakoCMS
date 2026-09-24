@@ -25,8 +25,9 @@ internal sealed record CollectionSyncOutcome(
     public IReadOnlySet<string> Produced { get; init; } = new HashSet<string>();
 
     /// <summary>
-    /// Whether the run read everything the source holds: no <c>MaxEntries</c> cut, no next page,
-    /// and no item skipped, whose key would be unknown.
+    /// Whether the run read everything the source holds: at least one item, no <c>MaxEntries</c>
+    /// cut, no next page, and no item skipped, whose key would be unknown. An empty answer counts as
+    /// incomplete, since a provider having a bad moment answers with an empty list too.
     /// </summary>
     public bool ReadAll { get; init; }
 
@@ -124,6 +125,10 @@ internal sealed class CollectionSyncRunner(
     /// did not read may still be at the source. A skipped item counts as incomplete too, since its
     /// key is unknown and its entry would otherwise look missing.
     ///
+    /// Nothing is saved here. The archives are staged and committed with the sync document by
+    /// <see cref="RunAsync"/>, so an entry is never archived without its key reaching
+    /// <see cref="CollectionSync.ArchivedKeys"/>, which is what lets it be published again.
+    ///
     /// Archived rather than erased, through the same ContentStatusChanged the status endpoint and the
     /// schedule append, so history and workflows see it. Only a Published entry is archived: a draft
     /// or an entry somebody already archived is left as it is.
@@ -135,7 +140,11 @@ internal sealed class CollectionSyncRunner(
 
         if (!complete)
         {
-            sync.SyncedKeys = sync.SyncedKeys.Union(produced, StringComparer.Ordinal).ToList();
+            sync.SyncedKeys = sync.SyncedKeys
+                .Where(k => !produced.Contains(k))
+                .Concat(produced.Order(StringComparer.Ordinal))
+                .TakeLast(CollectionSync.MaxSyncedKeys)
+                .ToList();
             sync.ArchivedKeys = archivedKeys;
             return 0;
         }
@@ -149,7 +158,6 @@ internal sealed class CollectionSyncRunner(
 
             await writer.AppendAsync(
                 entry, new ContentStatusChanged(entry.Id, ContentStatus.Archived, SystemActor, DateTime.UtcNow), ct);
-            await session.SaveChangesAsync(ct);
 
             archivedKeys.Add(key);
             archived++;
@@ -277,7 +285,7 @@ internal sealed class CollectionSyncRunner(
         return new CollectionSyncOutcome(true, created, updated, unchanged, skipped, null, excluded)
         {
             Produced = produced,
-            ReadAll = !payload.Truncated && !fetched.HasNextPage && skipped == 0,
+            ReadAll = payload.Rows.Count > 0 && !payload.Truncated && !fetched.HasNextPage && skipped == 0,
         };
     }
 
@@ -409,7 +417,7 @@ internal sealed class CollectionSyncRunner(
                 case string text:
                     if (!TryConvert(text, definition.Type, out var value))
                     {
-                        reason = $"the rule for '{field}' made '{text}', which does not convert to the {definition.Type} field";
+                        reason = $"the rule for '{field}' made a value that does not convert to the {definition.Type} field";
                         return null;
                     }
 

@@ -355,6 +355,45 @@ public partial class CollectionSyncTests
             .Should().Contain("cannot be a const, ratio or contains rule");
     }
 
+    [Fact]
+    public async Task An_array_path_without_join_cannot_be_the_key()
+    {
+        var setup = await ArrangeAsync(() => (HttpStatusCode.OK, Issues), save: false, fields: IssueFields());
+
+        var body = IssueSyncBody(setup, """{ "labels": { "path": "labels[].name" } }""", null, null);
+        body["keyField"] = "labels";
+
+        var response = await (await AdminAsync()).PostAsJsonAsync(
+            "/api/collection-syncs", body, TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))
+            .Should().Contain("array path without join");
+    }
+
+    [Fact]
+    public async Task A_rule_value_that_does_not_convert_is_not_echoed_into_the_error()
+    {
+        var setup = await ArrangeIssuesAsync("""{ "percent": { "path": "title" } }""");
+
+        var outcome = await RunAsync(setup);
+
+        outcome.GetProperty("succeeded").GetBoolean().Should().BeFalse("got: {0}", outcome);
+        var error = outcome.GetProperty("error").GetString();
+        error.Should().Contain("percent");
+        error.Should().NotContain("Fix the importer", "provider text stays out of the stored and logged error");
+    }
+
+    [Theory]
+    [InlineData("<https://api.example/x?page=2>; rel=\"next\"", true)]
+    [InlineData("<https://api.example/x?page=2>; rel=next", true)]
+    [InlineData("<https://api.example/x?page=2>; rel=\"next prefetch\"", true)]
+    [InlineData("<https://api.example/x?page=1>; rel=\"prev\", <https://api.example/x?page=3>; REL=\"Next\"", true)]
+    [InlineData("<https://api.example/x?page=1>; rel=\"prev\"", false)]
+    [InlineData("<https://api.example/x?page=9>; rel=\"nextish\"", false)]
+    public void A_link_header_names_a_next_page_only_by_its_rel(string link, bool expected) =>
+        barakoCMS.Infrastructure.Connectors.ConnectorSender.NamesNextPage(link).Should().Be(expected);
+
     private async Task<Setup> ArrangeIssuesAsync(
         string rules, string? exclude = null, Dictionary<string, string>? fieldMap = null)
     {
