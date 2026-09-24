@@ -7,18 +7,23 @@ namespace barakoCMS.Features.ApiKeys;
 
 // API keys are managed by a human admin (JWT) and scoped to the admin's current tenant. They act as
 // the creating user, so a key can never do more than its creator, and its scopes narrow it further to
-// the content surface. The secret is shown once, on create, and only its hash is stored.
+// the content surface. Naming content types makes it a push key, limited to
+// POST /api/collections/{type}/push for those types. The secret is shown once, on create, and only
+// its hash is stored.
 
 internal sealed class CreateApiKeyRequest
 {
     public string Name { get; set; } = string.Empty;
     public List<string> Scopes { get; set; } = new();
     public DateTime? ExpiresAt { get; set; }
+
+    /// <summary>Limits the key to pushing to these content types. Empty for no limit.</summary>
+    public List<string>? ContentTypes { get; set; }
 }
 
 internal sealed record CreateApiKeyResponse(
     Guid Id, string Key, string Prefix, string Name, List<string> Scopes,
-    string TenantSlug, DateTime? ExpiresAt, DateTime CreatedAt);
+    string TenantSlug, DateTime? ExpiresAt, DateTime CreatedAt, List<string> ContentTypes);
 
 /// <summary>POST /api/api-keys — create a key; returns the full secret ONCE.</summary>
 internal class CreateApiKeyEndpoint(
@@ -48,6 +53,17 @@ internal class CreateApiKeyEndpoint(
             AddError(r => r.Scopes, $"Unknown scope '{s}'.");
         if (req.ExpiresAt is { } exp && exp <= DateTime.UtcNow)
             AddError(r => r.ExpiresAt, "Expiry must be in the future.");
+
+        var contentTypes = (req.ContentTypes ?? new())
+            .Select(t => t.Trim())
+            .Where(t => t.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        foreach (var type in contentTypes)
+        {
+            if (!await session.Query<ContentTypeDefinition>().AnyAsync(d => d.Name == type, ct))
+                AddError(r => r.ContentTypes, $"There is no content type called '{type}'.");
+        }
         ThrowIfAnyErrors();
 
         var creatorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var id) ? id : Guid.Empty;
@@ -63,6 +79,7 @@ internal class CreateApiKeyEndpoint(
             UserId = creatorId,
             TenantSlug = tenant,
             Scopes = scopes,
+            ContentTypes = contentTypes,
             ExpiresAt = req.ExpiresAt,
             Revoked = false,
             CreatedAt = DateTime.UtcNow,
@@ -73,13 +90,13 @@ internal class CreateApiKeyEndpoint(
         // The one and only time the plaintext secret leaves the server.
         await Send.OkAsync(new CreateApiKeyResponse(
             apiKey.Id, generated.Secret, apiKey.Prefix, apiKey.Name, apiKey.Scopes,
-            apiKey.TenantSlug, apiKey.ExpiresAt, apiKey.CreatedAt), ct);
+            apiKey.TenantSlug, apiKey.ExpiresAt, apiKey.CreatedAt, apiKey.ContentTypes), ct);
     }
 }
 
 internal sealed record ApiKeyListItem(
     Guid Id, string Name, string Prefix, List<string> Scopes, string TenantSlug,
-    DateTime? ExpiresAt, DateTime? LastUsedAt, bool Revoked, DateTime CreatedAt);
+    DateTime? ExpiresAt, DateTime? LastUsedAt, bool Revoked, DateTime CreatedAt, List<string> ContentTypes);
 
 /// <summary>GET /api/api-keys — list the current tenant's keys (never the secret or hash).</summary>
 internal class ListApiKeysEndpoint(IQuerySession session) : Endpoint<ListRequest, PaginatedResponse<ApiKeyListItem>>
@@ -103,7 +120,7 @@ internal class ListApiKeysEndpoint(IQuerySession session) : Endpoint<ListRequest
             Items = page.Items
                 .Select(k => new ApiKeyListItem(
                     k.Id, k.Name, k.Prefix, k.Scopes, k.TenantSlug,
-                    k.ExpiresAt, k.LastUsedAt, k.Revoked, k.CreatedAt))
+                    k.ExpiresAt, k.LastUsedAt, k.Revoked, k.CreatedAt, k.ContentTypes ?? new()))
                 .ToList(),
             Page = page.Page,
             PageSize = page.PageSize,
