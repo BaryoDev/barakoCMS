@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.4.1] - 2026-09-25
+
+### Fixed
+
+- **A module built against 4.0 to 4.2 stopped the host from starting on 4.3.0 and 4.4.0.** 4.3.0
+  moved the module contract, the models and the interfaces from barakoCMS into
+  BarakoCMS.Abstractions without type forwarders, so a compiled module still looking for them in
+  barakoCMS failed with a TypeLoadException. That hit every host using BarakoCMS.Email.Smtp 4.0.0,
+  BarakoCMS.Pages 4.2.0 or BarakoCMS.Files.S3 4.1.1 (with BarakoCMS.Files 4.1.1), the latest of
+  each on NuGet. barakoCMS now forwards all 101 moved types, so those binaries load unchanged.
+  A module assembly that still cannot load no longer takes the host down: discovery skips it with a
+  warning naming the assembly and the types it is missing, the endpoint scan leaves it out, and
+  `BarakoCMS:Modules:Enabled` naming a module in it fails with an error that names the assembly.
+  Adding such a module by hand is refused. An assembly that defines no module is scanned as before,
+  so a broken type in the host's own libraries still stops startup. BarakoCMS.Email.Smtp 4.0.1,
+  BarakoCMS.Pages 4.2.1 and BarakoCMS.Files.S3 4.1.2 are rebuilt against BarakoCMS.Abstractions,
+  and Files.S3 now requires BarakoCMS.Files 4.3.0 or later.
+
 ## [4.4.0] - 2026-09-25
 
 ### Added
