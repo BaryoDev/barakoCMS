@@ -71,4 +71,17 @@
     <ProjectReference Include="..\BarakoCMS.Suite\BarakoCMS.Suite.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Assemblies built against older barakoCMS releases, loaded by path at run time. Their sources
+         sit beside them for build.sh and are not part of this project. Copied to a subfolder, so
+         nothing resolves them by name. -->
+    <Compile Remove="Fixtures\LegacyModules\**" />
+    <None Remove="Fixtures\LegacyModules\**" />
+    <None Include="Fixtures\LegacyModules\*.dll;Fixtures\LegacyModules\*.txt" Exclude="Fixtures\LegacyModules\Barako.Fixture.Library.dll" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Renamed on the way out. JasperFx loads every .dll under the output folder when a host runs
+         its commands, and this one must never be loaded: nothing skips it, so every later host in
+         the test process would fail. The test only reads its metadata. -->
+    <None Include="Fixtures\LegacyModules\Barako.Fixture.Library.dll" Link="Fixtures\LegacyModules\Barako.Fixture.Library.metadata" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

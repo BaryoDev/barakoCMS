@@ -59,6 +59,13 @@ updates:
           - "version-update:semver-minor"
           - "version-update:semver-major"
 
+      # BarakoCMS is referenced as a package in two places, and neither should move: the module
+      # template, whose version is a placeholder filled in when a module is generated, and the
+      # fixture in BarakoCMS.Tests/Fixtures/LegacyModules/Legacy42, built against 4.2.0 on purpose
+      # because it is what a module compiled before 4.3.0 looks like. The solution never builds it;
+      # only that folder's build.sh does.
+      - dependency-name: "BarakoCMS"
+
   # Keep the Actions themselves current — the same "insufficient logging/CVE surfaces late" concern
   # the NuGet/npm gates exist for applies to third-party Actions too.
   - package-ecosystem: "github-actions"

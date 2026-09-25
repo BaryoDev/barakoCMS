@@ -5,7 +5,7 @@
 
     <IsPackable>true</IsPackable>
     <PackageId>BarakoCMS.Pages</PackageId>
-    <Version>4.2.0</Version>
+    <Version>4.2.1</Version>
     <Description>Page tree for barakoCMS: refuses a parent cycle, a page too deep or a reserved root slug on a configured content type, and serves the nested navigation, path resolution with breadcrumbs, and an authenticated tree with drafts for the console.</Description>
   </PropertyGroup>
 

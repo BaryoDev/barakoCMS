@@ -42,9 +42,9 @@ public static class ServiceCollectionExtensions
         IConfiguration configuration,
         Action<BarakoModuleBuilder>? configureModules)
     {
-        var (seen, enabled, modules) = AddModules(services, configuration, configureModules);
+        var (seen, enabled, modules, unloadable) = AddModules(services, configuration, configureModules);
 
-        AddModuleEndpoints(services, seen, enabled, modules);
+        AddModuleEndpoints(services, seen, enabled, modules, unloadable);
 
         AddJobQueue(services);
 
@@ -102,7 +102,7 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
-    private static (IReadOnlyList<IBarakoModule> Seen, IReadOnlyList<IBarakoModule> Enabled, IReadOnlyList<IBarakoModule> Ordered) AddModules(
+    private static (IReadOnlyList<IBarakoModule> Seen, IReadOnlyList<IBarakoModule> Enabled, IReadOnlyList<IBarakoModule> Ordered, IReadOnlyList<UnloadableModuleAssembly> Unloadable) AddModules(
         IServiceCollection services,
         IConfiguration configuration,
         Action<BarakoModuleBuilder>? configureModules)
@@ -117,6 +117,9 @@ public static class ServiceCollectionExtensions
         configureModules?.Invoke(moduleBuilder);
         if (moduleBuilder.Discover)
             moduleBuilder.DiscoverFrom();
+
+        foreach (var skipped in moduleBuilder.Skipped)
+            WarnUnloadable(skipped.Assembly, skipped.Missing);
 
         var seen = moduleBuilder.Modules;
         var enabledNames = ModuleEnablement.ReadEnabled(configuration);
@@ -134,7 +137,7 @@ public static class ServiceCollectionExtensions
         }
         else
         {
-            enabled = ModuleEnablement.Apply(seen, enabledNames);
+            enabled = ModuleEnablement.Apply(seen, enabledNames, moduleBuilder.Skipped);
         }
 
         // Every module seen and whether it runs, for GET /api/modules. The IBarakoModule singletons
@@ -178,14 +181,54 @@ public static class ServiceCollectionExtensions
             module.ConfigureServices(services, ModuleConfiguration(configuration, module));
         }
 
-        return (seen, enabled, modules);
+        return (seen, enabled, modules, moduleBuilder.Skipped);
+    }
+
+    /// <summary>
+    /// Whether FastEndpoints may scan <paramref name="assembly"/>. A module assembly with a type
+    /// that cannot load is skipped with a warning, the same assemblies module discovery skips,
+    /// because the scan calls <c>GetTypes</c> and one failure there stops the host (#1010).
+    /// </summary>
+    /// <remarks>
+    /// FastEndpoints applies this before its own exclusions, so it sees every loaded assembly.
+    /// Only those referencing core or the contract are probed, and only one that defines a module
+    /// is skipped. Core, the host's own assembly and any library that defines no module are
+    /// scanned as before, so a broken type in them still stops the host: that is a build to fix,
+    /// not a module to leave out.
+    /// </remarks>
+    internal static bool LoadsOrIsSkipped(System.Reflection.Assembly assembly)
+    {
+        if (assembly.IsDynamic
+            || assembly == typeof(ServiceCollectionExtensions).Assembly
+            || assembly == System.Reflection.Assembly.GetEntryAssembly()
+            || !assembly.GetReferencedAssemblies().Any(r => r.Name is "barakoCMS" or "BarakoCMS.Abstractions")
+            || BarakoModuleBuilder.TryLoadTypes(assembly, out var loaded, out var missing)
+            || !BarakoModuleBuilder.DefinesModule(assembly, loaded))
+        {
+            return true;
+        }
+
+        WarnUnloadable(assembly, missing);
+        return false;
+    }
+
+    private static void WarnUnloadable(System.Reflection.Assembly assembly, IReadOnlyList<string> missing)
+    {
+        var name = assembly.GetName();
+        Log.Warning(
+            "Skipping {Assembly} {Version}: it names types this barakoCMS {CoreVersion} cannot load ({Missing}). "
+            + "No module in it is registered and none of its endpoints are mapped. Update the package to a "
+            + "version built for this barakoCMS.",
+            name.Name, name.Version, typeof(ServiceCollectionExtensions).Assembly.GetName().Version,
+            string.Join(", ", missing));
     }
 
     private static void AddModuleEndpoints(
         IServiceCollection services,
         IReadOnlyList<IBarakoModule> seen,
         IReadOnlyList<IBarakoModule> enabled,
-        IReadOnlyList<IBarakoModule> modules)
+        IReadOnlyList<IBarakoModule> modules,
+        IReadOnlyList<UnloadableModuleAssembly> unloadable)
     {
         // FastEndpoints scans the entry (host) assembly by default; add each module's assembly so
         // endpoints shipped inside a module DLL are discovered too. DisableAutoDiscovery stays false,
@@ -208,12 +251,16 @@ public static class ServiceCollectionExtensions
             .Where(a => a != typeof(ServiceCollectionExtensions).Assembly && a != System.Reflection.Assembly.GetEntryAssembly())
             .ToHashSet();
 
+        var skippedByDiscovery = unloadable.Select(u => u.Assembly).ToHashSet();
+
         services.AddFastEndpoints(o =>
         {
             if (moduleAssemblies.Length > 0)
                 o.Assemblies = moduleAssemblies;
             if (switchedOff.Count > 0)
                 o.Filter = type => !switchedOff.Contains(type.Assembly);
+            // Discovery already warned about the ones it skipped, so they are left out unasked.
+            o.AssemblyFilter = a => !skippedByDiscovery.Contains(a) && LoadsOrIsSkipped(a);
         });
     }
 

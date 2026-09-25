@@ -275,7 +275,14 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             // Program.cs before any module assembly above was loaded, so none of the module
             // endpoints exist in that scan. Re-register with the module assemblies explicit;
             // FE registers EndpointData with a plain AddSingleton, so this last one wins.
-            services.AddFastEndpoints(o => o.Assemblies = ModuleEndpointAssemblies);
+            //
+            // It skips the assemblies core's scan skips. LegacyModuleHostTests loads one that
+            // cannot load into this process, and without the filter every later host fails here.
+            services.AddFastEndpoints(o =>
+            {
+                o.Assemblies = ModuleEndpointAssemblies;
+                o.AssemblyFilter = barakoCMS.Extensions.ServiceCollectionExtensions.LoadsOrIsSkipped;
+            });
         });
     }
 

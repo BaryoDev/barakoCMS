@@ -1,4 +1,6 @@
 using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using Microsoft.Extensions.DependencyModel;
 
 namespace barakoCMS.Modules;
@@ -10,8 +12,12 @@ namespace barakoCMS.Modules;
 public sealed class BarakoModuleBuilder
 {
     private readonly List<IBarakoModule> _modules = new();
+    private readonly List<UnloadableModuleAssembly> _skipped = new();
 
     public IReadOnlyList<IBarakoModule> Modules => _modules;
+
+    /// <summary>Module assemblies discovery passed over because a type in them cannot load.</summary>
+    internal IReadOnlyList<UnloadableModuleAssembly> Skipped => _skipped;
 
     /// <summary>
     /// Whether <c>AddBarakoCMS</c> calls <see cref="DiscoverFrom()"/> after the host's callback.
@@ -28,10 +34,23 @@ public sealed class BarakoModuleBuilder
     /// explanation. A repeat is a configuration mistake, not a preference, and this matches how
     /// <c>ModuleOrder</c> already treats two modules sharing a name.
     /// </remarks>
-    /// <exception cref="InvalidOperationException">The module's type is already registered.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// The module's type is already registered, or its assembly has a type that cannot load.
+    /// </exception>
     public BarakoModuleBuilder Add(IBarakoModule module)
     {
         ArgumentNullException.ThrowIfNull(module);
+
+        // The endpoint scan leaves such an assembly out, so the module would configure its services
+        // and serve none of its endpoints. Refused here, where the host named it.
+        var assembly = module.GetType().Assembly;
+        if (!TryLoadTypes(assembly, out _, out var missing))
+        {
+            var unloadable = new UnloadableModuleAssembly(assembly, missing);
+            throw new InvalidOperationException(
+                $"Module {module.GetType().FullName} cannot be registered: {unloadable} cannot load. "
+                + "Update the package to a version built for this barakoCMS.");
+        }
 
         if (IsRegistered(module.GetType()))
         {
@@ -135,6 +154,89 @@ public sealed class BarakoModuleBuilder
     }
 
     /// <summary>
+    /// Every type in <paramref name="assembly"/>, or false with the types that did load and the
+    /// names it could not resolve.
+    /// </summary>
+    /// <remarks>
+    /// The usual cause is a module built against a barakoCMS whose types this one no longer has
+    /// (#1010). Discovery and the endpoint scan in core both ask here, so they skip the same
+    /// assemblies: FastEndpoints calls <c>GetTypes</c> on every assembly it scans, and one that
+    /// throws there takes the whole host down.
+    /// </remarks>
+    internal static bool TryLoadTypes(Assembly assembly, out Type[] types, out IReadOnlyList<string> missing)
+    {
+        try
+        {
+            types = assembly.GetTypes();
+            missing = [];
+            return true;
+        }
+        catch (ReflectionTypeLoadException ex)
+        {
+            types = ex.Types.OfType<Type>().ToArray();
+            var names = ex.LoaderExceptions
+                .Select(e => e switch
+                {
+                    TypeLoadException t when !string.IsNullOrEmpty(t.TypeName) => t.TypeName,
+                    FileNotFoundException f when f.FileName is not null => f.FileName,
+                    FileLoadException f when f.FileName is not null => f.FileName,
+                    _ => e?.Message,
+                })
+                .OfType<string>()
+                .Distinct(StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal)
+                .ToList();
+            missing = names.Count > 0 ? names : [ex.Message];
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Whether <paramref name="assembly"/> defines a module, judged from <paramref name="loaded"/>
+    /// and, for the types that did not load, from its metadata.
+    /// </summary>
+    /// <remarks>
+    /// A module built against an older barakoCMS is exactly the case where the module type itself
+    /// fails to load, so the loaded types alone cannot answer. The metadata still says which types
+    /// implement <c>barakoCMS.Modules.IBarakoModule</c> by name. An assembly that defines no module
+    /// is a library the host depends on, and a type in it that cannot load is the host's build to
+    /// fix, so it is not skipped.
+    /// </remarks>
+    internal static bool DefinesModule(Assembly assembly, IEnumerable<Type> loaded)
+    {
+        if (loaded.Any(t => typeof(IBarakoModule).IsAssignableFrom(t)))
+            return true;
+
+        if (assembly.IsDynamic || string.IsNullOrEmpty(assembly.Location) || !File.Exists(assembly.Location))
+            return false;
+
+        using var stream = File.OpenRead(assembly.Location);
+        using var pe = new PEReader(stream);
+        if (!pe.HasMetadata)
+            return false;
+
+        var md = pe.GetMetadataReader();
+        foreach (var typeHandle in md.TypeDefinitions)
+        {
+            foreach (var implHandle in md.GetTypeDefinition(typeHandle).GetInterfaceImplementations())
+            {
+                var iface = md.GetInterfaceImplementation(implHandle).Interface;
+                if (iface.Kind != HandleKind.TypeReference)
+                    continue;
+
+                var reference = md.GetTypeReference((TypeReferenceHandle)iface);
+                if (md.StringComparer.Equals(reference.Name, nameof(IBarakoModule))
+                    && md.StringComparer.Equals(reference.Namespace, "barakoCMS.Modules"))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// The core library as the dependency context names it. A project reference and a package
     /// reference both list the id, and the comparer is case-insensitive, so the assembly name
     /// (<c>barakoCMS</c>) matches the same entry.
@@ -188,17 +290,21 @@ public sealed class BarakoModuleBuilder
         && typeof(IBarakoModule).IsAssignableFrom(type)
         && type.GetConstructor(Type.EmptyTypes) is not null;
 
-    // GetTypes throws away every type that loaded when one does not. The exception keeps them.
-    private static IEnumerable<Type> LoadableTypes(Assembly assembly)
+    // A module assembly with a type that cannot load is skipped whole and recorded, not mined for
+    // the types that did. The endpoint scan leaves it out too (see TryLoadTypes), so a module
+    // registered from it would run with none of its endpoints mapped. An assembly that defines no
+    // module gives up the types that loaded, which hold no module either.
+    private IEnumerable<Type> LoadableTypes(Assembly assembly)
     {
-        try
-        {
-            return assembly.GetTypes();
-        }
-        catch (ReflectionTypeLoadException ex)
-        {
-            return ex.Types.Where(t => t is not null)!;
-        }
+        if (TryLoadTypes(assembly, out var types, out var missing))
+            return types;
+
+        if (!DefinesModule(assembly, types))
+            return types;
+
+        if (!_skipped.Any(s => s.Assembly == assembly))
+            _skipped.Add(new UnloadableModuleAssembly(assembly, missing));
+        return [];
     }
 
     private bool IsRegistered(Type type) => _modules.Any(m => m.GetType() == type);
