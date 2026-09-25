@@ -228,7 +228,7 @@ public static class ServiceCollectionExtensions
     /// Only those referencing core or the contract are probed. Core and the host's own assembly are
     /// never skipped: a broken type in either is a build to fix, not a module to leave out.
     /// </remarks>
-    private static bool LoadsOrIsSkipped(System.Reflection.Assembly assembly)
+    internal static bool LoadsOrIsSkipped(System.Reflection.Assembly assembly)
     {
         var core = typeof(ServiceCollectionExtensions).Assembly;
         if (assembly.IsDynamic
