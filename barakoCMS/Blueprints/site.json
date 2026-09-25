@@ -39,6 +39,12 @@
         { "name": "HeaderTone", "displayName": "Header tone", "type": "choice", "options": [ { "value": "page", "label": "Page" }, { "value": "surface", "label": "Surface" }, { "value": "accent", "label": "Accent" }, { "value": "inverse", "label": "Inverse" }, { "value": "gradient", "label": "Gradient" }, { "value": "wash", "label": "Wash" } ] },
         { "name": "FooterPath", "displayName": "Footer page path", "type": "string" },
         { "name": "FooterTone", "displayName": "Footer tone", "type": "choice", "options": [ { "value": "page", "label": "Page" }, { "value": "surface", "label": "Surface" }, { "value": "accent", "label": "Accent" }, { "value": "inverse", "label": "Inverse" }, { "value": "gradient", "label": "Gradient" }, { "value": "wash", "label": "Wash" } ] },
+        { "name": "Tokens", "displayName": "Design tokens", "type": "json" },
+        { "name": "Tones", "displayName": "Tones", "type": "json" },
+        { "name": "StyleRecipes", "displayName": "Style recipes", "type": "json" },
+        { "name": "MenuLinks", "displayName": "Phone menu links", "type": "json" },
+        { "name": "HeaderActions", "displayName": "Header actions", "type": "json" },
+        { "name": "Plugins", "displayName": "Enabled plugins", "type": "json" },
         { "name": "Presets", "displayName": "Saved blocks", "type": "json" }
       ]
     }

@@ -372,4 +372,160 @@ public class SiteBlueprintTests
         delivered.GetProperty("FooterPath").GetString().Should().Be("/regions/footer");
         delivered.GetProperty("FooterTone").GetString().Should().Be("wash");
     }
+
+    /// <summary>
+    /// The settings barakoPress 0.8.0 reads beyond the regions: tokens and tones (#125), the phone
+    /// menu and header actions (#127), style recipes (#143) and enabled plugins (#144). barakoBrew
+    /// edits only what the blueprint declares, so undeclared they could only be set through the API.
+    /// </summary>
+    [Fact]
+    public async Task Applying_site_creates_optional_json_fields_for_the_settings_barakoPress_0_8_reads()
+    {
+        var client = await AdminInAsync(await TenantAsync());
+
+        (await client.PostAsync("/api/content-types/blueprints/site", null, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var types = await client.GetAsync("/api/content-types?pageSize=100", Ct);
+        using var doc = JsonDocument.Parse(await types.Content.ReadAsStringAsync(Ct));
+        var site = doc.RootElement.GetProperty("items").EnumerateArray().Single(i => i.GetProperty("name").GetString() == "site");
+        var fields = site.GetProperty("fields").EnumerateArray()
+            .ToDictionary(f => f.GetProperty("name").GetString()!, f => f);
+        var added = new[] { "Tokens", "Tones", "StyleRecipes", "MenuLinks", "HeaderActions", "Plugins" };
+        fields.Should().ContainKeys(added);
+        foreach (var name in added)
+        {
+            fields[name].GetProperty("type").GetString().Should().Be("json", name);
+            fields[name].GetProperty("isRequired").GetBoolean().Should().BeFalse("unset renders the site as it did before ({0})", name);
+        }
+    }
+
+    [Fact]
+    public async Task A_published_sites_tokens_tones_menus_actions_recipes_and_plugins_are_delivered()
+    {
+        var tenant = await TenantAsync();
+        var admin = await AdminInAsync(tenant);
+        (await admin.PostAsync("/api/content-types/blueprints/site", null, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var data = (Dictionary<string, object>)SiteData("Tokens club");
+        data["Tokens"] = new Dictionary<string, object> { ["cms-ink"] = "#1D3A8A", ["gutter"] = "24px" };
+        data["Tones"] = new Dictionary<string, object>
+        {
+            ["cms"] = new Dictionary<string, object> { ["ink"] = "cms-ink", ["bg"] = "#E8EEFD", ["edge"] = "#B9C8F5" },
+        };
+        data["StyleRecipes"] = new Dictionary<string, object>
+        {
+            ["card"] = new Dictionary<string, object>
+            {
+                ["class"] = "lift",
+                ["style"] = new Dictionary<string, object> { ["padding"] = "22px 24px", ["background"] = "{colors.surface}" },
+            },
+        };
+        data["MenuLinks"] = new object[] { new Dictionary<string, object> { ["label"] = "Docs", ["href"] = "/docs" } };
+        data["HeaderActions"] = new object[]
+        {
+            new Dictionary<string, object> { ["label"] = "Get started", ["href"] = "/start", ["variant"] = "secondary" },
+        };
+        data["Plugins"] = new object[] { "tally" };
+        var created = await admin.PostAsJsonAsync("/api/contents", new { contentType = "site", data }, Ct);
+        created.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", created.StatusCode, await created.Content.ReadAsStringAsync(Ct));
+        using (var createdBody = JsonDocument.Parse(await created.Content.ReadAsStringAsync(Ct)))
+        {
+            await PublishAsync(admin, createdBody.RootElement.GetProperty("id").GetGuid());
+        }
+
+        var live = await AnonymousIn(tenant).GetAsync("/api/public/site", Ct);
+
+        live.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var body = JsonDocument.Parse(await live.Content.ReadAsStringAsync(Ct));
+        var items = body.RootElement.GetProperty("items");
+        items.GetArrayLength().Should().Be(1);
+        var delivered = items[0].GetProperty("data");
+        delivered.TryGetProperty("Tokens", out var tokens).Should().BeTrue("public delivery sends only declared fields");
+        tokens.GetProperty("cms-ink").GetString().Should().Be("#1D3A8A");
+        delivered.GetProperty("Tones").GetProperty("cms").GetProperty("ink").GetString().Should().Be("cms-ink");
+        var card = delivered.GetProperty("StyleRecipes").GetProperty("card");
+        card.GetProperty("class").GetString().Should().Be("lift");
+        card.GetProperty("style").GetProperty("background").GetString().Should().Be("{colors.surface}");
+        delivered.GetProperty("MenuLinks").GetArrayLength().Should().Be(1);
+        delivered.GetProperty("MenuLinks")[0].GetProperty("href").GetString().Should().Be("/docs");
+        delivered.GetProperty("HeaderActions").GetArrayLength().Should().Be(1);
+        delivered.GetProperty("HeaderActions")[0].GetProperty("variant").GetString().Should().Be("secondary");
+        var plugins = delivered.GetProperty("Plugins").EnumerateArray().Select(p => p.GetString()).ToList();
+        plugins.Should().Equal("tally");
+    }
+
+    /// <summary>
+    /// <c>HeaderLinks</c> and <c>Collections</c> are json, so the API stores whatever keys barakoPress
+    /// adds to them. This pins that: the header's <c>activeOn</c> and <c>children</c> (#127), a
+    /// collection's <c>index</c> object and <c>indexPage</c> (#126), and a docs tree's
+    /// <c>variant</c>, <c>searchIndex</c> and a product's <c>note</c> (#145) all come back as sent.
+    /// </summary>
+    [Fact]
+    public async Task Header_links_and_collections_keep_the_keys_barakoPress_0_8_adds()
+    {
+        var tenant = await TenantAsync();
+        var admin = await AdminInAsync(tenant);
+        (await admin.PostAsync("/api/content-types/blueprints/site", null, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var data = (Dictionary<string, object>)SiteData("Docs club");
+        data["HeaderLinks"] = new object[]
+        {
+            new Dictionary<string, object>
+            {
+                ["label"] = "Docs",
+                ["href"] = "/docs",
+                ["activeOn"] = "/docs /guides",
+                ["children"] = new object[] { new Dictionary<string, object> { ["label"] = "API", ["href"] = "/docs/api" } },
+            },
+        };
+        data["Collections"] = new Dictionary<string, object>
+        {
+            ["docs"] = new Dictionary<string, object>
+            {
+                ["type"] = "doc",
+                ["route"] = "/docs",
+                ["fields"] = new Dictionary<string, object> { ["title"] = "Title" },
+                ["index"] = new Dictionary<string, object> { ["heading"] = "The manual", ["empty"] = "Nothing yet" },
+                ["indexPage"] = "/site/docs",
+                ["tree"] = new Dictionary<string, object>
+                {
+                    ["section"] = "Section",
+                    ["variant"] = new Dictionary<string, object> { ["switcher"] = "list", ["sidebar"] = "boxed", ["rail"] = true },
+                    ["searchIndex"] = true,
+                    ["products"] = new object[]
+                    {
+                        new Dictionary<string, object> { ["key"] = "cms", ["label"] = "barakoCMS", ["note"] = "on GitHub" },
+                    },
+                },
+            },
+        };
+        var created = await admin.PostAsJsonAsync("/api/contents", new { contentType = "site", data }, Ct);
+        created.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", created.StatusCode, await created.Content.ReadAsStringAsync(Ct));
+        using (var createdBody = JsonDocument.Parse(await created.Content.ReadAsStringAsync(Ct)))
+        {
+            await PublishAsync(admin, createdBody.RootElement.GetProperty("id").GetGuid());
+        }
+
+        var live = await AnonymousIn(tenant).GetAsync("/api/public/site", Ct);
+
+        live.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var body = JsonDocument.Parse(await live.Content.ReadAsStringAsync(Ct));
+        var items = body.RootElement.GetProperty("items");
+        items.GetArrayLength().Should().Be(1);
+        var delivered = items[0].GetProperty("data");
+        var links = delivered.GetProperty("HeaderLinks");
+        links.GetArrayLength().Should().Be(1);
+        links[0].GetProperty("activeOn").GetString().Should().Be("/docs /guides");
+        links[0].GetProperty("children").GetArrayLength().Should().Be(1);
+        links[0].GetProperty("children")[0].GetProperty("href").GetString().Should().Be("/docs/api");
+        var docs = delivered.GetProperty("Collections").GetProperty("docs");
+        docs.GetProperty("index").GetProperty("heading").GetString().Should().Be("The manual");
+        docs.GetProperty("indexPage").GetString().Should().Be("/site/docs");
+        var tree = docs.GetProperty("tree");
+        tree.GetProperty("variant").GetProperty("sidebar").GetString().Should().Be("boxed");
+        tree.GetProperty("variant").GetProperty("rail").GetBoolean().Should().BeTrue();
+        tree.GetProperty("searchIndex").GetBoolean().Should().BeTrue();
+        tree.GetProperty("products").GetArrayLength().Should().Be(1);
+        tree.GetProperty("products")[0].GetProperty("note").GetString().Should().Be("on GitHub");
+    }
 }
