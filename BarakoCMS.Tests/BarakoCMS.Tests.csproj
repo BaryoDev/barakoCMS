@@ -71,4 +71,13 @@
     <ProjectReference Include="..\BarakoCMS.Suite\BarakoCMS.Suite.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Assemblies built against older barakoCMS releases, loaded by path at run time. Their sources
+         sit beside them for build.sh and are not part of this project. Copied to a subfolder, so
+         nothing resolves them by name. -->
+    <Compile Remove="Fixtures\LegacyModules\**" />
+    <None Remove="Fixtures\LegacyModules\**" />
+    <None Include="Fixtures\LegacyModules\*.dll;Fixtures\LegacyModules\*.txt" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

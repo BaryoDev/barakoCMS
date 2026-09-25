@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>barakoCMS</AssemblyName>
+    <AssemblyVersion>4.2.0.0</AssemblyVersion>
+    <Nullable>enable</Nullable>
+    <Deterministic>true</Deterministic>
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+</Project>

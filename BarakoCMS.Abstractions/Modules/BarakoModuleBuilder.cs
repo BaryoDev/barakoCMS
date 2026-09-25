@@ -188,16 +188,46 @@ public sealed class BarakoModuleBuilder
         && typeof(IBarakoModule).IsAssignableFrom(type)
         && type.GetConstructor(Type.EmptyTypes) is not null;
 
-    // GetTypes throws away every type that loaded when one does not. The exception keeps them.
-    private static IEnumerable<Type> LoadableTypes(Assembly assembly)
+    // An assembly with a type that cannot load is skipped whole, not mined for the types that did.
+    // The endpoint scan cannot use it either (see TryLoadTypes), so a module registered from it
+    // would run with none of its endpoints mapped.
+    private static IEnumerable<Type> LoadableTypes(Assembly assembly) =>
+        TryLoadTypes(assembly, out var types, out _) ? types : [];
+
+    /// <summary>
+    /// Every type in <paramref name="assembly"/>, or false and the names it could not resolve.
+    /// </summary>
+    /// <remarks>
+    /// The usual cause is a module built against a barakoCMS whose types this one no longer has
+    /// (#1010). Discovery and the endpoint scan in core both ask here, so they skip the same
+    /// assemblies: FastEndpoints calls <c>GetTypes</c> on every assembly it scans, and one that
+    /// throws there takes the whole host down.
+    /// </remarks>
+    internal static bool TryLoadTypes(Assembly assembly, out Type[] types, out IReadOnlyList<string> missing)
     {
         try
         {
-            return assembly.GetTypes();
+            types = assembly.GetTypes();
+            missing = [];
+            return true;
         }
         catch (ReflectionTypeLoadException ex)
         {
-            return ex.Types.Where(t => t is not null)!;
+            types = [];
+            var names = ex.LoaderExceptions
+                .Select(e => e switch
+                {
+                    TypeLoadException t when !string.IsNullOrEmpty(t.TypeName) => t.TypeName,
+                    FileNotFoundException f when f.FileName is not null => f.FileName,
+                    FileLoadException f when f.FileName is not null => f.FileName,
+                    _ => e?.Message,
+                })
+                .OfType<string>()
+                .Distinct(StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal)
+                .ToList();
+            missing = names.Count > 0 ? names : [ex.Message];
+            return false;
         }
     }
 

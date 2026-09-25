@@ -214,7 +214,40 @@ public static class ServiceCollectionExtensions
                 o.Assemblies = moduleAssemblies;
             if (switchedOff.Count > 0)
                 o.Filter = type => !switchedOff.Contains(type.Assembly);
+            o.AssemblyFilter = LoadsOrIsSkipped;
         });
+    }
+
+    /// <summary>
+    /// Whether FastEndpoints may scan <paramref name="assembly"/>. An assembly built on barakoCMS
+    /// with a type that cannot load is skipped with a warning, the same assemblies module discovery
+    /// skips, because the scan calls <c>GetTypes</c> and one failure there stops the host (#1010).
+    /// </summary>
+    /// <remarks>
+    /// FastEndpoints applies this before its own exclusions, so it sees every loaded assembly.
+    /// Only those referencing core or the contract are probed. Core and the host's own assembly are
+    /// never skipped: a broken type in either is a build to fix, not a module to leave out.
+    /// </remarks>
+    private static bool LoadsOrIsSkipped(System.Reflection.Assembly assembly)
+    {
+        var core = typeof(ServiceCollectionExtensions).Assembly;
+        if (assembly.IsDynamic
+            || assembly == core
+            || assembly == System.Reflection.Assembly.GetEntryAssembly()
+            || !assembly.GetReferencedAssemblies().Any(r => r.Name is "barakoCMS" or "BarakoCMS.Abstractions")
+            || BarakoModuleBuilder.TryLoadTypes(assembly, out _, out var missing))
+        {
+            return true;
+        }
+
+        var name = assembly.GetName();
+        Log.Warning(
+            "Skipping {Assembly} {Version}: it names types this barakoCMS {CoreVersion} cannot load ({Missing}). "
+            + "Its endpoints are not mapped and discovery registers no module from it. Update the package to a "
+            + "version built for this barakoCMS.",
+            name.Name, name.Version, core.GetName().Version,
+            string.Join(", ", missing));
+        return false;
     }
 
     private static void AddJobQueue(IServiceCollection services)
