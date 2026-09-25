@@ -7,6 +7,81 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.4.0] - 2026-09-25
+
+### Added
+
+- **A collection could be pulled from a source on a schedule but not pushed to by the source.**
+  `POST /api/collections/{type}/push` upserts entries by slug in one transaction, so a repository's
+  CI can push its changelog, contributors or docs when they change. Every entry goes through the
+  same permission, sensitivity, schema and lifecycle checks as the content API, an unchanged entry
+  writes nothing and fires no webhook, and `archiveMissing` archives published entries the push
+  left out once every write has passed. The response counts created, updated, unchanged and
+  archived entries and lists refused ones. At most 1,000 entries and 4 MB per push. API keys take
+  an optional `contentTypes` list, which limits a key to pushing to those types and nothing else;
+  existing keys name none and are unchanged. See `docs/collection-push.md`.
+- **A collection sync could only copy a value the item already held.** A roadmap needing a
+  product name, a repository taken out of a URL, every label of an issue or a percent complete had
+  to be filled by an import script run by hand. A sync definition now takes `fieldRules` beside
+  `fieldMap`: a constant, a path with `prefixStrip`, `regex` or `join`, a `contains` test over an
+  array path, and a `ratio` of closed over closed plus open as a rounded percent. `exclude` skips
+  an item when a path is not empty or equals a value. Every rule is checked on save with a 400
+  naming the field. Both properties are optional, and a definition without them runs as before.
+  See docs/collection-syncs.md.
+- **A sync could not take an entry off the page when its source dropped it.** A closed milestone
+  or an issue somebody took stayed published. `archiveMissing: true` archives the published entries
+  a sync owns that a complete run did not produce, and publishes one again if it comes back. It
+  acts only when the run read everything: at least one item, no `maxEntries` cut, no next page in
+  the `Link` header, no skipped item. Entries typed by hand are never touched, nor are another
+  sync's, unless both syncs produce the same key and so write the same entry. Off by default, and
+  the run result reports `archived`.
+- **Three values a synced page prints still needed code (#1003).** A field rule now takes
+  `replace`, text to text applied after `prefixStrip` and `regex` (a package id
+  `BarakoCMS.Analytics.Umami` becomes `Analytics · Umami`), and `map`, a lookup applied last that
+  writes nothing for a value it does not name (a package id to the shelf a site files it on). A
+  third source beside `const`, `path` and `ratio` is `sum`, two to ten paths added into an `int` or
+  `decimal` field (a milestone's total from its closed and open counts). Each is checked on save
+  with a 400 naming the field, and a definition that uses none of them runs as before.
+- **A tenant made from a blueprint could not set a page's HideTitle or the site's header and
+  footer regions.** barakoPress reads them, but the blueprints did not declare them, so a kit had
+  to add them with a script. `page` in `blog` and `devsite` now has an optional `HideTitle`, and
+  `site` has `HeaderPath`, `FooterPath`, and `HeaderTone` and `FooterTone` as a choice of the
+  renderer's six tones. Applying a blueprint never touches a type that already exists, so existing
+  tenants are unchanged and add the fields by hand if they want them.
+- **A tenant made from the `site` blueprint could not edit the newer barakoPress settings in
+  barakoBrew.** barakoPress 0.8.0 reads them, but the blueprint did not declare them, and public
+  delivery sends only declared fields. `site` now has optional json fields `Tokens`, `Tones`,
+  `StyleRecipes`, `MenuLinks`, `HeaderActions` and `Plugins`. Applying a blueprint never touches a
+  type that already exists, so existing tenants are unchanged and add the fields by hand if they
+  want them.
+
+### Changed
+
+- **Marten moves from 9.37.0 to 9.38.0, which stops a failed batch leaving a permanent gap in the
+  event sequence.** Under the default append mode a `StartStream` drew sequence numbers nothing read
+  back, so when anything later in the same batch failed, the gap it left stalled the projection
+  daemon for every tenant until the stale-sequence threshold passed. 9.38 sends stream creation
+  through `mt_quick_append_events`, and replaces that function's body so a new stream's row is
+  written once instead of twice. The app runs `AutoCreate.CreateOnly`, which never replaces an
+  existing function, so an upgraded database needs
+  `migrations/4.4.0/marten-9-38-quick-append-events.sql` applied while the old build is still
+  serving. It touches no data. Rolling back needs the matching file in the same directory. JasperFx
+  moves to 2.73.2 and Weasel to 9.32.0 with it.
+
+### Fixed
+
+- **A collection sync mapping a datetime field rewrote every entry on every run.** The stored value
+  and the fetched one were compared as text, and the two were never spelled the same, so each run
+  appended a `ContentUpdated` to every entry and fired its workflows. A datetime is now compared as
+  an instant, and a second run against an unchanged source reports every entry unchanged.
+- **A collection sync could drop a mapped field from a large JSON item.** The reader kept the first
+  200 paths of every item, and a real GitHub issue is about 200 paths, so a mapping of
+  `state_reason` came back empty once an issue had one more label. It now keeps only the paths the
+  mapping, rules and exclusions name.
+- **`CollectionSyncs:Enabled=false` did not stop the sweep in a host that adds configuration late.**
+  The switch was read only when services were registered. The sweep now checks it again when it
+  starts.
+
 ## [4.3.0] - 2026-09-21
 
 ### Added
