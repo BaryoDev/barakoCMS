@@ -189,6 +189,12 @@ internal static class CollectionSyncRules
             return $"'{field}' is a {type} field, and a ratio writes a whole-number percent, so it needs an int or decimal field.";
         }
 
+        if (rule.Sum is not null && !(type.Equals("int", StringComparison.OrdinalIgnoreCase)
+                                      || type.Equals("decimal", StringComparison.OrdinalIgnoreCase)))
+        {
+            return $"'{field}' is a {type} field, and a sum writes a number, so it needs an int or decimal field.";
+        }
+
         if (SyncRules.IsArrayPath(rule.Path) && rule.Join is null && rule.Contains is null
             && !type.Equals("array", StringComparison.OrdinalIgnoreCase))
         {

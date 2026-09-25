@@ -211,8 +211,9 @@ public class CollectionSync
 
 /// <summary>How one content field's value is built from a source item.</summary>
 /// <remarks>
-/// Exactly one of <see cref="Const"/>, <see cref="Path"/> or <see cref="Ratio"/>. The transforms
-/// apply to a <see cref="Path"/> only, in the order prefix strip, regex, then join or contains.
+/// Exactly one of <see cref="Const"/>, <see cref="Path"/>, <see cref="Ratio"/> or <see cref="Sum"/>.
+/// The transforms apply to a <see cref="Path"/> only, in the order prefix strip, regex, replace, map,
+/// then join or contains.
 ///
 /// A path may address every element of an array with <c>[]</c>: <c>labels[].name</c> reads the
 /// name of each label. Such a path needs <see cref="Join"/> or <see cref="Contains"/>, or a content
@@ -248,6 +249,24 @@ public class SyncFieldRule
     /// whole number, and 0 when both are 0.
     /// </summary>
     public List<string>? Ratio { get; set; }
+
+    /// <summary>
+    /// Paths whose numbers are added and written as one: a milestone's total from its closed and
+    /// open counts. Writes nothing when any of them is not a number.
+    /// </summary>
+    public List<string>? Sum { get; set; }
+
+    /// <summary>
+    /// Text to text, each occurrence of a key in the value replaced by its value, the longest key
+    /// first. Applied after <see cref="PrefixStrip"/> and <see cref="Regex"/>.
+    /// </summary>
+    public Dictionary<string, string>? Replace { get; set; }
+
+    /// <summary>
+    /// The value looked up here and its entry written instead, compared exactly. Applied last. A value
+    /// the map does not name writes nothing, as a regex that does not match writes nothing.
+    /// </summary>
+    public Dictionary<string, string>? Map { get; set; }
 }
 
 /// <summary>When a source item is skipped rather than written.</summary>

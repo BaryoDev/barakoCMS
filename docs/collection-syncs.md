@@ -88,7 +88,7 @@ nothing at three in the morning.
 the same way. A field is named in one of the two, never both, and a definition without `fieldRules`
 runs exactly as it always did.
 
-Each rule has exactly one of `const`, `path` or `ratio`.
+Each rule has exactly one of `const`, `path`, `ratio` or `sum`.
 
 **A constant.** The same value for every item, for a source that cannot say what the field needs. A
 GitHub milestone does not name its repository, so each of four milestone syncs says which product
@@ -104,9 +104,19 @@ it is for:
 - `regex` takes a pattern with exactly one capture group, and the group is the value. A value the
   pattern does not match writes nothing. Patterns run in linear time, so lookarounds and
   backreferences are refused when you save.
+- `replace` is text to text: each occurrence of a key in the value becomes its value. It is one
+  pass over the value, and at each position the longest key goes first, so `/issues/` is replaced
+  before a `/` inside it, whatever order they are written in: the definition is stored as JSON that
+  does not keep its keys' order. Text a replacement wrote is not replaced again, so
+  `{ ".": " / ", "/": "-" }` makes `a.b/c` into `a / b-c`. A value longer than 100,000 characters,
+  before or after, writes nothing.
+- `map` looks the value up and writes its entry instead, compared exactly. A value the map does not
+  name writes nothing, the same as a regex that does not match. It is for a label the source cannot
+  give: the shelf a site files a package on is the site's own word for a package id.
 - `join` joins every element of an array path with a separator.
 
-When more than one applies, the order is prefix strip, then regex, then join.
+When more than one applies, the order is prefix strip, then regex, then replace, then map, then
+join.
 
 ```json
 "fieldRules": {
@@ -139,8 +149,29 @@ to a whole number, and 0 when both are 0. The field must be `int` or `decimal`.
 
 A milestone with 3 closed and 1 open writes 75; 2 and 1 writes 67.
 
-The key field may be a path rule, so a key can come out of a regex. It cannot be a `const`, `ratio`
-or `contains` rule, since every item would share the key.
+**A sum.** Two to ten paths whose numbers are added. The field must be `int` or `decimal`, and an
+item where any of them is not a number, or where the total is past what a decimal holds, writes
+nothing. A whole total is written without decimals, so `3.0` and `1` write `4` and fit an `int`
+field. Neither a sum nor a ratio takes an array path, since each path names one number.
+
+```json
+"fieldRules": { "Total": { "sum": ["closed_issues", "open_issues"] } }
+```
+
+**A package's name and shelf.** NuGet answers `BarakoCMS.Analytics.Umami` for a package a site prints
+as `Analytics · Umami` on the `Analytics` shelf:
+
+```json
+"fieldRules": {
+  "DisplayName": { "path": "id", "prefixStrip": "BarakoCMS.", "replace": { ".": " · " } },
+  "Category":    { "path": "id", "map": { "BarakoCMS.Analytics.Umami": "Analytics", "BarakoCMS.Pwa": "Analytics" } }
+}
+```
+
+A replace holds 1 to 20 texts and a map 1 to 500 values, each up to 200 characters.
+
+The key field may be a path rule, so a key can come out of a regex. It cannot be a `const`, `ratio`,
+`sum` or `contains` rule, since every item would share the key.
 
 ## Excluding items
 
@@ -168,8 +199,9 @@ off the page.
 
 Every rule is checked when you save, the same as `fieldMap`: an unknown or non-`Public` field, a
 rule with no source or two, a regex that does not compile or does not have one capture group, a
-`contains` into a field that is not `bool`, a ratio into one that is not a number, an array path
-with nowhere to put a list, and for a feed, a path outside the feed vocabulary. Each is a 400 naming
+`contains` into a field that is not `bool`, a ratio or a sum into one that is not a number, a sum
+of fewer than two paths, a sum or ratio of an array path, an empty replace or map, a map beside
+`contains`, an array path with nowhere to put a list, and for a feed, a path outside the feed vocabulary. Each is a 400 naming
 the field.
 
 ## The key

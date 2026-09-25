@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Globalization;
+using System.Text;
 using System.Text.RegularExpressions;
 using barakoCMS.Models;
 
@@ -23,6 +24,21 @@ internal static class SyncRules
     /// <summary>The longest regex a rule may carry.</summary>
     public const int MaxRegexLength = 500;
 
+    /// <summary>The most replacements one rule may make.</summary>
+    public const int MaxReplacements = 20;
+
+    /// <summary>The most values one map may name.</summary>
+    public const int MaxMapEntries = 500;
+
+    /// <summary>The most paths one sum may add.</summary>
+    public const int MaxSumPaths = 10;
+
+    /// <summary>The longest key or value in a replacement or a map.</summary>
+    public const int MaxRuleText = 200;
+
+    /// <summary>The longest value a replace rule reads or writes. A longer one writes nothing.</summary>
+    public const int MaxReplacedLength = 100_000;
+
     /// <summary>
     /// Patterns are compiled once per process. Bounded, because the patterns come from every
     /// tenant's saved syncs and a cache that only grows is a slow leak.
@@ -37,24 +53,53 @@ internal static class SyncRules
     {
         if (rule is null)
         {
-            return $"FieldRules '{field}' needs exactly one of const, path or ratio.";
+            return $"FieldRules '{field}' needs exactly one of const, path, ratio or sum.";
         }
 
         var sources = (rule.Const is not null ? 1 : 0)
                     + (!string.IsNullOrWhiteSpace(rule.Path) ? 1 : 0)
-                    + (rule.Ratio is not null ? 1 : 0);
+                    + (rule.Ratio is not null ? 1 : 0)
+                    + (rule.Sum is not null ? 1 : 0);
 
         if (sources != 1)
         {
-            return $"FieldRules '{field}' needs exactly one of const, path or ratio.";
+            return $"FieldRules '{field}' needs exactly one of const, path, ratio or sum.";
         }
 
         var transforms = rule.PrefixStrip is not null || rule.Regex is not null
-                      || rule.Join is not null || rule.Contains is not null;
+                      || rule.Join is not null || rule.Contains is not null
+                      || rule.Replace is not null || rule.Map is not null;
 
         if (string.IsNullOrWhiteSpace(rule.Path) && transforms)
         {
-            return $"FieldRules '{field}': prefixStrip, regex, join and contains only apply to a path.";
+            return $"FieldRules '{field}': prefixStrip, regex, replace, map, join and contains only apply to a path.";
+        }
+
+        if (rule.Sum is not null
+            && (rule.Sum.Count is < 2 or > MaxSumPaths || rule.Sum.Any(string.IsNullOrWhiteSpace)))
+        {
+            return $"FieldRules '{field}' sum needs 2 to {MaxSumPaths} paths.";
+        }
+
+        if (rule.Replace is not null
+            && (rule.Replace.Count is 0 or > MaxReplacements
+                || rule.Replace.Any(r => r.Key.Length is 0 or > MaxRuleText || (r.Value ?? "").Length > MaxRuleText)))
+        {
+            return $"FieldRules '{field}' replace needs 1 to {MaxReplacements} replacements, "
+                 + $"each a text of 1 to {MaxRuleText} characters and what replaces it, up to {MaxRuleText}.";
+        }
+
+        if (rule.Map is not null
+            && (rule.Map.Count is 0 or > MaxMapEntries
+                || rule.Map.Any(m => m.Key.Length is 0 or > MaxRuleText || (m.Value ?? "").Length > MaxRuleText)))
+        {
+            return $"FieldRules '{field}' map needs 1 to {MaxMapEntries} values, "
+                 + $"each 1 to {MaxRuleText} characters and what it becomes, up to {MaxRuleText}.";
+        }
+
+        if (rule.Map is not null && rule.Contains is not null)
+        {
+            return $"FieldRules '{field}' takes map or contains, not both, since contains writes true or false.";
         }
 
         if (rule.Join is not null && rule.Contains is not null)
@@ -66,6 +111,12 @@ internal static class SyncRules
             && (rule.Ratio.Count != 2 || rule.Ratio.Any(string.IsNullOrWhiteSpace)))
         {
             return $"FieldRules '{field}' ratio needs exactly two paths: closed, then open.";
+        }
+
+        // A number is read from one key, and an array path names many, so it would never match.
+        if ((rule.Sum ?? rule.Ratio ?? []).Any(IsArrayPath))
+        {
+            return $"FieldRules '{field}' cannot add or divide an array path, since each path must name one number.";
         }
 
         if (rule.Regex is not null)
@@ -105,7 +156,7 @@ internal static class SyncRules
 
     /// <summary>Every path a rule reads, for the checks that depend on the source.</summary>
     public static IEnumerable<string> PathsOf(SyncFieldRule rule) =>
-        rule.Ratio ?? (rule.Path is { } path ? [path] : []);
+        rule.Ratio ?? rule.Sum ?? (rule.Path is { } path ? [path] : []);
 
     /// <summary>Does any exclusion match this item?</summary>
     public static bool Excluded(IReadOnlyList<SyncExcludeRule> rules, IReadOnlyDictionary<string, string> row)
@@ -139,6 +190,11 @@ internal static class SyncRules
         if (rule.Ratio is [var closedPath, var openPath])
         {
             return Ratio(row, closedPath, openPath);
+        }
+
+        if (rule.Sum is { Count: > 0 } addends)
+        {
+            return Sum(row, addends);
         }
 
         if (string.IsNullOrWhiteSpace(rule.Path)) return null;
@@ -176,6 +232,18 @@ internal static class SyncRules
             value = group.Value;
         }
 
+        if (rule.Replace is { } replace)
+        {
+            if (ReplaceAll(replace, value) is not { } replaced) return null;
+            value = replaced;
+        }
+
+        if (rule.Map is { } map)
+        {
+            if (!map.TryGetValue(value, out var mapped)) return null;
+            value = mapped ?? "";
+        }
+
         return value.Length == 0 ? null : value;
     }
 
@@ -183,10 +251,19 @@ internal static class SyncRules
     {
         if (!TryNumber(row, closedPath, out var closed) || !TryNumber(row, openPath, out var open)) return null;
 
-        var total = closed + open;
-        var percent = total == 0 ? 0 : Math.Round(closed * 100 / total, MidpointRounding.AwayFromZero);
+        try
+        {
+            var total = closed + open;
+            var percent = total == 0 ? 0 : Math.Round(closed * 100 / total, MidpointRounding.AwayFromZero);
 
-        return percent.ToString("0", CultureInfo.InvariantCulture);
+            return percent.ToString("0", CultureInfo.InvariantCulture);
+        }
+        catch (OverflowException)
+        {
+            // Past decimal's range, which no count a source sends reaches. Nothing is written, as
+            // for a value that is not a number.
+            return null;
+        }
     }
 
     private static bool TryNumber(IReadOnlyDictionary<string, string> row, string path, out decimal number)
@@ -224,6 +301,69 @@ internal static class SyncRules
         || (!IsArrayPath(path) && row.Keys.Any(k =>
             k.StartsWith(path + "[", StringComparison.OrdinalIgnoreCase)
             || k.StartsWith(path + ".", StringComparison.OrdinalIgnoreCase)));
+
+    /// <summary>
+    /// Every key replaced in one pass over the value, trying the longest key first at each position,
+    /// so text a replacement wrote is never read again. Null when the value is longer than
+    /// <see cref="MaxReplacedLength"/> before or after.
+    /// </summary>
+    /// <remarks>
+    /// Longest first, and then by text, rather than in the order written: the definition is stored
+    /// as jsonb, which does not keep an object's key order, and a longer text holding a shorter one
+    /// ("/issues/" holding "/") is the one that has to win either way.
+    /// </remarks>
+    private static string? ReplaceAll(Dictionary<string, string> replace, string value)
+    {
+        if (value.Length > MaxReplacedLength) return null;
+
+        var keys = replace
+            .Where(r => r.Key.Length > 0)
+            .OrderByDescending(r => r.Key.Length)
+            .ThenBy(r => r.Key, StringComparer.Ordinal)
+            .ToList();
+
+        var output = new StringBuilder(value.Length);
+
+        for (var at = 0; at < value.Length;)
+        {
+            var hit = keys.FindIndex(r => value.AsSpan(at).StartsWith(r.Key, StringComparison.Ordinal));
+
+            if (hit < 0)
+            {
+                output.Append(value[at++]);
+            }
+            else
+            {
+                output.Append(keys[hit].Value);
+                at += keys[hit].Key.Length;
+            }
+
+            if (output.Length > MaxReplacedLength) return null;
+        }
+
+        return output.ToString();
+    }
+
+    private static string? Sum(IReadOnlyDictionary<string, string> row, IReadOnlyList<string> paths)
+    {
+        decimal total = 0;
+        foreach (var path in paths)
+        {
+            if (!TryNumber(row, path, out var number)) return null;
+
+            try
+            {
+                total += number;
+            }
+            catch (OverflowException)
+            {
+                return null;
+            }
+        }
+
+        // Without the scale the addends carried: 3.0 plus 1 is written 4, which an int field reads.
+        return total.ToString("0.############################", CultureInfo.InvariantCulture);
+    }
 
     private static Regex Build(string pattern, RegexOptions extra = RegexOptions.None)
     {

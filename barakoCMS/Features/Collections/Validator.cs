@@ -56,14 +56,14 @@ internal sealed class SaveCollectionSyncValidator : Validator<SaveCollectionSync
             .Must((req, key) => Mapped(req).Any(k => string.Equals(k, key, StringComparison.OrdinalIgnoreCase)))
             .WithMessage("KeyField must be one of the fields FieldMap or FieldRules names, since it is read from the same item.");
 
-        // Every item would get the same key from a constant, and a ratio or a true/false collides
-        // just as surely, so the second item would overwrite the first on every run.
+        // Every item would get the same key from a constant, and a ratio, a sum or a true/false
+        // collides just as surely, so the second item would overwrite the first on every run.
         RuleFor(x => x.KeyField)
             .Must((req, key) => !(req.FieldRules ?? new()).Any(r =>
                 string.Equals(r.Key, key, StringComparison.OrdinalIgnoreCase)
                 && r.Value is { } rule
-                && (rule.Const is not null || rule.Ratio is not null || rule.Contains is not null)))
-            .WithMessage("KeyField cannot be a const, ratio or contains rule, since items would share the key.");
+                && (rule.Const is not null || rule.Ratio is not null || rule.Sum is not null || rule.Contains is not null)))
+            .WithMessage("KeyField cannot be a const, ratio, sum or contains rule, since items would share the key.");
 
         RuleFor(x => x.KeyField)
             .Must((req, key) => !(req.FieldRules ?? new()).Any(r =>
