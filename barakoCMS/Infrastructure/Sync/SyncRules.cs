@@ -247,6 +247,61 @@ internal static class SyncRules
         return value.Length == 0 ? null : value;
     }
 
+    private static string? Ratio(IReadOnlyDictionary<string, string> row, string closedPath, string openPath)
+    {
+        if (!TryNumber(row, closedPath, out var closed) || !TryNumber(row, openPath, out var open)) return null;
+
+        try
+        {
+            var total = closed + open;
+            var percent = total == 0 ? 0 : Math.Round(closed * 100 / total, MidpointRounding.AwayFromZero);
+
+            return percent.ToString("0", CultureInfo.InvariantCulture);
+        }
+        catch (OverflowException)
+        {
+            // Past decimal's range, which no count a source sends reaches. Nothing is written, as
+            // for a value that is not a number.
+            return null;
+        }
+    }
+
+    private static bool TryNumber(IReadOnlyDictionary<string, string> row, string path, out decimal number)
+    {
+        number = 0;
+        return row.TryGetValue(path, out var text)
+            && decimal.TryParse(text, NumberStyles.Number, CultureInfo.InvariantCulture, out number);
+    }
+
+    /// <summary>The non-empty values a path names in this item, in array order.</summary>
+    public static IReadOnlyList<string> Values(IReadOnlyDictionary<string, string> row, string path)
+    {
+        if (!IsArrayPath(path))
+        {
+            return row.TryGetValue(path, out var single) && single.Length > 0 ? [single] : [];
+        }
+
+        var matcher = Build("^" + Regex.Escape(path).Replace(@"\[]", @"\[(\d+)]", StringComparison.Ordinal) + "$",
+            RegexOptions.IgnoreCase);
+
+        return row
+            .Select(kv => (kv.Value, Match: matcher.Match(kv.Key)))
+            .Where(x => x.Match.Success && x.Value.Length > 0)
+            .OrderBy(x => x.Match, IndexOrder.Instance)
+            .Select(x => x.Value)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Does the path hold anything? The flattener writes no key for an empty array or object, so a
+    /// path with keys beneath it is non-empty.
+    /// </summary>
+    private static bool Present(IReadOnlyDictionary<string, string> row, string path) =>
+        Values(row, path).Count > 0
+        || (!IsArrayPath(path) && row.Keys.Any(k =>
+            k.StartsWith(path + "[", StringComparison.OrdinalIgnoreCase)
+            || k.StartsWith(path + ".", StringComparison.OrdinalIgnoreCase)));
+
     /// <summary>
     /// Every key replaced in one pass over the value, trying the longest key first at each position,
     /// so text a replacement wrote is never read again. Null when the value is longer than
@@ -289,25 +344,6 @@ internal static class SyncRules
         return output.ToString();
     }
 
-    private static string? Ratio(IReadOnlyDictionary<string, string> row, string closedPath, string openPath)
-    {
-        if (!TryNumber(row, closedPath, out var closed) || !TryNumber(row, openPath, out var open)) return null;
-
-        try
-        {
-            var total = closed + open;
-            var percent = total == 0 ? 0 : Math.Round(closed * 100 / total, MidpointRounding.AwayFromZero);
-
-            return percent.ToString("0", CultureInfo.InvariantCulture);
-        }
-        catch (OverflowException)
-        {
-            // Past decimal's range, which no count a source sends reaches. Nothing is written, as
-            // for a value that is not a number.
-            return null;
-        }
-    }
-
     private static string? Sum(IReadOnlyDictionary<string, string> row, IReadOnlyList<string> paths)
     {
         decimal total = 0;
@@ -328,42 +364,6 @@ internal static class SyncRules
         // Without the scale the addends carried: 3.0 plus 1 is written 4, which an int field reads.
         return total.ToString("0.############################", CultureInfo.InvariantCulture);
     }
-
-    private static bool TryNumber(IReadOnlyDictionary<string, string> row, string path, out decimal number)
-    {
-        number = 0;
-        return row.TryGetValue(path, out var text)
-            && decimal.TryParse(text, NumberStyles.Number, CultureInfo.InvariantCulture, out number);
-    }
-
-    /// <summary>The non-empty values a path names in this item, in array order.</summary>
-    public static IReadOnlyList<string> Values(IReadOnlyDictionary<string, string> row, string path)
-    {
-        if (!IsArrayPath(path))
-        {
-            return row.TryGetValue(path, out var single) && single.Length > 0 ? [single] : [];
-        }
-
-        var matcher = Build("^" + Regex.Escape(path).Replace(@"\[]", @"\[(\d+)]", StringComparison.Ordinal) + "$",
-            RegexOptions.IgnoreCase);
-
-        return row
-            .Select(kv => (kv.Value, Match: matcher.Match(kv.Key)))
-            .Where(x => x.Match.Success && x.Value.Length > 0)
-            .OrderBy(x => x.Match, IndexOrder.Instance)
-            .Select(x => x.Value)
-            .ToList();
-    }
-
-    /// <summary>
-    /// Does the path hold anything? The flattener writes no key for an empty array or object, so a
-    /// path with keys beneath it is non-empty.
-    /// </summary>
-    private static bool Present(IReadOnlyDictionary<string, string> row, string path) =>
-        Values(row, path).Count > 0
-        || (!IsArrayPath(path) && row.Keys.Any(k =>
-            k.StartsWith(path + "[", StringComparison.OrdinalIgnoreCase)
-            || k.StartsWith(path + ".", StringComparison.OrdinalIgnoreCase)));
 
     private static Regex Build(string pattern, RegexOptions extra = RegexOptions.None)
     {

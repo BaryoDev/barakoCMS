@@ -63,6 +63,12 @@ public class SyncRulesTests
     }
 
     [Fact]
+    public void A_sum_reads_every_path_it_adds()
+    {
+        SyncRules.PathsOf(new SyncFieldRule { Sum = ["closed", "open"] }).Should().Equal("closed", "open");
+    }
+
+    [Fact]
     public void A_whole_sum_is_written_without_the_scale_of_its_addends()
     {
         var row = new Dictionary<string, string> { ["closed"] = "3.0", ["open"] = "1", ["half"] = "0.50" };
