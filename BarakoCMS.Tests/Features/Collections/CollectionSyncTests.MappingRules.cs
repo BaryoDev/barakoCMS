@@ -5,6 +5,8 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using barakoCMS.Models;
 using FluentAssertions;
+using Marten;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace BarakoCMS.Tests.Features.Collections;
@@ -214,6 +216,57 @@ public partial class CollectionSyncTests
     }
 
     [Fact]
+    public async Task A_sum_of_decimals_with_a_whole_total_fills_an_int_field()
+    {
+        const string milestones = """
+        {
+          "data": [
+            { "title": "One", "closed_issues": 3.0, "open_issues": 1 },
+            { "title": "Two", "closed_issues": 2.5, "open_issues": 0.5 }
+          ]
+        }
+        """;
+
+        var setup = await ArrangeAsync(() => (HttpStatusCode.OK, milestones), save: false, fields: IssueFields());
+        await PostAsync(await AdminAsync(), "/api/collection-syncs",
+            IssueSyncBody(setup, """{ "total": { "sum": ["closed_issues", "open_issues"] } }""", null, null));
+
+        var outcome = await RunAsync(setup);
+        outcome.GetProperty("created").GetInt32().Should().Be(2, "got: {0}", outcome);
+        outcome.GetProperty("skipped").GetInt32().Should().Be(0);
+
+        var entries = await EntriesAsync(setup.Type);
+        entries.Should().HaveCount(2);
+        Value(Titled(entries, "One"), "total").Should().Be("4");
+        Value(Titled(entries, "Two"), "total").Should().Be("3");
+    }
+
+    [Fact]
+    public async Task A_rule_that_throws_is_recorded_on_the_sync_as_a_failed_run()
+    {
+        var setup = await ArrangeIssuesAsync(
+            """{ "repo": { "path": "repository_url", "regex": "repos/[^/]+/([^/]+)$" } }""");
+
+        // Stored past the save check, as a sync saved before a check existed would be.
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var sync = await session.Query<CollectionSync>()
+                .FirstAsync(s => s.Slug == setup.Slug, TestContext.Current.CancellationToken);
+            sync.FieldRules["repo"].Regex = "([a-z";
+            session.Store(sync);
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        var outcome = await RunAsync(setup);
+        outcome.GetProperty("succeeded").GetBoolean().Should().BeFalse("got: {0}", outcome);
+
+        var after = await GetSyncAsync(setup);
+        after.GetProperty("lastRunAt").ValueKind.Should().Be(JsonValueKind.String, "the sync is not left due");
+        after.GetProperty("lastError").GetString().Should().Contain("rule");
+    }
+
+    [Fact]
     public async Task A_map_rule_writes_the_entry_a_value_names_and_nothing_for_one_it_does_not()
     {
         var setup = await ArrangeIssuesAsync(
@@ -384,6 +437,9 @@ public partial class CollectionSyncTests
     [InlineData("""{ "percent": { "ratio": ["closed_issues"] } }""", null, "exactly two paths")]
     [InlineData("""{ "total": { "sum": ["closed_issues"] } }""", null, "sum needs 2 to 10 paths")]
     [InlineData("""{ "total": { "sum": ["closed_issues", ""] } }""", null, "sum needs 2 to 10 paths")]
+    [InlineData("""{ "total": { "sum": ["labels[].n", "open_issues"] } }""", null, "cannot add or divide an array path")]
+    [InlineData("""{ "percent": { "ratio": ["closed_issues", "labels[].n"] } }""", null, "cannot add or divide an array path")]
+    [InlineData("""{ "product": { "const": "cms", "replace": { "c": "k" } } }""", null, "only apply to a path")]
     [InlineData("""{ "tags": { "sum": ["closed_issues", "open_issues"] } }""", null, "a sum writes a number")]
     [InlineData("""{ "total": { "sum": ["closed_issues", "open_issues"], "path": "title" } }""", null, "needs exactly one of const, path, ratio or sum")]
     [InlineData("""{ "product": { "const": "cms", "map": { "cms": "API" } } }""", null, "only apply to a path")]

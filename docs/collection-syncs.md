@@ -104,9 +104,12 @@ it is for:
 - `regex` takes a pattern with exactly one capture group, and the group is the value. A value the
   pattern does not match writes nothing. Patterns run in linear time, so lookarounds and
   backreferences are refused when you save.
-- `replace` is text to text: each occurrence of a key in the value becomes its value. The longest
-  key goes first, so `/issues/` is replaced before a `/` inside it, whatever order they are written
-  in: the definition is stored as JSON that does not keep its keys' order.
+- `replace` is text to text: each occurrence of a key in the value becomes its value. It is one
+  pass over the value, and at each position the longest key goes first, so `/issues/` is replaced
+  before a `/` inside it, whatever order they are written in: the definition is stored as JSON that
+  does not keep its keys' order. Text a replacement wrote is not replaced again, so
+  `{ ".": " / ", "/": "-" }` makes `a.b/c` into `a / b-c`. A value longer than 100,000 characters,
+  before or after, writes nothing.
 - `map` looks the value up and writes its entry instead, compared exactly. A value the map does not
   name writes nothing, the same as a regex that does not match. It is for a label the source cannot
   give: the shelf a site files a package on is the site's own word for a package id.
@@ -147,7 +150,9 @@ to a whole number, and 0 when both are 0. The field must be `int` or `decimal`.
 A milestone with 3 closed and 1 open writes 75; 2 and 1 writes 67.
 
 **A sum.** Two to ten paths whose numbers are added. The field must be `int` or `decimal`, and an
-item where any of them is not a number writes nothing.
+item where any of them is not a number, or where the total is past what a decimal holds, writes
+nothing. A whole total is written without decimals, so `3.0` and `1` write `4` and fit an `int`
+field. Neither a sum nor a ratio takes an array path, since each path names one number.
 
 ```json
 "fieldRules": { "Total": { "sum": ["closed_issues", "open_issues"] } }
@@ -195,8 +200,8 @@ off the page.
 Every rule is checked when you save, the same as `fieldMap`: an unknown or non-`Public` field, a
 rule with no source or two, a regex that does not compile or does not have one capture group, a
 `contains` into a field that is not `bool`, a ratio or a sum into one that is not a number, a sum
-of fewer than two paths, an empty replace or map, a map beside `contains`, an array path with nowhere
-to put a list, and for a feed, a path outside the feed vocabulary. Each is a 400 naming
+of fewer than two paths, a sum or ratio of an array path, an empty replace or map, a map beside
+`contains`, an array path with nowhere to put a list, and for a feed, a path outside the feed vocabulary. Each is a 400 naming
 the field.
 
 ## The key

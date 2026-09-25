@@ -206,9 +206,24 @@ internal sealed class CollectionSyncRunner(
         {
             ct.ThrowIfCancellationRequested();
 
-            if (SyncRules.Excluded(sync.Exclude, row)) continue;
+            Dictionary<string, object>? mapped;
+            string? key, reason;
 
-            var mapped = Map(sync, schema, row, out var key, out var reason);
+            // The rules are checked when a sync is saved, but a stored sync can predate a check, and
+            // a failure here must still reach LastRunAt and LastError rather than leave it due.
+            try
+            {
+                if (SyncRules.Excluded(sync.Exclude, row)) continue;
+
+                mapped = Map(sync, schema, row, out key, out reason);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogError(ex, "Collection sync {Slug} could not apply its rules to an item", sync.Slug);
+                return CollectionSyncOutcome.Failed(
+                    $"A field rule or exclude rule failed on an item ({ex.GetType().Name}), so the run stopped there.");
+            }
+
             if (mapped is null || string.IsNullOrWhiteSpace(key))
             {
                 skipped++;

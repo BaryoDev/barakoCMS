@@ -211,8 +211,9 @@ public class CollectionSync
 
 /// <summary>How one content field's value is built from a source item.</summary>
 /// <remarks>
-/// Exactly one of <see cref="Const"/>, <see cref="Path"/> or <see cref="Ratio"/>. The transforms
-/// apply to a <see cref="Path"/> only, in the order prefix strip, regex, then join or contains.
+/// Exactly one of <see cref="Const"/>, <see cref="Path"/>, <see cref="Ratio"/> or <see cref="Sum"/>.
+/// The transforms apply to a <see cref="Path"/> only, in the order prefix strip, regex, replace, map,
+/// then join or contains.
 ///
 /// A path may address every element of an array with <c>[]</c>: <c>labels[].name</c> reads the
 /// name of each label. Such a path needs <see cref="Join"/> or <see cref="Contains"/>, or a content
