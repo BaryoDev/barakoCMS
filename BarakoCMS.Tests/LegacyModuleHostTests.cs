@@ -155,7 +155,7 @@ public sealed class LegacyModuleHostTests(LegacyModuleHostTests.Host host) : ICl
     /// Keeps only what this host logged while it started, by a property pushed through
     /// <see cref="LogContext"/>, since Serilog's static logger is shared with every test running.
     /// </summary>
-    private sealed class CollectingSink : ILogEventSink
+    internal sealed class CollectingSink : ILogEventSink
     {
         private const string Marker = "LegacyModuleHost";
         private readonly string _id = Guid.NewGuid().ToString("N");

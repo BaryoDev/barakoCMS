@@ -70,7 +70,8 @@ internal static class ModuleEnablement
     /// </summary>
     /// <exception cref="InvalidOperationException">A name matches no module.</exception>
     public static IReadOnlyList<IBarakoModule> Apply(
-        IReadOnlyList<IBarakoModule> modules, IReadOnlyList<string> enabled)
+        IReadOnlyList<IBarakoModule> modules, IReadOnlyList<string> enabled,
+        IReadOnlyList<UnloadableModuleAssembly>? unloadable = null)
     {
         ArgumentNullException.ThrowIfNull(modules);
         ArgumentNullException.ThrowIfNull(enabled);
@@ -91,7 +92,11 @@ internal static class ModuleEnablement
             throw new InvalidOperationException(
                 $"{EnabledKey} names {string.Join(", ", unknown.Select(n => $"'{n}'"))}, which "
                 + $"match{(unknown.Count == 1 ? "es" : string.Empty)} no module. Available: {known}. "
-                + "Refusing to start rather than run without a module the configuration asked for.");
+                + "Refusing to start rather than run without a module the configuration asked for."
+                + (unloadable is { Count: > 0 }
+                    ? " Skipped because a type in them cannot load, so a module named here may be in one: "
+                      + string.Join("; ", unloadable) + "."
+                    : string.Empty));
         }
 
         return modules

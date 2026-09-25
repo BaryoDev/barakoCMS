@@ -71,6 +71,15 @@ for line in diff_text.splitlines():
             file_added.setdefault(current_file, [])
             file_removed.setdefault(current_file, [])
         continue
+    # git prints no ---/+++ header for a binary file, only this line, so read the path from it.
+    binary = re.match(r'^Binary files (?:a/)?(.+?) and (?:b/)?(.+?) differ$', line)
+    if binary:
+        p = binary.group(1) if binary.group(2) == '/dev/null' else binary.group(2)
+        all_paths.add(p)
+        file_added.setdefault(p, [])
+        file_removed.setdefault(p, [])
+        current_file = None
+        continue
     if current_file is None:
         continue
     if line.startswith('+'):
@@ -107,8 +116,10 @@ for path in all_paths:
     if basename(norm) == 'ServiceCollectionExtensions.cs' or 'migrations/' in norm.lower():
         hit('schema-and-wiring', norm)
 
+    # A committed binary is supply chain too: nobody reviews its bytes, only that it is there.
     if norm.startswith('.github/workflows/') or basename(norm).startswith('Dockerfile') \
-       or basename(norm) == 'Directory.Packages.props':
+       or basename(norm) == 'Directory.Packages.props' \
+       or norm.lower().endswith(('.dll', '.exe')):
         hit('infra-and-supply-chain', norm)
 
     is_endpoint_file = 'Endpoint' in basename(norm)
@@ -142,7 +153,7 @@ RULE_LABELS = {
     'secrets': 'secret handling touched (ISecretProtector, or an identifier naming secret/token/password/apikey)',
     'background-and-concurrency': 'background work or concurrency primitive touched (BackgroundService/IHostedService/Channel</Lease/Claim)',
     'destructive-delete': 'destructive delete touched (DeleteWhere/HardDelete/Erase)',
-    'infra-and-supply-chain': 'infra or supply chain touched (.github/workflows, Dockerfile*, Directory.Packages.props)',
+    'infra-and-supply-chain': 'infra or supply chain touched (.github/workflows, Dockerfile*, Directory.Packages.props, a committed .dll or .exe)',
     'weakened-test-assertions': 'a test file had an assertion line removed (Should(/Assert.)',
 }
 

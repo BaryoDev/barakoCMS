@@ -64,10 +64,12 @@ barakoCMS.Infrastructure.Auth.TokenIssueResult
 barakoCMS.Infrastructure.Auth.TokenIssuer
 barakoCMS.Infrastructure.Connectors.ComposedRequest
 barakoCMS.Infrastructure.Connectors.ConnectorCallResult
+barakoCMS.Infrastructure.Connectors.ConnectorFetchResult
 barakoCMS.Infrastructure.Connectors.ConnectorOptions
 barakoCMS.Infrastructure.Connectors.ConnectorSecretKeys
 barakoCMS.Infrastructure.Connectors.ConnectorSecretProtector
 barakoCMS.Infrastructure.Connectors.ConnectorSettingKeys
+barakoCMS.Infrastructure.Connectors.IConnectorFetcher
 barakoCMS.Infrastructure.Connectors.IConnectorSecretProtector
 barakoCMS.Infrastructure.Connectors.IConnectorSender
 barakoCMS.Infrastructure.Connectors.IQueryRunner
