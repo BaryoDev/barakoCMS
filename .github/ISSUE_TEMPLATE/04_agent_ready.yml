@@ -1,0 +1,68 @@
+name: Agent-ready ticket
+description: One agent pass of work, written so the agent needs nothing else.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search open issues first; if one covers this area, add to its Covers list instead of filing new.
+
+        One ticket is what one agent can finish in one focused pass: one pull request or a short stack, one repository, the same area or fix pattern. Method: https://github.com/arnelirobles/lean-agent-method
+
+  - type: input
+    id: goal
+    attributes:
+      label: Goal
+      description: One sentence. What is true when it is done.
+    validations:
+      required: true
+
+  - type: textarea
+    id: where
+    attributes:
+      label: Where
+      description: The files and code areas, so the agent does not have to search.
+    validations:
+      required: true
+
+  - type: textarea
+    id: covers
+    attributes:
+      label: Covers
+      description: Each item this ticket absorbs, as a checklist with its own check.
+      value: |
+        - [ ] 
+    validations:
+      required: true
+
+  - type: textarea
+    id: done
+    attributes:
+      label: Done when
+      description: Runnable checks. Tests that fail before the fix and pass after, the repository's preflight, docs to update.
+    validations:
+      required: true
+
+  - type: textarea
+    id: risks
+    attributes:
+      label: Risks
+      description: The review's questions answered for this change, each with a check under Done when. Keep only the lines that apply.
+      value: |
+        - Untrusted input (URL, header, CSS, HTML, SQL, log):
+        - Bounds (rows, calls, memory, time, caches) and what happens past them:
+        - Atomicity and reruns (writes that must commit together, a crash in between, a second run):
+        - Overlapping runs:
+        - Existing dependents (published packages, stored data, defaults, contract versions):
+        - Real target environment:
+
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints
+      description: Repository rules that apply, such as contract version, public API, migrations, style.
+
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      description: What not to touch.
