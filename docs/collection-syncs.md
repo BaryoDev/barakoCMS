@@ -275,7 +275,9 @@ floor applies to the named field and nothing else, so an edited description stil
 for due syncs once a minute, takes a Postgres advisory lock so only one instance sweeps, and runs at
 most twenty syncs per tick. `maxEntries` caps how many items of one response are read, up to 500:
 nothing here follows a source's paging, and a source answering ten thousand items must not turn one
-tick into ten thousand writes.
+tick into ten thousand writes. A response body larger than 2 MB fails the run. The sweep reads at
+most 200 enabled syncs per tenant, in slug order, so a tenant with more than that never runs the
+rest on schedule.
 
 A response that says the same thing writes nothing at all. A datetime is compared as an instant,
 so the same moment written with or without fractional seconds is the same value. Without that, every tick would append a

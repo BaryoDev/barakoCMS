@@ -52,6 +52,7 @@ Create `BarakoCMS.Glossary/BarakoCMS.Glossary.csproj`:
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\BarakoCMS.Abstractions\BarakoCMS.Abstractions.csproj" />
     <ProjectReference Include="..\barakoCMS\barakoCMS.csproj" />
   </ItemGroup>
 
@@ -71,7 +72,10 @@ What is missing on purpose:
 - **`IsPackable` is false** because this is a practice module. A module you intend to publish needs
   more, covered under [Before it is a real module](#before-it-is-a-real-module).
 
-The project reference is to `barakoCMS`, the core. That is the only direction a reference goes.
+The project references are to `BarakoCMS.Abstractions`, where the module contract, the models and
+the core interfaces live since 4.3.0, and to `barakoCMS`, the core. Every first-party module in this
+repository references Abstractions, and all but BarakoCMS.Files.S3 reference the core. That is the
+only direction a reference goes.
 
 ## 2. The module class
 

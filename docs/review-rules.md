@@ -13,7 +13,7 @@ Read by the adversarial-review skill (arnelirobles/lean-agent-method) before any
 
 ## Boundaries
 
-- **Core or module:** apply the tests in README "Module, or core?". A module depends on the core only, never on another module, and the core never references a module.
+- **Core or module:** apply the tests in README "Module, or core?". A module depends on the core and BarakoCMS.Abstractions, not on another module, and the core never references a module. The one exception is a storage backend for another module: BarakoCMS.Files.S3 references BarakoCMS.Files and Abstractions, not the core.
 - **Nothing secret, or hashed from a secret, in a publicly deliverable type,** including the `site` settings entry.
 - **A config default preserves today's behaviour** (CLAUDE.md section 3).
 - **A list endpoint is bounded,** and an anonymous endpoint is rate limited.

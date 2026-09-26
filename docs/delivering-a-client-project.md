@@ -241,6 +241,12 @@ and page in one call, and `events`, `portfolio` and `docs` do the same for their
 rather than replaces a type that already exists. [blueprints.md](blueprints.md) has the field sets
 and how to ship your own.
 
+A site's own settings (name, navigation, theme) belong in the `site` blueprint, described in
+[site-settings.md](site-settings.md). Content that already lives somewhere else can come in two
+ways: a collection sync reads it from a request or a feed on a schedule
+([collection-syncs.md](collection-syncs.md)), and a collection push lets the source send it with
+`POST /api/collections/{type}/push` ([collection-push.md](collection-push.md)).
+
 Four decisions in this step are worth making deliberately.
 
 **Public delivery is opt in.** `isPubliclyDeliverable` defaults to false. Without it,
@@ -521,10 +527,10 @@ Delivery-specific things to get right at this point:
 - **Set `FEEDS_SITE_URL` to the client's site**, not to the API. The feed prefers `Feeds:SiteUrl`
   over `App:BaseUrl` for the links in each item, and a reader following one should land on the
   client's page rather than on a JSON endpoint.
-- **Pick a tag your machine can run.** The versioned image tags are `linux/amd64` only right now;
-  `latest` carries both. On an arm64 host, pinning a version tag fails the pull. Check with
-  `docker buildx imagetools inspect ghcr.io/baryodev/barako-cms:$BARAKO_TAG | grep Platform`. Tracked
-  as #394.
+- **Any current tag runs on amd64 and arm64.** Every image tag from `4.0.0` on carries both, and
+  the release workflow refuses to publish a tag that is missing one. The `3.21.0` tags are amd64
+  only. Check an older tag with
+  `docker buildx imagetools inspect ghcr.io/baryodev/barako-cms:$BARAKO_TAG | grep Platform`.
 - **Restore a backup before there is data worth keeping.** `db-backup` dumps nightly to its own
   volume, separate from Postgres's, and the script checks the exit code, proves the archive
   decompresses and enforces a minimum size before rotating.
@@ -547,10 +553,10 @@ Delivery-specific things to get right at this point:
   depends on.
 - **A content export.** `GET /api/portability/export` is one JSON bundle of their content types and
   content. Handing it over on day one is what makes "you own your content" checkable rather than a
-  claim, and it is the same bundle that would seed the model somewhere else. You run it, not them:
-  the endpoint gates on the seeded `Admin` and `SuperAdmin` role names, so a client-facing role
-  cannot reach it. If they need it on demand, that is a standing job on your side rather than a
-  button on theirs.
+  claim, and it is the same bundle that would seed the model somewhere else. The endpoint needs the
+  `export_content` capability, which the seeded `Admin` role holds and `SuperAdmin` satisfies. A
+  client-facing role reaches it only if you grant it that capability, so decide whether they export
+  on demand or you run it for them.
 - **Where their data lives and what the backup story is.** Nightly Postgres dumps, no point-in-time
   recovery, and no measured RPO or RTO. Say the numbers you do not have.
 
@@ -664,12 +670,13 @@ rarely what a client-facing role is meant to do.
 ### Things a client site usually wants that do not exist
 
 Shorter than it was. SEO fields (#111), URL redirects (#112), content-type blueprints (#109),
-webhook deliveries (#95), the event stream (#96) and image variants (#100) have all shipped since
-this list was written. See [seo-fields.md](seo-fields.md), [url-redirects.md](url-redirects.md),
-[blueprints.md](blueprints.md), [webhooks.md](webhooks.md), [delivery-api.md](delivery-api.md) and
-[image-variants.md](image-variants.md).
+webhook deliveries (#95), the event stream (#96), image variants (#100) and form submissions (#110)
+have all shipped since this list was written. See [seo-fields.md](seo-fields.md),
+[url-redirects.md](url-redirects.md), [blueprints.md](blueprints.md), [webhooks.md](webhooks.md),
+[delivery-api.md](delivery-api.md), [image-variants.md](image-variants.md) and the
+[BarakoCMS.Forms README](../BarakoCMS.Forms/README.md): a contact form is a content type marked as a
+form, and `POST /api/public/forms/{slug}` stores each submission as a draft entry of it.
 
-- **No form submissions module** (#110). A contact form has nowhere to go.
 - **No starter frontend templates** (#188). `examples/blog-starter` is a worked example, not a
   template you clone.
 - **No localization** (#98). One entry is one language.
@@ -699,7 +706,6 @@ this list was written. See [seo-fields.md](seo-fields.md), [url-redirects.md](ur
 
 - **The TLS path is not covered by CI** (#308). CI resolves every compose file and asserts the
   production one builds nothing, but certificate issuance on a real VM is verified by hand.
-- **Versioned image tags are amd64 only** (#394).
 - **No CLI** (#169, #345). Everything in this document is barakoBrew or curl. There is no
   reviewable file that configures an instance, which is what would make step 3 through step 5
   repeatable per client instead of retyped.
@@ -714,6 +720,10 @@ this list was written. See [seo-fields.md](seo-fields.md), [url-redirects.md](ur
 - [multi-tenancy.md](multi-tenancy.md), what is per tenant and what is shared
 - [access-control.md](access-control.md), the three permission layers and the capability model
 - [delivery-api.md](delivery-api.md), the anonymous read surface in full
+- [scheduling.md](scheduling.md), publish, unpublish and sensitivity changes at a set time
+- [site-settings.md](site-settings.md), the `site` blueprint a site reads its settings from
+- [collection-syncs.md](collection-syncs.md) and [collection-push.md](collection-push.md), content
+  kept in step with another source
 - [deploy-in-production.md](deploy-in-production.md), the production compose procedure
 - [backup-and-restore.md](backup-and-restore.md), and what is not covered
 - [configuring-email.md](configuring-email.md), which is a prerequisite for inviting anybody

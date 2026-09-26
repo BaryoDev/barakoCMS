@@ -7,8 +7,9 @@
 > and granular field sensitivity on content types. All of this is core (content
 > types + RBAC already live in core), not a module.
 
-There are three layers. Two already work. One (sensitivity) is a hardcoded POC
-that needs generalizing.
+There are three layers, and all three are built. Layer 3 (sensitivity) started as a
+hardcoded proof of concept and now reads each field's sensitivity off the content type's
+schema; the layer 3 section below has both.
 
 All three are enforced in C#, and that is a decision rather than an accident: `DECISIONS.md` D11.
 Layers 1 and 2 are `IPermissionResolver`; layer 3 is `SensitivityService`, which is the reason for

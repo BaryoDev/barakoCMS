@@ -161,12 +161,21 @@ and the stock ones to go back to, are in the barakoCMS repository's
 
 ## Upgrading
 
+Change `BARAKO_TAG` first, then:
+
 ```bash
-docker compose pull && docker compose up -d
+docker compose pull
+docker compose run --rm --no-deps api db-assert
+docker compose up -d
 ```
 
-Schema migrations run automatically on start. Pin `BARAKO_TAG` to a specific version for
-reproducible, deliberate upgrades.
+Migrations do not run on start. The API creates missing tables but never alters an existing one
+(outside Development it runs Marten's `CreateOnly`), so a release that changes a table you already
+have fails to start until its SQL from `migrations/<version>/` in the barakoCMS repository is
+applied. `db-assert` exits 0 when the database holds everything the new build needs, and non-zero
+listing what is outstanding. The barakoCMS repository's `docs/deploy-in-production.md`,
+"Upgrading", has the full procedure. Pin `BARAKO_TAG` to a specific version so an upgrade is
+deliberate.
 
 ## Data & backup
 
