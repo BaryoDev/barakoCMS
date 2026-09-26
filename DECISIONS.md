@@ -378,7 +378,7 @@ The condition language is frozen as a contract at `_eq`, `_ne`, `_in`, `_nin` an
 Every role document in every deployment is written against it, and #445 makes it a second
 implementation, so adding an operator means adding it in two places at once or not at all.
 
-**Rules out:** the Supabase shape. No PostgREST-style layer that maps HTTP straight onto SQL, no
+**Rules out:** the database-first backend shape. No PostgREST-style layer that maps HTTP straight onto SQL, no
 per-end-user Postgres role, no row-level security carrying business rules, and no browser holding a
 database connection.
 
@@ -393,8 +393,8 @@ so the most sensitive control in `docs/access-control.md` would have to stay in 
 and a boundary that holds two of three layers is not a boundary, it is a second copy of the rules
 with a gap in it.
 
-The other half is that there is nothing on the other side of the boundary to protect against. Supabase
-puts RLS between an untrusted browser and the database because the browser genuinely holds a
+The other half is that there is nothing on the other side of the boundary to protect against. A
+database-first backend puts RLS between an untrusted browser and the database because the browser genuinely holds a
 connection. Here every statement is issued by our own process, after FastEndpoints has run the
 permission check, over a connection string the operator controls. Policies against that connection do
 not defend against an attacker; they defend against our own bug, which is worth having for one flat,
@@ -752,9 +752,8 @@ means keeping `JobRecord`. Temporal does not let us delete anything.
 
 **The footprint contradicts the claim.** The deployment story is an app and Postgres. Self-hosted
 Temporal adds a server, two more databases with their own schema tooling and their own vacuum tuning,
-and a UI. The positioning in `ROADMAP.md` is that there is nothing to procure and nothing to stand up,
-and Temporal Cloud is metered, which is the shape of thing the licence table there uses to
-differentiate. Licensing is not the obstacle; MIT sits fine under MPL-2.0. The footprint is.
+and a UI. The positioning is that there is nothing to procure, nothing to stand up and nothing
+metered, and Temporal Cloud is metered. Licensing is not the obstacle; MIT sits fine under MPL-2.0. The footprint is.
 
 **What is given up, honestly.** Temporal's dispatch would structurally fix the rolling-deploy
 duplication in #239, where an old node does not participate in the new locking because it is already
@@ -910,6 +909,10 @@ app, VMs first and then Azure and AWS container platforms. Everything else here 
 ## D22. A site is configuration; developers extend with plugins; rules go to workflows before modules
 
 **Decided:** 14 Sept 2026. **Status:** accepted. **Issue:** #795.
+
+**Where it stands (26 Sept 2026).** "Configured, not coded" is the goal, not yet the fact. barakocms.com
+runs a derived barakoPress image with a plugin and a small overlay, built from its own repository.
+BaryoDev/barakoPress#166 to #170 remove the overlay; this paragraph comes out when they close.
 
 Every site, barakocms.com included, runs the same published barakoCMS, barakoBrew and barakoPress
 images. Everything that makes a site that site is data set in barakoBrew: a blueprint, a theme and

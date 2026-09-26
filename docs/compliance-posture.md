@@ -3,11 +3,13 @@
 Written so a security questionnaire has an answer that is not silence. Everything below is either
 checkable in this repository or stated plainly as absent.
 
-Last reviewed: 30 August 2026, against barakoCMS 4.0.
+Last reviewed: 26 September 2026, against barakoCMS 4.4.1.
 
-## Start here: barakoCMS is self-hosted
+## Start here: you own it and run it
 
 This is the single most useful sentence for most questionnaires, so it comes first.
+
+You own it and run it where you choose. Nothing is metered per seat, record or environment.
 
 **There is no barakoCMS service.** You run the process, you own the database, you choose the
 region, you hold the backups, you decide the retention. We never receive your data and cannot
@@ -22,6 +24,7 @@ one:
 | Is data encrypted at rest? | You. Configure it on your database and volumes. |
 | Who at your company can access customer data? | Nobody here can. There is no access path. |
 | What are your subprocessors? | Ours: none in the data path. Yours are yours. |
+| Does the software call out to third parties? | Only to what you configure: collection syncs, connectors, workflow webhooks and requests, and modules such as email, file storage, AI, sign-in providers and Turnstile. Every outbound call from the core goes through one guard that refuses loopback, link-local (including the cloud metadata address) and private addresses (`barakoCMS/Infrastructure/Http/OutboundAddressGuard.cs`), unless `Webhooks:AllowProxy` sends it through a proxy, when the proxy hop is what gets checked. Module calls (email, S3, AI, Umami, sign-in providers, Turnstile, the clamd scanner) go to the host you configure and do not pass through the guard, because several are expected on private addresses. |
 | What is your data-retention and deletion policy? | Yours, with one caveat below on erasure. |
 | What happens to data if we stop paying? | Nothing. There is nothing to pay, and no hosted copy. |
 | What is your breach-notification process? | For a vulnerability in the software, see `SECURITY.md`. For a breach of your deployment, yours. |
@@ -42,12 +45,13 @@ Each row is a control that is implemented and checkable, not a plan.
 | API keys | Scoped, with the scopes enforced by a processor rather than merely issued |
 | Multi-tenant isolation | Marten conjoined tenancy: every document and event stream is tagged and auto-filtered by tenant |
 | Field-level sensitivity | Per-field allowlist on public delivery, applied on both read and write |
-| Static analysis | CodeQL on every pull request |
+| Cross-origin requests | No browser origin is allowed unless `CORS:AllowedOrigins` names it; since 4.3.0 there is no localhost fallback outside Development |
+| Static analysis | CodeQL on every pull request that touches code (docs-only changes skip it) |
 | Dependency vulnerabilities | Dependabot, plus a `dotnet list package --vulnerable` gate that fails the build on High or Critical |
 | Secret scanning | Gitleaks on every pull request |
 | Software bill of materials | One CycloneDX SBOM covering the whole solution, generated on each release run and kept as a 90-day workflow artifact. Not per package, none for the container image, and not attached to the GitHub release |
 | Backup and restore | Every deployment path takes verified backups; CI restores one and boots against it on every pull request (`docs/backup-and-restore.md`) |
-| Upgrade safety | CI upgrades a real database created by the previous release (`docs/upgrading-to-4.0.md`) |
+| Upgrade safety | CI upgrades a real database created by the last 3.x release (3.21.0) and rolls it back (`scripts/upgrade-check.sh`, `docs/upgrading-to-4.0.md`). An upgrade between 4.x releases is not exercised in CI |
 | Vulnerability disclosure | Private channel with a stated timeline (`SECURITY.md`) |
 | Licence | MPL-2.0. No seat cap, no revenue cap, no metered features |
 
@@ -59,15 +63,15 @@ Said directly, because a hedge here costs more time than the admission.
 - **No ISO 27001 certification.** None is in progress.
 - **No third-party penetration test.** The security work in this repository is internal review and
   automated scanning. If a test is ever commissioned, its summary will be added here.
-- **No HIPAA, PCI-DSS or FedRAMP attestation.** Whether a self-hosted barakoCMS can sit inside such
-  an environment is a question about your infrastructure and your assessor, not about us.
+- **No HIPAA, PCI-DSS or FedRAMP attestation.** Whether barakoCMS can sit inside such an
+  environment is a question about your infrastructure and your assessor, not about us.
 - **No published RPO or RTO.** Backups run nightly, and the restore procedure is exercised in CI,
   but no recovery time has been measured on a production-sized database, so there is no number to
   put in a contract.
 - **No 24/7 support, and no service-level agreement.** See `SECURITY.md` for the support policy,
   which is a maintenance commitment rather than an SLA.
 
-This is category-normal for a self-hosted open-source CMS. Umbraco has no SOC 2 either. It is stated
+This is normal for open-source software you run yourself. It is stated
 here so that a reviewer gets an answer in one page instead of an unanswered email.
 
 ## The one that is genuinely ours, not yours
@@ -97,7 +101,7 @@ Two limits worth stating rather than discovering:
 
 The reasoning behind all of it is in `DECISIONS.md` under D9.
 
-Per-type event sourcing, decided but not yet shipped, sidesteps this conflict rather than adding to
+Per-type event sourcing (a choice per content type since 4.0.0, off by default) sidesteps this conflict rather than adding to
 it: an event-sourced content type refuses non-Public fields, so personal data cannot enter a stream
 whose value is never being altered. What that choice commits an operator to is in
 [docs/event-sourced-content-types.md](event-sourced-content-types.md).

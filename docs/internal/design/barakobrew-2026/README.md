@@ -11,7 +11,7 @@ for gaps the repo's own `ROADMAP.md` names but has not built yet.
 
 Source of truth for the current state: `BaryoDev/barakoCMS` @ `master`.
 
-The goal the user set: look credible next to Supabase and similar, convert .NET developers faster,
+The goal the user set: look credible next to the hosted backends it gets compared with, convert .NET developers faster,
 show the product instead of describing it, and fix an admin they described as "dull and boring and
 not intuitive".
 
@@ -173,8 +173,8 @@ Full-width, 1440px design width, sections stacked.
 - **Three lines to start.** Two columns: copy left, dark `#101223` code panel right showing
   `AddBarakoCMS` with three modules registered. Syntax tints: keyword `#8B8FA6`→ use `#63687D`,
   method `#A99BF7`, type `#7FD1C1`, plain `#E6E7F3`.
-- **Comparison table.** The existing Umbraco table, restyled: header row on `#FAFAFC`, check icon
-  beside each included capability, honest closing paragraph retained verbatim.
+- **Comparison table.** Dropped on 26 Sept 2026: comparisons with named products stay out of
+  public pages.
 - **Agency CTA.** Dark `#101223` block, 20px radius, with the bean at 340px and 16% opacity bleeding
   off the top-right corner. Four two-column points over hairline `#2C2F52` rules.
 - **Footer.** Bean 20px + wordmark, license, links.

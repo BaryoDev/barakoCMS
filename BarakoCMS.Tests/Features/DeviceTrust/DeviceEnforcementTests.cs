@@ -164,7 +164,7 @@ public class DeviceEnforcementTests
     /// <remarks>
     /// Sessions issued before enforcement was switched on carry no device claim. Refusing them would
     /// sign out every existing user the moment an operator flipped the flag, so the module lets them
-    /// through and lets them expire instead. See docs/device-trust.md.
+    /// through and lets them expire instead. See docs/internal/device-trust.md.
     /// </remarks>
     [Fact]
     public async Task A_token_with_no_device_claim_is_left_alone()

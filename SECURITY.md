@@ -75,7 +75,7 @@ this file.
 
 ## Compliance posture
 
-`docs/compliance-posture.md` states what exists, what does not, and what self-hosting moves to the
+`docs/compliance-posture.md` states what exists, what does not, and what running it moves to the
 operator. It is written for a procurement review: SOC 2, ISO 27001 and third-party penetration
 testing are all absent, and it says so directly rather than leaving the question open.
 

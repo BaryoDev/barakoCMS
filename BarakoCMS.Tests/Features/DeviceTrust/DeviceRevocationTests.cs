@@ -21,7 +21,7 @@ namespace BarakoCMS.Tests.Features.DeviceTrust;
 /// The third is the documented limitation: revoking ends renewal, not the access token already in
 /// flight, which survives until it expires. Stated as a test rather than left as an assumption, so
 /// anyone reading the suite finds the boundary where the behaviour is rather than in a doc that can
-/// drift away from it. See docs/device-trust.md.
+/// drift away from it. See docs/internal/device-trust.md.
 ///
 /// Each instance takes its own client IP because <c>/api/auth/refresh</c> is under the auth rate
 /// limit of five per fifteen minutes per address, and the rest of the suite shares one loopback.

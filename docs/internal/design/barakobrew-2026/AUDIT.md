@@ -118,8 +118,8 @@ layout, so the admin theme swap does nothing here. This screen is a separate pie
 happens to share a palette.
 
 What exists: `site/app/page.tsx`, `site/app/layout.tsx`, `site/app/bean.tsx` (the bean geometry the
-README says is unchanged apart from the fill), `site/app/ledger.tsx`, and the Umbraco comparison
-table the design restyles rather than rewrites.
+README says is unchanged apart from the fill), `site/app/ledger.tsx`, and the comparison table the
+design restyled (since removed).
 
 What does not exist: the product shot. The README calls the browser frame showing the real entry
 editor "the single most important element on the page". There is no such asset, and the design

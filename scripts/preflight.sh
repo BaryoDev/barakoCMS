@@ -225,7 +225,6 @@ allowed_root_md=(
   EVENT-SOURCING-PER-CONTENT-TYPE.md
   MODULES.md
   README.md
-  ROADMAP.md
   SECURITY.md
 )
 
