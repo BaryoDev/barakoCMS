@@ -261,7 +261,7 @@ and a script is not.
 
 ## Running agents over a backlog
 
-This document is what the process is. [The lean agent method](https://github.com/arnelirobles/lean-agent-method)
+This document is what the process is. [Lean agent](https://github.com/arnelirobles/lean-agent)
 is how to run agents through it without burning a plan in a night: triage tiers, a cheaper model
 drafting with an adversarial critic on every change, at most four changes in flight, and cost
 measured per change rather than per token. The two are deliberately separate. Change the process

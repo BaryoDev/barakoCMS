@@ -6,7 +6,7 @@ body:
       value: |
         Search open issues first; if one covers this area, add to its Covers list instead of filing new (or comment there, if you cannot edit it).
 
-        One ticket is what one agent can finish in one focused pass: one pull request or a short stack, one repository, the same area or fix pattern. Method: https://github.com/arnelirobles/lean-agent-method
+        One ticket is what one agent can finish in one focused pass: one pull request or a short stack, one repository, the same area or fix pattern. Method: https://github.com/arnelirobles/lean-agent
 
   - type: input
     id: goal
