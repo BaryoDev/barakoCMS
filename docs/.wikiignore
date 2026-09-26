@@ -5,13 +5,6 @@
 # The wiki is public. Anything naming a live deployment, an incident, or a decision still being
 # argued belongs in the repository, where the reader already has the context.
 
-# Names a real exposure on a live deployment.
-marketplace-and-contribution-plan.md
-
 # Hardcoded proof-of-concept detail and deployment specifics.
 access-control.md
-device-trust.md
-
-# A parked design argument, not documentation.
-workflow-engine-rethink.md
 

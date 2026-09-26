@@ -3,7 +3,7 @@
 > Status: built and shipping as `BarakoCMS.DeviceTrust`. This is the original
 > design note, kept for the reasoning behind the shape. For how to turn it on and
 > what each setting does, read the module's own README
-> ([BarakoCMS.DeviceTrust/README.md](../BarakoCMS.DeviceTrust/README.md)), which
+> ([BarakoCMS.DeviceTrust/README.md](../../BarakoCMS.DeviceTrust/README.md)), which
 > describes the code as built. Where the two disagree, the README is right.
 >
 > Driven by BaryoClub (block transactions from unapproved devices), but the

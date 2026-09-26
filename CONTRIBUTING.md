@@ -113,7 +113,6 @@ step, tests included.
 
 If you publish one, tag it **`barakocms-module`**. That tag is the discovery mechanism, since one search
 on nuget.org returns every module, yours included, and it is what a future marketplace would index.
-Umbraco does the same thing with `umbraco-marketplace`.
 
 A module belongs in this repository if it's broadly useful and we can maintain it. Otherwise publish
 it under your own name; it works exactly the same for the people installing it, and you keep control

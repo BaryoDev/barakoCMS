@@ -25,8 +25,8 @@
     <PackageIcon>icon.png</PackageIcon>
 
     <!-- `barakocms-module` is the discovery tag: one search on nuget.org returns the whole module
-         set. Umbraco does the same with `umbraco-marketplace`, which is what gets a community
-         package listed rather than merely published. A module may append its own tags. -->
+         set, and it is what gets a community package listed rather than merely published. A module
+         may append its own tags. -->
     <PackageTags>barakocms;barakocms-module;headless-cms;cms;dotnet;aspnetcore;marten</PackageTags>
   </PropertyGroup>
 

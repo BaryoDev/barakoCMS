@@ -19,7 +19,7 @@
 #   The rule is deliberately dumb so a wiki URL is predictable from the repo path and
 #   a rewritten link is just the file name minus .md.
 #
-#   Only top-level docs/*.md are pages. docs/design/** is not: it is working material
+#   Only top-level docs/*.md are pages. docs/internal/** is not: it is working material
 #   that links to prototypes and screenshots, so links into it point at the repo.
 #
 # Generated pages
@@ -71,7 +71,6 @@ GROUP_ORDER=(
   "Security and access"
   "Tenancy"
   "Operations"
-  "Design notes and plans"
   "Other"
 )
 
@@ -81,14 +80,12 @@ group_of() {
       printf 'Start here' ;;
     blueprints.md|site-settings.md|choice-fields.md|event-sourced-content-types.md|seo-fields.md|image-variants.md|url-redirects.md|delivery-api.md|scheduling.md|collection-syncs.md|collection-push.md)
       printf 'Content' ;;
-    access-control.md|compliance-posture.md|device-trust.md|session-and-token-storage.md|scanning-uploads.md)
+    access-control.md|compliance-posture.md|session-and-token-storage.md|scanning-uploads.md)
       printf 'Security and access' ;;
     multi-tenancy.md|tenancy-at-the-database.md)
       printf 'Tenancy' ;;
     backup-and-restore.md|background-jobs.md|workflow-runs.md|module-inventory.md|idempotency.md|webhooks.md)
       printf 'Operations' ;;
-    workflow-engine-rethink.md|marketplace-and-contribution-plan.md|review-rules.md)
-      printf 'Design notes and plans' ;;
     *)
       printf 'Other' ;;
   esac

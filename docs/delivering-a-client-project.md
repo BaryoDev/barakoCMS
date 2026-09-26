@@ -393,7 +393,7 @@ POST /api/roles
 ```
 
 Permissions are additive across a user's roles, granted if any role allows. Row-level scope is
-Directus-style conditions on the rule, so "a member reads only their own rows" is
+a condition on the rule, so "a member reads only their own rows" is
 `{"read": {"enabled": true, "conditions": {"$createdBy": {"_eq": "$CURRENT_USER"}}}}`. Field-level
 masking is separate again and lives on the content type's schema.
 [access-control.md](access-control.md) is the full picture of all three layers.

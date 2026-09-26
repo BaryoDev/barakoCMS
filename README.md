@@ -4,7 +4,7 @@
 
 <h1 align="center">BarakoCMS</h1>
 
-<p align="center"><strong>A headless CMS suite for .NET 10: an event-sourced engine, opt-in modules, and a PWA kit.</strong></p>
+<p align="center"><strong>Model it in barakoCMS. Edit it in barakoBrew. Render it with barakoPress. Deploy it anywhere.</strong></p>
 
 <p align="center">
   <a href="https://www.nuget.org/packages/BarakoCMS"><img src="https://img.shields.io/nuget/v/BarakoCMS.svg" alt="NuGet" /></a>
@@ -32,6 +32,10 @@ is still pushed alongside it until barakoBrew 2.0.0. This repository has no fron
 **Reachable.** No sales call, no partner tier, no procurement cycle, no discovery call. Clone it and
 it runs. That is the part deliberately not for sale.
 
+**You own it and run it where you choose. Nothing is metered per seat, record or environment.**
+It runs as a container on a VM, Kubernetes, App Service, Fargate or Cloud Run
+([docs/deploy-on-a-managed-platform.md](docs/deploy-on-a-managed-platform.md)).
+
 **Free at any scale.** MPL-2.0, no seat cap, no revenue cap, no metered AI, and every module
 BaryoDev publishes included rather than sold separately, wherever that module lives. The
 [contributor terms](CLA.md) bound the licence grant to OSI-approved licences, so this cannot be
@@ -45,7 +49,7 @@ your evaluation involves legal and a security questionnaire, the gap is real and
 it.
 
 What there is: [docs/compliance-posture.md](docs/compliance-posture.md) states what exists, what
-does not, and which questions self-hosting moves to you rather than to us, which is most of them.
+does not, and which questions fall to whoever runs it rather than to us, which is most of them.
 [SECURITY.md](SECURITY.md) carries the support and end-of-life policy. Beyond that you get the whole
 system, the reasoning behind it in [DECISIONS.md](DECISIONS.md), and the ability to fix anything
 yourself.
@@ -60,16 +64,13 @@ Named here rather than discovered later. All of these are real:
 
 | | |
 | :--- | :--- |
-| Multi-language content | No variants. One language per content item |
-| Multi-site | Tenancy is not the same primitive |
-| Approval workflow | "Workflow" here means automation rules, not draft, review and sign-off |
-| Media library | File upload and download exist; cropping, focal points and variants do not |
-| Forms builder | Absent |
+| Multi-language content | No variants. One language per entry (#98) |
+| Media editing | Upload, download and width variants (`?w=`) exist; cropping and focal points do not |
 | GraphQL | REST only |
-| Managed hosting | Self-host or nothing |
+| Configuration as code | No CLI or file that configures an instance; setup is barakoBrew or the API (#345) |
 
-If any of those is load-bearing for your project, [Umbraco](https://umbraco.com) is free too, MIT
-licensed, and has all of them. That is a genuine recommendation, not a hedge.
+What is planned is on the [milestones](https://github.com/BaryoDev/barakoCMS/milestones) and at
+[barakocms.com/roadmap](https://barakocms.com/roadmap/).
 
 ---
 

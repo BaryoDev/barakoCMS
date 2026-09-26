@@ -17,7 +17,7 @@ namespace BarakoCMS.Tests.Features.ContentApi;
 /// remain further down the raw (unfiltered) ordering.
 ///
 /// These tests use an ownership condition (`OwnerId _eq $CURRENT_USER`), the same
-/// Directus/Strapi-style condition <see cref="barakoCMS.Infrastructure.Services.ConditionEvaluator"/>
+/// field-operator condition <see cref="barakoCMS.Infrastructure.Services.ConditionEvaluator"/>
 /// already supports, because it is exactly the kind of per-item rule that makes a coarse,
 /// no-specific-item permission check unsafe to use as a pagination pre-filter.
 /// </summary>

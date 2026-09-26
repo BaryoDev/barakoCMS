@@ -19,9 +19,8 @@ fires on a transition (`Features/Workflows/WorkflowProjection.cs`) and email fro
 Bring up the [quickstart](../quickstart/) and export the base URL. The seeded administrator is
 `ADMIN_USERNAME` / `ADMIN_PASSWORD` from your `.env`.
 
-The quickstart pulls `ghcr.io/baryodev/barako-cms:latest`, and until the next release that image
-predates lifecycles, so the requests from step 2 on do not answer as shown. Set `BARAKO_TAG=master`
-in `.env` to run the branch tip, which every push to master publishes.
+The quickstart pulls `ghcr.io/baryodev/barako-cms:latest`, which has lifecycles (they shipped in
+4.0.0).
 
 ```bash
 BASE=http://localhost:5005

@@ -4,7 +4,7 @@ using Marten;
 namespace barakoCMS.Infrastructure.Services;
 
 /// <summary>
-/// Service for evaluating permission conditions (Directus/Strapi style)
+/// Service for evaluating permission conditions ({ "field": { "operator": "value" } })
 /// </summary>
 public class ConditionEvaluator : IConditionEvaluator
 {

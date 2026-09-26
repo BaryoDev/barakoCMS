@@ -35,7 +35,7 @@ liability.
 
 ## Layer 1: CRUD per content type per role (already works)
 
-This is exactly the treasurer/secretary/admin ask, and it is built:
+Each role grants create, read, update and delete per content type:
 
 - `Role.Permissions` is a `List<ContentTypePermission>`.
 - `ContentTypePermission` = `ContentTypeSlug` + `Create` / `Read` / `Update` /
@@ -46,7 +46,7 @@ This is exactly the treasurer/secretary/admin ask, and it is built:
 - Content endpoints (Create/List/Get/Update/Delete/ChangeStatus) call
   `CanPerformActionAsync(user, contentTypeSlug, action, content)`.
 
-So your example is pure configuration, no code:
+So a role set such as treasurer, secretary and admin is configuration, no code:
 
 | Role      | payment (content type)                          |
 | --------- | ----------------------------------------------- |
@@ -67,7 +67,7 @@ status code each one answers.
 
 ## Layer 2: Row-level scope (already works)
 
-`PermissionRule.Conditions` uses Directus/Strapi-style predicates evaluated by
+`PermissionRule.Conditions` holds JSON predicates (operators such as `_eq`) evaluated by
 `IConditionEvaluator`, e.g. a Member reads only their own rows:
 
 ```json
