@@ -1128,7 +1128,7 @@ users, and today they have to pretend to be one or stay anonymous.
 
 ## D32. Wolverine runs durable work, behind seams barakoCMS owns
 
-**Decided:** 15 Sept 2026. **Status:** accepted, pending the spike in #687. **Supersedes:** the
+**Decided:** 15 Sept 2026. **Status:** accepted. The spike in #687 concluded (PR #955) into #964 (the seams) and #965 (Wolverine behind them). **Supersedes:** the
 substrate half of D19. D19's rule that a workflow definition is data still holds.
 
 Durable work (jobs, retries, dead letters, scheduled triggers, waits, the outbox to shots and grinds,
