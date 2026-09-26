@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="https://www.nuget.org/packages/BarakoCMS"><img src="https://img.shields.io/nuget/v/BarakoCMS.svg" alt="NuGet" /></a>
-  <a href="https://baryo.dev/docs"><img src="https://img.shields.io/badge/docs-baryo.dev-blue" alt="Documentation" /></a>
+  <a href="https://barakocms.com/docs/"><img src="https://img.shields.io/badge/docs-barakocms.com-blue" alt="Documentation" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/BaryoDev/barakoCMS" alt="License" /></a>
   <a href="https://playground.baryo.dev/barakocms"><img src="https://img.shields.io/badge/demo-live-brightgreen" alt="Live demo" /></a>
 </p>
@@ -102,7 +102,7 @@ docker compose up -d
 
 See **[quickstart/README.md](quickstart/README.md)** for every variable, enabling modules, and going
 behind a domain with TLS. To build from source instead, see the
-[getting-started guide](https://baryo.dev/docs/).
+[getting-started guide](https://barakocms.com/docs/).
 
 ---
 
@@ -125,6 +125,7 @@ project, through the same `IBarakoModule` contract you can implement yourself.
 | **Accounting** | [`BarakoCMS.Accounting`](https://www.nuget.org/packages/BarakoCMS.Accounting) | A double-entry **ledger**: chart of accounts, balanced journal entries, balances, and per-account ledgers. |
 | **Import** | [`BarakoCMS.Import`](https://www.nuget.org/packages/BarakoCMS.Import) | **Bulk import** `.xlsx`/CSV into content via [Talaan](https://github.com/BaryoDev/Talaan), through the CMS's own validation, permissions, and event sourcing. |
 | **Files** | [`BarakoCMS.Files`](https://www.nuget.org/packages/BarakoCMS.Files) | **File upload/download** stored in Postgres via Marten: receipts, photos, documents. |
+| **Files.S3** | [`BarakoCMS.Files.S3`](https://www.nuget.org/packages/BarakoCMS.Files.S3) | Stores the Files module's uploads in S3-compatible object storage (AWS S3, Cloudflare R2, SeaweedFS) instead of Postgres. Public files get a direct URL; private files are proxied through the API. |
 | **Email.Resend** | [`BarakoCMS.Email.Resend`](https://www.nuget.org/packages/BarakoCMS.Email.Resend) | An `IEmailService` over the [Resend](https://resend.com) API, plus a delivery webhook and an **email-events** feed (bounces/complaints). |
 | **Email.Smtp** | [`BarakoCMS.Email.Smtp`](https://www.nuget.org/packages/BarakoCMS.Email.Smtp) | An `IEmailService` over any **SMTP** relay (your host, Google Workspace, SES, a corporate relay) using MailKit. Registers itself only once a host is configured. |
 | **DeviceTrust** | [`BarakoCMS.DeviceTrust`](https://www.nuget.org/packages/BarakoCMS.DeviceTrust) | Remembers trusted devices; step-up OTP when a new one signs in. |
@@ -158,7 +159,7 @@ The contract a module compiles against ships separately as
 events, the module interfaces, and the workflow extension points, with no reference to the core.
 
 A module contributes DI services, its own Marten documents, FastEndpoints endpoints, and seed data,
-implementing only the hooks it needs. See each module's page in the [docs](https://baryo.dev/docs/).
+implementing only the hooks it needs. See each module's page in the [docs](https://barakocms.com/docs/).
 Want every module in one image? Use **`ghcr.io/baryodev/barako-cms`** (Barako, full suite); for the
 lean core, **`ghcr.io/baryodev/barako-cms-decaf`** (Decaf) and add your own.
 
@@ -275,7 +276,8 @@ doing that.
 
 **`Features/Club/` failed the naming test and has been removed.** It was per-club membership
 management at `/api/club/*`, added during the multi-tenancy rollout and never called by the admin UI,
-`barako-client`, or anything else in the repo. "Club" is product vocabulary rather than CMS
+[`barako-client`](https://github.com/BaryoDev/barako-client) (the TypeScript client, in its own
+repository), or anything else in the repo. "Club" is product vocabulary rather than CMS
 vocabulary, and core had no business carrying it.
 
 Worth separating two things it was easy to conflate. The **endpoints** were product-shaped and are
@@ -370,7 +372,7 @@ fresh database works, and never alters an existing one, so it cannot attempt a l
 is not safe. A single-to-conjoined event tenancy change is exactly such a migration, and it took down
 content creation on a live instance once. Development keeps `CreateOrUpdate` for a fast local loop.
 
-Deep dives live in the [docs](https://baryo.dev/docs/): event sourcing, concurrency,
+Deep dives live in the [docs](https://barakocms.com/docs/): event sourcing, concurrency,
 content modeling, extending BarakoCMS, and deployment.
 
 ### What it runs on
@@ -380,7 +382,7 @@ project commits a `packages.lock.json`, so the dependency graph GitHub shows for
 the one that builds.
 
 - [FastEndpoints](https://fast-endpoints.com/) 8.3.0, with its Security, Swagger and Testing packages.
-- [Marten](https://martendb.io/) 9.30.0 over PostgreSQL, for documents and the event store.
+- [Marten](https://martendb.io/) 9.38.0 over PostgreSQL, for documents and the event store.
 - [Talaan](https://github.com/BaryoDev/Talaan) 0.1.0, our own `.xlsx`/CSV reader, used by the Import module.
 - [Serilog](https://serilog.net/) (Serilog.AspNetCore 10.0.0) for logging.
 - [prometheus-net](https://github.com/prometheus-net/prometheus-net) 8.2.1 for metrics.
@@ -395,7 +397,7 @@ over HTTP, and [Caddy](https://caddyserver.com/) is the reverse proxy that termi
 
 ## Documentation
 
-Full docs at **<https://baryo.dev/docs>**: getting started, guides, module references, API
+Full docs at **<https://barakocms.com/docs/>**: getting started, guides, module references, API
 reference, and architecture. Changelog: [CHANGELOG.md](CHANGELOG.md).
 
 In this repo: [your first module](docs/your-first-module.md) (from a fresh clone to a module with a
@@ -406,6 +408,10 @@ syntax, sorting, resolving references), [collections filled from outside](docs/c
 and [pushed to from CI](docs/collection-push.md), [idempotency on the authoring API](docs/idempotency.md)
 (the `Idempotency-Key` header on `POST`, `PUT` and `PATCH`), [upgrading to 4.0](docs/upgrading-to-4.0.md),
 [event-sourced content types](docs/event-sourced-content-types.md),
+[blueprints](docs/blueprints.md) (content types for a blog, events, a portfolio, docs, a product
+site and site settings in one call), [site settings](docs/site-settings.md) (the `site` entry a
+renderer reads its identity and theme from), [choice fields](docs/choice-fields.md),
+[scheduling](docs/scheduling.md) (publish, unpublish and sensitivity at a set time),
 [deploying on a managed platform](docs/deploy-on-a-managed-platform.md) (App Service, Fargate,
 Cloud Run), [approval by configuration](docs/approval-by-configuration.md) (an invoice through Submit and
 Approve, one curl per step),

@@ -172,7 +172,7 @@ the module, the version it declared and the range core accepts. See
 
 ## Writing a module
 
-The contract ships as [`BarakoCMS.Abstractions`](../BarakoCMS.Abstractions): `IBarakoModule`,
+The contract ships as [`BarakoCMS.Abstractions`](BarakoCMS.Abstractions): `IBarakoModule`,
 `IModuleSchema`, `ModuleContract`, the documents and events under `barakoCMS.Models` and
 `barakoCMS.Events`, the service interfaces under `barakoCMS.Core.Interfaces`, and the workflow
 extension points. It does not reference the core, so it cannot grow a dependency on the host by
@@ -467,13 +467,22 @@ template ships a placeholder.
 
 | Package | What it adds |
 |---|---|
-| [BarakoCMS.Accounting](../BarakoCMS.Accounting) | Double-entry ledger: accounts, balanced journal entries, reporting |
-| [BarakoCMS.Import](../BarakoCMS.Import) | Bulk import: analyze `.xlsx`/CSV uploads and create content |
-| [BarakoCMS.Files](../BarakoCMS.Files) | File attachments (upload/download) stored in Postgres |
-| [BarakoCMS.Forms](../BarakoCMS.Forms) | Public form submissions: a content type marked as a form takes anonymous, rate limited submissions stored Sensitive |
-| [BarakoCMS.Email.Resend](../BarakoCMS.Email.Resend) | Resend email provider (`IEmailService`) |
-| [BarakoCMS.Email.Smtp](../BarakoCMS.Email.Smtp) | SMTP email provider (`IEmailService`), inert until a host is configured |
-| [BarakoCMS.Pages](../BarakoCMS.Pages) | Page tree over a content type: parent loop, depth and reserved slug rules, public navigation and path resolution, and an authenticated tree |
+| [BarakoCMS.Accounting](BarakoCMS.Accounting) | Double-entry ledger: accounts, balanced journal entries, reporting |
+| [BarakoCMS.Import](BarakoCMS.Import) | Bulk import: analyze `.xlsx`/CSV uploads and create content |
+| [BarakoCMS.Files](BarakoCMS.Files) | File attachments (upload/download) stored in Postgres |
+| [BarakoCMS.Forms](BarakoCMS.Forms) | Public form submissions: a content type marked as a form takes anonymous, rate limited submissions stored Sensitive |
+| [BarakoCMS.Email.Resend](BarakoCMS.Email.Resend) | Resend email provider (`IEmailService`) |
+| [BarakoCMS.Email.Smtp](BarakoCMS.Email.Smtp) | SMTP email provider (`IEmailService`), inert until a host is configured |
+| [BarakoCMS.Pages](BarakoCMS.Pages) | Page tree over a content type: parent loop, depth and reserved slug rules, public navigation and path resolution, and an authenticated tree |
+| [BarakoCMS.Files.S3](BarakoCMS.Files.S3) | S3-compatible storage for the Files module (AWS S3, Cloudflare R2, SeaweedFS); public files get a direct URL, private files are proxied |
+| [BarakoCMS.DeviceTrust](BarakoCMS.DeviceTrust) | Records the device behind each sign-in, binds sessions to devices, and can require OTP approval for a new device |
+| [BarakoCMS.ExternalAuth](BarakoCMS.ExternalAuth) | Sign-in with Google, GitHub, Facebook or LinkedIn over OAuth, matched to a user by verified email |
+| [BarakoCMS.FeatureFlags](BarakoCMS.FeatureFlags) | Feature flags, toggled and targeted by tenant, user or percentage, evaluated server side |
+| [BarakoCMS.Portability](BarakoCMS.Portability) | Export and import content types and their entries as a JSON bundle |
+| [BarakoCMS.Diagnostics](BarakoCMS.Diagnostics) | Client error log: browser errors posted to `/api/client-errors`, deduplicated by fingerprint |
+| [BarakoCMS.Analytics.Umami](BarakoCMS.Analytics.Umami) | Admin-only proxy over an Umami instance: visitors, pages, referrers, countries, and site registration |
+| [BarakoCMS.Pwa](BarakoCMS.Pwa) | Records PWA installs and installed-app launches, anonymous or tied to the signed-in user |
+| [BarakoCMS.AI](BarakoCMS.AI) | Semantic search over published, public content with an embedding model run by Ollama by default |
 
 The core also ships passwordless **email OTP sign-in** (`POST /api/auth/otp/request` + `/verify`),
 which uses whatever `IEmailService` is registered.
