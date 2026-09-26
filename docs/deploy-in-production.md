@@ -364,9 +364,9 @@ backup, so do it once before you have data worth keeping.
 ## Known rough edges
 
 - **Pick a tag your machine can run.** The `3.21.0` version tags of both images are
-  `linux/amd64` only, and so is `barako-cms-decaf:latest`. `barako-cms:latest` carries both amd64
-  and arm64. On an arm64 host (Ampere, Graviton, an Apple laptop) pinning `BARAKO_TAG=3.21.0`
-  fails the pull with `no matching manifest for linux/arm64/v8`. Check before you pin:
+  `linux/amd64` only. Every tag from `4.0.0` on, and `:latest` of both images, carries amd64 and
+  arm64. On an arm64 host (Ampere, Graviton, an Apple laptop) pinning `BARAKO_TAG=3.21.0`
+  fails the pull with `no matching manifest for linux/arm64/v8`. Check before you pin an older tag:
 
   ```bash
   bash scripts/check-image-platforms.sh ghcr.io/baryodev/barako-cms:$BARAKO_TAG
@@ -384,10 +384,9 @@ backup, so do it once before you have data worth keeping.
   `ghcr.io/baryodev/barako-brew` from barakoBrew 1.2.0 (also pushed as `barako-admin` until 2.0.0),
   and its publish workflow runs the same platform check. Do not pin the console to `3.21.0`.
 
-  The next release published through the gate (4.0.0) fixes `barako-cms` and `barako-cms-decaf`:
-  both platforms are built and the release workflow refuses to publish either image's versioned
-  tag or `:latest` unless `docker manifest inspect` shows both. Until then, check before you pin.
-  That gate covers this repository's own images; barakoBrew runs its own on the console image.
+  Since `4.0.0` the release workflow builds both platforms for `barako-cms` and `barako-cms-decaf`
+  and refuses to publish either image's versioned tag or `:latest` unless the pushed manifest shows
+  both. That gate covers this repository's own images; barakoBrew runs its own on the console image.
 
 - **The first nightly-backup container logs a failure** (#395). `db-backup` starts as soon as Postgres is
   healthy and takes a proof backup immediately, which on a fresh stack races the API's schema

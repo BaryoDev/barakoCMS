@@ -56,8 +56,8 @@ so that value is only ever seen on a store that applied the change, which is the
 check in development and read off what production would refuse. See
 [MODULES.md](../MODULES.md#schema-preflight).
 
-Today every first-party module but Email.Smtp answers zero for `contractVersion`: the others do not
-override the property. So this endpoint confirms that a deployment picked a module up, and mostly
+Today every first-party module but Email.Smtp and Pages answers zero for `contractVersion`: the
+others do not override the property. So this endpoint confirms that a deployment picked a module up, and mostly
 does not yet tell you which contract version it thinks it is talking to. That becomes useful as
 modules start declaring one.
 
@@ -82,24 +82,14 @@ names on each item are exactly `name`, `contractVersion`, `enabled`, `schemaStat
 
 ## Authorisation
 
-`Roles("SuperAdmin", "Admin")`. This is one of the two core routes still gated on a role name rather
-than a capability, and it is pinned as such by
-`RoleGateTests.The_core_routes_still_on_a_role_name_are_the_two_that_are_meant_to_be`, so it cannot
-be forgotten and no third one can join it quietly.
-
-Monitoring used to be the argument for leaving it: the nearest neighbour by purpose, gating the same
-way. That stopped being true when monitoring moved to `view_monitoring`, so the reason recorded here
-is now the pinned list rather than a neighbour.
+The `view_modules` capability. Admin holds it by default, SuperAdmin satisfies it, and the
+`SuperAdmin` and `Admin` role names are honoured as a legacy fallback only while
+`Auth:LegacyRoleFallback` is true (it defaults to false). It is named for reading because the
+endpoint answers with a few fields per module and manages nothing.
+`RoleGateTests.No_core_route_gates_on_a_role_name` pins that no core route is left on a role name.
 
 Not anonymous, and not reachable with an API key. A module list tells a caller which surfaces an
 instance exposes, which is reconnaissance. `ApiKeyScopeProcessor` confines API keys to the content
 surface and denies everything else, so this needs a human JWT: a CLI that wants it has to log in
 rather than present a key.
 
-It is deliberately not gated on a `SystemCapabilities` name. Every capability in that vocabulary
-covers a management surface this endpoint neither reads nor writes, and inventing one now would have
-to be added to `SystemCapabilities.DefaultsFor("Admin")` to reach an Admin, where
-`DataSeeder.ApplyCapabilityDefaults` leaves an already-backfilled role alone. An existing Admin would
-never receive it, and with `Auth:LegacyRoleFallback=false` that Admin is locked out of the endpoint
-with nothing in the diff that looks like a lockout. The instance-inspection surface gets a capability
-when it is migrated as a group and one name can be chosen for the whole of it.

@@ -140,8 +140,10 @@ it. This is PII, so note retention limits.
 ```
 GET  /api/devices                 my devices (RBAC row-level: own only)
 POST /api/devices/{id}/revoke     revoke a device (ends its sessions)
-GET  /api/admin/devices           admin view (optional, role-gated)
 ```
+
+The optional admin view (`GET /api/admin/devices`) was not built. The module has the two routes
+above and nothing else.
 
 ## Frontend (BaryoClub web + future MAUI)
 

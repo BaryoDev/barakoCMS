@@ -37,12 +37,12 @@ team and not the public are marked `Sensitive` (masked on the way out) or `Hidde
 
 | Blueprint | Types | Notes |
 | :--- | :--- | :--- |
-| `blog` | `post`, `category`, `author`, `page` | Post has a markdown body, excerpt, cover image URL, published date, author and category references, tags. Author email is Sensitive. Page can nest under a parent page. |
+| `blog` | `post`, `category`, `author`, `page` | Post has a markdown body, excerpt, cover image URL, published date, author and category references, tags. Author email is Sensitive. Page can nest under a parent page and has an optional `HideTitle` bool, which tells the renderer to leave the page's title off. |
 | `events` | `event`, `venue`, `speaker` | Event has starts and ends, a venue reference and a `geopoint` location, so `filter[Location][near]` works on delivery. Venue contact details are Sensitive. |
 | `portfolio` | `project`, `client` | Project has a client reference, a gallery array, a live URL and a testimonial. Client contact name and email are Sensitive, internal notes are Hidden. |
 | `docs` | `article`, `section` | Article has a markdown body, a required section reference and an order within it. Section can nest under a parent section. |
 | `site` | `site` | A singleton holding the site's identity, theme and chrome, read by the renderer from `/api/public/site`. The theme and chrome fields are JSON; [site-settings.md](site-settings.md) gives their shapes. |
-| `devsite` | `page`, `post`, `category`, `author`, `doc`, `package`, `release`, `contributor`, `up-for-grabs`, `milestone` | A product site: the blog types under their own names, plus a flat `doc` type carrying its own section, order and parent fields for a documentation tree, and five types meant to be filled by collection syncs (#794) rather than typed by hand: `package` (NuGet), `release` and `contributor` (GitHub), `up-for-grabs` (open issues), `milestone` (open GitHub milestones, one per product). The shape barakocms.com runs on (BaryoDev/barakoCMS#959); see below for wiring it into a site's `Collections` setting. |
+| `devsite` | `page`, `post`, `category`, `author`, `doc`, `package`, `release`, `contributor`, `up-for-grabs`, `milestone` | A product site: the blog types under their own names, plus a flat `doc` type carrying its own section, order and parent fields for a documentation tree, and five types meant to be filled by collection syncs (#794) rather than typed by hand: `package` (NuGet), `release` and `contributor` (GitHub), `up-for-grabs` (open issues), `milestone` (open GitHub milestones, one per product). The shape barakocms.com runs on (BaryoDev/barakoCMS#959); see below for wiring it into a site's `Collections` setting. Its `page` has the same optional `HideTitle` as `blog`. |
 
 The blueprints carry no SEO fields. Run `POST /api/content-types/{name}/seo-fields` on the types a
 frontend renders as pages; see [seo-fields.md](seo-fields.md).
@@ -114,9 +114,9 @@ Every field named above is a field the collection sync in [collection-syncs.md](
 can write to directly: `package.Downloads`, `release.PublishedAt`, `contributor.Contributions`,
 `up-for-grabs.RepositoryName` and `milestone.Product`/`Open`/`Closed` are ordinary data fields with no
 renderer role, there for the sync to fill and for a custom block to read, but not required by the
-shapes above. `milestone` has no date field: `app/roadmap/page.tsx` on barakocms-site shows a
-version, a description, an open and a closed count and a link, grouped by product, and says why in
-its own copy: "There are no dates here on purpose... a date would be a guess presented as a
+shapes above. `milestone` has no date field: the roadmap page on barakocms.com shows a version, a
+description, an open and a closed count and a link, grouped by product, and says why in its own
+copy: "There are no dates here on purpose... a date would be a guess presented as a
 commitment." Reading what the page actually renders, rather than guessing at a shape, is why this
 type has no `PublishedAt`.
 

@@ -37,12 +37,15 @@ half-filled theme renders rather than breaks.
 | `Tagline` | string | One line under the name |
 | `Url` | url | The site's canonical origin, from which absolute links are built |
 | `Locale` | string | For dates and `lang`, for example `en-PH` |
+| `Currency` | string | The three-letter code the `money` binding format formats against. Unset, a bound amount renders as a plain number |
 | `Logo`, `FooterLogo`, `Favicon`, `ShareImage` | url | Uploaded files or any absolute URL |
 | `LogoAlt` | string | Alt text for the logo |
 | `Colors` | json | Named colours |
 | `Fonts` | json | Font families by role |
 | `Radii` | json | Corner radii |
 | `Layout` | json | Content widths |
+| `Space` | json | The spacing scale the tenant overrides |
+| `Text` | json | The type scale the tenant overrides |
 | `Collections` | json | Content types rendered as lists and detail pages |
 | `OptionColors` | json | A colour per option of a choice field |
 | `Variants` | json | Themes a visitor can switch between |
@@ -61,6 +64,7 @@ half-filled theme renders rather than breaks.
 | `MenuLinks` | json | The phone menu's rows. See [MenuLinks and HeaderActions](#menulinks-and-headeractions) |
 | `HeaderActions` | json | Call to action links after the header links. See [MenuLinks and HeaderActions](#menulinks-and-headeractions) |
 | `Plugins` | json | The plugins this tenant renders. See [Plugins](#plugins) |
+| `Presets` | json | Saved blocks a designer builds in barakoBrew, which barakoPress renders |
 
 ### Colors
 
@@ -243,13 +247,13 @@ the site. It covers a launch, maintenance and a seasonal break. The holding page
 from the Pages module, and `HoldingPath` is a path string rather than a reference because a
 blueprint may only reference types it declares. Going live again is a publish, not a deploy.
 
-`Mode` is a string today, documented as `Live` or `Holding`. Any other value should be read as
-`Live`. It becomes a choice field once the choice type (#820) is on master.
+`Mode` is a string field, not a choice field, documented as `Live` or `Holding`. Any other value
+should be read as `Live`.
 
 **Mode and HoldingPath are presentation, not access control.** Frontends honour them; the API
 hides nothing. While holding, published, publicly deliverable content is still served from
 `/api/public/...` to anyone who asks. To keep content hidden before launch, leave it unpublished and
-schedule the publish.
+schedule the publish ([scheduling.md](scheduling.md)).
 
 ### Share links
 
