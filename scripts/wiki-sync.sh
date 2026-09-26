@@ -77,9 +77,9 @@ GROUP_ORDER=(
 
 group_of() {
   case "$1" in
-    delivering-a-client-project.md|approval-by-configuration.md|deploy-in-production.md|upgrading-to-4.0.md|configuring-email.md)
+    delivering-a-client-project.md|approval-by-configuration.md|deploy-in-production.md|deploy-on-a-managed-platform.md|upgrading-to-4.0.md|configuring-email.md|your-first-module.md)
       printf 'Start here' ;;
-    blueprints.md|event-sourced-content-types.md|seo-fields.md|image-variants.md|url-redirects.md|delivery-api.md)
+    blueprints.md|site-settings.md|choice-fields.md|event-sourced-content-types.md|seo-fields.md|image-variants.md|url-redirects.md|delivery-api.md|scheduling.md|collection-syncs.md|collection-push.md)
       printf 'Content' ;;
     access-control.md|compliance-posture.md|device-trust.md|session-and-token-storage.md|scanning-uploads.md)
       printf 'Security and access' ;;
@@ -87,7 +87,7 @@ group_of() {
       printf 'Tenancy' ;;
     backup-and-restore.md|background-jobs.md|workflow-runs.md|module-inventory.md|idempotency.md|webhooks.md)
       printf 'Operations' ;;
-    workflow-engine-rethink.md|marketplace-and-contribution-plan.md)
+    workflow-engine-rethink.md|marketplace-and-contribution-plan.md|review-rules.md)
       printf 'Design notes and plans' ;;
     *)
       printf 'Other' ;;
