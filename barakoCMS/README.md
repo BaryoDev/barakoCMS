@@ -28,6 +28,10 @@ That is a working CMS. Add modules for anything else.
 - **Multi-tenancy**, conjoined on one database
 - **Public delivery API** for reading published content
 - **Event sourcing**, so content has real history rather than a last-writer-wins row
+- **Blueprints** that create a set of content types in one call, including the `site` settings a
+  renderer reads its identity and theme from
+- **Collection syncs** that fill a content type from a request or a feed on a schedule, and
+  **collection push** (`POST /api/collections/{type}/push`) for a source that sends its entries
 
 ## Modules
 
@@ -44,13 +48,22 @@ Optional packages, each installable on its own:
 | `BarakoCMS.Email.Smtp` | Transactional email over any SMTP relay |
 | `BarakoCMS.ExternalAuth` | Google / GitHub / Facebook / LinkedIn sign-in |
 | `BarakoCMS.FeatureFlags` | Flags with targeting |
-| `BarakoCMS.Files` + `.S3` | Uploads, local or S3-compatible |
+| `BarakoCMS.Files` + `.S3` | Uploads stored in Postgres, or in S3-compatible storage with `.S3` |
 | `BarakoCMS.Forms` | Public form submissions into a content type |
 | `BarakoCMS.Import` | Bulk import |
+| `BarakoCMS.Pages` | Page tree, navigation and path resolution over a content type |
 | `BarakoCMS.Portability` | Export / import bundles |
-| `BarakoCMS.Pwa` | Service worker and install tracking |
+| `BarakoCMS.Pwa` | Install tracking |
 
 Every one is published under the `barakocms-module` tag, so one search on nuget.org returns them all.
+
+For module authors:
+
+| Package | Adds |
+|---|---|
+| `BarakoCMS.Abstractions` | The module contract, models, events and service interfaces, without the core |
+| `BarakoCMS.Testing` | A test host: the core over a Testcontainers PostgreSQL with your module registered |
+| `BarakoCMS.Templates` | `dotnet new barakocms-module`, a module and its test project |
 
 ## Documentation
 

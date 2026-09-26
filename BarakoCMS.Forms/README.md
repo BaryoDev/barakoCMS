@@ -37,7 +37,9 @@ Authorization: Bearer <token with manage_forms>
 submissions. Admin is granted `manage_forms` when the module seeds.
 
 A visitor can fill in a field only when it is Public and its type is one of `string`, `text`,
-`int`, `decimal`, `money`, `bool`, `date`, `datetime`, `time`, `email` or `url` (and their aliases).
+`int`, `decimal`, `money`, `bool`, `date`, `datetime`, `time`, `email`, `url` or `choice` (and their
+aliases). A choice value has to be one of the field's options, and a multiple choice field takes a
+list.
 A field named `slug` is never submittable. Enabling a type is refused with 400 when a required field
 is not submittable, or when the type is a singleton.
 
@@ -81,10 +83,16 @@ A non-empty `honeypot` gets the same 202 and nothing is stored.
   "displayName": "Contact request",
   "description": "",
   "fields": [
-    { "name": "email", "displayName": "Email", "type": "email", "required": true, "validationRules": {} }
+    { "name": "email", "displayName": "Email", "type": "email", "required": true, "validationRules": {}, "options": [], "multiple": false },
+    { "name": "topic", "displayName": "Topic", "type": "choice", "required": true, "validationRules": {},
+      "options": [ { "value": "sales", "label": "Sales" }, { "value": "support", "label": "Support" } ],
+      "multiple": false }
   ]
 }
 ```
+
+`options` lists a choice field's options in display order and is empty for any other type.
+`multiple` says whether the field takes a list.
 
 ## Configuration
 

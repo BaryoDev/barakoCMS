@@ -5,7 +5,7 @@
     <PackageId>BarakoCMS</PackageId>
     <Version>4.4.1</Version>
 
-    <Description>The AI-Native, High-Performance Headless CMS for .NET 10. Plugin-based workflow system with 6 built-in actions, advanced RBAC, event sourcing, and production-grade security.</Description>
+    <Description>Headless CMS for .NET 10 on FastEndpoints and Marten over PostgreSQL: content types defined at runtime, event-sourced content, role and capability access control with field sensitivity, multi-tenancy, a public delivery API, blueprints, collection syncs and push, and workflows with 7 built-in actions. Optional modules ship as separate packages.</Description>
     <IsPackable>true</IsPackable>
     <StaticWebAssetsEnabled>false</StaticWebAssetsEnabled>
 

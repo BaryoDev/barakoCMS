@@ -92,9 +92,9 @@ fits and how we'd like to see it done.
 
 Plenty of what makes this project usable isn't C#:
 
-- **Icons and artwork.** Each module currently shares the project's coffee-bean icon. Per-module
-  icons would make the packages distinguishable at a glance on nuget.org. If you design one, submit
-  the source (SVG preferred) alongside a 128×128 PNG, and put both in the module's `assets/`.
+- **Icons and artwork.** Most modules have their own icon in `assets/icon.png`. Forms and Pages
+  have none yet and fall back to the project's coffee-bean icon. If you design one, submit the
+  source (SVG preferred) alongside a 128×128 PNG, and put both in the module's `assets/`.
 - **Documentation.** READMEs, guides, corrections. A README is the package page on nuget.org, so a
   clearer one is a real improvement, not a cosmetic one.
 - **Examples and starter projects** showing a module wired into a real app.

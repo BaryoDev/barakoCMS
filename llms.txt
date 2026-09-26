@@ -1,13 +1,15 @@
 # BarakoCMS
 
-> A lightweight, high-performance Headless CMS built with .NET 10, FastEndpoints, and MartenDB (PostgreSQL).
+> A headless CMS for .NET 10, built on FastEndpoints and Marten over PostgreSQL.
 
 ## Project Overview
 
-BarakoCMS is designed to be a simple, fast, and developer-friendly headless CMS. It avoids the complexity of traditional CMSs by leveraging the power of:
-- **FastEndpoints**: For high-performance, minimal API endpoints.
-- **MartenDB**: For document storage within PostgreSQL, enabling a schema-less experience with ACID compliance.
-- **.NET 10**: For modern, cross-platform performance.
+- **Content types are defined at runtime.** Entries are Marten documents, and every change is also appended as an event.
+- **Multi-tenant**: one database, many tenants, with optional Postgres row-level security.
+- **Public delivery** at `/api/public/{type}` for types opted in, with field masking by sensitivity.
+- **Blueprints** create a set of content types in one call (blog, events, portfolio, docs, devsite, site).
+- **Collection syncs** fill a content type from a request or a feed on a schedule; **collection push** lets a source send entries.
+- **Optional modules** ship as NuGet packages through the `IBarakoModule` contract (see MODULES.md).
 
 ## Architecture
 
@@ -21,8 +23,9 @@ BarakoCMS is designed to be a simple, fast, and developer-friendly headless CMS.
 
 - `barakoCMS/`: Main Web API project.
   - `Features/`: Vertical slice architecture. Each feature (e.g., `Content`, `ContentType`) has its own folder containing Endpoints, Models, and Validators.
-  - `Models/`: Domain entities (e.g., `Content`, `User`).
   - `Data/`: Data seeding and configuration.
+- `BarakoCMS.Abstractions/`: The module contract, and the domain models (`Models/`, e.g. `Content`, `User`), events and service interfaces. Moved out of `barakoCMS/` in 4.3.0.
+- `BarakoCMS.*/`: Optional modules, each its own NuGet package.
 - `BarakoCMS.Tests/`: Integration and Unit tests.
 
 ## Usage for AI Agents
@@ -36,17 +39,21 @@ When generating code or refactoring for BarakoCMS:
 ## Quick Start
 
 ```bash
-# Clone repository
-git clone https://github.com/baryodev/barakoCMS.git
+git clone https://github.com/BaryoDev/barakoCMS.git
+cd barakoCMS
 
-# Run database (PostgreSQL)
-docker-compose up -d
-
-# Run application
-dotnet run --project barakoCMS
+# Builds the API from this checkout and starts it on http://localhost:5005,
+# with PostgreSQL and a backup container
+docker compose up -d
 ```
+
+Prebuilt images without a clone: `quickstart/README.md`.
 
 ## Documentation
 
+- [README.md](README.md): what it does, modules, quick start
+- [MODULES.md](MODULES.md): the module contract and the first-party modules
+- [docs/](docs/): guides, one topic per file
+- [barakocms.com/docs](https://barakocms.com/docs/): the published docs
 - [FastEndpoints Docs](https://fast-endpoints.com/)
 - [Marten Docs](https://martendb.io/)
