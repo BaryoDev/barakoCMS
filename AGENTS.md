@@ -61,3 +61,17 @@ the open.
 `CLAUDE.md`, `.claude/**`, `AGENTS.md` and the shared build files are covered by `CODEOWNERS`, so
 changes there need review. That is deliberate: hook scripts execute on every contributor's machine,
 so a change to them is a change to what runs locally, not just to what the code does.
+
+## How work is done here
+
+This repository follows the [lean agent method](https://github.com/arnelirobles/lean-agent-method).
+
+- Search open issues before filing. If one covers the area, add to its Covers list instead.
+- One ticket is one agent pass, filed with the Agent-ready template: Goal, Where, Covers, Done
+  when, Risks, Constraints, Out of scope.
+- Scripts, not instructions: run all of `scripts/preflight.sh`, not the one gate you have in mind.
+  Anything reasoned through twice becomes a script.
+- A bug fix ships with a test that failed before the fix.
+- Every change gets an adversarial review by a separate agent, and findings go back to the agent
+  that wrote the change.
+- After a batch merges, run the retro and propose method changes with evidence.
