@@ -1,0 +1,12 @@
+- **Only a platform administrator changes a user's global roles.** `POST /api/users/{id}/roles`
+  and `DELETE /api/users/{id}/roles/{roleId}` change the roles a user holds in every tenant. They now
+  answer 403 unless the caller's `manage_user_membership` comes from one of the caller's own global
+  roles, so an Admin whose role comes from a tenant membership can no longer use them and manages
+  roles inside that tenant through `/api/tenants/members`. Removing SuperAdmin now takes a
+  SuperAdmin, and removing it from the last user who holds it answers 409. A role carrying `*`,
+  `manage_roles`, `manage_tenants`, `manage_users` or `manage_email_settings` is now granted only by
+  a SuperAdmin, through either `/api/users/{id}/roles` or `/api/tenants/members` (403 otherwise),
+  and removed from a user's global roles only by one; `/api/tenants/members/roles` no longer offers
+  it to anyone else. A tenant admin can still edit or suspend a member who already holds one. Each 403 carries a message
+  saying why. These requests used to succeed, so `X-Api-Contract-Version` moves to 5, and the
+  barakoBrew console has to accept contract 5 before it runs against this release.

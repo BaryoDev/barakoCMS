@@ -378,4 +378,100 @@ public class BulkCreateTests
         file.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("text/csv");
         return new MultipartFormDataContent { { file, "file", fileName } };
     }
+
+    /// <summary>
+    /// A caller whose role may create entries of the type, but may not see its Salary field, sends a
+    /// Salary value. Create drops it, so the bulk path has to as well.
+    /// </summary>
+    [Fact]
+    public async Task A_field_the_importing_role_may_not_see_is_dropped_the_way_create_drops_it()
+    {
+        var type = $"bulksens{Guid.NewGuid():n}"[..14];
+        var roleName = $"Clerk {Guid.NewGuid():N}";
+        var userId = Guid.NewGuid();
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(),
+                Name = type,
+                DisplayName = "Staff",
+                Fields =
+                [
+                    new FieldDefinition { Name = "Name", DisplayName = "Name", Type = "string" },
+                    new FieldDefinition
+                    {
+                        Name = "Salary", DisplayName = "Salary", Type = "string",
+                        Sensitivity = SensitivityLevel.Sensitive, VisibleToRoles = ["Payroll"],
+                    },
+                ],
+            });
+            var role = new Role
+            {
+                Id = Guid.NewGuid(),
+                Name = roleName,
+                Permissions = [new ContentTypePermission { ContentTypeSlug = type, Create = new PermissionRule { Enabled = true } }],
+            };
+            session.Store(role);
+            session.Store(new User
+            {
+                Id = userId,
+                Username = $"bulk-{userId:n}",
+                Email = $"bulk-{userId:n}@example.com",
+                RoleIds = [role.Id],
+            });
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        var client = _fixture.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer", _fixture.CreateToken([roleName], userId.ToString()));
+
+        var response = await client.PostAsJsonAsync("/api/import/content", new
+        {
+            contentType = type,
+            records = new[] { new Dictionary<string, object> { ["Name"] = "Ana", ["Salary"] = "PLAINTEXT-773311" } },
+        }, TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK,
+            await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+
+        using var scope2 = _fixture.Services.CreateScope();
+        var query = scope2.ServiceProvider.GetRequiredService<IQuerySession>();
+        var entries = (await query.Query<Content>().Where(c => c.ContentType == type)
+            .ToListAsync(TestContext.Current.CancellationToken)).ToList();
+        entries.Should().ContainSingle();
+        entries[0].Data.Should().ContainKey("Name");
+        entries[0].Data.Keys.Should().NotContain(k => k.Equals("Salary", StringComparison.OrdinalIgnoreCase),
+            "a caller may not set a field that would be masked from them");
+    }
+
+    private static readonly System.Threading.Lock LimitGate = new();
+    private static Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program>? _limitHost;
+
+    [Fact]
+    public async Task A_request_over_the_record_limit_is_refused_and_nothing_is_written()
+    {
+        Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> host;
+        lock (LimitGate)
+        {
+            host = _limitHost ??= _fixture.WithSetting("Import:MaxRecords", "2");
+        }
+
+        var type = await ContentTypeAsync();
+        var client = host.CreateClient();
+        client.DefaultRequestHeaders.Authorization = (await ClientAsync("SuperAdmin")).DefaultRequestHeaders.Authorization;
+
+        var response = await client.PostAsJsonAsync("/api/import/content", new
+        {
+            contentType = type,
+            records = Enumerable.Range(0, 3).Select(i => new Dictionary<string, object> { ["Title"] = $"t{i}" }).ToArray(),
+        }, TestContext.Current.CancellationToken);
+
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, body);
+        body.Should().Contain("at most 2");
+        (await CountAsync(type)).Should().Be(0);
+    }
 }

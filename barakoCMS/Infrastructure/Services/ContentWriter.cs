@@ -41,16 +41,32 @@ public sealed class ContentWriter : IContentWriter
     }
 
     public ContentWriter(IDocumentSession session, IContentSourcingPolicy policy, IConfiguration configuration)
-        : this(session, policy, configuration.GetValue(DocumentTypesAppendKey, true))
+        : this(session, policy, configuration.GetValue(DocumentTypesAppendKey, true), batch: null)
     {
     }
 
-    private ContentWriter(IDocumentSession session, IContentSourcingPolicy policy, bool documentTypesAppend)
+    /// <summary>
+    /// The same, inside a content batch, where a new stream is held until the batch commits (see
+    /// <see cref="Multitenancy.BatchTransaction"/>).
+    /// </summary>
+    public ContentWriter(
+        IDocumentSession session,
+        IContentSourcingPolicy policy,
+        IConfiguration configuration,
+        Multitenancy.BatchTransaction? batch)
+        : this(session, policy, configuration.GetValue(DocumentTypesAppendKey, true), batch)
+    {
+    }
+
+    private ContentWriter(IDocumentSession session, IContentSourcingPolicy policy, bool documentTypesAppend, Multitenancy.BatchTransaction? batch = null)
     {
         _session = session;
         _policy = policy;
         _documentTypesAppend = documentTypesAppend;
+        _batch = batch;
     }
+
+    private readonly Multitenancy.BatchTransaction? _batch;
 
     /// <inheritdoc />
     [Obsolete("Use CreateAsync. Removal planned for barakoCMS 5.0.")]
@@ -80,7 +96,10 @@ public sealed class ContentWriter : IContentWriter
         {
             // The stream and the document are staged together so a partial failure cannot leave one
             // without the other.
-            _session.Events.StartStream<Content>(@event.Id, @event);
+            if (_batch?.DefersStreams == true)
+                _batch.DeferStream(@event.Id, @event);
+            else
+                _session.Events.StartStream<Content>(@event.Id, @event);
         }
 
         _session.Store(content);

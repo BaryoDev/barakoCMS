@@ -46,7 +46,8 @@ internal class Endpoint : Endpoint<Request, Response>
         // Body first, then the cookie. The body keeps working for every non-browser caller, and the
         // admin sends neither: its cookie rides along automatically and page script never holds the
         // value at all.
-        var presented = !string.IsNullOrWhiteSpace(req.RefreshToken)
+        var fromBody = !string.IsNullOrWhiteSpace(req.RefreshToken);
+        var presented = fromBody
             ? req.RefreshToken
             : barakoCMS.Infrastructure.Auth.RefreshTokenCookie.Read(HttpContext);
 
@@ -62,8 +63,7 @@ internal class Endpoint : Endpoint<Request, Response>
 
         // Load via the document session so Marten tracks the version for the optimistic-concurrency
         // guard on rotation below.
-        var refreshToken = await _documentSession.Query<RefreshToken>()
-            .FirstOrDefaultAsync(rt => rt.Token == presented, ct);
+        var refreshToken = await barakoCMS.Infrastructure.Auth.RefreshTokenLookup.FindAsync(_documentSession, presented, ct);
 
         if (refreshToken == null)
         {
@@ -144,7 +144,7 @@ internal class Endpoint : Endpoint<Request, Response>
         var newRefreshToken = new RefreshToken
         {
             Id = Guid.NewGuid(),
-            Token = newRefreshTokenString,
+            TokenHash = RefreshToken.HashOf(newRefreshTokenString),
             UserId = user.Id,
             ExpiresAt = newRefreshTokenExpiry,
             CreatedAt = DateTime.UtcNow,
@@ -184,15 +184,16 @@ internal class Endpoint : Endpoint<Request, Response>
             "Token refreshed for user: {Username}, UserId: {UserId}",
             user.Username, user.Id);
 
-        // Also in a cookie page script cannot read. The body still carries it for
-        // non-browser callers; see RefreshTokenCookie for why this is an addition.
         barakoCMS.Infrastructure.Auth.RefreshTokenCookie.Set(HttpContext, newRefreshTokenString, newRefreshTokenExpiry);
 
+        // A caller that sent the token in the body reads the replacement from the body. One that
+        // sent only the cookie is a browser, and this route is anonymous, so any script on the
+        // page's origin can make the same call: the body must not hand it what the cookie hides.
         await Send.ResponseAsync(new Response
         {
             Token = jwtToken,
             Expiry = accessTokenExpiry,
-            RefreshToken = newRefreshTokenString,
+            RefreshToken = fromBody ? newRefreshTokenString : string.Empty,
             RefreshTokenExpiry = newRefreshTokenExpiry
         });
     }

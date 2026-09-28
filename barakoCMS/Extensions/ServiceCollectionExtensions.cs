@@ -745,7 +745,8 @@ public static class ServiceCollectionExtensions
             // Optimistic concurrency so a single refresh token cannot be rotated twice
             // concurrently (defeats refresh-token reuse/replay).
             .UseOptimisticConcurrency(true)
-            .Index(x => x.Token, idx => idx.IsUnique = true)  // Index for fast lookup
+            .Index(x => x.TokenHash, idx => idx.IsUnique = true)  // what a presented token is looked up by
+            .Index(x => x.Token, idx => idx.IsUnique = true)  // rows from before hashing; new rows leave it null
             .Index(x => x.UserId)  // Index for user queries
             .Index(x => x.ExpiresAt);  // Index for cleanup queries
 
@@ -993,7 +994,8 @@ public static class ServiceCollectionExtensions
             new barakoCMS.Infrastructure.Services.ContentWriter(
                 sp.GetRequiredService<IDocumentSession>(),
                 sp.GetRequiredService<barakoCMS.Core.Interfaces.IContentSourcingPolicy>(),
-                sp.GetRequiredService<IConfiguration>()));
+                sp.GetRequiredService<IConfiguration>(),
+                sp.GetRequiredService<barakoCMS.Infrastructure.Multitenancy.BatchTransaction>()));
         services.AddScoped<barakoCMS.Infrastructure.Services.IContentRebuilder, barakoCMS.Infrastructure.Services.ContentRebuilder>();
         // Runs any per-content-type domain rules a module registered (IContentLifecycleHook), so a
         // domain with real invariants can still be modelled as ordinary content.
@@ -1093,6 +1095,7 @@ public static class ServiceCollectionExtensions
         // Per-request tenant, resolved from a registered custom domain or the subdomain by
         // TenantResolutionMiddleware.
         services.AddScoped<barakoCMS.Infrastructure.Multitenancy.TenantContext>();
+        services.AddScoped<barakoCMS.Infrastructure.Multitenancy.BatchTransaction>();
         // Singleton because the domain map is cached and read on every request; a scoped source
         // would rebuild the cache lookup per request for no benefit.
         services.AddSingleton<barakoCMS.Infrastructure.Multitenancy.ITenantDomainSource,
@@ -1128,6 +1131,8 @@ public static class ServiceCollectionExtensions
     private static void AddValidationAndMonitoring(IServiceCollection services)
     {
         services.AddScoped<IContentValidatorService, ContentValidatorService>();
+        services.AddScoped<IContentCreator, ContentCreator>();
+        services.AddScoped<IContentBatchRunner, ContentBatchRunner>();
         services.AddScoped<IContentTypeValidatorService, ContentTypeValidatorService>();
         services.AddScoped<barakoCMS.Features.ContentType.Blueprints.BlueprintCatalog>();
         services.AddSingleton<IKubernetesMonitorService, KubernetesMonitorService>();

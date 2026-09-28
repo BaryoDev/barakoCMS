@@ -102,7 +102,7 @@ internal class VerifyEndpoint(
         session.Store(new RefreshToken
         {
             Id = Guid.NewGuid(),
-            Token = refreshTokenString,
+            TokenHash = RefreshToken.HashOf(refreshTokenString),
             UserId = user.Id,
             ExpiresAt = refreshTokenExpiry,
             CreatedAt = DateTime.UtcNow,

@@ -69,6 +69,7 @@ public class ExportEndpoint(
 
             records.Add(new ContentRecord
             {
+                Id = c.Id,
                 ContentType = c.ContentType,
                 Data = data,
                 Status = c.Status.ToString(),

@@ -290,7 +290,7 @@ internal class Endpoint : Endpoint<Request, Response>
         var refreshToken = new RefreshToken
         {
             Id = Guid.NewGuid(),
-            Token = refreshTokenString,
+            TokenHash = RefreshToken.HashOf(refreshTokenString),
             UserId = user.Id,
             ExpiresAt = refreshTokenExpiry,
             CreatedAt = DateTime.UtcNow,

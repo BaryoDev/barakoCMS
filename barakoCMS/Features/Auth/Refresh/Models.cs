@@ -24,6 +24,8 @@ internal class Response
 {
     public string Token { get; set; } = string.Empty;
     public DateTime Expiry { get; set; }
+
+    /// <summary>Empty when the request carried the token in the cookie; the cookie holds the new one.</summary>
     public string RefreshToken { get; set; } = string.Empty;
     public DateTime RefreshTokenExpiry { get; set; }
 }
