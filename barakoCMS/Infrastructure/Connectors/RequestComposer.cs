@@ -159,6 +159,15 @@ internal sealed class RequestComposer(
             return ComposedRequest.Refused($"'{path}' does not combine with the connector's base URL.");
         }
 
+        // The connector's credentials go on whatever is composed here, so a path written as an
+        // absolute or scheme-relative URL must not take them to a host they were not entered for.
+        if (ConnectorOrigin.Of(url) != ConnectorOrigin.Of(baseUri))
+        {
+            return ComposedRequest.Refused(
+                "The path addresses a different scheme, host or port from the connector's base URL. "
+                + "Write it relative to the base URL.");
+        }
+
         // AbsoluteUri, not ToString. ToString returns the unescaped form for display, so a value
         // escaped into the path comes back out decoded, and this string is parsed back into a Uri
         // before the send: a space would break the parse and a slash would address a different

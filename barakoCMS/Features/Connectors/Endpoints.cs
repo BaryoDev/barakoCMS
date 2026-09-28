@@ -233,6 +233,27 @@ internal sealed class UpdateConnectorEndpoint(
             return;
         }
 
+        if (!ConnectorOrigin.Same(connector.BaseUrl, req.BaseUrl))
+        {
+            // An absent secret normally means "keep it", because the form cannot show it. That cannot
+            // hold across a move to another origin: the credential was entered for the old one, and
+            // whoever edits the connector may never have seen it. Each stored secret has to be
+            // entered again or cleared in the same request.
+            var storedKeys = await session.Query<ConnectorSecret>()
+                .Where(s => s.ConnectorId == connector.Id)
+                .Select(s => s.Key)
+                .ToListAsync(ct);
+
+            foreach (var key in storedKeys.Distinct().Where(k => req.Secrets is null || !req.Secrets.ContainsKey(k)))
+            {
+                AddError(new FluentValidation.Results.ValidationFailure($"secrets.{key}",
+                    $"The base URL now points at a different scheme, host or port, so the stored {key} "
+                    + "has to be entered again, or cleared, before the connector can be saved."));
+            }
+
+            ThrowIfAnyErrors();
+        }
+
         connector.Name = req.Name.Trim();
         connector.BaseUrl = req.BaseUrl.Trim();
         connector.Auth = Enum.Parse<ConnectorAuth>(req.Auth, ignoreCase: true);
