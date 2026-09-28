@@ -45,9 +45,9 @@ revoke, and it is the whole reason for the change, but it is not immunity.
 The cookie is scoped to `/api/auth/refresh` and `/api/auth/logout` (one cookie per path), so it is
 not attached to every API call, only to the two routes that consume it. Logout reads it so a
 console whose access token has expired can still sign out: with no usable bearer, `POST
-/api/auth/logout` revokes every refresh token of the cookie's user and clears the cookie. It answers
-200 whether or not the cookie matched a stored token, and 401 only when there is neither a bearer nor
-a cookie. `SameSite=Lax` keeps the cookie off a POST from another site, so another site cannot sign
+/api/auth/logout` revokes every refresh token of the cookie's user when the cookie is live, and
+revokes nothing for a spent, expired or unknown one, so an old copy cannot sign you out. It clears
+the cookie and answers 200 either way, and 401 only when there is neither a bearer nor a cookie. `SameSite=Lax` keeps the cookie off a POST from another site, so another site cannot sign
 you out.
 
 **The server stores a hash of the refresh token, not the token.** A copy of the `refresh_tokens`

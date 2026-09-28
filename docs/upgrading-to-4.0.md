@@ -76,7 +76,9 @@ database needs this file too.
 
 The Files file and the refresh token file build their index `CONCURRENTLY`, so neither blocks
 writes, and that is why they run on their own, without `--single-transaction`. The Forms file
-creates one empty table. All three are safe to run twice.
+creates one empty table. All three are safe to run twice. A `CONCURRENTLY` build that fails or is
+cancelled leaves an invalid index behind; the refresh token file refuses to continue past one and
+prints the `DROP INDEX` to run before trying again.
 
 Then confirm the schema matches what 4.0 expects, without starting the server. The command is an
 argument to the 4.0 image, which hands it to the host instead of booting the web app. With compose,

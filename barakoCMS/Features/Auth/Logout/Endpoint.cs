@@ -18,7 +18,9 @@ internal class Endpoint(
         // Anonymous so the refresh cookie alone can sign out once the access token has expired.
         // Without a valid bearer or a refresh cookie the handler still answers 401.
         AllowAnonymous();
-        Options(x => x.RequireRateLimiting("auth"));
+        // Its own bucket, not the auth one: signing out must not be refused because sign-ins and
+        // refreshes from the same address used up the password-guessing limit.
+        Options(x => x.RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.LogoutPolicy));
     }
 
     public override async Task HandleAsync(CancellationToken ct)
@@ -67,10 +69,11 @@ internal class Endpoint(
     /// Signs out with the refresh cookie when there is no usable bearer.
     /// </summary>
     /// <remarks>
-    /// Revokes every refresh token the cookie's user holds, the same as a bearer logout. Any stored
-    /// token counts, revoked or expired included, since a caller holding one is that session. A
-    /// cookie that matches nothing gets the same answer as one that matched, so this route cannot be
-    /// used to test whether a token is live.
+    /// A live cookie revokes every refresh token its user holds, the same as a bearer logout. A
+    /// revoked or expired one revokes nothing: rotated tokens stay stored until cleanup, and letting
+    /// one end the session that replaced it would let an old copy sign the user out again and again.
+    /// Every cookie gets the same answer and a cleared cookie, so this route cannot be used to test
+    /// whether a token is live.
     /// </remarks>
     private async Task LogoutWithCookieAsync(CancellationToken ct)
     {
@@ -83,7 +86,7 @@ internal class Endpoint(
         }
 
         var token = await barakoCMS.Infrastructure.Auth.RefreshTokenLookup.FindAsync(documentSession, presented, ct);
-        if (token != null)
+        if (token is { IsRevoked: false } && token.ExpiresAt > DateTime.UtcNow)
         {
             await revocationService.RevokeAllUserTokensAsync(token.UserId, "logout", ct);
             await AuditLog.RecordAsync(documentSession, tenant.Slug, "auth.logout", token.UserId, null,

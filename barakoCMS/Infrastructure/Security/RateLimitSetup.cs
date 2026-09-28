@@ -60,6 +60,7 @@ internal static class RateLimitSetup
     public const string BatchPolicy = "telemetry";
     public const string RegistrationPolicy = "registration";
     public const string SiteSharePolicy = "site-share";
+    public const string LogoutPolicy = "logout";
 
     internal const string RendererPartition = "renderer";
 
@@ -69,6 +70,12 @@ internal static class RateLimitSetup
     public static readonly RateLimitWindow DefaultRegistration = new(5, 60 * 60, 0);
     public static readonly RateLimitWindow DefaultRenderer = new(1000, 60, 10);
     public static readonly RateLimitWindow DefaultSiteShare = new(10, 60, 0);
+
+    /// <summary>
+    /// Fixed rather than configurable: it bounds lookups, it is not a guessing limit, and sharing the
+    /// auth bucket meant a logout after a few reloads was refused while the session stayed live.
+    /// </summary>
+    public static readonly RateLimitWindow Logout = new(30, 60, 0);
 
     /// <summary>Reads and validates the section. Throws with the offending setting named.</summary>
     public static RateLimitSettings Read(IConfiguration configuration)
@@ -124,6 +131,9 @@ internal static class RateLimitSetup
 
         options.AddPolicy(AuthPolicy, context =>
             RateLimitPartition.GetFixedWindowLimiter($"auth-{ClientIp(context)}", _ => Options(settings.Auth)));
+
+        options.AddPolicy(LogoutPolicy, context =>
+            RateLimitPartition.GetFixedWindowLimiter($"logout-{ClientIp(context)}", _ => Options(Logout)));
 
         // Anonymous telemetry ingestion (browser error reports). Tighter than the global limit: the
         // endpoint is unauthenticated and each request fans out to one lookup per item in the batch.
