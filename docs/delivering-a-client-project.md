@@ -301,6 +301,14 @@ into a tenant that already has them adds a second copy of each. Import a bundle'
 a new tenant, and evolve the type from then on.
 Content is recreated through events, so imported entries have real history.
 
+An import checks what the create endpoints check. Each type is validated as `POST /api/content-types`
+validates it, and each entry goes through the same write path as `POST /api/contents`, lifecycle
+hooks included, in one transaction where each entry is written before the next is checked. One
+refused type or entry refuses the whole bundle with a 400 naming it, and nothing is written. A
+reference to another record in the bundle follows that record to its new id; a reference to content
+left behind in the source tenant is refused. An entry whose unique slug is already taken is refused, which is what re-importing into
+a tenant that already has the entries now does for any type with a slug.
+
 Treat a bundle as sensitive. It contains whatever the content contains, and it leaves the system's
 access control behind the moment it is downloaded.
 

@@ -47,6 +47,35 @@ the repository.
   identically to content authored in place.
 - Each entry keeps the document-level sensitivity the bundle records for it, so a restored Hidden
   entry stays Hidden. A bundle from before 4.3.1 records none, and its entries import as Public.
+- Each content type goes through the checks `POST /api/content-types` runs, its lifecycle
+  included, and a stored type keeps the add field rule: a required field with no default is refused
+  on a type that already has entries. An import does not change who may read a stored field; a
+  bundle that raises, lowers or leaves out a non-Public field is refused, and
+  `PUT /api/content-types/{name}/fields/{field}/sensitivity` is the way to change it.
+- Each entry goes through the same write path as `POST /api/contents`: a field the caller may not
+  see is dropped, the entry is validated against its type as the bundle leaves it, the type's
+  lifecycle hooks run, and the entry starts in the type's initial lifecycle state. The singleton cap
+  is the one exception, since an import is a restore and lands what the bundle holds.
+- The import is one database transaction, and each entry is written before the next is checked, so
+  lifecycle hooks see the entries before it: journal entries are numbered in sequence, an account's
+  parent and a page's parent from the same bundle resolve.
+- Each record carries the `id` it had where it was exported. Import gives it a new id, and a
+  reference field holding the old id of another record in the bundle is pointed at the new one,
+  whatever order the records are in. A reference to anything outside the bundle must exist where
+  the bundle is imported, so an entry referencing content left behind in another tenant is refused.
+- A stored type keeps its lifecycle when the bundle has none. A bundle that changes it, or adds one
+  to a type that already has entries, is refused.
+- The entries' events are written together just before the commit, so a long import leaves no
+  gap in the event sequence and workflows run for every imported entry. The rows the import writes
+  are held for the whole transaction: run a large import outside busy hours, since a post that
+  needs the same row (the journal entry number sequence, a content type the bundle changes) waits
+  for it and may need a retry.
+- All or nothing. A refused type or entry answers 400 naming each one as `contentTypes[i]` or
+  `contents[i]`, and nothing is written, so the fixed bundle can be imported again without
+  duplicating what would have landed. A dry run refuses exactly what the real run would.
+- A bundle holds at most 5,000 entries (`Portability:MaxImportRecords`) and 500 content types.
+  Past either, the import answers 400 before reading anything. Move a larger site in several
+  bundles using export's `types` parameter.
 - The import runs inside the calling tenant. A bundle carries no tenant identity of its own, which
   is what makes it safe to move between environments.
 

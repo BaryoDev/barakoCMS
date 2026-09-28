@@ -8,9 +8,8 @@ namespace barakoCMS.Features.Content.Create;
 
 internal class Endpoint(
     IDocumentSession session,
-    barakoCMS.Infrastructure.Services.IContentValidatorService validator,
     barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver,
-    IContentWriter contentWriter) : Endpoint<Request, Response>
+    barakoCMS.Infrastructure.Services.IContentCreator creator) : Endpoint<Request, Response>
 {
     public override void Configure()
     {
@@ -43,17 +42,22 @@ internal class Endpoint(
             return;
         }
 
-        // WRITE-PATH SENSITIVITY: drop any sensitive fields this caller may not see, so they cannot
-        // inject values into fields that would be masked from them on read.
-        await Resolve<barakoCMS.Core.Interfaces.ISensitivityService>()
-            .ApplyWriteAsync(req.ContentType, req.Data, existing: null, HttpContext, ct);
+        // Sensitivity, validation and lifecycle hooks, then the write. The same path an import runs,
+        // so what one route refuses the other refuses too.
+        var request = new barakoCMS.Infrastructure.Services.ContentCreateRequest
+        {
+            ContentType = req.ContentType,
+            Data = req.Data,
+            Status = req.Status,
+            Sensitivity = req.Sensitivity,
+        };
 
-        var validationResult = await validator.ValidateAsync(req.ContentType, req.Data, existing: null);
-        if (!validationResult.IsValid)
+        var errors = await creator.CheckAsync(request, userId, HttpContext, batch: null, ct);
+        if (errors.Count > 0)
         {
             // One entry per failure rather than one flattened string, so a client can show the
             // failures against the fields they belong to.
-            foreach (var error in validationResult.Errors)
+            foreach (var error in errors)
             {
                 AddError(error);
             }
@@ -61,58 +65,7 @@ internal class Endpoint(
             ThrowIfAnyErrors();
         }
 
-        // DOMAIN RULES. Schema validation answers "is this the right shape"; a module's lifecycle hook
-        // answers "is this legal" (e.g. a journal entry's debits must equal its credits) and may
-        // enrich the entry (e.g. stamp the next sequence number). Runs after validation so a hook can
-        // trust the field types it reads.
-        var hookErrors = await Resolve<barakoCMS.Infrastructure.Services.IContentLifecycleRunner>()
-            .RunBeforeSaveAsync(req.ContentType, entryId: null, req.Data, existing: null, userId, ct);
-        if (hookErrors.Count > 0)
-        {
-            foreach (var error in hookErrors)
-            {
-                AddError(error);
-            }
-
-            ThrowIfAnyErrors();
-        }
-
-        var definition = await session.Query<ContentTypeDefinition>()
-            .FirstOrDefaultAsync(d => d.Name == req.ContentType, ct);
-
-        var publicFields = definition?.Fields
-            .Where(f => f.Sensitivity == SensitivityLevel.Public)
-            .Select(f => f.Name)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase)
-            ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        var searchText = string.Join(
-            ' ',
-            req.Data
-                .Where(kv => publicFields.Contains(kv.Key))
-                .Select(kv => kv.Value?.ToString())
-                .Where(v => !string.IsNullOrWhiteSpace(v)));
-
-        var contentId = Guid.NewGuid();
-        // Stored as the caller spelled it, deliberately, and the rebuild is what compares
-        // case-insensitively. Normalising here looks like the tidier fix and is not: the type name
-        // lands on the Content document via the projection, and modules match it exactly.
-        // BarakoCMS.Accounting queries ContentType == "journalEntry", so lowercasing the write turned
-        // every ledger and trial balance into zero rows, silently, with the postings still in place.
-        var @event = new barakoCMS.Events.ContentCreated(contentId, req.ContentType, req.Data, req.Status, userId, searchText, req.Sensitivity, DateTime.UtcNow);
-
-        var created = await contentWriter.CreateAsync(@event, ct);
-
-        // A type with its own lifecycle starts its entries at the state it declared. Set on the
-        // document rather than carried in ContentCreated, because the event is public API under
-        // section 6 and this can be derived from the type definition at any time, including on a
-        // replay. Null stays null for every type that declares no lifecycle, which is all of them
-        // today, and that is what keeps their behaviour unchanged.
-        if (definition?.Lifecycle is { } lifecycle)
-        {
-            created.LifecycleState = lifecycle.InitialState;
-            session.Store(created);
-        }
+        var created = await creator.StageAsync(request, userId, batch: null, ct);
 
         await session.SaveChangesAsync(ct);
 
@@ -122,7 +75,7 @@ internal class Endpoint(
 
         await Send.ResponseAsync(new Response
         {
-            Id = contentId,
+            Id = created.Id,
             Version = 1,
         });
     }

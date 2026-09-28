@@ -993,7 +993,8 @@ public static class ServiceCollectionExtensions
             new barakoCMS.Infrastructure.Services.ContentWriter(
                 sp.GetRequiredService<IDocumentSession>(),
                 sp.GetRequiredService<barakoCMS.Core.Interfaces.IContentSourcingPolicy>(),
-                sp.GetRequiredService<IConfiguration>()));
+                sp.GetRequiredService<IConfiguration>(),
+                sp.GetRequiredService<barakoCMS.Infrastructure.Multitenancy.BatchTransaction>()));
         services.AddScoped<barakoCMS.Infrastructure.Services.IContentRebuilder, barakoCMS.Infrastructure.Services.ContentRebuilder>();
         // Runs any per-content-type domain rules a module registered (IContentLifecycleHook), so a
         // domain with real invariants can still be modelled as ordinary content.
@@ -1093,6 +1094,7 @@ public static class ServiceCollectionExtensions
         // Per-request tenant, resolved from a registered custom domain or the subdomain by
         // TenantResolutionMiddleware.
         services.AddScoped<barakoCMS.Infrastructure.Multitenancy.TenantContext>();
+        services.AddScoped<barakoCMS.Infrastructure.Multitenancy.BatchTransaction>();
         // Singleton because the domain map is cached and read on every request; a scoped source
         // would rebuild the cache lookup per request for no benefit.
         services.AddSingleton<barakoCMS.Infrastructure.Multitenancy.ITenantDomainSource,
@@ -1128,6 +1130,8 @@ public static class ServiceCollectionExtensions
     private static void AddValidationAndMonitoring(IServiceCollection services)
     {
         services.AddScoped<IContentValidatorService, ContentValidatorService>();
+        services.AddScoped<IContentCreator, ContentCreator>();
+        services.AddScoped<IContentBatchRunner, ContentBatchRunner>();
         services.AddScoped<IContentTypeValidatorService, ContentTypeValidatorService>();
         services.AddScoped<barakoCMS.Features.ContentType.Blueprints.BlueprintCatalog>();
         services.AddSingleton<IKubernetesMonitorService, KubernetesMonitorService>();

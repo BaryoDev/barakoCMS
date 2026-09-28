@@ -76,6 +76,48 @@ public class TenantPartitionsTests
             .Which.SqlState.Should().Be(PostgresErrorCodes.UndefinedObject);
     }
 
+    /// <summary>
+    /// A content batch opens its own connection, which Marten does not open and so does not tag with
+    /// the tenant. It has to set the tenant itself, or every write in an import is refused here.
+    /// </summary>
+    [Fact]
+    public async Task A_content_batch_writes_and_reads_only_its_own_tenant_with_enforcement_on()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var host = await HostAsync(ct);
+        var store = host.Services.GetRequiredService<IDocumentStore>();
+
+        var tenant = await RegisterAsync(store, "rls-batch", active: true, ct);
+        var other = await RegisterAsync(store, "rls-other", active: true, ct);
+
+        await using (var foreign = store.LightweightSession(other))
+        {
+            foreign.Store(new Content { Id = Guid.NewGuid(), ContentType = "rls-batch", Data = new Dictionary<string, object>() });
+            await foreign.SaveChangesAsync(ct);
+        }
+
+        var id = Guid.NewGuid();
+        using var scope = host.Services.CreateScope();
+        scope.ServiceProvider.GetRequiredService<TenantContext>().Slug = tenant;
+
+        var seen = await scope.ServiceProvider.GetRequiredService<barakoCMS.Infrastructure.Services.IContentBatchRunner>()
+            .RunAsync(async (batch, token) =>
+            {
+                var session = batch.GetRequiredService<IDocumentSession>();
+                session.Store(new Content { Id = id, ContentType = "rls-batch", Data = new Dictionary<string, object>() });
+                await session.SaveChangesAsync(token);
+
+                var visible = await batch.GetRequiredService<IQuerySession>().Query<Content>()
+                    .Where(c => c.ContentType == "rls-batch").Select(c => c.Id).ToListAsync(token);
+                return new barakoCMS.Infrastructure.Services.ContentBatchOutcome<List<Guid>>(visible.ToList(), true);
+            }, ct);
+
+        seen.Should().Equal([id], "the batch reads its own write and nothing of the other tenant");
+
+        await using var check = store.LightweightSession(tenant);
+        (await check.LoadAsync<Content>(id, ct)).Should().NotBeNull("the batch committed");
+    }
+
     [Fact]
     public async Task A_run_queued_in_a_named_tenant_is_claimed_and_completed_with_enforcement_on()
     {
