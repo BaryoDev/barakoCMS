@@ -100,6 +100,20 @@ rejects the request. The key check is why this button does not work with the SMT
 no API key to find: see the note under "Where a value comes from". A test button that cannot fail is worse than no button: it moves the failure to
 the first real invoice and tells the operator it already worked.
 
+## Values in a workflow email
+
+Every provider sends the body as HTML. So in an `Email` workflow action, a `{{...}}` value in
+`Body` is HTML-encoded: a field holding `<b>hi</b>` shows those characters in the message rather
+than bold text. The template's own markup is left alone, so `<p>From {{data.Name}}</p>` still
+renders a paragraph. A value in `Subject` or `To` has its line breaks replaced by a space and is
+otherwise unchanged, since a header is not HTML.
+
+There is no syntax for inserting a value as raw HTML. An entry's fields can hold whatever a public
+form submitted, and a template cannot tell that field from one an editor wrote.
+
+The same applies to an `Email` inside a `Conditional`: its parameters are resolved when the child
+runs, not as part of the branch's JSON.
+
 ## Auditing
 
 Changing email settings is recorded as `settings.email.changed` in the audit trail, with which

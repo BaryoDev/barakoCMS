@@ -116,7 +116,8 @@ internal class ConditionalAction : IWorkflowAction
             WorkflowActionResult childResult;
             try
             {
-                childResult = await plugin.RunAsync(childAction.Parameters, content, ct);
+                childResult = await plugin.RunAsync(
+                    ActionParameters.Resolve(childAction.Type, childAction.Parameters, content), content, ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {

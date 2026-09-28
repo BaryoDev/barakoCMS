@@ -2,6 +2,7 @@ using barakoCMS.Core.Interfaces;
 using barakoCMS.Models;
 using Marten;
 using Microsoft.Extensions.Configuration;
+using System.Net;
 using System.Security.Cryptography;
 
 namespace barakoCMS.Infrastructure.Services;
@@ -52,11 +53,12 @@ public class OtpService : IOtpService
         }
 
         var appName = _config["Branding:AppName"] ?? "BarakoCMS";
+        var html = WebUtility.HtmlEncode(appName);
         var body =
-            $"<p>Your {appName} sign-in code is:</p>" +
+            $"<p>Your {html} sign-in code is:</p>" +
             $"<p style=\"font-size:28px;font-weight:700;letter-spacing:4px\">{code}</p>" +
             $"<p>It expires in 10 minutes.</p>" +
-            $"<p>You are trying to sign in using <strong>{device.Description}</strong> from {device.IpAddress}. " +
+            $"<p>You are trying to sign in using <strong>{WebUtility.HtmlEncode(device.Description)}</strong> from {WebUtility.HtmlEncode(device.IpAddress)}. " +
             $"Sharing this code lets another device or person access your account. <strong>DO NOT SHARE.</strong> " +
             $"If this wasn't you, you can ignore this email.</p>";
         try

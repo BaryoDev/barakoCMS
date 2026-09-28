@@ -3,6 +3,7 @@ using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Security;
 using barakoCMS.Models;
 using Marten;
+using System.Net;
 using Microsoft.Extensions.Configuration;
 
 namespace barakoCMS.Infrastructure.Services;
@@ -72,7 +73,7 @@ public class EmailVerificationService : IEmailVerificationService
 
         var appName = AppName;
         var body =
-            $"<p>Somebody asked to create a {appName} account with this email address.</p>"
+            $"<p>Somebody asked to create a {WebUtility.HtmlEncode(appName)} account with this email address.</p>"
           + $"<p>If that was you, confirm the address to finish:</p>"
           + Confirmation(token)
           + $"<p>The link expires in {(int)EmailVerificationOptions.TokenLifetime.TotalHours} hours and works once. "
@@ -85,7 +86,7 @@ public class EmailVerificationService : IEmailVerificationService
     {
         var appName = AppName;
         var body =
-            $"<p>Somebody asked to create a {appName} account with this email address, but it is already registered.</p>"
+            $"<p>Somebody asked to create a {WebUtility.HtmlEncode(appName)} account with this email address, but it is already registered.</p>"
           + "<p>If that was you, sign in instead, or use the sign-in code option if you have forgotten your password.</p>"
           + "<p>No new account was created and nothing about your account has changed. "
           + "If this wasn't you, you can ignore this email.</p>";
@@ -105,10 +106,10 @@ public class EmailVerificationService : IEmailVerificationService
         var baseUrl = _config[CanonicalHost.BaseUrlKey]?.Trim().TrimEnd('/');
         if (string.IsNullOrEmpty(baseUrl))
         {
-            return $"<p style=\"font-family:monospace;word-break:break-all\">{token}</p>";
+            return $"<p style=\"font-family:monospace;word-break:break-all\">{WebUtility.HtmlEncode(token)}</p>";
         }
 
-        var link = $"{baseUrl}{VerifyPath}?token={Uri.EscapeDataString(token)}";
+        var link = WebUtility.HtmlEncode($"{baseUrl}{VerifyPath}?token={Uri.EscapeDataString(token)}");
         return $"<p><a href=\"{link}\">Confirm this email address</a></p>"
              + $"<p style=\"font-family:monospace;word-break:break-all\">{link}</p>";
     }

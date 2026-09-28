@@ -268,7 +268,9 @@ mistake, and a supplier notification is the thing that most needs not to fire on
 
 `{{data.Field}}` reads the entry's fields; `{{id}}`, `{{contentType}}`, `{{status}}` and
 `{{createdAt}}` are also available (`GET /api/workflows/variables` lists them). The
-`Email` action needs `To`, `Subject` and `Body`.
+`Email` action needs `To`, `Subject` and `Body`. Values in `Body` are HTML-encoded, and values in
+`Subject` and `To` lose their line breaks: see "Values in a workflow email" in
+[configuring-email.md](configuring-email.md).
 
 A workflow on a transition the type does not declare is refused:
 
