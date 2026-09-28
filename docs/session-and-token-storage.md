@@ -38,11 +38,22 @@ out and keep refreshing from somewhere else next week.
 Be clear about what that does not buy you. Script running on the page can still call
 `POST /api/auth/refresh`, and the browser will attach the cookie for it, exactly as it does for the
 admin. So an active XSS can use your session for as long as it is running. What it cannot do is take
-the session with it. That is the difference between a bug you fix and a credential you have to
+the session with it: a refresh that arrived with only the cookie answers with the new refresh token in
+the cookie and an empty `refreshToken` in the body. That is the difference between a bug you fix and a credential you have to
 revoke, and it is the whole reason for the change, but it is not immunity.
 
-The cookie is scoped to `/api/auth/refresh`, so it is not attached to every API call, only to the one
-route that consumes it.
+The cookie is scoped to `/api/auth/refresh` and `/api/auth/logout` (one cookie per path), so it is
+not attached to every API call, only to the two routes that consume it. Logout reads it so a
+console whose access token has expired can still sign out: with no usable bearer, `POST
+/api/auth/logout` revokes every refresh token of the cookie's user and clears the cookie. It answers
+200 whether or not the cookie matched a stored token, and 401 only when there is neither a bearer nor
+a cookie. `SameSite=Lax` keeps the cookie off a POST from another site, so another site cannot sign
+you out.
+
+**The server stores a hash of the refresh token, not the token.** A copy of the `refresh_tokens`
+table does not hold working sessions. Rows written before this change hold the plain token; they
+still refresh once, and the row that replaces them is hashed, so the last of them expires within
+seven days and nobody is signed out by the upgrade.
 
 **The access token is a variable in memory.** Not `localStorage`, not `sessionStorage`. It is gone
 when the tab reloads, and the admin quietly asks for a new one using the cookie.
@@ -62,7 +73,8 @@ storage for a later bug to find.
 
 ## What did not change, and why
 
-**The API still returns the refresh token in the response body.** A cookie is a browser mechanism.
+**Sign-in still returns the refresh token in the response body**, and so does a refresh that was
+sent the token in the body. A cookie is a browser mechanism.
 The generated clients, anything you build with the module packages, a mobile app, a script in CI:
 none of those have a cookie jar you would want to rely on, and all of them read the token from the
 response today.

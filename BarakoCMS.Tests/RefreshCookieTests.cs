@@ -162,6 +162,144 @@ public class RefreshCookieTests
 
         refreshed.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}",
             refreshed.StatusCode, await refreshed.Content.ReadAsStringAsync());
+
+        using var refreshedDoc = JsonDocument.Parse(await refreshed.Content.ReadAsStringAsync());
+        refreshedDoc.RootElement.GetProperty("refreshToken").GetString().Should().NotBeNullOrEmpty(
+            "a caller that sent the token in the body reads the replacement from the body");
+    }
+
+    /// <summary>
+    /// A caller that refreshed with the cookie gets the replacement in the cookie only.
+    /// </summary>
+    /// <remarks>
+    /// The route is anonymous and the browser attaches the cookie by itself, so any script running
+    /// on the console's origin can call it. If the body carried the new token, that script could
+    /// read a renewable seven day credential the cookie was meant to keep out of its reach.
+    /// </remarks>
+    [Fact]
+    public async Task A_cookie_refresh_returns_the_new_token_in_the_cookie_and_not_the_body()
+    {
+        var (client, username, password) = await UserAsync("203.0.113.75", handleCookies: false);
+
+        var login = await client.PostAsJsonAsync("/api/auth/login", new { username, password });
+        login.IsSuccessStatusCode.Should().BeTrue();
+        var cookie = RefreshCookie(login)!.Split(';')[0];
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/auth/refresh")
+        {
+            Content = JsonContent.Create(new { }),
+        };
+        request.Headers.Add("Cookie", cookie);
+
+        var refreshed = await client.SendAsync(request);
+        refreshed.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}",
+            refreshed.StatusCode, await refreshed.Content.ReadAsStringAsync());
+
+        using var doc = JsonDocument.Parse(await refreshed.Content.ReadAsStringAsync());
+        doc.RootElement.GetProperty("token").GetString().Should().NotBeNullOrEmpty();
+        doc.RootElement.GetProperty("refreshToken").GetString().Should().BeNullOrEmpty(
+            "page script can read the body, and the cookie exists so it never holds this value");
+
+        var newCookie = RefreshCookie(refreshed);
+        newCookie.Should().NotBeNull("the replacement has to reach the browser somehow");
+        newCookie!.Split(';')[0].Should().NotBe(cookie, "rotation issues a new token");
+    }
+
+    /// <summary>A browser has to send the cookie to logout as well, or signing out cannot use it.</summary>
+    [Fact]
+    public async Task Signing_in_scopes_a_refresh_cookie_to_logout_too()
+    {
+        var (client, username, password) = await UserAsync("203.0.113.76", handleCookies: false);
+
+        var login = await client.PostAsJsonAsync("/api/auth/login", new { username, password });
+        login.IsSuccessStatusCode.Should().BeTrue();
+
+        login.Headers.TryGetValues("Set-Cookie", out var values).Should().BeTrue();
+        var cookies = values!.Where(v => v.StartsWith("barako_refresh=", StringComparison.Ordinal)).ToList();
+        cookies.Should().NotBeEmpty();
+        cookies.Should().Contain(c => c.Contains("path=/api/auth/refresh"));
+        cookies.Should().Contain(c => c.Contains("path=/api/auth/logout"));
+    }
+
+    /// <summary>A copy of the login token re-signed with an expiry in the past.</summary>
+    private static string Expired(string jwt)
+    {
+        var handler = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler();
+        var original = handler.ReadJwtToken(jwt);
+        var key = new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(
+            System.Text.Encoding.UTF8.GetBytes(IntegrationTestFixture.JwtKey));
+        var expired = new System.IdentityModel.Tokens.Jwt.JwtSecurityToken(
+            original.Issuer,
+            original.Audiences.First(),
+            original.Claims.Where(c => c.Type is not ("exp" or "nbf" or "iat" or "aud" or "iss")),
+            notBefore: DateTime.UtcNow.AddHours(-2),
+            expires: DateTime.UtcNow.AddHours(-1),
+            signingCredentials: new Microsoft.IdentityModel.Tokens.SigningCredentials(
+                key, Microsoft.IdentityModel.Tokens.SecurityAlgorithms.HmacSha256));
+        return handler.WriteToken(expired);
+    }
+
+    /// <summary>
+    /// Signing out works with the refresh cookie alone, once the access token has expired.
+    /// </summary>
+    /// <remarks>
+    /// Logout used to require a valid bearer. A console that sat idle past the access token's
+    /// fifteen minutes got a 401, revoked nothing, and left the seven day cookie working.
+    /// </remarks>
+    [Fact]
+    public async Task Logout_with_an_expired_bearer_and_the_cookie_revokes_the_refresh_token()
+    {
+        var (client, username, password) = await UserAsync("203.0.113.77", handleCookies: false);
+
+        var login = await client.PostAsJsonAsync("/api/auth/login", new { username, password });
+        login.IsSuccessStatusCode.Should().BeTrue();
+        var cookie = RefreshCookie(login)!.Split(';')[0];
+        string jwt;
+        using (var doc = JsonDocument.Parse(await login.Content.ReadAsStringAsync()))
+            jwt = doc.RootElement.GetProperty("token").GetString()!;
+
+        using var logout = new HttpRequestMessage(HttpMethod.Post, "/api/auth/logout");
+        logout.Headers.Authorization = new("Bearer", Expired(jwt));
+        logout.Headers.Add("Cookie", cookie);
+
+        var res = await client.SendAsync(logout);
+        res.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}",
+            res.StatusCode, await res.Content.ReadAsStringAsync());
+        res.Headers.TryGetValues("Set-Cookie", out var cleared).Should().BeTrue();
+        cleared!.Should().Contain(c => c.StartsWith("barako_refresh=;", StringComparison.Ordinal),
+            "signing out clears the cookie");
+
+        using var refresh = new HttpRequestMessage(HttpMethod.Post, "/api/auth/refresh")
+        {
+            Content = JsonContent.Create(new { }),
+        };
+        refresh.Headers.Add("Cookie", cookie);
+        (await client.SendAsync(refresh)).StatusCode.Should().Be(HttpStatusCode.Unauthorized,
+            "the cookie that signed out must not mint another session");
+    }
+
+    /// <summary>
+    /// An unknown cookie gets the same answer as a real one, so logout does not test tokens.
+    /// </summary>
+    [Fact]
+    public async Task Logout_with_an_unknown_cookie_answers_like_a_real_one()
+    {
+        var (client, _, _) = await UserAsync("203.0.113.78", handleCookies: false);
+
+        using var logout = new HttpRequestMessage(HttpMethod.Post, "/api/auth/logout");
+        logout.Headers.Add("Cookie", "barako_refresh=" + Uri.EscapeDataString(Convert.ToBase64String(Guid.NewGuid().ToByteArray())));
+
+        var res = await client.SendAsync(logout);
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Logout_with_neither_a_bearer_nor_a_refresh_token_is_still_refused()
+    {
+        var (client, _, _) = await UserAsync("203.0.113.79", handleCookies: false);
+
+        var res = await client.PostAsync("/api/auth/logout", null);
+        res.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
     [Fact]

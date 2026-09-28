@@ -14,29 +14,33 @@ namespace barakoCMS.Infrastructure.Auth;
 ///
 /// So the durable credential moves out of script's reach and the short one stays in memory.
 ///
-/// The body still carries the refresh token, deliberately. A cookie is a browser mechanism, and the
-/// generated clients, module consumers and anything on a phone all read it from the response. Making
-/// this a replacement rather than an addition would break every non-browser caller to fix a
-/// browser-only problem. What changes is that the admin stops persisting it, so an XSS arriving
-/// after sign-in has nothing to steal.
+/// Sign-in still returns the refresh token in the body, and so does a refresh that was sent the token
+/// in the body. A cookie is a browser mechanism, and the generated clients, module consumers and
+/// anything on a phone all read it from the response. A refresh that was sent only the cookie
+/// answers with the cookie only: that caller is a browser, and a body is something page script can
+/// read.
 /// </remarks>
 internal static class RefreshTokenCookie
 {
     public const string Name = "barako_refresh";
 
     /// <summary>
-    /// Scoped to the one route that consumes it, so it is not attached to every API call.
+    /// Scoped to the two routes that consume it, so it is not attached to every API call. One cookie
+    /// per path, since a cookie has one path: logout needs it too, to sign out once the access
+    /// token has expired.
     /// </summary>
-    private const string Path = "/api/auth/refresh";
+    private static readonly string[] Paths = ["/api/auth/refresh", "/api/auth/logout"];
 
     public static void Set(HttpContext http, string refreshToken, DateTime expiresUtc)
     {
-        http.Response.Cookies.Append(Name, refreshToken, Options(http, expiresUtc));
+        foreach (var path in Paths)
+            http.Response.Cookies.Append(Name, refreshToken, Options(http, path, expiresUtc));
     }
 
     public static void Clear(HttpContext http)
     {
-        http.Response.Cookies.Delete(Name, Options(http, DateTime.UtcNow.AddDays(-1)));
+        foreach (var path in Paths)
+            http.Response.Cookies.Delete(Name, Options(http, path, DateTime.UtcNow.AddDays(-1)));
     }
 
     /// <summary>The cookie value, or null when the caller did not send one.</summary>
@@ -54,7 +58,7 @@ internal static class RefreshTokenCookie
     internal static bool IsSecure(HttpContext http) =>
         !http.RequestServices.GetRequiredService<IHostEnvironment>().IsDevelopment();
 
-    private static CookieOptions Options(HttpContext http, DateTime expiresUtc) => new()
+    private static CookieOptions Options(HttpContext http, string path, DateTime expiresUtc) => new()
     {
         HttpOnly = true,
 
@@ -72,12 +76,13 @@ internal static class RefreshTokenCookie
         Secure = IsSecure(http),
 
         // Lax, not None. None requires Secure and therefore https, which the local stacks do not
-        // have, and this cookie is only ever sent to the refresh route by the app's own code. A
+        // have, and this cookie only goes to the refresh and logout routes, from the app's own code. A
         // cross-origin deployment that needs it can serve both halves from one origin, which the
-        // playground already does, or fall back to the token in the body.
+        // playground already does, or fall back to the token in the body. Lax also keeps the cookie
+        // off a POST from another site, so another site cannot sign a user out.
         SameSite = SameSiteMode.Lax,
 
-        Path = Path,
+        Path = path,
         Expires = new DateTimeOffset(DateTime.SpecifyKind(expiresUtc, DateTimeKind.Utc)),
     };
 }

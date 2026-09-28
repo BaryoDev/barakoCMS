@@ -62,6 +62,7 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.2.0
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.3.0/collection-syncs.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.3.0/marten-9-37-event-store-columns.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.4.0/marten-9-38-quick-append-events.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/4.5.0/refresh-token-hash-index.sql
 ```
 
 The two Marten files bring the event store up to the Marten version the release you are deploying
@@ -73,9 +74,9 @@ which is what sign-in compares. If two existing accounts differ only by case, su
 id. Rename or remove one of each pair and run it again. It does not pick one for you. A 4.0 or 4.1
 database needs this file too.
 
-The Files file builds the index `CONCURRENTLY`, so it does not block writes to stored files, and
-that is why it runs on its own, without `--single-transaction`. The Forms file creates one empty
-table. Both are safe to run twice.
+The Files file and the refresh token file build their index `CONCURRENTLY`, so neither blocks
+writes, and that is why they run on their own, without `--single-transaction`. The Forms file
+creates one empty table. All three are safe to run twice.
 
 Then confirm the schema matches what 4.0 expects, without starting the server. The command is an
 argument to the 4.0 image, which hands it to the host instead of booting the web app. With compose,
@@ -150,6 +151,7 @@ statements from the file by hand rather than re-running the whole thing.
 Stop 4.0, then:
 
 ```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/4.5.0/rollback-refresh-token-hash-index.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.4.0/rollback-marten-9-38-quick-append-events.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.3.0/rollback-collection-syncs.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.3.0/rollback-marten-9-37-event-store-columns.sql
@@ -161,6 +163,10 @@ Newest first. An earlier release asserts its own schema and reports a table it d
 outstanding, so it refuses to boot while `mt_doc_collection_syncs` is still there. Dropping it loses
 the sync schedules and field mappings, which nothing else records; the entries those syncs wrote are
 ordinary content and are untouched.
+
+The refresh token file drops the index on the token hash. A release before 4.5.0 looks refresh
+tokens up by their plain value, which 4.5.0 no longer stores, so anyone who signed in or refreshed on
+4.5.0 has to sign in again after a rollback.
 
 The user file puts the username and email unique indexes back on the stored values, which is where
 3.x declares them.

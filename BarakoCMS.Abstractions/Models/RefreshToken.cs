@@ -9,9 +9,21 @@ public class RefreshToken
     public Guid Id { get; set; }
     
     /// <summary>
-    /// The actual refresh token string (cryptographically secure random)
+    /// The token in plain text. Only rows written before tokens were hashed have it; new rows leave
+    /// it null and set <see cref="TokenHash"/>. Kept so those rows still refresh once, which
+    /// replaces them with a hashed row.
     /// </summary>
-    public string Token { get; set; } = string.Empty;
+    public string? Token { get; set; }
+
+    /// <summary>
+    /// SHA-256 of the token, from <see cref="HashOf"/>. What a presented token is looked up by, so
+    /// a copy of this table does not hold working sessions.
+    /// </summary>
+    public string? TokenHash { get; set; }
+
+    /// <summary>The value stored in <see cref="TokenHash"/> for a token: SHA-256, lowercase hex.</summary>
+    public static string HashOf(string token) =>
+        Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(token)));
     
     /// <summary>
     /// The user this refresh token belongs to
