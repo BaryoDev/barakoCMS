@@ -63,7 +63,7 @@ public class PlatformRoleGrantTests
     }
 
     /// <summary>A user who is Admin of one tenant through a membership and holds no global role.</summary>
-    private async Task<(Guid UserId, HttpClient Client)> TenantAdminAsync()
+    private async Task<(Guid UserId, HttpClient Client, string Slug)> TenantAdminAsync()
     {
         var slug = $"grants-{Guid.NewGuid():N}"[..16];
         var userId = await UserAsync();
@@ -83,7 +83,7 @@ public class PlatformRoleGrantTests
             await session.SaveChangesAsync();
         }
 
-        return (userId, ClientFor(userId, ["Admin"], slug));
+        return (userId, ClientFor(userId, ["Admin"], slug), slug);
     }
 
     /// <summary>A custom role holding manage_roles, which edits every role document in the deployment.</summary>
@@ -105,7 +105,7 @@ public class PlatformRoleGrantTests
     [Fact]
     public async Task A_tenant_admin_cannot_give_a_member_a_role_holding_a_platform_capability()
     {
-        var (_, client) = await TenantAdminAsync();
+        var (_, client, _) = await TenantAdminAsync();
         var roleId = await PlatformRoleAsync();
         var email = $"member-{Guid.NewGuid():N}@example.com";
 
@@ -123,7 +123,7 @@ public class PlatformRoleGrantTests
     [Fact]
     public async Task A_tenant_admin_cannot_update_a_member_to_a_role_holding_a_platform_capability()
     {
-        var (adminId, client) = await TenantAdminAsync();
+        var (adminId, client, _) = await TenantAdminAsync();
         var roleId = await PlatformRoleAsync();
 
         var res = await client.PutAsJsonAsync($"/api/tenants/members/{adminId}",
@@ -138,7 +138,7 @@ public class PlatformRoleGrantTests
     [Fact]
     public async Task A_tenant_admin_is_not_offered_a_role_holding_a_platform_capability()
     {
-        var (_, client) = await TenantAdminAsync();
+        var (_, client, _) = await TenantAdminAsync();
         var roleId = await PlatformRoleAsync();
 
         var offered = new List<Guid>();
@@ -174,7 +174,7 @@ public class PlatformRoleGrantTests
     [Fact]
     public async Task The_refusal_says_why()
     {
-        var (adminId, client) = await TenantAdminAsync();
+        var (adminId, client, _) = await TenantAdminAsync();
 
         var res = await client.PostAsJsonAsync(
             $"/api/users/{adminId}/roles", new { roleId = SystemRoles.AdminRoleId });
@@ -183,10 +183,113 @@ public class PlatformRoleGrantTests
         (await res.Content.ReadAsStringAsync()).Should().Contain("platform administrator");
     }
 
+    /// <summary>A member of <paramref name="slug"/> a SuperAdmin already gave a platform role.</summary>
+    private async Task<Guid> MemberHoldingAsync(string slug, Guid platformRoleId)
+    {
+        var userId = await UserAsync();
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        session.Store(new Membership
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            TenantSlug = slug,
+            Status = MembershipStatus.Active,
+            RoleIds = [SystemRoles.UserRoleId, platformRoleId],
+        });
+        await session.SaveChangesAsync();
+        return userId;
+    }
+
+    private async Task<Membership> MembershipAsync(Guid userId, string slug)
+    {
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+        return await session.Query<Membership>().SingleAsync(m => m.UserId == userId && m.TenantSlug == slug);
+    }
+
+    [Fact]
+    public async Task A_tenant_admin_can_suspend_a_member_who_already_holds_a_platform_role()
+    {
+        var (_, client, slug) = await TenantAdminAsync();
+        var roleId = await PlatformRoleAsync();
+        var member = await MemberHoldingAsync(slug, roleId);
+
+        // The console sends every role the member holds back on a status-only change.
+        var res = await client.PutAsJsonAsync($"/api/tenants/members/{member}",
+            new { roleIds = new[] { SystemRoles.UserRoleId, roleId }, status = "Suspended" });
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, "nothing is being granted, only kept");
+        var stored = await MembershipAsync(member, slug);
+        stored.Status.Should().Be(MembershipStatus.Suspended);
+        stored.RoleIds.Should().Contain(roleId);
+    }
+
+    [Fact]
+    public async Task A_tenant_admin_can_take_a_platform_role_off_a_member()
+    {
+        var (_, client, slug) = await TenantAdminAsync();
+        var roleId = await PlatformRoleAsync();
+        var member = await MemberHoldingAsync(slug, roleId);
+
+        var res = await client.PutAsJsonAsync($"/api/tenants/members/{member}",
+            new { roleIds = new[] { SystemRoles.UserRoleId }, status = "Active" });
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK,
+            "a tenant admin can already remove the member outright, so dropping one role is no more");
+        var stored = await MembershipAsync(member, slug);
+        stored.RoleIds.Should().ContainSingle().Which.Should().Be(SystemRoles.UserRoleId);
+    }
+
+    [Fact]
+    public async Task A_tenant_admin_still_cannot_add_a_second_platform_role_to_such_a_member()
+    {
+        var (_, client, slug) = await TenantAdminAsync();
+        var held = await PlatformRoleAsync();
+        var added = await PlatformRoleAsync();
+        var member = await MemberHoldingAsync(slug, held);
+
+        var res = await client.PutAsJsonAsync($"/api/tenants/members/{member}",
+            new { roleIds = new[] { SystemRoles.UserRoleId, held, added }, status = "Active" });
+
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await MembershipAsync(member, slug)).RoleIds.Should().NotContain(added);
+    }
+
+    [Fact]
+    public async Task A_global_admin_cannot_remove_a_role_holding_a_platform_capability()
+    {
+        var adminId = await UserAsync(SystemRoles.AdminRoleId);
+        var client = ClientFor(adminId, ["Admin"]);
+        var roleId = await PlatformRoleAsync();
+        var operatorId = await UserAsync(roleId);
+
+        var res = await client.DeleteAsync($"/api/users/{operatorId}/roles/{roleId}");
+
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "an Admin that cannot grant a platform role cannot take one away either");
+        (await res.Content.ReadAsStringAsync()).Should().Contain("SuperAdmin");
+        (await LoadAsync(operatorId)).RoleIds.Should().Contain(roleId);
+    }
+
+    [Fact]
+    public async Task A_SuperAdmin_can_remove_a_role_holding_a_platform_capability()
+    {
+        var callerId = await UserAsync(SystemRoles.SuperAdminRoleId);
+        var client = ClientFor(callerId, ["SuperAdmin"]);
+        var roleId = await PlatformRoleAsync();
+        var operatorId = await UserAsync(roleId);
+
+        var res = await client.DeleteAsync($"/api/users/{operatorId}/roles/{roleId}");
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await LoadAsync(operatorId)).RoleIds.Should().NotContain(roleId);
+    }
+
     [Fact]
     public async Task A_tenant_admin_cannot_grant_itself_a_global_role()
     {
-        var (adminId, client) = await TenantAdminAsync();
+        var (adminId, client, _) = await TenantAdminAsync();
 
         var res = await client.PostAsJsonAsync(
             $"/api/users/{adminId}/roles", new { roleId = SystemRoles.AdminRoleId });
@@ -199,7 +302,7 @@ public class PlatformRoleGrantTests
     [Fact]
     public async Task A_tenant_admin_cannot_grant_a_global_role_to_someone_else()
     {
-        var (_, client) = await TenantAdminAsync();
+        var (_, client, _) = await TenantAdminAsync();
         var target = await UserAsync();
 
         var res = await client.PostAsJsonAsync(
@@ -212,7 +315,7 @@ public class PlatformRoleGrantTests
     [Fact]
     public async Task A_tenant_admin_cannot_remove_a_global_role()
     {
-        var (_, client) = await TenantAdminAsync();
+        var (_, client, _) = await TenantAdminAsync();
         var target = await UserAsync(SystemRoles.AdminRoleId);
 
         var res = await client.DeleteAsync($"/api/users/{target}/roles/{SystemRoles.AdminRoleId}");

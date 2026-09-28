@@ -6,6 +6,7 @@
   SuperAdmin, and removing it from the last user who holds it answers 409. A role carrying `*`,
   `manage_roles`, `manage_tenants`, `manage_users` or `manage_email_settings` is now granted only by
   a SuperAdmin, through either `/api/users/{id}/roles` or `/api/tenants/members` (403 otherwise),
-  and `/api/tenants/members/roles` no longer offers it to anyone else. Each 403 carries a message
+  and removed from a user's global roles only by one; `/api/tenants/members/roles` no longer offers
+  it to anyone else. A tenant admin can still edit or suspend a member who already holds one. Each 403 carries a message
   saying why. These requests used to succeed, so `X-Api-Contract-Version` moves to 5, and the
   barakoBrew console has to accept contract 5 before it runs against this release.

@@ -24,14 +24,18 @@ internal static class PlatformRoles
     public const string PlatformRoleRefusedMessage =
         "This role carries a platform capability, so only a platform administrator (SuperAdmin) can grant it.";
 
+    public const string PlatformRoleRemovalRefusedMessage =
+        "This role carries a platform capability, so only a platform administrator (SuperAdmin) can remove it.";
+
     /// <summary>
-    /// Capabilities that reach past any one tenant: editing role documents, tenants, every user
-    /// account, or the deployment's mail settings. Only SuperAdmin holds them by default.
+    /// SuperAdmin-only capabilities that reach past a tenant: editing role documents, tenants, every
+    /// user account, or the deployment's mail settings.
     /// </summary>
     /// <remarks>
-    /// A role carrying one is granted only by a SuperAdmin, on either surface. Admin does not hold
-    /// manage_roles, so a custom role carrying it would otherwise be how an Admin, or an administrator
-    /// of one tenant through a membership, reaches every role in the deployment.
+    /// A role carrying one is granted only by a SuperAdmin, on either surface, and removed from a
+    /// user's global roles only by one. Admin does not hold manage_roles, so a custom role carrying
+    /// it would otherwise be how an Admin, or an administrator of one tenant through a membership,
+    /// reaches every role in the deployment.
     /// </remarks>
     public static readonly IReadOnlySet<string> PlatformCapabilities = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {

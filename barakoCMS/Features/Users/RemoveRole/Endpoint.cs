@@ -35,6 +35,15 @@ internal class Endpoint(
             return;
         }
 
+        // So is taking away any other role carrying a platform capability, mirroring AssignRole.
+        var role = await session.LoadAsync<Role>(req.RoleId, ct);
+        if (role is not null && PlatformRoles.CarriesPlatformCapability(role)
+            && !await PlatformRoles.IsSuperAdminAsync(session, User, ct))
+        {
+            await Send.ResponseAsync(new Response { Message = PlatformRoles.PlatformRoleRemovalRefusedMessage }, 403, ct);
+            return;
+        }
+
         var user = await session.LoadAsync<User>(req.UserId, ct);
 
         if (user == null)
