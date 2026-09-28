@@ -5,7 +5,8 @@
   the current tenant's rows; one holding it through a global role, as on a single-tenant
   deployment, still sees every tenant's. `POST /api/client-errors/{id}/resolve` answers 404 for
   another tenant's error. An email event now carries the tenant that sent the email, recorded
-  against Resend's id when it is sent and kept 30 days (a new `sent_emails` table); an event with
+  against Resend's id when it is sent and kept 30 days (a new `sent_emails` table, created on an existing database by
+  `migrations/4.5.0/email-sent-emails.sql`); an event with
   no recorded sender is visible through a global role only. Only mail sent on a tenant's behalf is
   recorded, which today is a workflow's email: a user's own account mail (sign-in codes,
   verification, lockout notices) belongs to no tenant. `IEmailService` gains `SendForTenantAsync`,

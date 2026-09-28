@@ -59,6 +59,7 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.0.0
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.2.0/user-normalized-identity.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/4.2.0/stored-files-parent-index.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.2.0/forms-public-forms.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.5.0/email-sent-emails.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.3.0/collection-syncs.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.3.0/marten-9-37-event-store-columns.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.4.0/marten-9-38-quick-append-events.sql
@@ -76,6 +77,9 @@ database needs this file too.
 The Files file builds the index `CONCURRENTLY`, so it does not block writes to stored files, and
 that is why it runs on its own, without `--single-transaction`. The Forms file creates one empty
 table. Both are safe to run twice.
+
+The Email file creates the empty table Email.Resend uses to record which tenant sent each email,
+so a later bounce can be put back on that tenant. It is safe to run twice.
 
 Then confirm the schema matches what 4.0 expects, without starting the server. The command is an
 argument to the 4.0 image, which hands it to the host instead of booting the web app. With compose,
@@ -150,6 +154,7 @@ statements from the file by hand rather than re-running the whole thing.
 Stop 4.0, then:
 
 ```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.5.0/rollback-email-sent-emails.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.4.0/rollback-marten-9-38-quick-append-events.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.3.0/rollback-collection-syncs.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.3.0/rollback-marten-9-37-event-store-columns.sql
@@ -164,6 +169,10 @@ ordinary content and are untouched.
 
 The user file puts the username and email unique indexes back on the stored values, which is where
 3.x declares them.
+
+The Email file drops `mt_doc_sent_emails`, which an earlier release also refuses to boot alongside.
+It loses only which tenant sent each email; a bounce reported after the rollback is recorded
+without a tenant, as it was before.
 
 That restores the two `mt_streams` columns as NULL, which is what they were, and removes `bdata`.
 It also drops the Files `ParentFileId` index, which the 3.x Suite refuses to start alongside.
