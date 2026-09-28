@@ -615,7 +615,8 @@ public class ImportWritePathTests
         status.Should().Be(HttpStatusCode.BadRequest, body);
         body.Should().Contain("contents[1]").And.Contain($"Account code '{code}' is already in use.");
         (await StoredEntriesAsync(BarakoCMS.Accounting.AccountingContentTypes.Account))
-            .Where(c => c.Data["Code"].ToString() == code).Should().BeEmpty("the import is all or nothing");
+            .Where(c => c.Data.TryGetValue("Code", out var stored) && stored?.ToString() == code)
+            .Should().BeEmpty("the import is all or nothing");
     }
 
     private const string PageType = "pagetreeprobe";
@@ -679,7 +680,8 @@ public class ImportWritePathTests
 
         status.Should().Be(HttpStatusCode.OK, body);
         var pages = (await StoredEntriesAsync(PageType))
-            .Where(c => c.Data["Slug"].ToString()!.StartsWith(slug, StringComparison.Ordinal)).ToList();
+            .Where(c => c.Data.TryGetValue("Slug", out var stored) && stored?.ToString()?.StartsWith(slug, StringComparison.Ordinal) == true)
+            .ToList();
         pages.Should().HaveCount(2);
         var parent = pages.Single(p => p.Data["Slug"].ToString() == slug);
         var child = pages.Single(p => p.Data["Slug"].ToString() == slug + "-child");
