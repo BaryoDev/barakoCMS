@@ -745,7 +745,8 @@ public static class ServiceCollectionExtensions
             // Optimistic concurrency so a single refresh token cannot be rotated twice
             // concurrently (defeats refresh-token reuse/replay).
             .UseOptimisticConcurrency(true)
-            .Index(x => x.Token, idx => idx.IsUnique = true)  // Index for fast lookup
+            .Index(x => x.TokenHash, idx => idx.IsUnique = true)  // what a presented token is looked up by
+            .Index(x => x.Token, idx => idx.IsUnique = true)  // rows from before hashing; new rows leave it null
             .Index(x => x.UserId)  // Index for user queries
             .Index(x => x.ExpiresAt);  // Index for cleanup queries
 

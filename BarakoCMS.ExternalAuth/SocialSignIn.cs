@@ -118,7 +118,7 @@ public static class SocialSignIn
         session.Store(new RefreshToken
         {
             Id = Guid.NewGuid(),
-            Token = refresh,
+            TokenHash = RefreshToken.HashOf(refresh),
             UserId = user.Id,
             ExpiresAt = DateTime.UtcNow.AddDays(7),
             CreatedAt = DateTime.UtcNow,
