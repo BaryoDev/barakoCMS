@@ -33,7 +33,7 @@ the repository.
 
 | Method & path | Purpose |
 |---|---|
-| `POST /api/files` | Upload one image or PDF (≤ 10 MB, multipart). Returns `{ id, fileName, contentType, size }`. |
+| `POST /api/files` | Upload one PNG, JPEG, GIF, WebP, AVIF or PDF (up to 10 MB, multipart). The part's Content-Type must be exactly one of those, and the file must start the way that format does. Returns `{ id, fileName, contentType, size }`. |
 | `GET  /api/files/{id}` | Stream the file back with its original content type. Requires a Bearer token. |
 | `GET  /api/files` | List uploads, newest first, paginated. `?q=` matches a substring of the name, `?contentType=image/` a type or prefix. |
 | `GET  /api/files/{id}/meta` | The record without the bytes: name, type, size, public flag, alt text, caption. |
