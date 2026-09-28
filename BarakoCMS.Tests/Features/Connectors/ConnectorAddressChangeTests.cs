@@ -190,10 +190,86 @@ public class ConnectorAddressChangeTests
         (await SecretCountAsync(slug)).Should().Be(1);
     }
 
+    [Theory]
+    [InlineData("https://{0}-other.example/")]
+    [InlineData("//{0}-other.example/")]
+    [InlineData("/\\{0}-other.example/")]
+    [InlineData("health")]
+    public async Task A_probe_path_that_is_not_a_path_on_the_base_url_is_refused(string template)
+    {
+        var client = await AdminAsync();
+        var slug = NewSlug();
+        await CreateAsync(client, slug, $"https://{slug}-home.example/api");
+
+        var res = await PutAsync(client, slug, $"https://{slug}-home.example/api", secrets: null,
+            probePath: string.Format(template, slug));
+        var body = await res.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest, "got: {0}", body);
+        body.Should().Contain("ProbePath");
+    }
+
+    [Fact]
+    public async Task A_relative_probe_path_is_sent_to_the_base_url_host()
+    {
+        var client = await AdminAsync();
+        var slug = NewSlug();
+        var home = $"{slug}-home.example";
+        await CreateAsync(client, slug, $"https://{home}/api");
+
+        var res = await PutAsync(client, slug, $"https://{home}/api", secrets: null, probePath: "/health");
+        res.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}",
+            res.StatusCode, await res.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+
+        await ProbeAsync(client, slug);
+
+        var sent = Sent.Where(s => s.Host == home).ToList();
+        sent.Should().NotBeEmpty();
+        sent.Should().Contain(s => s.Authorization == $"Bearer {Token}");
+    }
+
+    /// <summary>
+    /// A row saved before the probe path was checked can still hold an absolute URL, so the probe
+    /// itself refuses to leave the base URL's origin.
+    /// </summary>
+    [Theory]
+    [InlineData("https://{0}-other.example/")]
+    [InlineData("//{0}-other.example/")]
+    public async Task A_stored_probe_path_on_another_origin_is_not_sent(string template)
+    {
+        var client = await AdminAsync();
+        var slug = NewSlug();
+        var home = $"{slug}-home.example";
+        var other = $"{slug}-other.example";
+        await CreateAsync(client, slug, $"https://{home}/api");
+
+        await ProbeAsync(client, slug);
+        Sent.Where(s => s.Host == home).Should().NotBeEmpty("the control probe reaches the stub");
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var stored = await session.Query<Connector>()
+                .FirstAsync(c => c.Slug == slug, TestContext.Current.CancellationToken);
+            stored.ProbePath = string.Format(template, slug);
+            session.Store(stored);
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        var res = await client.PostAsync($"/api/connectors/{slug}/test", null, TestContext.Current.CancellationToken);
+        var body = await res.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        res.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", res.StatusCode, body);
+
+        using var doc = JsonDocument.Parse(body);
+        doc.RootElement.GetProperty("succeeded").GetBoolean().Should().BeFalse(body);
+        Sent.Should().NotContain(s => s.Host == other, "nothing, and so no credential, goes to the other host");
+    }
+
     private static string NewSlug() => "move" + Guid.NewGuid().ToString("n")[..10];
 
     private static object Payload(
-        string slug, string baseUrl, Dictionary<string, string>? secrets, string auth = "BearerToken") => new
+        string slug, string baseUrl, Dictionary<string, string>? secrets, string auth = "BearerToken",
+        string probePath = "/") => new
     {
         name = "Moving connector",
         slug,
@@ -201,7 +277,7 @@ public class ConnectorAddressChangeTests
         auth,
         settings = new Dictionary<string, string>(),
         enabled = true,
-        probePath = "/",
+        probePath,
         secrets,
     };
 
@@ -215,8 +291,9 @@ public class ConnectorAddressChangeTests
     }
 
     private static Task<HttpResponseMessage> PutAsync(
-        HttpClient client, string slug, string baseUrl, Dictionary<string, string>? secrets, string auth = "BearerToken") =>
-        client.PutAsJsonAsync($"/api/connectors/{slug}", Payload(slug, baseUrl, secrets, auth),
+        HttpClient client, string slug, string baseUrl, Dictionary<string, string>? secrets, string auth = "BearerToken",
+        string probePath = "/") =>
+        client.PutAsJsonAsync($"/api/connectors/{slug}", Payload(slug, baseUrl, secrets, auth, probePath),
             TestContext.Current.CancellationToken);
 
     private static async Task ProbeAsync(HttpClient client, string slug)

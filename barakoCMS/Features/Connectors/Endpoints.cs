@@ -460,6 +460,14 @@ internal static class ConnectorRules
             return "BaseUrl must be an absolute http or https URL.";
         }
 
+        // The probe carries the connector's credentials, so its path has to stay on the base URL's
+        // host. A leading "//", a backslash, or a scheme would make it a URL of its own.
+        var probe = string.IsNullOrWhiteSpace(req.ProbePath) ? "/" : req.ProbePath.Trim();
+        if (!probe.StartsWith('/') || probe.StartsWith("//") || probe.Contains('\\') || probe.Any(char.IsControl))
+        {
+            return "ProbePath must be a path on the base URL that starts with a single '/', such as /health.";
+        }
+
         return null;
     }
 }
