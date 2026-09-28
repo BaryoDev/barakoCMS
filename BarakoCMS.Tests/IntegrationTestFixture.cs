@@ -46,6 +46,8 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
     /// <summary>The API key this host is configured with, standing in for a deployment's own.</summary>
     public const string ConfiguredResendKey = "re_from_the_deployment_not_the_admin";
 
+    private int _hostsBuilt;
+
     public string ConnectionString => _postgresContainer.GetConnectionString().Replace("localhost", "127.0.0.1").Replace("Host=", "Server=") + ";Pooling=false";
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -190,6 +192,28 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
 
             services.Remove(logRedaction);
 
+            // Only this fixture's own host runs the workflow runner. Every host a test derives with
+            // WithWebHostBuilder shares this database and lives until the collection ends, and each
+            // one polled the queue with its own services: its own recording transport, or the mock
+            // or failing one a test put there. A run a test queued could be claimed by any of them,
+            // so its email landed in a recorder nobody reads, or failed on a provider the test never
+            // chose. The fixture is always built first, in InitializeAsync, so any later build is a
+            // derived host. A test that needs a particular host to run an attempt builds a
+            // WorkflowRunner on that host's services and calls RunOnceAsync.
+            if (Interlocked.Increment(ref _hostsBuilt) > 1)
+            {
+                var runner = services.SingleOrDefault(d =>
+                    d.ImplementationType == typeof(barakoCMS.Features.Workflows.WorkflowRunner));
+                if (runner is null)
+                {
+                    throw new InvalidOperationException(
+                        "WorkflowRunner is no longer registered the way this fixture expects, so derived "
+                      + "hosts may be claiming runs queued on the fixture.");
+                }
+
+                services.Remove(runner);
+            }
+
             new BarakoCMS.Email.Resend.ResendEmailModule().ConfigureServices(services, ctx.Configuration);
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Email.Resend.ResendEmailModule(), opts));
 
@@ -254,11 +278,10 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
                 .ConfigurePrimaryHttpMessageHandler(() => new UmamiStubHandler());
 
             // The throwing action WorkflowRunTests uses, registered on the shared fixture rather
-            // than only on the host that test builds. Two hosted runners poll the same database,
-            // this one and the derived host's, and either can claim an attempt first. Registered on
-            // only one of them, the test passes or fails on which runner won the race: the fixture's
+            // than only on the host that test builds. The fixture's hosted runner polls the same
+            // database and can claim the attempt first; without the action registered here it
             // records "No handler is registered for action type" instead of the exception the test
-            // is about. Registered on both, the race stops mattering.
+            // is about.
             services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.ThrowingRunnerAction>();
             services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.CredentialEchoAction>();
 

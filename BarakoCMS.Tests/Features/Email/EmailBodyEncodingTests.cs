@@ -156,6 +156,7 @@ public class EmailBodyEncodingTests
         var to = $"runner-{Guid.NewGuid():N}@example.com";
         var store = _factory.Services.GetRequiredService<IDocumentStore>();
         var contentId = Guid.NewGuid();
+        var runId = Guid.NewGuid();
 
         await using (var session = store.LightweightSession())
         {
@@ -169,9 +170,12 @@ public class EmailBodyEncodingTests
 
             var run = new WorkflowRun
             {
-                Id = Guid.NewGuid(),
+                Id = runId,
                 WorkflowDefinitionId = Guid.NewGuid(),
                 WorkflowName = "Encoding through the runner",
+                // The runner looks only at the 20 oldest unfinished runs, so other tests' runs waiting
+                // on a retry can hide a new one for the whole loop (#695). Oldest means it is seen.
+                CreatedAt = DateTimeOffset.UnixEpoch,
                 ContentId = contentId,
                 ContentType = "article",
                 TriggerEvent = "Published",
@@ -212,9 +216,41 @@ public class EmailBodyEncodingTests
             if (sent.Count == 0) await Task.Delay(100, TestContext.Current.CancellationToken);
         }
 
-        sent.Should().ContainSingle("the queued run sends exactly one email");
+        sent.Should().ContainSingle(
+            "the queued run sends exactly one email; {0}", await WhyNotSentAsync(store, runId, to));
         sent[0].Body.Should().Be($"<p>From {EncodedLink}</p>");
         sent[0].Subject.Should().Be("About Hello Bcc: someone@example.com");
+    }
+
+    /// <summary>
+    /// What happened to the run instead, and which host's transport has the message if any does.
+    /// </summary>
+    private async Task<string> WhyNotSentAsync(IDocumentStore store, Guid runId, string to)
+    {
+        await using var query = store.QuerySession();
+        var run = await query.LoadAsync<WorkflowRun>(runId, TestContext.Current.CancellationToken);
+
+        var attempts = run is null
+            ? "the run is gone"
+            : $"run {run.Status}; " + string.Join("; ", run.Actions.Select(a =>
+                $"action {a.Ordinal} {a.Status}, attempts {a.Attempts}, error '{a.Error}', next {a.NextAttemptAt:O}"));
+
+        var hosts = _factory.Factories.Select((host, i) =>
+        {
+            try
+            {
+                var email = host.Services.GetService<barakoCMS.Core.Interfaces.IEmailService>();
+                var here = (email as RecordingEmailService)?.Messages.Count(m => m.To == to) ?? 0;
+                return here > 0 ? $"derived host {i} ({email!.GetType().Name}) recorded it" : null;
+            }
+            catch (ObjectDisposedException)
+            {
+                return null;
+            }
+        }).OfType<string>().ToList();
+
+        return $"{attempts}; {_factory.Factories.Count} derived hosts, "
+            + (hosts.Count == 0 ? "none recorded it" : string.Join(", ", hosts));
     }
 
     [Theory]
