@@ -156,6 +156,10 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
 
             if (!req.DryRun)
             {
+                // A field the exporter could not read arrives holding its mask, not its value.
+                foreach (var masked in rec.MaskedFields ?? [])
+                    rec.Data.Remove(masked);
+
                 var status = Enum.TryParse<ContentStatus>(rec.Status, ignoreCase: true, out var s) ? s : ContentStatus.Published;
                 var contentId = Guid.NewGuid();
 
@@ -172,7 +176,7 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
                         .Select(kv => kv.Value?.ToString())
                         .Where(v => !string.IsNullOrWhiteSpace(v)));
 
-                var evt = new ContentCreated(contentId, rec.ContentType, rec.Data, status, userId, searchText, barakoCMS.Models.SensitivityLevel.Public, DateTime.UtcNow);
+                var evt = new ContentCreated(contentId, rec.ContentType, rec.Data, status, userId, searchText, rec.Sensitivity ?? SensitivityLevel.Public, DateTime.UtcNow);
                 await _contentWriter.CreateAsync(evt, ct);
             }
         }
