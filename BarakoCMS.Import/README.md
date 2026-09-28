@@ -58,7 +58,9 @@ No services or schema to configure — the module only contributes endpoints.
 
    Each record goes through the same write path as `POST /api/contents`: a field the caller may not
    see is dropped, the record is validated, and the type's lifecycle hooks run, each row written
-   before the next is checked inside one transaction, so a hook sees the rows before it. One request creates
+   before the next is checked inside one transaction, so a hook sees the rows before it. The rows
+   it writes are held until the import commits, so run a large one outside busy hours: a post that
+   needs the same row, such as the journal entry number sequence, waits and may need a retry. One request creates
    at most 5,000 records (`Import:MaxRecords`); past that it answers 400 and writes nothing.
 
 ## Why split analyze from create

@@ -44,14 +44,24 @@ public sealed class ContentBatchRunner(
 
         await using var scope = scopes.CreateAsyncScope();
         scope.ServiceProvider.GetRequiredService<TenantContext>().Slug = tenant.Slug;
-        scope.ServiceProvider.GetRequiredService<BatchTransaction>().Transaction = transaction;
+        var batch = scope.ServiceProvider.GetRequiredService<BatchTransaction>();
+        batch.Transaction = transaction;
 
         var outcome = await work(scope.ServiceProvider, ct);
 
         if (outcome.Commit)
+        {
+            // The batch's events, all at once and last, so their sequence numbers are taken
+            // moments before they commit rather than held open for the whole batch.
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            batch.StartDeferredStreams(session);
+            await session.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
+        }
         else
+        {
             await transaction.RollbackAsync(ct);
+        }
 
         return outcome.Result;
     }

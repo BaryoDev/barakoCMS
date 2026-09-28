@@ -65,6 +65,11 @@ the repository.
   the bundle is imported, so an entry referencing content left behind in another tenant is refused.
 - A stored type keeps its lifecycle when the bundle has none. A bundle that changes it, or adds one
   to a type that already has entries, is refused.
+- The entries' events are written together just before the commit, so a long import leaves no
+  gap in the event sequence and workflows run for every imported entry. The rows the import writes
+  are held for the whole transaction: run a large import outside busy hours, since a post that
+  needs the same row (the journal entry number sequence, a content type the bundle changes) waits
+  for it and may need a retry.
 - All or nothing. A refused type or entry answers 400 naming each one as `contentTypes[i]` or
   `contents[i]`, and nothing is written, so the fixed bundle can be imported again without
   duplicating what would have landed. A dry run refuses exactly what the real run would.

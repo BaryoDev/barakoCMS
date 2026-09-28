@@ -243,14 +243,32 @@ public class ImportWritePathTests
     {
         public string ContentType => HookType;
 
-        public Task<IReadOnlyList<string>> OnBeforeSaveAsync(ContentLifecycleContext context, CancellationToken ct)
+        public async Task<IReadOnlyList<string>> OnBeforeSaveAsync(ContentLifecycleContext context, CancellationToken ct)
         {
-            if (context.Data.TryGetValue("Title", out var title) && title?.ToString() == "refuse")
-                return Task.FromResult<IReadOnlyList<string>>(["The probe hook refused this entry."]);
+            var title = context.Data.TryGetValue("Title", out var t) ? t?.ToString() ?? "" : "";
+
+            // Read from a connection of its own, outside the import's transaction: a sequence value
+            // taken inside the batch is visible to everyone at once, which is what the daemon sees.
+            if (title.StartsWith("seq-", StringComparison.Ordinal) && SequenceProbe is { } probe)
+                SequenceSeen[title] = await EventSequenceAsync(probe, ct);
+
+            if (title == "refuse")
+                return ["The probe hook refused this entry."];
 
             context.Data["Stamp"] = "hooked";
-            return Task.FromResult<IReadOnlyList<string>>([]);
+            return [];
         }
+    }
+
+    private static string? SequenceProbe;
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, long> SequenceSeen = new();
+
+    private static async Task<long> EventSequenceAsync(string connectionString, CancellationToken ct)
+    {
+        await using var connection = new Npgsql.NpgsqlConnection(connectionString);
+        await connection.OpenAsync(ct);
+        await using var command = new Npgsql.NpgsqlCommand("select last_value from public.mt_events_sequence", connection);
+        return (long)(await command.ExecuteScalarAsync(ct))!;
     }
 
     private static readonly Lock HostGate = new();
@@ -260,6 +278,7 @@ public class ImportWritePathTests
     {
         lock (HostGate)
         {
+            SequenceProbe = _fixture.ConnectionString;
             return _hookHost ??= _fixture.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
                 services.AddScoped<IContentLifecycleHook, StampHook>()));
         }
@@ -308,6 +327,64 @@ public class ImportWritePathTests
         status.Should().Be(HttpStatusCode.BadRequest, body);
         body.Should().Contain("The probe hook refused this entry.");
         (await StoredEntriesAsync(HookType)).Should().NotContain(c => c.Data["Title"].ToString() == "refuse");
+    }
+
+    /// <summary>
+    /// No event of the batch takes a sequence number until the batch commits.
+    /// </summary>
+    /// <remarks>
+    /// Event numbers are handed out when an event is written, and an event written inside a long
+    /// transaction holds its number uncommitted for as long as the transaction runs. Anything
+    /// committed meanwhile lands above it, the async daemon sees a gap, and once the gap is older
+    /// than its stale threshold it moves past it: the imported entries' events commit below the high
+    /// water mark and their workflows never run. So the entries are written one by one, where hooks
+    /// can see them, and their events all together at the end.
+    /// </remarks>
+    [Fact]
+    public async Task An_import_takes_no_event_numbers_until_it_commits()
+    {
+        var admin = await AdminAsync(HookHost());
+        var marker = Guid.NewGuid().ToString("n");
+        var titles = Enumerable.Range(0, 3).Select(i => $"seq-{marker}-{i}").ToList();
+
+        var before = await EventSequenceAsync(_fixture.ConnectionString, Ct);
+        var (status, body) = await ImportAsync(admin, [HookTypeWithLifecycle()],
+            titles.Select(t => Record(HookType, new() { ["Title"] = t })));
+
+        status.Should().Be(HttpStatusCode.OK, body);
+        titles.Should().OnlyContain(t => SequenceSeen.ContainsKey(t), "the hook ran for every entry");
+        titles.Select(t => SequenceSeen[t]).Should().AllBeEquivalentTo(before,
+            "an entry written earlier in the batch must not have taken an event number yet");
+
+        var entries = (await StoredEntriesAsync(HookType)).Where(c => titles.Contains(c.Data["Title"].ToString()!)).ToList();
+        entries.Should().HaveCount(3);
+        await using var connection = new Npgsql.NpgsqlConnection(_fixture.ConnectionString);
+        await connection.OpenAsync(Ct);
+        await using var count = new Npgsql.NpgsqlCommand(
+            "select count(*) from public.mt_events where stream_id = any(@ids) and type = 'content_created'", connection);
+        count.Parameters.AddWithValue("ids", entries.Select(e => e.Id).ToArray());
+        ((long)(await count.ExecuteScalarAsync(Ct))!).Should().Be(3, "each imported entry still gets its created event");
+    }
+
+    [Fact]
+    public async Task A_dry_run_and_a_refused_import_take_no_event_numbers()
+    {
+        var admin = await AdminAsync(HookHost());
+        var marker = Guid.NewGuid().ToString("n");
+
+        var before = await EventSequenceAsync(_fixture.ConnectionString, Ct);
+
+        var (dryStatus, dryBody) = await ImportAsync(admin, [HookTypeWithLifecycle()],
+            [Record(HookType, new() { ["Title"] = $"dry-{marker}-0" }), Record(HookType, new() { ["Title"] = $"dry-{marker}-1" })],
+            dryRun: true);
+        dryStatus.Should().Be(HttpStatusCode.OK, dryBody);
+
+        var (refusedStatus, refusedBody) = await ImportAsync(admin, [HookTypeWithLifecycle()],
+            [Record(HookType, new() { ["Title"] = $"ref-{marker}" }), Record(HookType, new() { ["Title"] = "refuse" })]);
+        refusedStatus.Should().Be(HttpStatusCode.BadRequest, refusedBody);
+
+        (await EventSequenceAsync(_fixture.ConnectionString, Ct)).Should().Be(before,
+            "a batch that keeps nothing must not leave gaps in the event sequence for the daemon to wait on");
     }
 
     // Content type validation ------------------------------------------------------------------

@@ -993,7 +993,8 @@ public static class ServiceCollectionExtensions
             new barakoCMS.Infrastructure.Services.ContentWriter(
                 sp.GetRequiredService<IDocumentSession>(),
                 sp.GetRequiredService<barakoCMS.Core.Interfaces.IContentSourcingPolicy>(),
-                sp.GetRequiredService<IConfiguration>()));
+                sp.GetRequiredService<IConfiguration>(),
+                sp.GetRequiredService<barakoCMS.Infrastructure.Multitenancy.BatchTransaction>()));
         services.AddScoped<barakoCMS.Infrastructure.Services.IContentRebuilder, barakoCMS.Infrastructure.Services.ContentRebuilder>();
         // Runs any per-content-type domain rules a module registered (IContentLifecycleHook), so a
         // domain with real invariants can still be modelled as ordinary content.

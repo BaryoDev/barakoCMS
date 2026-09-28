@@ -49,7 +49,31 @@ public sealed class TenantSessionFactory : ISessionFactory
 }
 
 /// <summary>The database transaction a content batch runs in, set for that batch's own scope only.</summary>
+/// <remarks>
+/// Also holds the batch's content streams until it commits. An event takes its sequence number when
+/// it is written, and one written early in a long transaction holds that number uncommitted while
+/// other writes commit above it. The async daemon reads that as a gap, gives up on it after its
+/// stale threshold, and never processes the event once it does commit, so workflows would silently
+/// not run for the imported entries. Documents are written entry by entry, where the next entry's
+/// hooks can read them; streams are started together immediately before the commit, and never for a
+/// batch that rolls back.
+/// </remarks>
 public sealed class BatchTransaction
 {
+    private readonly List<(Guid Id, object Event)> _streams = new();
+
     public Npgsql.NpgsqlTransaction? Transaction { get; internal set; }
+
+    /// <summary>True inside a batch, where a new stream waits for <see cref="StartDeferredStreams"/>.</summary>
+    public bool DefersStreams => Transaction is not null;
+
+    public void DeferStream(Guid id, object @event) => _streams.Add((id, @event));
+
+    /// <summary>Starts every deferred stream on <paramref name="session"/>, in the order they were written.</summary>
+    public void StartDeferredStreams(Marten.IDocumentSession session)
+    {
+        foreach (var (id, @event) in _streams)
+            session.Events.StartStream<Models.Content>(id, @event);
+        _streams.Clear();
+    }
 }
