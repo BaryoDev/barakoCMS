@@ -14,10 +14,18 @@ public sealed class TokenIssuer(
     IConfiguration config,
     ILogger<TokenIssuer> logger) : ITokenIssuer
 {
-    public async Task<TokenIssueResult> IssueAccessTokenAsync(
+    public Task<TokenIssueResult> IssueAccessTokenAsync(
         User user,
         string tenantSlug,
         IEnumerable<Claim>? extraClaims = null,
+        CancellationToken ct = default) =>
+        IssueAccessTokenAsync(user, tenantSlug, extraClaims, notAfter: null, ct);
+
+    public async Task<TokenIssueResult> IssueAccessTokenAsync(
+        User user,
+        string tenantSlug,
+        IEnumerable<Claim>? extraClaims,
+        DateTime? notAfter,
         CancellationToken ct = default)
     {
         var slug = (tenantSlug ?? string.Empty).Trim().ToLowerInvariant();
@@ -43,6 +51,8 @@ public sealed class TokenIssuer(
 
         var jti = Guid.NewGuid().ToString();
         var expiresAt = DateTime.UtcNow.AddMinutes(15);
+        if (notAfter is { } cap && cap < expiresAt)
+            expiresAt = cap;
 
         var token = JwtBearer.CreateToken(o =>
         {

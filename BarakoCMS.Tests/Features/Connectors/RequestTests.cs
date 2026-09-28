@@ -133,6 +133,45 @@ public class RequestTests
     }
 
     /// <summary>
+    /// A path template cannot address a different origin from the connector's base URL.
+    /// </summary>
+    /// <remarks>
+    /// The connector's credentials go on whatever URL is composed, so a path that resolves to another
+    /// host would carry them there. An absolute URL and a scheme-relative one both do that.
+    /// </remarks>
+    [Theory]
+    [InlineData("https://elsewhere.example/items")]
+    [InlineData("//elsewhere.example/items")]
+    public async Task A_path_template_cannot_leave_the_connectors_origin(string path)
+    {
+        var client = await AdminClient();
+        var (_, id) = await SeedContentAsync(sensitiveField: false);
+        await SeedConnectorAsync(client);
+        var slug = await SaveRequestAsync(client, body: null, path: path);
+
+        var dry = await DryRunAsync(client, slug, id);
+
+        dry.GetProperty("wouldSend").GetBoolean().Should().BeFalse(
+            "got url: {0}", dry.TryGetProperty("url", out var u) ? u.ToString() : "none");
+        dry.GetProperty("refusal").GetString().Should().Contain("base URL");
+    }
+
+    /// <summary>The control: a relative path on the connector's origin still composes.</summary>
+    [Fact]
+    public async Task A_relative_path_template_composes_on_the_connectors_origin()
+    {
+        var client = await AdminClient();
+        var (_, id) = await SeedContentAsync(sensitiveField: false);
+        await SeedConnectorAsync(client);
+        var slug = await SaveRequestAsync(client, body: null, path: "/v1/items");
+
+        var dry = await DryRunAsync(client, slug, id);
+
+        dry.GetProperty("wouldSend").GetBoolean().Should().BeTrue();
+        dry.GetProperty("url").GetString().Should().Be("https://example.com/v1/items");
+    }
+
+    /// <summary>
     /// A query variable is refused when the request names no query.
     /// </summary>
     /// <remarks>
