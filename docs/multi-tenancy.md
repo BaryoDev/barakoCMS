@@ -106,7 +106,9 @@ deployment with no memberships at all behaves exactly as it did before multi-ten
 ## Endpoints
 
 - `GET /api/me/tenants` lists the caller's tenants (`Features/Me/MyTenantsEndpoint.cs`).
-- `POST /api/me/switch` issues a token for another tenant the caller belongs to.
+- `POST /api/me/switch` issues an access token for another tenant the caller belongs to. It
+  returns no refresh token (`refreshToken` is empty): the one from sign-in keeps working, since a
+  refresh mints for the `X-Tenant` it is sent and re-checks membership.
 - `/api/tenants` creates, lists and updates tenants, gated on `SuperAdmin`.
 - `GET /api/tenants/{handle}/public` is the anonymous lookup a sign-in page needs.
 

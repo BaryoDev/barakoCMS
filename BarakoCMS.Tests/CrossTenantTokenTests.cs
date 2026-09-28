@@ -389,4 +389,121 @@ public class CrossTenantTokenTests
         var body = await intoNew.Content.ReadFromJsonAsync<barakoCMS.Features.Auth.Login.Response>();
         TenantClaimOf(body!.Token!).Should().Be(handle);
     }
+
+    private async Task<barakoCMS.Features.Auth.Login.Response> LoginAsync(string username, string tenant)
+    {
+        var resp = await _client.SendAsync(Post("/api/auth/login", new { Username = username, Password }, tenant));
+        resp.EnsureSuccessStatusCode();
+        return (await resp.Content.ReadFromJsonAsync<barakoCMS.Features.Auth.Login.Response>())!;
+    }
+
+    private async Task<HttpResponseMessage> SwitchAsync(string bearer, string fromTenant, string toTenant)
+    {
+        var req = Post("/api/me/switch", new { Club = toTenant }, fromTenant);
+        req.Headers.Authorization = new("Bearer", bearer);
+        return await _client.SendAsync(req);
+    }
+
+    private async Task<int> RefreshTokenCountAsync(Guid userId)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+        return await session.Query<RefreshToken>().CountAsync(t => t.UserId == userId);
+    }
+
+    /// <summary>
+    /// A switch hands back an access token only. The refresh token the caller already holds covers
+    /// every club it belongs to, so a second one would only be a second week-long session obtained
+    /// with nothing more than a 15 minute bearer.
+    /// </summary>
+    [Fact]
+    public async Task switching_club_returns_an_access_token_and_no_refresh_token()
+    {
+        var (userId, username) = await CreateUserAsync();
+        var home = await CreateTenantAsync();
+        var away = await CreateTenantAsync();
+        await GrantMembershipAsync(userId, home);
+        await GrantMembershipAsync(userId, away);
+
+        var login = await LoginAsync(username, home);
+        (await RefreshTokenCountAsync(userId)).Should().Be(1, "sign-in stores exactly one refresh token");
+
+        var resp = await SwitchAsync(login.Token, home, away);
+
+        resp.EnsureSuccessStatusCode();
+        var body = await resp.Content.ReadFromJsonAsync<barakoCMS.Features.Me.SwitchTenantResponse>();
+        TenantClaimOf(body!.Token).Should().Be(away);
+        body.RefreshToken.Should().BeEmpty("the existing refresh token already covers the new club");
+        (await RefreshTokenCountAsync(userId)).Should().Be(1, "a switch must not store a new refresh token");
+    }
+
+    [Fact]
+    public async Task after_a_switch_the_existing_refresh_token_refreshes_into_the_new_club()
+    {
+        var (userId, username) = await CreateUserAsync();
+        var home = await CreateTenantAsync();
+        var away = await CreateTenantAsync();
+        await GrantMembershipAsync(userId, home);
+        await GrantMembershipAsync(userId, away);
+
+        var login = await LoginAsync(username, home);
+        (await SwitchAsync(login.Token, home, away)).EnsureSuccessStatusCode();
+
+        var refreshResp = await _client.SendAsync(
+            Post("/api/auth/refresh", new { RefreshToken = login.RefreshToken }, away));
+
+        refreshResp.EnsureSuccessStatusCode();
+        var refreshed = await refreshResp.Content.ReadFromJsonAsync<barakoCMS.Features.Auth.Refresh.Response>();
+        TenantClaimOf(refreshed!.Token).Should().Be(away);
+    }
+
+    /// <summary>
+    /// The browser path: the console holds no refresh token at all, only the cookie sign-in set,
+    /// and sends X-Tenant for the club it switched to.
+    /// </summary>
+    [Fact]
+    public async Task after_a_switch_the_sign_in_cookie_refreshes_into_the_new_club()
+    {
+        var (userId, username) = await CreateUserAsync();
+        var home = await CreateTenantAsync();
+        var away = await CreateTenantAsync();
+        await GrantMembershipAsync(userId, home);
+        await GrantMembershipAsync(userId, away);
+
+        using var client = _factory.CreateClient(
+            new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions { HandleCookies = false });
+        var loginResp = await client.SendAsync(Post("/api/auth/login", new { Username = username, Password }, home));
+        loginResp.EnsureSuccessStatusCode();
+        var login = (await loginResp.Content.ReadFromJsonAsync<barakoCMS.Features.Auth.Login.Response>())!;
+        loginResp.Headers.TryGetValues("Set-Cookie", out var setCookies).Should().BeTrue();
+        var cookie = setCookies!.First(v => v.StartsWith("barako_refresh=", StringComparison.Ordinal)).Split(';')[0];
+
+        var switchReq = Post("/api/me/switch", new { Club = away }, home);
+        switchReq.Headers.Authorization = new("Bearer", login.Token);
+        (await client.SendAsync(switchReq)).EnsureSuccessStatusCode();
+
+        var refreshReq = Post("/api/auth/refresh", new { }, away);
+        refreshReq.Headers.Add("Cookie", cookie);
+        var refreshResp = await client.SendAsync(refreshReq);
+
+        refreshResp.EnsureSuccessStatusCode();
+        var refreshed = await refreshResp.Content.ReadFromJsonAsync<barakoCMS.Features.Auth.Refresh.Response>();
+        TenantClaimOf(refreshed!.Token).Should().Be(away);
+    }
+
+    [Fact]
+    public async Task switching_to_a_club_the_user_is_not_a_member_of_is_refused()
+    {
+        var (userId, username) = await CreateUserAsync();
+        var home = await CreateTenantAsync();
+        var someoneElses = await CreateTenantAsync();
+        await GrantMembershipAsync(userId, home);
+
+        var login = await LoginAsync(username, home);
+
+        var resp = await SwitchAsync(login.Token, home, someoneElses);
+
+        ShouldBeRejectedOnMerits(resp, "a switch only ever reaches a club the caller belongs to");
+        (await RefreshTokenCountAsync(userId)).Should().Be(1);
+    }
 }

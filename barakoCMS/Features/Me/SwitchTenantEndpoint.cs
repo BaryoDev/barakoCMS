@@ -2,11 +2,9 @@ using FastEndpoints;
 using FastEndpoints.Security;
 using Marten;
 using barakoCMS.Models;
-using barakoCMS.Infrastructure;
 using barakoCMS.Infrastructure.Multitenancy;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using System.Security.Cryptography;
 
 namespace barakoCMS.Features.Me;
 
@@ -20,7 +18,10 @@ internal class SwitchTenantResponse
 {
     public string Token { get; set; } = string.Empty;
     public DateTime Expiry { get; set; }
+    /// <summary>Always empty. Kept so the response keeps its shape.</summary>
     public string RefreshToken { get; set; } = string.Empty;
+
+    /// <summary>Always the default value. Kept so the response keeps its shape.</summary>
     public DateTime RefreshTokenExpiry { get; set; }
 }
 
@@ -30,6 +31,12 @@ internal class SwitchTenantResponse
 /// ever mint a token for a club the caller is already entitled to) and bakes that club's roles into
 /// the new token. Device binding (the <c>did</c> claim) is carried over so device-trust still holds.
 /// </summary>
+/// <remarks>
+/// It returns an access token only. The refresh token the caller already holds is not tied to a
+/// club: a refresh mints for the <c>X-Tenant</c> it is sent and re-checks membership, so it already
+/// covers the club switched to. Issuing another here would turn a 15 minute bearer into a second
+/// week-long session.
+/// </remarks>
 internal class SwitchTenantEndpoint : Endpoint<SwitchTenantRequest, SwitchTenantResponse>
 {
     private readonly IDocumentSession _session;
@@ -66,7 +73,6 @@ internal class SwitchTenantEndpoint : Endpoint<SwitchTenantRequest, SwitchTenant
 
         // Carry the device binding forward so DeviceTrust enforcement keeps working after a switch.
         var did = User.FindFirst("did")?.Value;
-        var device = DeviceContext.From(HttpContext);
         var extraClaims = new List<Claim>();
         if (!string.IsNullOrEmpty(did))
             extraClaims.Add(new("did", did));
@@ -80,29 +86,10 @@ internal class SwitchTenantEndpoint : Endpoint<SwitchTenantRequest, SwitchTenant
             return;
         }
 
-        var accessTokenExpiry = issued.ExpiresAt;
-        var jwtToken = issued.Token;
-
-        var refreshTokenString = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
-        var refreshTokenExpiry = DateTime.UtcNow.AddDays(7);
-        _session.Store(new RefreshToken
-        {
-            Id = Guid.NewGuid(),
-            Token = refreshTokenString,
-            UserId = user.Id,
-            ExpiresAt = refreshTokenExpiry,
-            CreatedAt = DateTime.UtcNow,
-            IsRevoked = false,
-            DeviceId = device.DeviceId,
-        });
-        await _session.SaveChangesAsync(ct);
-
         await Send.ResponseAsync(new SwitchTenantResponse
         {
-            Token = jwtToken,
-            Expiry = accessTokenExpiry,
-            RefreshToken = refreshTokenString,
-            RefreshTokenExpiry = refreshTokenExpiry,
+            Token = issued.Token,
+            Expiry = issued.ExpiresAt,
         });
     }
 }
