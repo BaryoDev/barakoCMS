@@ -172,6 +172,9 @@ public class EmailBodyEncodingTests
                 Id = Guid.NewGuid(),
                 WorkflowDefinitionId = Guid.NewGuid(),
                 WorkflowName = "Encoding through the runner",
+                // The runner looks only at the 20 oldest unfinished runs, so other tests' runs waiting
+                // on a retry can hide a new one for the whole loop (#695). Oldest means it is seen.
+                CreatedAt = DateTimeOffset.UnixEpoch,
                 ContentId = contentId,
                 ContentType = "article",
                 TriggerEvent = "Published",
