@@ -75,11 +75,7 @@ internal class Endpoint : Endpoint<Request, Response>
                 try
                 {
                     // Resolve template variables in parameters
-                    var resolvedParams = new Dictionary<string, string>();
-                    foreach (var param in action.Parameters)
-                    {
-                        resolvedParams[param.Key] = _variableExtractor.ResolveVariables(param.Value, req.SampleContent);
-                    }
+                    var resolvedParams = ActionParameters.Resolve(_variableExtractor, action.Type, action.Parameters, req.SampleContent);
 
                     // In dry-run mode, we just log what would happen without executing
                     _logger.LogInformation(

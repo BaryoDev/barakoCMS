@@ -131,10 +131,10 @@ internal sealed class LockoutNoticeSender(
 
     private async Task SendAsync(Guid userId, string email, CancellationToken stoppingToken)
     {
-        var appName = System.Net.WebUtility.HtmlEncode(config["Branding:AppName"] ?? "BarakoCMS");
+        var appName = config["Branding:AppName"] ?? "BarakoCMS";
         var minutes = (int)AccountLockout.LockoutDuration.TotalMinutes;
         var body =
-            $"<p>Your {appName} account was locked for {minutes} minutes after too many failed sign-in attempts.</p>"
+            $"<p>Your {System.Net.WebUtility.HtmlEncode(appName)} account was locked for {minutes} minutes after too many failed sign-in attempts.</p>"
           + "<p>While it is locked, sign-in answers as if the password were wrong, even when it is right. "
           + "Wait for the lock to pass. If your account does not use an authenticator app, you can also sign in "
           + "with an emailed code.</p>"
