@@ -30,7 +30,7 @@ the repository.
 | Method | Route | Who | Purpose |
 | --- | --- | --- | --- |
 | POST | `/api/pwa/report` | anyone (captures the signed-in user if present) | client reports display-mode / install on launch |
-| GET | `/api/pwa/installs` | Admin / SuperAdmin | list of devices, who, platform, installed, first/last seen; the current tenant's devices, or every tenant's for a SuperAdmin |
+| GET | `/api/pwa/installs` | Admin / SuperAdmin | list of devices, who, platform, installed, first/last seen; the current tenant's devices, or every tenant's for a caller holding the role globally |
 
 The client posts `{ deviceId, displayMode, platform, installed }`. Deduped per `deviceId` (repeat
 launches bump `lastSeenAt` / `launchCount`). Records are stored globally; the reporting tenant is kept

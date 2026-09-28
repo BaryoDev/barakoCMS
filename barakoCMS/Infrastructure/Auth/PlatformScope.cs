@@ -13,25 +13,22 @@ namespace barakoCMS.Infrastructure.Auth;
 /// include their membership roles there. That is right for a tenant's own data and wrong for a
 /// global table: whoever creates a tenant holds Admin there through a membership, and Admin holds
 /// the capability for settings, flags, client errors and the rest. So an endpoint over a global
-/// table asks one of the two questions here as well:
+/// table also asks <see cref="HoldsGloballyAsync"/>: does the capability come from one of the
+/// caller's global roles (<see cref="User.RoleIds"/>), which only a platform administrator grants?
 /// <list type="bullet">
-/// <item><see cref="IsSuperAdminAsync"/> for data that belongs to one tenant but is stored globally
-/// with the tenant kept as data. A SuperAdmin sees every tenant's rows; anyone else sees their
-/// current tenant's. This is the rule <c>GET /api/audit</c> already follows.</item>
-/// <item><see cref="HoldsGloballyAsync"/> for data that configures the whole deployment. The
-/// capability has to come from one of the caller's global roles (<see cref="User.RoleIds"/>), which
-/// only a platform administrator grants, not from a tenant membership. A single-tenant deployment's
-/// Admin holds the role globally, so it keeps these screens.</item>
+/// <item>For data that configures the whole deployment (settings, flags, the analytics account), a
+/// caller who does not hold it globally is refused.</item>
+/// <item>For data that belongs to one tenant but is stored globally with the tenant kept as data
+/// (client errors, email events, PWA installs), a caller who holds it globally sees every tenant's
+/// rows, and anyone else sees the current tenant's.</item>
 /// </list>
-/// Both read the stored user rather than the token's role claims, which carry membership roles and
-/// are fifteen minutes stale.
+/// A global role, not SuperAdmin alone, because a single-tenant deployment's Admin holds the role
+/// globally and may resolve to any tenant slug, including a subdomain nobody registered. It reads
+/// the stored user rather than the token's role claims, which carry membership roles and are
+/// fifteen minutes stale.
 /// </remarks>
 public static class PlatformScope
 {
-    public static async Task<bool> IsSuperAdminAsync(
-        IQuerySession session, ClaimsPrincipal principal, CancellationToken ct) =>
-        (await CallerAsync(session, principal, ct))?.RoleIds.Contains(SystemRoles.SuperAdminRoleId) == true;
-
     /// <summary>
     /// Whether one of the caller's global roles grants <paramref name="capability"/>, or, with
     /// <see cref="CapabilityGateProcessor.LegacyRoleFallbackKey"/> on, carries one of the legacy role
@@ -59,7 +56,7 @@ public static class PlatformScope
 
     /// <summary>The message a caller refused by <see cref="HoldsGloballyAsync"/> is given.</summary>
     public const string DeploymentWideMessage =
-        "This setting applies to every tenant on the deployment, so only a platform administrator can use it.";
+        "This applies to every tenant on the deployment, so only a platform administrator can use it.";
 
     private static async Task<User?> CallerAsync(IQuerySession session, ClaimsPrincipal principal, CancellationToken ct) =>
         Guid.TryParse(principal.FindFirst("UserId")?.Value, out var id)

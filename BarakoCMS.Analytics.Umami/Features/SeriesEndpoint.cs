@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Configuration;
+using Marten;
 using barakoCMS.Infrastructure.Auth;
 using FastEndpoints;
 
@@ -17,7 +19,10 @@ public sealed class SeriesResponse
 }
 
 /// <summary>GET /api/analytics/{websiteId}/series?range=7d — pageviews/sessions over time, for the trend chart.</summary>
-public sealed class SeriesEndpoint(IUmamiClient umami) : Endpoint<AnalyticsWindowRequest, SeriesResponse>
+public sealed class SeriesEndpoint(
+    IUmamiClient umami,
+    IQuerySession session,
+    IConfiguration configuration) : Endpoint<AnalyticsWindowRequest, SeriesResponse>
 {
     public override void Configure()
     {
@@ -28,6 +33,11 @@ public sealed class SeriesEndpoint(IUmamiClient umami) : Endpoint<AnalyticsWindo
 
     public override async Task HandleAsync(AnalyticsWindowRequest req, CancellationToken ct)
     {
+        if (!await AnalyticsAccess.AllowedAsync(session, User, configuration, AnalyticsCapabilities.ViewAnalytics, ct))
+        {
+            ThrowError(PlatformScope.DeploymentWideMessage, 403);
+        }
+
         var (startAt, endAt, unit) = AnalyticsRange.Resolve(req.Range);
         var s = await umami.GetSeriesAsync(req.WebsiteId, startAt, endAt, unit, ct);
         await Send.OkAsync(new SeriesResponse

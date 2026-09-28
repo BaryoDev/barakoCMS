@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Configuration;
+using Marten;
 using barakoCMS.Infrastructure.Auth;
 using FastEndpoints;
 using FluentValidation;
@@ -31,7 +33,10 @@ public sealed class CreateWebsiteResponse
 
 /// <summary>POST /api/analytics/websites — register a new site in Umami and return its tracking
 /// snippet, so an admin can start tracking a site without leaving the CMS.</summary>
-public sealed class CreateWebsiteEndpoint(IUmamiClient umami) : Endpoint<CreateWebsiteRequest, CreateWebsiteResponse>
+public sealed class CreateWebsiteEndpoint(
+    IUmamiClient umami,
+    IQuerySession session,
+    IConfiguration configuration) : Endpoint<CreateWebsiteRequest, CreateWebsiteResponse>
 {
     public override void Configure()
     {
@@ -42,6 +47,11 @@ public sealed class CreateWebsiteEndpoint(IUmamiClient umami) : Endpoint<CreateW
 
     public override async Task HandleAsync(CreateWebsiteRequest req, CancellationToken ct)
     {
+        if (!await AnalyticsAccess.AllowedAsync(session, User, configuration, AnalyticsCapabilities.ManageAnalyticsWebsites, ct))
+        {
+            ThrowError(PlatformScope.DeploymentWideMessage, 403);
+        }
+
         if (!umami.IsConfigured)
         {
             AddError("Umami is not configured on the server.");

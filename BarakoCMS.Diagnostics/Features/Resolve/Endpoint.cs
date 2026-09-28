@@ -32,7 +32,8 @@ public sealed class ResolveValidator : Validator<ResolveRequest>
 }
 
 /// <summary>POST /api/client-errors/{id}/resolve: mark an error done, or reopen it.</summary>
-public class Endpoint(IDocumentSession session, TenantContext tenant) : Endpoint<ResolveRequest>
+public class Endpoint(IDocumentSession session, TenantContext tenant, IConfiguration configuration)
+    : Endpoint<ResolveRequest>
 {
     public override void Configure()
     {
@@ -47,8 +48,9 @@ public class Endpoint(IDocumentSession session, TenantContext tenant) : Endpoint
         if (error is null) { await Send.NotFoundAsync(ct); return; }
 
         // Another tenant's error answers as missing, the same as the list, which never shows it.
-        if ((error.Tenant ?? barakoCMS.Models.Tenant.DefaultSlug) != tenant.Slug
-            && !await PlatformScope.IsSuperAdminAsync(session, User, ct))
+        if (error.Tenant != tenant.Slug
+            && !await PlatformScope.HoldsGloballyAsync(session, User, configuration,
+                DiagnosticsCapabilities.ManageClientErrors, DiagnosticsCapabilities.LegacyRoles, ct))
         {
             await Send.NotFoundAsync(ct);
             return;

@@ -67,7 +67,7 @@ public class ClientErrorDto
 }
 
 /// <summary>GET /api/client-errors — browse captured errors, newest activity first.</summary>
-public class Endpoint(IQuerySession session, TenantContext tenant) : Endpoint<ListRequest, PaginatedResponse<ClientErrorDto>>
+public class Endpoint(IQuerySession session, TenantContext tenant, IConfiguration configuration) : Endpoint<ListRequest, PaginatedResponse<ClientErrorDto>>
 {
     public override void Configure()
     {
@@ -81,15 +81,13 @@ public class Endpoint(IQuerySession session, TenantContext tenant) : Endpoint<Li
         var query = session.Query<ClientError>().AsQueryable();
 
         // ClientError is one global table with the tenant kept as data, so the session filters
-        // nothing. A SuperAdmin sees every tenant's errors; anyone else sees the current tenant's.
-        // A row with no tenant was reported before the report named one, and belongs to the
-        // default tenant, which is where a single-tenant deployment's Admin has always read it.
-        if (!await PlatformScope.IsSuperAdminAsync(session, User, ct))
+        // nothing. Holding the capability through a global role sees every tenant's errors, and
+        // anyone else sees the current tenant's.
+        if (!await PlatformScope.HoldsGloballyAsync(session, User, configuration,
+                DiagnosticsCapabilities.ManageClientErrors, DiagnosticsCapabilities.LegacyRoles, ct))
         {
             var slug = tenant.Slug;
-            query = tenant.IsDefault
-                ? query.Where(e => e.Tenant == null || e.Tenant == slug)
-                : query.Where(e => e.Tenant == slug);
+            query = query.Where(e => e.Tenant == slug);
         }
 
         if (req.Resolved is bool resolved)

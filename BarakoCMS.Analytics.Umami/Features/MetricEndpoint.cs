@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Configuration;
+using Marten;
 using barakoCMS.Infrastructure.Auth;
 using FastEndpoints;
 
@@ -20,7 +22,10 @@ public sealed class MetricRow
 
 /// <summary>GET /api/analytics/{websiteId}/metric?type=url&amp;range=7d — a top-N breakdown
 /// (pages, referrers, countries, …) for the window.</summary>
-public sealed class MetricEndpoint(IUmamiClient umami) : Endpoint<MetricRequest, List<MetricRow>>
+public sealed class MetricEndpoint(
+    IUmamiClient umami,
+    IQuerySession session,
+    IConfiguration configuration) : Endpoint<MetricRequest, List<MetricRow>>
 {
     // Umami v3 metric types. Pages are "path" (v2 called it "url").
     private static readonly HashSet<string> Allowed =
@@ -35,6 +40,11 @@ public sealed class MetricEndpoint(IUmamiClient umami) : Endpoint<MetricRequest,
 
     public override async Task HandleAsync(MetricRequest req, CancellationToken ct)
     {
+        if (!await AnalyticsAccess.AllowedAsync(session, User, configuration, AnalyticsCapabilities.ViewAnalytics, ct))
+        {
+            ThrowError(PlatformScope.DeploymentWideMessage, 403);
+        }
+
         var type = Allowed.Contains(req.Type) ? req.Type.ToLowerInvariant() : "path";
         var limit = Math.Clamp(req.Limit, 1, 50);
         var (startAt, endAt, _) = AnalyticsRange.Resolve(req.Range);

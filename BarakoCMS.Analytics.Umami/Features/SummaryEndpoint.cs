@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Configuration;
+using Marten;
 using barakoCMS.Infrastructure.Auth;
 using FastEndpoints;
 
@@ -26,7 +28,10 @@ public sealed class SummaryResponse
 }
 
 /// <summary>GET /api/analytics/{websiteId}/summary?range=7d — headline counters for the window.</summary>
-public sealed class SummaryEndpoint(IUmamiClient umami) : Endpoint<AnalyticsWindowRequest, SummaryResponse>
+public sealed class SummaryEndpoint(
+    IUmamiClient umami,
+    IQuerySession session,
+    IConfiguration configuration) : Endpoint<AnalyticsWindowRequest, SummaryResponse>
 {
     public override void Configure()
     {
@@ -37,6 +42,11 @@ public sealed class SummaryEndpoint(IUmamiClient umami) : Endpoint<AnalyticsWind
 
     public override async Task HandleAsync(AnalyticsWindowRequest req, CancellationToken ct)
     {
+        if (!await AnalyticsAccess.AllowedAsync(session, User, configuration, AnalyticsCapabilities.ViewAnalytics, ct))
+        {
+            ThrowError(PlatformScope.DeploymentWideMessage, 403);
+        }
+
         var (startAt, endAt, _) = AnalyticsRange.Resolve(req.Range);
         var s = await umami.GetSummaryAsync(req.WebsiteId, startAt, endAt, ct);
         await Send.OkAsync(new SummaryResponse

@@ -31,7 +31,8 @@ public static class ClientErrorRecorder
         var source = ClientErrorText.Trim(item.Source, MaxField);
         var fingerprint = ClientErrorText.Fingerprint(kind, message, source, item.Status);
 
-        var tenant = ClientErrorText.Trim(item.Tenant, 100);
+        // Lowercased, because every list compares it with the resolved tenant slug, which is.
+        var tenant = ClientErrorText.Trim(item.Tenant, 100)?.ToLowerInvariant();
 
         // Per tenant as well as per fault. Folding one tenant's recurrence into another's row would
         // put that user on a row the other tenant's administrator reads.
@@ -65,7 +66,7 @@ public static class ClientErrorRecorder
             Url = ClientErrorText.Trim(item.Url, MaxField),
             UserAgent = ClientErrorText.Trim(userAgent, MaxField),
             AppVersion = ClientErrorText.Trim(item.AppVersion, 100),
-            Tenant = ClientErrorText.Trim(item.Tenant, 100),
+            Tenant = tenant,
             UserId = userId,
             Username = username,
         });

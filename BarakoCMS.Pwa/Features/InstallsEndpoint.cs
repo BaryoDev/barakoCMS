@@ -3,6 +3,7 @@ using barakoCMS.Infrastructure.Multitenancy;
 using FastEndpoints;
 using barakoCMS.Models;
 using Marten;
+using Microsoft.Extensions.Configuration;
 
 namespace BarakoCMS.Pwa.Features;
 
@@ -25,7 +26,8 @@ public sealed class InstallDto
 /// (when signed in) and whether they're running it installed. Admin only.</summary>
 public sealed class InstallsEndpoint(
     IQuerySession session,
-    TenantContext tenant) : Endpoint<barakoCMS.Models.ListRequest, barakoCMS.Models.PaginatedResponse<InstallDto>>
+    TenantContext tenant,
+    IConfiguration configuration) : Endpoint<barakoCMS.Models.ListRequest, barakoCMS.Models.PaginatedResponse<InstallDto>>
 {
     public override void Configure()
     {
@@ -40,15 +42,13 @@ public sealed class InstallsEndpoint(
         // the 1001st row is the kind of quiet wrong answer paging exists to replace.
         var query = session.Query<PwaInstall>().AsQueryable();
 
-        // One global table with the reporting tenant kept as data. A SuperAdmin sees every device;
-        // anyone else sees the devices that reported from the current tenant. A report without an
-        // X-Tenant header came from the default tenant, so its rows are listed there.
-        if (!await PlatformScope.IsSuperAdminAsync(session, User, ct))
+        // One global table with the reporting tenant kept as data. Holding the capability through a
+        // global role sees every device, and anyone else sees the current tenant's.
+        if (!await PlatformScope.HoldsGloballyAsync(session, User, configuration,
+                PwaCapabilities.ViewPwaInstalls, PwaCapabilities.LegacyRoles, ct))
         {
             var slug = tenant.Slug;
-            query = tenant.IsDefault
-                ? query.Where(p => p.Tenant == null || p.Tenant == slug)
-                : query.Where(p => p.Tenant == slug);
+            query = query.Where(p => p.Tenant == slug);
         }
 
         var page = await query

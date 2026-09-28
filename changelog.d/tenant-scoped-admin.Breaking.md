@@ -1,13 +1,16 @@
 - **A tenant's administrator sees that tenant's data on the admin screens backed by a global
   table.** Client errors, email events and PWA installs are stored once for the deployment, and
   `GET /api/client-errors`, `GET /api/email-events` and `GET /api/pwa/installs` listed every
-  tenant's rows to any Admin. They now list the current tenant's rows, and a SuperAdmin still sees
-  every tenant's. An email event counts for a tenant when its recipient is an active member there.
-  `POST /api/client-errors/{id}/resolve` answers 404 for another tenant's error. The same fault
-  reported from two tenants is now two rows, and a report that names no tenant is kept on the
-  tenant the request resolved to. `/api/settings`, `GET /api/settings/email` and everything under
-  `/api/feature-flags/admin` configure every tenant at once, so they now answer 403 unless
-  `manage_settings` or `manage_feature_flags` comes from one of the caller's global roles. An Admin
-  whose role is global, as on a single-tenant deployment, keeps all of them; an Admin through a
-  tenant membership does not. These requests used to succeed, so this shares the move of
-  `X-Api-Contract-Version` to 5 with the global-roles change.
+  tenant's rows to any Admin. A caller holding the capability through a tenant membership now sees
+  the current tenant's rows; one holding it through a global role, as on a single-tenant
+  deployment, still sees every tenant's. `POST /api/client-errors/{id}/resolve` answers 404 for
+  another tenant's error. An email event now carries the tenant that sent the email, recorded
+  against Resend's id when it is sent and kept 30 days (a new `sent_emails` table); an event with
+  no recorded sender is visible through a global role only. The same fault reported from two
+  tenants is now two rows, a report that names no tenant takes the tenant the request resolved to,
+  and reported tenants are stored lowercased. `/api/settings`, `GET /api/settings/email`,
+  everything under `/api/feature-flags/admin` and all six `/api/analytics` routes are shared by
+  every tenant, so they now answer 403 to a caller holding `manage_settings`,
+  `manage_feature_flags`, `view_analytics` or `manage_analytics_websites` through a membership
+  only. These requests used to succeed, so this shares the move of `X-Api-Contract-Version` to 5
+  with the global-roles change.

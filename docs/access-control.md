@@ -569,16 +569,21 @@ provisioning a website in somebody else's system using this deployment's credent
 splits export from import because the risks are opposite: export reads a whole tenant out in one
 request, import writes a whole tenant in.
 
-Four of these, and `/api/settings` in core, read tables stored once for the whole deployment, so
-the tenant filter every other route gets from the session does not apply and the endpoint applies
-its own. Client errors, email events and PWA installs each belong to one tenant: a SuperAdmin sees
-every tenant's rows, and anyone else sees the current tenant's. An email event carries only a
-recipient, so it counts for a tenant when that address is an active member there. Settings and
-feature flags configure every tenant at once, so they answer 403 unless the capability comes from
-one of the caller's global roles. An Admin through a tenant membership holds `manage_settings` and
-`manage_feature_flags` and cannot use them; an Admin whose role is global, which is how a
-single-tenant deployment signs in, can. Both rules live in `PlatformScope`
-(`barakoCMS/Infrastructure/Auth`).
+Several of these, and `/api/settings` in core, read tables stored once for the whole deployment,
+so the tenant filter every other route gets from the session does not apply and the endpoint
+applies its own. The question each one asks is whether the caller holds the capability through a
+global role, which only a platform administrator grants, or only through a tenant membership.
+
+- Client errors, email events and PWA installs each belong to one tenant. Through a global role you
+  see every tenant's rows; through a membership you see the current tenant's. An email event
+  belongs to the tenant that sent the email, recorded against Resend's id at send time; an event
+  with no recorded sender is visible through a global role only.
+- Settings, feature flags and the Umami analytics routes configure or read something shared by
+  every tenant, so they answer 403 to a caller holding the capability through a membership only.
+
+A global role rather than SuperAdmin alone, because a single-tenant deployment's Admin holds its
+role globally and can resolve to any tenant slug, a subdomain nobody registered included. The rule
+lives in `PlatformScope` (`barakoCMS/Infrastructure/Auth`).
 
 Files is one grant, not a split, but it is not uniform either. `upload_files` opens list, describe
 and edit for every file in the tenant, and delete and download for a file this account uploaded,
