@@ -65,7 +65,7 @@ public class UploadScanningTests
     public UploadScanningTests(IntegrationTestFixture factory) => _factory = factory;
 
     /// <summary>Not a real PNG. Nothing on this path parses it, and the scanner is scripted.</summary>
-    private static byte[] Bytes() => Encoding.ASCII.GetBytes("PNG-ish bytes " + Guid.NewGuid());
+    private static byte[] Bytes() => FileSamples.Png(Encoding.ASCII.GetBytes("PNG-ish bytes " + Guid.NewGuid()));
 
     private async Task<string> AdminTokenAsync()
     {

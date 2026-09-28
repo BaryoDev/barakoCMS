@@ -59,7 +59,7 @@ public class FilesEndpointTests
     public async Task PublicFile_IsAnonymouslyReadable()
     {
         var token = await AdminTokenAsync();
-        var bytes = new byte[] { 1, 2, 3, 4, 5 };
+        var bytes = FileSamples.Png(1, 2, 3, 4, 5);
         var id = await UploadAsync(token, isPublic: true, bytes);
 
         var res = await _client.GetAsync($"/api/public/files/{id}"); /* no auth */
@@ -72,7 +72,7 @@ public class FilesEndpointTests
     public async Task PrivateFile_Is404OnPublicEndpoint()
     {
         var token = await AdminTokenAsync();
-        var id = await UploadAsync(token, isPublic: false, new byte[] { 9, 9, 9 });
+        var id = await UploadAsync(token, isPublic: false, FileSamples.Png(9, 9, 9));
 
         var res = await _client.GetAsync($"/api/public/files/{id}"); /* no auth */
         res.StatusCode.Should().Be(HttpStatusCode.NotFound, "a private file must not be publicly readable");
@@ -82,7 +82,7 @@ public class FilesEndpointTests
     public async Task PrivateFile_IsReadableWithAuth()
     {
         var token = await AdminTokenAsync();
-        var bytes = new byte[] { 7, 7 };
+        var bytes = FileSamples.Png(7, 7);
         var id = await UploadAsync(token, isPublic: false, bytes);
 
         using var req = new HttpRequestMessage(HttpMethod.Get, $"/api/files/{id}");
@@ -145,7 +145,7 @@ public class FilesEndpointTests
     public async Task PrivateFile_IsNotReadableByAnotherUser()
     {
         var owner = await AdminTokenAsync();
-        var id = await UploadAsync(owner, isPublic: false, new byte[] { 9, 9, 9 });
+        var id = await UploadAsync(owner, isPublic: false, FileSamples.Png(9, 9, 9));
 
         var stranger = await UserTokenAsync();
         using var req = new HttpRequestMessage(HttpMethod.Get, $"/api/files/{id}");
@@ -166,7 +166,7 @@ public class FilesEndpointTests
     public async Task PrivateFile_IsReadableByItsUploader()
     {
         var owner = await AdminTokenAsync();
-        var bytes = new byte[] { 4, 5, 6 };
+        var bytes = FileSamples.Png(4, 5, 6);
         var id = await UploadAsync(owner, isPublic: false, bytes);
 
         using var req = new HttpRequestMessage(HttpMethod.Get, $"/api/files/{id}");
@@ -250,7 +250,7 @@ public class FilesEndpointTests
     public async Task MediaEditor_IsRefusedBothDownloadAndDeleteOfAnotherAccountsFile()
     {
         var owner = await AdminTokenAsync();
-        var id = await UploadAsync(owner, isPublic: false, new byte[] { 3, 1, 4 });
+        var id = await UploadAsync(owner, isPublic: false, FileSamples.Png(3, 1, 4));
         var stranger = await MediaEditorTokenAsync();
 
         using var downloadReq = new HttpRequestMessage(HttpMethod.Get, $"/api/files/{id}");
@@ -280,7 +280,7 @@ public class FilesEndpointTests
     public async Task MediaEditor_CanDownloadAndDeleteItsOwnUpload()
     {
         var editor = await MediaEditorTokenAsync();
-        var bytes = new byte[] { 2, 4, 6 };
+        var bytes = FileSamples.Png(2, 4, 6);
         var id = await UploadAsync(editor, isPublic: false, bytes);
 
         using var downloadReq = new HttpRequestMessage(HttpMethod.Get, $"/api/files/{id}");
