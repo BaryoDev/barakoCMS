@@ -65,6 +65,12 @@ public class Endpoint(IQuerySession session, IFileStorage storage, ImageVariants
 
         var served = resolved.File;
 
+        // The same headers PublicDownload sends. A file stored before uploads were checked against
+        // their bytes carries whatever type its client declared, so the browser must neither sniff
+        // a different one nor run script from a document opened directly on this origin.
+        HttpContext.Response.Headers["X-Content-Type-Options"] = "nosniff";
+        HttpContext.Response.Headers.ContentSecurityPolicy = "default-src 'none'; sandbox";
+
         if (!string.IsNullOrEmpty(served.PublicUrl))
         {
             HttpContext.Response.StatusCode = 302;

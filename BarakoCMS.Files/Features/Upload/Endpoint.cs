@@ -31,13 +31,7 @@ public class Endpoint(
 {
     private const long MaxBytes = 10L * 1024 * 1024;
 
-    // Explicit allow-list of raster image types + PDF. SVG is deliberately excluded: it is XML that can
-    // carry <script>, so a public SVG opened directly would run JS on the API origin. Callers who need
-    // vector art can reference an external URL instead.
-    private static readonly string[] Allowed =
-    {
-        "image/png", "image/jpeg", "image/gif", "image/webp", "image/avif", "application/pdf",
-    };
+    private static IReadOnlyCollection<string> Allowed => UploadTypes.Names;
 
     public override void Configure()
     {
@@ -73,10 +67,23 @@ public class Endpoint(
             await Send.ErrorsAsync(400, ct);
             return;
         }
-        var contentType = file.ContentType ?? "application/octet-stream";
-        if (!Allowed.Any(a => contentType.StartsWith(a, StringComparison.OrdinalIgnoreCase)))
+        var declared = file.ContentType ?? "application/octet-stream";
+        var contentType = UploadTypes.Allowed(declared);
+        if (contentType is null)
         {
-            AddError("Only images and PDF files are allowed.");
+            AddError($"Only these types are allowed: {string.Join(", ", Allowed)}.");
+            await Send.ErrorsAsync(400, ct);
+            return;
+        }
+
+        byte[] head;
+        await using (var forSniffing = file.OpenReadStream())
+        {
+            head = await UploadTypes.ReadHeadAsync(forSniffing, ct);
+        }
+        if (!UploadTypes.Matches(contentType, head))
+        {
+            AddError($"The file's content is not {contentType}.");
             await Send.ErrorsAsync(400, ct);
             return;
         }
