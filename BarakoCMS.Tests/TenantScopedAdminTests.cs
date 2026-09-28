@@ -355,12 +355,8 @@ public class TenantScopedAdminTests
         var emailId = Unique("re");
         var store = _factory.Services.GetRequiredService<IDocumentStore>();
         var sender = new ResendEmailService(
-            new HttpClient(new ResendAccepts(emailId)),
-            new FixedEmailSettings(),
-            new barakoCMS.Infrastructure.Multitenancy.TenantContext { Slug = tenantB },
-            store,
-            null);
-        await sender.SendEmailAsync(shared, "Hello", "<p>Hi</p>");
+            new HttpClient(new ResendAccepts(emailId)), new FixedEmailSettings(), store, null);
+        await sender.SendForTenantAsync(tenantB, shared, "Hello", "<p>Hi</p>");
 
         // Resend reports the bounce; the webhook attributes it through the send record.
         await using (var session = store.LightweightSession())
@@ -377,6 +373,146 @@ public class TenantScopedAdminTests
         var seenByB = await ItemsAsync(await adminOfB.GetAsync("/api/email-events?type=bounced&limit=500"));
         seenByB.Should().NotBeEmpty();
         seenByB.Should().Contain(e => e.GetProperty("emailId").GetString() == emailId);
+    }
+
+    /// <summary>Accepts one send, returns <paramref name="id"/>, and says when it was called.</summary>
+    private sealed class ResendAcceptsOnce(string id) : HttpMessageHandler
+    {
+        public TaskCompletionSource Called { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            Called.TrySetResult();
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent($"{{\"id\":\"{id}\"}}", System.Text.Encoding.UTF8, "application/json"),
+            });
+        }
+    }
+
+    /// <summary>
+    /// Waits out the send's own recording step, then reports whether a send record for the id exists.
+    /// Polls to a deadline because the recording follows the HTTP call.
+    /// </summary>
+    private async Task<SentEmail?> SentEmailAfterSendAsync(string emailId)
+    {
+        var store = _factory.Services.GetRequiredService<IDocumentStore>();
+        var deadline = DateTime.UtcNow.AddSeconds(3);
+        while (true)
+        {
+            await using var session = store.QuerySession();
+            var found = await session.LoadAsync<SentEmail>(emailId);
+            if (found is not null || DateTime.UtcNow > deadline) return found;
+            await Task.Delay(100);
+        }
+    }
+
+    [Fact]
+    public async Task A_lockout_notice_is_not_attributed_to_a_tenant_and_its_bounce_stays_with_global_admins()
+    {
+        var emailId = Unique("re");
+        var resend = new ResendAcceptsOnce(emailId);
+
+        // The lockout sender's own shape: a background service opening a plain scope per notice.
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddScoped<barakoCMS.Infrastructure.Multitenancy.TenantContext>();
+        services.AddSingleton(_factory.Services.GetRequiredService<IDocumentStore>());
+        services.AddSingleton<barakoCMS.Core.Interfaces.IEmailSettingsProvider>(new FixedEmailSettings());
+        services.AddScoped<barakoCMS.Core.Interfaces.IEmailService>(sp =>
+            ActivatorUtilities.CreateInstance<ResendEmailService>(sp, new HttpClient(resend)));
+        await using var provider = services.BuildServiceProvider();
+
+        var notices = new barakoCMS.Infrastructure.Auth.LockoutNoticeSender(
+            provider.GetRequiredService<IServiceScopeFactory>(),
+            _factory.Services.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>(),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<barakoCMS.Infrastructure.Auth.LockoutNoticeSender>.Instance);
+        await notices.StartAsync(CancellationToken.None);
+        try
+        {
+            var recipient = $"{Unique("locked")}@example.com";
+            notices.Enqueue(Guid.NewGuid(), recipient);
+            await resend.Called.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+            (await SentEmailAfterSendAsync(emailId)).Should().BeNull("a lockout notice is sent for a user, not on a tenant's behalf");
+
+            await using (var session = _factory.Services.GetRequiredService<IDocumentStore>().LightweightSession())
+            {
+                session.Store(new EmailEvent
+                {
+                    Email = recipient, Type = "bounced", EmailId = emailId, At = DateTime.UtcNow.AddDays(30),
+                    Tenant = await ResendWebhookEndpoint.SendingTenantAsync(session, emailId, CancellationToken.None),
+                });
+                await session.SaveChangesAsync();
+            }
+
+            var (defaultAdmin, _) = await TenantAdminAsync(Tenant.DefaultSlug);
+            var seen = await ItemsAsync(await defaultAdmin.GetAsync("/api/email-events?type=bounced&limit=500"));
+            seen.Should().NotContain(e => e.GetProperty("emailId").GetString() == emailId);
+        }
+        finally
+        {
+            await notices.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task A_sign_in_code_is_not_attributed_to_the_tenant_the_request_picked()
+    {
+        var tenantB = await TenantAsync();
+        var emailId = Unique("re");
+        var resend = new ResendAcceptsOnce(emailId);
+
+        using var scope = _factory.Services.CreateScope();
+        scope.ServiceProvider.GetRequiredService<barakoCMS.Infrastructure.Multitenancy.TenantContext>().Slug = tenantB;
+        var sender = ActivatorUtilities.CreateInstance<ResendEmailService>(
+            scope.ServiceProvider, new HttpClient(resend), new FixedEmailSettings());
+        var otp = new barakoCMS.Infrastructure.Services.OtpService(
+            scope.ServiceProvider.GetRequiredService<IDocumentSession>(),
+            sender,
+            scope.ServiceProvider.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>(),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<barakoCMS.Infrastructure.Services.OtpService>.Instance);
+
+        (await otp.SendCodeAsync($"{Unique("otp")}@example.com",
+                new barakoCMS.Infrastructure.DeviceContext("test-agent", "203.0.113.9", null, "Test device"),
+                CancellationToken.None))
+            .Should().BeTrue();
+
+        (await SentEmailAfterSendAsync(emailId)).Should().BeNull("a sign-in code is sent for a user, not on a tenant's behalf");
+    }
+
+    private sealed class TenantCapturingEmail : barakoCMS.Core.Interfaces.IEmailService
+    {
+        public List<string?> Tenants { get; } = [];
+
+        public Task SendEmailAsync(string to, string subject, string body, CancellationToken ct = default)
+        {
+            Tenants.Add(null);
+            return Task.CompletedTask;
+        }
+
+        public Task SendForTenantAsync(string tenant, string to, string subject, string body, CancellationToken ct = default)
+        {
+            Tenants.Add(tenant);
+            return Task.CompletedTask;
+        }
+    }
+
+    [Fact]
+    public async Task A_workflow_email_is_sent_on_the_workflows_tenants_behalf()
+    {
+        var email = new TenantCapturingEmail();
+        var action = new barakoCMS.Features.Workflows.Actions.EmailAction(
+            email,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<barakoCMS.Features.Workflows.Actions.EmailAction>.Instance,
+            new barakoCMS.Infrastructure.Multitenancy.TenantContext { Slug = "club-a" });
+
+        await action.RunAsync(
+            new Dictionary<string, string> { ["To"] = "someone@example.com", ["Subject"] = "s", ["Body"] = "b" },
+            new Content { Id = Guid.NewGuid(), ContentType = "article" },
+            CancellationToken.None);
+
+        email.Tenants.Should().Equal("club-a");
     }
 
     // ---- PWA installs: stored globally, each device tagged with the tenant it reported from. ----

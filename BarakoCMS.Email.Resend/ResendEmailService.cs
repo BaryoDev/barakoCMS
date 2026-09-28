@@ -1,7 +1,6 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using barakoCMS.Core.Interfaces;
-using barakoCMS.Infrastructure.Multitenancy;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -30,13 +29,12 @@ public class ResendEmailService : IEmailService
 
     private readonly HttpClient http;
     private readonly IEmailSettingsProvider settings;
-    private readonly TenantContext? tenant;
     private readonly IDocumentStore? store;
     private readonly ILogger<ResendEmailService>? logger;
 
     /// <summary>Sends without recording which tenant sent what, so bounces go to global admins only.</summary>
     public ResendEmailService(HttpClient http, IEmailSettingsProvider settings)
-        : this(http, settings, null, null, null)
+        : this(http, settings, null, null)
     {
     }
 
@@ -44,13 +42,11 @@ public class ResendEmailService : IEmailService
     public ResendEmailService(
         HttpClient http,
         IEmailSettingsProvider settings,
-        TenantContext? tenant,
         IDocumentStore? store,
         ILogger<ResendEmailService>? logger)
     {
         this.http = http;
         this.settings = settings;
-        this.tenant = tenant;
         this.store = store;
         this.logger = logger;
     }
@@ -59,6 +55,17 @@ public class ResendEmailService : IEmailService
     private const string DefaultFrom = "BarakoCMS <onboarding@resend.dev>";
 
     public async Task SendEmailAsync(string to, string subject, string body, CancellationToken cancellationToken = default)
+    {
+        using var response = await SendAsync(to, subject, body, cancellationToken);
+    }
+
+    public async Task SendForTenantAsync(string tenant, string to, string subject, string body, CancellationToken cancellationToken = default)
+    {
+        using var response = await SendAsync(to, subject, body, cancellationToken);
+        await RecordSenderAsync(tenant, response, cancellationToken);
+    }
+
+    private async Task<HttpResponseMessage> SendAsync(string to, string subject, string body, CancellationToken cancellationToken)
     {
         var resolved = await settings.GetAsync(cancellationToken);
 
@@ -79,14 +86,17 @@ public class ResendEmailService : IEmailService
             html = body,
         });
 
-        using var response = await http.SendAsync(request, cancellationToken);
+        var response = await http.SendAsync(request, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
-            var detail = await response.Content.ReadAsStringAsync(cancellationToken);
-            throw new InvalidOperationException($"Resend send failed ({(int)response.StatusCode}): {detail}");
+            using (response)
+            {
+                var detail = await response.Content.ReadAsStringAsync(cancellationToken);
+                throw new InvalidOperationException($"Resend send failed ({(int)response.StatusCode}): {detail}");
+            }
         }
 
-        await RecordSenderAsync(response, cancellationToken);
+        return response;
     }
 
     /// <summary>
@@ -94,9 +104,9 @@ public class ResendEmailService : IEmailService
     /// bounce back on that tenant. The email has already gone, so a failure here is logged rather
     /// than thrown: the cost is that its bounce shows to global admins only.
     /// </summary>
-    private async Task RecordSenderAsync(HttpResponseMessage response, CancellationToken ct)
+    private async Task RecordSenderAsync(string tenant, HttpResponseMessage response, CancellationToken ct)
     {
-        if (tenant is null || store is null) return;
+        if (store is null || string.IsNullOrWhiteSpace(tenant)) return;
 
         try
         {
@@ -109,7 +119,7 @@ public class ResendEmailService : IEmailService
             }
 
             await using var session = store.LightweightSession();
-            session.Store(new SentEmail { Id = id, Tenant = tenant.Slug, At = DateTime.UtcNow });
+            session.Store(new SentEmail { Id = id, Tenant = tenant.Trim().ToLowerInvariant(), At = DateTime.UtcNow });
             var cutoff = DateTime.UtcNow - SentEmailRetention;
             session.DeleteWhere<SentEmail>(s => s.At < cutoff);
             await session.SaveChangesAsync(ct);

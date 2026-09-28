@@ -1,6 +1,7 @@
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Infrastructure.Attributes;
 using barakoCMS.Features.Settings.Email;
+using barakoCMS.Infrastructure.Multitenancy;
 using Microsoft.Extensions.Logging;
 
 namespace barakoCMS.Features.Workflows.Actions;
@@ -18,14 +19,17 @@ internal class EmailAction : IWorkflowAction
 {
     private readonly IEmailService _emailService;
     private readonly ILogger<EmailAction> _logger;
+    private readonly TenantContext? _tenant;
 
     /// <summary>
-    /// Creates a new EmailAction.
+    /// Creates a new EmailAction. Without a <paramref name="tenant"/> the email is sent as belonging
+    /// to no tenant.
     /// </summary>
-    public EmailAction(IEmailService emailService, ILogger<EmailAction> logger)
+    public EmailAction(IEmailService emailService, ILogger<EmailAction> logger, TenantContext? tenant = null)
     {
         _emailService = emailService;
         _logger = logger;
+        _tenant = tenant;
     }
 
     /// <inheritdoc />
@@ -53,7 +57,15 @@ internal class EmailAction : IWorkflowAction
 
         try
         {
-            await _emailService.SendEmailAsync(to, subject, body, ct);
+            // On the tenant's behalf: the run's scope carries the tenant whose workflow this is.
+            if (_tenant is null)
+            {
+                await _emailService.SendEmailAsync(to, subject, body, ct);
+            }
+            else
+            {
+                await _emailService.SendForTenantAsync(_tenant.Slug, to, subject, body, ct);
+            }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {

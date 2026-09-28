@@ -577,7 +577,9 @@ global role, which only a platform administrator grants, or only through a tenan
 - Client errors, email events and PWA installs each belong to one tenant. Through a global role you
   see every tenant's rows; through a membership you see the current tenant's. An email event
   belongs to the tenant that sent the email, recorded against Resend's id at send time; an event
-  with no recorded sender is visible through a global role only.
+  with no recorded sender is visible through a global role only. Only mail sent on a tenant's
+  behalf through `IEmailService.SendForTenantAsync` (a workflow's email) is recorded; a user's own
+  account mail, such as a sign-in code or a lockout notice, belongs to no tenant.
 - Settings, feature flags and the Umami analytics routes configure or read something shared by
   every tenant, so they answer 403 to a caller holding the capability through a membership only.
 
