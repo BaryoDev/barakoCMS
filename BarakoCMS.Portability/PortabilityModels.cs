@@ -9,6 +9,12 @@ public class PortabilityBundle
     public DateTime ExportedAt { get; set; } = DateTime.UtcNow;
     public List<ContentTypeDefinition> ContentTypes { get; set; } = new();
     public List<ContentRecord> Contents { get; set; } = new();
+
+    /// <summary>
+    /// Entries left out because the exporting caller may not read them at all, the same entries the
+    /// content read endpoints hide from that caller. Zero means the bundle holds every entry.
+    /// </summary>
+    public int ContentsWithheld { get; set; }
 }
 
 /// <summary>One content item, stripped of instance-specific ids so it can be recreated anywhere.</summary>
@@ -17,6 +23,12 @@ public class ContentRecord
     public string ContentType { get; set; } = string.Empty;
     public Dictionary<string, object> Data { get; set; } = new();
     public string Status { get; set; } = "Published";
+
+    /// <summary>
+    /// Keys in <see cref="Data"/> whose value was masked for the exporting caller. Import leaves
+    /// them out, so a mask such as <c>***</c> is never stored as if it were the value.
+    /// </summary>
+    public List<string> MaskedFields { get; set; } = new();
 }
 
 public class ImportRequest

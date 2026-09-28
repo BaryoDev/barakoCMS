@@ -156,6 +156,10 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
 
             if (!req.DryRun)
             {
+                // A field the exporter could not read arrives holding its mask, not its value.
+                foreach (var masked in rec.MaskedFields ?? [])
+                    rec.Data.Remove(masked);
+
                 var status = Enum.TryParse<ContentStatus>(rec.Status, ignoreCase: true, out var s) ? s : ContentStatus.Published;
                 var contentId = Guid.NewGuid();
 

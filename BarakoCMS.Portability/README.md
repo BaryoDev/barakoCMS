@@ -50,8 +50,14 @@ the repository.
 
 ## Treat a bundle as sensitive
 
-An export contains whatever the content contains. If any of it is Sensitive, the bundle is too —
-it leaves the system's access control behind the moment it is downloaded.
+An export applies the same sensitivity as the content read endpoints, for the caller who asked for
+it. A field that caller may not read comes out under its mask and is listed in the record's
+`maskedFields`, and an entry they may read nothing of is left out and counted in `contentsWithheld`.
+Import skips every field named in `maskedFields`, so a mask is never stored as a value. A full
+backup therefore needs a caller who may read every field, such as SuperAdmin.
+
+What the caller may read is still in the bundle, and it leaves the system's access control behind
+the moment it is downloaded.
 
 ## Part of barakoCMS
 

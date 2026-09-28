@@ -1,3 +1,4 @@
+using barakoCMS.Core.Interfaces;
 using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Models;
@@ -34,20 +35,44 @@ public class ExportEndpoint(
         var contents = await session.Query<barakoCMS.Models.Content>().ToListAsync(ct);
         if (filter != null) contents = contents.Where(c => filter.Contains(c.ContentType.ToLowerInvariant())).ToList();
 
+        var records = new List<ContentRecord>();
+        var withheld = 0;
+        var sensitivity = Resolve<ISensitivityService>();
+        foreach (var c in contents)
+        {
+            var data = new Dictionary<string, object>(c.Data);
+            var hidden = await sensitivity.ApplyAsync(c.ContentType, c.Sensitivity, data, HttpContext, ct);
+
+            // The read endpoints show an entry the caller may read nothing of as empty or HIDDEN. An
+            // import would turn that into a real, empty entry, so it is left out and counted instead.
+            if (hidden || (data.Count == 0 && c.Data.Count > 0))
+            {
+                withheld++;
+                continue;
+            }
+
+            records.Add(new ContentRecord
+            {
+                ContentType = c.ContentType,
+                Data = data,
+                Status = c.Status.ToString(),
+                MaskedFields = data
+                    .Where(kv => !ReferenceEquals(kv.Value, c.Data[kv.Key]))
+                    .Select(kv => kv.Key)
+                    .ToList(),
+            });
+        }
+
         Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
         await AuditLog.RecordAsync(documentSession, tenant.Slug, "portability.exported", actorId, User.FindFirst("Username")?.Value,
-            metadata: new() { ["contentTypes"] = types.Count, ["contents"] = contents.Count }, ct: ct);
+            metadata: new() { ["contentTypes"] = types.Count, ["contents"] = records.Count, ["contentsWithheld"] = withheld }, ct: ct);
         await documentSession.SaveChangesAsync(ct);
 
         await Send.ResponseAsync(new PortabilityBundle
         {
             ContentTypes = types,
-            Contents = contents.Select(c => new ContentRecord
-            {
-                ContentType = c.ContentType,
-                Data = c.Data,
-                Status = c.Status.ToString(),
-            }).ToList(),
+            Contents = records,
+            ContentsWithheld = withheld,
         }, cancellation: ct);
     }
 }
