@@ -9,16 +9,25 @@ namespace barakoCMS.Features.Users.AssignRole;
 internal class Endpoint(
     IDocumentSession session,
     barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver,
-    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<Request, Response>
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
+    IConfiguration configuration) : Endpoint<Request, Response>
 {
+    private static readonly string[] LegacyRoles = ["SuperAdmin", "Admin"];
+
     public override void Configure()
     {
         Post("/api/users/{userId}/roles");
-        Definition.RequireCapability(SystemCapabilities.ManageUserMembership, "SuperAdmin", "Admin");
+        Definition.RequireCapability(SystemCapabilities.ManageUserMembership, LegacyRoles);
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
+        if (!await PlatformRoles.MayChangeAsync(session, User, configuration, LegacyRoles, ct))
+        {
+            await Send.ForbiddenAsync(ct);
+            return;
+        }
+
         // Both ids are checked before anything is written. This used to fabricate a User on a miss
         // (a synthesized user_{guid}@example.com with no password hash) and answer "Role assigned
         // successfully", so a mistyped id left a ghost identity holding the role while the real
@@ -38,22 +47,14 @@ internal class Endpoint(
             return;
         }
 
-        // Granting SuperAdmin is itself a SuperAdmin act. This endpoint is reachable with only
-        // manage_user_membership (the Admin role holds it, not manage_roles), so without this
-        // check an Admin assigns itself SuperAdmin and steps outside the whole capability model.
-        // The per-tenant sibling refuses SuperAdmin outright (Members.IsAssignable); the platform
-        // surface allows it, but only for a caller who already is SuperAdmin. Nothing below
-        // SuperAdmin can mint a comparably privileged custom role, because manage_roles is
-        // SuperAdmin-only, so guarding this one role id closes the escalation.
-        if (req.RoleId == SystemRoles.SuperAdminRoleId)
+        // Granting SuperAdmin is itself a SuperAdmin act. Admin holds manage_user_membership but not
+        // manage_roles, so without this an Admin assigns itself SuperAdmin and steps outside the
+        // whole capability model. Nothing below SuperAdmin can mint a comparably privileged custom
+        // role, because manage_roles is SuperAdmin-only, so guarding this one role id is enough.
+        if (req.RoleId == SystemRoles.SuperAdminRoleId && !await PlatformRoles.IsSuperAdminAsync(session, User, ct))
         {
-            Guid.TryParse(User.FindFirst("UserId")?.Value, out var callerId);
-            var caller = await session.LoadAsync<User>(callerId, ct);
-            if (caller?.RoleIds.Contains(SystemRoles.SuperAdminRoleId) != true)
-            {
-                await Send.ForbiddenAsync(ct);
-                return;
-            }
+            await Send.ForbiddenAsync(ct);
+            return;
         }
 
         if (!user.RoleIds.Contains(req.RoleId))

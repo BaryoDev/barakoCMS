@@ -476,6 +476,12 @@ was `Roles("SuperAdmin", "Admin")`. `manage_users` is the narrow one. Giving it 
 would have handed every Admin the user list, so Admin's defaults carry
 `manage_user_membership` and `manage_user_groups` and not `manage_users`. See issue #443.
 
+`/api/users/{id}/roles` changes the roles a user holds in every tenant, so the caller's
+`manage_user_membership` has to come from one of their own global roles. An Admin whose role comes
+from a tenant membership gets 403 there and manages roles inside that tenant through
+`/api/tenants/members`. Granting or removing SuperAdmin takes a SuperAdmin, and removing it from
+the last user who holds it answers 409.
+
 API keys and the audit log are two capabilities for the opposite reason: their old gates were
 *identical*, so one name would have covered both and no seeded role would have noticed. They are
 split because a role that reads the audit trail without being able to mint credentials is the
