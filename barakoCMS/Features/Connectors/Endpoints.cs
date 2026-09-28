@@ -233,6 +233,27 @@ internal sealed class UpdateConnectorEndpoint(
             return;
         }
 
+        if (!ConnectorOrigin.Same(connector.BaseUrl, req.BaseUrl))
+        {
+            // An absent secret normally means "keep it", because the form cannot show it. That cannot
+            // hold across a move to another origin: the credential was entered for the old one, and
+            // whoever edits the connector may never have seen it. Each stored secret has to be
+            // entered again or cleared in the same request.
+            var storedKeys = await session.Query<ConnectorSecret>()
+                .Where(s => s.ConnectorId == connector.Id)
+                .Select(s => s.Key)
+                .ToListAsync(ct);
+
+            foreach (var key in storedKeys.Distinct().Where(k => req.Secrets is null || !req.Secrets.ContainsKey(k)))
+            {
+                AddError(new FluentValidation.Results.ValidationFailure($"secrets.{key}",
+                    $"The base URL now points at a different scheme, host or port, so the stored {key} "
+                    + "has to be entered again, or cleared, before the connector can be saved."));
+            }
+
+            ThrowIfAnyErrors();
+        }
+
         connector.Name = req.Name.Trim();
         connector.BaseUrl = req.BaseUrl.Trim();
         connector.Auth = Enum.Parse<ConnectorAuth>(req.Auth, ignoreCase: true);
@@ -437,6 +458,14 @@ internal static class ConnectorRules
             || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
         {
             return "BaseUrl must be an absolute http or https URL.";
+        }
+
+        // The probe carries the connector's credentials, so its path has to stay on the base URL's
+        // host. A leading "//", a backslash, or a scheme would make it a URL of its own.
+        var probe = string.IsNullOrWhiteSpace(req.ProbePath) ? "/" : req.ProbePath.Trim();
+        if (!probe.StartsWith('/') || probe.StartsWith("//") || probe.Contains('\\') || probe.Any(char.IsControl))
+        {
+            return "ProbePath must be a path on the base URL that starts with a single '/', such as /health.";
         }
 
         return null;
