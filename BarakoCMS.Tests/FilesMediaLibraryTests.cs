@@ -577,7 +577,7 @@ public class FilesMediaLibraryTests
     private async Task<Guid> UploadAsync(HttpClient client, bool isPublic, string name, string contentType, byte[]? bytes = null)
     {
         using var form = new MultipartFormDataContent();
-        var file = new ByteArrayContent(bytes ?? [1, 2, 3, 4, 5]);
+        var file = new ByteArrayContent(bytes ?? FileSamples.For(contentType));
         file.Headers.ContentType = new MediaTypeHeaderValue(contentType);
         form.Add(file, "file", name);
         form.Add(new StringContent(isPublic ? "true" : "false"), "isPublic");

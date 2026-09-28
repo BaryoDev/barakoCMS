@@ -65,16 +65,25 @@ public class Endpoint(IQuerySession session, IFileStorage storage, ImageVariants
 
         var served = resolved.File;
 
-        if (!string.IsNullOrEmpty(served.PublicUrl))
+        // The same headers PublicDownload sends. A file stored before uploads were checked against
+        // their bytes carries whatever type its client declared, so the browser must neither sniff
+        // a different one nor run script from a document opened directly on this origin.
+        HttpContext.Response.Headers["X-Content-Type-Options"] = "nosniff";
+        HttpContext.Response.Headers.ContentSecurityPolicy = "default-src 'none'; sandbox";
+
+        // Only a type the upload check would accept goes to the store, which serves it without
+        // these headers. Anything else is an old row, streamed from here as a plain download.
+        var checkedType = UploadTypes.IsExactly(served.ContentType);
+        if (checkedType && !string.IsNullOrEmpty(served.PublicUrl))
         {
-            HttpContext.Response.StatusCode = 302;
-            HttpContext.Response.Headers.Location = served.PublicUrl;
+            await Send.RedirectAsync(served.PublicUrl, isPermanent: false, allowRemoteRedirects: true);
             return;
         }
 
         var bytes = await storage.GetAsync(served.StorageKey, ct);
         if (bytes is null) { await Send.NotFoundAsync(ct); return; }
 
-        await Send.BytesAsync(bytes, served.FileName, served.ContentType, cancellation: ct);
+        await Send.BytesAsync(
+            bytes, served.FileName, checkedType ? served.ContentType : "application/octet-stream", cancellation: ct);
     }
 }
