@@ -1,6 +1,5 @@
 using barakoCMS.Infrastructure.Multitenancy;
 using Marten;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace barakoCMS.Infrastructure.Services;
@@ -22,8 +21,9 @@ public readonly record struct ContentBatchOutcome<T>(T Result, bool Commit);
 ///
 /// The work runs in its own service scope, with the caller's tenant, whose sessions are all enlisted
 /// in the transaction. Resolve what the batch uses from the provider it is handed, not from the
-/// caller's scope, whose sessions are outside the transaction. A single create does not use this,
-/// and behaves exactly as it did.
+/// caller's scope, whose sessions are outside the transaction. Marten still tags each enlisted
+/// session with the tenant, so row level security applies as it does anywhere else. A single create
+/// does not use this, and behaves exactly as it did.
 /// </remarks>
 public interface IContentBatchRunner
 {
@@ -33,8 +33,7 @@ public interface IContentBatchRunner
 public sealed class ContentBatchRunner(
     IServiceScopeFactory scopes,
     IDocumentStore store,
-    TenantContext tenant,
-    IConfiguration configuration) : IContentBatchRunner
+    TenantContext tenant) : IContentBatchRunner
 {
     public async Task<T> RunAsync<T>(
         Func<IServiceProvider, CancellationToken, Task<ContentBatchOutcome<T>>> work, CancellationToken ct)
@@ -42,17 +41,6 @@ public sealed class ContentBatchRunner(
         await using var connection = store.Storage.Database.CreateConnection();
         await connection.OpenAsync(ct);
         await using var transaction = await connection.BeginTransactionAsync(ct);
-
-        // Marten sets the row-level security tenant on connections it opens, and this one it does
-        // not open. Local to the transaction, so the pooled connection carries nothing afterwards.
-        if (configuration.GetValue(DatabaseTenancy.EnabledKey, false))
-        {
-            await using var command = connection.CreateCommand();
-            command.Transaction = transaction;
-            command.CommandText = "select set_config('app.tenant_id', @tenant, true)";
-            command.Parameters.AddWithValue("tenant", tenant.IsDefault ? JasperFx.StorageConstants.DefaultTenantId : tenant.Slug);
-            await command.ExecuteNonQueryAsync(ct);
-        }
 
         await using var scope = scopes.CreateAsyncScope();
         scope.ServiceProvider.GetRequiredService<TenantContext>().Slug = tenant.Slug;
