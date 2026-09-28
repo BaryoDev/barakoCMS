@@ -317,11 +317,7 @@ internal sealed class WorkflowRunner(
                 return new Outcome(AttemptStatus.Failed, credentialError, timer.ElapsedMilliseconds, Retryable: false);
             }
 
-            var resolved = new Dictionary<string, string>(parameters.Count);
-            foreach (var (key, value) in parameters)
-            {
-                resolved[key] = variables.ResolveVariables(value, content);
-            }
+            var resolved = ActionParameters.Resolve(variables, attempt.ActionType, parameters, content);
 
             resolved["IdempotencyKey"] = attempt.IdempotencyKey;
 

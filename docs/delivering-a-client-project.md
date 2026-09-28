@@ -182,7 +182,8 @@ A token minted for one tenant and sent with another tenant's header is refused w
 From barakoBrew, you sign in and then switch. The console derives `X-Tenant` from the token's own
 `tenant` claim, so at the login screen there is no header at all and you land on whichever tenant the
 host resolved to. The tenant switcher then calls `GET /api/me/tenants` and `POST /api/me/switch` to
-swap your token for one scoped to the tenant you picked.
+swap your access token for one scoped to the tenant you picked. The switch returns no refresh token;
+keep the one from sign-in and send it with the new tenant's `X-Tenant` to refresh there.
 
 One wart to know before you write a script against it: the switch request field is spelled `club`,
 not `tenant`.

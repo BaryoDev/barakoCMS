@@ -71,7 +71,7 @@ internal class EnableEndpoint(
 
             var appName = config["Branding:AppName"] ?? "BarakoCMS";
             var body =
-                $"<p>Two-factor authentication was just turned on for your {appName} account.</p>" +
+                $"<p>Two-factor authentication was just turned on for your {System.Net.WebUtility.HtmlEncode(appName)} account.</p>" +
                 "<p>Other devices have been signed out, so you will be asked to sign in again with a code.</p>" +
                 "<p><strong>If this wasn't you</strong>, someone else may have access to your account. " +
                 "Change your password immediately and contact an administrator.</p>";

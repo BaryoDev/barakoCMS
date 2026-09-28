@@ -389,4 +389,226 @@ public class CrossTenantTokenTests
         var body = await intoNew.Content.ReadFromJsonAsync<barakoCMS.Features.Auth.Login.Response>();
         TenantClaimOf(body!.Token!).Should().Be(handle);
     }
+
+    private async Task<barakoCMS.Features.Auth.Login.Response> LoginAsync(string username, string tenant)
+    {
+        var resp = await _client.SendAsync(Post("/api/auth/login", new { Username = username, Password }, tenant));
+        resp.EnsureSuccessStatusCode();
+        return (await resp.Content.ReadFromJsonAsync<barakoCMS.Features.Auth.Login.Response>())!;
+    }
+
+    private async Task<HttpResponseMessage> SwitchAsync(string bearer, string fromTenant, string toTenant)
+    {
+        var req = Post("/api/me/switch", new { Club = toTenant }, fromTenant);
+        req.Headers.Authorization = new("Bearer", bearer);
+        return await _client.SendAsync(req);
+    }
+
+    private async Task<int> RefreshTokenCountAsync(Guid userId)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+        return await session.Query<RefreshToken>().CountAsync(t => t.UserId == userId);
+    }
+
+    /// <summary>
+    /// A switch hands back an access token only. The refresh token the caller already holds covers
+    /// every club it belongs to, so a second one would only be a second week-long session obtained
+    /// with nothing more than a 15 minute bearer.
+    /// </summary>
+    [Fact]
+    public async Task switching_club_returns_an_access_token_and_no_refresh_token()
+    {
+        var (userId, username) = await CreateUserAsync();
+        var home = await CreateTenantAsync();
+        var away = await CreateTenantAsync();
+        await GrantMembershipAsync(userId, home);
+        await GrantMembershipAsync(userId, away);
+
+        var login = await LoginAsync(username, home);
+        (await RefreshTokenCountAsync(userId)).Should().Be(1, "sign-in stores exactly one refresh token");
+
+        var resp = await SwitchAsync(login.Token, home, away);
+
+        resp.EnsureSuccessStatusCode();
+        var body = await resp.Content.ReadFromJsonAsync<barakoCMS.Features.Me.SwitchTenantResponse>();
+        TenantClaimOf(body!.Token).Should().Be(away);
+        body.RefreshToken.Should().BeEmpty("the existing refresh token already covers the new club");
+        (await RefreshTokenCountAsync(userId)).Should().Be(1, "a switch must not store a new refresh token");
+    }
+
+    [Fact]
+    public async Task after_a_switch_the_existing_refresh_token_refreshes_into_the_new_club()
+    {
+        var (userId, username) = await CreateUserAsync();
+        var home = await CreateTenantAsync();
+        var away = await CreateTenantAsync();
+        await GrantMembershipAsync(userId, home);
+        await GrantMembershipAsync(userId, away);
+
+        var login = await LoginAsync(username, home);
+        (await SwitchAsync(login.Token, home, away)).EnsureSuccessStatusCode();
+
+        var refreshResp = await _client.SendAsync(
+            Post("/api/auth/refresh", new { RefreshToken = login.RefreshToken }, away));
+
+        refreshResp.EnsureSuccessStatusCode();
+        var refreshed = await refreshResp.Content.ReadFromJsonAsync<barakoCMS.Features.Auth.Refresh.Response>();
+        TenantClaimOf(refreshed!.Token).Should().Be(away);
+    }
+
+    /// <summary>
+    /// The browser path: the console holds no refresh token at all, only the cookie sign-in set,
+    /// and sends X-Tenant for the club it switched to.
+    /// </summary>
+    [Fact]
+    public async Task after_a_switch_the_sign_in_cookie_refreshes_into_the_new_club()
+    {
+        var (userId, username) = await CreateUserAsync();
+        var home = await CreateTenantAsync();
+        var away = await CreateTenantAsync();
+        await GrantMembershipAsync(userId, home);
+        await GrantMembershipAsync(userId, away);
+
+        using var client = _factory.CreateClient(
+            new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions { HandleCookies = false });
+        var loginResp = await client.SendAsync(Post("/api/auth/login", new { Username = username, Password }, home));
+        loginResp.EnsureSuccessStatusCode();
+        var login = (await loginResp.Content.ReadFromJsonAsync<barakoCMS.Features.Auth.Login.Response>())!;
+        loginResp.Headers.TryGetValues("Set-Cookie", out var setCookies).Should().BeTrue();
+        var cookie = setCookies!.First(v => v.StartsWith("barako_refresh=", StringComparison.Ordinal)).Split(';')[0];
+
+        var switchReq = Post("/api/me/switch", new { Club = away }, home);
+        switchReq.Headers.Authorization = new("Bearer", login.Token);
+        (await client.SendAsync(switchReq)).EnsureSuccessStatusCode();
+
+        var refreshReq = Post("/api/auth/refresh", new { }, away);
+        refreshReq.Headers.Add("Cookie", cookie);
+        var refreshResp = await client.SendAsync(refreshReq);
+
+        refreshResp.EnsureSuccessStatusCode();
+        var refreshed = await refreshResp.Content.ReadFromJsonAsync<barakoCMS.Features.Auth.Refresh.Response>();
+        TenantClaimOf(refreshed!.Token).Should().Be(away);
+    }
+
+    [Fact]
+    public async Task switching_to_a_club_the_user_is_not_a_member_of_is_refused()
+    {
+        var (userId, username) = await CreateUserAsync();
+        var home = await CreateTenantAsync();
+        var someoneElses = await CreateTenantAsync();
+        await GrantMembershipAsync(userId, home);
+
+        var login = await LoginAsync(username, home);
+
+        var resp = await SwitchAsync(login.Token, home, someoneElses);
+
+        ShouldBeRejectedOnMerits(resp, "a switch only ever reaches a club the caller belongs to");
+        (await RefreshTokenCountAsync(userId)).Should().Be(1);
+    }
+
+    /// <summary>
+    /// A token signed like the ones the API mints, with an expiry the test picks. Sign-in always
+    /// gives 15 minutes, so a sooner expiry is what makes a capped and an uncapped switch differ.
+    /// </summary>
+    private static string SignedToken(Guid userId, string username, string tenant, DateTime expires)
+    {
+        var key = new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(
+            System.Text.Encoding.UTF8.GetBytes("test-super-secret-key-that-is-at-least-32-chars-long"));
+        var claims = new List<System.Security.Claims.Claim>
+        {
+            new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            new(JwtRegisteredClaimNames.Iat, DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture)),
+            new("UserId", userId.ToString()),
+            new("Username", username),
+            new("tenant", tenant),
+            new(System.Security.Claims.ClaimTypes.Role, "User"),
+        };
+        var token = new JwtSecurityToken(
+            issuer: "BarakoTest",
+            audience: "BarakoClient",
+            claims: claims,
+            expires: expires,
+            signingCredentials: new Microsoft.IdentityModel.Tokens.SigningCredentials(
+                key, Microsoft.IdentityModel.Tokens.SecurityAlgorithms.HmacSha256));
+        return new JwtSecurityTokenHandler().WriteToken(token);
+    }
+
+    private static DateTime ExpiryOf(string jwt) => new JwtSecurityTokenHandler().ReadJwtToken(jwt).ValidTo;
+
+    /// <summary>
+    /// Switching must not be a way to renew a session. Without a cap every switch, including one to
+    /// the tenant the caller is already in, handed back a fresh 15 minutes, so a bearer could be
+    /// kept alive indefinitely without ever presenting a refresh token.
+    /// </summary>
+    [Fact]
+    public async Task a_switched_token_expires_no_later_than_the_token_presented()
+    {
+        var (userId, username) = await CreateUserAsync();
+        var home = await CreateTenantAsync();
+        var away = await CreateTenantAsync();
+        await GrantMembershipAsync(userId, home);
+        await GrantMembershipAsync(userId, away);
+        var presentedExpiry = DateTime.UtcNow.AddMinutes(5);
+        var presented = SignedToken(userId, username, home, presentedExpiry);
+
+        var resp = await SwitchAsync(presented, home, away);
+
+        resp.EnsureSuccessStatusCode();
+        var body = await resp.Content.ReadFromJsonAsync<barakoCMS.Features.Me.SwitchTenantResponse>();
+        TenantClaimOf(body!.Token).Should().Be(away);
+        ExpiryOf(body.Token).Should().BeCloseTo(ExpiryOf(presented), TimeSpan.FromSeconds(1));
+        body.Expiry.Should().BeCloseTo(ExpiryOf(presented), TimeSpan.FromSeconds(1));
+    }
+
+    [Fact]
+    public async Task chained_switches_cannot_extend_past_the_first_tokens_expiry()
+    {
+        var (userId, username) = await CreateUserAsync();
+        var home = await CreateTenantAsync();
+        var away = await CreateTenantAsync();
+        await GrantMembershipAsync(userId, home);
+        await GrantMembershipAsync(userId, away);
+        var token = SignedToken(userId, username, home, DateTime.UtcNow.AddMinutes(5));
+        var firstExpiry = ExpiryOf(token);
+
+        var tenants = new[] { away, home, home, away };
+        var current = home;
+        foreach (var next in tenants)
+        {
+            var resp = await SwitchAsync(token, current, next);
+            resp.EnsureSuccessStatusCode();
+            token = (await resp.Content.ReadFromJsonAsync<barakoCMS.Features.Me.SwitchTenantResponse>())!.Token;
+            current = next;
+            ExpiryOf(token).Should().BeCloseTo(firstExpiry, TimeSpan.FromSeconds(1),
+                "a switch, to another tenant or to the same one, must not move the expiry");
+        }
+        TenantClaimOf(token).Should().Be(away);
+    }
+
+    /// <summary>A switch exchanges the token, so the one presented stops working.</summary>
+    [Fact]
+    public async Task the_token_presented_to_a_switch_stops_working()
+    {
+        var (userId, username) = await CreateUserAsync();
+        var home = await CreateTenantAsync();
+        var away = await CreateTenantAsync();
+        await GrantMembershipAsync(userId, home);
+        await GrantMembershipAsync(userId, away);
+        var login = await LoginAsync(username, home);
+        HttpRequestMessage MyTenants()
+        {
+            var req = new HttpRequestMessage(HttpMethod.Get, "/api/me/tenants");
+            req.Headers.Add(TestRemoteIpFilter.Header, _clientIp);
+            req.Headers.Add("X-Tenant", home);
+            req.Headers.Authorization = new("Bearer", login.Token);
+            return req;
+        }
+        (await _client.SendAsync(MyTenants())).StatusCode.Should().Be(HttpStatusCode.OK,
+            "the token works before the switch, so a 401 after it is the switch's doing");
+
+        (await SwitchAsync(login.Token, home, away)).EnsureSuccessStatusCode();
+
+        (await _client.SendAsync(MyTenants())).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
 }

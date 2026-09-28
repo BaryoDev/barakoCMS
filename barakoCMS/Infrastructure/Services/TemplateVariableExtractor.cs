@@ -54,6 +54,32 @@ public interface ITemplateVariableExtractor
     /// is performed using StringBuilder for optimal performance.
     /// </remarks>
     string ResolveVariables(string template, Content content);
+
+    /// <summary>
+    /// Resolves the template like <see cref="ResolveVariables(string, Content)"/>, encoding each
+    /// substituted value for where the result is going. The template's own text is never changed.
+    /// </summary>
+    /// <remarks>
+    /// The default only covers <see cref="TemplateValueEncoding.None"/>. An implementation that
+    /// cannot encode refuses rather than returning values unescaped into an HTML body.
+    /// </remarks>
+    string ResolveVariables(string template, Content content, TemplateValueEncoding encoding) =>
+        encoding == TemplateValueEncoding.None
+            ? ResolveVariables(template, content)
+            : throw new NotSupportedException($"{GetType().Name} does not support {encoding} encoding.");
+}
+
+/// <summary>How a substituted value is written into the text a template produces.</summary>
+public enum TemplateValueEncoding
+{
+    /// <summary>As stored.</summary>
+    None,
+
+    /// <summary>HTML-encoded, for a value landing in an HTML body.</summary>
+    Html,
+
+    /// <summary>Line breaks replaced by a space, for a value landing in a header such as a subject.</summary>
+    SingleLine,
 }
 
 /// <summary>
@@ -85,7 +111,21 @@ public class TemplateVariableExtractor(IDocumentSession session) : ITemplateVari
     // Matches {{ variable }} tokens. Field/variable names are limited to identifier-ish characters.
     private static readonly Regex TemplateToken = new(@"\{\{\s*([A-Za-z0-9_.]+)\s*\}\}", RegexOptions.Compiled);
 
-    public string ResolveVariables(string template, Content content)
+    public string ResolveVariables(string template, Content content) =>
+        Resolve(template, content, TemplateValueEncoding.None);
+
+    public string ResolveVariables(string template, Content content, TemplateValueEncoding encoding) =>
+        Resolve(template, content, encoding);
+
+    /// <summary>
+    /// The resolution itself, which needs no database. Static so a caller holding no extractor, such
+    /// as a conditional resolving its children, gets exactly the same rules.
+    /// </summary>
+    /// <remarks>
+    /// There is no syntax for inserting a value raw into HTML. A data field can hold whatever a public
+    /// form submitted, and the template cannot tell such a field from one an editor wrote.
+    /// </remarks>
+    public static string Resolve(string template, Content content, TemplateValueEncoding encoding)
     {
         ArgumentNullException.ThrowIfNull(content, nameof(content));
 
@@ -97,29 +137,43 @@ public class TemplateVariableExtractor(IDocumentSession session) : ITemplateVari
         // contains "{{data.Other}}" cannot inject/leak another field (second-order injection).
         return TemplateToken.Replace(template, match =>
         {
-            var key = match.Groups[1].Value;
-
-            switch (key)
-            {
-                case "id": return content.Id.ToString();
-                case "contentType": return content.ContentType ?? string.Empty;
-                case "status": return content.Status.ToString();
-                case "createdAt": return content.CreatedAt.ToString("o");
-                case "updatedAt": return content.UpdatedAt.ToString("o");
-            }
-
-            if (key.StartsWith("data.", StringComparison.Ordinal) && content.Data != null)
-            {
-                var fieldName = key.Substring("data.".Length);
-                if (content.Data.TryGetValue(fieldName, out var value))
-                {
-                    return value?.ToString() ?? string.Empty;
-                }
-            }
-
-            // Unknown variable: leave the original token untouched.
-            return match.Value;
+            var value = ValueFor(match.Groups[1].Value, content);
+            return value is null ? match.Value : Encode(value, encoding);
         });
+    }
+
+    private static readonly Regex LineBreaks = new(@"[\r\n\u0085\u2028\u2029]+", RegexOptions.Compiled);
+
+    private static string Encode(string value, TemplateValueEncoding encoding) => encoding switch
+    {
+        TemplateValueEncoding.Html => System.Net.WebUtility.HtmlEncode(value),
+        TemplateValueEncoding.SingleLine => LineBreaks.Replace(value, " "),
+        _ => value,
+    };
+
+    /// <summary>The value a token stands for, or null when the token is not a known variable.</summary>
+    private static string? ValueFor(string key, Content content)
+    {
+        switch (key)
+        {
+            case "id": return content.Id.ToString();
+            case "contentType": return content.ContentType ?? string.Empty;
+            case "status": return content.Status.ToString();
+            case "createdAt": return content.CreatedAt.ToString("o");
+            case "updatedAt": return content.UpdatedAt.ToString("o");
+        }
+
+        if (key.StartsWith("data.", StringComparison.Ordinal) && content.Data != null)
+        {
+            var fieldName = key.Substring("data.".Length);
+            if (content.Data.TryGetValue(fieldName, out var value))
+            {
+                return value?.ToString() ?? string.Empty;
+            }
+        }
+
+        // Unknown variable: the caller leaves the original token untouched.
+        return null;
     }
 
     private List<TemplateVariable> GetSystemVariables()
