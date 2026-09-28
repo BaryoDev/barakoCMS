@@ -690,6 +690,22 @@ public class ImportWritePathTests
             "a reference to an entry in the same bundle points at that entry as imported");
     }
 
+    [Fact]
+    public async Task An_export_carries_each_entry_id_so_a_reference_inside_the_bundle_can_follow_it()
+    {
+        var type = NewType("impexpid");
+        var entry = new Dictionary<string, object> { ["Title"] = "exported" };
+        await StoreTypeAsync(new ContentTypeDefinition { Name = type, DisplayName = "Posts", Fields = [Text("Title")] }, entry);
+        var storedId = (await StoredEntriesAsync(type)).Single().Id;
+        var admin = await AdminAsync();
+
+        var response = await admin.GetAsync($"/api/portability/export?types={type}", Ct);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var bundle = await response.Content.ReadFromJsonAsync<PortabilityBundle>(ApiJson.Options, Ct);
+
+        bundle!.Contents.Should().ContainSingle().Which.Id.Should().Be(storedId);
+    }
+
     // Bounds -----------------------------------------------------------------------------------
 
     private static readonly Lock LimitGate = new();
