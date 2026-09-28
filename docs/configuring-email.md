@@ -111,6 +111,14 @@ otherwise unchanged, since a header is not HTML.
 There is no syntax for inserting a value as raw HTML. An entry's fields can hold whatever a public
 form submitted, and a template cannot tell that field from one an editor wrote.
 
+This includes rich text and markdown fields. A body of `{{data.Body}}`, where that field holds
+`<p>Hello <b>world</b></p>`, arrives showing those tags as text rather than a bold "world". Versions up to
+4.4.1 rendered it as HTML. Write the markup in the template itself and put only plain values in it.
+
+`To` must resolve to exactly one email address. A value with a comma or semicolon, a line break, or
+anything that does not parse as an address fails the action with "The 'To' parameter must resolve to
+exactly one email address." and nothing is sent, whichever provider is configured.
+
 The same applies to an `Email` inside a `Conditional`: its parameters are resolved when the child
 runs, not as part of the branch's JSON.
 
