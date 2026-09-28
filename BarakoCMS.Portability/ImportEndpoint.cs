@@ -57,8 +57,10 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
         Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId);
         var report = new ImportReport { DryRun = req.DryRun };
         var configuration = Resolve<IConfiguration>();
-        var bundleTypes = req.ContentTypes ?? [];
-        var records = req.Contents ?? [];
+        // A null entry in either list is dropped here rather than failing later on a null
+        // dereference as a 500.
+        var bundleTypes = (req.ContentTypes ?? []).Where(t => t is not null).ToList();
+        var records = (req.Contents ?? []).Where(r => r is not null).ToList();
 
         // Bounded before anything is read, since every record costs a validation pass and all of
         // them are held in one unit of work.
@@ -88,8 +90,7 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
             if (string.IsNullOrWhiteSpace(type.Name)) continue;
 
             var incoming = type.Fields?.Count ?? 0;
-            var stored = existing.FirstOrDefault(t =>
-                t.Name.Equals(type.Name, StringComparison.OrdinalIgnoreCase))?.Fields?.Count ?? 0;
+            var stored = StoredMatch(existing, type.Name)?.Fields?.Count ?? 0;
 
             if (incoming > maxFields && incoming > stored)
             {
@@ -105,9 +106,14 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
             var type = bundleTypes[i];
             if (string.IsNullOrWhiteSpace(type.Name)) continue;
 
-            type.Fields ??= [];
-            var match = existing.FirstOrDefault(t =>
-                t.Name.Equals(type.Name, StringComparison.OrdinalIgnoreCase));
+            type.Fields = (type.Fields ?? []).Where(f => f is not null).ToList();
+            foreach (var field in type.Fields)
+            {
+                field.VisibleToRoles ??= [];
+                field.ValidationRules ??= new Dictionary<string, object>();
+            }
+
+            var match = StoredMatch(existing, type.Name);
 
             foreach (var error in await TypeErrorsAsync(type, match, maxFields, ct))
                 AddError(new ValidationFailure($"contentTypes[{i}]", $"Content type '{Shorten(type.Name)}': {error}"));
@@ -124,8 +130,7 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
         {
             if (string.IsNullOrWhiteSpace(type.Name)) continue;
 
-            var match = existing.FirstOrDefault(t =>
-                t.Name.Equals(type.Name, StringComparison.OrdinalIgnoreCase));
+            var match = StoredMatch(existing, type.Name);
 
             if (match is not null)
             {
@@ -134,7 +139,9 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
                 match.DisplayName = type.DisplayName;
                 match.Description = type.Description;
                 match.Fields = type.Fields;
-                match.Lifecycle = type.Lifecycle;
+                // A bundle without a lifecycle keeps the stored one. TypeErrorsAsync has already
+                // refused a bundle that would change it.
+                match.Lifecycle ??= type.Lifecycle;
                 // Carried like every other attribute of the schema. Dropping it silently reverted an
                 // exported type to not-deliverable, so a round trip through export/import took the
                 // content off the public API with the import still reporting success.
@@ -266,13 +273,24 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
     {
         var validator = Resolve<IContentTypeValidatorService>();
 
-        var (_, errors) = validator.Validate(type.Name, type.DisplayName, type.Fields);
-
         // The cap was settled above, including its one exception: a type already stored over it may
-        // be imported again at its size. The validator only knows the cap, so its refusal of that
-        // case is dropped here, and it is the only error it returns for an oversized list.
-        if (type.Fields.Count > maxFields)
-            errors.Remove(barakoCMS.Infrastructure.Services.ContentTypeFieldLimit.TooMany(maxFields, type.Fields.Count));
+        // be imported again at its size. The validator only knows the cap and checks no field of a
+        // list over it, so an oversized list is checked a cap's worth of fields at a time.
+        var errors = type.Fields.Count <= maxFields
+            ? validator.Validate(type.Name, type.DisplayName, type.Fields).Errors
+            : type.Fields.Chunk(maxFields)
+                .SelectMany(chunk => validator.Validate(type.Name, type.DisplayName, chunk.ToList()).Errors)
+                .Distinct()
+                .ToList();
+
+        // Refused here because the validator does not check it. Two fields of one name let a bundle
+        // declare a field both Sensitive and Public, and public delivery serves it as the Public one.
+        foreach (var repeated in type.Fields
+                     .GroupBy(f => f.Name, StringComparer.OrdinalIgnoreCase)
+                     .Where(g => g.Count() > 1))
+        {
+            errors.Add($"field '{repeated.Key}' is declared more than once, ignoring case.");
+        }
 
         errors.AddRange(validator.ValidateLifecycle(type.Lifecycle).Errors);
 
@@ -289,6 +307,21 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
 
         errors.AddRange(SensitivityChanges(type, stored));
 
+        var entries = await EntryCountAsync(stored, ct);
+
+        // No endpoint changes a stored type's lifecycle: permissions and workflows key on its
+        // transition names, and entries sit in its states. A bundle may leave it out, which keeps
+        // it, or carry the same one. It may add one only to a type with no entries, which is the
+        // one case where no entry is left in a state the type does not know.
+        if (type.Lifecycle is not null && !SameLifecycle(type.Lifecycle, stored.Lifecycle))
+        {
+            if (stored.Lifecycle is not null)
+                errors.Add("the bundle's lifecycle differs from the stored one, and an import does not change a stored lifecycle.");
+            else if (entries > 0)
+                errors.Add($"it already has {entries} {(entries == 1 ? "entry" : "entries")} and no lifecycle, "
+                           + "and an import does not add one to a type with entries.");
+        }
+
         // The add field rule: a required field with no default declares an invariant every entry
         // already stored breaks.
         var newlyRequired = type.Fields
@@ -296,18 +329,13 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
             .Where(f => !stored.Fields.Any(s => s.IsRequired && s.Name.Equals(f.Name, StringComparison.OrdinalIgnoreCase)))
             .ToList();
 
-        if (newlyRequired.Count > 0)
+        if (entries > 0)
         {
-            var lowered = stored.Name.ToLower();
-            var entries = await _session.Query<Content>().CountAsync(c => c.ContentType.ToLower() == lowered, ct);
-            if (entries > 0)
+            foreach (var field in newlyRequired)
             {
-                foreach (var field in newlyRequired)
-                {
-                    errors.Add($"it already has {entries} {(entries == 1 ? "entry" : "entries")}, so making "
-                               + $"'{field.Name}' required with no default would make them all invalid. "
-                               + "Give the field a defaultValue, or leave it optional.");
-                }
+                errors.Add($"it already has {entries} {(entries == 1 ? "entry" : "entries")}, so making "
+                           + $"'{field.Name}' required with no default would make them all invalid. "
+                           + "Give the field a defaultValue, or leave it optional.");
             }
         }
 
@@ -329,6 +357,7 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
     {
         foreach (var current in stored.Fields)
         {
+            // Duplicates are refused elsewhere; the first is enough here.
             var incoming = type.Fields.FirstOrDefault(f => f.Name.Equals(current.Name, StringComparison.OrdinalIgnoreCase));
             var route = $"PUT /api/content-types/{stored.Name}/fields/{current.Name}/sensitivity";
 
@@ -356,6 +385,32 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
                              + $"An import does not change who may read a field; use {route}.";
             }
         }
+    }
+
+    private async Task<int> EntryCountAsync(ContentTypeDefinition stored, CancellationToken ct)
+    {
+        var lowered = stored.Name.ToLower();
+        return await _session.Query<Content>().CountAsync(c => c.ContentType.ToLower() == lowered, ct);
+    }
+
+    private static bool SameLifecycle(LifecycleDefinition a, LifecycleDefinition? b) =>
+        b is not null
+        && a.States.SequenceEqual(b.States, StringComparer.OrdinalIgnoreCase)
+        && string.Equals(a.InitialState, b.InitialState, StringComparison.OrdinalIgnoreCase)
+        && a.Transitions.Count == b.Transitions.Count
+        && a.Transitions.Zip(b.Transitions).All(p =>
+            string.Equals(p.First.Name, p.Second.Name, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(p.First.From, p.Second.From, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(p.First.To, p.Second.To, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// The stored type a bundle type updates, compared under the name normalisation create applies,
+    /// so "Blog Post" in a bundle updates a stored "blog-post" rather than colliding with it.
+    /// </summary>
+    private static ContentTypeDefinition? StoredMatch(List<ContentTypeDefinition> existing, string name)
+    {
+        var normalized = barakoCMS.Core.ContentTypeName.Normalize(name);
+        return existing.FirstOrDefault(t => barakoCMS.Core.ContentTypeName.Normalize(t.Name) == normalized);
     }
 
     private static bool SameRoles(List<string>? a, List<string>? b) =>

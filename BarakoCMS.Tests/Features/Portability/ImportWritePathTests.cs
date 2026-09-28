@@ -434,6 +434,123 @@ public class ImportWritePathTests
         (await StoredTypeAsync(type))!.Fields.Should().ContainSingle();
     }
 
+    [Fact]
+    public async Task A_bundle_that_declares_a_stored_sensitive_field_twice_is_refused()
+    {
+        var type = NewType("impdup");
+        await StoreTypeAsync(new ContentTypeDefinition
+        {
+            Name = type, DisplayName = "Staff", Fields = [Text("Name"), Salary("HR")],
+        });
+        var admin = await AdminAsync();
+
+        var (status, body) = await ImportAsync(admin,
+            [new ContentTypeDefinition
+            {
+                Name = type, DisplayName = "Staff", Fields = [Text("Name"), Salary("HR"), Text("Salary")],
+            }],
+            []);
+
+        status.Should().Be(HttpStatusCode.BadRequest, body);
+        body.Should().Contain("more than once");
+        (await StoredTypeAsync(type))!.Fields.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task A_bundle_type_matches_a_stored_type_under_the_normalized_name()
+    {
+        var type = NewType("impnorm");
+        await StoreTypeAsync(new ContentTypeDefinition
+        {
+            Name = type + "-staff", DisplayName = "Staff", Fields = [Text("Name"), Salary("HR")],
+        });
+        var admin = await AdminAsync();
+
+        var (status, body) = await ImportAsync(admin,
+            [new ContentTypeDefinition
+            {
+                Name = type.ToUpperInvariant() + " STAFF", DisplayName = "Staff", Fields = [Text("Name"), Text("Salary")],
+            }],
+            []);
+
+        status.Should().Be(HttpStatusCode.BadRequest, body);
+        body.Should().Contain("/sensitivity", "the bundle type is the stored type, so lowering its field is refused");
+    }
+
+    [Fact]
+    public async Task A_bundle_field_with_no_role_list_is_still_dropped_for_a_caller_who_may_not_see_it()
+    {
+        var type = NewType("impnull");
+        var importer = await ImporterAsync($"Importer {Guid.NewGuid():N}");
+
+        var response = await importer.PostAsync("/api/portability/import", new StringContent($$"""
+            {
+              "contentTypes": [{
+                "name": "{{type}}", "displayName": "Staff",
+                "fields": [
+                  { "name": "Name", "displayName": "Name", "type": "string" },
+                  { "name": "Salary", "displayName": "Salary", "type": "string", "sensitivity": {{(int)SensitivityLevel.Sensitive}}, "visibleToRoles": null }
+                ]
+              }],
+              "contents": [{ "contentType": "{{type}}", "status": "Published", "data": { "Name": "Ana", "Salary": "{{Secret}}" } }]
+            }
+            """, System.Text.Encoding.UTF8, "application/json"), Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
+        var entries = await StoredEntriesAsync(type);
+        entries.Should().ContainSingle();
+        entries[0].Data.Keys.Should().NotContain(k => k.Equals("Salary", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task A_bundle_without_a_lifecycle_keeps_the_stored_one_and_a_different_one_is_refused()
+    {
+        var type = NewType("implkeep");
+        var lifecycle = new LifecycleDefinition
+        {
+            States = ["Draft", "Approved"],
+            InitialState = "Draft",
+            Transitions = [new StateTransition { Name = "Approve", From = "Draft", To = "Approved" }],
+        };
+        await StoreTypeAsync(new ContentTypeDefinition
+        {
+            Name = type, DisplayName = "Invoices", Fields = [Text("Title")], Lifecycle = lifecycle,
+        });
+        var admin = await AdminAsync();
+
+        var (keptStatus, keptBody) = await ImportAsync(admin,
+            [new ContentTypeDefinition { Name = type, DisplayName = "Invoices", Fields = [Text("Title")] }],
+            []);
+        keptStatus.Should().Be(HttpStatusCode.OK, keptBody);
+        (await StoredTypeAsync(type))!.Lifecycle.Should().NotBeNull("a bundle from before lifecycles must not wipe one");
+
+        var (status, body) = await ImportAsync(admin,
+            [new ContentTypeDefinition
+            {
+                Name = type, DisplayName = "Invoices", Fields = [Text("Title")],
+                Lifecycle = new LifecycleDefinition { States = ["Draft"], InitialState = "Draft" },
+            }],
+            []);
+        status.Should().Be(HttpStatusCode.BadRequest, body);
+        body.Should().Contain("lifecycle");
+        (await StoredTypeAsync(type))!.Lifecycle!.States.Should().Equal("Draft", "Approved");
+    }
+
+    [Fact]
+    public async Task A_batch_creates_at_most_one_entry_of_a_hooked_type()
+    {
+        var admin = await AdminAsync(HookHost());
+
+        var (status, body) = await ImportAsync(admin, [HookTypeWithLifecycle()],
+        [
+            Record(HookType, new() { ["Title"] = $"one-{Guid.NewGuid():n}" }),
+            Record(HookType, new() { ["Title"] = $"two-{Guid.NewGuid():n}" }),
+        ]);
+
+        status.Should().Be(HttpStatusCode.BadRequest, body);
+        body.Should().Contain("contents[1]").And.Contain("lifecycle hooks");
+    }
+
     // Bounds -----------------------------------------------------------------------------------
 
     private static readonly Lock LimitGate = new();

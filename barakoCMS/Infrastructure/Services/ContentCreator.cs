@@ -90,7 +90,8 @@ public sealed class ContentCreator(
     ISensitivityService sensitivity,
     IContentValidatorService validator,
     IContentLifecycleRunner lifecycle,
-    IContentWriter writer) : IContentCreator
+    IContentWriter writer,
+    IEnumerable<IContentLifecycleHook> hooks) : IContentCreator
 {
     public async Task<IReadOnlyList<string>> CheckAsync(
         ContentCreateRequest request, Guid userId, HttpContext httpContext, ContentCreateBatch? batch, CancellationToken ct)
@@ -123,6 +124,18 @@ public sealed class ContentCreator(
                 errors.Add($"'{slug}' is used by another '{request.ContentType}' entry in this batch, "
                          + "and a slug has to name one entry.");
             }
+        }
+
+        // A hook reads committed state, and nothing in a batch is committed until the end, so a
+        // second entry of a hooked type would be checked as if the first did not exist: a journal
+        // entry numbered from a stored sequence gets the same number as the one before it, and an
+        // account naming a parent from the same batch is told the parent does not exist. Refused
+        // rather than written wrong.
+        if (batch is not null && batch.AcceptedOf(request.ContentType) > 0
+            && hooks.Any(h => string.Equals(h.ContentType, request.ContentType, StringComparison.OrdinalIgnoreCase)))
+        {
+            errors.Add($"'{request.ContentType}' entries run lifecycle hooks that read what is already stored, "
+                     + "so one batch can create only one of them. Create the rest through POST /api/contents.");
         }
 
         if (errors.Count > 0)

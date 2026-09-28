@@ -56,6 +56,12 @@ the repository.
   see is dropped, the entry is validated against its type as the bundle leaves it, the type's
   lifecycle hooks run, and the entry starts in the type's initial lifecycle state. The singleton cap
   is the one exception, since an import is a restore and lands what the bundle holds.
+- A reference must point at an entry that exists where the bundle is imported. Ids are not
+  rewritten, so an entry referencing content from another tenant is refused.
+- One bundle creates at most one entry of a type with lifecycle hooks (journal entries, accounts,
+  pages). A hook reads only what is stored, and nothing in the bundle is stored until the end.
+- A stored type keeps its lifecycle when the bundle has none. A bundle that changes it, or adds one
+  to a type that already has entries, is refused.
 - All or nothing. A refused type or entry answers 400 naming each one as `contentTypes[i]` or
   `contents[i]`, and nothing is written, so the fixed bundle can be imported again without
   duplicating what would have landed. A dry run refuses exactly what the real run would.
