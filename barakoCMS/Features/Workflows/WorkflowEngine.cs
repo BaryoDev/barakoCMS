@@ -107,10 +107,7 @@ internal class WorkflowEngine(
 
                 // Resolve {{...}} template variables against the content BEFORE executing, so live
                 // runs behave like the dry-run preview.
-                foreach (var param in parameters)
-                {
-                    resolvedParams[param.Key] = variableExtractor.ResolveVariables(param.Value, content);
-                }
+                resolvedParams = ActionParameters.Resolve(variableExtractor, action.Type, parameters, content);
 
                 logger.LogInformation("Executing workflow action '{ActionType}' for workflow '{WorkflowName}'", action.Type, workflow.Name);
                 var result = await handler.RunAsync(resolvedParams, content, ct);

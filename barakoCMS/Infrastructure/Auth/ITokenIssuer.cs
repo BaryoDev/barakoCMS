@@ -39,6 +39,28 @@ public interface ITokenIssuer
         string tenantSlug,
         IEnumerable<Claim>? extraClaims = null,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// As <see cref="IssueAccessTokenAsync(User, string, IEnumerable{Claim}?, CancellationToken)"/>,
+    /// but the token expires no later than <paramref name="notAfter"/>. A token exchanged for another
+    /// one uses this, so the exchange cannot extend the session.
+    /// </summary>
+    /// <remarks>
+    /// The default implementation cannot shorten a token it did not mint, so it refuses rather than
+    /// return one that outlives the cap.
+    /// </remarks>
+    async Task<TokenIssueResult> IssueAccessTokenAsync(
+        User user,
+        string tenantSlug,
+        IEnumerable<Claim>? extraClaims,
+        DateTime? notAfter,
+        CancellationToken ct = default)
+    {
+        var issued = await IssueAccessTokenAsync(user, tenantSlug, extraClaims, ct);
+        return issued.Allowed && notAfter is { } cap && issued.ExpiresAt > cap
+            ? TokenIssueResult.Denied("this issuer cannot cap a token's expiry")
+            : issued;
+    }
 }
 
 /// <summary>Outcome of a token request. Check <see cref="Allowed"/> before using <see cref="Token"/>.</summary>

@@ -51,9 +51,16 @@ internal class EmailAction : IWorkflowAction
     /// </remarks>
     public async Task<WorkflowActionResult> RunAsync(Dictionary<string, string> parameters, barakoCMS.Models.Content content, CancellationToken ct)
     {
-        var to = parameters.GetValueOrDefault("To", "admin@example.com");
+        var to = parameters.GetValueOrDefault("To", "admin@example.com").Trim();
         var subject = parameters.GetValueOrDefault("Subject", $"Workflow Triggered for Content {content.Id}");
         var body = parameters.GetValueOrDefault("Body", $"Content '{content.ContentType}' with ID {content.Id} triggered this workflow.");
+
+        if (!IsOneAddress(to))
+        {
+            // Permanent: the same entry resolves to the same recipient on every retry.
+            return WorkflowActionResult.PermanentFailure(
+                "The 'To' parameter must resolve to exactly one email address.");
+        }
 
         try
         {
@@ -87,5 +94,17 @@ internal class EmailAction : IWorkflowAction
 
         return WorkflowActionResult.Success();
     }
-}
 
+    /// <summary>
+    /// One address and nothing else. <c>To</c> is often filled from an entry field, and a field a
+    /// form filled in must not turn one notification into a list: providers differ on whether they
+    /// split commas and semicolons, so neither is accepted here, for any provider. The address is
+    /// either the whole value or the part in angle brackets after a display name; MailAddress on its
+    /// own reads "a@example.com b@example.com" as a display name and one address.
+    /// </summary>
+    private static bool IsOneAddress(string to) =>
+        to.Length > 0
+        && to.IndexOfAny([',', ';', '\r', '\n']) < 0
+        && System.Net.Mail.MailAddress.TryCreate(to, out var parsed)
+        && (to == parsed.Address || to.EndsWith($"<{parsed.Address}>", StringComparison.Ordinal));
+}
