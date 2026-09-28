@@ -91,9 +91,7 @@ public class Endpoint(
         var isPublic = HttpContext.Request.Form.TryGetValue("isPublic", out var pub)
                        && string.Equals(pub.ToString(), "true", StringComparison.OrdinalIgnoreCase);
 
-        /* Key keeps the extension so an object store serves the right content type via the URL. */
-        var ext = Path.GetExtension(file.FileName);
-        var key = $"{Guid.NewGuid():N}{ext}";
+        var key = $"{Guid.NewGuid():N}{UploadTypes.Extension(contentType)}";
 
         if (scanner.Configured)
         {

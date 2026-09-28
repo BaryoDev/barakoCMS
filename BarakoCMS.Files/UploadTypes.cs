@@ -28,8 +28,30 @@ internal static class UploadTypes
             ["application/pdf"] = head => head.StartsWith("%PDF-"u8),
         };
 
+    private static readonly Dictionary<string, string> Extensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["image/png"] = ".png",
+        ["image/jpeg"] = ".jpg",
+        ["image/gif"] = ".gif",
+        ["image/webp"] = ".webp",
+        ["image/avif"] = ".avif",
+        ["application/pdf"] = ".pdf",
+    };
+
     /// <summary>Every type an upload may declare.</summary>
     public static IReadOnlyCollection<string> Names => Signatures.Keys;
+
+    /// <summary>
+    /// The storage key's extension for a checked type. An object store serves by the key, so it
+    /// comes from the type the bytes were checked against, never from the client's file name.
+    /// </summary>
+    public static string Extension(string type) => Extensions[type];
+
+    /// <summary>
+    /// Whether a stored type is exactly one an upload may be, with nothing appended. A row stored
+    /// before uploads were checked can carry anything its client sent.
+    /// </summary>
+    public static bool IsExactly(string? stored) => stored is not null && Signatures.ContainsKey(stored);
 
     /// <summary>
     /// The bare media type, lower case, when <paramref name="declared"/> parses and names an allowed
