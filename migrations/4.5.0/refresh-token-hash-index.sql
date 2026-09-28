@@ -18,5 +18,5 @@
 
 -- The expression is Marten's, verbatim. RefreshTokenHashIndexMigrationTests compares this file to
 -- the index Marten builds.
-CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS mt_doc_refresh_tokens_idx_token_hash
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS mt_doc_refresh_tokens_uidx_token_hash
     ON public.mt_doc_refresh_tokens USING btree (((data ->> 'TokenHash'::text)));

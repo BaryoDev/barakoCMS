@@ -8,4 +8,4 @@
 --
 -- Safe to run twice.
 
-DROP INDEX CONCURRENTLY IF EXISTS public.mt_doc_refresh_tokens_idx_token_hash;
+DROP INDEX CONCURRENTLY IF EXISTS public.mt_doc_refresh_tokens_uidx_token_hash;
