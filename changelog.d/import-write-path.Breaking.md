@@ -14,4 +14,4 @@
   imported before and breaks one of these rules is now refused, so `ApiContract.Version` moves to 5,
   the same bump as the platform role change. `ISensitivityService` and `IContentValidatorService`
   gain an overload that takes the content type definition, with a default implementation that
-  throws. BarakoCMS.Portability 4.4.0.
+  throws. BarakoCMS.Abstractions 4.5.0, BarakoCMS.Portability 4.4.0.
