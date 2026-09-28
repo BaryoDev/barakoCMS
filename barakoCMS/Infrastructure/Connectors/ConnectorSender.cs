@@ -100,6 +100,14 @@ internal sealed class ConnectorSender(
             return new ConnectorCallResult(false, null, 0, "The probe path does not combine with the base URL.");
         }
 
+        // Checked here as well as on save, because a row saved before that check can hold an
+        // absolute probe path, and the credentials below would go wherever it points.
+        if (ConnectorOrigin.Of(target) != ConnectorOrigin.Of(baseUri))
+        {
+            return new ConnectorCallResult(false, null, 0,
+                "The probe path addresses a different scheme, host or port from the base URL.");
+        }
+
         // The address check is not here. It lives in the connect callback of the ExternalApi client,
         // which resolves the name once and opens the socket to an address that answer survived, with
         // redirects off. Checking here as well would only re-resolve, and a name whose answer changes
