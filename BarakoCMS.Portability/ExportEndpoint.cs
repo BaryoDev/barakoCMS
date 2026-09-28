@@ -24,6 +24,15 @@ public class ExportEndpoint(
 
     public override async Task HandleAsync(Req req, CancellationToken ct)
     {
+        // The same identity check and per-entry read rule as the content List endpoint. The export
+        // capability decides who may take a bundle, not which rows they may read.
+        if (!Guid.TryParse(User.FindFirst("UserId")?.Value, out var callerId)
+            || await session.LoadAsync<barakoCMS.Models.User>(callerId, ct) is not { } caller)
+        {
+            await Send.UnauthorizedAsync(ct);
+            return;
+        }
+
         var filter = string.IsNullOrWhiteSpace(req.Types)
             ? null
             : req.Types.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
@@ -37,9 +46,16 @@ public class ExportEndpoint(
 
         var records = new List<ContentRecord>();
         var withheld = 0;
+        var permissions = Resolve<barakoCMS.Infrastructure.Services.IPermissionResolver>();
         var sensitivity = Resolve<ISensitivityService>();
         foreach (var c in contents)
         {
+            if (!await permissions.CanPerformActionAsync(caller, c.ContentType, "read", c, ct))
+            {
+                withheld++;
+                continue;
+            }
+
             var data = new Dictionary<string, object>(c.Data);
             var hidden = await sensitivity.ApplyAsync(c.ContentType, c.Sensitivity, data, HttpContext, ct);
 
@@ -63,8 +79,7 @@ public class ExportEndpoint(
             });
         }
 
-        Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
-        await AuditLog.RecordAsync(documentSession, tenant.Slug, "portability.exported", actorId, User.FindFirst("Username")?.Value,
+        await AuditLog.RecordAsync(documentSession, tenant.Slug, "portability.exported", callerId, User.FindFirst("Username")?.Value,
             metadata: new() { ["contentTypes"] = types.Count, ["contents"] = records.Count, ["contentsWithheld"] = withheld }, ct: ct);
         await documentSession.SaveChangesAsync(ct);
 

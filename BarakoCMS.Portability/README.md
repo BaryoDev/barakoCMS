@@ -50,11 +50,14 @@ the repository.
 
 ## Treat a bundle as sensitive
 
-An export applies the same sensitivity as the content read endpoints, for the caller who asked for
-it. A field that caller may not read comes out under its mask and is listed in the record's
-`maskedFields`, and an entry they may read nothing of is left out and counted in `contentsWithheld`.
+An export shows each entry the way the content read endpoints would show it to the caller who asked
+for it. An entry the caller's read rule for its type does not allow is left out, the same entry
+`GET /api/contents` leaves out, and so is an entry they may read nothing of; both are counted in
+`contentsWithheld`. A field the caller may not read comes out under its mask and is listed in the
+record's `maskedFields`.
 Import skips every field named in `maskedFields`, so a mask is never stored as a value. A full
-backup therefore needs a caller who may read every field, such as SuperAdmin.
+backup therefore needs a caller who may read every entry and every field, such as SuperAdmin. A
+role holding `export_content` and no read rule for a type exports none of that type's entries.
 
 What the caller may read is still in the bundle, and it leaves the system's access control behind
 the moment it is downloaded.

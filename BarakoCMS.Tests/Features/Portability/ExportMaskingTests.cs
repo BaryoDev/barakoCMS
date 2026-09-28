@@ -78,13 +78,30 @@ public class ExportMaskingTests
         return new Seeded(type, payrollRole);
     }
 
-    /// <summary>A caller whose one role, under the given name, holds exactly these capabilities.</summary>
-    private async Task<HttpClient> CallerAsync(string roleName, params string[] capabilities)
+    /// <summary>A read rule on one content type, with or without a row condition.</summary>
+    private static ContentTypePermission Read(string type, Dictionary<string, object>? conditions = null) => new()
+    {
+        ContentTypeSlug = type,
+        Read = new PermissionRule { Enabled = true, Conditions = conditions },
+    };
+
+    /// <summary>
+    /// A caller whose one role, under the given name, holds these capabilities and these content
+    /// permissions.
+    /// </summary>
+    private async Task<HttpClient> CallerAsync(
+        string roleName, string[] capabilities, params ContentTypePermission[] permissions)
     {
         using var scope = _fixture.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
 
-        var role = new Role { Id = Guid.NewGuid(), Name = roleName, SystemCapabilities = capabilities.ToList() };
+        var role = new Role
+        {
+            Id = Guid.NewGuid(),
+            Name = roleName,
+            SystemCapabilities = capabilities.ToList(),
+            Permissions = permissions.ToList(),
+        };
         session.Store(role);
         var userId = Guid.NewGuid();
         session.Store(new User
@@ -117,7 +134,8 @@ public class ExportMaskingTests
     public async Task An_exporter_who_may_not_see_a_field_gets_it_masked()
     {
         var seeded = await SeedAsync();
-        var exporter = await CallerAsync($"Exporter {Guid.NewGuid():N}", PortabilityCapabilities.ExportContent);
+        var exporter = await CallerAsync(
+            $"Exporter {Guid.NewGuid():N}", [PortabilityCapabilities.ExportContent], Read(seeded.Type));
 
         var (raw, bundle) = await ExportAsync(exporter, seeded.Type);
 
@@ -135,7 +153,8 @@ public class ExportMaskingTests
     public async Task An_exporter_who_may_see_a_field_gets_it_whole()
     {
         var seeded = await SeedAsync();
-        var payroll = await CallerAsync(seeded.PayrollRole, PortabilityCapabilities.ExportContent);
+        var payroll = await CallerAsync(
+            seeded.PayrollRole, [PortabilityCapabilities.ExportContent], Read(seeded.Type));
 
         var (_, bundle) = await ExportAsync(payroll, seeded.Type);
 
@@ -152,11 +171,12 @@ public class ExportMaskingTests
     public async Task Importing_a_masked_bundle_leaves_the_masked_field_out()
     {
         var seeded = await SeedAsync();
-        var exporter = await CallerAsync($"Exporter {Guid.NewGuid():N}", PortabilityCapabilities.ExportContent);
+        var exporter = await CallerAsync(
+            $"Exporter {Guid.NewGuid():N}", [PortabilityCapabilities.ExportContent], Read(seeded.Type));
         var (_, bundle) = await ExportAsync(exporter, seeded.Type);
         bundle.Contents.Should().ContainSingle().Which.Data["Salary"].ToString().Should().Be("***");
 
-        var importer = await CallerAsync($"Importer {Guid.NewGuid():N}", PortabilityCapabilities.ImportContent);
+        var importer = await CallerAsync($"Importer {Guid.NewGuid():N}", [PortabilityCapabilities.ImportContent]);
         var imported = await importer.PostAsJsonAsync(
             "/api/portability/import",
             new { contentTypes = bundle.ContentTypes, contents = bundle.Contents },
@@ -180,5 +200,74 @@ public class ExportMaskingTests
         stored.Where(c => c.Data.ContainsKey("Salary"))
             .Select(c => c.Data["Salary"].ToString())
             .Should().Equal(Secret, Secret);
+    }
+
+    /// <summary>Two public entries of a type with no sensitive fields, told apart by Team.</summary>
+    private async Task<string> SeedTeamsAsync()
+    {
+        var type = $"rows{Guid.NewGuid():n}"[..12];
+
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        session.Store(new ContentTypeDefinition
+        {
+            Id = Guid.NewGuid(),
+            Name = type,
+            DisplayName = "Rows",
+            Fields =
+            [
+                new FieldDefinition { Name = "Name", DisplayName = "Name", Type = "string" },
+                new FieldDefinition { Name = "Team", DisplayName = "Team", Type = "string" },
+            ],
+        });
+        foreach (var (name, team) in new[] { ("Blue Row", "blue"), ("Red Row", "red") })
+        {
+            session.Store(new Content
+            {
+                Id = Guid.NewGuid(),
+                ContentType = type,
+                Status = ContentStatus.Published,
+                Data = new Dictionary<string, object> { ["Name"] = name, ["Team"] = team },
+            });
+        }
+        await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        return type;
+    }
+
+    /// <summary>
+    /// A row the caller's read rule excludes is left out of the bundle, the same row List leaves out.
+    /// </summary>
+    [Fact]
+    public async Task An_entry_the_callers_read_rule_excludes_is_withheld()
+    {
+        var type = await SeedTeamsAsync();
+        var blueOnly = await CallerAsync(
+            $"Blue {Guid.NewGuid():N}",
+            [PortabilityCapabilities.ExportContent],
+            Read(type, new Dictionary<string, object>
+            {
+                ["Team"] = new Dictionary<string, object> { ["_eq"] = "blue" },
+            }));
+
+        var (raw, bundle) = await ExportAsync(blueOnly, type);
+
+        bundle.Contents.Should().ContainSingle().Which.Data["Name"].ToString().Should().Be("Blue Row");
+        bundle.ContentsWithheld.Should().Be(1);
+        raw.Should().NotContain("Red Row", "the export capability is not permission to read every row");
+    }
+
+    [Fact]
+    public async Task A_caller_whose_read_rule_allows_every_entry_exports_them_all()
+    {
+        var type = await SeedTeamsAsync();
+        var everyone = await CallerAsync(
+            $"Everyone {Guid.NewGuid():N}", [PortabilityCapabilities.ExportContent], Read(type));
+
+        var (_, bundle) = await ExportAsync(everyone, type);
+
+        bundle.Contents.Should().HaveCount(2);
+        bundle.Contents.Select(c => c.Data["Name"].ToString())
+            .Should().BeEquivalentTo(["Blue Row", "Red Row"]);
+        bundle.ContentsWithheld.Should().Be(0);
     }
 }

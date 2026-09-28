@@ -1,7 +1,8 @@
-- **A portability export returned every entry's data unmasked.** `GET /api/portability/export`
-  now applies the same document and field sensitivity as the content read endpoints, keyed on the
-  caller. A field the caller may not read comes out under its mask and is named in the record's new
-  `maskedFields`; an entry the caller may read nothing of is left out and counted in the bundle's new
-  `contentsWithheld`. Import skips the fields a record lists in `maskedFields`, so a mask is never
-  stored as a value. An Admin without the role a field names now gets that field masked, as on the
-  read endpoints; SuperAdmin still exports everything. BarakoCMS.Portability 4.3.1.
+- **A portability export returned every entry, unmasked, whatever the caller could read.**
+  `GET /api/portability/export` now applies the content List endpoint's per-entry read rule and the
+  read endpoints' document and field sensitivity, keyed on the caller. An entry the caller may not
+  read is left out and counted in the bundle's new `contentsWithheld`. A field the caller may not
+  read comes out under its mask and is named in the record's new `maskedFields`, and import skips
+  those fields, so a mask is never stored as a value. A caller needs a read rule for a type to
+  export its entries, as on `GET /api/contents`; SuperAdmin still exports everything. A token whose
+  user does not exist now gets 401, as on the List endpoint. BarakoCMS.Portability 4.3.1.
