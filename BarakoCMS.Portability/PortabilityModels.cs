@@ -17,9 +17,16 @@ public class PortabilityBundle
     public int ContentsWithheld { get; set; }
 }
 
-/// <summary>One content item, stripped of instance-specific ids so it can be recreated anywhere.</summary>
+/// <summary>One content item, recreated under a new id wherever it is imported.</summary>
 public class ContentRecord
 {
+    /// <summary>
+    /// The entry's id where it was exported. Import never reuses it: the entry gets a new id, and a
+    /// reference field in the same bundle holding this value is pointed at the new one. Absent in
+    /// older bundles, whose references then have to exist where they are imported.
+    /// </summary>
+    public Guid? Id { get; set; }
+
     public string ContentType { get; set; } = string.Empty;
     public Dictionary<string, object> Data { get; set; } = new();
     public string Status { get; set; } = "Published";

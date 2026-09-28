@@ -16,6 +16,12 @@ public sealed class ContentCreateRequest
 
     public ContentStatus Status { get; init; } = ContentStatus.Draft;
     public SensitivityLevel Sensitivity { get; init; } = SensitivityLevel.Public;
+
+    /// <summary>
+    /// The new entry's id, or null for a fresh one. A batch sets it when an entry later in the batch
+    /// has to reference this one before it exists.
+    /// </summary>
+    public Guid? Id { get; init; }
 }
 
 /// <summary>
@@ -23,10 +29,10 @@ public sealed class ContentCreateRequest
 /// together.
 /// </summary>
 /// <remarks>
-/// The checks in <see cref="IContentCreator"/> read the stored schema and the stored entries, and
-/// inside one unit neither is stored yet. A batch carries the schema each entry is to be written
-/// under, and remembers what earlier entries in the same unit claimed, so two entries of one batch
-/// cannot share a slug that no stored entry holds yet.
+/// A batch carries the schema each entry is to be written under, which may be a type the same unit
+/// creates or changes, and remembers what earlier entries claimed. Run it under
+/// <see cref="IContentBatchRunner"/> so each entry is written before the next is checked, and the
+/// validator and lifecycle hooks read the entries before it.
 /// </remarks>
 public sealed class ContentCreateBatch
 {
@@ -90,8 +96,7 @@ public sealed class ContentCreator(
     ISensitivityService sensitivity,
     IContentValidatorService validator,
     IContentLifecycleRunner lifecycle,
-    IContentWriter writer,
-    IEnumerable<IContentLifecycleHook> hooks) : IContentCreator
+    IContentWriter writer) : IContentCreator
 {
     public async Task<IReadOnlyList<string>> CheckAsync(
         ContentCreateRequest request, Guid userId, HttpContext httpContext, ContentCreateBatch? batch, CancellationToken ct)
@@ -124,18 +129,6 @@ public sealed class ContentCreator(
                 errors.Add($"'{slug}' is used by another '{request.ContentType}' entry in this batch, "
                          + "and a slug has to name one entry.");
             }
-        }
-
-        // A hook reads committed state, and nothing in a batch is committed until the end, so a
-        // second entry of a hooked type would be checked as if the first did not exist: a journal
-        // entry numbered from a stored sequence gets the same number as the one before it, and an
-        // account naming a parent from the same batch is told the parent does not exist. Refused
-        // rather than written wrong.
-        if (batch is not null && batch.AcceptedOf(request.ContentType) > 0
-            && hooks.Any(h => string.Equals(h.ContentType, request.ContentType, StringComparison.OrdinalIgnoreCase)))
-        {
-            errors.Add($"'{request.ContentType}' entries run lifecycle hooks that read what is already stored, "
-                     + "so one batch can create only one of them. Create the rest through POST /api/contents.");
         }
 
         if (errors.Count > 0)
@@ -180,7 +173,7 @@ public sealed class ContentCreator(
         // BarakoCMS.Accounting queries ContentType == "journalEntry", so lowercasing the write turned
         // every ledger and trial balance into zero rows, silently, with the postings still in place.
         var @event = new Events.ContentCreated(
-            Guid.NewGuid(), request.ContentType, request.Data, request.Status, userId, searchText,
+            request.Id ?? Guid.NewGuid(), request.ContentType, request.Data, request.Status, userId, searchText,
             request.Sensitivity, DateTime.UtcNow);
 
         var created = await writer.CreateAsync(@event, ct);

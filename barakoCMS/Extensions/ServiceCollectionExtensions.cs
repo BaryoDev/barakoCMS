@@ -1093,6 +1093,7 @@ public static class ServiceCollectionExtensions
         // Per-request tenant, resolved from a registered custom domain or the subdomain by
         // TenantResolutionMiddleware.
         services.AddScoped<barakoCMS.Infrastructure.Multitenancy.TenantContext>();
+        services.AddScoped<barakoCMS.Infrastructure.Multitenancy.BatchTransaction>();
         // Singleton because the domain map is cached and read on every request; a scoped source
         // would rebuild the cache lookup per request for no benefit.
         services.AddSingleton<barakoCMS.Infrastructure.Multitenancy.ITenantDomainSource,
@@ -1129,6 +1130,7 @@ public static class ServiceCollectionExtensions
     {
         services.AddScoped<IContentValidatorService, ContentValidatorService>();
         services.AddScoped<IContentCreator, ContentCreator>();
+        services.AddScoped<IContentBatchRunner, ContentBatchRunner>();
         services.AddScoped<IContentTypeValidatorService, ContentTypeValidatorService>();
         services.AddScoped<barakoCMS.Features.ContentType.Blueprints.BlueprintCatalog>();
         services.AddSingleton<IKubernetesMonitorService, KubernetesMonitorService>();

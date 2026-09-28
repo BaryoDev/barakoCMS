@@ -7,6 +7,7 @@ using FastEndpoints;
 using FluentValidation.Results;
 using Marten;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace BarakoCMS.Portability;
 
@@ -181,12 +182,21 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
 
         // Each record is checked against its type as this bundle leaves it, not as it is stored.
         // No singleton cap: an import is a restore and lands what the bundle holds.
-        var creator = Resolve<IContentCreator>();
         var batch = new ContentCreateBatch { CapSingletons = false };
         foreach (var definition in existing)
             batch.UseSchema(definition);
 
-        var staged = new List<ContentCreateRequest>();
+        // Every record gets a new id up front, so a reference to another record of the bundle can
+        // be pointed at that record as imported before either exists.
+        var newIds = new Dictionary<Guid, Guid>();
+        for (var i = 0; i < records.Count; i++)
+        {
+            if (records[i].Id is not { } sourceId || sourceId == Guid.Empty) continue;
+            if (!newIds.TryAdd(sourceId, Guid.NewGuid()))
+                AddError(new ValidationFailure($"contents[{i}]", $"id {sourceId} is used by another record of this bundle."));
+        }
+
+        var pending = new List<(int Index, ContentCreateRequest Request)>();
         for (var i = 0; i < records.Count; i++)
         {
             var rec = records[i];
@@ -205,10 +215,9 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
                 }
             }
 
-            var key = $"contents[{i}]";
             if (rec.Sensitivity is { } level && !Enum.IsDefined(level))
             {
-                AddError(new ValidationFailure(key, "sensitivity is not a valid value."));
+                AddError(new ValidationFailure($"contents[{i}]", "sensitivity is not a valid value."));
                 continue;
             }
 
@@ -218,7 +227,9 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
             foreach (var masked in rec.MaskedFields ?? [])
                 data.Remove(masked);
 
-            var request = new ContentCreateRequest
+            RepointReferences(existing.FirstOrDefault(t => t.Name.Equals(rec.ContentType, StringComparison.OrdinalIgnoreCase)), data, newIds);
+
+            pending.Add((i, new ContentCreateRequest
             {
                 ContentType = rec.ContentType,
                 Data = data,
@@ -226,42 +237,128 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
                     ? s
                     : ContentStatus.Published,
                 Sensitivity = rec.Sensitivity ?? SensitivityLevel.Public,
-            };
-
-            foreach (var error in await creator.CheckAsync(request, userId, HttpContext, batch, ct))
-                AddError(new ValidationFailure(key, error));
-
-            staged.Add(request);
+                Id = rec.Id is { } id && newIds.TryGetValue(id, out var fresh) ? fresh : null,
+            }));
         }
 
         ThrowIfAnyErrors();
 
-        if (!req.DryRun)
+        // One transaction, each write visible to the next: a lifecycle hook numbering journal
+        // entries or walking a page's ancestors sees the entries written before it in this bundle.
+        // Rolled back on any refusal and on a dry run, so a dry run runs every check and keeps
+        // nothing.
+        var failures = await Resolve<IContentBatchRunner>().RunAsync(async (scope, token) =>
         {
+            var session = scope.GetRequiredService<IDocumentSession>();
+            var creator = scope.GetRequiredService<IContentCreator>();
+
             foreach (var definition in toStore)
-                _session.Store(definition);
+                session.Store(definition);
 
             // Recorded here as well as in the create endpoint, because this is the other way a
             // content type comes into existence. A type with no policy row reads as not event
             // sourced, which is the right answer, but nothing stops the name being claimed as event
             // sourced later. DecideAsync never overwrites, so a name that already has a decision
             // keeps it.
+            var sourcing = scope.GetRequiredService<IContentSourcingPolicy>();
             foreach (var definition in created)
-                await Resolve<IContentSourcingPolicy>().DecideAsync(definition.Name, false, ct);
+                await sourcing.DecideAsync(definition.Name, false, token);
 
-            foreach (var request in staged)
-                await creator.StageAsync(request, userId, batch, ct);
+            await session.SaveChangesAsync(token);
 
-            await AuditLog.RecordAsync(_session, _tenant.Slug, "portability.imported", userId, User.FindFirst("Username")?.Value,
-                metadata: new()
+            var refused = new List<ValidationFailure>();
+            foreach (var (index, request) in InDependencyOrder(pending, newIds))
+            {
+                var errors = await creator.CheckAsync(request, userId, HttpContext, batch, token);
+                if (errors.Count > 0)
                 {
-                    ["contentTypesCreated"] = report.ContentTypesCreated,
-                    ["contentTypesUpdated"] = report.ContentTypesUpdated,
-                    ["contentsCreated"] = report.ContentsCreated,
-                }, ct: ct);
-            await _session.SaveChangesAsync(ct);
-        }
+                    refused.AddRange(errors.Select(e => new ValidationFailure($"contents[{index}]", e)));
+
+                    // Whatever a hook staged for an entry it then refused is not this batch's.
+                    session.EjectAllPendingChanges();
+                    continue;
+                }
+
+                await creator.StageAsync(request, userId, batch, token);
+                await session.SaveChangesAsync(token);
+            }
+
+            var commit = refused.Count == 0 && !req.DryRun;
+            if (commit)
+            {
+                await AuditLog.RecordAsync(session, _tenant.Slug, "portability.imported", userId, User.FindFirst("Username")?.Value,
+                    metadata: new()
+                    {
+                        ["contentTypesCreated"] = report.ContentTypesCreated,
+                        ["contentTypesUpdated"] = report.ContentTypesUpdated,
+                        ["contentsCreated"] = report.ContentsCreated,
+                    }, ct: token);
+                await session.SaveChangesAsync(token);
+            }
+
+            return new ContentBatchOutcome<List<ValidationFailure>>(refused, commit);
+        }, ct);
+
+        foreach (var failure in failures.OrderBy(f => f.PropertyName, StringComparer.Ordinal))
+            AddError(failure);
+        ThrowIfAnyErrors();
+
         await Send.ResponseAsync(report, cancellation: ct);
+    }
+
+    /// <summary>
+    /// Points each reference field holding the source id of another record in this bundle at the id
+    /// that record is imported under. A reference to anything outside the bundle is left alone, and
+    /// validation refuses it unless it exists here.
+    /// </summary>
+    private static void RepointReferences(
+        ContentTypeDefinition? schema, Dictionary<string, object> data, Dictionary<Guid, Guid> newIds)
+    {
+        if (schema is null || newIds.Count == 0) return;
+
+        foreach (var field in schema.Fields.Where(f => string.Equals(f.Type, "reference", StringComparison.OrdinalIgnoreCase)))
+        {
+            foreach (var key in data.Keys.Where(k => k.Equals(field.Name, StringComparison.OrdinalIgnoreCase)).ToList())
+            {
+                var raw = data[key] is System.Text.Json.JsonElement je ? je.ToString() : data[key]?.ToString();
+                if (Guid.TryParse(raw, out var target) && newIds.TryGetValue(target, out var imported))
+                    data[key] = imported.ToString();
+            }
+        }
+    }
+
+    /// <summary>
+    /// The records, each after the records of this bundle it references, otherwise in bundle order.
+    /// </summary>
+    /// <remarks>
+    /// A reference is checked against what exists, so a child has to be written after its parent,
+    /// and an export does not promise that order. A cycle cannot be ordered; its records keep their
+    /// bundle order and the first of them is refused for pointing at an entry not yet written.
+    /// </remarks>
+    private static IEnumerable<(int Index, ContentCreateRequest Request)> InDependencyOrder(
+        List<(int Index, ContentCreateRequest Request)> pending, Dictionary<Guid, Guid> newIds)
+    {
+        var byNewId = pending.Where(p => p.Request.Id is not null).ToDictionary(p => p.Request.Id!.Value, p => p.Index);
+        var imported = newIds.Values.ToHashSet();
+
+        var dependsOn = pending.ToDictionary(p => p.Index, p => p.Request.Data.Values
+            .Select(v => v is System.Text.Json.JsonElement je ? je.ToString() : v?.ToString())
+            .Select(v => Guid.TryParse(v, out var g) && imported.Contains(g) && byNewId.TryGetValue(g, out var at) && at != p.Index ? at : -1)
+            .Where(at => at >= 0)
+            .ToHashSet());
+
+        var written = new HashSet<int>();
+        var remaining = pending.ToList();
+        while (remaining.Count > 0)
+        {
+            var next = remaining.FirstOrDefault(p => dependsOn[p.Index].All(written.Contains));
+            if (next.Request is null)
+                next = remaining[0];
+
+            remaining.Remove(next);
+            written.Add(next.Index);
+            yield return next;
+        }
     }
 
     /// <summary>

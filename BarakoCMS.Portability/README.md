@@ -56,10 +56,13 @@ the repository.
   see is dropped, the entry is validated against its type as the bundle leaves it, the type's
   lifecycle hooks run, and the entry starts in the type's initial lifecycle state. The singleton cap
   is the one exception, since an import is a restore and lands what the bundle holds.
-- A reference must point at an entry that exists where the bundle is imported. Ids are not
-  rewritten, so an entry referencing content from another tenant is refused.
-- One bundle creates at most one entry of a type with lifecycle hooks (journal entries, accounts,
-  pages). A hook reads only what is stored, and nothing in the bundle is stored until the end.
+- The import is one database transaction, and each entry is written before the next is checked, so
+  lifecycle hooks see the entries before it: journal entries are numbered in sequence, an account's
+  parent and a page's parent from the same bundle resolve.
+- Each record carries the `id` it had where it was exported. Import gives it a new id, and a
+  reference field holding the old id of another record in the bundle is pointed at the new one,
+  whatever order the records are in. A reference to anything outside the bundle must exist where
+  the bundle is imported, so an entry referencing content left behind in another tenant is refused.
 - A stored type keeps its lifecycle when the bundle has none. A bundle that changes it, or adds one
   to a type that already has entries, is refused.
 - All or nothing. A refused type or entry answers 400 naming each one as `contentTypes[i]` or

@@ -3,6 +3,7 @@ using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace BarakoCMS.Import.Features.BulkCreate;
 
@@ -103,28 +104,46 @@ public class Endpoint(
         // a field the caller may not see is dropped, the record is validated, and the type's
         // lifecycle hooks run. The batch carries the definition resolved above, and what earlier
         // rows claimed, so a singleton type takes one row and two rows cannot share a slug.
-        var creator = Resolve<IContentCreator>();
         var batch = new ContentCreateBatch();
         if (definition is not null)
             batch.UseSchema(definition);
 
-        // Checked in full before anything is staged, so an all-or-nothing import can refuse without
-        // writing anything.
-        var errors = new List<Response.RowError>();
-        var valid = new List<ContentCreateRequest>();
-        for (var i = 0; i < req.Records.Count; i++)
+        // One transaction, each row written before the next is checked, so a lifecycle hook sees
+        // the rows before it. Rolled back when a row is refused and the import is all or nothing.
+        var (created, errors) = await Resolve<IContentBatchRunner>().RunAsync(async (scope, token) =>
         {
-            var request = new ContentCreateRequest
-            {
-                ContentType = req.ContentType,
-                Data = req.Records[i] ?? new Dictionary<string, object>(),
-                Status = req.Status,
-            };
+            var batchSession = scope.GetRequiredService<IDocumentSession>();
+            var creator = scope.GetRequiredService<IContentCreator>();
+            var rowErrors = new List<Response.RowError>();
+            var written = 0;
 
-            var messages = await creator.CheckAsync(request, userId, HttpContext, batch, ct);
-            if (messages.Count == 0) valid.Add(request);
-            else errors.Add(new Response.RowError { Row = i, Messages = messages.ToList() });
-        }
+            for (var i = 0; i < req.Records.Count; i++)
+            {
+                var request = new ContentCreateRequest
+                {
+                    ContentType = req.ContentType,
+                    Data = req.Records[i] ?? new Dictionary<string, object>(),
+                    Status = req.Status,
+                };
+
+                var messages = await creator.CheckAsync(request, userId, HttpContext, batch, token);
+                if (messages.Count > 0)
+                {
+                    rowErrors.Add(new Response.RowError { Row = i, Messages = messages.ToList() });
+
+                    // Whatever a hook staged for a row it then refused is not this batch's.
+                    batchSession.EjectAllPendingChanges();
+                    continue;
+                }
+
+                await creator.StageAsync(request, userId, batch, token);
+                await batchSession.SaveChangesAsync(token);
+                written++;
+            }
+
+            var commit = rowErrors.Count == 0 || req.ContinueOnError;
+            return new ContentBatchOutcome<(int, List<Response.RowError>)>((commit ? written : 0, rowErrors), commit);
+        }, ct);
 
         if (errors.Count > 0 && !req.ContinueOnError)
         {
@@ -133,15 +152,9 @@ public class Endpoint(
             return;
         }
 
-        foreach (var request in valid)
-            await creator.StageAsync(request, userId, batch, ct);
-
-        // All content items (and their event streams) commit atomically.
-        await session.SaveChangesAsync(ct);
-
         await Send.ResponseAsync(new Response
         {
-            Created = valid.Count,
+            Created = created,
             Failed = errors.Count,
             Errors = errors
         }, cancellation: ct);

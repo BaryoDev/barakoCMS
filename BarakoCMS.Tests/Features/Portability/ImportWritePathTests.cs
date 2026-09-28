@@ -536,19 +536,156 @@ public class ImportWritePathTests
         (await StoredTypeAsync(type))!.Lifecycle!.States.Should().Equal("Draft", "Approved");
     }
 
-    [Fact]
-    public async Task A_batch_creates_at_most_one_entry_of_a_hooked_type()
-    {
-        var admin = await AdminAsync(HookHost());
+    // Hooks see earlier entries of the same bundle --------------------------------------------
 
-        var (status, body) = await ImportAsync(admin, [HookTypeWithLifecycle()],
+    private async Task EnsureAccountingTypesAsync()
+    {
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        foreach (var def in new[]
+                 {
+                     BarakoCMS.Accounting.AccountingContentTypes.AccountDefinition(),
+                     BarakoCMS.Accounting.AccountingContentTypes.JournalEntryDefinition(),
+                 })
+        {
+            if (!await session.Query<ContentTypeDefinition>().AnyAsync(t => t.Name == def.Name, Ct))
+                session.Store(def);
+        }
+
+        await session.SaveChangesAsync(Ct);
+    }
+
+    private static object Account(string code, string? parent = null) => Record(
+        BarakoCMS.Accounting.AccountingContentTypes.Account,
+        parent is null
+            ? new() { ["Code"] = code, ["Name"] = $"Account {code}", ["Type"] = "Asset", ["IsActive"] = true }
+            : new() { ["Code"] = code, ["Name"] = $"Account {code}", ["Type"] = "Asset", ["IsActive"] = true, ["ParentCode"] = parent });
+
+    private static object Journal(string memo, string debit, string credit) => Record(
+        BarakoCMS.Accounting.AccountingContentTypes.JournalEntry,
+        new()
+        {
+            ["Date"] = "2031-03-01",
+            ["Memo"] = memo,
+            ["Lines"] = new object[]
+            {
+                new Dictionary<string, object> { ["AccountCode"] = debit, ["Debit"] = 10m, ["Credit"] = 0m },
+                new Dictionary<string, object> { ["AccountCode"] = credit, ["Debit"] = 0m, ["Credit"] = 10m },
+            },
+        });
+
+    [Fact]
+    public async Task Journal_entries_in_one_bundle_are_numbered_in_sequence_against_accounts_from_the_same_bundle()
+    {
+        await EnsureAccountingTypesAsync();
+        var admin = await AdminAsync();
+        var cash = $"C{Guid.NewGuid():N}"[..12];
+        var income = $"I{Guid.NewGuid():N}"[..12];
+        var memo = $"batch-{Guid.NewGuid():n}";
+
+        var (status, body) = await ImportAsync(admin, [],
         [
-            Record(HookType, new() { ["Title"] = $"one-{Guid.NewGuid():n}" }),
-            Record(HookType, new() { ["Title"] = $"two-{Guid.NewGuid():n}" }),
+            Account(cash),
+            Account(income, parent: cash),
+            Journal(memo, cash, income),
+            Journal(memo, cash, income),
+            Journal(memo, cash, income),
         ]);
 
+        status.Should().Be(HttpStatusCode.OK, body);
+        var numbers = (await StoredEntriesAsync(BarakoCMS.Accounting.AccountingContentTypes.JournalEntry))
+            .Where(c => c.Data.TryGetValue("Memo", out var m) && m?.ToString() == memo)
+            .Select(c => c.Data["EntryNumber"].ToString()!)
+            .ToList();
+        numbers.Should().HaveCount(3);
+        numbers.Should().OnlyHaveUniqueItems("each entry's hook sees the entries numbered before it");
+        var sequence = numbers.Select(n => int.Parse(n[^6..])).Order().ToList();
+        (sequence[2] - sequence[0]).Should().Be(2, "three entries take three consecutive numbers");
+    }
+
+    [Fact]
+    public async Task An_entry_a_hook_refuses_because_of_an_earlier_entry_in_the_bundle_refuses_the_import()
+    {
+        await EnsureAccountingTypesAsync();
+        var admin = await AdminAsync();
+        var code = $"D{Guid.NewGuid():N}"[..12];
+
+        var (status, body) = await ImportAsync(admin, [], [Account(code), Account(code)]);
+
         status.Should().Be(HttpStatusCode.BadRequest, body);
-        body.Should().Contain("contents[1]").And.Contain("lifecycle hooks");
+        body.Should().Contain("contents[1]").And.Contain($"Account code '{code}' is already in use.");
+        (await StoredEntriesAsync(BarakoCMS.Accounting.AccountingContentTypes.Account))
+            .Where(c => c.Data["Code"].ToString() == code).Should().BeEmpty("the import is all or nothing");
+    }
+
+    private const string PageType = "pagetreeprobe";
+
+    private async Task EnsurePageTypeAsync()
+    {
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        if (await session.Query<ContentTypeDefinition>().AnyAsync(d => d.Name == PageType, Ct))
+            return;
+
+        // The same definition PagesModuleTests declares, so whichever class runs first leaves the
+        // type the other expects.
+        session.Store(new ContentTypeDefinition
+        {
+            Id = Guid.NewGuid(),
+            Name = PageType,
+            DisplayName = "Page tree probe",
+            IsPubliclyDeliverable = true,
+            Fields =
+            [
+                new FieldDefinition { Name = "Title", DisplayName = "Title", Type = "string" },
+                new FieldDefinition { Name = "Slug", DisplayName = "Slug", Type = "slug" },
+                new FieldDefinition { Name = "ParentPage", DisplayName = "Parent page", Type = "reference", ReferenceType = PageType },
+                new FieldDefinition { Name = "ShowInNavigation", DisplayName = "Show in navigation", Type = "bool" },
+                new FieldDefinition { Name = "NavigationOrder", DisplayName = "Navigation order", Type = "int" },
+                new FieldDefinition { Name = "Secret", DisplayName = "Secret", Type = "string", Sensitivity = SensitivityLevel.Sensitive },
+            ],
+        });
+        await session.SaveChangesAsync(Ct);
+    }
+
+    [Fact]
+    public async Task A_page_and_its_parent_in_one_bundle_resolve_to_each_other_whatever_their_order()
+    {
+        await EnsurePageTypeAsync();
+        var admin = await AdminAsync();
+        var parentSourceId = Guid.NewGuid();
+        var slug = $"imp-{Guid.NewGuid():n}"[..16];
+
+        var (status, body) = await ImportAsync(admin, [],
+        [
+            new
+            {
+                id = Guid.NewGuid(),
+                contentType = PageType,
+                status = "Published",
+                data = new Dictionary<string, object>
+                {
+                    ["Title"] = "Child", ["Slug"] = slug + "-child", ["ParentPage"] = parentSourceId.ToString(),
+                },
+            },
+            new
+            {
+                id = parentSourceId,
+                contentType = PageType,
+                status = "Published",
+                data = new Dictionary<string, object> { ["Title"] = "Parent", ["Slug"] = slug },
+            },
+        ]);
+
+        status.Should().Be(HttpStatusCode.OK, body);
+        var pages = (await StoredEntriesAsync(PageType))
+            .Where(c => c.Data["Slug"].ToString()!.StartsWith(slug, StringComparison.Ordinal)).ToList();
+        pages.Should().HaveCount(2);
+        var parent = pages.Single(p => p.Data["Slug"].ToString() == slug);
+        var child = pages.Single(p => p.Data["Slug"].ToString() == slug + "-child");
+        parent.Id.Should().NotBe(parentSourceId, "an import creates new entries");
+        child.Data["ParentPage"].ToString().Should().Be(parent.Id.ToString(),
+            "a reference to an entry in the same bundle points at that entry as imported");
     }
 
     // Bounds -----------------------------------------------------------------------------------
