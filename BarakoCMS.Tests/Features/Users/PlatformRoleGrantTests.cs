@@ -136,6 +136,33 @@ public class PlatformRoleGrantTests
     }
 
     [Fact]
+    public async Task A_role_stored_with_no_capability_list_is_offered_and_does_not_break_the_list()
+    {
+        var (_, client, _) = await TenantAdminAsync();
+        var roleId = Guid.NewGuid();
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new Role { Id = roleId, Name = $"no-capabilities-{roleId:N}", SystemCapabilities = null! });
+            await session.SaveChangesAsync();
+        }
+
+        var offered = new List<Guid>();
+        for (var page = 1; page < 1000; page++)
+        {
+            var res = await client.GetAsync($"/api/tenants/members/roles?page={page}&pageSize=100");
+            res.StatusCode.Should().Be(HttpStatusCode.OK, "a role document written without the list is still a role");
+            using var doc = System.Text.Json.JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+            var items = doc.RootElement.GetProperty("items").EnumerateArray()
+                .Select(i => i.GetProperty("id").GetGuid()).ToList();
+            offered.AddRange(items);
+            if (items.Count < 100) break;
+        }
+
+        offered.Should().Contain(roleId, "a role with no capabilities carries no platform capability");
+    }
+
+    [Fact]
     public async Task A_tenant_admin_is_not_offered_a_role_holding_a_platform_capability()
     {
         var (_, client, _) = await TenantAdminAsync();

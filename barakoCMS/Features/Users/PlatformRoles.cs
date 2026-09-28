@@ -47,7 +47,7 @@ internal static class PlatformRoles
     };
 
     public static bool CarriesPlatformCapability(Role role) =>
-        role.Id == SystemRoles.SuperAdminRoleId || role.SystemCapabilities.Any(PlatformCapabilities.Contains);
+        role.Id == SystemRoles.SuperAdminRoleId || (role.SystemCapabilities ?? []).Any(PlatformCapabilities.Contains);
 
     /// <summary>
     /// Whether one of the caller's global roles grants manage_user_membership, or, with
@@ -66,7 +66,7 @@ internal static class PlatformRoles
         var ids = caller.RoleIds;
         var roles = await session.Query<Role>().Where(r => ids.Contains(r.Id)).ToListAsync(ct);
 
-        return roles.Any(r => SystemCapabilities.Satisfies(r.SystemCapabilities, SystemCapabilities.ManageUserMembership)
+        return roles.Any(r => SystemCapabilities.Satisfies(r.SystemCapabilities ?? [], SystemCapabilities.ManageUserMembership)
                               || (legacy && legacyRoles.Contains(r.Name)));
     }
 
