@@ -480,7 +480,10 @@ would have handed every Admin the user list, so Admin's defaults carry
 `manage_user_membership` has to come from one of their own global roles. An Admin whose role comes
 from a tenant membership gets 403 there and manages roles inside that tenant through
 `/api/tenants/members`. Granting or removing SuperAdmin takes a SuperAdmin, and removing it from
-the last user who holds it answers 409.
+the last user who holds it answers 409. A role carrying `*`, `manage_roles`, `manage_tenants`,
+`manage_users` or `manage_email_settings` reaches past any one tenant, so only a SuperAdmin grants
+it, on either surface; `/api/tenants/members/roles` leaves it out for anyone else. Each refusal is
+a 403 with a message saying why.
 
 API keys and the audit log are two capabilities for the opposite reason: their old gates were
 *identical*, so one name would have covered both and no seeded role would have noticed. They are

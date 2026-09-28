@@ -86,6 +86,103 @@ public class PlatformRoleGrantTests
         return (userId, ClientFor(userId, ["Admin"], slug));
     }
 
+    /// <summary>A custom role holding manage_roles, which edits every role document in the deployment.</summary>
+    private async Task<Guid> PlatformRoleAsync()
+    {
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var id = Guid.NewGuid();
+        session.Store(new Role
+        {
+            Id = id,
+            Name = $"role-editor-{id:N}",
+            SystemCapabilities = [SystemCapabilities.ManageRoles],
+        });
+        await session.SaveChangesAsync();
+        return id;
+    }
+
+    [Fact]
+    public async Task A_tenant_admin_cannot_give_a_member_a_role_holding_a_platform_capability()
+    {
+        var (_, client) = await TenantAdminAsync();
+        var roleId = await PlatformRoleAsync();
+        var email = $"member-{Guid.NewGuid():N}@example.com";
+
+        var res = await client.PostAsJsonAsync("/api/tenants/members", new { email, roleIds = new[] { roleId } });
+
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "manage_roles edits global role documents, so a tenant admin must not hand it out");
+        (await res.Content.ReadAsStringAsync()).Should().Contain("platform administrator");
+
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+        (await session.Query<Membership>().AnyAsync(m => m.RoleIds.Contains(roleId))).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_tenant_admin_cannot_update_a_member_to_a_role_holding_a_platform_capability()
+    {
+        var (adminId, client) = await TenantAdminAsync();
+        var roleId = await PlatformRoleAsync();
+
+        var res = await client.PutAsJsonAsync($"/api/tenants/members/{adminId}",
+            new { roleIds = new[] { SystemRoles.AdminRoleId, roleId }, status = "Active" });
+
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+        (await session.Query<Membership>().AnyAsync(m => m.RoleIds.Contains(roleId))).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_tenant_admin_is_not_offered_a_role_holding_a_platform_capability()
+    {
+        var (_, client) = await TenantAdminAsync();
+        var roleId = await PlatformRoleAsync();
+
+        var offered = new List<Guid>();
+        for (var page = 1; page < 1000; page++)
+        {
+            var res = await client.GetAsync($"/api/tenants/members/roles?page={page}&pageSize=100");
+            res.StatusCode.Should().Be(HttpStatusCode.OK);
+            using var doc = System.Text.Json.JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+            var items = doc.RootElement.GetProperty("items").EnumerateArray()
+                .Select(i => i.GetProperty("id").GetGuid()).ToList();
+            offered.AddRange(items);
+            if (items.Count < 100) break;
+        }
+
+        offered.Should().Contain(SystemRoles.AdminRoleId, "ordinary tenant roles are still offered");
+        offered.Should().NotContain(roleId);
+    }
+
+    [Fact]
+    public async Task A_global_admin_cannot_grant_a_role_holding_a_platform_capability()
+    {
+        var adminId = await UserAsync(SystemRoles.AdminRoleId);
+        var client = ClientFor(adminId, ["Admin"]);
+        var roleId = await PlatformRoleAsync();
+
+        var res = await client.PostAsJsonAsync($"/api/users/{adminId}/roles", new { roleId });
+
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "Admin does not hold manage_roles and must not be able to grant it to itself");
+        (await LoadAsync(adminId)).RoleIds.Should().NotContain(roleId);
+    }
+
+    [Fact]
+    public async Task The_refusal_says_why()
+    {
+        var (adminId, client) = await TenantAdminAsync();
+
+        var res = await client.PostAsJsonAsync(
+            $"/api/users/{adminId}/roles", new { roleId = SystemRoles.AdminRoleId });
+
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await res.Content.ReadAsStringAsync()).Should().Contain("platform administrator");
+    }
+
     [Fact]
     public async Task A_tenant_admin_cannot_grant_itself_a_global_role()
     {

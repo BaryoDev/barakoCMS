@@ -24,7 +24,7 @@ internal class Endpoint(
     {
         if (!await PlatformRoles.MayChangeAsync(session, User, configuration, LegacyRoles, ct))
         {
-            await Send.ForbiddenAsync(ct);
+            await Send.ResponseAsync(new Response { Message = PlatformRoles.RefusedMessage }, 403, ct);
             return;
         }
 
@@ -47,13 +47,12 @@ internal class Endpoint(
             return;
         }
 
-        // Granting SuperAdmin is itself a SuperAdmin act. Admin holds manage_user_membership but not
-        // manage_roles, so without this an Admin assigns itself SuperAdmin and steps outside the
-        // whole capability model. Nothing below SuperAdmin can mint a comparably privileged custom
-        // role, because manage_roles is SuperAdmin-only, so guarding this one role id is enough.
-        if (req.RoleId == SystemRoles.SuperAdminRoleId && !await PlatformRoles.IsSuperAdminAsync(session, User, ct))
+        // A role carrying a platform capability (SuperAdmin, or a custom role with manage_roles and
+        // the like) is granted only by a SuperAdmin. Admin holds manage_user_membership but none of
+        // those, so without this an Admin grants itself one and steps outside the capability model.
+        if (PlatformRoles.CarriesPlatformCapability(role) && !await PlatformRoles.IsSuperAdminAsync(session, User, ct))
         {
-            await Send.ForbiddenAsync(ct);
+            await Send.ResponseAsync(new Response { Message = PlatformRoles.PlatformRoleRefusedMessage }, 403, ct);
             return;
         }
 

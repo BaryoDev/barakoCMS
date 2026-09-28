@@ -24,14 +24,14 @@ internal class Endpoint(
     {
         if (!await PlatformRoles.MayChangeAsync(session, User, configuration, LegacyRoles, ct))
         {
-            await Send.ForbiddenAsync(ct);
+            await Send.ResponseAsync(new Response { Message = PlatformRoles.RefusedMessage }, 403, ct);
             return;
         }
 
         // Taking SuperAdmin away is a SuperAdmin act, the same as granting it.
         if (req.RoleId == SystemRoles.SuperAdminRoleId && !await PlatformRoles.IsSuperAdminAsync(session, User, ct))
         {
-            await Send.ForbiddenAsync(ct);
+            await Send.ResponseAsync(new Response { Message = "Only a SuperAdmin can remove the SuperAdmin role." }, 403, ct);
             return;
         }
 

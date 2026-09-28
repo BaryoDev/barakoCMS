@@ -40,6 +40,21 @@ internal static class Members
     /// </summary>
     public static bool IsAssignable(Guid roleId) => roleId != SystemRoles.SuperAdminRoleId;
 
+    /// <summary>
+    /// A role carrying a platform capability reaches past this tenant (manage_roles edits every
+    /// role document), so only a SuperAdmin hands one out here, the same rule the global surface
+    /// applies.
+    /// </summary>
+    public static async Task<bool> RefusesPlatformRolesAsync(
+        IQuerySession session, System.Security.Claims.ClaimsPrincipal caller, List<Guid> roleIds, CancellationToken ct)
+    {
+        if (roleIds.Count == 0) return false;
+
+        var roles = await session.Query<Role>().Where(r => roleIds.Contains(r.Id)).ToListAsync(ct);
+        return roles.Any(barakoCMS.Features.Users.PlatformRoles.CarriesPlatformCapability)
+               && !await barakoCMS.Features.Users.PlatformRoles.IsSuperAdminAsync(session, caller, ct);
+    }
+
     public static DateTimeOffset Instant(DateTime value) =>
         new(DateTime.SpecifyKind(value, DateTimeKind.Utc));
 
@@ -134,6 +149,9 @@ internal sealed class AddMemberEndpoint(
                 ThrowIfAnyErrors();
             }
         }
+
+        if (await Members.RefusesPlatformRolesAsync(session, User, roleIds, ct))
+            ThrowError(barakoCMS.Features.Users.PlatformRoles.PlatformRoleRefusedMessage, 403);
 
         var user = await session.Query<User>().FirstOrDefaultAsync(u => u.NormalizedEmail == email, ct);
         var invited = user is null;
@@ -249,6 +267,9 @@ internal sealed class UpdateMemberEndpoint(
             }
         }
 
+        if (await Members.RefusesPlatformRolesAsync(session, User, roleIds, ct))
+            ThrowError(barakoCMS.Features.Users.PlatformRoles.PlatformRoleRefusedMessage, 403);
+
         var membership = await session.Query<Membership>()
             .FirstOrDefaultAsync(m => m.UserId == req.UserId
                                       && m.TenantSlug == slug
@@ -348,11 +369,13 @@ internal sealed class AssignableRolesEndpoint(
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)
     {
         var roles = await session.Query<Role>().OrderBy(r => r.Name).ToListAsync(ct);
+        var superAdmin = await barakoCMS.Features.Users.PlatformRoles.IsSuperAdminAsync(session, User, ct);
 
         // Filtered by the same predicate the write paths refuse on, so the list a client is offered
         // and the list the server accepts cannot drift apart.
         var assignable = roles
             .Where(r => Members.IsAssignable(r.Id))
+            .Where(r => superAdmin || !barakoCMS.Features.Users.PlatformRoles.CarriesPlatformCapability(r))
             .Select(r => new AssignableRoleResponse(r.Id, r.Name, r.Description))
             .ToList();
 
