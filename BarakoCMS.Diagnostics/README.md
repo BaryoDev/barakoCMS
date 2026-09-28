@@ -37,8 +37,12 @@ the repository.
 | Method & path | Purpose | Access |
 |---|---|---|
 | `POST /api/client-errors` | Report a batch of captured errors | Anonymous |
-| `GET  /api/client-errors` | Browse what has been reported | `Admin` / `SuperAdmin` |
+| `GET  /api/client-errors` | Browse what has been reported for the current tenant (every tenant for a SuperAdmin) | `Admin` / `SuperAdmin` |
 | `POST /api/client-errors/{id}/resolve` | Mark a fingerprint resolved, with an optional `reference` (a ticket or pull request link or number, up to 500 characters) and `note` (up to 2,000); `{ "resolved": false }` reopens it and clears both | `Admin` / `SuperAdmin` |
+
+An error is kept per tenant: the report's `tenant`, or the tenant the request resolved to when it
+names none. The same fault in two tenants is two rows, and resolving another tenant's error answers
+404 unless the caller is a SuperAdmin.
 
 Reporting is anonymous on purpose: the errors worth catching often happen before anyone signs in.
 That makes it a spammable endpoint, so it runs under its own tighter `telemetry` rate-limit policy

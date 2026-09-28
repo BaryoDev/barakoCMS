@@ -36,10 +36,13 @@ the repository.
 | Method & path | Purpose | Access |
 |---|---|---|
 | `GET    /api/feature-flags` | Flags as evaluated for the caller | Anyone (public flags only until signed in) |
-| `GET    /api/feature-flags/admin` | Every flag with its targeting rules | `Admin` / `SuperAdmin` |
-| `POST   /api/feature-flags/admin` | Create or update a flag | `Admin` / `SuperAdmin` |
-| `POST   /api/feature-flags/admin/{key}/toggle` | Flip a flag | `Admin` / `SuperAdmin` |
-| `DELETE /api/feature-flags/admin/{key}` | Remove a flag | `Admin` / `SuperAdmin` |
+| `GET    /api/feature-flags/admin` | Every flag with its targeting rules | `Admin` / `SuperAdmin` held as a global role |
+| `POST   /api/feature-flags/admin` | Create or update a flag | `Admin` / `SuperAdmin` held as a global role |
+| `POST   /api/feature-flags/admin/{key}/toggle` | Flip a flag | `Admin` / `SuperAdmin` held as a global role |
+| `DELETE /api/feature-flags/admin/{key}` | Remove a flag | `Admin` / `SuperAdmin` held as a global role |
+
+Flags are global and their targeting names tenants, so the admin routes answer 403 to an Admin whose
+role comes only from a tenant membership.
 
 `GET /api/feature-flags` returns decisions, not rules — the client never learns why it was included,
 and cannot flip itself in by editing a response.

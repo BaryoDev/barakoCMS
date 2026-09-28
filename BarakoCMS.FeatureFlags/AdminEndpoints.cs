@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using barakoCMS.Infrastructure.Auth;
 using FastEndpoints;
 using Marten;
@@ -28,8 +29,20 @@ public class FlagDto
     };
 }
 
+/// <summary>
+/// Flags are one global table and a flag's targeting names other tenants, so the admin surface is for
+/// callers holding manage_feature_flags through a global role, not through a tenant membership.
+/// </summary>
+internal static class FlagAdmin
+{
+    public static Task<bool> AllowedAsync(
+        IQuerySession session, ClaimsPrincipal user, IConfiguration configuration, CancellationToken ct) =>
+        PlatformScope.HoldsGloballyAsync(session, user, configuration,
+            FeatureFlagCapabilities.ManageFeatureFlags, FeatureFlagCapabilities.LegacyRoles, ct);
+}
+
 /// <summary>GET /api/feature-flags/admin — all flags with their full config.</summary>
-public class ListFlagsEndpoint(IQuerySession session) : EndpointWithoutRequest<List<FlagDto>>
+public class ListFlagsEndpoint(IQuerySession session, IConfiguration configuration) : EndpointWithoutRequest<List<FlagDto>>
 {
     public override void Configure()
     {
@@ -40,6 +53,10 @@ public class ListFlagsEndpoint(IQuerySession session) : EndpointWithoutRequest<L
 
     public override async Task HandleAsync(CancellationToken ct)
     {
+        if (!await FlagAdmin.AllowedAsync(session, User, configuration, ct))
+        {
+            ThrowError(PlatformScope.DeploymentWideMessage, 403);
+        }
         var flags = await session.Query<FeatureFlag>().OrderBy(f => f.Key).ToListAsync(ct);
         await Send.ResponseAsync(flags.Select(FlagDto.From).ToList(), cancellation: ct);
     }
@@ -63,7 +80,7 @@ public class UpsertFlagRequest
 }
 
 /// <summary>POST /api/feature-flags/admin — create or update a flag (upsert by key).</summary>
-public class SaveFlagEndpoint(IDocumentSession session) : Endpoint<UpsertFlagRequest, FlagDto>
+public class SaveFlagEndpoint(IDocumentSession session, IConfiguration configuration) : Endpoint<UpsertFlagRequest, FlagDto>
 {
     public override void Configure()
     {
@@ -74,6 +91,10 @@ public class SaveFlagEndpoint(IDocumentSession session) : Endpoint<UpsertFlagReq
 
     public override async Task HandleAsync(UpsertFlagRequest req, CancellationToken ct)
     {
+        if (!await FlagAdmin.AllowedAsync(session, User, configuration, ct))
+        {
+            ThrowError(PlatformScope.DeploymentWideMessage, 403);
+        }
         var key = (req.Key ?? string.Empty).Trim().ToLowerInvariant();
         if (string.IsNullOrWhiteSpace(key)) { AddError("Key is required."); await Send.ErrorsAsync(400, ct); return; }
 
@@ -99,7 +120,7 @@ public class SaveFlagEndpoint(IDocumentSession session) : Endpoint<UpsertFlagReq
 public class KeyRequest { public string Key { get; set; } = string.Empty; }
 
 /// <summary>POST /api/feature-flags/admin/{key}/toggle — flip a flag on/off.</summary>
-public class ToggleFlagEndpoint(IDocumentSession session) : Endpoint<KeyRequest, FlagDto>
+public class ToggleFlagEndpoint(IDocumentSession session, IConfiguration configuration) : Endpoint<KeyRequest, FlagDto>
 {
     public override void Configure()
     {
@@ -110,6 +131,10 @@ public class ToggleFlagEndpoint(IDocumentSession session) : Endpoint<KeyRequest,
 
     public override async Task HandleAsync(KeyRequest req, CancellationToken ct)
     {
+        if (!await FlagAdmin.AllowedAsync(session, User, configuration, ct))
+        {
+            ThrowError(PlatformScope.DeploymentWideMessage, 403);
+        }
         var key = (req.Key ?? string.Empty).Trim().ToLowerInvariant();
         var flag = await session.Query<FeatureFlag>().FirstOrDefaultAsync(f => f.Key == key, ct);
         if (flag is null) { await Send.NotFoundAsync(ct); return; }
@@ -122,7 +147,7 @@ public class ToggleFlagEndpoint(IDocumentSession session) : Endpoint<KeyRequest,
 }
 
 /// <summary>DELETE /api/feature-flags/admin/{key} — remove a flag.</summary>
-public class DeleteFlagEndpoint(IDocumentSession session) : Endpoint<KeyRequest>
+public class DeleteFlagEndpoint(IDocumentSession session, IConfiguration configuration) : Endpoint<KeyRequest>
 {
     public override void Configure()
     {
@@ -133,6 +158,10 @@ public class DeleteFlagEndpoint(IDocumentSession session) : Endpoint<KeyRequest>
 
     public override async Task HandleAsync(KeyRequest req, CancellationToken ct)
     {
+        if (!await FlagAdmin.AllowedAsync(session, User, configuration, ct))
+        {
+            ThrowError(PlatformScope.DeploymentWideMessage, 403);
+        }
         var key = (req.Key ?? string.Empty).Trim().ToLowerInvariant();
         var flag = await session.Query<FeatureFlag>().FirstOrDefaultAsync(f => f.Key == key, ct);
         if (flag is not null) { session.Delete(flag); await session.SaveChangesAsync(ct); }

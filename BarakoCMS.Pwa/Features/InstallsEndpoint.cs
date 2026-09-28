@@ -1,4 +1,5 @@
 using barakoCMS.Infrastructure.Auth;
+using barakoCMS.Infrastructure.Multitenancy;
 using FastEndpoints;
 using barakoCMS.Models;
 using Marten;
@@ -23,7 +24,8 @@ public sealed class InstallDto
 /// <summary>GET /api/pwa/installs — devices that have run the app, newest activity first, with who
 /// (when signed in) and whether they're running it installed. Admin only.</summary>
 public sealed class InstallsEndpoint(
-    IQuerySession session) : Endpoint<barakoCMS.Models.ListRequest, barakoCMS.Models.PaginatedResponse<InstallDto>>
+    IQuerySession session,
+    TenantContext tenant) : Endpoint<barakoCMS.Models.ListRequest, barakoCMS.Models.PaginatedResponse<InstallDto>>
 {
     public override void Configure()
     {
@@ -36,7 +38,20 @@ public sealed class InstallsEndpoint(
     {
         // The Take(1000) cap is gone: the envelope is the bound now, and a cap that silently drops
         // the 1001st row is the kind of quiet wrong answer paging exists to replace.
-        var page = await session.Query<PwaInstall>()
+        var query = session.Query<PwaInstall>().AsQueryable();
+
+        // One global table with the reporting tenant kept as data. A SuperAdmin sees every device;
+        // anyone else sees the devices that reported from the current tenant. A report without an
+        // X-Tenant header came from the default tenant, so its rows are listed there.
+        if (!await PlatformScope.IsSuperAdminAsync(session, User, ct))
+        {
+            var slug = tenant.Slug;
+            query = tenant.IsDefault
+                ? query.Where(p => p.Tenant == null || p.Tenant == slug)
+                : query.Where(p => p.Tenant == slug);
+        }
+
+        var page = await query
             .OrderByDescending(p => p.LastSeenAt)
             .ToPagedResponseAsync(req, ct);
 

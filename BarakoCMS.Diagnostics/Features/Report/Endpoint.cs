@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure.Multitenancy;
 using FastEndpoints;
 using Marten;
 // RequireRateLimiting lives here; this project is not a Web SDK project, so it is not implicitly used.
@@ -30,7 +31,7 @@ public class ReportRequest
 /// <see cref="ClientErrorRecorder"/>) so it can't be used to flood storage. Repeated faults are
 /// deduplicated by fingerprint rather than stored again.
 /// </summary>
-public class Endpoint(IDocumentSession session) : Endpoint<ReportRequest>
+public class Endpoint(IDocumentSession session, TenantContext tenant) : Endpoint<ReportRequest>
 {
     public override void Configure()
     {
@@ -50,6 +51,9 @@ public class Endpoint(IDocumentSession session) : Endpoint<ReportRequest>
 
         foreach (var item in req.Items.Take(ClientErrorRecorder.MaxItems))
         {
+            // An error from before sign-in names no tenant. The one the request resolved to keeps it
+            // on that tenant's list rather than on nobody's but a SuperAdmin's.
+            if (string.IsNullOrWhiteSpace(item.Tenant)) item.Tenant = tenant.Slug;
             await ClientErrorRecorder.RecordAsync(session, item, userAgent, userId, username, ct);
         }
 

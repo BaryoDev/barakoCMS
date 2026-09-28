@@ -1,4 +1,5 @@
 using barakoCMS.Infrastructure.Auth;
+using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
@@ -66,7 +67,7 @@ public class ClientErrorDto
 }
 
 /// <summary>GET /api/client-errors — browse captured errors, newest activity first.</summary>
-public class Endpoint(IQuerySession session) : Endpoint<ListRequest, PaginatedResponse<ClientErrorDto>>
+public class Endpoint(IQuerySession session, TenantContext tenant) : Endpoint<ListRequest, PaginatedResponse<ClientErrorDto>>
 {
     public override void Configure()
     {
@@ -78,6 +79,18 @@ public class Endpoint(IQuerySession session) : Endpoint<ListRequest, PaginatedRe
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)
     {
         var query = session.Query<ClientError>().AsQueryable();
+
+        // ClientError is one global table with the tenant kept as data, so the session filters
+        // nothing. A SuperAdmin sees every tenant's errors; anyone else sees the current tenant's.
+        // A row with no tenant was reported before the report named one, and belongs to the
+        // default tenant, which is where a single-tenant deployment's Admin has always read it.
+        if (!await PlatformScope.IsSuperAdminAsync(session, User, ct))
+        {
+            var slug = tenant.Slug;
+            query = tenant.IsDefault
+                ? query.Where(e => e.Tenant == null || e.Tenant == slug)
+                : query.Where(e => e.Tenant == slug);
+        }
 
         if (req.Resolved is bool resolved)
             query = query.Where(e => e.Resolved == resolved);

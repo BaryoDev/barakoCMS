@@ -1,4 +1,5 @@
 using barakoCMS.Infrastructure.Auth;
+using barakoCMS.Infrastructure.Multitenancy;
 using FastEndpoints;
 using FluentValidation;
 using Marten;
@@ -31,7 +32,7 @@ public sealed class ResolveValidator : Validator<ResolveRequest>
 }
 
 /// <summary>POST /api/client-errors/{id}/resolve: mark an error done, or reopen it.</summary>
-public class Endpoint(IDocumentSession session) : Endpoint<ResolveRequest>
+public class Endpoint(IDocumentSession session, TenantContext tenant) : Endpoint<ResolveRequest>
 {
     public override void Configure()
     {
@@ -44,6 +45,14 @@ public class Endpoint(IDocumentSession session) : Endpoint<ResolveRequest>
     {
         var error = await session.LoadAsync<ClientError>(req.Id, ct);
         if (error is null) { await Send.NotFoundAsync(ct); return; }
+
+        // Another tenant's error answers as missing, the same as the list, which never shows it.
+        if ((error.Tenant ?? barakoCMS.Models.Tenant.DefaultSlug) != tenant.Slug
+            && !await PlatformScope.IsSuperAdminAsync(session, User, ct))
+        {
+            await Send.NotFoundAsync(ct);
+            return;
+        }
 
         error.Resolved = req.Resolved;
         error.ResolvedAt = req.Resolved ? DateTime.UtcNow : null;

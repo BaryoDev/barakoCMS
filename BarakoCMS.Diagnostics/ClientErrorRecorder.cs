@@ -31,8 +31,14 @@ public static class ClientErrorRecorder
         var source = ClientErrorText.Trim(item.Source, MaxField);
         var fingerprint = ClientErrorText.Fingerprint(kind, message, source, item.Status);
 
-        var existing = await session.Query<ClientError>()
-            .Where(e => e.Fingerprint == fingerprint)
+        var tenant = ClientErrorText.Trim(item.Tenant, 100);
+
+        // Per tenant as well as per fault. Folding one tenant's recurrence into another's row would
+        // put that user on a row the other tenant's administrator reads.
+        var sameFault = session.Query<ClientError>().Where(e => e.Fingerprint == fingerprint);
+        var existing = await (tenant is null
+                ? sameFault.Where(e => e.Tenant == null)
+                : sameFault.Where(e => e.Tenant == tenant))
             .FirstOrDefaultAsync(ct);
 
         if (existing is not null)

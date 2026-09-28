@@ -17,7 +17,8 @@ internal class SystemSettingDto
 }
 
 internal class GetSettingsEndpoint(
-    IDocumentSession session) : Endpoint<ListRequest, PaginatedResponse<SystemSettingDto>>
+    IDocumentSession session,
+    IConfiguration configuration) : Endpoint<ListRequest, PaginatedResponse<SystemSettingDto>>
 {
     public override void Configure()
     {
@@ -27,6 +28,12 @@ internal class GetSettingsEndpoint(
 
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)
     {
+        if (!await PlatformScope.HoldsGloballyAsync(
+                session, User, configuration, SystemCapabilities.ManageSettings, ["SuperAdmin", "Admin"], ct))
+        {
+            ThrowError(PlatformScope.DeploymentWideMessage, 403);
+        }
+
         var page = await session.Query<SystemSetting>()
             .OrderBy(s => s.Category)
             .ThenBy(s => s.Key)

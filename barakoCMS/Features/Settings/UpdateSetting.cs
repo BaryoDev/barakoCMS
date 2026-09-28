@@ -17,7 +17,8 @@ internal class UpdateSettingResponse
     public string Message { get; set; } = string.Empty;
 }
 
-internal class UpdateSettingEndpoint(IDocumentSession session) : Endpoint<UpdateSettingRequest, UpdateSettingResponse>
+internal class UpdateSettingEndpoint(IDocumentSession session, IConfiguration configuration)
+    : Endpoint<UpdateSettingRequest, UpdateSettingResponse>
 {
     public override void Configure()
     {
@@ -40,6 +41,14 @@ internal class UpdateSettingEndpoint(IDocumentSession session) : Endpoint<Update
 
     public override async Task HandleAsync(UpdateSettingRequest req, CancellationToken ct)
     {
+        // SystemSetting is one table for the whole deployment, so a tenant's administrator holding
+        // manage_settings through a membership must not write it.
+        if (!await PlatformScope.HoldsGloballyAsync(
+                session, User, configuration, SystemCapabilities.ManageSettings, ["SuperAdmin", "Admin"], ct))
+        {
+            ThrowError(PlatformScope.DeploymentWideMessage, 403);
+        }
+
         var looksSecret = SecretKeyFragments.FirstOrDefault(
             f => req.Key.Contains(f, StringComparison.OrdinalIgnoreCase));
 

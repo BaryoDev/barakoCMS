@@ -1,4 +1,6 @@
 using barakoCMS.Infrastructure.Auth;
+using barakoCMS.Infrastructure.Multitenancy;
+using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
 
@@ -6,10 +8,16 @@ namespace BarakoCMS.Email.Resend;
 
 /// <summary>
 /// GET /api/email-events — the delivery problems Resend has reported (bounces, complaints, delays),
-/// newest first, for the admin. Global (not tenant-scoped), like the <see cref="EmailEvent"/> store.
+/// newest first, for the admin.
 /// </summary>
+/// <remarks>
+/// The <see cref="EmailEvent"/> store is global and an event carries no tenant, only a recipient.
+/// A SuperAdmin sees every event. Anyone else sees the events for addresses that belong to active
+/// members of the current tenant, which is the part of the mail a tenant's administrator sends to.
+/// </remarks>
 public sealed class EmailEventsEndpoint(
-    IQuerySession session) : Endpoint<EmailEventsEndpoint.Request, IReadOnlyList<EmailEvent>>
+    IQuerySession session,
+    TenantContext tenant) : Endpoint<EmailEventsEndpoint.Request, IReadOnlyList<EmailEvent>>
 {
     public sealed class Request
     {
@@ -34,7 +42,38 @@ public sealed class EmailEventsEndpoint(
         if (!string.IsNullOrWhiteSpace(req.Type))
             q = q.Where(e => e.Type == req.Type);
 
+        if (!await PlatformScope.IsSuperAdminAsync(session, User, ct))
+        {
+            var addresses = await MemberAddressesAsync(tenant.Slug, ct);
+            q = q.Where(e => e.Email.IsOneOf(addresses));
+        }
+
         var events = await q.OrderByDescending(e => e.At).Take(limit).ToListAsync(ct);
         await Send.OkAsync(events.ToList(), ct);
+    }
+
+    /// <summary>
+    /// Stored lowercased, like <see cref="EmailEvent.Email"/>, so the match does not depend on how a
+    /// member typed their address.
+    /// </summary>
+    private async Task<string[]> MemberAddressesAsync(string slug, CancellationToken ct)
+    {
+        var memberIds = await session.Query<Membership>()
+            .Where(m => m.TenantSlug == slug && m.Status == MembershipStatus.Active)
+            .Select(m => m.UserId)
+            .ToListAsync(ct);
+        if (memberIds.Count == 0)
+        {
+            return [];
+        }
+
+        var emails = await session.Query<User>()
+            .Where(u => u.Id.IsOneOf(memberIds.ToArray()))
+            .Select(u => u.Email)
+            .ToListAsync(ct);
+        return emails.Where(e => !string.IsNullOrWhiteSpace(e))
+            .Select(e => e.Trim().ToLowerInvariant())
+            .Distinct()
+            .ToArray();
     }
 }
