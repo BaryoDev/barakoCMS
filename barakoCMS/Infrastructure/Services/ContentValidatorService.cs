@@ -41,6 +41,26 @@ public interface IContentValidatorService
         string contentType,
         Dictionary<string, object> data)
         => ValidateAsync(contentType, data, existing: null);
+
+    /// <summary>
+    /// Checks a data bag against a schema the caller supplies rather than the stored one, leaving
+    /// out the singleton cap.
+    /// </summary>
+    /// <remarks>
+    /// For a write that changes the type and its entries in one unit, as an import does: the type
+    /// the entries must match is not stored yet. The singleton cap is left to the caller, because
+    /// whether a batch may hold more than one entry of a singleton type is the batch's rule.
+    ///
+    /// The default throws rather than falling back to the stored schema. Falling back would check a
+    /// type the bundle is about to replace, or no type at all, and pass what should be refused.
+    /// </remarks>
+    Task<(bool IsValid, List<string> Errors)> ValidateFieldsAsync(
+        ContentTypeDefinition schema,
+        string contentType,
+        Dictionary<string, object> data,
+        Models.Content? existing)
+        => throw new NotSupportedException(
+            $"{GetType().Name} does not implement {nameof(ValidateFieldsAsync)}.");
 }
 
 public class ContentValidatorService(IQuerySession session) : IContentValidatorService
@@ -104,6 +124,18 @@ public class ContentValidatorService(IQuerySession session) : IContentValidatorS
             // accepted as-is. Validation is opt-in: defining a type is what turns it on.
             return (true, errors);
         }
+
+        return await ValidateFieldsAsync(schema, contentType, data, existing);
+    }
+
+    /// <inheritdoc />
+    public async Task<(bool IsValid, List<string> Errors)> ValidateFieldsAsync(
+        ContentTypeDefinition schema,
+        string contentType,
+        Dictionary<string, object> data,
+        Models.Content? existing)
+    {
+        var errors = new List<string>();
 
         // 3. Validate Fields
         foreach (var field in schema.Fields)

@@ -1128,6 +1128,7 @@ public static class ServiceCollectionExtensions
     private static void AddValidationAndMonitoring(IServiceCollection services)
     {
         services.AddScoped<IContentValidatorService, ContentValidatorService>();
+        services.AddScoped<IContentCreator, ContentCreator>();
         services.AddScoped<IContentTypeValidatorService, ContentTypeValidatorService>();
         services.AddScoped<barakoCMS.Features.ContentType.Blueprints.BlueprintCatalog>();
         services.AddSingleton<IKubernetesMonitorService, KubernetesMonitorService>();

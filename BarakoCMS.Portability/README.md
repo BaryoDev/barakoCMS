@@ -47,6 +47,21 @@ the repository.
   identically to content authored in place.
 - Each entry keeps the document-level sensitivity the bundle records for it, so a restored Hidden
   entry stays Hidden. A bundle from before 4.3.1 records none, and its entries import as Public.
+- Each content type goes through the checks `POST /api/content-types` runs, its lifecycle
+  included, and a stored type keeps the add field rule: a required field with no default is refused
+  on a type that already has entries. An import does not change who may read a stored field; a
+  bundle that raises, lowers or leaves out a non-Public field is refused, and
+  `PUT /api/content-types/{name}/fields/{field}/sensitivity` is the way to change it.
+- Each entry goes through the same write path as `POST /api/contents`: a field the caller may not
+  see is dropped, the entry is validated against its type as the bundle leaves it, the type's
+  lifecycle hooks run, and the entry starts in the type's initial lifecycle state. The singleton cap
+  is the one exception, since an import is a restore and lands what the bundle holds.
+- All or nothing. A refused type or entry answers 400 naming each one as `contentTypes[i]` or
+  `contents[i]`, and nothing is written, so the fixed bundle can be imported again without
+  duplicating what would have landed. A dry run refuses exactly what the real run would.
+- A bundle holds at most 5,000 entries (`Portability:MaxImportRecords`) and 500 content types.
+  Past either, the import answers 400 before reading anything. Move a larger site in several
+  bundles using export's `types` parameter.
 - The import runs inside the calling tenant. A bundle carries no tenant identity of its own, which
   is what makes it safe to move between environments.
 

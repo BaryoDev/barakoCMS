@@ -25,4 +25,16 @@ public interface ISensitivityService
     /// (<paramref name="existing"/> null) it is dropped. So masking cannot be bypassed by writing.
     /// </summary>
     ValueTask ApplyWriteAsync(string contentType, IDictionary<string, object> incoming, IReadOnlyDictionary<string, object>? existing, HttpContext httpContext, CancellationToken ct = default);
+
+    /// <summary>
+    /// The same rule against a definition the caller supplies rather than the stored one, for a
+    /// write that brings the type with it, as an import does.
+    /// </summary>
+    /// <remarks>
+    /// The default throws rather than falling back to the stored definition. A type the bundle
+    /// creates is not stored yet, and falling back would find no fields to protect and drop nothing.
+    /// </remarks>
+    ValueTask ApplyWriteAsync(ContentTypeDefinition definition, IDictionary<string, object> incoming, IReadOnlyDictionary<string, object>? existing, HttpContext httpContext, CancellationToken ct = default)
+        => throw new NotSupportedException(
+            $"{GetType().Name} does not implement ApplyWriteAsync for a supplied definition.");
 }

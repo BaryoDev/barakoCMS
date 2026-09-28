@@ -92,6 +92,24 @@ public class SensitivityService : ISensitivityService
         if (definition == null)
             return;
 
+        DropUnwritable(definition, incoming, existing, user);
+    }
+
+    public ValueTask ApplyWriteAsync(ContentTypeDefinition definition, IDictionary<string, object> incoming, IReadOnlyDictionary<string, object>? existing, HttpContext httpContext, CancellationToken ct = default)
+    {
+        if (_mode == SensitivityMode.Off || httpContext.User.IsInRole("SuperAdmin"))
+            return ValueTask.CompletedTask;
+
+        DropUnwritable(definition, incoming, existing, httpContext.User);
+        return ValueTask.CompletedTask;
+    }
+
+    private static void DropUnwritable(
+        ContentTypeDefinition definition,
+        IDictionary<string, object> incoming,
+        IReadOnlyDictionary<string, object>? existing,
+        System.Security.Claims.ClaimsPrincipal user)
+    {
         foreach (var field in definition.Fields)
         {
             if (field.Sensitivity == SensitivityLevel.Public)
