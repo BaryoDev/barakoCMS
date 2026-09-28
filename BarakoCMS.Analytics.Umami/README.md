@@ -44,7 +44,10 @@ Bind the `Umami` section (env vars shown):
 When disabled or unconfigured the module stays inert: `GET /api/analytics/websites` returns
 `{ configured: false }` and the admin shows a "connect Umami" hint instead of an error.
 
-## Endpoints (Admin / SuperAdmin only)
+## Endpoints (Admin / SuperAdmin, held as a global role)
+
+The deployment has one Umami account, and none of it is scoped to a tenant, so an Admin whose role
+comes only from a tenant membership gets 403 on every route below.
 
 | Method | Route | Purpose |
 | --- | --- | --- |

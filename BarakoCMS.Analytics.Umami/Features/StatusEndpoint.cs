@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Configuration;
+using Marten;
 using barakoCMS.Infrastructure.Auth;
 using FastEndpoints;
 
@@ -19,7 +21,10 @@ public sealed class SiteStatusResponse
 /// GET /api/analytics/{websiteId}/status — has this site started sending data? Powers the
 /// "add the snippet" instructions and the "verify installation" check in the admin.
 /// </summary>
-public sealed class StatusEndpoint(IUmamiClient umami) : Endpoint<AnalyticsWindowRequest, SiteStatusResponse>
+public sealed class StatusEndpoint(
+    IUmamiClient umami,
+    IQuerySession session,
+    IConfiguration configuration) : Endpoint<AnalyticsWindowRequest, SiteStatusResponse>
 {
     public override void Configure()
     {
@@ -30,6 +35,11 @@ public sealed class StatusEndpoint(IUmamiClient umami) : Endpoint<AnalyticsWindo
 
     public override async Task HandleAsync(AnalyticsWindowRequest req, CancellationToken ct)
     {
+        if (!await AnalyticsAccess.AllowedAsync(session, User, configuration, AnalyticsCapabilities.ViewAnalytics, ct))
+        {
+            ThrowError(PlatformScope.DeploymentWideMessage, 403);
+        }
+
         // All-time window: from the Unix epoch to now.
         var endAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var summary = await umami.GetSummaryAsync(req.WebsiteId, 0, endAt, ct);

@@ -580,6 +580,24 @@ provisioning a website in somebody else's system using this deployment's credent
 splits export from import because the risks are opposite: export reads a whole tenant out in one
 request, import writes a whole tenant in.
 
+Several of these, and `/api/settings` in core, read tables stored once for the whole deployment,
+so the tenant filter every other route gets from the session does not apply and the endpoint
+applies its own. The question each one asks is whether the caller holds the capability through a
+global role, which only a platform administrator grants, or only through a tenant membership.
+
+- Client errors, email events and PWA installs each belong to one tenant. Through a global role you
+  see every tenant's rows; through a membership you see the current tenant's. An email event
+  belongs to the tenant that sent the email, recorded against Resend's id at send time; an event
+  with no recorded sender is visible through a global role only. Only mail sent on a tenant's
+  behalf through `IEmailService.SendForTenantAsync` (a workflow's email) is recorded; a user's own
+  account mail, such as a sign-in code or a lockout notice, belongs to no tenant.
+- Settings, feature flags and the Umami analytics routes configure or read something shared by
+  every tenant, so they answer 403 to a caller holding the capability through a membership only.
+
+A global role rather than SuperAdmin alone, because a single-tenant deployment's Admin holds its
+role globally and can resolve to any tenant slug, a subdomain nobody registered included. The rule
+lives in `PlatformScope` (`barakoCMS/Infrastructure/Auth`).
+
 Files is one grant, not a split, but it is not uniform either. `upload_files` opens list, describe
 and edit for every file in the tenant, and delete and download for a file this account uploaded,
 because none of list, describe or edit exposes bytes or destroys anything the caller could not

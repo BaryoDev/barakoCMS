@@ -1,15 +1,25 @@
 using barakoCMS.Infrastructure.Auth;
+using barakoCMS.Infrastructure.Multitenancy;
 using FastEndpoints;
 using Marten;
+using Microsoft.Extensions.Configuration;
 
 namespace BarakoCMS.Email.Resend;
 
 /// <summary>
 /// GET /api/email-events — the delivery problems Resend has reported (bounces, complaints, delays),
-/// newest first, for the admin. Global (not tenant-scoped), like the <see cref="EmailEvent"/> store.
+/// newest first, for the admin.
 /// </summary>
+/// <remarks>
+/// The <see cref="EmailEvent"/> store is global. Holding the capability through a global role sees
+/// every event; anyone else sees the events for email the current tenant sent, which the event
+/// carries from the <see cref="SentEmail"/> recorded at send time. An event with no tenant is seen
+/// through a global role only.
+/// </remarks>
 public sealed class EmailEventsEndpoint(
-    IQuerySession session) : Endpoint<EmailEventsEndpoint.Request, IReadOnlyList<EmailEvent>>
+    IQuerySession session,
+    TenantContext tenant,
+    IConfiguration configuration) : Endpoint<EmailEventsEndpoint.Request, IReadOnlyList<EmailEvent>>
 {
     public sealed class Request
     {
@@ -33,6 +43,13 @@ public sealed class EmailEventsEndpoint(
         var q = session.Query<EmailEvent>().AsQueryable();
         if (!string.IsNullOrWhiteSpace(req.Type))
             q = q.Where(e => e.Type == req.Type);
+
+        if (!await PlatformScope.HoldsGloballyAsync(session, User, configuration,
+                ResendEmailCapabilities.ViewEmailEvents, ResendEmailCapabilities.LegacyRoles, ct))
+        {
+            var slug = tenant.Slug;
+            q = q.Where(e => e.Tenant == slug);
+        }
 
         var events = await q.OrderByDescending(e => e.At).Take(limit).ToListAsync(ct);
         await Send.OkAsync(events.ToList(), ct);

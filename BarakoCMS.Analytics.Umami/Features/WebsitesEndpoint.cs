@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Configuration;
+using Marten;
 using barakoCMS.Infrastructure.Auth;
 using FastEndpoints;
 
@@ -19,7 +21,10 @@ public sealed class WebsitesResponse
 }
 
 /// <summary>GET /api/analytics/websites — the sites Umami is tracking, for the admin's picker.</summary>
-public sealed class WebsitesEndpoint(IUmamiClient umami) : EndpointWithoutRequest<WebsitesResponse>
+public sealed class WebsitesEndpoint(
+    IUmamiClient umami,
+    IQuerySession session,
+    IConfiguration configuration) : EndpointWithoutRequest<WebsitesResponse>
 {
     public override void Configure()
     {
@@ -30,6 +35,11 @@ public sealed class WebsitesEndpoint(IUmamiClient umami) : EndpointWithoutReques
 
     public override async Task HandleAsync(CancellationToken ct)
     {
+        if (!await AnalyticsAccess.AllowedAsync(session, User, configuration, AnalyticsCapabilities.ViewAnalytics, ct))
+        {
+            ThrowError(PlatformScope.DeploymentWideMessage, 403);
+        }
+
         if (!umami.IsConfigured)
         {
             await Send.OkAsync(new WebsitesResponse { Configured = false }, ct);

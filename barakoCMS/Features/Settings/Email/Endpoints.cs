@@ -33,7 +33,8 @@ internal sealed class EmailSettingsResponse
 internal sealed class GetEmailSettingsEndpoint(
     IQuerySession session,
     IEmailSettingsProvider provider,
-    IEmailService email) : EndpointWithoutRequest<EmailSettingsResponse>
+    IEmailService email,
+    IConfiguration configuration) : EndpointWithoutRequest<EmailSettingsResponse>
 {
     public override void Configure()
     {
@@ -45,6 +46,12 @@ internal sealed class GetEmailSettingsEndpoint(
 
     public override async Task HandleAsync(CancellationToken ct)
     {
+        if (!await PlatformScope.HoldsGloballyAsync(
+                session, User, configuration, SystemCapabilities.ManageSettings, ["SuperAdmin", "Admin"], ct))
+        {
+            ThrowError(PlatformScope.DeploymentWideMessage, 403);
+        }
+
         var resolved = await provider.GetAsync(ct);
         var stored = await session.LoadAsync<EmailSettings>(EmailSettings.SingletonId, ct);
 

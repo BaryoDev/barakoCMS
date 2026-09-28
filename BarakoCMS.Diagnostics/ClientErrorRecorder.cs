@@ -31,8 +31,15 @@ public static class ClientErrorRecorder
         var source = ClientErrorText.Trim(item.Source, MaxField);
         var fingerprint = ClientErrorText.Fingerprint(kind, message, source, item.Status);
 
-        var existing = await session.Query<ClientError>()
-            .Where(e => e.Fingerprint == fingerprint)
+        // Lowercased, because every list compares it with the resolved tenant slug, which is.
+        var tenant = ClientErrorText.Trim(item.Tenant, 100)?.ToLowerInvariant();
+
+        // Per tenant as well as per fault. Folding one tenant's recurrence into another's row would
+        // put that user on a row the other tenant's administrator reads.
+        var sameFault = session.Query<ClientError>().Where(e => e.Fingerprint == fingerprint);
+        var existing = await (tenant is null
+                ? sameFault.Where(e => e.Tenant == null)
+                : sameFault.Where(e => e.Tenant == tenant))
             .FirstOrDefaultAsync(ct);
 
         if (existing is not null)
@@ -59,7 +66,7 @@ public static class ClientErrorRecorder
             Url = ClientErrorText.Trim(item.Url, MaxField),
             UserAgent = ClientErrorText.Trim(userAgent, MaxField),
             AppVersion = ClientErrorText.Trim(item.AppVersion, 100),
-            Tenant = ClientErrorText.Trim(item.Tenant, 100),
+            Tenant = tenant,
             UserId = userId,
             Username = username,
         });

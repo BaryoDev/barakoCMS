@@ -29,6 +29,12 @@ public sealed class ResendEmailModule : IBarakoModule
             .SingleTenanted()
             .DocumentAlias("email_events")
             .Index(x => x.Email);
+
+        // Global like the events it attributes: the webhook that reads it has no tenant.
+        schema.For<SentEmail>()
+            .SingleTenanted()
+            .DocumentAlias("sent_emails")
+            .Index(x => x.At);
     }
 
     /// <summary>

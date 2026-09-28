@@ -72,12 +72,14 @@ public sealed class ResendWebhookEndpoint(IDocumentSession session, IConfigurati
                 var email = FirstRecipient(data);
                 if (!string.IsNullOrWhiteSpace(email))
                 {
+                    var emailId = data.TryGetProperty("email_id", out var eid) ? eid.GetString() ?? "" : "";
                     session.Store(new EmailEvent
                     {
                         Email = email!.Trim().ToLowerInvariant(),
                         Type = kind,
                         Reason = BounceReason(data),
-                        EmailId = data.TryGetProperty("email_id", out var eid) ? eid.GetString() ?? "" : "",
+                        EmailId = emailId,
+                        Tenant = await SendingTenantAsync(session, emailId, ct),
                         At = DateTime.UtcNow,
                     });
                     await session.SaveChangesAsync(ct);
@@ -91,6 +93,12 @@ public sealed class ResendWebhookEndpoint(IDocumentSession session, IConfigurati
 
         await Send.OkAsync(ct);
     }
+
+    /// <summary>The tenant that sent this email, from the send record, or null when there is none.</summary>
+    internal static async Task<string?> SendingTenantAsync(IQuerySession session, string emailId, CancellationToken ct) =>
+        string.IsNullOrWhiteSpace(emailId)
+            ? null
+            : (await session.LoadAsync<SentEmail>(emailId, ct))?.Tenant;
 
     private static string? FirstRecipient(JsonElement data)
     {

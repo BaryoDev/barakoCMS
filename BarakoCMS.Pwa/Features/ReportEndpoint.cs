@@ -48,7 +48,8 @@ public sealed class ReportEndpoint(IDocumentSession session) : Endpoint<ReportRe
 
         var userId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var u) ? u : (Guid?)null;
         var username = User.FindFirst("Username")?.Value;
-        var tenant = HttpContext.Request.Headers["X-Tenant"].FirstOrDefault();
+        // Lowercased, the way tenant resolution reads the same header, so the installs list finds it.
+        var tenant = HttpContext.Request.Headers["X-Tenant"].FirstOrDefault()?.Trim().ToLowerInvariant();
         var ua = HttpContext.Request.Headers.UserAgent.ToString();
         var installed = req.Installed
             || req.DisplayMode is "standalone" or "fullscreen" or "minimal-ui";
