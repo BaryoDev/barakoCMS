@@ -22,3 +22,7 @@
   the same bump as the platform role change. `ISensitivityService` and `IContentValidatorService`
   gain an overload that takes the content type definition, with a default implementation that
   throws. BarakoCMS.Abstractions 4.5.0, BarakoCMS.Portability 4.4.0.
+  `POST /api/import/content` moves onto the same path: a field the caller may not see is dropped
+  instead of stored, the type's lifecycle hooks run, and a request holds at most 5,000 records
+  (`Import:MaxRecords`), refused with 400 past that. Its response shape and `continueOnError` are
+  unchanged. BarakoCMS.Import 4.4.0.

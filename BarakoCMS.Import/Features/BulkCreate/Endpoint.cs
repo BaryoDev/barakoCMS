@@ -1,5 +1,4 @@
 using barakoCMS.Core.Interfaces;
-using barakoCMS.Events;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using FastEndpoints;
@@ -35,11 +34,18 @@ public class Response
 /// /api/import/analyze after column mapping). Reuses the CMS's content-type validation, per-type
 /// create permission, and event-sourced creation; all creates commit in one transaction.
 /// </summary>
+/// <remarks>
+/// The constructor keeps the services it took before this endpoint moved onto
+/// <see cref="IContentCreator"/>, because it is public in a published package. The creator is
+/// resolved per request instead.
+/// </remarks>
+#pragma warning disable CS9113 // validator and contentWriter stay for the public constructor's sake
 public class Endpoint(
     IDocumentSession session,
     IContentValidatorService validator,
     IPermissionResolver permissions,
     IContentWriter contentWriter) : Endpoint<Request, Response>
+#pragma warning restore CS9113
 {
     public override void Configure()
     {
@@ -84,32 +90,40 @@ public class Endpoint(
         var definition = await session.Query<ContentTypeDefinition>()
             .FirstOrDefaultAsync(d => d.Name.ToLower() == lowered, ct);
 
-        // Validate every record first so an all-or-nothing import can reject before writing anything.
-        var errors = new List<Response.RowError>();
-        var valid = new List<(int Row, Dictionary<string, object> Data)>();
-        for (var i = 0; i < req.Records.Count; i++)
+        var maxRecords = ImportLimits.MaxRecords(Resolve<Microsoft.Extensions.Configuration.IConfiguration>());
+        if (req.Records.Count > maxRecords)
         {
-            var (isValid, msgs) = await validator.ValidateAsync(req.ContentType, req.Records[i], existing: null);
-            if (isValid) valid.Add((i, req.Records[i]));
-            else errors.Add(new Response.RowError { Row = i, Messages = msgs });
+            AddError($"One request may create at most {maxRecords} records and this one holds {req.Records.Count}. "
+                     + "Split the file, or raise Import:MaxRecords.");
+            await Send.ErrorsAsync(400, ct);
+            return;
         }
 
-        // The validator caps a singleton type by counting what is in the database, and inside one
-        // batch there is nothing in the database yet: every record passes the count and the whole
-        // batch lands. The cap has to be applied to the batch as well, so the rule holds on the one
-        // path that can create many entries in a single request.
-        if (definition?.IsSingleton == true && valid.Count > 1)
-        {
-            foreach (var (row, _) in valid.Skip(1))
-            {
-                errors.Add(new Response.RowError
-                {
-                    Row = row,
-                    Messages = [$"'{definition.DisplayName}' holds a single entry, so only one record of it can be imported."],
-                });
-            }
+        // Every record goes through the content create write path, the same as POST /api/contents:
+        // a field the caller may not see is dropped, the record is validated, and the type's
+        // lifecycle hooks run. The batch carries the definition resolved above, and what earlier
+        // rows claimed, so a singleton type takes one row and two rows cannot share a slug.
+        var creator = Resolve<IContentCreator>();
+        var batch = new ContentCreateBatch();
+        if (definition is not null)
+            batch.UseSchema(definition);
 
-            valid = valid.Take(1).ToList();
+        // Checked in full before anything is staged, so an all-or-nothing import can refuse without
+        // writing anything.
+        var errors = new List<Response.RowError>();
+        var valid = new List<ContentCreateRequest>();
+        for (var i = 0; i < req.Records.Count; i++)
+        {
+            var request = new ContentCreateRequest
+            {
+                ContentType = req.ContentType,
+                Data = req.Records[i] ?? new Dictionary<string, object>(),
+                Status = req.Status,
+            };
+
+            var messages = await creator.CheckAsync(request, userId, HttpContext, batch, ct);
+            if (messages.Count == 0) valid.Add(request);
+            else errors.Add(new Response.RowError { Row = i, Messages = messages.ToList() });
         }
 
         if (errors.Count > 0 && !req.ContinueOnError)
@@ -119,27 +133,9 @@ public class Endpoint(
             return;
         }
 
-        var publicFields = definition?.Fields
-            .Where(f => f.Sensitivity == SensitivityLevel.Public)
-            .Select(f => f.Name)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase)
-            ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var request in valid)
+            await creator.StageAsync(request, userId, batch, ct);
 
-        foreach (var (_, data) in valid)
-        {
-            var id = Guid.NewGuid();
-
-            var searchText = string.Join(
-                ' ',
-                data
-                    .Where(kv => publicFields.Contains(kv.Key))
-                    .Select(kv => kv.Value?.ToString())
-                    .Where(v => !string.IsNullOrWhiteSpace(v)));
-
-            var @event = new ContentCreated(id, req.ContentType, data, req.Status, userId, searchText, SensitivityLevel.Public, DateTime.UtcNow);
-
-            await contentWriter.CreateAsync(@event, ct);
-        }
         // All content items (and their event streams) commit atomically.
         await session.SaveChangesAsync(ct);
 

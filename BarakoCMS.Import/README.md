@@ -56,6 +56,10 @@ No services or schema to configure — the module only contributes endpoints.
    a single invalid row aborts the whole import and returns per-row errors — nothing is written.
    Otherwise valid rows are created and failures reported. **All creates commit in one transaction.**
 
+   Each record goes through the same write path as `POST /api/contents`: a field the caller may not
+   see is dropped, the record is validated, and the type's lifecycle hooks run. One request creates
+   at most 5,000 records (`Import:MaxRecords`); past that it answers 400 and writes nothing.
+
 ## Why split analyze from create
 
 The mapping and any cleanup (skipping title/section rows, formatting numbers, choosing which columns
