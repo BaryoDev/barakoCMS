@@ -229,7 +229,7 @@ internal sealed class SendTestEmailEndpoint(
             await email.SendEmailAsync(
                 user.Email,
                 $"{appName} email test",
-                $"<p>This is a test from {appName}. If you are reading it, email is configured and "
+                $"<p>This is a test from {System.Net.WebUtility.HtmlEncode(appName)}. If you are reading it, email is configured and "
               + "delivering.</p>",
                 ct);
         }

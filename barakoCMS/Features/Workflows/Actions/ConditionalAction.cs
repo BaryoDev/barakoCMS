@@ -1,4 +1,5 @@
 using barakoCMS.Infrastructure.Attributes;
+using barakoCMS.Infrastructure.Services;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
 
@@ -98,6 +99,10 @@ internal class ConditionalAction : IWorkflowAction
             return WorkflowActionResult.PermanentFailure("No workflow actions are registered, so the conditional's children could not run.");
         }
 
+        // The registered extractor when there is one, so children resolve exactly as top-level
+        // actions do. A host that registers none still gets the built-in rules.
+        var extractor = _serviceProvider.GetService<ITemplateVariableExtractor>();
+
         var succeededCount = 0;
         var failedTypes = new List<string>();
         var anyPermanentFailure = false;
@@ -116,7 +121,11 @@ internal class ConditionalAction : IWorkflowAction
             WorkflowActionResult childResult;
             try
             {
-                childResult = await plugin.RunAsync(childAction.Parameters, content, ct);
+                childResult = await plugin.RunAsync(
+                    extractor is null
+                        ? ActionParameters.Resolve(childAction.Type, childAction.Parameters, content)
+                        : ActionParameters.Resolve(extractor, childAction.Type, childAction.Parameters, content),
+                    content, ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
