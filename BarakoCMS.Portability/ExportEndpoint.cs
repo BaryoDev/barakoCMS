@@ -72,6 +72,7 @@ public class ExportEndpoint(
                 ContentType = c.ContentType,
                 Data = data,
                 Status = c.Status.ToString(),
+                Sensitivity = c.Sensitivity,
                 MaskedFields = data
                     .Where(kv => !ReferenceEquals(kv.Value, c.Data[kv.Key]))
                     .Select(kv => kv.Key)
@@ -80,7 +81,13 @@ public class ExportEndpoint(
         }
 
         await AuditLog.RecordAsync(documentSession, tenant.Slug, "portability.exported", callerId, User.FindFirst("Username")?.Value,
-            metadata: new() { ["contentTypes"] = types.Count, ["contents"] = records.Count, ["contentsWithheld"] = withheld }, ct: ct);
+            metadata: new()
+            {
+                ["contentTypes"] = types.Count,
+                ["contents"] = contents.Count,
+                ["exported"] = records.Count,
+                ["withheld"] = withheld,
+            }, ct: ct);
         await documentSession.SaveChangesAsync(ct);
 
         await Send.ResponseAsync(new PortabilityBundle

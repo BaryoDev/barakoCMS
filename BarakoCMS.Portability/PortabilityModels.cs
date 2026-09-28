@@ -29,6 +29,13 @@ public class ContentRecord
     /// them out, so a mask such as <c>***</c> is never stored as if it were the value.
     /// </summary>
     public List<string> MaskedFields { get; set; } = new();
+
+    /// <summary>
+    /// The entry's document-level sensitivity. Import creates the entry at this level, so a restore
+    /// does not make a Hidden or Sensitive entry Public. Absent in older bundles, which import as
+    /// Public, as they always have.
+    /// </summary>
+    public SensitivityLevel? Sensitivity { get; set; }
 }
 
 public class ImportRequest

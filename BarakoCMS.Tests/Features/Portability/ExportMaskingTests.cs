@@ -270,4 +270,174 @@ public class ExportMaskingTests
             .Should().BeEquivalentTo(["Blue Row", "Red Row"]);
         bundle.ContentsWithheld.Should().Be(0);
     }
+
+    /// <summary>A SuperAdmin: the seeded role by id for content rules, and the role claim for masking.</summary>
+    private async Task<HttpClient> SuperAdminAsync()
+    {
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var userId = Guid.NewGuid();
+        session.Store(new User
+        {
+            Id = userId,
+            Username = $"expsa-{userId:n}",
+            Email = $"expsa-{userId:n}@example.com",
+            RoleIds = [SystemRoles.SuperAdminRoleId],
+        });
+        await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var client = _fixture.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer", _fixture.CreateToken(roles: ["SuperAdmin"], userId: userId.ToString()));
+        return client;
+    }
+
+    private async Task<List<Content>> StoredAsync(string type)
+    {
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+        return (await session.Query<Content>()
+            .Where(c => c.ContentType == type)
+            .ToListAsync(TestContext.Current.CancellationToken)).ToList();
+    }
+
+    private static async Task ImportAsync(HttpClient client, PortabilityBundle bundle)
+    {
+        var imported = await client.PostAsJsonAsync(
+            "/api/portability/import",
+            new { contentTypes = bundle.ContentTypes, contents = bundle.Contents },
+            ApiJson.Options,
+            TestContext.Current.CancellationToken);
+        imported.IsSuccessStatusCode.Should().BeTrue(
+            await imported.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task A_superadmin_export_is_whole_and_unmasked()
+    {
+        var seeded = await SeedAsync();
+
+        var (_, bundle) = await ExportAsync(await SuperAdminAsync(), seeded.Type);
+
+        bundle.Contents.Should().HaveCount(2, "SuperAdmin reads the Hidden entry too");
+        bundle.Contents.Select(c => c.Data["Salary"].ToString()).Should().Equal(Secret, Secret);
+        bundle.Contents.Should().OnlyContain(c => c.MaskedFields.Count == 0);
+        bundle.ContentsWithheld.Should().Be(0);
+    }
+
+    /// <summary>
+    /// A backup restored keeps each entry's document-level sensitivity, rather than making it Public.
+    /// </summary>
+    [Fact]
+    public async Task A_restored_hidden_entry_stays_hidden()
+    {
+        var seeded = await SeedAsync();
+        var superAdmin = await SuperAdminAsync();
+        var (_, bundle) = await ExportAsync(superAdmin, seeded.Type);
+        bundle.Contents.Should().HaveCount(2);
+
+        await ImportAsync(superAdmin, bundle);
+
+        var hiddenPeople = (await StoredAsync(seeded.Type))
+            .Where(c => c.Data["Name"].ToString() == "Hidden Person")
+            .ToList();
+        hiddenPeople.Should().HaveCount(2, "the seeded entry and its restored copy");
+        hiddenPeople.Should().OnlyContain(c => c.Sensitivity == SensitivityLevel.Hidden,
+            "a restore that makes a Hidden entry Public publishes what was hidden");
+        (await StoredAsync(seeded.Type)).Where(c => c.Data["Name"].ToString() == "Ana")
+            .Should().HaveCount(2).And.OnlyContain(c => c.Sensitivity == SensitivityLevel.Public);
+    }
+
+    /// <summary>
+    /// A Last4 field, a Remove field, and one entry that is Sensitive at the document level.
+    /// </summary>
+    private async Task<string> SeedMasksAsync()
+    {
+        var type = $"msk{Guid.NewGuid():n}"[..12];
+
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        session.Store(new ContentTypeDefinition
+        {
+            Id = Guid.NewGuid(),
+            Name = type,
+            DisplayName = "Masks",
+            Fields =
+            [
+                new FieldDefinition { Name = "Name", DisplayName = "Name", Type = "string" },
+                new FieldDefinition
+                {
+                    Name = "Phone", DisplayName = "Phone", Type = "string",
+                    Sensitivity = SensitivityLevel.Sensitive, Mask = FieldMask.Last4,
+                },
+                new FieldDefinition
+                {
+                    Name = "Note", DisplayName = "Note", Type = "string",
+                    Sensitivity = SensitivityLevel.Sensitive, Mask = FieldMask.Remove,
+                },
+            ],
+        });
+        session.Store(new Content
+        {
+            Id = Guid.NewGuid(),
+            ContentType = type,
+            Status = ContentStatus.Published,
+            Data = new Dictionary<string, object>
+            {
+                ["Name"] = "Open Entry", ["Phone"] = "555-867-5309", ["Note"] = "PRIVATE-NOTE-4411",
+            },
+        });
+        session.Store(new Content
+        {
+            Id = Guid.NewGuid(),
+            ContentType = type,
+            Status = ContentStatus.Published,
+            Sensitivity = SensitivityLevel.Sensitive,
+            Data = new Dictionary<string, object> { ["Name"] = "Sensitive Entry" },
+        });
+        await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        return type;
+    }
+
+    [Fact]
+    public async Task Last4_and_remove_masks_apply_and_a_sensitive_entry_is_withheld()
+    {
+        var type = await SeedMasksAsync();
+        var exporter = await CallerAsync(
+            $"Exporter {Guid.NewGuid():N}", [PortabilityCapabilities.ExportContent], Read(type));
+
+        var (raw, bundle) = await ExportAsync(exporter, type);
+
+        var record = bundle.Contents.Should().ContainSingle().Subject;
+        record.Data["Phone"].ToString().Should().Be("********5309");
+        record.Data.Should().NotContainKey("Note", "the Remove mask drops the key");
+        record.MaskedFields.Should().Equal("Phone");
+        bundle.ContentsWithheld.Should().Be(1, "the caller does not hold the role a Sensitive entry needs");
+        raw.Should().NotContain("PRIVATE-NOTE-4411").And.NotContain("555-867").And.NotContain("Sensitive Entry");
+
+        await ImportAsync(await SuperAdminAsync(), bundle);
+
+        var copies = (await StoredAsync(type))
+            .Where(c => c.Data["Name"].ToString() == "Open Entry")
+            .ToList();
+        copies.Should().HaveCount(2, "the seeded entry and the imported copy");
+        copies.Should().ContainSingle(c => !c.Data.ContainsKey("Phone") && !c.Data.ContainsKey("Note"),
+            "the imported copy leaves both masked fields unset rather than storing the mask");
+    }
+
+    /// <summary>
+    /// Documents today's behaviour: export needs a read rule for the type, the same as List.
+    /// </summary>
+    [Fact]
+    public async Task A_caller_with_no_read_rule_for_the_type_exports_none_of_it()
+    {
+        var type = await SeedTeamsAsync();
+        var noRule = await CallerAsync($"No Rule {Guid.NewGuid():N}", [PortabilityCapabilities.ExportContent]);
+
+        var (_, bundle) = await ExportAsync(noRule, type);
+
+        bundle.ContentTypes.Should().ContainSingle("the schema is exported either way");
+        bundle.Contents.Should().BeEmpty();
+        bundle.ContentsWithheld.Should().Be(2);
+    }
 }

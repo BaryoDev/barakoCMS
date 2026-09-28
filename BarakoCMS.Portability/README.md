@@ -45,6 +45,8 @@ the repository.
   than duplicating it.
 - Content is recreated **through events**, so imported content has real history and behaves
   identically to content authored in place.
+- Each entry keeps the document-level sensitivity the bundle records for it, so a restored Hidden
+  entry stays Hidden. A bundle from before 4.3.1 records none, and its entries import as Public.
 - The import runs inside the calling tenant. A bundle carries no tenant identity of its own, which
   is what makes it safe to move between environments.
 
