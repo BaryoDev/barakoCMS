@@ -151,6 +151,20 @@ public class TenantScopedAdminTests
     }
 
     [Fact]
+    public async Task A_global_role_stored_without_a_capability_list_grants_nothing_and_breaks_nothing()
+    {
+        var tenantA = await TenantAsync();
+        var (admin, email) = await TenantAdminAsync(tenantA);
+        var roleId = Guid.NewGuid();
+        var user = await UserByEmailAsync(email);
+        user.RoleIds = [roleId];
+        await StoreAsync(new Role { Id = roleId, Name = Unique("nocaps"), SystemCapabilities = null! }, user);
+
+        (await admin.GetAsync("/api/settings")).StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "a role document written without the list holds no capability, and must not fail the check");
+    }
+
+    [Fact]
     public async Task An_admin_granted_globally_still_manages_the_deployment_settings()
     {
         var admin = await GlobalAsync("Admin");

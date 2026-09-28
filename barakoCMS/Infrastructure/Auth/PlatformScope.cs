@@ -50,7 +50,7 @@ public static class PlatformScope
         var roles = await session.Query<Role>().Where(r => ids.Contains(r.Id)).ToListAsync(ct);
         var legacy = configuration.GetValue(CapabilityGateProcessor.LegacyRoleFallbackKey, false);
 
-        return roles.Any(r => SystemCapabilities.Satisfies(r.SystemCapabilities, capability)
+        return roles.Any(r => SystemCapabilities.Satisfies(r.SystemCapabilities ?? [], capability)
                               || (legacy && legacyRoles.Contains(r.Name)));
     }
 
