@@ -63,7 +63,7 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.5.0
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.3.0/collection-syncs.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.3.0/marten-9-37-event-store-columns.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.4.0/marten-9-38-quick-append-events.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/4.5.0/refresh-token-hash-index.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.5.0/refresh-token-hash-index.sql
 ```
 
 The two Marten files bring the event store up to the Marten version the release you are deploying
@@ -75,11 +75,14 @@ which is what sign-in compares. If two existing accounts differ only by case, su
 id. Rename or remove one of each pair and run it again. It does not pick one for you. A 4.0 or 4.1
 database needs this file too.
 
-The Files file and the refresh token file build their index `CONCURRENTLY`, so neither blocks
-writes, and that is why they run on their own, without `--single-transaction`. The Forms file
-creates one empty table. All three are safe to run twice. A `CONCURRENTLY` build that fails or is
-cancelled leaves an invalid index behind; the refresh token file refuses to continue past one and
-prints the `DROP INDEX` to run before trying again.
+Run every file with the API stopped. A running API keeps a transaction open for as long as it
+runs, and an index built `CONCURRENTLY` waits for every transaction older than itself, so against
+a live API it never finishes.
+
+The Files file builds its index `CONCURRENTLY`, which is why it runs on its own, without
+`--single-transaction`. The refresh token file is a plain build inside a transaction: with the API
+stopped the table takes moments, and an invalid index left by an earlier `CONCURRENTLY` attempt is
+dropped and built again. The Forms file creates one empty table. All of them are safe to run twice.
 
 The Email file creates the empty table Email.Resend uses to record which tenant sent each email,
 so a later bounce can be put back on that tenant. It is safe to run twice.
@@ -158,7 +161,7 @@ Stop 4.0, then:
 
 ```bash
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.5.0/rollback-email-sent-emails.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/4.5.0/rollback-refresh-token-hash-index.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.5.0/rollback-refresh-token-hash-index.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.4.0/rollback-marten-9-38-quick-append-events.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.3.0/rollback-collection-syncs.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.3.0/rollback-marten-9-37-event-store-columns.sql

@@ -9,18 +9,15 @@
 --
 -- Every row written before the upgrade has no TokenHash, so the unique index cannot fail on them.
 --
--- CONCURRENTLY so it does not lock sign-in and refresh while it builds. That means it cannot run
--- inside a transaction: run this file on its own, not wrapped in BEGIN.
+-- Run it with the API stopped, like every upgrade file. A plain build, not CONCURRENTLY: a running
+-- API keeps a transaction open for as long as it runs, and a CONCURRENTLY build waits for every
+-- transaction older than itself, so it never finished against a live API. With the API stopped a
+-- plain build of this table takes moments.
 --
---   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/4.5.0/refresh-token-hash-index.sql
+--   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.5.0/refresh-token-hash-index.sql
 --
--- Safe to run twice.
---
--- A CONCURRENTLY build that fails or is cancelled leaves an INVALID index behind under the same
--- name, and IF NOT EXISTS would then skip it and report success. The block below refuses instead.
--- To recover, drop the invalid index and run this file again:
---
---   psql "$DATABASE_URL" -c 'DROP INDEX CONCURRENTLY IF EXISTS public.mt_doc_refresh_tokens_uidx_token_hash;'
+-- Safe to run twice. An invalid index left by an earlier CONCURRENTLY attempt under the same name
+-- is dropped and built again, since IF NOT EXISTS would otherwise keep it.
 
 DO $$
 BEGIN
@@ -33,12 +30,10 @@ BEGIN
           AND c.relname = 'mt_doc_refresh_tokens_uidx_token_hash'
           AND NOT x.indisvalid
     ) THEN
-        RAISE EXCEPTION 'mt_doc_refresh_tokens_uidx_token_hash exists but is INVALID, left by a failed or cancelled build. Run: DROP INDEX CONCURRENTLY IF EXISTS public.mt_doc_refresh_tokens_uidx_token_hash; then run this file again.';
+        DROP INDEX public.mt_doc_refresh_tokens_uidx_token_hash;
     END IF;
 END
 $$;
 
--- The expression is Marten's, verbatim. RefreshTokenHashIndexMigrationTests compares this file to
--- the index Marten builds.
-CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS mt_doc_refresh_tokens_uidx_token_hash
+CREATE UNIQUE INDEX IF NOT EXISTS mt_doc_refresh_tokens_uidx_token_hash
     ON public.mt_doc_refresh_tokens USING btree (((data ->> 'TokenHash'::text)));

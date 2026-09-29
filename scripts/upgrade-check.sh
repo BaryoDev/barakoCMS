@@ -231,10 +231,9 @@ step "applying migrations/4.4.0/marten-9-38-quick-append-events.sql"
 docker cp migrations/4.4.0/marten-9-38-quick-append-events.sql "$PG:/tmp/marten938.sql"
 docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/marten938.sql >/dev/null
 
-# CONCURRENTLY, so this file cannot run inside a transaction, and it says so itself.
 step "applying migrations/4.5.0/refresh-token-hash-index.sql"
 docker cp migrations/4.5.0/refresh-token-hash-index.sql "$PG:/tmp/refresh-hash.sql"
-docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 -f /tmp/refresh-hash.sql >/dev/null
+docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/refresh-hash.sql >/dev/null
 
 step "the migration left the daemon's progression alone"
 PROGRESSION_MIGRATED=$(psql_q "select coalesce(max(last_seq_id), 0) from mt_event_progression where name like '%WorkflowProjection%';")
@@ -336,7 +335,7 @@ docker cp migrations/4.5.0/rollback-email-sent-emails.sql "$PG:/tmp/sent-emails-
 docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/sent-emails-down.sql >/dev/null
 step "applying migrations/4.5.0/rollback-refresh-token-hash-index.sql"
 docker cp migrations/4.5.0/rollback-refresh-token-hash-index.sql "$PG:/tmp/refresh-hash-down.sql"
-docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 -f /tmp/refresh-hash-down.sql >/dev/null
+docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/refresh-hash-down.sql >/dev/null
 
 step "applying migrations/4.4.0/rollback-marten-9-38-quick-append-events.sql"
 docker cp migrations/4.4.0/rollback-marten-9-38-quick-append-events.sql "$PG:/tmp/marten938-down.sql"
