@@ -16,11 +16,11 @@ Upgrading from 4.4 takes four steps, in this order.
    against it. Deploy barakoBrew 1.6.0 or later before the API.
 2. **Update any app using barako-client** to `@baryodev/barako-client` 0.3.1 or later. Switching
    tenant no longer returns a refresh token, and 0.3.1 keeps the one it already holds.
-3. **Run the two migrations before starting 4.5.0.** The index build uses `CONCURRENTLY`, so it
-   runs on its own, not inside a transaction:
+3. **Stop the API, then run the two migrations.** A running API keeps a transaction open, and
+   4.4 refuses to start once the new table exists, so both run with the API stopped:
 
    ```
-   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/4.5.0/refresh-token-hash-index.sql
+   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.5.0/refresh-token-hash-index.sql
    psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.5.0/email-sent-emails.sql
    ```
 
@@ -30,7 +30,7 @@ To roll back to 4.4, stop 4.5.0 and run the rollbacks before starting the older 
 
 ```
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.5.0/rollback-email-sent-emails.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/4.5.0/rollback-refresh-token-hash-index.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.5.0/rollback-refresh-token-hash-index.sql
 ```
 
 After a rollback, anyone who signed in or refreshed on 4.5.0 signs in again, since 4.4 looks refresh
