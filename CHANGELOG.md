@@ -7,6 +7,189 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.5.0] - 2026-09-29
+
+Upgrading from 4.4 takes four steps, in this order.
+
+1. **Update the console first.** This release answers with API contract 5
+   (`X-Api-Contract-Version: 5`), and a console that does not accept contract 5 refuses to run
+   against it. Deploy barakoBrew 1.6.0 or later before the API.
+2. **Update any app using barako-client** to `@baryodev/barako-client` 0.3.1 or later. Switching
+   tenant no longer returns a refresh token, and 0.3.1 keeps the one it already holds.
+3. **Run the two migrations before starting 4.5.0.** The index build uses `CONCURRENTLY`, so it
+   runs on its own, not inside a transaction:
+
+   ```
+   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/4.5.0/refresh-token-hash-index.sql
+   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.5.0/email-sent-emails.sql
+   ```
+
+4. **Start 4.5.0.**
+
+To roll back to 4.4, stop 4.5.0 and run the rollbacks before starting the older image:
+
+```
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.5.0/rollback-email-sent-emails.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/4.5.0/rollback-refresh-token-hash-index.sql
+```
+
+After a rollback, anyone who signed in or refreshed on 4.5.0 signs in again, since 4.4 looks refresh
+tokens up by a value 4.5.0 no longer stores. `docs/upgrading-to-4.0.md` has the full sequence.
+
+Module versions that move in this release: BarakoCMS.Abstractions 4.5.0, BarakoCMS.Import 4.4.0,
+BarakoCMS.Portability 4.4.0, and 4.3.1 of BarakoCMS.Analytics.Umami, BarakoCMS.Diagnostics,
+BarakoCMS.Email.Resend, BarakoCMS.ExternalAuth, BarakoCMS.FeatureFlags, BarakoCMS.Files,
+BarakoCMS.Forms and BarakoCMS.Pwa.
+
+### Breaking
+
+- **Changing a connector's address kept its stored credentials.** `PUT /api/connectors/{slug}`
+  keeps a secret the request leaves out, which is how the console saves an edit without showing the
+  token. That now holds only while the base URL keeps its scheme, host and port (compared with the
+  host lowercased and in punycode, and the default port made explicit). When any of those change,
+  every stored secret has to be sent again or cleared in the same request, and the update answers 400
+  with one error per missing secret, named `secrets.<Key>`. A path change on the same origin keeps
+  the secrets as before. A request definition whose path template resolves to a different scheme,
+  host or port from its connector (an absolute or `//` URL) is now refused when it is composed.
+  A connector's `probePath` has to start with a single `/` and hold no backslash, so `health`,
+  `//host/` and `https://host/` are answered 400, and the test button refuses a stored probe path
+  that resolves to another origin. These requests used to succeed, so `X-Api-Contract-Version`
+  moves to 5, the same bump the platform role change makes, and the barakoBrew console has to
+  accept contract 5 before it runs against this release.
+- **An upload whose bytes do not match its declared type is now refused.** `POST /api/files`
+  answers 400 for a type that only starts with an allowed one (`image/pngx`) and for a file whose
+  content is not the declared format, such as a PNG sent as `image/jpeg`. Both used to be stored.
+  `ApiContract.Version` moves to 5.
+- **A portability import wrote types and entries that the create endpoints refuse (#933).** `POST
+  /api/portability/import` now runs each content type through the checks `POST /api/content-types`
+  runs, lifecycle included, and refuses a field declared twice. A new type keeps the bundle's
+  `lifecycle`, where it used to drop it. A stored type keeps its own when the bundle has none, and a
+  bundle that changes it, or adds one to a type with entries, is refused. On a stored type the
+  import refuses a required field with no default when the type has entries, and a bundle that
+  raises, lowers or leaves out a non-Public field; `PUT
+  /api/content-types/{name}/fields/{field}/sensitivity` is how that changes. A bundle type matches a
+  stored type under create's name normalisation, so `Blog Post` updates `blog-post`. Each entry goes
+  through the same write path as `POST /api/contents`, now shared as `IContentCreator`: a field the
+  importing caller may not see is dropped, the entry is validated against its type as the bundle
+  leaves it (required fields, value types, references, unique slugs), the type's lifecycle hooks
+  run, and the entry starts in the type's initial lifecycle state. The import runs in one database
+  transaction with each entry written before the next is checked, so validation and lifecycle hooks
+  see the entries before it in the bundle: journal entries are numbered in sequence and a page's
+  parent from the same bundle resolves. Export now writes each entry's `id`, and a reference to
+  another record of the bundle is pointed at that record as imported, whatever the order. A
+  reference to anything outside the bundle has to exist in the target. A type that an earlier import
+  stored with no display name or with field names that are not PascalCase no longer imports until it
+  is fixed. The import is all or nothing: any refusal answers 400 naming each item as
+  `contentTypes[i]` or `contents[i]`, nothing is written, and a dry run answers the same. A bundle
+  holds at most 5,000 entries (`Portability:MaxImportRecords`) and 500 types. A bundle that imported
+  before and breaks one of these rules is now refused, so `ApiContract.Version` moves to 5, the same
+  bump as the platform role change. `IContentBatchRunner` runs such a batch. `ISensitivityService`
+  and `IContentValidatorService` gain an overload that takes the content type definition, with a
+  default implementation that throws. BarakoCMS.Abstractions 4.5.0, BarakoCMS.Portability 4.4.0.
+  `POST /api/import/content` moves onto the same path and the same transaction: a field the caller
+  may not see is dropped instead of stored, the type's lifecycle hooks run and see earlier rows, and
+  a request holds at most 5,000 records (`Import:MaxRecords`), refused with 400 past that. Its
+  response shape and `continueOnError` are unchanged. BarakoCMS.Import 4.4.0.
+- **Only a platform administrator changes a user's global roles.** `POST /api/users/{id}/roles`
+  and `DELETE /api/users/{id}/roles/{roleId}` change the roles a user holds in every tenant. They now
+  answer 403 unless the caller's `manage_user_membership` comes from one of the caller's own global
+  roles, so an Admin whose role comes from a tenant membership can no longer use them and manages
+  roles inside that tenant through `/api/tenants/members`. Removing SuperAdmin now takes a
+  SuperAdmin, and removing it from the last user who holds it answers 409. A role carrying `*`,
+  `manage_roles`, `manage_tenants`, `manage_users` or `manage_email_settings` is now granted only by
+  a SuperAdmin, through either `/api/users/{id}/roles` or `/api/tenants/members` (403 otherwise),
+  and removed from a user's global roles only by one; `/api/tenants/members/roles` no longer offers
+  it to anyone else. A tenant admin can still edit or suspend a member who already holds one. Each 403 carries a message
+  saying why. These requests used to succeed, so `X-Api-Contract-Version` moves to 5, and the
+  barakoBrew console has to accept contract 5 before it runs against this release.
+- **Switching tenant no longer issues a second session or renews the current one.**
+  `POST /api/me/switch` used to store and return a new seven day refresh token, and every call,
+  including one to the tenant the caller was already in, returned a fresh 15 minute access token.
+  It now returns an access token for the target tenant only, that token expires when the presented
+  one would have, and the presented token is revoked. `refreshToken` stays in the response but is
+  empty and `refreshTokenExpiry` is the default value. The refresh token from sign-in, in the body
+  or the refresh cookie, already covers every tenant the user belongs to: a refresh mints for the
+  `X-Tenant` it is sent and re-checks membership. A client that stored `refreshToken` from the
+  switch response has to keep its existing one when the value is empty, and has to use the returned
+  token from then on. `ITokenIssuer` gains an overload taking a `notAfter` cap, with a default
+  implementation that refuses a token it cannot cap. This moves `X-Api-Contract-Version` to 5.
+- **A tenant's administrator sees that tenant's data on the admin screens backed by a global
+  table.** Client errors, email events and PWA installs are stored once for the deployment, and
+  `GET /api/client-errors`, `GET /api/email-events` and `GET /api/pwa/installs` listed every
+  tenant's rows to any Admin. A caller holding the capability through a tenant membership now sees
+  the current tenant's rows; one holding it through a global role, as on a single-tenant
+  deployment, still sees every tenant's. `POST /api/client-errors/{id}/resolve` answers 404 for
+  another tenant's error. An email event now carries the tenant that sent the email, recorded
+  against Resend's id when it is sent and kept 30 days (a new `sent_emails` table, created on an existing database by
+  `migrations/4.5.0/email-sent-emails.sql`); an event with
+  no recorded sender is visible through a global role only. Only mail sent on a tenant's behalf is
+  recorded, which today is a workflow's email: a user's own account mail (sign-in codes,
+  verification, lockout notices) belongs to no tenant. `IEmailService` gains `SendForTenantAsync`,
+  whose default ignores the tenant, so an existing provider keeps working. The same fault reported from two
+  tenants is now two rows, a report that names no tenant takes the tenant the request resolved to,
+  and reported tenants are stored lowercased. `/api/settings`, `GET /api/settings/email`,
+  everything under `/api/feature-flags/admin` and all six `/api/analytics` routes are shared by
+  every tenant, so they now answer 403 to a caller holding `manage_settings`,
+  `manage_feature_flags`, `view_analytics` or `manage_analytics_websites` through a membership
+  only. These requests used to succeed, so this shares the move of `X-Api-Contract-Version` to 5
+  with the global-roles change.
+
+### Changed
+
+- **Values placed into an email body were not HTML-encoded.** The sign-in code email wrote the
+  device description (taken from the request's user-agent) and IP address into its HTML as they
+  were, and a workflow `Email` action did the same with entry fields, which can come from a public
+  form. Both are encoded now, as is the app name in every system email. In a workflow email, values
+  in `Subject` and `To` have their line breaks replaced by a space, and a `Conditional` resolves its
+  children's parameters when each child runs instead of substituting values into the branch JSON.
+  This changes how a rich text or markdown field looks in a workflow email: a `Body` of
+  `{{data.Body}}` holding `<p>Hello <b>world</b></p>` now shows the tags as text instead of a bold
+  "world". A workflow email's `To` must now resolve to exactly one address; a list, or a value that
+  is not an address, fails the action and sends nothing. The sign-in code email names the device
+  only when it recognises the browser or system, and says "an unrecognised device" otherwise,
+  instead of repeating the user-agent.
+- **A portability export returned every entry, unmasked, whatever the caller could read.**
+  `GET /api/portability/export` now applies the content List endpoint's per-entry read rule and the
+  read endpoints' document and field sensitivity, keyed on the caller. An entry the caller may not
+  read is left out and counted in the bundle's new `contentsWithheld`. A field the caller may not
+  read comes out under its mask and is named in the record's new `maskedFields`, and import skips
+  those fields, so a mask is never stored as a value. A caller needs a read rule for a type to
+  export its entries, as on `GET /api/contents`; SuperAdmin still exports everything. A token whose
+  user does not exist now gets 401, as on the List endpoint. Each record also carries the entry's
+  `sensitivity`, and import creates the entry at that level, so restoring a backup no longer makes
+  Hidden and Sensitive entries Public; a bundle without it imports as Public, as before. The
+  `portability.exported` audit entry keeps `contents` as the number of entries considered and adds
+  `exported` and `withheld`. BarakoCMS.Portability 4.3.1.
+- **The BarakoCMS.Forms package page left out choice fields.** Forms has accepted a `choice` field
+  since 4.3.0, and the form definition lists its `options` and `multiple`, but the README listed
+  only the other field types. BarakoCMS.Forms 4.3.1 carries the corrected README; the code is
+  unchanged.
+- **Refresh tokens were stored as issued, and a refresh answered with the new token in the body
+  even for a browser that sent only the cookie.** The server now stores a SHA-256 hash of each
+  refresh token and looks tokens up by it. Rows stored before the upgrade still refresh once and
+  are replaced by a hashed row, so nobody is signed out and the last of them expires within seven
+  days. Apply `migrations/4.5.0/refresh-token-hash-index.sql` on an existing database for the index
+  on the hash. A refresh sent only the `barako_refresh` cookie now sets the new token in the cookie
+  and returns an empty `refreshToken` in the body; a refresh sent the token in the body still
+  returns it there, and sign-in is unchanged. `POST /api/auth/logout` accepts the refresh cookie
+  when there is no usable bearer: a live cookie revokes that user's refresh tokens, a spent or
+  unknown one revokes nothing, and every one is cleared with the same 200, so a console whose
+  access token expired can still sign out. The cookie is now set for `/api/auth/logout` as well as
+  `/api/auth/refresh`. Logout has its own rate limit of 30 per minute per IP rather than the sign-in
+  one.
+
+### Fixed
+
+- **An upload's declared type was matched as a prefix and never compared with the file.**
+  `POST /api/files` now parses the declared type and requires it to be exactly one of PNG, JPEG,
+  GIF, WebP, AVIF or PDF, and requires the start of the file to be that format. A mismatch is 400.
+  The type is stored as the bare lower case name, so `IMAGE/PNG; x=y` is kept as `image/png`, and
+  the storage key's extension comes from that type rather than the uploaded file name. Both
+  download routes send a sandboxing Content-Security-Policy, and redirect to an object store only
+  for a file stored with one of those exact types; any other stored file is streamed through the
+  API as `application/octet-stream`. The redirect also answers 302 now; it used to answer 204.
+  BarakoCMS.Files 4.3.1.
+
 ## [4.4.1] - 2026-09-25
 
 ### Fixed
