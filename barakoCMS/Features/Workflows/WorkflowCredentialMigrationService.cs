@@ -105,11 +105,16 @@ internal sealed class WorkflowCredentialMigrationService : BackgroundService
             }
         }
 
-        if (changed > 0 || TenantPartitions.Enforced(_config))
+        if (TenantPartitions.Enforced(_config))
         {
             _logger.LogInformation(
-                "Read {Workflows} stored workflow(s) in {Visited} of {Partitions} partition(s) and encrypted the credential parameters of {Count}",
-                read, visited, partitions.Count, changed);
+                "Read {Workflows} stored workflow(s) in {Visited} of {Partitions} partition(s) looking for credential parameters to encrypt",
+                read, visited, partitions.Count);
+        }
+
+        if (changed > 0)
+        {
+            _logger.LogInformation("Encrypted the credential parameters of {Count} stored workflow(s)", changed);
         }
 
         return changed;

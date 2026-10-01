@@ -125,7 +125,7 @@ partition it does not see. It logs one line at Information level on every start 
 whether or not anything changed:
 
 ```
-Read 12 stored workflow(s) in 4 of 4 partition(s) and encrypted the credential parameters of 0
+Read 12 stored workflow(s) in 4 of 4 partition(s) looking for credential parameters to encrypt
 ```
 
 If that reads fewer workflows than the deployment has, some are in a partition the registry does not

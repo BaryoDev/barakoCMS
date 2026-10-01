@@ -345,11 +345,11 @@ public class TenantPartitionsTests
                 $"the envelope in {tenant} is not encrypted a second time");
         }
 
-        logger.Lines.Should().HaveCount(2, "each pass says what it read, and nothing else is logged");
+        logger.Lines.Should().HaveCount(3, "each pass says what it read, the first also what it changed, and nothing else");
         logger.Lines.Should().OnlyContain(line => line.Level == LogLevel.Information);
-        logger.Lines.First().Text.Should().Contain("encrypted the credential parameters of 3");
-        logger.Lines.Last().Text.Should().Contain("encrypted the credential parameters of 0",
+        logger.Lines.Where(line => line.Text.Contains("partition(s)")).Should().HaveCount(2,
             "a pass with nothing to change still says how much it read");
+        logger.Lines.Should().ContainSingle(line => line.Text.Contains("Encrypted the credential parameters of 3"));
         foreach (var (_, (_, apiKey)) in stored)
         {
             logger.Lines.Should().NotContain(line => line.Text.Contains(apiKey));
@@ -440,8 +440,8 @@ public class TenantPartitionsTests
         (await StoredWorkflowJsonAsync(store, unregistered, unregisteredId, ct)).Should().Contain(unregisteredKey,
             "the registry does not list this partition, so the pass never opens it");
 
-        logger.Lines.Should().ContainSingle("the pass reports what it read, once")
-            .Which.Text.Should().Contain("partition(s)").And.NotContain(unregistered).And.NotContain(unregisteredKey);
+        logger.Lines.Should().ContainSingle(line => line.Text.Contains("partition(s)"), "the pass reports what it read, once");
+        logger.Lines.Should().NotContain(line => line.Text.Contains(unregistered) || line.Text.Contains(unregisteredKey));
 
         // The policy hides that partition from the application role, so finding it takes a role the
         // policy does not bind. This runs the query docs/tenancy-at-the-database.md gives, as written.
