@@ -291,7 +291,8 @@ rest on schedule.
 
 A run, from the sweep or from the API, also holds an advisory lock on its tenant and content type
 while it works. The sweep tries that lock once and leaves a due sync whose collection is locked for
-a later tick. Having taken it, both read the sync again, so a run never starts from a copy that an
+a later tick. A sync it leaves or skips is not one of the tick's twenty, so the next due sync runs
+in its place. Having taken it, both read the sync again, so a run never starts from a copy that an
 earlier run or an edit has since changed, and the sweep skips a sync that is no longer due. An edit
 made while a run of that sync is in flight is still overwritten when the run saves. The lock
 is on the content type and not on the sync because that is what an entry's id is derived from, so

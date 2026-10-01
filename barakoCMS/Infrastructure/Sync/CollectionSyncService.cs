@@ -161,19 +161,24 @@ internal sealed class CollectionSyncService(
     }
 
     /// <summary>Runs up to <paramref name="budget"/> due syncs in one partition.</summary>
-    /// <returns>How many were run.</returns>
+    /// <returns>
+    /// How many were run. A sync that was left for a later tick is not one of them, so it takes
+    /// nothing from what the caller has left for the tenants after this one.
+    /// </returns>
     public async Task<int> SweepTenantAsync(string? martenTenantId, DateTime nowUtc, int budget, CancellationToken ct)
     {
         using var scope = services.CreateScopeForTenant(martenTenantId);
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
 
+        // Every due sync the tenant's bound lets in, not the first <budget> of them. A sync that is
+        // left for later (its collection is locked, or it turns out not to be due any more) must
+        // not take the place of one behind it, so the budget is spent in the loop, on runs.
         var due = (await session.Query<CollectionSync>()
                 .Where(s => s.Enabled)
                 .OrderBy(s => s.Slug)
                 .Take(MaxSyncsPerTenant)
                 .ToListAsync(ct))
             .Where(s => s.IsDue(nowUtc))
-            .Take(budget)
             .ToList();
 
         if (due.Count == 0) return 0;
@@ -183,6 +188,8 @@ internal sealed class CollectionSyncService(
 
         foreach (var sync in due)
         {
+            if (run >= budget) break;
+
             ct.ThrowIfCancellationRequested();
 
             try

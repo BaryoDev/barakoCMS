@@ -443,6 +443,65 @@ public class CollectionSyncRunLockTests : IDisposable
     }
 
     /// <remarks>
+    /// A budget of one and two due syncs. The first cannot run, and a sweep that had already cut
+    /// its list down to the budget would then have nothing else to look at.
+    /// </remarks>
+    [Fact]
+    public async Task A_sync_the_sweep_leaves_for_later_does_not_use_up_the_budget_of_the_one_behind_it()
+    {
+        await SweepUntilNothingIsDueAsync();
+
+        var (first, firstSource, second, secondSource) = await ArrangeTwoInSlugOrderAsync();
+        (await DueSlugsAsync()).Should().Equal(first.Slug, second.Slug);
+
+        await using (var held = await HoldAsync(first.Type))
+        {
+            held.Should().NotBeNull("the control: nothing else is filling the first sync's collection");
+
+            (await SweepAsync(budget: 1)).Should().Be(1, "one sync ran");
+        }
+
+        firstSource.Calls.Should().Be(0, "the control: its collection was locked");
+        secondSource.Calls.Should().Be(1, "the locked sync ahead of it took none of the budget");
+        (await DueSlugsAsync()).Should().Equal(new[] { first.Slug }, "and the first is still due for a later tick");
+    }
+
+    /// <remarks>
+    /// A budget of two and three due syncs. While the sweep is inside the first, the second is run
+    /// from the API, so the sweep finds it no longer due once it holds its lock. The third must get
+    /// the slot the second did not use.
+    /// </remarks>
+    [Fact]
+    public async Task A_sync_that_is_no_longer_due_when_the_sweep_reaches_it_does_not_use_up_the_budget_either()
+    {
+        await SweepUntilNothingIsDueAsync();
+
+        var ordered = await ArrangeInSlugOrderAsync(3);
+        (await DueSlugsAsync()).Should().Equal(ordered.Select(o => o.Setup.Slug));
+
+        ordered[0].Source.Parks = true;
+        var sweep = SweepAsync(budget: 2);
+
+        try
+        {
+            (await ordered[0].Source.EnteredAsync()).Should().BeTrue("the sweep has to be inside the first sync's fetch");
+
+            (await _syncs.RunAsync(ordered[1].Setup)).GetProperty("created").GetInt32().Should().Be(2);
+        }
+        finally
+        {
+            ordered[0].Source.Release();
+        }
+
+        (await sweep).Should().Be(2, "the first and the third ran");
+
+        ordered[0].Source.Calls.Should().Be(1);
+        ordered[1].Source.Calls.Should().Be(1, "the control: only the run from the API fetched it");
+        ordered[2].Source.Calls.Should().Be(1, "the sync that was skipped ahead of it took none of the budget");
+        (await DueSlugsAsync()).Should().BeEmpty();
+    }
+
+    /// <remarks>
     /// A connection whose command timeout is shorter than the wait. The wait has to end as a
     /// refusal when the server's lock timeout fires, not as the client giving up on the command.
     /// </remarks>
@@ -593,22 +652,57 @@ public class CollectionSyncRunLockTests : IDisposable
     private async Task<(CollectionSyncTests.Setup First, ParkedSource FirstSource, CollectionSyncTests.Setup Second, ParkedSource SecondSource)>
         ArrangeTwoInSlugOrderAsync()
     {
-        var oneSource = new ParkedSource();
-        var otherSource = new ParkedSource();
-        var one = await _syncs.ArrangeAsync(oneSource.Answer);
-        var other = await _syncs.ArrangeAsync(otherSource.Answer);
-
-        return string.CompareOrdinal(one.Slug, other.Slug) < 0
-            ? (one, oneSource, other, otherSource)
-            : (other, otherSource, one, oneSource);
+        var ordered = await ArrangeInSlugOrderAsync(2);
+        return (ordered[0].Setup, ordered[0].Source, ordered[1].Setup, ordered[1].Source);
     }
 
-    private Task SweepAsync(RecordingLogger? log = null) =>
+    /// <summary>Syncs that have never run, so all are due, in the order the sweep takes them.</summary>
+    private async Task<List<(CollectionSyncTests.Setup Setup, ParkedSource Source)>> ArrangeInSlugOrderAsync(int count)
+    {
+        var arranged = new List<(CollectionSyncTests.Setup Setup, ParkedSource Source)>();
+
+        for (var i = 0; i < count; i++)
+        {
+            var source = new ParkedSource();
+            arranged.Add((await _syncs.ArrangeAsync(source.Answer), source));
+        }
+
+        return arranged.OrderBy(a => a.Setup.Slug, StringComparer.Ordinal).ToList();
+    }
+
+    private Task<int> SweepAsync(RecordingLogger? log = null, int budget = 100) =>
         (log is null
             ? ActivatorUtilities.CreateInstance<CollectionSyncService>(_syncs.Host.Services)
             : ActivatorUtilities.CreateInstance<CollectionSyncService>(
                 _syncs.Host.Services, (Microsoft.Extensions.Logging.ILogger<CollectionSyncService>)log))
-            .SweepTenantAsync(null, DateTime.UtcNow, 100, TestContext.Current.CancellationToken);
+            .SweepTenantAsync(null, DateTime.UtcNow, budget, TestContext.Current.CancellationToken);
+
+    /// <summary>
+    /// Runs whatever earlier tests left due, so a test about the budget starts from none.
+    /// </summary>
+    private async Task SweepUntilNothingIsDueAsync()
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(120);
+
+        while (await SweepAsync(budget: CollectionSyncService.MaxSyncsPerSweep) > 0)
+        {
+            (DateTime.UtcNow < deadline).Should().BeTrue("the syncs earlier tests left due should run out within two minutes");
+        }
+    }
+
+    /// <summary>The slugs of the syncs a sweep starting now would find due, in the order it takes them.</summary>
+    private async Task<List<string>> DueSlugsAsync()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+
+        var enabled = await session.Query<barakoCMS.Models.CollectionSync>()
+            .Where(s => s.Enabled)
+            .OrderBy(s => s.Slug)
+            .ToListAsync(TestContext.Current.CancellationToken);
+
+        return enabled.Where(s => s.IsDue(DateTime.UtcNow)).Select(s => s.Slug).ToList();
+    }
 
     /// <summary>What the sweep logged as an error, as the text an operator would read.</summary>
     private sealed class RecordingLogger : Microsoft.Extensions.Logging.ILogger<CollectionSyncService>
