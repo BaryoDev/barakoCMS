@@ -1,12 +1,9 @@
 name: CI
 
 on:
-  push:
-    branches-ignore:
-      - master
-    paths-ignore:
-      - "**/*.md"
-      - "docs/**"
+  # A branch push no longer starts this workflow directly. ci-branch.yml calls it, after checking
+  # that no pull request already runs the same commit (#982).
+  workflow_call:
   pull_request:
     branches: ["master"]
   # The merge queue tests a batch of PRs against master together, then merges them in order. Without

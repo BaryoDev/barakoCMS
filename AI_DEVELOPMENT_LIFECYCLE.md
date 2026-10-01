@@ -144,8 +144,8 @@ ship it.
 
 ### 1. Branch, PR, CI
 
-Work on a branch off `dev`. Push it and open a PR. CI (`ci.yml`) runs on every push (except master)
-and every PR:
+Work on a branch off `dev`. Push it and open a PR. CI (`ci.yml`) runs on every PR, and
+`ci-branch.yml` runs it on a branch push that no open PR already covers:
 
 - **Backend.** Build plus the full `dotnet test` run, with Testcontainers Postgres.
 - **Security.** A gitleaks secret scan + a vulnerable-dependency report (both report-only for now;
