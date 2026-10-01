@@ -1,15 +1,9 @@
 name: CI
 
 on:
-  push:
-    branches-ignore:
-      - master
-      # The merge queue pushes a branch for each group it builds, and merge_group below already
-      # runs everything on that commit. Matching it here ran the whole queue build twice.
-      - "gh-readonly-queue/**"
-    paths-ignore:
-      - "**/*.md"
-      - "docs/**"
+  # A branch push no longer starts this workflow directly. ci-branch.yml calls it, after checking
+  # that no pull request already runs the same commit (#982).
+  workflow_call:
   pull_request:
     branches: ["master"]
   # The merge queue tests a batch of PRs against master together, then merges them in order. Without
@@ -19,95 +13,8 @@ on:
   merge_group:
 
 jobs:
-  # A branch with an open pull request matches both triggers above, so every push to it ran the
-  # whole workflow twice on one commit. Besides the cost, a job that binds a fixed port collided
-  # with its own twin and went red for a reason that had nothing to do with the change (#982).
-  #
-  # The push trigger stays, because it is what gives a branch feedback before a pull request
-  # exists. This job is the one place that decides whether a push run is the spare one, and every
-  # other job reads its answer. It is skipped on pull_request and merge_group, which always run
-  # and never ask the API.
-  #
-  # It says "skip" only when it has seen an open pull request from this branch into master that
-  # GitHub can merge, which is the case where a pull_request run starts for the same push.
-  # Anything else runs everything: the API failing, a token that may not read pull requests, a
-  # pull request against another base, one opened from a fork that happens to share the branch
-  # name, and one with a merge conflict, since GitHub starts no pull_request run for a pull
-  # request it cannot merge. The other jobs skip on the word "false" and nothing else, so this
-  # job failing or timing out runs them too.
-  #
-  # One duplicate is left on purpose. The first push of a new branch happens before its pull
-  # request exists, so it runs, and opening the pull request then runs the same commit again.
-  #
-  # Not a concurrency group with cancel-in-progress. Which twin wins is not deterministic, and a
-  # cancelled pull_request run leaves the required checks cancelled and the pull request blocked.
-  gate:
-    name: Skip a push run that a pull request covers
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
-    permissions:
-      pull-requests: read
-    outputs:
-      run: ${{ steps.decide.outputs.run }}
-    steps:
-      - name: Look for an open pull request from this branch
-        id: decide
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          BRANCH: ${{ github.ref_name }}
-        run: |
-          set -uo pipefail
-          run=true
-          why="no open pull request from this branch into master"
-
-          # GitHub works out whether a pull request can be merged after the push, not during it,
-          # so the first answer is often UNKNOWN. Asking is what starts the calculation. Six tries
-          # is about half a minute, and an answer that never arrives means run.
-          for attempt in 1 2 3 4 5 6; do
-            if ! prs=$(timeout 20 gh pr list --repo "$REPO" --head "$BRANCH" --base master --state open \
-                         --json number,mergeable,isCrossRepository); then
-              why="could not list pull requests"
-              break
-            fi
-            if ! state=$(jq -er '[.[] | select(.isCrossRepository == false)]
-                                 | if length == 0 then "NONE" else .[0].mergeable end' <<<"$prs"); then
-              why="could not read the pull request list"
-              break
-            fi
-            case "$state" in
-              MERGEABLE)
-                run=false
-                why="an open pull request covers this commit, so its run is the one that counts"
-                break ;;
-              UNKNOWN)
-                why="GitHub has not said whether the pull request can be merged"
-                sleep 5 ;;
-              NONE)
-                break ;;
-              *)
-                why="the pull request is $state, so no pull_request run will start for it"
-                break ;;
-            esac
-          done
-
-          echo "run=$run" >> "$GITHUB_OUTPUT"
-          if [ "$run" = true ]; then
-            echo "Running everything: $why." | tee -a "$GITHUB_STEP_SUMMARY"
-          else
-            echo "Skipping the other jobs: $why." | tee -a "$GITHUB_STEP_SUMMARY"
-          fi
-
   backend:
-    # Required on master, so a push run reports it under another name. A job skipped by `if`
-    # reports as skipped, which a required check reads as passing, and a skipped push twin on the
-    # same commit could then stand in for a pull_request run that failed. With the name changed,
-    # only pull_request and merge_group ever report the required one. Same for the upgrade and
-    # security jobs; a job made required later needs the same.
-    name: ${{ github.event_name == 'push' && 'Backend (.NET), on push' || 'Backend (.NET)' }}
-    needs: gate
-    if: ${{ !cancelled() && needs.gate.outputs.run != 'false' }}
+    name: Backend (.NET)
     runs-on: ubuntu-latest
     steps:
       # Full history: the module-version check walks each .csproj's history to find when its
@@ -222,9 +129,7 @@ jobs:
           echo "✅ BarakoCMS.Tests completed" >> $GITHUB_STEP_SUMMARY
 
   upgrade:
-    name: ${{ github.event_name == 'push' && 'Upgrade from 3.x, on push' || 'Upgrade from 3.x' }}
-    needs: gate
-    if: ${{ !cancelled() && needs.gate.outputs.run != 'false' }}
+    name: Upgrade from 3.x
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -257,8 +162,6 @@ jobs:
 
   restore:
     name: Restore a backup
-    needs: gate
-    if: ${{ !cancelled() && needs.gate.outputs.run != 'false' }}
     runs-on: ubuntu-latest
     # This job runs a shell script out of the pull request's own branch, so it must not hold a token
     # that can write anything. Read-only, and the checkout leaves no credential behind for that
@@ -288,8 +191,6 @@ jobs:
 
   compose:
     name: Compose files resolve
-    needs: gate
-    if: ${{ !cancelled() && needs.gate.outputs.run != 'false' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -368,9 +269,7 @@ jobs:
           echo "refused, as it should"
 
   security:
-    name: ${{ github.event_name == 'push' && 'Security scan, on push' || 'Security scan' }}
-    needs: gate
-    if: ${{ !cancelled() && needs.gate.outputs.run != 'false' }}
+    name: Security scan
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -514,8 +413,6 @@ jobs:
   # release runs the same script against the artifact it is about to publish.
   module-template:
     name: Module template generates, builds and tests
-    needs: gate
-    if: ${{ !cancelled() && needs.gate.outputs.run != 'false' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -550,8 +447,6 @@ jobs:
   # remains the one that publishes it; nothing is uploaded here.
   sbom:
     name: SBOM generates
-    needs: gate
-    if: ${{ !cancelled() && needs.gate.outputs.run != 'false' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -594,8 +489,6 @@ jobs:
   # cluster. kind boots in about half a minute and nothing is deployed into it.
   k8s:
     name: Kubernetes manifests apply
-    needs: gate
-    if: ${{ !cancelled() && needs.gate.outputs.run != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -627,8 +520,6 @@ jobs:
   # still accept a tag that does carry both. Both tags are public, no login needed.
   image-platform-gate:
     name: Image platform gate refuses an amd64-only tag
-    needs: gate
-    if: ${{ !cancelled() && needs.gate.outputs.run != 'false' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
