@@ -29,8 +29,11 @@ die() { echo "test setup failed: $1" >&2; exit 2; }
 
 # Git exports GIT_DIR and GIT_INDEX_FILE to hooks and to `rebase --exec`, and with those set
 # `git -C <dir>` still acts on the repository they name. Run from there, every commit and tag below
-# would land in the caller's repository instead of a throwaway one. The last section proves it.
-unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_PREFIX
+# would land in the caller's repository instead of a throwaway one. Git keeps the list of such
+# variables itself, which also covers the object directory and configuration passed by environment.
+# A template directory is not on that list and would copy hooks into every repository made here.
+# shellcheck disable=SC2046
+unset $(git rev-parse --local-env-vars) GIT_TEMPLATE_DIR
 
 # The developer's git configuration stays out of it: no signing, no hooks, no templates.
 export GIT_CONFIG_GLOBAL=/dev/null
@@ -62,20 +65,30 @@ new_repo() { # starts an empty repository and an empty NuGet
   git -C "$repo" init -q || die "git init"
 }
 
-set_version() { # $1 = version
-  printf '<Project>\n  <PropertyGroup>\n    <Version>%s</Version>\n  </PropertyGroup>\n</Project>\n' "$1" > "$repo/$csproj"
+set_version() { # $1 = version, $2 = module, $3 = a line before <Version>, $4 = the <Version> line itself
+  local m=${2:-$module}
+  mkdir -p "$repo/$m"
+  {
+    printf '<Project>\n  <PropertyGroup>\n'
+    [ -n "${3:-}" ] && printf '    %s\n' "$3"
+    printf '    %s\n' "${4:-<Version>$1</Version>}"
+    printf '  </PropertyGroup>\n</Project>\n'
+  } > "$repo/$m/$m.csproj"
 }
 
-touch_module() { echo "// $1" >> "$repo/$module/Thing.cs"; }
+touch_module() { echo "// $1" >> "$repo/${2:-$module}/Thing.cs"; }
 touch_core() { echo "// $1" >> "$repo/Core.cs"; }
 
-# One hour apart, so tags sort by date the way real releases do. Commits made in the same second
-# would leave the order to chance.
+commit_at() { # $1 = hours after the start, $2 = message
+  local when="$((1767225600 + $1 * 3600)) +0000"
+  git -C "$repo" add -A || die "git add"
+  GIT_AUTHOR_DATE="$when" GIT_COMMITTER_DATE="$when" git -C "$repo" commit -q -m "$2" || die "git commit: $2"
+}
+
+# One hour apart, the way real releases are spread out. The cases about order set their own times.
 commit() { # $1 = message
   tick=$((tick + 1))
-  local when="$((1767225600 + tick * 3600)) +0000"
-  git -C "$repo" add -A || die "git add"
-  GIT_AUTHOR_DATE="$when" GIT_COMMITTER_DATE="$when" git -C "$repo" commit -q -m "$1" || die "git commit: $1"
+  commit_at "$tick" "$1"
 }
 
 tag() { git -C "$repo" tag "$1" || die "git tag $1"; }
@@ -89,16 +102,19 @@ tag_again_annotated() { # $1 = tag, $2 = commit
 head_commit() { git -C "$repo" rev-parse HEAD; }
 branch_from() { git -C "$repo" checkout -q -b "$1" "$2" || die "git checkout -b $1"; }
 
-on_nuget() { # $@ = published versions of the module's package
-  local list="" v
+on_nuget_as() { # $1 = lowercased package id, $2.. = its published versions
+  local id=$1 list="" v
+  shift
   for v in "$@"; do list="$list\"$v\","; done
-  echo "{\"versions\":[${list%,}]}" > "$nuget/barakocms.demo.json"
+  echo "{\"versions\":[${list%,}]}" > "$nuget/$id.json"
 }
+on_nuget() { on_nuget_as barakocms.demo "$@"; }
 
 out=""
 code=0
+run_env=() # extra environment for the next runs, as NAME=value
 run() { # $1 = NuGet directory, defaults to this repository's canned one
-  out=$(cd "$repo" && CHECK_MODULE_VERSIONS_NUGET_DIR="${1:-$nuget}" bash "$SCRIPT" 2>&1)
+  out=$(cd "$repo" && env ${run_env[@]+"${run_env[@]}"} CHECK_MODULE_VERSIONS_NUGET_DIR="${1:-$nuget}" bash "$SCRIPT" 2>&1)
   code=$?
 }
 
@@ -169,7 +185,7 @@ set_version 4.0.1; touch_module "feature"; commit "module feature, set to 4.0.1"
 on_nuget 4.0.0 4.0.1
 run; check "bumped to a published number in the commit that changed the code" fail \
   "which is already on NuGet" "none of the 2 release tags (v4.0.0 to v4.0.1) declares it" \
-  "1 commit(s)" "since v4.0.1, the newest release behind HEAD" "the number is taken by an earlier publish"
+  "Source changes since v4.0.1, the newest release tag" "the number is taken by an earlier publish"
 
 new_repo
 set_version 4.0.0; touch_module "first"; commit "module at 4.0.0"; tag v4.0.0
@@ -188,7 +204,31 @@ touch_module "feature"; commit "module feature, no bump"
 set_version 4.0.1; commit "set module to 4.0.1"
 on_nuget 4.0.0 4.0.1
 run; check "code first, then a bump to a published number that touches only the csproj" fail \
-  "1 commit(s)" "since v4.0.1, the newest release behind HEAD" "the number is taken by an earlier publish"
+  "Source changes since v4.0.1, the newest release tag" "the number is taken by an earlier publish"
+
+# The module a release skipped, bumped afterwards to the number it was skipped under. The fix is
+# older than the newest release, so no range that starts at a release or at the bump contains it.
+new_repo
+set_version 4.3.0; touch_module "first"; commit "module at 4.3.0"; tag v4.3.0
+touch_module "a fix"; commit "module fix, no bump"
+touch_core "4.4.0"; commit "Release 4.4.0"; tag v4.4.0
+on_nuget 4.3.0 4.4.0
+run; check "skipped by the 4.4.0 release, before anybody bumps" fail "1 commit(s)" "since v4.3.0"
+set_version 4.4.0; commit "set module to 4.4.0"
+run; check "then bumped to 4.4.0, a published number, touching only the csproj" fail \
+  "which is already on NuGet" "the number is taken by an earlier publish"
+
+# Releases exist and none is behind HEAD: the only tag sits on a release branch.
+new_repo
+set_version 4.0.0; touch_module "first"; commit "module at 4.0.0"; base=$(head_commit)
+branch_from release "$base"
+touch_core "4.0.0"; commit "Release 4.0.0"; tag v4.0.0
+branch_from work "$base"
+touch_module "feature"; commit "module feature, no bump"
+set_version 4.0.1; commit "set module to 4.0.1"
+on_nuget 4.0.0 4.0.1
+run; check "no release tag behind HEAD, csproj-only bump to a published number" fail \
+  "none of the 1 release tags (v4.0.0 to v4.0.0) declares it" "the number is taken by an earlier publish"
 
 # Going back to a number an earlier release published. A tag does declare it, the old one, and
 # everything written since then is missing from the package that holds the number.
@@ -237,6 +277,115 @@ tag_again_annotated v4.3.0 "$first_release"
 on_nuget 4.3.0
 run; check "v4.3.0 re-created as an annotated tag after v4.4.0" fail "1 commit(s)" "since v4.3.0"
 
+# Two commits in the same second. Commit time ties, and then the names decide, wrongly.
+new_repo
+set_version 4.9.0; touch_module "first"; commit_at 500 "module at 4.9.0"; tag v4.9.0
+touch_module "a fix"; commit_at 500 "module fix, no bump"
+touch_core "4.10.0"; commit_at 500 "Release 4.10.0"; tag v4.10.0
+on_nuget 4.9.0
+run; check "two releases committed in the same second" fail "1 commit(s)" "since v4.9.0"
+
+# A release commit dated before the release it is built on, as a wrong clock produces.
+new_repo
+set_version 4.3.0; touch_module "first"; commit_at 700 "module at 4.3.0"; tag v4.3.0
+touch_module "a fix"; commit_at 701 "module fix, no bump"
+touch_core "4.4.0"; commit_at 600 "Release 4.4.0"; tag v4.4.0
+on_nuget 4.3.0
+run; check "a later release whose commit carries an earlier time" fail "1 commit(s)" "since v4.3.0"
+
+echo "== reading the version a tag declares =="
+other=BarakoCMS.Other
+
+# Another module's number is not this module's. Other is 4.4.0 at v4.4.0 while Demo is still 4.3.0
+# there, which is #1041 with the wrong answer coming from a different file instead of a tag name.
+new_repo
+set_version 4.3.0; touch_module "first"
+set_version 4.4.0 "$other"; touch_module "first" "$other"
+commit "Release 4.4.0"; tag v4.4.0
+set_version 4.4.0; touch_module "feature"; commit "Demo feature, set to 4.4.0"
+touch_core "4.5.0"; commit "Release 4.5.0"; tag v4.5.0
+on_nuget 4.3.0 4.4.0
+on_nuget_as barakocms.other 4.4.0
+run; check "another module declared this number at an earlier tag" pass
+
+# A number that starts with another number, both ways round.
+new_repo
+set_version 4.1.1; touch_module "first"; commit "module at 4.1.1"; tag v4.1.1
+set_version 4.1.10; touch_module "feature"; commit "module feature, set to 4.1.10"
+touch_core "release"; commit "Release 4.1.10"; tag v4.1.10
+on_nuget 4.1.1 4.1.10
+run; check "4.1.10 after 4.1.1" pass
+
+new_repo
+set_version 4.1.10; touch_module "first"; commit "module at 4.1.10"; tag v4.1.10
+set_version 4.1.1; touch_module "feature"; commit "module feature, set to 4.1.1"
+touch_core "release"; commit "the next release"; tag v4.2.0
+on_nuget 4.1.1 4.1.10
+run; check "4.1.1 after 4.1.10" pass
+
+# Equal as numbers, different as versions.
+new_repo
+set_version 4.1; touch_module "first"; commit "module at 4.1"; tag v4.1.0
+set_version 4.10; touch_module "feature"; commit "module feature, set to 4.10"
+touch_core "release"; commit "Release 4.10"; tag v4.10.0
+on_nuget 4.1 4.10
+run; check "4.10 after 4.1" pass
+
+# A second <Version> line further down, which at the first tag already holds today's number.
+new_repo
+set_version 4.3.0 "$module" "" "<Version>4.3.0</Version>
+    <Version Condition=\"false\">9</Version><!-- <Version>4.4.0</Version> -->"
+touch_module "first"; commit "module at 4.3.0"; tag v4.3.0
+set_version 4.4.0; touch_module "feature"; commit "module feature, set to 4.4.0"
+touch_core "4.5.0"; commit "Release 4.5.0"; tag v4.5.0
+on_nuget 4.3.0 4.4.0
+run; check "only the first <Version> line of a csproj counts" pass
+
+# <PackageVersion> is another element, and it comes first here.
+new_repo
+set_version 4.3.0 "$module" "<PackageVersion>9.9.9</PackageVersion>"
+touch_module "first"; commit "module at 4.3.0"; tag v4.3.0
+on_nuget 4.3.0
+run; check "a <PackageVersion> line before <Version>" pass
+touch_module "a fix"; commit "module fix, no bump"
+run; check "the same csproj with a fix after the release" fail "1 commit(s)" "since v4.3.0"
+
+# More text on the line after the element. The working tree and the tag must be read the same way.
+new_repo
+set_version 4.3.0 "$module" "" "<Version>4.3.0</Version> <!-- closes with </Version> -->"
+touch_module "first"; commit "module at 4.3.0"; tag v4.3.0
+touch_module "a fix"; commit "module fix, no bump"
+on_nuget 4.3.0
+run; check "a second </Version> later on the line" fail "1 commit(s)" "since v4.3.0"
+
+echo "== the caller's git settings =="
+# The tag scan reads git grep's output and the commit count uses pathspec magic. Each of these
+# makes one of them come back empty or unreadable unless the script pins it.
+new_repo
+set_version 4.3.0; touch_module "first"; commit "module at 4.3.0"; tag v4.3.0
+touch_module "a fix"; commit "module fix, no bump"
+touch_core "4.4.0"; commit "Release 4.4.0"; tag v4.4.0
+on_nuget 4.3.0
+for setting in color.ui=always color.grep=always grep.patternType=fixed grep.lineNumber=true; do
+  printf '[%s]\n\t%s = %s\n' "${setting%%.*}" "$(cut -d. -f2 <<< "${setting%%=*}")" "${setting#*=}" > "$work/gitconfig"
+  run_env=(GIT_CONFIG_GLOBAL="$work/gitconfig")
+  run; check "a skipped fix with $setting" fail "1 commit(s)" "since v4.3.0"
+done
+run_env=(GIT_LITERAL_PATHSPECS=1)
+run; check "a skipped fix with GIT_LITERAL_PATHSPECS=1" fail "1 commit(s)" "since v4.3.0"
+run_env=()
+
+# A commit that touches only the .csproj is not a source change. That rests on pathspec magic, which
+# GIT_LITERAL_PATHSPECS turns off: the exclusion then matches nothing and the edit is counted.
+new_repo
+set_version 4.3.0; touch_module "first"; commit "module at 4.3.0"; tag v4.3.0
+set_version 4.3.0 "$module" "<Description>new words</Description>"; commit "csproj metadata only"
+on_nuget 4.3.0
+run; check "a csproj-only edit after the release" pass
+run_env=(GIT_LITERAL_PATHSPECS=1)
+run; check "the same with GIT_LITERAL_PATHSPECS=1" pass
+run_env=()
+
 echo "== a branch cut before the release that published the version =="
 new_repo
 set_version 4.3.0; touch_module "first"; commit "module at 4.3.0"; tag v4.3.0
@@ -262,6 +411,12 @@ set_version 4.0.0; touch_module "first"; commit "new module"
 touch_module "second"; commit "module change"
 run; check "changes to a package that has never been published" pass "has never been published"
 
+new_repo
+set_version 4.0.0; touch_module "first"; commit "module at 4.0.0"; tag v4.0.0
+set_version 4.1.0; commit "set module to 4.1.0"
+on_nuget 4.0.0
+run; check "a bump with no code in it, version unpublished" pass "4.1.0 is not on NuGet yet"
+
 echo "== NuGet cannot be reached =="
 published_by_a_later_release
 touch_module "after the release"; commit "module change after 4.5.0"
@@ -272,8 +427,13 @@ set_version 4.0.0; touch_module "first"; commit "module at 4.0.0"; tag v4.0.0
 set_version 4.1.0; touch_module "feature"; commit "module feature, set to 4.1.0"
 run "$work/no-such-directory"; check "changes under a version no tag declares" fail "NuGet could not be asked"
 
+new_repo
+set_version 4.0.0; touch_module "first"; commit "module at 4.0.0"; tag v4.0.0
+set_version 4.1.0; commit "set module to 4.1.0"
+run "$work/no-such-directory"; check "a bump with no code in it, under a version no tag declares" fail "NuGet could not be asked"
+
 published_by_a_later_release
-run "$work/no-such-directory"; check "no changes, so NuGet is never asked" pass
+run "$work/no-such-directory"; check "a released version with no changes, so NuGet is never asked" pass
 
 echo "== a clone with no release tags =="
 new_repo
@@ -311,23 +471,25 @@ run; check "one commit in the whole history, version published" fail "since the 
 echo "== git variables inherited from a hook =="
 # The whole script again, the way a hook would start it, with a bystander repository named by
 # GIT_DIR. It must come through with nothing moved, added or tagged.
-if [ -z "${CHECK_MODULE_VERSIONS_TEST_NESTED:-}" ]; then
+if [ -n "${CHECK_MODULE_VERSIONS_TEST_NESTED:-}" ]; then
+  echo "  note  CHECK_MODULE_VERSIONS_TEST_NESTED is set, so this is taken to be the run this section starts, and the section is not repeated"
+else
   bystander="$work/bystander"
   mkdir "$bystander"
   git -C "$bystander" init -q || die "git init bystander"
   echo "keep" > "$bystander/keep.txt"
   git -C "$bystander" add -A || die "git add bystander"
   git -C "$bystander" commit -q -m "bystander" || die "git commit bystander"
-  before=$(git -C "$bystander" rev-parse HEAD)
-  GIT_DIR="$bystander/.git" GIT_INDEX_FILE="$bystander/.git/index" CHECK_MODULE_VERSIONS_TEST_NESTED=1 \
-    bash "${BASH_SOURCE[0]}" > "$work/nested.out" 2>&1
+  before="HEAD $(git -C "$bystander" rev-parse HEAD), status [$(git -C "$bystander" status --porcelain)], tags [$(git -C "$bystander" tag -l)], $(git -C "$bystander" count-objects)"
+  GIT_DIR="$bystander/.git" GIT_INDEX_FILE="$bystander/.git/index" GIT_OBJECT_DIRECTORY="$bystander/.git/objects" \
+    CHECK_MODULE_VERSIONS_TEST_NESTED=1 bash "${BASH_SOURCE[0]}" > "$work/nested.out" 2>&1
   nested=$?
   out=$(tail -3 "$work/nested.out"); code=$nested
-  check "the cases pass with GIT_DIR and GIT_INDEX_FILE set" pass
-  out="HEAD $(git -C "$bystander" rev-parse HEAD), status [$(git -C "$bystander" status --porcelain)], tags [$(git -C "$bystander" tag -l)]"
+  check "the cases pass with GIT_DIR, GIT_INDEX_FILE and GIT_OBJECT_DIRECTORY set" pass
+  out="HEAD $(git -C "$bystander" rev-parse HEAD), status [$(git -C "$bystander" status --porcelain)], tags [$(git -C "$bystander" tag -l)], $(git -C "$bystander" count-objects)"
   code=0
-  [ "$out" = "HEAD $before, status [], tags []" ] || code=1
-  check "the repository GIT_DIR named is untouched" pass
+  [ "$out" = "$before" ] || code=1
+  check "the repository those named is untouched, objects included" pass
 fi
 
 echo "== the network =="
