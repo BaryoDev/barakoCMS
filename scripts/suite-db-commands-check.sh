@@ -27,14 +27,20 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+. scripts/lib-ports.sh
+
 PG="suite-db-commands-pg"
-PG_PORT="${PG_PORT:-55436}"
-APP_PORT="${APP_PORT:-58096}"
+# Empty means Docker chooses the host port and the script reads it back. A value set by the caller
+# is used as given. See lib-ports.sh for why there is no default.
+PG_PORT="${PG_PORT:-}"
+# No command here is meant to serve, so nothing reads this port back. Port 0 means that a Suite which
+# ignores its command and serves anyway still binds, and is caught for that rather than for a port
+# that happened to be taken.
+APP_PORT="${APP_PORT:-0}"
 DB="barako_suite_db_commands"
 JWT_KEY='suite-db-commands-key-that-is-at-least-32-chars-long'
 COMMAND_TIMEOUT="${COMMAND_TIMEOUT:-180}"
 WORK="$(mktemp -d)"
-CONN="Host=127.0.0.1;Port=${PG_PORT};Database=${DB};Username=postgres;Password=postgres"
 
 cleanup() {
     docker rm -f "$PG" >/dev/null 2>&1 || true
@@ -67,8 +73,11 @@ dotnet publish BarakoCMS.Suite/BarakoCMS.Suite.csproj -c Release -o "$WORK/publi
     -clp:ErrorsOnly -p:RestoreLockedMode=true -nodeReuse:false
 
 step "starting postgres"
-docker run -d --name "$PG" -e POSTGRES_DB="$DB" -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
-    -p "127.0.0.1:${PG_PORT}:5432" postgres:16-alpine >/dev/null
+PG_ID=$(docker run -d --name "$PG" -e POSTGRES_DB="$DB" -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
+    -p "$(publish_spec "$PG_PORT" 5432)" postgres:16-alpine 2>"$WORK/docker-run.err") \
+    || fail "$(publish_failure "$WORK/docker-run.err" "$PG_PORT" postgres)"
+PG_PORT=$(published_port "$PG_ID" 5432) || fail "cannot tell which host port postgres was published on"
+CONN="Host=127.0.0.1;Port=${PG_PORT};Database=${DB};Username=postgres;Password=postgres"
 # Over TCP: the image's bootstrap server answers on the socket before the real one is up.
 for _ in $(seq 1 60); do docker exec "$PG" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1 && break; sleep 2; done
 docker exec "$PG" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1 || fail "postgres never became ready"
