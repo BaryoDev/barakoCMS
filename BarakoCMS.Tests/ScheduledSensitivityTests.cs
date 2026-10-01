@@ -143,10 +143,93 @@ public class ScheduledSensitivityTests
         types.Should().NotBeEmpty();
         types.Should().Contain("SensitivityScheduled", "arming is a decision somebody took, and the history says who");
 
-        var clear = await client.PutAsJsonAsync($"/api/contents/{contentId}/schedule", new ScheduleRequest { Id = contentId });
+        var clear = await client.PutAsJsonAsync($"/api/contents/{contentId}/schedule", new
+        {
+            id = contentId, scheduledSensitivity = (string?)null, scheduledSensitivityAt = (DateTime?)null,
+        });
         clear.StatusCode.Should().Be(HttpStatusCode.OK);
         var cleared = await client.GetFromJsonAsync<JsonElement>($"/api/contents/{contentId}");
-        cleared.GetProperty("scheduledSensitivity").ValueKind.Should().Be(JsonValueKind.Null, "a request with neither field clears it");
+        cleared.GetProperty("scheduledSensitivity").ValueKind.Should().Be(JsonValueKind.Null, "a request that sends both as null clears it");
+        cleared.GetProperty("scheduledSensitivityAt").ValueKind.Should().Be(JsonValueKind.Null);
+    }
+
+    [Fact]
+    public async Task A_reschedule_that_leaves_the_sensitivity_fields_out_keeps_the_armed_change()
+    {
+        var client = await AdminAsync();
+        var contentId = await CreateArticleAsync(client, "Rescheduled, still armed");
+
+        var at = new DateTime(2027, 5, 6, 7, 8, 9, DateTimeKind.Utc);
+        var arm = await client.PutAsJsonAsync($"/api/contents/{contentId}/schedule", new
+        {
+            id = contentId, scheduledSensitivity = nameof(SensitivityLevel.Hidden), scheduledSensitivityAt = at,
+        });
+        arm.StatusCode.Should().Be(HttpStatusCode.OK);
+        var armed = await client.GetFromJsonAsync<JsonElement>($"/api/contents/{contentId}");
+        armed.GetProperty("scheduledSensitivity").GetString()
+            .Should().Be(nameof(SensitivityLevel.Hidden), "the control: the change is armed before the reschedule");
+
+        var publishAt = new DateTime(2027, 3, 4, 9, 0, 0, DateTimeKind.Utc);
+        var reschedule = await client.PutAsJsonAsync($"/api/contents/{contentId}/schedule", new
+        {
+            id = contentId, scheduledPublishAt = publishAt,
+        });
+        reschedule.StatusCode.Should().Be(HttpStatusCode.OK);
+        var answer = await reschedule.Content.ReadFromJsonAsync<JsonElement>();
+        answer.GetProperty("scheduledSensitivity").GetString()
+            .Should().Be(nameof(SensitivityLevel.Hidden), "the response reports what is armed, not what the request named");
+
+        var read = await client.GetFromJsonAsync<JsonElement>($"/api/contents/{contentId}");
+        read.GetProperty("scheduledPublishAt").ValueKind.Should().Be(JsonValueKind.String, "the reschedule itself took effect");
+        read.GetProperty("scheduledSensitivity").GetString()
+            .Should().Be(nameof(SensitivityLevel.Hidden), "a request that names neither sensitivity field is not about the sensitivity change");
+        DateTimeOffset.Parse(read.GetProperty("scheduledSensitivityAt").GetString()!,
+                System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind)
+            .Should().Be(new DateTimeOffset(at));
+
+        var history = await client.GetFromJsonAsync<JsonElement>($"/api/contents/{contentId}/history");
+        var types = history.GetProperty("items").EnumerateArray()
+            .Select(v => v.GetProperty("changeType").GetString()).ToList();
+        types.Should().NotBeEmpty();
+        types.Count(t => t == "SensitivityScheduled").Should().Be(1, "the arming is recorded and the reschedule adds no clearing event");
+    }
+
+    [Fact]
+    public async Task A_reschedule_that_sends_the_sensitivity_fields_as_null_clears_the_armed_change()
+    {
+        var client = await AdminAsync();
+        var contentId = await CreateArticleAsync(client, "Rescheduled and cleared");
+
+        var arm = await client.PutAsJsonAsync($"/api/contents/{contentId}/schedule", new
+        {
+            id = contentId,
+            scheduledSensitivity = nameof(SensitivityLevel.Hidden),
+            scheduledSensitivityAt = new DateTime(2027, 5, 6, 7, 8, 9, DateTimeKind.Utc),
+        });
+        arm.StatusCode.Should().Be(HttpStatusCode.OK);
+        var armed = await client.GetFromJsonAsync<JsonElement>($"/api/contents/{contentId}");
+        armed.GetProperty("scheduledSensitivity").GetString()
+            .Should().Be(nameof(SensitivityLevel.Hidden), "the control: there is something to clear");
+
+        var reschedule = await client.PutAsJsonAsync($"/api/contents/{contentId}/schedule", new
+        {
+            id = contentId,
+            scheduledPublishAt = new DateTime(2027, 3, 4, 9, 0, 0, DateTimeKind.Utc),
+            scheduledSensitivity = (string?)null,
+            scheduledSensitivityAt = (DateTime?)null,
+        });
+        reschedule.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var read = await client.GetFromJsonAsync<JsonElement>($"/api/contents/{contentId}");
+        read.GetProperty("scheduledPublishAt").ValueKind.Should().Be(JsonValueKind.String);
+        read.GetProperty("scheduledSensitivity").ValueKind.Should().Be(JsonValueKind.Null, "null is the caller saying to clear it");
+        read.GetProperty("scheduledSensitivityAt").ValueKind.Should().Be(JsonValueKind.Null);
+
+        var history = await client.GetFromJsonAsync<JsonElement>($"/api/contents/{contentId}/history");
+        var types = history.GetProperty("items").EnumerateArray()
+            .Select(v => v.GetProperty("changeType").GetString()).ToList();
+        types.Should().NotBeEmpty();
+        types.Count(t => t == "SensitivityScheduled").Should().Be(2, "the arming and the clearing are both decisions somebody took");
     }
 
     [Fact]
@@ -178,9 +261,8 @@ public class ScheduledSensitivityTests
     }
 
     /// <summary>
-    /// A console that knows only the publish times keeps working: its save neither clears an armed
-    /// sensitivity change it cannot see nor appends a clearing event for a schedule that was never
-    /// armed.
+    /// A console that knows only the publish times appends no clearing event for a schedule that
+    /// was never armed. The armed case is the reschedule test above.
     /// </summary>
     [Fact]
     public async Task A_save_that_does_not_mention_sensitivity_leaves_no_event_when_nothing_was_armed()
@@ -188,17 +270,119 @@ public class ScheduledSensitivityTests
         var client = await AdminAsync();
         var contentId = await CreateArticleAsync(client, "Old console");
 
-        var save = await client.PutAsJsonAsync($"/api/contents/{contentId}/schedule", new ScheduleRequest
+        var save = await client.PutAsJsonAsync($"/api/contents/{contentId}/schedule", new
         {
-            Id = contentId, ScheduledPublishAt = DateTime.UtcNow.AddDays(1),
+            id = contentId, scheduledPublishAt = DateTime.UtcNow.AddDays(1),
         });
         save.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var history = await client.GetFromJsonAsync<JsonElement>($"/api/contents/{contentId}/history");
         var types = history.GetProperty("items").EnumerateArray()
             .Select(v => v.GetProperty("changeType").GetString()).ToList();
+        types.Should().NotBeEmpty();
         types.Should().Contain("Scheduled");
         types.Should().NotContain("SensitivityScheduled", "nothing was armed and nothing was cleared");
+    }
+
+    [Fact]
+    public async Task Sending_both_sensitivity_fields_as_null_when_nothing_was_armed_leaves_no_event()
+    {
+        var client = await AdminAsync();
+        var contentId = await CreateArticleAsync(client, "Nulls, nothing armed");
+
+        var save = await client.PutAsJsonAsync($"/api/contents/{contentId}/schedule", new
+        {
+            id = contentId,
+            scheduledPublishAt = DateTime.UtcNow.AddDays(1),
+            scheduledSensitivity = (string?)null,
+            scheduledSensitivityAt = (DateTime?)null,
+        });
+        save.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var types = await HistoryTypesAsync(client, contentId);
+        types.Should().NotBeEmpty();
+        types.Should().Contain("Scheduled", "the control: the save itself is in the history");
+        types.Should().NotContain("SensitivityScheduled", "clearing what was never armed moves nothing");
+    }
+
+    [Fact]
+    public async Task Sending_the_armed_sensitivity_change_again_leaves_one_event()
+    {
+        var client = await AdminAsync();
+        var contentId = await CreateArticleAsync(client, "Armed twice");
+
+        var body = new
+        {
+            id = contentId,
+            scheduledSensitivity = nameof(SensitivityLevel.Hidden),
+            scheduledSensitivityAt = new DateTime(2027, 5, 6, 7, 8, 9, DateTimeKind.Utc),
+        };
+        (await client.PutAsJsonAsync($"/api/contents/{contentId}/schedule", body)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await client.PutAsJsonAsync($"/api/contents/{contentId}/schedule", body)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var read = await client.GetFromJsonAsync<JsonElement>($"/api/contents/{contentId}");
+        read.GetProperty("scheduledSensitivity").GetString().Should().Be(nameof(SensitivityLevel.Hidden));
+
+        var types = await HistoryTypesAsync(client, contentId);
+        types.Should().NotBeEmpty();
+        types.Count(t => t == "SensitivityScheduled").Should().Be(1, "the second save armed nothing new");
+    }
+
+    [Fact]
+    public async Task A_lone_null_sensitivity_level_clears_the_armed_change()
+    {
+        var client = await AdminAsync();
+        var contentId = await CreateArticleAsync(client, "Lone null level");
+        await ArmHiddenAsync(client, contentId);
+
+        var clear = await client.PutAsJsonAsync($"/api/contents/{contentId}/schedule", new
+        {
+            id = contentId, scheduledSensitivity = (string?)null,
+        });
+        clear.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var read = await client.GetFromJsonAsync<JsonElement>($"/api/contents/{contentId}");
+        read.GetProperty("scheduledSensitivity").ValueKind.Should().Be(JsonValueKind.Null, "one field named as null names the pair");
+        read.GetProperty("scheduledSensitivityAt").ValueKind.Should().Be(JsonValueKind.Null);
+    }
+
+    [Fact]
+    public async Task A_lone_null_sensitivity_time_clears_the_armed_change()
+    {
+        var client = await AdminAsync();
+        var contentId = await CreateArticleAsync(client, "Lone null time");
+        await ArmHiddenAsync(client, contentId);
+
+        var clear = await client.PutAsJsonAsync($"/api/contents/{contentId}/schedule", new
+        {
+            id = contentId, scheduledSensitivityAt = (DateTime?)null,
+        });
+        clear.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var read = await client.GetFromJsonAsync<JsonElement>($"/api/contents/{contentId}");
+        read.GetProperty("scheduledSensitivity").ValueKind.Should().Be(JsonValueKind.Null, "one field named as null names the pair");
+        read.GetProperty("scheduledSensitivityAt").ValueKind.Should().Be(JsonValueKind.Null);
+    }
+
+    private static async Task ArmHiddenAsync(HttpClient client, Guid contentId)
+    {
+        var arm = await client.PutAsJsonAsync($"/api/contents/{contentId}/schedule", new
+        {
+            id = contentId,
+            scheduledSensitivity = nameof(SensitivityLevel.Hidden),
+            scheduledSensitivityAt = new DateTime(2027, 5, 6, 7, 8, 9, DateTimeKind.Utc),
+        });
+        arm.StatusCode.Should().Be(HttpStatusCode.OK);
+        var armed = await client.GetFromJsonAsync<JsonElement>($"/api/contents/{contentId}");
+        armed.GetProperty("scheduledSensitivity").GetString()
+            .Should().Be(nameof(SensitivityLevel.Hidden), "the control: there is something to clear");
+    }
+
+    private static async Task<List<string?>> HistoryTypesAsync(HttpClient client, Guid contentId)
+    {
+        var history = await client.GetFromJsonAsync<JsonElement>($"/api/contents/{contentId}/history");
+        return history.GetProperty("items").EnumerateArray()
+            .Select(v => v.GetProperty("changeType").GetString()).ToList();
     }
 
     private static Content Doc(string type, string slug, SensitivityLevel sensitivity, SensitivityLevel scheduled, DateTime at) => new()

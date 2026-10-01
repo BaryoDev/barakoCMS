@@ -59,10 +59,11 @@ internal class Endpoint(
             new barakoCMS.Events.ContentScheduled(content.Id, req.ScheduledPublishAt, req.ScheduledUnpublishAt, userId, DateTime.UtcNow),
         };
 
-        // Only when it moves. The request is the whole schedule, so a console that sends only the
-        // publish times would otherwise append a clearing event on every save, and a stream full of
-        // "nothing was armed, still nothing is armed" tells the history reader nothing.
-        if (req.ScheduledSensitivity != content.ScheduledSensitivity || req.ScheduledSensitivityAt != content.ScheduledSensitivityAt)
+        // Only when the request names a sensitivity field, and only when it moves. A console that
+        // knows only the publish times cannot see an armed sensitivity change, so its save must not
+        // clear one, and it must not append "nothing was armed, still nothing is armed" either.
+        if (req.MentionsSensitivity
+            && (req.ScheduledSensitivity != content.ScheduledSensitivity || req.ScheduledSensitivityAt != content.ScheduledSensitivityAt))
         {
             events.Add(new barakoCMS.Events.ContentSensitivityScheduled(
                 content.Id, req.ScheduledSensitivity, req.ScheduledSensitivityAt, userId, DateTime.UtcNow));
