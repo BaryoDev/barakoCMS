@@ -36,6 +36,9 @@ jobs:
   # request it cannot merge. The other jobs skip on the word "false" and nothing else, so this
   # job failing or timing out runs them too.
   #
+  # One duplicate is left on purpose. The first push of a new branch happens before its pull
+  # request exists, so it runs, and opening the pull request then runs the same commit again.
+  #
   # Not a concurrency group with cancel-in-progress. Which twin wins is not deterministic, and a
   # cancelled pull_request run leaves the required checks cancelled and the pull request blocked.
   gate:
