@@ -217,6 +217,121 @@ public class SiteShareLinkTests
         (await StoredLinksAsync(slug)).Should().HaveCount(2);
     }
 
+    private static async Task<JsonElement> ListAsync(HttpClient client)
+    {
+        var response = await client.GetAsync("/api/site/share-links", Ct);
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
+        return await response.Content.ReadFromJsonAsync<JsonElement>(Ct);
+    }
+
+    private static int ReportedMaxExpiryDays(JsonElement list)
+    {
+        list.TryGetProperty("maxExpiryDays", out var reported).Should().BeTrue("the list reports the maximum expiry");
+        reported.ValueKind.Should().Be(JsonValueKind.Number);
+        reported.TryGetInt32(out var days).Should().BeTrue("the maximum is a whole number of days");
+        return days;
+    }
+
+    [Fact]
+    public async Task The_list_reports_the_maximum_expiry_in_whole_days_when_there_are_no_links()
+    {
+        var slug = await TenantAsync();
+        var admin = await SuperAdminInAsync(slug);
+
+        var list = await ListAsync(admin);
+
+        list.GetProperty("items").GetArrayLength().Should().Be(0);
+        list.GetProperty("totalItems").GetInt32().Should().Be(0);
+        list.GetProperty("page").GetInt32().Should().Be(1);
+        list.GetProperty("pageSize").GetInt32().Should().BeGreaterThan(0);
+        var days = ReportedMaxExpiryDays(list);
+        days.Should().BeGreaterThanOrEqualTo(1, "a console reads anything under one day as nothing reported");
+        TimeSpan.FromDays(days).Should().BeLessThanOrEqualTo(ShareLinkKeys.MaxLifetime,
+            "a reported maximum past the one the validator enforces would be refused");
+        TimeSpan.FromDays(days + 1).Should().BeGreaterThan(ShareLinkKeys.MaxLifetime,
+            "the reported maximum is the largest whole number of days the validator allows");
+    }
+
+    [Fact]
+    public async Task A_link_at_the_reported_maximum_is_accepted_and_one_day_past_it_is_refused()
+    {
+        var slug = await TenantAsync();
+        var admin = await SuperAdminInAsync(slug);
+        var days = ReportedMaxExpiryDays(await ListAsync(admin));
+
+        var atMaximum = DateTimeOffset.UtcNow.AddDays(days);
+        (await CreateAsync(admin, new { label = "At the maximum", expiresAt = atMaximum })).GetProperty("expiresAt").GetDateTimeOffset()
+            .Should().BeCloseTo(atMaximum, TimeSpan.FromSeconds(1));
+
+        var pastMaximum = await admin.PostAsJsonAsync(
+            "/api/site/share-links", new { label = "A day past", expiresAt = DateTimeOffset.UtcNow.AddDays(days + 1) }, Ct);
+        pastMaximum.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await pastMaximum.Content.ReadAsStringAsync(Ct)).Should().Contain($"at most {days} days");
+
+        var stored = await StoredLinksAsync(slug);
+        stored.Should().HaveCount(1);
+        stored[0].Label.Should().Be("At the maximum");
+        var after = await ListAsync(admin);
+        after.GetProperty("items").GetArrayLength().Should().Be(1);
+        ReportedMaxExpiryDays(after).Should().Be(days);
+    }
+
+    [Fact]
+    public async Task The_maximum_expiry_is_reported_only_to_a_caller_who_may_update_site()
+    {
+        var slug = await TenantAsync();
+        var editor = await EditorInAsync(slug, mayUpdateSite: true);
+        var reader = await EditorInAsync(slug, mayUpdateSite: false);
+
+        ReportedMaxExpiryDays(await ListAsync(editor)).Should().BeGreaterThanOrEqualTo(1, "the positive control");
+
+        var refused = await reader.GetAsync("/api/site/share-links", Ct);
+        refused.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await refused.Content.ReadAsStringAsync(Ct)).Should().NotContainEquivalentOf("maxExpiryDays");
+        var anonymous = await AnonymousIn(slug).GetAsync("/api/site/share-links", Ct);
+        anonymous.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await anonymous.Content.ReadAsStringAsync(Ct)).Should().NotContainEquivalentOf("maxExpiryDays");
+    }
+
+    [Fact]
+    public async Task The_OpenAPI_document_names_the_maximum_expiry_on_the_list_response()
+    {
+        using var doc = await OpenApiTagTests.FetchDocumentAsync(_fixture);
+        var schemas = doc.RootElement.GetProperty("components").GetProperty("schemas");
+        var schema = doc.RootElement.GetProperty("paths").GetProperty("/api/site/share-links").GetProperty("get")
+            .GetProperty("responses").GetProperty("200").GetProperty("content").GetProperty("application/json").GetProperty("schema");
+
+        var properties = SchemaProperties(schema, schemas).ToList();
+
+        properties.Should().Contain("items", "otherwise this is not reading the list envelope");
+        properties.Should().Contain("maxExpiryDays");
+    }
+
+    /// <summary>Property names of a schema, following references and the allOf an inherited envelope is written as.</summary>
+    private static IEnumerable<string> SchemaProperties(JsonElement schema, JsonElement schemas)
+    {
+        if (schema.TryGetProperty("$ref", out var reference))
+        {
+            schema = schemas.GetProperty(reference.GetString()!.Split('/')[^1]);
+        }
+
+        if (schema.TryGetProperty("properties", out var properties))
+        {
+            foreach (var property in properties.EnumerateObject())
+            {
+                yield return property.Name;
+            }
+        }
+
+        if (schema.TryGetProperty("allOf", out var parts))
+        {
+            foreach (var name in parts.EnumerateArray().SelectMany(part => SchemaProperties(part, schemas)))
+            {
+                yield return name;
+            }
+        }
+    }
+
     [Fact]
     public async Task A_valid_key_redeems_with_its_expiry_no_store_and_records_the_use()
     {
