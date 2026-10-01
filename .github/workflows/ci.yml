@@ -24,18 +24,30 @@ jobs:
       # current <Version> was set. The default shallow clone would make it silently find nothing.
       #
       # Tags too, and asked for by name rather than assumed from fetch-depth. That check measures
-      # from the release tag now, and a missing tag does not fail it, it quietly falls back to the
-      # older reference and reports published changes as unpublished ones. That is the failure this
-      # is meant to prevent, so the fetch says what it needs instead of relying on a default.
+      # from the release tag that first declared a module's version, and a missing tag does not fail
+      # it: it warns, falls back to the older reference and reports published changes as unpublished
+      # ones. That is the failure this is meant to prevent, so the fetch says what it needs instead
+      # of relying on a default.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
           fetch-tags: true
 
+      # The check below has blocked every pull request from a clean master twice by measuring from
+      # the wrong release (#675, #1041). Each history that went wrong is rebuilt here as a throwaway
+      # repository, with NuGet's answer canned, so this step never touches the network.
+      - name: Prove the module version check measures from the right release
+        run: bash scripts/test-check-module-versions.sh
+
       # Catches a module whose code changed without its <Version> moving. Releases push with
       # --skip-duplicate, so such a module is skipped and its changes never ship — that has
       # swallowed a fix twice, most recently a security fix (see CHANGELOG 3.12.1 and 3.17.1).
+      #
+      # The variable is the test script's way of handing the check canned NuGet answers. Set to
+      # empty here so nothing earlier in the job can feed the real check anything but nuget.org.
       - name: Check module versions
+        env:
+          CHECK_MODULE_VERSIONS_NUGET_DIR: ""
         run: bash scripts/check-module-versions.sh
 
       # Markdown and YAML are where a botched merge hides: nothing compiles them, so a CHANGELOG
