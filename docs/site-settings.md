@@ -282,9 +282,10 @@ too, since the list names who shared the site with whom.
 **Creating.** The body is `{ "label": "...", "expiresAt": "..." }`. The label is required, at most
 100 characters. `expiresAt` is optional: unset means 30 days from now, and more than the maximum
 (90 days) away is a 400. The key is 32 random bytes, base64url encoded, and appears in this response
-and nowhere else. Only its SHA-256 is stored, on a tenant scoped document that is not part of site settings, public
-delivery or a portability export. Creating is audited as `site.share_link.created` with the label
-and expiry, never the key. A tenant holds at most 100 active links; revoke one to make another.
+and nowhere else. Only its SHA-256 is stored, on a tenant scoped document that is not part of site
+settings, public delivery or a portability export. Creating is audited as `site.share_link.created`
+with the label and expiry, never the key. A tenant holds at most 100 active links; revoke one to
+make another.
 
 **The maximum expiry.** The list response carries `maxExpiryDays` on the page itself, next to
 `items` and `totalItems`, so it is there when the tenant has no links yet. It is the longest expiry
