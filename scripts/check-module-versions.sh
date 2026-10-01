@@ -28,7 +28,7 @@
 #   were built from the v4.1.0 commit and had the changes in them.
 #
 # With no tag declaring the version it has not been released from a tagged tree, so the reference
-# falls back to the commit before the one that set the version, and NuGet decides (see below).
+# falls back to the newest release behind HEAD, and NuGet decides (see below).
 #
 # Run locally with: bash scripts/check-module-versions.sh
 # Tested by:        bash scripts/test-check-module-versions.sh
@@ -69,11 +69,44 @@ fi
 # published it. Every v* tag counts, not only the ones merged into HEAD: a branch cut before the
 # latest release still has to measure from that release, and <tag>..HEAD is then the branch's own
 # commits, which is the right answer.
+#
+# Any v* tag is taken to be a release. The release workflow is the only thing that makes them, and
+# whatever tree it tags it has also published, a release candidate included.
+#
+# Oldest means the tagged commit's committer time, not the tag's own date and not its name. A tag
+# deleted and made again as an annotated one carries the day it was remade, which would sort an old
+# release after the ones that followed it. Names do not sort as releases either: v4.10.0 comes
+# before v4.9.0 as text, and a patch to an older line is tagged after newer ones. A lightweight tag
+# fills the first of the two fields below and an annotated one the second, never both.
 release_tags=()
-while IFS= read -r tag; do
+while IFS= read -r line; do
+  tag=${line#* }
   [ -n "$tag" ] && release_tags+=("$tag")
-done < <(git for-each-ref --sort=creatordate --format='%(refname:short)' 'refs/tags/v*')
+done < <(git for-each-ref --format='%(committerdate:unix)%(*committerdate:unix) %(refname:short)' 'refs/tags/v*' | sort -s -n -k1,1)
 tag_count=${#release_tags[@]}
+
+# The version every release tag declares for every module, read in one pass: one line per tag and
+# .csproj, in the order above, as rank, tag, path, version. Asking git once per module per tag cost
+# a process each, which grew with every release.
+declared=""
+if [ "$tag_count" -gt 0 ]; then
+  declared=$(git grep -e '<Version>.*</Version>' "${release_tags[@]}" -- ':(glob)BarakoCMS.*/BarakoCMS.*.csproj' 2>/dev/null |
+    awk -v order="${release_tags[*]}" '
+      BEGIN { n = split(order, t, " "); for (i = 1; i <= n; i++) rank[t[i]] = i }
+      {
+        tag = $0; sub(/:.*/, "", tag)
+        rest = substr($0, length(tag) + 2)
+        path = rest; sub(/:.*/, "", path)
+        if ((tag, path) in seen) next
+        seen[tag, path] = 1
+        text = substr(rest, length(path) + 2)
+        sub(/.*<Version>/, "", text); sub(/<\/Version>.*/, "", text)
+        printf "%d\t%s\t%s\t%s\n", rank[tag], tag, path, text
+      }' | sort -s -n -k1,1)
+fi
+
+# The newest release behind HEAD, for a module whose version no tag declares.
+last_release=$(git describe --tags --abbrev=0 --match 'v*' HEAD 2>/dev/null || true)
 
 if [ "$tag_count" -eq 0 ]; then
   # CI fetches tags by name for this reason. Without them every module falls back to the stricter
@@ -119,23 +152,23 @@ for csproj in BarakoCMS.*/BarakoCMS.*.csproj; do
   # published package is whatever the first release to carry this number built. Read the number out
   # of each tag's tree rather than trusting the tag's name: the name is the core's version, and a
   # module only shares it when somebody set it that way.
-  release_tag=""
-  for tag in ${release_tags[@]+"${release_tags[@]}"}; do
-    tag_version=$(git show "$tag:$csproj" 2>/dev/null | read_version)
-    if [ "$tag_version" = "$version" ]; then
-      release_tag=$tag
-      break
-    fi
-  done
+  release_tag=$(awk -F'\t' -v p="$csproj" -v v="$version" '$3 == p && $4 == v { print $2; exit }' <<< "$declared")
 
   # No tag declares it, so nothing says a release built this version from a tree we can name. The
-  # reference is then the commit before the version was set, and the version-setting commit counts
-  # as a change: a bump usually arrives in the same commit as the code that needed it, and if the
-  # number is already on NuGet that code is exactly what would be skipped. Measuring from the
-  # version-setting commit itself would see an empty range there and pass without asking.
+  # reference is then the newest release behind HEAD: whatever holds this number on NuGet, no
+  # tagged release put the code written since then into it. Measuring from the commit that set the
+  # version is too late. Code can land first and the bump after it, in a commit that touches only
+  # the .csproj, and that is exactly what somebody does when this check tells them to bump: the
+  # range is then empty and the check passes without asking NuGet.
+  #
+  # With no release behind HEAD at all, the reference is the commit before the version was set, so
+  # the version-setting commit counts. A bump usually arrives with the code that needed it.
   if [ -n "$release_tag" ]; then
     range="$release_tag..HEAD"
     since="$release_tag, the release that published $version"
+  elif [ -n "$last_release" ]; then
+    range="$last_release..HEAD"
+    since="$last_release, the newest release behind HEAD"
   elif git rev-parse -q --verify "$version_commit^" >/dev/null; then
     range="$version_commit^..HEAD"
     since="$(git rev-parse --short "$version_commit"), the commit that set $version (counted too)"
@@ -188,9 +221,13 @@ for csproj in BarakoCMS.*/BarakoCMS.*.csproj; do
     if [ -n "$release_tag" ]; then
       echo "::error::$module is at $version but has $changes commit(s) of source changes since $since. Bump <Version> in $csproj, or those changes will be skipped at publish time (--skip-duplicate)."
     elif [ "$nuget" = "published" ] && [ "$tag_count" -gt 0 ]; then
-      # On NuGet, and no release tree ever declared it: the number was used up somewhere else, and
-      # the package that holds it cannot contain these commits.
-      echo "::error::$module is at $version and that number is taken: it is already on NuGet, and none of the $tag_count release tags (${release_tags[0]} to ${release_tags[$((tag_count - 1))]}) declares it in $csproj, so no release published it with these changes. $changes commit(s) since $since would be skipped at publish time (--skip-duplicate). Set <Version> to the version of the release that will publish it."
+      # On NuGet, and no tagged tree declares it. Two states look like this from here and they want
+      # opposite things, so the message names both and leads with the one where bumping is wrong.
+      # The release pushes to NuGet first and tags afterwards, so between the two, or when tagging
+      # fails as it did for 4.0.0, every module the release just published lands here.
+      echo "::error::$module is at $version, which is already on NuGet, and none of the $tag_count release tags (${release_tags[0]} to ${release_tags[$((tag_count - 1))]}) declares it in $csproj. $changes commit(s) of source changes since $since."
+      echo "    Either a release has published this commit and not tagged it yet: check the release run and tag the commit it published, do not bump."
+      echo "    Or the number is taken by an earlier publish and these commits are not in it: set <Version> to the version of the release that will publish them, or they are skipped at publish time (--skip-duplicate)."
     else
       echo "::error::$module is at $version, no release tag declares that version, and it has $changes commit(s) of source changes since $since. NuGet: $nuget. Bump <Version> in $csproj, or those changes will be skipped at publish time (--skip-duplicate)."
     fi

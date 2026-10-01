@@ -42,7 +42,12 @@ jobs:
       # Catches a module whose code changed without its <Version> moving. Releases push with
       # --skip-duplicate, so such a module is skipped and its changes never ship — that has
       # swallowed a fix twice, most recently a security fix (see CHANGELOG 3.12.1 and 3.17.1).
+      #
+      # The variable is the test script's way of handing the check canned NuGet answers. Set to
+      # empty here so nothing earlier in the job can feed the real check anything but nuget.org.
       - name: Check module versions
+        env:
+          CHECK_MODULE_VERSIONS_NUGET_DIR: ""
         run: bash scripts/check-module-versions.sh
 
       # Markdown and YAML are where a botched merge hides: nothing compiles them, so a CHANGELOG

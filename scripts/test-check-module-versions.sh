@@ -27,6 +27,11 @@ trap 'rm -rf "$work"' EXIT
 
 die() { echo "test setup failed: $1" >&2; exit 2; }
 
+# Git exports GIT_DIR and GIT_INDEX_FILE to hooks and to `rebase --exec`, and with those set
+# `git -C <dir>` still acts on the repository they name. Run from there, every commit and tag below
+# would land in the caller's repository instead of a throwaway one. The last section proves it.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_PREFIX
+
 # The developer's git configuration stays out of it: no signing, no hooks, no templates.
 export GIT_CONFIG_GLOBAL=/dev/null
 export GIT_CONFIG_SYSTEM=/dev/null
@@ -75,6 +80,15 @@ commit() { # $1 = message
 
 tag() { git -C "$repo" tag "$1" || die "git tag $1"; }
 
+# An annotated tag made later than the commit it names, as a deleted and re-created tag is.
+tag_again_annotated() { # $1 = tag, $2 = commit
+  tick=$((tick + 1))
+  GIT_COMMITTER_DATE="$((1767225600 + tick * 3600)) +0000" git -C "$repo" tag -a -m "$1" "$1" "$2" || die "git tag -a $1"
+}
+
+head_commit() { git -C "$repo" rev-parse HEAD; }
+branch_from() { git -C "$repo" checkout -q -b "$1" "$2" || die "git checkout -b $1"; }
+
 on_nuget() { # $@ = published versions of the module's package
   local list="" v
   for v in "$@"; do list="$list\"$v\","; done
@@ -93,7 +107,9 @@ check() { # $1 = description, $2 = expected (pass|fail), $3.. = text the output 
   shift 2
   if [ "$want" = "pass" ]; then [ "$code" = 0 ] || ok=0; else [ "$code" = 1 ] || ok=0; fi
   for text in "$@"; do
-    echo "$out" | grep -qF -- "$text" || { ok=0; desc="$desc (output lacks: $text)"; }
+    # A here-string, not a pipe: grep -q leaves at the first match, and under pipefail an echo
+    # still writing at that moment turns a match into a failure, now and then.
+    grep -qF -- "$text" <<< "$out" || { ok=0; desc="$desc (output lacks: $text)"; }
   done
   if [ "$ok" = 1 ]; then
     echo "  ok    $desc (expected $want)"
@@ -120,6 +136,7 @@ published_by_a_later_release() {
 echo "== a version first published by a later release (#1041) =="
 published_by_a_later_release
 run; check "set to 4.4.0 after v4.4.0, published by 4.5.0, nothing since" pass
+check "the run says its NuGet answers are canned" pass "NuGet answers are read from $nuget, not from nuget.org"
 
 published_by_a_later_release
 touch_module "after the release"; commit "module change after 4.5.0"
@@ -151,7 +168,8 @@ touch_core "4.0.1"; commit "Release 4.0.1"; tag v4.0.1
 set_version 4.0.1; touch_module "feature"; commit "module feature, set to 4.0.1"
 on_nuget 4.0.0 4.0.1
 run; check "bumped to a published number in the commit that changed the code" fail \
-  "that number is taken" "none of the 2 release tags (v4.0.0 to v4.0.1) declares it" "1 commit(s)"
+  "which is already on NuGet" "none of the 2 release tags (v4.0.0 to v4.0.1) declares it" \
+  "1 commit(s)" "since v4.0.1, the newest release behind HEAD" "the number is taken by an earlier publish"
 
 new_repo
 set_version 4.0.0; touch_module "first"; commit "module at 4.0.0"; tag v4.0.0
@@ -159,7 +177,18 @@ touch_core "4.0.1"; commit "Release 4.0.1"; tag v4.0.1
 set_version 4.0.1; commit "set module to 4.0.1"
 touch_module "feature"; commit "module feature"
 on_nuget 4.0.0 4.0.1
-run; check "bumped to a published number, code changed in a later commit" fail "that number is taken"
+run; check "bumped to a published number, code changed in a later commit" fail "the number is taken by an earlier publish"
+
+# The order that follows "Bump <Version>": the code is already in, and the bump is a commit that
+# touches only the .csproj. Measured from the bump there is nothing to see.
+new_repo
+set_version 4.0.0; touch_module "first"; commit "module at 4.0.0"; tag v4.0.0
+touch_core "4.0.1"; commit "Release 4.0.1"; tag v4.0.1
+touch_module "feature"; commit "module feature, no bump"
+set_version 4.0.1; commit "set module to 4.0.1"
+on_nuget 4.0.0 4.0.1
+run; check "code first, then a bump to a published number that touches only the csproj" fail \
+  "1 commit(s)" "since v4.0.1, the newest release behind HEAD" "the number is taken by an earlier publish"
 
 # Going back to a number an earlier release published. A tag does declare it, the old one, and
 # everything written since then is missing from the package that holds the number.
@@ -169,6 +198,56 @@ set_version 4.1.0; touch_module "second"; commit "module at 4.1.0"; tag v4.1.0
 set_version 4.0.0; touch_module "third"; commit "module set back to 4.0.0"
 on_nuget 4.0.0 4.1.0
 run; check "set back to a number an earlier release published" fail "2 commit(s)" "since v4.0.0"
+
+echo "== a release that has published and not tagged yet =="
+# release.yml pushes to NuGet and tags afterwards. In between, the module looks exactly like a taken
+# number, and the right move is to tag, so the message has to say so before it says bump.
+new_repo
+set_version 4.0.0; touch_module "first"; commit "module at 4.0.0"; tag v4.0.0
+set_version 4.1.0; touch_module "feature"; commit "Release 4.1.0"
+on_nuget 4.0.0 4.1.0
+run; check "published, tag still to come" fail \
+  "a release has published this commit and not tagged it yet" "tag the commit it published, do not bump"
+tag v4.1.0
+run; check "the same commit once it is tagged" pass
+
+echo "== which tag is the earliest =="
+# By name, v4.10.0 sorts before v4.9.0.
+new_repo
+set_version 4.9.0; touch_module "first"; commit "module at 4.9.0"; tag v4.9.0
+touch_module "a fix"; commit "module fix, no bump"
+touch_core "4.10.0"; commit "Release 4.10.0"; tag v4.10.0
+on_nuget 4.9.0
+run; check "v4.9.0 is earlier than v4.10.0" fail "1 commit(s)" "since v4.9.0"
+
+# A patch number tagged after a newer release: lower by version, later in time.
+new_repo
+set_version 4.3.0; touch_module "first"; commit "module at 4.3.0"; tag v4.3.0
+touch_module "a fix"; commit "module fix, no bump"
+touch_core "4.2.2"; commit "Release 4.2.2"; tag v4.2.2
+on_nuget 4.3.0
+run; check "v4.2.2 tagged after v4.3.0 is the later release" fail "1 commit(s)" "since v4.3.0"
+
+# A tag deleted and made again as an annotated one is dated the day it was remade.
+new_repo
+set_version 4.3.0; touch_module "first"; commit "module at 4.3.0"; first_release=$(head_commit)
+touch_module "a fix"; commit "module fix, no bump"
+touch_core "4.4.0"; commit "Release 4.4.0"; tag v4.4.0
+tag_again_annotated v4.3.0 "$first_release"
+on_nuget 4.3.0
+run; check "v4.3.0 re-created as an annotated tag after v4.4.0" fail "1 commit(s)" "since v4.3.0"
+
+echo "== a branch cut before the release that published the version =="
+new_repo
+set_version 4.3.0; touch_module "first"; commit "module at 4.3.0"; tag v4.3.0
+set_version 4.4.0; touch_module "feature"; commit "module feature, set to 4.4.0"; cut=$(head_commit)
+touch_core "4.5.0"; commit "Release 4.5.0"; tag v4.5.0
+branch_from topic "$cut"
+touch_core "topic work"; commit "core change on the branch"
+on_nuget 4.3.0 4.4.0
+run; check "the declaring tag is not behind HEAD, the branch leaves the module alone" pass
+touch_module "topic work"; commit "module change on the branch"
+run; check "the same branch with a module change of its own" fail "1 commit(s)" "since v4.5.0"
 
 echo "== a version that is not on NuGet yet =="
 new_repo
@@ -214,6 +293,42 @@ set_version 4.0.0; touch_module "first"; commit "module at 4.0.0"
 set_version 4.1.0; commit "set module to 4.1.0"
 on_nuget 4.0.0 4.1.0
 run; check "a bump with no code in it and nothing after" pass "No release tags (v*) in this clone"
+
+# With no release to measure from, the commit that set the version is counted as a change itself.
+new_repo
+set_version 4.0.0; touch_module "first"; commit "module at 4.0.0"
+set_version 4.1.0; touch_module "feature"; commit "module feature, set to 4.1.0"
+bump=$(git -C "$repo" rev-parse --short HEAD)
+on_nuget 4.0.0 4.1.0
+run; check "a bump that carries its code, version published" fail \
+  "1 commit(s)" "since $bump, the commit that set 4.1.0 (counted too)"
+
+new_repo
+set_version 4.0.0; touch_module "first"; commit "module at 4.0.0"
+on_nuget 4.0.0
+run; check "one commit in the whole history, version published" fail "since the first commit, which set 4.0.0"
+
+echo "== git variables inherited from a hook =="
+# The whole script again, the way a hook would start it, with a bystander repository named by
+# GIT_DIR. It must come through with nothing moved, added or tagged.
+if [ -z "${CHECK_MODULE_VERSIONS_TEST_NESTED:-}" ]; then
+  bystander="$work/bystander"
+  mkdir "$bystander"
+  git -C "$bystander" init -q || die "git init bystander"
+  echo "keep" > "$bystander/keep.txt"
+  git -C "$bystander" add -A || die "git add bystander"
+  git -C "$bystander" commit -q -m "bystander" || die "git commit bystander"
+  before=$(git -C "$bystander" rev-parse HEAD)
+  GIT_DIR="$bystander/.git" GIT_INDEX_FILE="$bystander/.git/index" CHECK_MODULE_VERSIONS_TEST_NESTED=1 \
+    bash "${BASH_SOURCE[0]}" > "$work/nested.out" 2>&1
+  nested=$?
+  out=$(tail -3 "$work/nested.out"); code=$nested
+  check "the cases pass with GIT_DIR and GIT_INDEX_FILE set" pass
+  out="HEAD $(git -C "$bystander" rev-parse HEAD), status [$(git -C "$bystander" status --porcelain)], tags [$(git -C "$bystander" tag -l)]"
+  code=0
+  [ "$out" = "HEAD $before, status [], tags []" ] || code=1
+  check "the repository GIT_DIR named is untouched" pass
+fi
 
 echo "== the network =="
 code=0; out=""
