@@ -3,6 +3,7 @@ using barakoCMS.Features.WebhookDeliveries;
 using barakoCMS.Features.Workflows;
 using barakoCMS.Infrastructure.Jobs;
 using barakoCMS.Infrastructure.Multitenancy;
+using barakoCMS.Infrastructure.Security;
 using barakoCMS.Models;
 using FastEndpoints;
 using FluentAssertions;
@@ -13,6 +14,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 using Xunit;
@@ -286,6 +288,250 @@ public class TenantPartitionsTests
         await using var check = store.QuerySession(tenant);
         (await check.LoadAsync<JobRecord>(toCancel, ct))!.State.Should().Be(JobState.DeadLettered);
         (await check.LoadAsync<JobRecord>(toPurge, ct)).Should().BeNull("a completed job past its expiry is deleted");
+    }
+
+    [Fact]
+    public async Task The_credential_migration_encrypts_credentials_in_registered_tenants_and_the_default_partition_with_enforcement_on()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var host = await HostAsync(ct);
+        var store = host.Services.GetRequiredService<IDocumentStore>();
+        var protector = host.Services.GetRequiredService<ISecretProtector>();
+
+        var stored = new Dictionary<string, (Guid Id, string ApiKey)>();
+        foreach (var (prefix, active) in Partitions("rls-creds"))
+        {
+            var tenant = await RegisterAsync(store, prefix, active, ct);
+            stored[tenant] = await StoreWorkflowInClearAsync(store, tenant, ct);
+        }
+
+        stored.Should().HaveCount(3);
+        foreach (var (tenant, (id, apiKey)) in stored)
+        {
+            (await StoredWorkflowJsonAsync(store, tenant, id, ct)).Should().Contain(apiKey,
+                $"the workflow in {tenant} has to start out in clear for this to be a migration");
+        }
+
+        var logger = new CapturingLogger();
+        var migration = new WorkflowCredentialMigrationService(
+            store, protector, host.Services.GetRequiredService<IConfiguration>(), logger);
+
+        (await migration.ProtectAllTenantsAsync(ct)).Should().Be(3,
+            "one workflow in clear was stored in each of the three partitions, and an empty listing must not pass");
+
+        var afterFirst = new Dictionary<string, string>();
+        foreach (var (tenant, (id, apiKey)) in stored)
+        {
+            var json = await StoredWorkflowJsonAsync(store, tenant, id, ct);
+            json.Should().Contain(AesGcmEnvelope.VersionPrefix, $"the stored value in {tenant} is an envelope now");
+            json.Should().NotContain(apiKey, $"the credential in {tenant} is no longer stored in clear");
+            json.Should().Contain("#ops", "a parameter that is not a credential is left as it was");
+
+            await using var check = store.QuerySession(tenant);
+            var workflow = await check.LoadAsync<WorkflowDefinition>(id, ct);
+            var value = workflow!.Actions.Should().ContainSingle().Which.Parameters["ApiKey"];
+            value.Should().StartWith(AesGcmEnvelope.VersionPrefix);
+            protector.Unprotect(value).Should().Be(apiKey);
+
+            afterFirst[tenant] = json;
+        }
+
+        (await migration.ProtectAllTenantsAsync(ct)).Should().Be(0, "a second start finds nothing left to encrypt");
+
+        afterFirst.Should().HaveCount(3);
+        foreach (var (tenant, json) in afterFirst)
+        {
+            (await StoredWorkflowJsonAsync(store, tenant, stored[tenant].Id, ct)).Should().Be(json,
+                $"the envelope in {tenant} is not encrypted a second time");
+        }
+
+        logger.Lines.Should().HaveCount(3, "each pass says what it read, the first also what it changed, and nothing else");
+        logger.Lines.Should().OnlyContain(line => line.Level == LogLevel.Information);
+        logger.Lines.Where(line => line.Text.Contains("partition(s)")).Should().HaveCount(2,
+            "a pass with nothing to change still says how much it read");
+        logger.Lines.Should().ContainSingle(line => line.Text.Contains("Encrypted the credential parameters of 3"));
+        foreach (var (_, (_, apiKey)) in stored)
+        {
+            logger.Lines.Should().NotContain(line => line.Text.Contains(apiKey));
+        }
+    }
+
+    [Fact]
+    public async Task A_workflow_that_cannot_be_read_in_the_default_partition_does_not_stop_a_named_tenant_being_encrypted()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var host = await HostAsync(ct);
+        var store = host.Services.GetRequiredService<IDocumentStore>();
+        var protector = host.Services.GetRequiredService<ISecretProtector>();
+
+        // The default partition is listed first, so a row there that fails is met before any tenant.
+        var (brokenId, brokenKey) = await StoreWorkflowInClearAsync(store, JasperFx.StorageConstants.DefaultTenantId, ct);
+        var marker = "ak_live_marker_" + Guid.NewGuid().ToString("N");
+        await using (var breaking = store.LightweightSession())
+        {
+            breaking.QueueSqlCommand(
+                "update public.mt_doc_workflowdefinition set data = jsonb_set(data, '{Actions}', to_jsonb(?::text)) where id = ?",
+                marker, brokenId);
+            await breaking.SaveChangesAsync(ct);
+        }
+
+        try
+        {
+            await using (var guard = store.QuerySession())
+            {
+                var reading = async () => await guard.LoadAsync<WorkflowDefinition>(brokenId, ct);
+                await reading.Should().ThrowAsync<Exception>("the row has to fail to read for this to prove anything");
+            }
+
+            var tenant = await RegisterAsync(store, "rls-after-broken", active: true, ct);
+            var (id, apiKey) = await StoreWorkflowInClearAsync(store, tenant, ct);
+
+            var logger = new CapturingLogger();
+            var migration = new WorkflowCredentialMigrationService(
+                store, protector, host.Services.GetRequiredService<IConfiguration>(), logger);
+
+            (await migration.ProtectAllTenantsAsync(ct)).Should().BeGreaterThanOrEqualTo(1);
+
+            var json = await StoredWorkflowJsonAsync(store, tenant, id, ct);
+            json.Should().Contain(AesGcmEnvelope.VersionPrefix);
+            json.Should().NotContain(apiKey, "the tenant after the failing partition is still encrypted");
+
+            var errors = logger.Lines.Where(line => line.Level == LogLevel.Error).ToList();
+            errors.Should().ContainSingle("one partition failed, and it is reported once")
+                .Which.Text.Should().Contain(JasperFx.StorageConstants.DefaultTenantId);
+
+            logger.Lines.Should().NotBeEmpty();
+            logger.Lines.Should().NotContain(
+                line => line.Text.Contains(marker) || line.Text.Contains(brokenKey) || line.Text.Contains(apiKey),
+                "neither the message nor the exception text carries a stored value");
+        }
+        finally
+        {
+            // The class shares one database, and the other tests count what a pass changes.
+            await using var cleanup = store.LightweightSession();
+            cleanup.QueueSqlCommand("delete from public.mt_doc_workflowdefinition where id = ?", brokenId);
+            await cleanup.SaveChangesAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task A_workflow_in_an_unregistered_partition_is_not_reached_and_the_documented_query_lists_that_partition()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var host = await HostAsync(ct);
+        var store = host.Services.GetRequiredService<IDocumentStore>();
+        var protector = host.Services.GetRequiredService<ISecretProtector>();
+
+        var registered = await RegisterAsync(store, "rls-listed", active: true, ct);
+        var (registeredId, registeredKey) = await StoreWorkflowInClearAsync(store, registered, ct);
+
+        // What a single-tenant deployment reached over a subdomain looks like: a partition named
+        // after the host, and no Tenant document.
+        var unregistered = $"rls-unlisted-{Guid.NewGuid():N}"[..21];
+        var (unregisteredId, unregisteredKey) = await StoreWorkflowInClearAsync(store, unregistered, ct);
+
+        var logger = new CapturingLogger();
+        var migration = new WorkflowCredentialMigrationService(
+            store, protector, host.Services.GetRequiredService<IConfiguration>(), logger);
+
+        (await migration.ProtectAllTenantsAsync(ct)).Should().Be(1, "only the registered tenant's workflow is reached");
+
+        (await StoredWorkflowJsonAsync(store, registered, registeredId, ct)).Should().NotContain(registeredKey);
+        (await StoredWorkflowJsonAsync(store, unregistered, unregisteredId, ct)).Should().Contain(unregisteredKey,
+            "the registry does not list this partition, so the pass never opens it");
+
+        logger.Lines.Should().ContainSingle(line => line.Text.Contains("partition(s)"), "the pass reports what it read, once");
+        logger.Lines.Should().NotContain(line => line.Text.Contains(unregistered) || line.Text.Contains(unregisteredKey));
+
+        // The policy hides that partition from the application role, so finding it takes a role the
+        // policy does not bind. This runs the query docs/tenancy-at-the-database.md gives, as written.
+        string database;
+        await using (var own = store.Storage.Database.CreateConnection())
+        {
+            database = own.Database;
+        }
+
+        var asSuperuser = new NpgsqlConnectionStringBuilder(_fixture.ConnectionString) { Database = database }.ConnectionString;
+
+        var found = new List<string>();
+        await using (var conn = new NpgsqlConnection(asSuperuser))
+        {
+            await conn.OpenAsync(ct);
+            await using var cmd = new NpgsqlCommand(DocumentedUnregisteredPartitionsSql(), conn);
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                found.Add(reader.GetString(0));
+            }
+        }
+
+        found.Should().Contain(unregistered);
+        found.Should().NotContain(registered, "a registered tenant is reached by the pass");
+        found.Should().NotContain(JasperFx.StorageConstants.DefaultTenantId, "the default partition is always visited");
+    }
+
+    /// <summary>The one sql block in the tenancy doc that reads the workflow table.</summary>
+    private static string DocumentedUnregisteredPartitionsSql()
+    {
+        var doc = File.ReadAllText(Path.Combine(ComposeDefaultsTests.RepoRoot(), "docs", "tenancy-at-the-database.md"));
+
+        var blocks = System.Text.RegularExpressions.Regex
+            .Matches(doc, "```sql\n(.*?)```", System.Text.RegularExpressions.RegexOptions.Singleline)
+            .Select(m => m.Groups[1].Value)
+            .Where(sql => sql.Contains("mt_doc_workflowdefinition"))
+            .ToList();
+
+        return blocks.Should().ContainSingle("the doc gives one query for this").Subject;
+    }
+
+    private static async Task<(Guid Id, string ApiKey)> StoreWorkflowInClearAsync(
+        IDocumentStore store, string tenant, CancellationToken ct)
+    {
+        var id = Guid.NewGuid();
+        var apiKey = "ak_live_" + Guid.NewGuid().ToString("N");
+
+        await using var session = store.LightweightSession(tenant);
+        session.Store(new WorkflowDefinition
+        {
+            Id = id,
+            Name = "legacy-" + id.ToString("N"),
+            TriggerContentType = "rls-probe",
+            TriggerEvent = "Published",
+            Actions =
+            [
+                new WorkflowAction
+                {
+                    Type = "CredentialEcho",
+                    Parameters = new Dictionary<string, string> { ["ApiKey"] = apiKey, ["Channel"] = "#ops" },
+                },
+            ],
+        });
+        await session.SaveChangesAsync(ct);
+
+        return (id, apiKey);
+    }
+
+    /// <summary>The document as Postgres holds it, so the assertion is on what is at rest.</summary>
+    private static async Task<string> StoredWorkflowJsonAsync(
+        IDocumentStore store, string tenant, Guid id, CancellationToken ct)
+    {
+        await using var session = store.QuerySession(tenant);
+        var json = await session.Json.FindByIdAsync<WorkflowDefinition>(id, ct);
+        json.Should().NotBeNull();
+        return json!;
+    }
+
+    /// <summary>Keeps the exception text with the message, since a log sink writes both.</summary>
+    private sealed class CapturingLogger : ILogger<WorkflowCredentialMigrationService>
+    {
+        public System.Collections.Concurrent.ConcurrentQueue<(LogLevel Level, string Text)> Lines { get; } = new();
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+            => Lines.Enqueue((logLevel, $"{formatter(state, exception)} {exception}"));
     }
 
     /// <summary>
