@@ -25,12 +25,31 @@ Every field is optional. Times are UTC.
 | :--- | :--- |
 | `scheduledPublishAt` | Publish a Draft or Scheduled entry at or after this time |
 | `scheduledUnpublishAt` | Archive a Published entry at or after this time. Has to be after `scheduledPublishAt` when both are set |
-| `scheduledSensitivity`, `scheduledSensitivityAt` | Change the entry's sensitivity (`Public`, `Sensitive` or `Hidden`) at this time. Both or neither. The time has to be in the future and the level different from the current one |
+| `scheduledSensitivity`, `scheduledSensitivityAt` | Change the entry's sensitivity (`Public`, `Sensitive` or `Hidden`) at this time. Both or neither. The time has to be in the future and the level different from the current one. Both sent as `null` clears an armed change, both left out keeps it |
 | `version` | The stream version the schedule was decided against. `0` or absent skips the check on a document type. An event-sourced type answers 409 when it is missing or stale |
 
-The request is the whole schedule. A field that is null or left out clears what was armed for it,
-and that includes an armed sensitivity change: a client that sends only the publish times clears a
-sensitivity change armed earlier.
+The two times are the whole publish schedule. `scheduledPublishAt` or `scheduledUnpublishAt` that is
+null or left out clears what was armed for it.
+
+The sensitivity pair is different, because a client that only knows the publish times cannot see an
+armed sensitivity change:
+
+- both fields left out keeps the armed change as it is;
+- both fields sent as `null` clears it;
+- both fields sent with values arms or replaces it.
+
+So rescheduling with only the publish times does not touch a sensitivity change armed earlier. To
+clear one, send the pair as `null` explicitly:
+
+```
+{
+  "scheduledPublishAt": "2027-03-04T09:00:00Z",
+  "scheduledSensitivity": null,
+  "scheduledSensitivityAt": null
+}
+```
+
+A client whose JSON serializer drops null properties has to be told to write these two.
 
 The caller needs the same `update` permission on the content type that a status change needs.
 Otherwise the answer is 403, and 404 when the entry does not exist.
