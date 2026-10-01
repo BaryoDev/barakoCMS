@@ -35,7 +35,8 @@ The sensitivity pair is different, because a client that only knows the publish 
 armed sensitivity change:
 
 - both fields left out keeps the armed change as it is;
-- both fields sent as `null` clears it;
+- both fields sent as `null` clears it, and so does one of them sent as `null` with the other left
+  out;
 - both fields sent with values arms or replaces it.
 
 So rescheduling with only the publish times does not touch a sensitivity change armed earlier. To
