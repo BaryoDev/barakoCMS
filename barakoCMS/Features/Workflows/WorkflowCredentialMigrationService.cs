@@ -3,6 +3,7 @@ using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Infrastructure.Security;
 using barakoCMS.Models;
 using Marten;
+using LogSafe = barakoCMS.Infrastructure.Logging.LogSafe;
 
 namespace barakoCMS.Features.Workflows;
 
@@ -18,11 +19,20 @@ namespace barakoCMS.Features.Workflows;
 ///
 /// It runs once at startup, over every partition that holds a workflow, or over every registered
 /// tenant and the default partition when Postgres enforces the tenant filter, where a workflow in a
-/// partition with no <see cref="Tenant"/> document is not reached. It is safe to run on several
-/// instances at once and on every boot, since <see cref="WebhookSigning.MigrateStoredCredentials"/>
-/// leaves a prefixed value alone; two instances racing on one document each write a prefixed
-/// envelope of the same plaintext. Runs already queued keep the parameters they copied, and the
-/// runner still accepts those: an unprefixed envelope decrypts and a value in clear passes through.
+/// partition with no <see cref="Tenant"/> document is not reached. That includes a single-tenant
+/// deployment whose partition is a slug taken from its host name and never registered. The
+/// application role cannot count what the policy hides from it, so with enforcement on the pass
+/// always logs how many partitions and workflows it read: a pass that reached nothing must not look
+/// like a pass with nothing left to do.
+///
+/// Only the credential-named parameters on a workflow's own actions are covered. The child actions
+/// a Conditional action carries in its parameters are not parsed (issue #871).
+///
+/// It is safe to run on several instances at once and on every boot, since
+/// <see cref="WebhookSigning.MigrateStoredCredentials"/> leaves a prefixed value alone; two
+/// instances racing on one document each write a prefixed envelope of the same plaintext. Runs
+/// already queued keep the parameters they copied, and the runner still accepts those: an
+/// unprefixed envelope decrypts and a value in clear passes through.
 /// </remarks>
 internal sealed class WorkflowCredentialMigrationService : BackgroundService
 {
@@ -66,16 +76,40 @@ internal sealed class WorkflowCredentialMigrationService : BackgroundService
     {
         await _store.Storage.Database.EnsureStorageExistsAsync(typeof(WorkflowDefinition), ct);
 
+        var partitions = await PartitionsAsync(ct);
+        var visited = 0;
+        var read = 0;
         var changed = 0;
-        foreach (var tenantId in await PartitionsAsync(ct))
+
+        foreach (var tenantId in partitions)
         {
-            await using var session = _store.LightweightSession(tenantId);
-            changed += await ProtectStoredAsync(session, _protector, ct, _logger);
+            try
+            {
+                await using var session = _store.LightweightSession(tenantId);
+                var (readHere, changedHere) = await ProtectStoredAsync(session, _protector, ct, _logger);
+
+                visited++;
+                read += readHere;
+                changed += changedHere;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // One partition must not hold up the rest. The pass runs once per start and meets
+                // the same row first every time, so stopping here would leave every later partition
+                // as it was for good. With enforcement off the name comes from the rows, which a
+                // request header can set, hence LogSafe.
+                _logger.LogError(
+                    ex,
+                    "Could not encrypt the credential parameters of stored workflows in tenant {Tenant}; its workflows from the failing page on are left as they are, and the pass continues with the next tenant",
+                    LogSafe.Value(tenantId));
+            }
         }
 
-        if (changed > 0)
+        if (changed > 0 || TenantPartitions.Enforced(_config))
         {
-            _logger.LogInformation("Encrypted the credential parameters of {Count} stored workflow(s)", changed);
+            _logger.LogInformation(
+                "Read {Workflows} stored workflow(s) in {Visited} of {Partitions} partition(s) and encrypted the credential parameters of {Count}",
+                read, visited, partitions.Count, changed);
         }
 
         return changed;
@@ -89,10 +123,11 @@ internal sealed class WorkflowCredentialMigrationService : BackgroundService
             ct);
 
     /// <summary>Encrypts every stored workflow in one partition. Pure over the session, so a test drives it directly.</summary>
-    /// <returns>The number of workflows that were rewritten.</returns>
-    public static async Task<int> ProtectStoredAsync(
+    /// <returns>The number of workflows read, and how many of them were rewritten.</returns>
+    public static async Task<(int Read, int Changed)> ProtectStoredAsync(
         IDocumentSession session, ISecretProtector protector, CancellationToken ct, ILogger? logger = null)
     {
+        var read = 0;
         var changed = 0;
 
         for (var skip = 0; ; skip += BatchSize)
@@ -102,6 +137,8 @@ internal sealed class WorkflowCredentialMigrationService : BackgroundService
                 .Skip(skip)
                 .Take(BatchSize)
                 .ToListAsync(ct);
+
+            read += batch.Count;
 
             var dirty = 0;
             foreach (var workflow in batch)
@@ -128,6 +165,6 @@ internal sealed class WorkflowCredentialMigrationService : BackgroundService
             if (batch.Count < BatchSize) break;
         }
 
-        return changed;
+        return (read, changed);
     }
 }

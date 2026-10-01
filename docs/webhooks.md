@@ -30,10 +30,10 @@ action decrypts it, at the moment of sending.
 The same applies to any action parameter whose name reads as a credential (`Password`, `Token`,
 `ApiKey`, `AccessKey`, `PrivateKey`, `Credential` and similar, matched as a substring). Those are
 encrypted on save too, and the runner decrypts them just before the action runs, so a custom action
-reads them as it always did. Only `Secret` reaches the action still encrypted. Workflows stored in
-clear before 4.2 are encrypted in place when the API starts. With `Tenancy:DatabaseEnforcement` on,
-that pass visits registered tenants and the default partition only (see
-[tenancy-at-the-database.md](tenancy-at-the-database.md)).
+reads them as it always did. Only `Secret` reaches the action still encrypted. Credential
+parameters on a workflow's own actions that were stored in clear before 4.2 are encrypted in place
+when the API starts. With `Tenancy:DatabaseEnforcement` on, that pass visits registered tenants and
+the default partition only (see [tenancy-at-the-database.md](tenancy-at-the-database.md)).
 
 If `Secrets:Key` is rotated, stored secrets can no longer be decrypted. The action then refuses to
 send rather than sending unsigned, marks the attempt as a permanent failure with that reason, and
