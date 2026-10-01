@@ -20,6 +20,13 @@ changelog for instance, let it push instead: see [collection-push.md](collection
 now. All six need the `manage_collection_syncs` capability, which Admin and SuperAdmin hold by
 default.
 
+One run at a time fills a collection. `POST /api/collection-syncs/{slug}/run` answers 409 while
+another run is writing to the same content type, whether the sweep started it or another caller
+did, and runs nothing. It does not wait: the other run can take as long as a fetch and `maxEntries`
+writes, and a run straight after it would fetch the same source again. Try again when it has
+finished. It used to run anyway, and the two runs could both create the same entry, which failed
+one of them with a 500.
+
 Deleting a sync leaves the entries it wrote. Somebody may be linking to them and a block may be
 rendering them, so removing a schedule is not a decision to delete a hundred published pages. That
 is `DELETE /api/contents/{id}/erase`, deliberately.
@@ -278,6 +285,14 @@ nothing here follows a source's paging, and a source answering ten thousand item
 tick into ten thousand writes. A response body larger than 2 MB fails the run. The sweep reads at
 most 200 enabled syncs per tenant, in slug order, so a tenant with more than that never runs the
 rest on schedule.
+
+A run, from the sweep or from the API, also holds an advisory lock on its tenant and content type
+while it works. The sweep leaves a due sync whose collection is locked for a later tick. The lock
+is on the content type and not on the sync because that is what an entry's id is derived from, so
+two syncs filling one collection do not run at the same moment either. Both locks are session
+level and held on their own connection, so a process that dies mid-run frees them when its
+connection drops. For the same reason a connection pooler in front of Postgres has to pool
+sessions, not transactions.
 
 A response that says the same thing writes nothing at all. A datetime is compared as an instant,
 so the same moment written with or without fractional seconds is the same value. Without that, every tick would append a

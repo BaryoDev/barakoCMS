@@ -426,6 +426,9 @@ internal sealed class DeleteCollectionSyncEndpoint(
 /// This is how a mapping is checked while the person who wrote it still has it open, and it is the
 /// same code path the sweep takes, so what it reports is what the sweep will do. It answers 200 with
 /// the outcome even when the run failed: the request succeeded, and the outcome is the answer.
+///
+/// It answers 409 while another run is filling the same collection, the sweep's or another caller's.
+/// See <see cref="CollectionSyncLock"/>.
 /// </remarks>
 internal sealed class RunCollectionSyncEndpoint(
     IDocumentSession session,
@@ -453,6 +456,17 @@ internal sealed class RunCollectionSyncEndpoint(
         if (sync is null)
         {
             await Send.NotFoundAsync(ct);
+            return;
+        }
+
+        // Refused rather than waited for. The other run can take as long as a fetch and maxEntries
+        // writes, and waiting would then fetch the same source a second time straight after it.
+        await using var held = await CollectionSyncLock.TryAcquireAsync(
+            session.DocumentStore, session.TenantId, sync.ContentType, ct);
+
+        if (held is null)
+        {
+            ThrowError($"A sync is already filling '{sync.ContentType}'. Nothing was run; try again when it has finished.", 409);
             return;
         }
 

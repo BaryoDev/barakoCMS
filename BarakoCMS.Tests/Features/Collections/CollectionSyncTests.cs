@@ -74,7 +74,7 @@ public partial class CollectionSyncTests
     /// One derived host for the whole class, because every host a test builds stays alive for the
     /// rest of the run. Tests keep out of each other's way through unique route paths instead.
     /// </summary>
-    private WebApplicationFactory<Program> Host
+    internal WebApplicationFactory<Program> Host
     {
         get
         {
@@ -86,7 +86,7 @@ public partial class CollectionSyncTests
         }
     }
 
-    private const string TwoPackages = """
+    internal const string TwoPackages = """
     {
       "totalHits": 2,
       "data": [
@@ -482,12 +482,12 @@ public partial class CollectionSyncTests
             "somebody may be linking to them, and deleting a schedule is not a decision to delete published pages");
     }
 
-    private sealed record Setup(string Type, string Slug, string Route);
+    internal sealed record Setup(string Type, string Slug, string Route);
 
     /// <summary>
     /// Seeds a content type, a connector, a request definition pointed at the stub, and the sync.
     /// </summary>
-    private async Task<Setup> ArrangeAsync(
+    internal async Task<Setup> ArrangeAsync(
         Func<(HttpStatusCode, string)> answer,
         bool floorDownloads = false,
         bool publiclyDeliverable = false,
@@ -579,7 +579,7 @@ public partial class CollectionSyncTests
         ["entryStatus"] = "Published",
     };
 
-    private async Task<JsonElement> RunAsync(Setup setup)
+    internal async Task<JsonElement> RunAsync(Setup setup)
     {
         var response = await (await AdminAsync()).PostAsync(
             $"/api/collection-syncs/{setup.Slug}/run", null, TestContext.Current.CancellationToken);
@@ -591,7 +591,7 @@ public partial class CollectionSyncTests
             await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).RootElement.Clone();
     }
 
-    private async Task<JsonElement> GetSyncAsync(Setup setup)
+    internal async Task<JsonElement> GetSyncAsync(Setup setup)
     {
         var response = await (await AdminAsync()).GetAsync(
             $"/api/collection-syncs/{setup.Slug}", TestContext.Current.CancellationToken);
@@ -615,7 +615,7 @@ public partial class CollectionSyncTests
         await session.SaveChangesAsync(TestContext.Current.CancellationToken);
     }
 
-    private async Task<List<Content>> EntriesAsync(string type)
+    internal async Task<List<Content>> EntriesAsync(string type)
     {
         using var scope = _factory.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
@@ -638,7 +638,7 @@ public partial class CollectionSyncTests
             route, response.StatusCode, await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
     }
 
-    private async Task<HttpClient> AdminAsync()
+    internal async Task<HttpClient> AdminAsync()
     {
         var client = Host.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(

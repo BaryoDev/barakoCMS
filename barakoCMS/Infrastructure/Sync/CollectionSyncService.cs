@@ -185,6 +185,19 @@ internal sealed class CollectionSyncService(
         {
             ct.ThrowIfCancellationRequested();
 
+            // A run started from the API holds this while it works. The sync is left for a later
+            // tick and not counted against the budget, since nothing was fetched or written.
+            await using var held = await CollectionSyncLock.TryAcquireAsync(
+                store, session.TenantId, sync.ContentType, ct);
+
+            if (held is null)
+            {
+                logger.LogInformation(
+                    "Collection sync {Slug} for tenant {Tenant} left for a later tick: another run is filling '{ContentType}'",
+                    sync.Slug, martenTenantId ?? "(default)", sync.ContentType);
+                continue;
+            }
+
             try
             {
                 var outcome = await runner.RunAsync(sync, ct);
