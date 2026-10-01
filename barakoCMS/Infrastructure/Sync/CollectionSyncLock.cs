@@ -4,35 +4,6 @@ using Npgsql;
 
 namespace barakoCMS.Infrastructure.Sync;
 
-/// <summary>How long a run started from the API waits for a collection another run is filling.</summary>
-internal sealed class CollectionSyncRunOptions
-{
-    /// <summary>Seconds, 5 by default, held between 0 and 30. 0 answers 409 at once.</summary>
-    public const string LockWaitKey = "CollectionSyncs:RunLockWaitSeconds";
-
-    /// <remarks>
-    /// Long enough for the run in the way to finish when it is one sync of a handful of entries: a
-    /// fetch and a commit per changed entry. Short enough that a request is not held open for a
-    /// sync of hundreds.
-    /// </remarks>
-    public static readonly TimeSpan DefaultLockWait = TimeSpan.FromSeconds(5);
-
-    /// <summary>The longest a request is ever held open waiting, whatever is configured.</summary>
-    public static readonly TimeSpan MaxLockWait = TimeSpan.FromSeconds(30);
-
-    public TimeSpan LockWait { get; set; } = DefaultLockWait;
-
-    public static CollectionSyncRunOptions From(IConfiguration configuration)
-    {
-        var seconds = configuration.GetValue(LockWaitKey, DefaultLockWait.TotalSeconds);
-
-        return new CollectionSyncRunOptions
-        {
-            LockWait = TimeSpan.FromSeconds(Math.Clamp(seconds, 0, MaxLockWait.TotalSeconds)),
-        };
-    }
-}
-
 /// <summary>
 /// Lets one run at a time fill a collection, whether the sweep started it or somebody pressed run.
 /// </summary>
@@ -56,6 +27,8 @@ internal sealed class CollectionSyncLock : IAsyncDisposable
     private const string Try = "select pg_try_advisory_lock(hashtextextended(@name, 0))";
     private const string Wait = "select pg_advisory_lock(hashtextextended(@name, 0))";
     private const string Release = "select pg_advisory_unlock(hashtextextended(@name, 0))";
+
+    private const int CommandTimeoutMarginSeconds = 5;
 
     private readonly NpgsqlConnection _connection;
     private readonly string _name;
@@ -152,6 +125,11 @@ internal sealed class CollectionSyncLock : IAsyncDisposable
             take.Transaction = transaction;
             take.CommandText = Wait;
             take.Parameters.AddWithValue("name", name);
+
+            // The server ends the wait, through lock_timeout. The connection's own command timeout
+            // may be shorter than the wait, and would end it first with an error that is not a
+            // refusal, so this command gets one that outlasts it.
+            take.CommandTimeout = (int)Math.Ceiling(wait.TotalSeconds) + CommandTimeoutMarginSeconds;
             await take.ExecuteScalarAsync(ct);
         }
         catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.LockNotAvailable)
@@ -163,11 +141,17 @@ internal sealed class CollectionSyncLock : IAsyncDisposable
         return true;
     }
 
-    /// <summary>Closes a connection that may hold the lock without it going back to a pool holding it.</summary>
+    /// <summary>Closes a connection that may hold the lock, releasing whatever it holds first.</summary>
     /// <remarks>
     /// A pooled connection closed with a session lock on it keeps the lock until the pool hands that
-    /// physical connection to somebody else. If the lock cannot be released by asking, the physical
-    /// connection is closed, which releases it.
+    /// physical connection to somebody else, so the lock is released by asking before the close.
+    /// The rollback is for a connection left in a failed transaction, where every other statement
+    /// is refused.
+    ///
+    /// If that fails as well the connection is almost always broken, and Npgsql closes a broken
+    /// connection instead of pooling it, which frees the lock. Should it be pooled all the same, the
+    /// lock lasts until that physical connection is reused or closed. There is no call that closes
+    /// one connection of a data source.
     /// </remarks>
     private static async Task DropAsync(NpgsqlConnection connection, ILogger logger)
     {
@@ -175,19 +159,18 @@ internal sealed class CollectionSyncLock : IAsyncDisposable
         {
             if (connection.State == ConnectionState.Open)
             {
-                try
-                {
-                    await using var release = connection.CreateCommand();
-                    release.CommandText = "select pg_advisory_unlock_all()";
-                    await release.ExecuteNonQueryAsync(CancellationToken.None);
-                }
-                catch (Exception ex)
-                {
-                    logger.LogWarning(ex, "A collection sync lock could not be released; closing its connection instead");
-                    NpgsqlConnection.ClearPool(connection);
-                }
+                await using var release = connection.CreateCommand();
+                release.CommandText = "rollback; select pg_advisory_unlock_all()";
+                await release.ExecuteNonQueryAsync(CancellationToken.None);
             }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "A collection sync lock could not be released before its connection closed");
+        }
 
+        try
+        {
             await connection.DisposeAsync();
         }
         catch (Exception ex)
