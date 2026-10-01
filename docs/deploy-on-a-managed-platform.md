@@ -175,6 +175,16 @@ would race are already serialised in Postgres:
   per instance.
 - **The scheduled-content and workflow-run retention sweeps** use `pg_try_advisory_lock`, so one
   instance does each tick.
+- **The collection sync sweep** takes its own `pg_try_advisory_lock` key, so one instance sweeps. Each
+  run, from the sweep or from `POST /api/collection-syncs/{slug}/run`, also holds an advisory lock on
+  its tenant and content type, so two instances never fill one collection at the same moment. See
+  [collection-syncs.md](collection-syncs.md).
+  - During a rolling deploy from 4.5.0 the older instance does not take the per-collection lock, so
+    a run on it can still overlap one on the newer instance and fail with a 500 until the older
+    instance is gone.
+  - These are session locks. Behind a pooler in transaction mode the unlock can land on a different
+    backend than the lock did. The lock then stays held: runs of that collection answer 409 and the
+    sweep skips it until that backend is recycled. Use session pooling.
 
 Two instances of `4.1.0` started together against an empty database both came up healthy, with one
 admin user created. That is one run, not a proof.

@@ -557,7 +557,7 @@ public partial class CollectionSyncTests
         return setup;
     }
 
-    private static Dictionary<string, object?> SyncBody(Setup setup) => new()
+    internal static Dictionary<string, object?> SyncBody(Setup setup) => new()
     {
         ["name"] = "Packages",
         ["slug"] = setup.Slug,

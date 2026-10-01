@@ -185,22 +185,39 @@ internal sealed class CollectionSyncService(
         {
             ct.ThrowIfCancellationRequested();
 
-            // A run started from the API holds this while it works. The sync is left for a later
-            // tick and not counted against the budget, since nothing was fetched or written.
-            await using var held = await CollectionSyncLock.TryAcquireAsync(
-                store, session.TenantId, sync.ContentType, ct);
-
-            if (held is null)
-            {
-                logger.LogInformation(
-                    "Collection sync {Slug} for tenant {Tenant} left for a later tick: another run is filling '{ContentType}'",
-                    sync.Slug, martenTenantId ?? "(default)", sync.ContentType);
-                continue;
-            }
-
             try
             {
-                var outcome = await runner.RunAsync(sync, ct);
+                // Inside the try with the run: a lock that cannot be taken, a pool with no
+                // connection to give for instance, must not stop the other syncs either.
+                //
+                // A run started from the API holds this while it works. The sync is left for a
+                // later tick and not counted against the budget, since nothing was fetched or
+                // written. Tried once, never waited for: a tick holds the sweep lock.
+                await using var held = await CollectionSyncLock.TryAcquireAsync(
+                    () => store.Storage.Database.CreateConnection(),
+                    session.TenantId, sync.ContentType, TimeSpan.Zero, logger, ct);
+
+                if (held is null)
+                {
+                    logger.LogInformation(
+                        "Collection sync {Slug} for tenant {Tenant} left for a later tick: another run is filling '{ContentType}'",
+                        sync.Slug, martenTenantId ?? "(default)", sync.ContentType);
+                    continue;
+                }
+
+                // The due list was read once, before the first sync of this tenant ran, so this
+                // copy can be minutes old. A run from the API may have finished since, or the sync
+                // may have been edited, disabled or deleted, and the runner saves the whole document.
+                var current = await session.LoadAsync<CollectionSync>(sync.Id, ct);
+
+                if (current is null
+                    || !current.IsDue(nowUtc)
+                    || !string.Equals(current.ContentType, sync.ContentType, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var outcome = await runner.RunAsync(current, ct);
                 run++;
 
                 logger.LogInformation(

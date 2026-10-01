@@ -1057,6 +1057,8 @@ public static class ServiceCollectionExtensions
         // response body. One outbound path, one address guard, one place credentials are attached.
         services.AddScoped<barakoCMS.Infrastructure.Connectors.IConnectorFetcher, barakoCMS.Infrastructure.Connectors.ConnectorSender>();
         services.AddScoped<barakoCMS.Infrastructure.Sync.ICollectionSyncRunner, barakoCMS.Infrastructure.Sync.CollectionSyncRunner>();
+        services.AddSingleton(provider => barakoCMS.Infrastructure.Sync.CollectionSyncRunOptions.From(
+            provider.GetRequiredService<IConfiguration>()));
     }
 
     private static void AddWorkflowRunner(IServiceCollection services)

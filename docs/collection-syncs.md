@@ -20,12 +20,14 @@ changelog for instance, let it push instead: see [collection-push.md](collection
 now. All six need the `manage_collection_syncs` capability, which Admin and SuperAdmin hold by
 default.
 
-One run at a time fills a collection. `POST /api/collection-syncs/{slug}/run` answers 409 while
-another run is writing to the same content type, whether the sweep started it or another caller
-did, and runs nothing. It does not wait: the other run can take as long as a fetch and `maxEntries`
-writes, and a run straight after it would fetch the same source again. Try again when it has
-finished. It used to run anyway, and the two runs could both create the same entry, which failed
-one of them with a 500.
+One run at a time fills a collection. `POST /api/collection-syncs/{slug}/run` waits up to five
+seconds for another run that is writing to the same content type, whether the sweep started it or
+another caller did, and then runs. If the collection is still busy after that it answers 409 with a
+`Retry-After` header and runs nothing. The lock is on the content type, so this covers a different
+sync that fills the same collection: a caller running several syncs of one type in turn, while
+the sweep works through the same ones, waits for whichever the sweep is on. `CollectionSyncs:RunLockWaitSeconds`
+changes the wait, from 0 (answer 409 at once) to 30. Five seconds is enough for a sync of a handful
+of entries to finish; a sync of hundreds takes longer, and the request is not held open for it.
 
 Deleting a sync leaves the entries it wrote. Somebody may be linking to them and a block may be
 rendering them, so removing a schedule is not a decision to delete a hundred published pages. That
@@ -287,12 +289,17 @@ most 200 enabled syncs per tenant, in slug order, so a tenant with more than tha
 rest on schedule.
 
 A run, from the sweep or from the API, also holds an advisory lock on its tenant and content type
-while it works. The sweep leaves a due sync whose collection is locked for a later tick. The lock
+while it works. The sweep tries that lock once and leaves a due sync whose collection is locked for
+a later tick. Having taken it, both read the sync again, so a run never works from a copy that an
+earlier run or an edit has since changed, and the sweep skips a sync that is no longer due. The lock
 is on the content type and not on the sync because that is what an entry's id is derived from, so
-two syncs filling one collection do not run at the same moment either. Both locks are session
-level and held on their own connection, so a process that dies mid-run frees them when its
-connection drops. For the same reason a connection pooler in front of Postgres has to pool
-sessions, not transactions.
+two syncs filling one collection do not run at the same moment either.
+
+Each run holds one extra database connection for its whole length, for the lock. Both locks are
+session level, so a process that dies mid-run frees them when its connection drops, and a
+connection pooler in front of Postgres has to pool sessions, not transactions. If the lock's
+connection is lost while a run is still writing, the run finishes and reports what it did, but the
+collection is unlocked from that moment.
 
 A response that says the same thing writes nothing at all. A datetime is compared as an instant,
 so the same moment written with or without fractional seconds is the same value. Without that, every tick would append a

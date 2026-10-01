@@ -1,25 +1,30 @@
 using System.Net;
+using System.Net.Http.Json;
 using System.Text.Json;
 using barakoCMS.Infrastructure.Sync;
 using FluentAssertions;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
+using Npgsql;
 using Xunit;
 
 namespace BarakoCMS.Tests.Features.Collections;
 
 /// <summary>
-/// One run at a time fills a collection: a second one is refused with 409, not left to fail on the
-/// entry stream both would create.
+/// One run at a time fills a collection: a second one waits a bounded time and is then refused with
+/// 409, not left to fail on the entry stream both would create.
 /// </summary>
 /// <remarks>
 /// No test here races two runs and hopes they overlap. The overlap is built: either the lock is held
-/// by the test, or the first run is stopped inside its fetch until the second has been answered.
-/// Each refusal is followed by a run that succeeds once the lock is free, so a 409 cannot pass
-/// because the route refuses everything.
+/// by the test, or a run is stopped inside its fetch until the other side has been observed. Where a
+/// test needs a run to be waiting, it reads that from <c>pg_locks</c> and does not sleep.
+///
+/// The wait is 300 milliseconds here, not the five seconds a deployment gets, so a test that
+/// expects a refusal does not sit through the default. The one test about waiting raises it.
 /// </remarks>
 [Collection("Sequential")]
-public class CollectionSyncRunLockTests
+public class CollectionSyncRunLockTests : IDisposable
 {
     private const string TwoPackages = CollectionSyncTests.TwoPackages;
 
@@ -28,18 +33,44 @@ public class CollectionSyncRunLockTests
     /// <summary>The sync tests' own arrangement and stubbed source, so both classes share one host.</summary>
     private readonly CollectionSyncTests _syncs;
 
+    private readonly CollectionSyncRunOptions _options;
+    private readonly TimeSpan _configuredWait;
+
     public CollectionSyncRunLockTests(IntegrationTestFixture factory)
     {
         _factory = factory;
         _syncs = new CollectionSyncTests(factory);
+        _options = _syncs.Host.Services.GetRequiredService<CollectionSyncRunOptions>();
+        _configuredWait = _options.LockWait;
+        _options.LockWait = TimeSpan.FromMilliseconds(300);
+    }
+
+    public void Dispose() => _options.LockWait = _configuredWait;
+
+    [Fact]
+    public void A_deployment_waits_five_seconds_unless_it_says_otherwise_and_never_more_than_thirty()
+    {
+        static CollectionSyncRunOptions From(string? value) => CollectionSyncRunOptions.From(
+            new Microsoft.Extensions.Configuration.ConfigurationBuilder()
+                .AddInMemoryCollection(value is null
+                    ? new Dictionary<string, string?>()
+                    : new Dictionary<string, string?> { [CollectionSyncRunOptions.LockWaitKey] = value })
+                .Build());
+
+        _configuredWait.Should().Be(TimeSpan.FromSeconds(5), "the test host configures nothing");
+        From(null).LockWait.Should().Be(TimeSpan.FromSeconds(5));
+        From("0").LockWait.Should().Be(TimeSpan.Zero);
+        From("2.5").LockWait.Should().Be(TimeSpan.FromSeconds(2.5));
+        From("600").LockWait.Should().Be(TimeSpan.FromSeconds(30));
+        From("-1").LockWait.Should().Be(TimeSpan.Zero);
     }
 
     [Fact]
-    public async Task A_manual_run_is_refused_with_409_while_the_sweep_holds_the_collection()
+    public async Task A_manual_run_is_refused_with_409_and_Retry_After_when_the_collection_stays_locked_past_the_wait()
     {
         var setup = await _syncs.ArrangeAsync(() => (HttpStatusCode.OK, TwoPackages));
 
-        await using (var held = await HoldAsync(setup))
+        await using (var held = await HoldAsync(setup.Type))
         {
             held.Should().NotBeNull("the control: nothing else is filling this collection");
 
@@ -48,6 +79,8 @@ public class CollectionSyncRunLockTests
 
             refused.StatusCode.Should().Be(HttpStatusCode.Conflict, "got {0}", body);
             body.Should().Contain(setup.Type, "the answer names the collection that is busy");
+            refused.Headers.RetryAfter.Should().NotBeNull("a caller is told when to come back");
+            refused.Headers.RetryAfter!.Delta.Should().Be(TimeSpan.FromSeconds(1), "the wait, rounded up to a whole second");
 
             (await _syncs.EntriesAsync(setup.Type)).Should().BeEmpty("a refused run writes nothing");
             (await _syncs.GetSyncAsync(setup)).GetProperty("lastRunAt").ValueKind.Should().Be(
@@ -58,33 +91,53 @@ public class CollectionSyncRunLockTests
     }
 
     /// <remarks>
+    /// The lock is let go only after Postgres shows the run queued behind it, so a run that did not
+    /// wait has already answered 409 by then, and one that arrived late cannot pass by finding the
+    /// lock free.
+    /// </remarks>
+    [Fact]
+    public async Task A_manual_run_waits_for_a_collection_that_is_freed_inside_the_wait_and_then_runs()
+    {
+        _options.LockWait = TimeSpan.FromSeconds(30);
+        var setup = await _syncs.ArrangeAsync(() => (HttpStatusCode.OK, TwoPackages));
+
+        Task<HttpResponseMessage> waiting;
+
+        await using (var held = await HoldAsync(setup.Type))
+        {
+            held.Should().NotBeNull("the control: nothing else is filling this collection");
+
+            waiting = PostRunAsync(setup);
+
+            await UntilAsync(
+                async () => await LockBackendAsync(setup.Type, granted: false) is not null,
+                "the run should be queued behind the lock");
+
+            (await _syncs.EntriesAsync(setup.Type)).Should().BeEmpty("it has not run while it waits");
+        }
+
+        var answered = await waiting;
+        var body = await answered.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+
+        answered.StatusCode.Should().Be(HttpStatusCode.OK, "got {0}", body);
+        JsonDocument.Parse(body).RootElement.GetProperty("created").GetInt32().Should().Be(2);
+    }
+
+    /// <remarks>
     /// The first run is stopped inside its fetch, which is after it took the lock, so the second
     /// request arrives while a run is in flight every time.
     /// </remarks>
     [Fact]
-    public async Task A_second_manual_run_is_refused_with_409_while_the_first_is_in_flight()
+    public async Task A_second_manual_run_is_refused_with_409_while_the_first_stays_in_flight_past_the_wait()
     {
-        using var entered = new ManualResetEventSlim();
-        using var release = new ManualResetEventSlim();
-        var calls = 0;
-
-        var setup = await _syncs.ArrangeAsync(() =>
-        {
-            if (Interlocked.Increment(ref calls) == 1)
-            {
-                entered.Set();
-                release.Wait(TimeSpan.FromSeconds(60));
-            }
-
-            return (HttpStatusCode.OK, TwoPackages);
-        });
+        var source = new ParkedSource { Parks = true };
+        var setup = await _syncs.ArrangeAsync(source.Answer);
 
         var first = PostRunAsync(setup);
 
         try
         {
-            (await Task.Run(() => entered.Wait(TimeSpan.FromSeconds(60)), TestContext.Current.CancellationToken))
-                .Should().BeTrue("the first run has to reach its source for the second to overlap it");
+            (await source.EnteredAsync()).Should().BeTrue("the first run has to reach its source for the second to overlap it");
 
             var second = await PostRunAsync(setup);
 
@@ -93,7 +146,7 @@ public class CollectionSyncRunLockTests
         }
         finally
         {
-            release.Set();
+            source.Release();
         }
 
         var finished = await first;
@@ -102,7 +155,7 @@ public class CollectionSyncRunLockTests
         finished.StatusCode.Should().Be(HttpStatusCode.OK, "got {0}", body);
         JsonDocument.Parse(body).RootElement.GetProperty("created").GetInt32().Should().Be(2);
 
-        Volatile.Read(ref calls).Should().Be(1, "the refused run never reached the source");
+        source.Calls.Should().Be(1, "the refused run never reached the source");
         (await _syncs.EntriesAsync(setup.Type)).Should().HaveCount(2);
     }
 
@@ -113,30 +166,24 @@ public class CollectionSyncRunLockTests
     [Fact]
     public async Task The_sweep_leaves_a_due_sync_for_later_while_a_manual_run_holds_the_collection()
     {
-        var calls = 0;
-        var setup = await _syncs.ArrangeAsync(() =>
-        {
-            Interlocked.Increment(ref calls);
-            return (HttpStatusCode.OK, TwoPackages);
-        });
+        var source = new ParkedSource();
+        var setup = await _syncs.ArrangeAsync(source.Answer);
 
-        var sweeper = ActivatorUtilities.CreateInstance<CollectionSyncService>(_syncs.Host.Services);
-
-        await using (var held = await HoldAsync(setup))
+        await using (var held = await HoldAsync(setup.Type))
         {
             held.Should().NotBeNull("the control: nothing else is filling this collection");
 
-            await sweeper.SweepTenantAsync(null, DateTime.UtcNow, 100, TestContext.Current.CancellationToken);
+            await SweepAsync();
 
-            Volatile.Read(ref calls).Should().Be(0, "the sweep must not fetch for a collection another run is filling");
+            source.Calls.Should().Be(0, "the sweep must not fetch for a collection another run is filling");
             (await _syncs.EntriesAsync(setup.Type)).Should().BeEmpty();
             (await _syncs.GetSyncAsync(setup)).GetProperty("lastRunAt").ValueKind.Should().Be(
                 JsonValueKind.Null, "the sync stays due, so a later tick runs it");
         }
 
-        await sweeper.SweepTenantAsync(null, DateTime.UtcNow, 100, TestContext.Current.CancellationToken);
+        await SweepAsync();
 
-        Volatile.Read(ref calls).Should().Be(1, "the lock is free, so the sweep runs the sync it left");
+        source.Calls.Should().Be(1, "the lock is free, so the sweep runs the sync it left");
         (await _syncs.EntriesAsync(setup.Type)).Should().HaveCount(2);
     }
 
@@ -148,54 +195,183 @@ public class CollectionSyncRunLockTests
     public async Task A_lock_whose_holder_lost_its_connection_is_free_again()
     {
         var setup = await _syncs.ArrangeAsync(() => (HttpStatusCode.OK, TwoPackages));
-        var store = _factory.Services.GetRequiredService<IDocumentStore>();
         var ct = TestContext.Current.CancellationToken;
 
-        await using var holder = store.Storage.Database.CreateConnection();
+        await using var holder = Store.Storage.Database.CreateConnection();
         await holder.OpenAsync(ct);
 
-        int pid;
         await using (var take = holder.CreateCommand())
         {
-            take.CommandText = "select pg_advisory_lock(hashtextextended(@name, 0)), pg_backend_pid()";
+            take.CommandText = "select pg_advisory_lock(hashtextextended(@name, 0))";
             take.Parameters.AddWithValue("name", CollectionSyncLock.NameFor(DefaultTenantId(), setup.Type));
-
-            await using var reader = await take.ExecuteReaderAsync(ct);
-            (await reader.ReadAsync(ct)).Should().BeTrue();
-            pid = reader.GetInt32(1);
+            await take.ExecuteScalarAsync(ct);
         }
 
         (await PostRunAsync(setup)).StatusCode.Should().Be(
             HttpStatusCode.Conflict, "the control: the holder's connection is still up");
 
-        await using (var killer = store.Storage.Database.CreateConnection())
-        {
-            await killer.OpenAsync(ct);
-
-            await using (var kill = killer.CreateCommand())
-            {
-                kill.CommandText = "select pg_terminate_backend(@pid)";
-                kill.Parameters.AddWithValue("pid", pid);
-                ((bool?)await kill.ExecuteScalarAsync(ct)).Should().BeTrue();
-            }
-
-            // Terminating is a signal, so the backend is gone a moment later rather than at once.
-            var deadline = DateTime.UtcNow.AddSeconds(30);
-            while (true)
-            {
-                await using var alive = killer.CreateCommand();
-                alive.CommandText = "select count(*) from pg_stat_activity where pid = @pid";
-                alive.Parameters.AddWithValue("pid", pid);
-
-                if ((long)(await alive.ExecuteScalarAsync(ct))! == 0) break;
-
-                (DateTime.UtcNow < deadline).Should().BeTrue("the terminated backend should be gone within 30 seconds");
-                await Task.Delay(100, ct);
-            }
-        }
+        await KillAsync((await LockBackendAsync(setup.Type, granted: true))!.Value);
 
         (await _syncs.RunAsync(setup)).GetProperty("created").GetInt32().Should().Be(
             2, "nothing unlocked it, the lost connection did");
+    }
+
+    /// <remarks>
+    /// The run has taken the lock and is inside its fetch when the lock's connection goes. It writes
+    /// its entries all the same, and the unlock that then fails is not its outcome.
+    /// </remarks>
+    [Fact]
+    public async Task A_manual_run_whose_lock_connection_is_lost_still_answers_what_it_did()
+    {
+        var source = new ParkedSource { Parks = true };
+        var setup = await _syncs.ArrangeAsync(source.Answer);
+
+        var running = PostRunAsync(setup);
+
+        try
+        {
+            (await source.EnteredAsync()).Should().BeTrue("the run has to be past the lock and inside its fetch");
+
+            var backend = await LockBackendAsync(setup.Type, granted: true);
+            backend.Should().NotBeNull("the control: the run holds the lock on a backend of its own");
+
+            await KillAsync(backend!.Value);
+        }
+        finally
+        {
+            source.Release();
+        }
+
+        var answered = await running;
+        var body = await answered.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+
+        answered.StatusCode.Should().Be(HttpStatusCode.OK, "got {0}", body);
+        JsonDocument.Parse(body).RootElement.GetProperty("created").GetInt32().Should().Be(2);
+        (await _syncs.EntriesAsync(setup.Type)).Should().HaveCount(2);
+    }
+
+    /// <remarks>
+    /// Two due syncs. The sweep is inside the fetch of the first when that sync's lock connection
+    /// goes. The second being fetched is what shows the tick carried on.
+    /// </remarks>
+    [Fact]
+    public async Task The_sweep_goes_on_to_the_next_sync_when_a_lock_connection_is_lost()
+    {
+        var (first, firstSource, _, secondSource) = await ArrangeTwoInSlugOrderAsync();
+        firstSource.Parks = true;
+
+        var sweep = SweepAsync();
+
+        try
+        {
+            (await firstSource.EnteredAsync()).Should().BeTrue("the sweep has to be inside the first sync's fetch");
+            secondSource.Calls.Should().Be(0, "the control: the sweep has not reached the second sync yet");
+
+            var backend = await LockBackendAsync(first.Type, granted: true);
+            backend.Should().NotBeNull("the control: the sweep holds the first sync's lock on a backend of its own");
+
+            await KillAsync(backend!.Value);
+        }
+        finally
+        {
+            firstSource.Release();
+        }
+
+        await sweep;
+
+        secondSource.Calls.Should().Be(1, "one sync's lost lock must not stop the syncs after it");
+        (await _syncs.EntriesAsync(first.Type)).Should().HaveCount(2, "and the first sync still wrote what it fetched");
+    }
+
+    /// <remarks>
+    /// The sweep reads its due list once, then is held inside the first sync. Meanwhile the second
+    /// sync is run from the API and then edited. The sweep's copy of it says it is due and carries
+    /// the old name, so a sweep that trusted that copy fetches it again and saves over the edit.
+    /// </remarks>
+    [Fact]
+    public async Task The_sweep_does_not_rerun_or_overwrite_a_sync_that_ran_and_was_edited_while_it_was_busy()
+    {
+        var (_, firstSource, second, secondSource) = await ArrangeTwoInSlugOrderAsync();
+        firstSource.Parks = true;
+
+        var sweep = SweepAsync();
+
+        try
+        {
+            (await firstSource.EnteredAsync()).Should().BeTrue("the sweep has to be inside the first sync's fetch");
+
+            (await _syncs.RunAsync(second)).GetProperty("created").GetInt32().Should().Be(2);
+            secondSource.Calls.Should().Be(1, "the control: the manual run fetched once");
+
+            var edit = CollectionSyncTests.SyncBody(second);
+            edit["name"] = "Edited while the sweep was busy";
+
+            var saved = await (await _syncs.AdminAsync()).PutAsJsonAsync(
+                $"/api/collection-syncs/{second.Slug}", edit, TestContext.Current.CancellationToken);
+            saved.StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+        finally
+        {
+            firstSource.Release();
+        }
+
+        await sweep;
+
+        secondSource.Calls.Should().Be(1, "it ran a moment ago, so it is not due, whatever the sweep's older copy says");
+        (await _syncs.GetSyncAsync(second)).GetProperty("name").GetString().Should().Be(
+            "Edited while the sweep was busy", "the sweep must not save its older copy over the edit");
+    }
+
+    /// <remarks>
+    /// The test database is reached without pooling, and a deployment pools. A pooled connection
+    /// closed with a session lock on it keeps the lock until the pool reuses it, which the first half
+    /// shows so that the second half is known to be looking at the right thing.
+    /// </remarks>
+    [Fact]
+    public async Task A_lock_on_a_pooled_connection_is_free_once_it_is_disposed()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var type = "pooled" + Guid.NewGuid().ToString("n")[..10];
+        var name = CollectionSyncLock.NameFor(DefaultTenantId(), type);
+
+        var pooled = new NpgsqlConnectionStringBuilder(_factory.ConnectionString)
+        {
+            Pooling = true,
+            ApplicationName = "collection-sync-lock-pool-test",
+        }.ToString();
+
+        try
+        {
+            await using (var leaky = new NpgsqlConnection(pooled))
+            {
+                await leaky.OpenAsync(ct);
+
+                await using var take = leaky.CreateCommand();
+                take.CommandText = "select pg_advisory_lock(hashtextextended(@name, 0))";
+                take.Parameters.AddWithValue("name", name);
+                await take.ExecuteScalarAsync(ct);
+            }
+
+            (await IsFreeAsync(name)).Should().BeFalse(
+                "the control: a pooled connection closed without an unlock still holds the lock");
+
+            NpgsqlConnection.ClearPool(new NpgsqlConnection(pooled));
+            await UntilAsync(() => IsFreeAsync(name), "closing the physical connection frees the lock");
+
+            var held = await CollectionSyncLock.TryAcquireAsync(
+                () => new NpgsqlConnection(pooled), DefaultTenantId(), type, TimeSpan.Zero, NullLogger.Instance, ct);
+
+            held.Should().NotBeNull();
+            (await IsFreeAsync(name)).Should().BeFalse("the control: the lock is held while it is alive");
+
+            await held!.DisposeAsync();
+
+            (await IsFreeAsync(name)).Should().BeTrue("the connection went back to the pool without the lock");
+        }
+        finally
+        {
+            NpgsqlConnection.ClearPool(new NpgsqlConnection(pooled));
+        }
     }
 
     [Fact]
@@ -210,20 +386,155 @@ public class CollectionSyncRunLockTests
         CollectionSyncLock.NameFor("acme", "package").Should().NotBe(CollectionSyncLock.NameFor("acme", "release"));
     }
 
+    /// <summary>
+    /// A stubbed source that counts its calls and can hold the first one until the test lets it go.
+    /// </summary>
+    /// <remarks>
+    /// The events are never disposed: the stub's routes are static and outlive the test, and a later
+    /// sweep may call this one again.
+    /// </remarks>
+    private sealed class ParkedSource
+    {
+        private readonly ManualResetEventSlim _entered = new();
+        private readonly ManualResetEventSlim _release = new();
+        private int _calls;
+        private volatile bool _parks;
+
+        public bool Parks
+        {
+            get => _parks;
+            set => _parks = value;
+        }
+
+        public int Calls => Volatile.Read(ref _calls);
+
+        public (HttpStatusCode, string) Answer()
+        {
+            if (Interlocked.Increment(ref _calls) == 1 && _parks)
+            {
+                _entered.Set();
+                _release.Wait(TimeSpan.FromSeconds(60));
+            }
+
+            return (HttpStatusCode.OK, TwoPackages);
+        }
+
+        public Task<bool> EnteredAsync() =>
+            Task.Run(() => _entered.Wait(TimeSpan.FromSeconds(60)), TestContext.Current.CancellationToken);
+
+        public void Release() => _release.Set();
+    }
+
+    private IDocumentStore Store => _factory.Services.GetRequiredService<IDocumentStore>();
+
+    /// <summary>Two syncs that have never run, so both are due, returned in the order the sweep takes them.</summary>
+    private async Task<(CollectionSyncTests.Setup First, ParkedSource FirstSource, CollectionSyncTests.Setup Second, ParkedSource SecondSource)>
+        ArrangeTwoInSlugOrderAsync()
+    {
+        var oneSource = new ParkedSource();
+        var otherSource = new ParkedSource();
+        var one = await _syncs.ArrangeAsync(oneSource.Answer);
+        var other = await _syncs.ArrangeAsync(otherSource.Answer);
+
+        return string.CompareOrdinal(one.Slug, other.Slug) < 0
+            ? (one, oneSource, other, otherSource)
+            : (other, otherSource, one, oneSource);
+    }
+
+    private Task SweepAsync() =>
+        ActivatorUtilities.CreateInstance<CollectionSyncService>(_syncs.Host.Services)
+            .SweepTenantAsync(null, DateTime.UtcNow, 100, TestContext.Current.CancellationToken);
+
     private async Task<HttpResponseMessage> PostRunAsync(CollectionSyncTests.Setup setup) =>
         await (await _syncs.AdminAsync()).PostAsync(
             $"/api/collection-syncs/{setup.Slug}/run", null, TestContext.Current.CancellationToken);
 
-    /// <summary>Takes the lock a run takes, the way the sweep and the run route do.</summary>
-    private Task<CollectionSyncLock?> HoldAsync(CollectionSyncTests.Setup setup) =>
+    /// <summary>Takes the lock a run takes, the way the sweep does.</summary>
+    private Task<CollectionSyncLock?> HoldAsync(string type) =>
         CollectionSyncLock.TryAcquireAsync(
-            _factory.Services.GetRequiredService<IDocumentStore>(),
-            DefaultTenantId(), setup.Type, TestContext.Current.CancellationToken);
+            () => Store.Storage.Database.CreateConnection(),
+            DefaultTenantId(), type, TimeSpan.Zero, NullLogger.Instance, TestContext.Current.CancellationToken);
 
     /// <summary>The tenant id a session in the default partition reports, which is what a run locks on.</summary>
     private string DefaultTenantId()
     {
         using var scope = _factory.Services.CreateScope();
         return scope.ServiceProvider.GetRequiredService<IDocumentSession>().TenantId;
+    }
+
+    /// <summary>The backend holding a collection's lock, or the one queued for it.</summary>
+    private async Task<int?> LockBackendAsync(string type, bool granted)
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        await using var connection = Store.Storage.Database.CreateConnection();
+        await connection.OpenAsync(ct);
+
+        // A bigint advisory key is stored as its high half in classid and its low half in objid.
+        await using var find = connection.CreateCommand();
+        find.CommandText = """
+            select pid from pg_locks
+            where locktype = 'advisory' and objsubid = 1 and granted = @granted
+              and classid = ((hashtextextended(@name, 0) >> 32) & 4294967295)::oid
+              and objid = (hashtextextended(@name, 0) & 4294967295)::oid
+            limit 1
+            """;
+        find.Parameters.AddWithValue("granted", granted);
+        find.Parameters.AddWithValue("name", CollectionSyncLock.NameFor(DefaultTenantId(), type));
+
+        return (int?)await find.ExecuteScalarAsync(ct);
+    }
+
+    private async Task<bool> IsFreeAsync(string name)
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        await using var connection = Store.Storage.Database.CreateConnection();
+        await connection.OpenAsync(ct);
+
+        await using var take = connection.CreateCommand();
+        take.CommandText = "select pg_try_advisory_lock(hashtextextended(@name, 0))";
+        take.Parameters.AddWithValue("name", name);
+
+        // Closing this unpooled connection is what lets it go again.
+        return (bool)(await take.ExecuteScalarAsync(ct))!;
+    }
+
+    /// <summary>Ends a backend the way a lost connection does, and returns once it is gone.</summary>
+    private async Task KillAsync(int pid)
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        await using var connection = Store.Storage.Database.CreateConnection();
+        await connection.OpenAsync(ct);
+
+        await using (var kill = connection.CreateCommand())
+        {
+            kill.CommandText = "select pg_terminate_backend(@pid)";
+            kill.Parameters.AddWithValue("pid", pid);
+            ((bool?)await kill.ExecuteScalarAsync(ct)).Should().BeTrue();
+        }
+
+        // Terminating is a signal, so the backend is gone a moment later, not at once.
+        await UntilAsync(
+            async () =>
+            {
+                await using var alive = connection.CreateCommand();
+                alive.CommandText = "select count(*) from pg_stat_activity where pid = @pid";
+                alive.Parameters.AddWithValue("pid", pid);
+                return (long)(await alive.ExecuteScalarAsync(ct))! == 0;
+            },
+            "the terminated backend should be gone");
+    }
+
+    private static async Task UntilAsync(Func<Task<bool>> condition, string because)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+
+        while (!await condition())
+        {
+            (DateTime.UtcNow < deadline).Should().BeTrue("within 30 seconds, " + because);
+            await Task.Delay(50, TestContext.Current.CancellationToken);
+        }
     }
 }
