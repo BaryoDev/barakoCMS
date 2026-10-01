@@ -272,7 +272,7 @@ and out of the `Referer` header. The frontend's `/_share` page reads the fragmen
 | Route | Who | Answers |
 | :--- | :--- | :--- |
 | `POST /api/site/share-links` | may update `site` | 201 `{ id, label, expiresAt, createdAt, key }` |
-| `GET /api/site/share-links` | may update `site` | a page of `{ id, label, createdAt, createdBy, expiresAt, revokedAt, lastUsedAt }` |
+| `GET /api/site/share-links` | may update `site` | a page of `{ id, label, createdAt, createdBy, expiresAt, revokedAt, lastUsedAt }`, with `maxExpiryDays` beside `items` |
 | `DELETE /api/site/share-links/{id}` | may update `site` | 204, or 404 for an unknown id |
 | `POST /api/public/site/share-links/redeem` | anyone | 200 `{ expiresAt }`, or 404 |
 
@@ -280,11 +280,21 @@ Managing links needs update permission on the `site` type (SuperAdmin always has
 too, since the list names who shared the site with whom.
 
 **Creating.** The body is `{ "label": "...", "expiresAt": "..." }`. The label is required, at most
-100 characters. `expiresAt` is optional: unset means 30 days from now, and more than 90 days away is
-a 400. The key is 32 random bytes, base64url encoded, and appears in this response and nowhere else.
-Only its SHA-256 is stored, on a tenant scoped document that is not part of site settings, public
+100 characters. `expiresAt` is optional: unset means 30 days from now, and more than the maximum
+(90 days) away is a 400. The key is 32 random bytes, base64url encoded, and appears in this response
+and nowhere else. Only its SHA-256 is stored, on a tenant scoped document that is not part of site settings, public
 delivery or a portability export. Creating is audited as `site.share_link.created` with the label
 and expiry, never the key. A tenant holds at most 100 active links; revoke one to make another.
+
+**The maximum expiry.** The list response carries `maxExpiryDays` on the page itself, next to
+`items` and `totalItems`, so it is there when the tenant has no links yet. It is the longest expiry
+create accepts, in whole days, read from the same constant the create validator checks. A client
+should build its expiry choices from it rather than keep its own number. An API older than this
+field sends none, and 90 is what those enforce. An `expiresAt` of now plus `maxExpiryDays` days is
+accepted: the time the request takes only moves the comparison later, and the validator allows one
+minute past the maximum for a client whose clock runs ahead of the server's. A client whose clock is
+more than a minute ahead is refused at the maximum, so one that cannot trust its clock should leave
+a margin.
 
 **Redeeming.** The frontend posts `{ "key": "..." }` with the tenant resolved the same way as
 `GET /api/public/site`. A live link answers 200 with its `expiresAt` and records `lastUsedAt`. A
