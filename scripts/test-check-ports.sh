@@ -70,11 +70,13 @@ fi
 #                                   makes against the released image
 #   <port>                          somebody else's listener that happens to answer /health with
 #                                   200, which is the thing a readiness check must not be fooled by
-#   <port> after <pidfile> <marker> somebody else's listener that answers 503 while the pid in the
-#                                   file is alive and 200 once it is gone, touching the marker each
-#                                   time it is asked. It is what takes over a port after a host dies.
+#   <port> after <pidfile> <marker> somebody else's listener that takes over a port after a host
+#                                   dies. Asked for anything, it touches the marker, then holds its
+#                                   answer until the pid in the file is gone, and only then says
+#                                   200. So the order is fixed, not likely: whoever asks cannot
+#                                   hear back while the host is alive, however long anything stalls.
 cat > "$d/listener.py" <<'PY'
-import http.server, os, sys
+import http.server, os, sys, time
 
 port = int(sys.argv[1])
 mode = sys.argv[2] if len(sys.argv) > 2 else "foreign"
@@ -96,9 +98,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(body)
     def do_GET(self):
         if mode == "after":
-            alive = host_alive()
             open(sys.argv[4], "w").close()
-            self.answer(503 if alive else 200, b"ok")
+            deadline = time.time() + 120
+            while host_alive() and time.time() < deadline:
+                time.sleep(0.05)
+            self.answer(503 if host_alive() else 200, b"ok")
         else:
             self.answer(200, b"ok")
     def do_POST(self):
@@ -129,7 +133,7 @@ PY
 hold() {
     python3 "$d/listener.py" "$@" > "$d/hold-$1.log" 2>&1 &
     pids+=("$!")
-    for _ in $(seq 1 50); do grep -q held "$d/hold-$1.log" 2>/dev/null && return 0; sleep 0.1; done
+    for _ in $(seq 1 300); do grep -q held "$d/hold-$1.log" 2>/dev/null && return 0; sleep 0.1; done
     echo "could not hold port $1" >&2
     return 1
 }
@@ -256,17 +260,18 @@ recorded() { sed -n "s/^$1=//p" "$record" 2>/dev/null | head -n 1; }
 # environment. The log setting has a dot in its name, which the shell cannot read as a variable, so
 # it is taken from `env`.
 #
-# With "dies" the stub is a host that says it is listening on <port>, lives until the listener
-# holding that port has been asked once, and exits half a second later. The script asks every two
-# seconds, so its next question is answered by a listener it did not start.
+# With "dies" the stub is a host that says it is listening on <port> and lives until the listener
+# holding that port has been asked, which the script does only after it has read the port from a
+# live host. Then it exits, and that listener, which was waiting for exactly that, answers. Nothing
+# here is timed: the script's first answer on the port can only come from a listener it did not
+# start, after its host is gone.
 stubs() {
     local real_docker ending="exit 1"
     real_docker=$(command -v docker)
     if [ "${2:-}" = dies ]; then
         ending="echo \$\$ > \"$4\"
         echo \"[00:00:00 INF] Now listening on: http://127.0.0.1:$3\"
-        for _ in \$(seq 1 300); do [ -e \"$5\" ] && break; sleep 0.1; done
-        sleep 0.5
+        for _ in \$(seq 1 1200); do [ -e \"$5\" ] && break; sleep 0.1; done
         exit 1"
     fi
     : > "$record"
@@ -320,7 +325,7 @@ case "\${1:-}" in
                 id=fake-old
                 python3 "$d/listener.py" "\${host:-0}" kestrel > "$state/old.log" 2>&1 < /dev/null &
                 echo \$! > "$state/old.pid"
-                for _ in \$(seq 1 50); do grep -q "Now listening" "$state/old.log" && break; sleep 0.1; done
+                for _ in \$(seq 1 300); do grep -q "Now listening" "$state/old.log" && break; sleep 0.1; done
                 sed -n 's/.*127\\.0\\.0\\.1:\\([0-9]*\\)\$/\\1/p' "$state/old.log" > "$state/fake-old.port" ;;
         esac
         [ -n "\$cidfile" ] && printf '%s' "\$id" > "\$cidfile"
