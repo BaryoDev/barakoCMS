@@ -3,6 +3,7 @@ using barakoCMS.Features.WebhookDeliveries;
 using barakoCMS.Features.Workflows;
 using barakoCMS.Infrastructure.Jobs;
 using barakoCMS.Infrastructure.Multitenancy;
+using barakoCMS.Infrastructure.Security;
 using barakoCMS.Models;
 using FastEndpoints;
 using FluentAssertions;
@@ -13,6 +14,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 using Xunit;
@@ -286,6 +288,117 @@ public class TenantPartitionsTests
         await using var check = store.QuerySession(tenant);
         (await check.LoadAsync<JobRecord>(toCancel, ct))!.State.Should().Be(JobState.DeadLettered);
         (await check.LoadAsync<JobRecord>(toPurge, ct)).Should().BeNull("a completed job past its expiry is deleted");
+    }
+
+    [Fact]
+    public async Task The_credential_migration_encrypts_stored_credentials_in_every_tenant_with_enforcement_on()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var host = await HostAsync(ct);
+        var store = host.Services.GetRequiredService<IDocumentStore>();
+        var protector = host.Services.GetRequiredService<ISecretProtector>();
+
+        var stored = new Dictionary<string, (Guid Id, string ApiKey)>();
+        foreach (var (prefix, active) in Partitions("rls-creds"))
+        {
+            var tenant = await RegisterAsync(store, prefix, active, ct);
+            stored[tenant] = await StoreWorkflowInClearAsync(store, tenant, ct);
+        }
+
+        stored.Should().HaveCount(3);
+        foreach (var (tenant, (id, apiKey)) in stored)
+        {
+            (await StoredWorkflowJsonAsync(store, tenant, id, ct)).Should().Contain(apiKey,
+                $"the workflow in {tenant} has to start out in clear for this to be a migration");
+        }
+
+        var logger = new CapturingLogger();
+        var migration = new WorkflowCredentialMigrationService(
+            store, protector, host.Services.GetRequiredService<IConfiguration>(), logger);
+
+        (await migration.ProtectAllTenantsAsync(ct)).Should().Be(3,
+            "one workflow in clear was stored in each of the three partitions, and an empty listing must not pass");
+
+        var afterFirst = new Dictionary<string, string>();
+        foreach (var (tenant, (id, apiKey)) in stored)
+        {
+            var json = await StoredWorkflowJsonAsync(store, tenant, id, ct);
+            json.Should().Contain(AesGcmEnvelope.VersionPrefix, $"the stored value in {tenant} is an envelope now");
+            json.Should().NotContain(apiKey, $"the credential in {tenant} is no longer stored in clear");
+            json.Should().Contain("#ops", "a parameter that is not a credential is left as it was");
+
+            await using var check = store.QuerySession(tenant);
+            var workflow = await check.LoadAsync<WorkflowDefinition>(id, ct);
+            var value = workflow!.Actions.Should().ContainSingle().Which.Parameters["ApiKey"];
+            value.Should().StartWith(AesGcmEnvelope.VersionPrefix);
+            protector.Unprotect(value).Should().Be(apiKey);
+
+            afterFirst[tenant] = json;
+        }
+
+        (await migration.ProtectAllTenantsAsync(ct)).Should().Be(0, "a second start finds nothing left to encrypt");
+
+        afterFirst.Should().HaveCount(3);
+        foreach (var (tenant, json) in afterFirst)
+        {
+            (await StoredWorkflowJsonAsync(store, tenant, stored[tenant].Id, ct)).Should().Be(json,
+                $"the envelope in {tenant} is not encrypted a second time");
+        }
+
+        logger.Lines.Should().ContainSingle("only the count of the first pass is logged");
+        foreach (var (_, (_, apiKey)) in stored)
+        {
+            logger.Lines.Should().NotContain(line => line.Contains(apiKey));
+        }
+    }
+
+    private static async Task<(Guid Id, string ApiKey)> StoreWorkflowInClearAsync(
+        IDocumentStore store, string tenant, CancellationToken ct)
+    {
+        var id = Guid.NewGuid();
+        var apiKey = "ak_live_" + Guid.NewGuid().ToString("N");
+
+        await using var session = store.LightweightSession(tenant);
+        session.Store(new WorkflowDefinition
+        {
+            Id = id,
+            Name = "legacy-" + id.ToString("N"),
+            TriggerContentType = "rls-probe",
+            TriggerEvent = "Published",
+            Actions =
+            [
+                new WorkflowAction
+                {
+                    Type = "CredentialEcho",
+                    Parameters = new Dictionary<string, string> { ["ApiKey"] = apiKey, ["Channel"] = "#ops" },
+                },
+            ],
+        });
+        await session.SaveChangesAsync(ct);
+
+        return (id, apiKey);
+    }
+
+    /// <summary>The document as Postgres holds it, so the assertion is on what is at rest.</summary>
+    private static async Task<string> StoredWorkflowJsonAsync(
+        IDocumentStore store, string tenant, Guid id, CancellationToken ct)
+    {
+        await using var session = store.QuerySession(tenant);
+        var json = await session.Json.FindByIdAsync<WorkflowDefinition>(id, ct);
+        json.Should().NotBeNull();
+        return json!;
+    }
+
+    private sealed class CapturingLogger : ILogger<WorkflowCredentialMigrationService>
+    {
+        public System.Collections.Concurrent.ConcurrentQueue<string> Lines { get; } = new();
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+            => Lines.Enqueue(formatter(state, exception));
     }
 
     /// <summary>

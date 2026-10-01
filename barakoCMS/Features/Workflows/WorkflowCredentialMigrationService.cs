@@ -1,4 +1,5 @@
 using barakoCMS.Features.Workflows.Actions;
+using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Infrastructure.Security;
 using barakoCMS.Models;
 using Marten;
@@ -15,7 +16,9 @@ namespace barakoCMS.Features.Workflows;
 /// existing workflow again: a definition is created and then only read, so waiting for a save would
 /// leave every stored credential in clear for good.
 ///
-/// It runs once at startup, over every partition that holds a workflow. It is safe to run on several
+/// It runs once at startup, over every partition that holds a workflow, or over every registered
+/// tenant and the default partition when Postgres enforces the tenant filter, where a workflow in a
+/// partition with no <see cref="Tenant"/> document is not reached. It is safe to run on several
 /// instances at once and on every boot, since <see cref="WebhookSigning.MigrateStoredCredentials"/>
 /// leaves a prefixed value alone; two instances racing on one document each write a prefixed
 /// envelope of the same plaintext. Runs already queued keep the parameters they copied, and the
@@ -27,13 +30,18 @@ internal sealed class WorkflowCredentialMigrationService : BackgroundService
 
     private readonly IDocumentStore _store;
     private readonly ISecretProtector _protector;
+    private readonly IConfiguration _config;
     private readonly ILogger<WorkflowCredentialMigrationService> _logger;
 
     public WorkflowCredentialMigrationService(
-        IDocumentStore store, ISecretProtector protector, ILogger<WorkflowCredentialMigrationService> logger)
+        IDocumentStore store,
+        ISecretProtector protector,
+        IConfiguration config,
+        ILogger<WorkflowCredentialMigrationService> logger)
     {
         _store = store;
         _protector = protector;
+        _config = config;
         _logger = logger;
     }
 
@@ -73,25 +81,12 @@ internal sealed class WorkflowCredentialMigrationService : BackgroundService
         return changed;
     }
 
-    private async Task<IReadOnlyList<string>> PartitionsAsync(CancellationToken ct)
-    {
-        var partitions = new List<string>();
-
-        await using var conn = _store.Storage.Database.CreateConnection();
-        await conn.OpenAsync(ct);
-
-        await using var cmd = conn.CreateCommand();
-        cmd.CommandText =
-            $"select distinct tenant_id from {_store.Options.DatabaseSchemaName}.mt_doc_workflowdefinition";
-
-        await using var reader = await cmd.ExecuteReaderAsync(ct);
-        while (await reader.ReadAsync(ct))
-        {
-            partitions.Add(reader.GetString(0));
-        }
-
-        return partitions;
-    }
+    private Task<IReadOnlyList<string>> PartitionsAsync(CancellationToken ct) =>
+        TenantPartitions.ListAsync(
+            _store,
+            _config,
+            $"select distinct tenant_id from {_store.Options.DatabaseSchemaName}.mt_doc_workflowdefinition",
+            ct);
 
     /// <summary>Encrypts every stored workflow in one partition. Pure over the session, so a test drives it directly.</summary>
     /// <returns>The number of workflows that were rewritten.</returns>

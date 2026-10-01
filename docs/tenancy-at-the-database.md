@@ -88,18 +88,19 @@ deliberately.
 
 ## Background work
 
-The workflow runner, the job queue worker, and the workflow run and webhook delivery retention
-sweeps work across every tenant. With enforcement off they read every tenant's rows in one query.
-With it on they cannot, because that query runs outside any tenant and the policy holds it to one,
-so they list tenants from the registry instead: every `Tenant`, active or not, plus the default
-partition. Two consequences:
+The workflow runner, the job queue worker, the workflow run and webhook delivery retention sweeps,
+and the startup pass that encrypts stored workflow credentials work across every tenant. With
+enforcement off they read every tenant's rows in one query. With it on they cannot, because that
+query runs outside any tenant and the policy holds it to one, so they list tenants from the
+registry instead: every `Tenant`, active or not, plus the default partition. Two consequences:
 
 - Each pass costs one query per registered tenant. The workflow runner polls every five seconds
   when idle and starts again from the registry for every attempt it claims. The job queue probes
   each queue every `Jobs:StorageProbeSeconds` (60 by default) and pays the same again for every
-  batch it claims while draining.
+  batch it claims while draining. The credential pass runs once per start, so it pays it once.
 - Rows in a partition with no `Tenant` document (written under an `X-Tenant` header naming a slug
-  nobody registered) are not reached. Register the tenant to bring them back into scope.
+  nobody registered) are not reached. Register the tenant to bring them back into scope. For the
+  credential pass that means registering the tenant and restarting the API.
 
 ## Two things to know before you deploy it
 
