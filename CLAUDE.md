@@ -164,6 +164,13 @@ Test classes are `{Subject}Tests`. Test methods read as sentences describing the
   hides a flake, where rebuilding on a newer base rules out one specific cause and leaves a real
   failure visible. Green-but-behind is left alone, since the merge queue builds against master
   anyway. Label a pull request `no-self-heal` to keep it on its current base.
+- **A push to a branch with an open pull request runs CI once.** `ci.yml` triggers on both `push`
+  and `pull_request`, and its `gate` job skips the rest of a push run when the branch has an open,
+  mergeable pull request into master, because the `pull_request` run covers the same commit. A
+  skipped push run is not a failure and not a result. The gate runs everything when it cannot tell.
+  A new job in `ci.yml` takes the same `needs: gate` and `if` as its neighbours, and a job that is
+  required on master also takes their `name:` expression, so a push run never reports under a
+  required name.
 
 ## 6. Public API stability
 
