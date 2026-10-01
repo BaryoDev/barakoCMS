@@ -166,8 +166,8 @@ Test classes are `{Subject}Tests`. Test methods read as sentences describing the
   anyway. Label a pull request `no-self-heal` to keep it on its current base.
 - **A push to a branch with an open pull request runs CI once.** `ci.yml` runs on `pull_request`
   and `merge_group`. A branch push starts `.github/workflows/ci-branch.yml`, which calls `ci.yml`
-  unless an open, mergeable pull request into master already sits at that commit, and runs
-  everything when it cannot tell. Its checks are named `Branch / <job name>`, which nothing
+  unless an open pull request into master sits at that commit and its `pull_request` run has
+  started, and runs everything when it cannot tell. Its checks are named `Branch / <job name>`, which nothing
   requires, so a skipped or green push run says nothing about a pull request.
 
 ## 6. Public API stability

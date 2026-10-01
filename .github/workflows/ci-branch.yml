@@ -30,24 +30,31 @@ on:
 permissions: {}
 
 jobs:
-  # Says "false" only when it has seen an open pull request from this branch of this repository
-  # into master, whose head is this commit and which GitHub can merge. That is the case where a
-  # pull_request run starts for the same push. Anything else runs everything: the API failing, a
-  # token that may not read pull requests, a pull request against another base, one from a fork
-  # that shares the branch name, one whose head has moved on, and one with a merge conflict, since
-  # GitHub starts no pull_request run for a pull request it cannot merge and this run would be the
-  # only CI the commit gets.
+  # Says "false" only when it has seen two things: an open pull request from this branch of this
+  # repository into master, whose head is this commit and which GitHub can merge, and a
+  # pull_request run of ci.yml already started for this commit. The second is the fact the first
+  # only predicts. Anything else runs everything: the API failing, a token that may not read pull
+  # requests or runs, a pull request against another base, one from a fork that shares the branch
+  # name, one whose head has moved on, one with a merge conflict, since GitHub starts no
+  # pull_request run for a pull request it cannot merge, and one whose run never appeared or is
+  # waiting for a person to approve it. In each of those this run may be the only CI the commit
+  # gets.
   gate:
     name: Is a pull request already running this commit
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    # A backstop only. The step below carries the timeout that matters.
+    timeout-minutes: 10
     permissions:
       pull-requests: read
+      actions: read
     outputs:
       run: ${{ steps.decide.outputs.run }}
     steps:
       - name: Look for an open pull request at this commit
         id: decide
+        # On the step, not only the job: a step past its timeout fails, and a failed gate runs
+        # everything. The script's own worst case is under three minutes, each call being capped.
+        timeout-minutes: 4
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -59,10 +66,11 @@ jobs:
           run=true
           why="no open pull request from this branch into master"
 
-          # head=owner:branch keeps out a fork's pull request that shares the branch name.
-          if ! number=$(timeout 20 gh api -X GET "repos/$REPO/pulls" \
+          # head=owner:branch keeps out a fork's pull request that shares the branch name, and the
+          # repository comparison keeps out a fork owned by the same organisation.
+          if ! number=$(timeout 10 gh api -X GET "repos/$REPO/pulls" \
                           -f state=open -f base=master -f head="$OWNER:$BRANCH" \
-                          --jq '.[0].number // empty'); then
+                          --jq '[.[] | select(.head.repo.full_name == env.REPO)][0].number // empty'); then
             why="could not list pull requests"
             number=""
           fi
@@ -72,21 +80,40 @@ jobs:
             *[!0-9]*)
               why="could not read the pull request list" ;;
             *)
-              # GitHub moves the pull request's head and works out whether it can be merged after
-              # the push, not during it, so the first answer is often an older head or a null.
-              # Asking is what starts the calculation. Six tries is about half a minute, and an
-              # answer that never arrives means run.
+              # GitHub moves the pull request's head, works out whether it can be merged and
+              # starts the pull_request run after the push, not during it, so the first answer is
+              # often an older head, a null or no run yet. Asking is what starts the calculation.
+              # Six tries is about half a minute, and an answer that never arrives means run.
               for attempt in 1 2 3 4 5 6; do
-                if ! answer=$(timeout 20 gh api "repos/$REPO/pulls/$number" \
+                if ! answer=$(timeout 10 gh api "repos/$REPO/pulls/$number" \
                                 --jq '"\(.state) \(.head.sha) \(.mergeable)"'); then
                   why="could not read pull request $number"
                   break
                 fi
                 case "$answer" in
                   "open $SHA true")
-                    run=false
-                    why="pull request $number is open at this commit, so its run is the one that counts"
-                    break ;;
+                    # CodeQL also runs on pull_request, so the run has to be one of ci.yml. A run
+                    # held for approval has no jobs, so it does not count.
+                    if ! started=$(timeout 10 gh api -X GET "repos/$REPO/actions/runs" \
+                                     -f head_sha="$SHA" -f event=pull_request \
+                                     --jq '[.workflow_runs[]
+                                            | select(.path == ".github/workflows/ci.yml")
+                                            | select(.conclusion != "action_required")] | length'); then
+                      why="could not list the runs for this commit"
+                      break
+                    fi
+                    case "$started" in
+                      ''|*[!0-9]*)
+                        why="could not read the runs for this commit"
+                        break ;;
+                      0)
+                        why="pull request $number is open at this commit, but no pull_request run of ci.yml has started for it"
+                        sleep 5 ;;
+                      *)
+                        run=false
+                        why="pull request $number is open at this commit and its pull_request run has started, so that run is the one that counts"
+                        break ;;
+                    esac ;;
                   "open $SHA false")
                     why="pull request $number has a merge conflict, so no pull_request run will start for it"
                     break ;;
@@ -107,8 +134,8 @@ jobs:
             echo "Skipping CI on this push: $why." | tee -a "$GITHUB_STEP_SUMMARY"
           fi
 
-  # Skips on the word "false" and nothing else, so the gate failing, timing out or writing no
-  # output runs everything.
+  # Skips on the word "false" and nothing else, so the gate failing, its step timing out or it
+  # writing no output runs everything.
   #
   # A called workflow gets at most what the caller grants, and a job in ci.yml that asks for more
   # stops the run before it starts. These two are what the repository's read-only default gave the
