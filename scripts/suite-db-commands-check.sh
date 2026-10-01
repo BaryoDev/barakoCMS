@@ -43,7 +43,7 @@ COMMAND_TIMEOUT="${COMMAND_TIMEOUT:-180}"
 WORK="$(mktemp -d)"
 
 cleanup() {
-    docker rm -f "$PG" >/dev/null 2>&1 || true
+    remove_started "$WORK/pg.cid"
     rm -rf "$WORK"
 }
 trap cleanup EXIT
@@ -54,9 +54,15 @@ fail() { printf '\nFAILED: %s\n' "$1" >&2; exit 1; }
 run_suite() {
     # Explicit environment, not an inherited one, for the same reason as upgrade-check.sh: a stray
     # connection string in the shell would point the host at some other database.
+    #
+    # LISTEN_LOG_ENV is for the "Now listening on" check below. A Suite that served would log that
+    # line only at Information, and the shipped appsettings.json turns that source down to Warning.
+    # The check works without this today only because the host is started from a directory with no
+    # appsettings.json in it. See lib-ports.sh.
     env -i PATH="$PATH" HOME="$HOME" DOTNET_ROOT="${DOTNET_ROOT:-}" \
         ASPNETCORE_ENVIRONMENT=Production \
         ASPNETCORE_URLS="http://127.0.0.1:${APP_PORT}" \
+        "$LISTEN_LOG_ENV" \
         ConnectionStrings__DefaultConnection="$CONN" \
         JWT__Key="$JWT_KEY" \
         SKIP_SEEDER=true \
@@ -73,7 +79,7 @@ dotnet publish BarakoCMS.Suite/BarakoCMS.Suite.csproj -c Release -o "$WORK/publi
     -clp:ErrorsOnly -p:RestoreLockedMode=true -nodeReuse:false
 
 step "starting postgres"
-PG_ID=$(docker run -d --name "$PG" -e POSTGRES_DB="$DB" -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
+PG_ID=$(docker run -d --cidfile "$WORK/pg.cid" --name "$PG" -e POSTGRES_DB="$DB" -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
     -p "$(publish_spec "$PG_PORT" 5432)" postgres:16-alpine 2>"$WORK/docker-run.err") \
     || fail "$(publish_failure "$WORK/docker-run.err" "$PG_PORT" postgres)"
 PG_PORT=$(published_port "$PG_ID" 5432) || fail "cannot tell which host port postgres was published on"

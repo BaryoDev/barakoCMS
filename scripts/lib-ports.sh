@@ -42,7 +42,9 @@ parse_docker_port() {
         case "$port" in
             ''|*[!0-9]*) echo "ports: no port number in '$line'" >&2; return 1 ;;
         esac
-        if [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+        # Length first: a number too long for the shell's arithmetic makes `[` complain and answer
+        # false, which read as "in range".
+        if [ "${#port}" -gt 5 ] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
             echo "ports: '$line' is not a usable port" >&2; return 1
         fi
         if [ -n "$found" ] && [ "$found" != "$port" ]; then
@@ -91,17 +93,38 @@ publish_failure() {
 # Kestrel writes it only after the bind succeeded. While the process lives it holds that port, so
 # an answer on it is an answer from this process.
 #
-# The host must log Microsoft.Hosting.Lifetime at Information for the line to exist. appsettings.json
-# sets Microsoft to Warning, so the scripts raise that one source back with LISTEN_LOG_ENV.
+# Only a finished line counts. A line caught while it is being written can end partway through the
+# number, and "4" is a port.
 #
 # A process that exits is reported at once instead of waited out, and "address already in use" in
 # its log is named as what it is: a listener this run did not start.
+#
+# The line exists only if the host logs Microsoft.Hosting.Lifetime at Information. It does today for
+# a reason nobody chose: the scripts start the published host from the repository root, which has no
+# appsettings.json, so the shipped file's "Microsoft": "Warning" is never loaded and everything logs
+# at Information. LISTEN_LOG_ENV asks for that one source by name, so the scripts keep working the
+# day a host does load the shipped settings. With them loaded and this unset, listen_port runs into
+# its deadline and says which line it was waiting for.
 LISTEN_LOG_ENV='Serilog__MinimumLevel__Override__Microsoft.Hosting.Lifetime=Information'
 
 listen_port() {
-    local log="$1" pid="$2" seconds="${3:-120}" port
+    local log="$1" pid="$2" seconds="${3:-120}" port line
     for _ in $(seq 1 "$seconds"); do
-        port=$(sed -n '/Now listening on: http:\/\/127\.0\.0\.1:[0-9]/{s/.*Now listening on: http:\/\/127\.0\.0\.1:\([0-9]*\).*/\1/p;q;}' "$log" 2>/dev/null || true)
+        port=""
+        if [ -f "$log" ]; then
+            # `read` returns false on a last line with no newline, so the loop never sees one.
+            while IFS= read -r line; do
+                case "$line" in
+                    *"Now listening on: http://127.0.0.1:"*)
+                        port="${line##*Now listening on: http://127.0.0.1:}"
+                        port="${port%$'\r'}"
+                        break ;;
+                esac
+            done < "$log"
+        fi
+        # Anything after the number, or a number no port can be, is not a line this can trust.
+        case "$port" in *[!0-9]*) port="" ;; esac
+        [ "${#port}" -le 5 ] || port=""
         if ! kill -0 "$pid" 2>/dev/null; then
             if grep -qi 'address already in use' "$log" 2>/dev/null; then
                 echo "ports: the process this run started (pid $pid) could not bind: the address is held by a listener this run did not start" >&2
@@ -118,4 +141,18 @@ listen_port() {
     done
     echo "ports: pid $pid wrote no 'Now listening on: http://127.0.0.1:PORT' line to $log in ${seconds}s" >&2
     return 1
+}
+
+# remove_started <cidfile>...
+#
+# Removes the containers this run started and no others. Each file is the one `docker run --cidfile`
+# wrote: Docker writes it once the container exists, including when the start then fails on a port,
+# and leaves no file when it refuses the name. Removing by name instead took out another run's
+# container whenever this run had lost the name to it.
+remove_started() {
+    local file
+    for file in "$@"; do
+        [ -s "$file" ] && docker rm -f "$(cat "$file")" >/dev/null 2>&1
+    done
+    return 0
 }

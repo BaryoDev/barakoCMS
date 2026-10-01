@@ -70,7 +70,7 @@ WORK="$(mktemp -d)"
 
 cleanup() {
     if [ -n "${HOST_PID:-}" ]; then kill "$HOST_PID" 2>/dev/null || true; wait "$HOST_PID" 2>/dev/null || true; fi
-    docker rm -f "$PG" "$OLD" >/dev/null 2>&1 || true
+    remove_started "$WORK/pg.cid" "$WORK/old.cid"
     docker network rm "$NETWORK" >/dev/null 2>&1 || true
     rm -rf "$WORK"
 }
@@ -152,7 +152,7 @@ dotnet publish barakoCMS/barakoCMS.csproj -c Release -o "$WORK/core" --nologo -v
 
 step "starting postgres"
 docker network create "$NETWORK" >/dev/null 2>&1 || true
-PG_ID=$(docker run -d --name "$PG" --network "$NETWORK" \
+PG_ID=$(docker run -d --cidfile "$WORK/pg.cid" --name "$PG" --network "$NETWORK" \
     -e POSTGRES_DB=barako_cms -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
     -p "$(publish_spec "$PG_PORT" 5432)" postgres:16-alpine 2>"$WORK/docker-run.err") \
     || fail "$(publish_failure "$WORK/docker-run.err" "$PG_PORT" postgres)"
@@ -174,7 +174,7 @@ if ! docker exec "$PG" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1; then
 fi
 
 step "creating a ${FROM_VERSION} database with data in it"
-OLD_ID=$(docker run -d --name "$OLD" --network "$NETWORK" \
+OLD_ID=$(docker run -d --cidfile "$WORK/old.cid" --name "$OLD" --network "$NETWORK" \
     -e ConnectionStrings__DefaultConnection="Host=${PG};Database=barako_cms;Username=postgres;Password=postgres" \
     -e JWT__Key="$JWT_KEY" \
     -e InitialAdmin__Username=admin -e InitialAdmin__Password="$ADMIN_PASSWORD" \

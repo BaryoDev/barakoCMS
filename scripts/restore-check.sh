@@ -37,7 +37,7 @@ WORK="$(mktemp -d)"
 
 cleanup() {
     if [ -n "${HOST_PID:-}" ]; then kill "$HOST_PID" 2>/dev/null || true; wait "$HOST_PID" 2>/dev/null || true; fi
-    docker rm -f "$PG" >/dev/null 2>&1 || true
+    remove_started "$WORK/pg.cid"
     rm -rf "$WORK"
 }
 trap cleanup EXIT
@@ -101,7 +101,7 @@ step "building the host"
 dotnet publish barakoCMS/barakoCMS.csproj -c Release -o "$WORK/publish" --nologo -v q -clp:ErrorsOnly -p:RestoreLockedMode=true
 
 step "starting postgres"
-PG_ID=$(docker run -d --name "$PG" -e POSTGRES_DB="$DB" -e POSTGRES_USER=postgres \
+PG_ID=$(docker run -d --cidfile "$WORK/pg.cid" --name "$PG" -e POSTGRES_DB="$DB" -e POSTGRES_USER=postgres \
     -e POSTGRES_PASSWORD=postgres -p "$(publish_spec "$PG_PORT" 5432)" postgres:16-alpine 2>"$WORK/docker-run.err") \
     || fail "$(publish_failure "$WORK/docker-run.err" "$PG_PORT" postgres)"
 PG_PORT=$(published_port "$PG_ID" 5432) || fail "cannot tell which host port postgres was published on"

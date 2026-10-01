@@ -6,20 +6,28 @@
 # listener on each old default, the way that other process did, and require the scripts to get past
 # their port steps anyway.
 #
-# Three groups:
+# Four groups:
 #
 #   1. scripts/lib-ports.sh on its own: reading `docker port` output, reading the port a process
 #      logged, and refusing a port whose listener is not the process this run started. A small
 #      python server stands in for the API, since the real one takes a build to start.
-#   2. Docker choosing a host port and the lib reading it back, on loopback only.
-#   3. Each script run for real up to the moment it starts the API, with `dotnet` replaced by a
-#      stub that records the address and connection string it was handed and then exits. The
-#      script fails there, as it must with no host, and the record is what gets checked.
+#   2. upgrade-check.sh run up to the first db-assert that has to pass, with both `dotnet` and
+#      `docker` replaced. The released image it starts is large and amd64 only, so a stand-in
+#      `docker` hands back made-up ids and ports and starts the python server in the image's place.
+#      What is checked is what the script asked Docker for and what it handed the host.
+#   3. Docker choosing a host port and the lib reading it back, on loopback only.
+#   4. restore-check.sh and suite-db-commands-check.sh run against the real Docker up to the moment
+#      they start the API, with `dotnet` replaced by a stub that records the address, connection
+#      string and log setting it was handed and then exits. The script fails there, as it must with
+#      no host, and the record is what gets checked.
 #
-# Groups 2 and 3 need Docker and the postgres:16-alpine image, which the scripts under test pull
+# Groups 3 and 4 need Docker and the postgres:16-alpine image, which the scripts under test pull
 # anyway. Nothing else touches the network. Without Docker those cases are reported as SKIPPED and
 # the run still fails when PORTS_TEST_REQUIRE_DOCKER=1, which CI sets, so a runner that lost Docker
 # cannot turn this into a pass.
+#
+# Not covered: the second `old_is_running` call in upgrade-check.sh, after the rollback. Reaching it
+# needs a stand-in for the whole upgrade.
 #
 #   bash scripts/test-check-ports.sh
 
@@ -39,13 +47,13 @@ expect() { # $1 = description, then a command that must succeed
     if "$@"; then ok "$what"; else bad "$what"; fi
 }
 
-d=$(mktemp -d)
+d=$(mktemp -d) || { echo "could not make a scratch directory"; exit 1; }
 pids=()
 containers=()
 cleanup() {
     for p in "${pids[@]:-}"; do [ -n "$p" ] && kill "$p" 2>/dev/null; done
     for c in "${containers[@]:-}"; do [ -n "$c" ] && docker rm -f "$c" >/dev/null 2>&1; done
-    rm -rf "$d"
+    rm -rf "${d:?}"
 }
 trap cleanup EXIT
 
@@ -55,43 +63,71 @@ else
     echo "scripts/lib-ports.sh is missing, so every case that calls it fails below"
 fi
 
-# One program for both sides of the story. With "kestrel" it is the process a run starts: it binds,
-# says so in Kestrel's words, and answers. Without, it is somebody else's listener that happens to
-# answer /health with 200, which is the thing a readiness check must not be fooled by.
+# One program for every part in the story.
+#
+#   <port> kestrel                  the process a run starts: it binds, says so in Kestrel's words,
+#                                   and answers, including the sign-in and write calls upgrade-check
+#                                   makes against the released image
+#   <port>                          somebody else's listener that happens to answer /health with
+#                                   200, which is the thing a readiness check must not be fooled by
+#   <port> after <pidfile> <marker> somebody else's listener that answers 503 while the pid in the
+#                                   file is alive and 200 once it is gone, touching the marker each
+#                                   time it is asked. It is what takes over a port after a host dies.
 cat > "$d/listener.py" <<'PY'
-import http.server, sys
+import http.server, os, sys
 
 port = int(sys.argv[1])
-kestrel = len(sys.argv) > 2 and sys.argv[2] == "kestrel"
+mode = sys.argv[2] if len(sys.argv) > 2 else "foreign"
+
+def host_alive():
+    try:
+        os.kill(int(open(sys.argv[3]).read()), 0)
+        return True
+    except FileNotFoundError:
+        return True
+    except (OSError, ValueError):
+        return False
 
 class Handler(http.server.BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-Length", "2")
+    def answer(self, code, body):
+        self.send_response(code)
+        self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(b"ok")
+        self.wfile.write(body)
+    def do_GET(self):
+        if mode == "after":
+            alive = host_alive()
+            open(sys.argv[4], "w").close()
+            self.answer(503 if alive else 200, b"ok")
+        else:
+            self.answer(200, b"ok")
+    def do_POST(self):
+        self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        self.answer(200, b'{"token":"stand-in","id":"stand-in-stream"}')
+    do_PUT = do_POST
     def log_message(self, *args):
         pass
 
 try:
     server = http.server.HTTPServer(("127.0.0.1", port), Handler)
 except OSError:
-    if kestrel:
+    if mode == "kestrel":
         print(f"[00:00:00 FTL] Failed to bind to address http://127.0.0.1:{port}: address already in use.", flush=True)
         sys.exit(1)
     # Already held by something else, which serves this test's purpose just as well.
     print("held", flush=True)
     sys.exit(0)
-if kestrel:
+if mode == "kestrel":
     print(f"[00:00:00 INF] Now listening on: http://127.0.0.1:{server.server_address[1]}", flush=True)
 else:
     print("held", flush=True)
 server.serve_forever()
 PY
 
-# hold <port>: keeps a listener this test's "run" did not start on that port until the test ends.
+# hold <port> [after <pidfile> <marker>]: keeps a listener this test's "run" did not start on that
+# port until the test ends.
 hold() {
-    python3 "$d/listener.py" "$1" > "$d/hold-$1.log" 2>&1 &
+    python3 "$d/listener.py" "$@" > "$d/hold-$1.log" 2>&1 &
     pids+=("$!")
     for _ in $(seq 1 50); do grep -q held "$d/hold-$1.log" 2>/dev/null && return 0; sleep 0.1; done
     echo "could not hold port $1" >&2
@@ -133,6 +169,15 @@ printf '127.0.0.1:\n' | parse_docker_port >/dev/null 2>&1
 expect "a line with no number is refused" [ $? -ne 0 ]
 printf '127.0.0.1:0\n' | parse_docker_port >/dev/null 2>&1
 expect "port 0 is refused" [ $? -ne 0 ]
+out=$(printf '127.0.0.1:99999999999999999999\n' | parse_docker_port 2>"$d/big.err")
+rc=$?
+expect "a number too long for the shell to compare is refused" [ "$rc" -ne 0 ]
+expect "and nothing is printed for it" [ -z "$out" ]
+if grep -q "integer expression expected" "$d/big.err"; then
+    bad "and the shell is never asked to compare it"
+else
+    ok "and the shell is never asked to compare it"
+fi
 printf '' | parse_docker_port >/dev/null 2>&1
 expect "empty output is refused" [ $? -ne 0 ]
 expect "no host port asks Docker to choose, on loopback" [ "$(publish_spec "" 5432 2>/dev/null)" = "127.0.0.1::5432" ]
@@ -177,30 +222,55 @@ wait "$gone_pid"
 listen_port "$d/stale.log" "$gone_pid" 10 >/dev/null 2>&1
 expect "a listening line from a process that has exited is refused" [ $? -ne 0 ]
 
-sleep 30 &
+sleep 120 &
 silent_pid=$!
 pids+=("$silent_pid")
 : > "$d/silent.log"
 listen_port "$d/silent.log" "$silent_pid" 2 >/dev/null 2>&1
 expect "a process that never says it is listening runs into the deadline" [ $? -ne 0 ]
 
+# The line as it looks while the process is still writing it: the number has started, the newline
+# has not arrived. Port 41234 read at that moment is port 4.
+printf '[00:00:00 INF] Now listening on: http://127.0.0.1:4' > "$d/partial.log"
+out=$(listen_port "$d/partial.log" "$silent_pid" 2 2>/dev/null)
+rc=$?
+expect "a listening line with no newline yet is not read" [ "$rc" -ne 0 ]
+expect "and no part of its number is returned" [ -z "$out" ]
+printf '1234\n' >> "$d/partial.log"
+expect "the same line once finished gives the whole number" [ "$(listen_port "$d/partial.log" "$silent_pid" 2 2>/dev/null)" = "41234" ]
+
 # What each stubbed script run leaves behind: the lines the dotnet stub wrote, and the script's output.
 record="$d/record"
 output="$d/output"
+bin="$d/bin"
+state="$d/fake-docker"
+mkdir "$bin" "$state"
 
 recorded() { sed -n "s/^$1=//p" "$record" 2>/dev/null | head -n 1; }
 
-# stubs <postgres container name>: a `dotnet` that builds nothing and starts nothing. `exec` writes
-# down what the script handed the host and where Docker published the script's postgres at that
-# moment, then exits 1. The scripts start the host with `env -i`, so the paths are written into the
-# stub rather than passed in the environment.
+# stubs <postgres container name> [dies <port> <pidfile> <marker>]
+#
+# A `dotnet` that builds nothing and starts nothing. `exec` writes down what the script handed the
+# host and where Docker published the script's postgres at that moment, then exits 1. The scripts
+# start the host with `env -i`, so the paths are written into the stub rather than passed in the
+# environment. The log setting has a dot in its name, which the shell cannot read as a variable, so
+# it is taken from `env`.
+#
+# With "dies" the stub is a host that says it is listening on <port>, lives until the listener
+# holding that port has been asked once, and exits half a second later. The script asks every two
+# seconds, so its next question is answered by a listener it did not start.
 stubs() {
-    local real_docker
+    local real_docker ending="exit 1"
     real_docker=$(command -v docker)
-    rm -rf "$d/bin"
-    mkdir "$d/bin"
+    if [ "${2:-}" = dies ]; then
+        ending="echo \$\$ > \"$4\"
+        echo \"[00:00:00 INF] Now listening on: http://127.0.0.1:$3\"
+        for _ in \$(seq 1 300); do [ -e \"$5\" ] && break; sleep 0.1; done
+        sleep 0.5
+        exit 1"
+    fi
     : > "$record"
-    cat > "$d/bin/dotnet" <<STUB
+    cat > "$bin/dotnet" <<STUB
 #!/usr/bin/env bash
 case "\${1:-}" in
     publish) exit 0 ;;
@@ -208,22 +278,150 @@ case "\${1:-}" in
         {
             echo "URLS=\${ASPNETCORE_URLS:-}"
             echo "CONN=\${ConnectionStrings__DefaultConnection:-}"
+            echo "LISTEN=\$(env | sed -n 's/^Serilog__MinimumLevel__Override__Microsoft\\.Hosting\\.Lifetime=//p')"
             echo "PUBLISHED=\$("$real_docker" port "$1" 5432/tcp 2>&1 | tr '\n' ' ')"
         } >> "$record"
-        exit 1 ;;
+        $ending ;;
 esac
 exit 1
 STUB
-    chmod +x "$d/bin/dotnet"
+    chmod +x "$bin/dotnet"
 }
 
-# The scripts name their own containers and remove them by name on exit. One that is already there
-# was not started by this test, so the case is failed rather than run over it.
+# A `docker` for upgrade-check.sh that starts no container. It writes every call down, hands back
+# made-up ids, and reports as published either the port the script asked for or, when the script
+# left the choice to Docker, one of its own: 40123 for postgres, and for the released image whatever
+# port the kernel gave the python server started in its place. Every query answers 5, which is
+# enough events and enough progression for the script to carry on to the hosts.
+#
+# $1 is what `docker inspect` says about the released image's container: true while it runs.
+fake_docker() {
+    : > "$state/calls"
+    : > "$state/old.pid"
+    echo "$1" > "$state/running"
+    cat > "$bin/docker" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$state/calls"
+case "\${1:-}" in
+    run)
+        cidfile=""; spec=""; prev=""
+        for arg in "\$@"; do
+            [ "\$prev" = "--cidfile" ] && cidfile="\$arg"
+            [ "\$prev" = "-p" ] && spec="\$arg"
+            prev="\$arg"
+        done
+        host="\${spec#127.0.0.1:}"
+        host="\${host%%:*}"
+        case "\$spec" in
+            *:5432)
+                id=fake-pg
+                echo "\${host:-40123}" > "$state/fake-pg.port" ;;
+            *)
+                id=fake-old
+                python3 "$d/listener.py" "\${host:-0}" kestrel > "$state/old.log" 2>&1 < /dev/null &
+                echo \$! > "$state/old.pid"
+                for _ in \$(seq 1 50); do grep -q "Now listening" "$state/old.log" && break; sleep 0.1; done
+                sed -n 's/.*127\\.0\\.0\\.1:\\([0-9]*\\)\$/\\1/p' "$state/old.log" > "$state/fake-old.port" ;;
+        esac
+        [ -n "\$cidfile" ] && printf '%s' "\$id" > "\$cidfile"
+        echo "\$id" ;;
+    port) echo "127.0.0.1:\$(cat "$state/\$2.port")" ;;
+    inspect) cat "$state/running" ;;
+    exec)
+        case " \$* " in *" -tAc "*) echo 5 ;; esac ;;
+esac
+exit 0
+STUB
+    chmod +x "$bin/docker"
+}
+
+# run_upgrade [NAME=value ...]: the assignments are the script's environment.
+run_upgrade() {
+    local rc
+    env PATH="$bin:$PATH" IMAGE="ports-test-stub:none" "$@" bash scripts/upgrade-check.sh > "$output" 2>&1
+    rc=$?
+    [ -s "$state/old.pid" ] && pids+=("$(cat "$state/old.pid")")
+    return "$rc"
+}
+
+upgrade_cases() {
+    echo
+    echo "upgrade-check.sh, with its old defaults 55433, 58090 and 58091 held:"
+    hold 55433
+    hold 58090
+    hold 58091
+    stubs fake-pg
+    fake_docker true
+    run_upgrade
+    expect "the script stops at the first db-assert that has to pass, not before" \
+        grep -q "did not bring core's schema up to date" "$output"
+    expect "postgres is published on loopback with Docker choosing the port" \
+        grep -q -- "-p 127.0.0.1::5432 postgres:16-alpine" "$state/calls"
+    expect "the FROM_VERSION container is published the same way" \
+        grep -q -- "-p 127.0.0.1::8080 ports-test-stub:none" "$state/calls"
+    case "$(recorded CONN)" in
+        *"Host=127.0.0.1;Port=40123;"*) ok "the host is given the port docker port reported" ;;
+        *) bad "the host is given the port docker port reported (connection string: $(recorded CONN))" ;;
+    esac
+    expect "the host is told to bind port 0" [ "$(recorded URLS)" = "http://127.0.0.1:0" ]
+    expect "the host is told to log the line the port is read from" [ "$(recorded LISTEN)" = "Information" ]
+    expect "both containers are removed by the ids this run was given" \
+        [ "$(grep -cE '^rm -f fake-(pg|old)$' "$state/calls")" = 2 ]
+    expect "and nothing is removed by name" [ "$(grep -c '^rm ' "$state/calls")" = 2 ]
+
+    echo
+    echo "upgrade-check.sh, with PG_PORT, NEW_PORT and OLD_PORT set by the caller:"
+    pg_wanted=$(free_port 21500)
+    new_wanted=$(free_port 21600)
+    old_wanted=$(free_port 21700)
+    stubs fake-pg
+    fake_docker true
+    run_upgrade PG_PORT="$pg_wanted" NEW_PORT="$new_wanted" OLD_PORT="$old_wanted"
+    expect "the script gets as far as the hosts" grep -q "did not bring core's schema up to date" "$output"
+    expect "postgres is published on the port asked for" \
+        grep -q -- "-p 127.0.0.1:$pg_wanted:5432 postgres:16-alpine" "$state/calls"
+    expect "the FROM_VERSION container is published on the port asked for" \
+        grep -q -- "-p 127.0.0.1:$old_wanted:8080 ports-test-stub:none" "$state/calls"
+    case "$(recorded CONN)" in
+        *"Host=127.0.0.1;Port=$pg_wanted;"*) ok "the host is given the postgres port asked for" ;;
+        *) bad "the host is given the postgres port asked for (connection string: $(recorded CONN))" ;;
+    esac
+    expect "the host is told to bind the port asked for" [ "$(recorded URLS)" = "http://127.0.0.1:$new_wanted" ]
+
+    echo
+    echo "upgrade-check.sh, when the FROM_VERSION container has stopped and something still answers:"
+    stubs fake-pg
+    fake_docker false
+    run_upgrade
+    expect "the run fails" [ $? -ne 0 ]
+    expect "the message says the container this run started is not the one answering" \
+        grep -q "container this run started is not running" "$output"
+    expect "no host was started against it" [ ! -s "$record" ]
+    rm -f "$bin/docker"
+}
+
+# The scripts name their own containers. One that is already there was not started by this test, so
+# the case is failed rather than run beside it.
 name_is_free() {
     if docker ps -a --format '{{.Names}}' | grep -qx "$1"; then
-        bad "a container named $1 already exists and this test did not start it, so the case was not run"
+        bad "a container named $1 exists and this test did not start it"
         return 1
     fi
+}
+
+# name_conflict <script> <container name>: another run's container already has the name. The script
+# must fail, and must not remove what it did not start on its way out.
+name_conflict() {
+    local other
+    other=$(docker run -d --name "$2" --entrypoint sleep postgres:16-alpine 120 2>"$d/run.err") \
+        || { bad "starting a stand-in for another run's $2 (docker said: $(cat "$d/run.err"))"; return; }
+    containers+=("$other")
+    stubs "$2"
+    PATH="$bin:$PATH" bash "scripts/$1" > "$output" 2>&1
+    expect "the run fails" [ $? -ne 0 ]
+    expect "the other run's container is still there afterwards" \
+        [ "$(docker inspect --format '{{.State.Running}}' "$other" 2>/dev/null)" = "true" ]
+    docker rm -f "$other" >/dev/null 2>&1
 }
 
 docker_lib_cases() {
@@ -255,7 +453,7 @@ script_cases() {
     hold 58095
     if name_is_free restore-check-pg; then
         stubs restore-check-pg
-        PATH="$d/bin:$PATH" bash scripts/restore-check.sh > "$output" 2>&1
+        PATH="$bin:$PATH" bash scripts/restore-check.sh > "$output" 2>&1
         expect "the script stops where the stub host exits, not before" grep -q "the host this run started is not listening" "$output"
         port=$(recorded PUBLISHED | sed -n 's/^127\.0\.0\.1:\([0-9]*\) $/\1/p')
         expect "postgres is published on loopback only, on a port Docker chose" [ -n "$port" ]
@@ -265,19 +463,35 @@ script_cases() {
             *) bad "the host is given the port Docker chose (connection string: $(recorded CONN))" ;;
         esac
         expect "the host is told to bind port 0" [ "$(recorded URLS)" = "http://127.0.0.1:0" ]
+        expect "the host is told to log the line the port is read from" [ "$(recorded LISTEN)" = "Information" ]
+        name_is_free restore-check-pg && ok "the script's own postgres is gone afterwards"
 
         echo
         echo "restore-check.sh, with PG_PORT and APP_PORT set by the caller:"
         pg_wanted=$(free_port 21300)
         app_wanted=$(free_port 21400)
         stubs restore-check-pg
-        PATH="$d/bin:$PATH" PG_PORT="$pg_wanted" APP_PORT="$app_wanted" bash scripts/restore-check.sh > "$output" 2>&1
+        PATH="$bin:$PATH" PG_PORT="$pg_wanted" APP_PORT="$app_wanted" bash scripts/restore-check.sh > "$output" 2>&1
         expect "postgres is published on the port asked for, loopback only" [ "$(recorded PUBLISHED)" = "127.0.0.1:$pg_wanted " ]
         case "$(recorded CONN)" in
             *"Host=127.0.0.1;Port=$pg_wanted;"*) ok "the host is given the port asked for" ;;
             *) bad "the host is given the port asked for (connection string: $(recorded CONN))" ;;
         esac
         expect "the host is told to bind the port asked for" [ "$(recorded URLS)" = "http://127.0.0.1:$app_wanted" ]
+
+        echo
+        echo "restore-check.sh, when the host dies after it listened and something else takes the port:"
+        after=$(free_port 21800)
+        hold "$after" after "$d/host.pid" "$d/asked"
+        stubs restore-check-pg dies "$after" "$d/host.pid" "$d/asked"
+        PATH="$bin:$PATH" bash scripts/restore-check.sh > "$output" 2>&1
+        expect "the run fails" [ $? -ne 0 ]
+        expect "the message says the answer did not come from the host this run started" \
+            grep -q "something answered /health on port $after but the host this run started is gone" "$output"
+
+        echo
+        echo "restore-check.sh, when another run's container already has its name:"
+        name_conflict restore-check.sh restore-check-pg
     fi
 
     echo
@@ -286,7 +500,7 @@ script_cases() {
     hold 58096
     if name_is_free suite-db-commands-pg; then
         stubs suite-db-commands-pg
-        PATH="$d/bin:$PATH" bash scripts/suite-db-commands-check.sh > "$output" 2>&1
+        PATH="$bin:$PATH" bash scripts/suite-db-commands-check.sh > "$output" 2>&1
         port=$(recorded PUBLISHED | sed -n 's/^127\.0\.0\.1:\([0-9]*\) $/\1/p')
         expect "postgres is published on loopback only, on a port Docker chose" [ -n "$port" ]
         expect "that port is not the old default" [ "${port:-55436}" != "55436" ]
@@ -295,48 +509,39 @@ script_cases() {
             *) bad "the host is given the port Docker chose (connection string: $(recorded CONN))" ;;
         esac
         expect "the host is told to bind port 0" [ "$(recorded URLS)" = "http://127.0.0.1:0" ]
+        expect "the host is told to log the line the did-not-serve check looks for" [ "$(recorded LISTEN)" = "Information" ]
+        name_is_free suite-db-commands-pg && ok "the script's own postgres is gone afterwards"
+
+        echo
+        echo "suite-db-commands-check.sh, with PG_PORT and APP_PORT set by the caller:"
+        pg_wanted=$(free_port 21300)
+        app_wanted=$(free_port 21400)
+        stubs suite-db-commands-pg
+        PATH="$bin:$PATH" PG_PORT="$pg_wanted" APP_PORT="$app_wanted" bash scripts/suite-db-commands-check.sh > "$output" 2>&1
+        expect "postgres is published on the port asked for, loopback only" [ "$(recorded PUBLISHED)" = "127.0.0.1:$pg_wanted " ]
+        case "$(recorded CONN)" in
+            *"Host=127.0.0.1;Port=$pg_wanted;"*) ok "the host is given the port asked for" ;;
+            *) bad "the host is given the port asked for (connection string: $(recorded CONN))" ;;
+        esac
+        expect "the host is told to bind the port asked for" [ "$(recorded URLS)" = "http://127.0.0.1:$app_wanted" ]
 
         echo
         echo "suite-db-commands-check.sh, with PG_PORT set to a port somebody else holds:"
         stubs suite-db-commands-pg
-        PATH="$d/bin:$PATH" PG_PORT="$taken" bash scripts/suite-db-commands-check.sh > "$output" 2>&1
+        PATH="$bin:$PATH" PG_PORT="$taken" bash scripts/suite-db-commands-check.sh > "$output" 2>&1
         expect "the run fails" [ $? -ne 0 ]
         expect "the host was never started against it" [ ! -s "$record" ]
         expect "the message names the port and says whose listener it is" \
             grep -q "port $taken was asked for and is held by a listener this run did not start" "$output"
-    fi
+        name_is_free suite-db-commands-pg && ok "the container Docker created before the start failed is removed"
 
-    echo
-    echo "upgrade-check.sh, with its old defaults 55433, 58090 and 58091 held:"
-    hold 55433
-    hold 58090
-    hold 58091
-    # This script takes its container names from the environment, so the test uses its own. The
-    # FROM_VERSION image is large and built for amd64 only, so `docker run` of a stand-in image name
-    # is recorded and refused here; everything else goes to the real docker.
-    real_docker=$(command -v docker)
-    stubs "ports-test-$$-pg"
-    cat > "$d/bin/docker" <<STUB
-#!/usr/bin/env bash
-if [ "\${1:-}" = run ]; then
-    printf '%s\n' "\$*" >> "$d/docker-runs"
-    for last in "\$@"; do :; done
-    if [ "\$last" = "ports-test-stub:none" ]; then echo "stub: not starting the old image" >&2; exit 1; fi
-fi
-exec "$real_docker" "\$@"
-STUB
-    chmod +x "$d/bin/docker"
-    : > "$d/docker-runs"
-    PATH="$d/bin:$PATH" PG="ports-test-$$-pg" OLD="ports-test-$$-old" NETWORK="ports-test-$$-net" \
-        IMAGE="ports-test-stub:none" bash scripts/upgrade-check.sh > "$output" 2>&1
-    expect "the script stops where the stand-in image is refused, not before" \
-        grep -q "docker could not start ports-test-stub:none" "$output"
-    expect "postgres is published on loopback with Docker choosing the port" \
-        grep -q -- "-p 127.0.0.1::5432 postgres:16-alpine" "$d/docker-runs"
-    expect "the FROM_VERSION container is published the same way" \
-        grep -q -- "-p 127.0.0.1::8080 ports-test-stub:none" "$d/docker-runs"
-    rm -f "$d/bin/docker"
+        echo
+        echo "suite-db-commands-check.sh, when another run's container already has its name:"
+        name_conflict suite-db-commands-check.sh suite-db-commands-pg
+    fi
 }
+
+upgrade_cases
 
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
     docker_lib_cases
@@ -344,7 +549,7 @@ if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
 else
     echo
     echo "SKIPPED: Docker is not available, so the cases that publish a container and the cases that"
-    echo "SKIPPED: run restore-check.sh, suite-db-commands-check.sh and upgrade-check.sh did not run."
+    echo "SKIPPED: run restore-check.sh and suite-db-commands-check.sh did not run."
     skipped=1
 fi
 
