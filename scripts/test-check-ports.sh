@@ -230,8 +230,10 @@ docker_lib_cases() {
     echo
     echo "Docker choosing the host port:"
     hold 55434
-    id=$(docker run -d --name "ports-test-$$-chosen" -p "$(publish_spec "" 5432)" --entrypoint sleep postgres:16-alpine 120 2>&1) \
-        || { bad "docker run with a chosen port (docker said: $id)"; return; }
+    # stderr goes to a file, not into $id: when the image has to be pulled, Docker writes the pull's
+    # progress there, and the id would come back with that text in front of it.
+    id=$(docker run -d --name "ports-test-$$-chosen" -p "$(publish_spec "" 5432)" --entrypoint sleep postgres:16-alpine 120 2>"$d/run.err") \
+        || { bad "docker run with a chosen port (docker said: $(cat "$d/run.err"))"; return; }
     containers+=("$id")
     port=$(published_port "$id" 5432 2>/dev/null)
     expect "the chosen port is read back from the container this test started" [ "${port:-0}" -gt 0 ]
@@ -240,8 +242,8 @@ docker_lib_cases() {
     expect "it is published on loopback and nowhere else" [ "$bindings" = "127.0.0.1:$port" ]
 
     wanted=$(free_port 21200)
-    id=$(docker run -d --name "ports-test-$$-explicit" -p "$(publish_spec "$wanted" 5432)" --entrypoint sleep postgres:16-alpine 120 2>&1) \
-        || { bad "docker run with a port set by the caller (docker said: $id)"; return; }
+    id=$(docker run -d --name "ports-test-$$-explicit" -p "$(publish_spec "$wanted" 5432)" --entrypoint sleep postgres:16-alpine 120 2>"$d/run.err") \
+        || { bad "docker run with a port set by the caller (docker said: $(cat "$d/run.err"))"; return; }
     containers+=("$id")
     expect "a port set by the caller is the port that is published" [ "$(published_port "$id" 5432 2>/dev/null)" = "$wanted" ]
 }
