@@ -497,10 +497,12 @@ There is no first-party generated client yet and no .NET client. Section 10.
 
 ### Previewing drafts
 
-`POST /api/preview` mints a token bound to a tenant, a content type and a slug. It is authenticated,
+`POST /api/preview` mints a 30 minute token for one entry in the resolved tenant. It is authenticated,
 and the caller also needs `read` on the entry, so minting a token is not a way around the permissions
 that guard reading it normally. A slug read served under a valid `?preview=` token answers
-`no-store` and can return an unpublished entry.
+`no-store` and can return an unpublished entry. The route is deprecated: the token is an entry share
+link underneath, and [site-settings.md](site-settings.md) describes the links that replace it, which
+last longer, carry a label and keep the key out of the URL.
 
 There is no button for this in the admin. A frontend that wants preview links calls that endpoint
 from its own code. Deferred deliberately, and recorded here so nobody goes looking for a screen that

@@ -23,12 +23,18 @@ key on the header, but it is not a CDN setting on its own: see the caching secti
 `docs/deploy-in-production.md` for what the CDN itself has to be configured to do.
 
 **Preview tokens are minted through the API, not the admin.** `POST /api/preview` returns a token
-bound to a tenant, a content type and a slug. It is authenticated, and the caller also needs `read`
+for one entry in the resolved tenant. It is authenticated, and the caller also needs `read`
 on the entry being previewed, so minting a token is not a way around the permissions that guard
 reading it normally. There is no button for it in barakoCMS itself, so a front end that wants preview
 links calls that endpoint from its own code with a token that satisfies both. Deferred deliberately
 rather than overlooked (#306), and recorded here so nobody goes looking for a screen that does not
 exist.
+
+The route is deprecated and its 200 says so in a `Deprecation` header. The token is the key of an
+entry share link that lasts 30 minutes: stored hashed, capped at 20 live per entry, deleted with
+its entry. A link made with `POST /api/contents/{id}/share-links` replaces it; that one is
+listed, audited and revocable, and its key is posted in a body rather than put in a URL. See
+"Links to one entry or one page" and "Preview tokens" in [site-settings.md](site-settings.md).
 
 ## Routes
 
