@@ -171,6 +171,28 @@ discovered module goes through the same contract check as one the host added, an
 the module, the version it declared and the range core accepts. See
 [docs/module-inventory.md](docs/module-inventory.md).
 
+### The version of your own endpoints
+
+`ContractVersion` is about what your module compiles against. A module that serves endpoints has a
+second, unrelated number: the version of the JSON and status codes those endpoints answer with,
+which is what a console or a renderer calling them depends on.
+
+```csharp
+public int HttpContractVersion => 1;
+```
+
+Move it when you remove or rename a response field, change a field's type or a status code, or
+start refusing a request you used to accept. Adding an optional field does not move it. It is
+independent of core's own HTTP versions and of your package version, and it covers every endpoint
+you ship wherever the route is mounted: a module route under `/api/public/` moves this number, not
+core's delivery number. A change core makes to something every route shares, such as the error
+body, does not move it either, since the number is compiled into your package.
+
+The default is `0`, meaning unstated. Core does not check the number. It reports it as
+`httpContractVersion` on each entry of the `modules` part of `GET /api/meta/describe`, which lists
+enabled modules to callers who may read `GET /api/modules`. A module the enabled list left off is
+not in that list.
+
 ## Writing a module
 
 The contract ships as [`BarakoCMS.Abstractions`](BarakoCMS.Abstractions): `IBarakoModule`,
@@ -312,9 +334,12 @@ a request passes through:
 5. CORS.
 6. Authentication, the token revocation check and the tenant access check.
 7. `UseAuthorization`.
-8. **Module middleware**, one module after another.
-9. Core's output cache.
-10. What answers: the health probes, the OpenAPI document and the endpoints. An endpoint's global
+8. The rate limits that need a verified caller: the quota per API key (`RateLimiting:ApiKey`) and
+   the named policies partitioned by `User` or `ApiKey`. With neither configured this step does
+   nothing.
+9. **Module middleware**, one module after another.
+10. Core's output cache.
+11. What answers: the health probes, the OpenAPI document and the endpoints. An endpoint's global
     pre-processors, the capability gate among them, run inside the endpoint.
 
 What your middleware can rely on there:
@@ -324,6 +349,9 @@ What your middleware can rely on there:
 - **The caller is known.** `HttpContext.User` is the authenticated caller, or anonymous on an
   endpoint that allows it. A request with no token on an endpoint that needs one never reaches
   your middleware, and the token revocation check and the tenant access check have already run.
+- **The request is within every core rate limit.** The limiter in step 2 and the one in step 8 have
+  both let it through, so a request over an API key's quota, or over a named policy counted per
+  user or per key, is answered 429 and never reaches your middleware.
 - **The endpoint is matched and has not run.** `context.GetEndpoint()` returns it on a host built on
   `WebApplication`, which is how every barakoCMS host is built.
 

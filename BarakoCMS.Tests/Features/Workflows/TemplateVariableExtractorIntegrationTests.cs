@@ -29,12 +29,58 @@ public class TemplateVariableExtractorIntegrationTests
 
         // Assert
         Assert.NotNull(result.SystemVariables);
-        Assert.Equal(5, result.SystemVariables.Count);
+        Assert.Equal(11, result.SystemVariables.Count);
         Assert.Contains(result.SystemVariables, v => v.Name == "{{id}}");
         Assert.Contains(result.SystemVariables, v => v.Name == "{{contentType}}");
         Assert.Contains(result.SystemVariables, v => v.Name == "{{status}}");
         Assert.Contains(result.SystemVariables, v => v.Name == "{{createdAt}}");
         Assert.Contains(result.SystemVariables, v => v.Name == "{{updatedAt}}");
+        Assert.Contains(result.SystemVariables, v => v.Name == "{{createdBy.name}}");
+        Assert.Contains(result.SystemVariables, v => v.Name == "{{createdBy.email}}");
+        Assert.Contains(result.SystemVariables, v => v.Name == "{{transition.name}}");
+        Assert.Contains(result.SystemVariables, v => v.Name == "{{transition.at}}");
+        Assert.Contains(result.SystemVariables, v => v.Name == "{{transition.by.name}}");
+        Assert.Contains(result.SystemVariables, v => v.Name == "{{transition.by.email}}");
+    }
+
+    /// <summary>
+    /// Red without the change: the list had no formats. Every example in it is one the engine
+    /// fills, checked against the engine and not against a second list written here.
+    /// </summary>
+    [Fact]
+    public async Task The_variables_list_the_formats_and_each_listed_example_resolves()
+    {
+        using var session = _store.LightweightSession();
+        var extractor = new TemplateVariableExtractor(session);
+
+        var result = await extractor.GetVariablesAsync("TestType");
+
+        Assert.Equal(6, result.Formats.Count);
+        Assert.Contains(result.Formats, v => v.Name == "{{createdAt | date \"MMM d, h:mm tt\"}}");
+        Assert.Contains(result.Formats, v => v.Name == "{{data.Field | money}}");
+        Assert.Contains(result.Formats, v => v.Name == "{{duration createdAt updatedAt}}");
+
+        var entry = new Content
+        {
+            Id = Guid.NewGuid(),
+            ContentType = "TestType",
+            CreatedAt = new DateTime(2026, 9, 14, 0, 30, 0, DateTimeKind.Utc),
+            UpdatedAt = new DateTime(2026, 9, 14, 9, 0, 0, DateTimeKind.Utc),
+            Data = new Dictionary<string, object> { ["Field"] = "12.5" },
+        };
+        var context = new TemplateContext(
+            TimeZoneInfo.Utc,
+            null,
+            new TemplatePerson("maria", "maria@example.com"),
+            new TemplateTransition("Approve", entry.UpdatedAt, new TemplatePerson("ramon", "ramon@example.com")));
+
+        foreach (var listed in result.SystemVariables.Concat(result.Formats))
+        {
+            var resolved = TemplateVariableExtractor.Resolve(listed.Name, entry, TemplateValueEncoding.None, context);
+
+            Assert.DoesNotContain("{{", resolved);
+            Assert.Empty(TemplateExpression.Problems(listed.Name, onTransition: true));
+        }
     }
 
     [Fact]

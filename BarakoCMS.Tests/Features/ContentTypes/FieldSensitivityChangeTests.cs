@@ -187,7 +187,7 @@ public class FieldSensitivityChangeTests
             .Should().NotContain(seed.Marker, "the authoring API masks it from a reader outside the allowed roles");
     }
 
-    /// <summary>A user who may read the type, in a token role that is not HR or SuperAdmin.</summary>
+    /// <summary>A user who may read the type, in a stored role holding no sensitivity capability.</summary>
     private async Task<HttpClient> ReaderAsync(string contentType)
     {
         using var scope = _factory.Services.CreateScope();

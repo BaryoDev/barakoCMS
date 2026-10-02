@@ -83,7 +83,9 @@ internal sealed class ListDeliveriesEndpoint(
 
     public override async Task HandleAsync(ListDeliveriesRequest req, CancellationToken ct)
     {
-        var query = session.Query<WebhookDelivery>().AsQueryable();
+        // The table also holds what a Request action sent through a connector, which
+        // /api/connector-deliveries lists. A row stored before those existed has no connector.
+        var query = session.Query<WebhookDelivery>().Where(d => d.ConnectorId == null);
 
         if (req.WorkflowId is { } workflowId)
         {

@@ -40,6 +40,27 @@ public interface IBarakoModule
     int ContractVersion => 0;
 
     /// <summary>
+    /// The version of the HTTP surface this module's own endpoints serve: their routes, the JSON
+    /// they accept and return, and the status codes they answer with.
+    /// </summary>
+    /// <remarks>
+    /// Not <see cref="ContractVersion"/>, which says which module contract the module was compiled
+    /// against. This one is for whoever calls the module's endpoints over HTTP. Move it when the
+    /// module removes or renames a response field, changes a field's type or a status code, or
+    /// starts refusing a request it used to accept. It does not move with core's own HTTP versions
+    /// or with the module's package version.
+    ///
+    /// The default is <c>0</c>, meaning unstated: the module serves no endpoints, or its author has
+    /// not versioned them. Core reports the number as <c>httpContractVersion</c> in the
+    /// <c>modules</c> part of <c>GET /api/meta/describe</c>, which lists enabled modules to callers
+    /// who may read <c>GET /api/modules</c>, and does nothing else with it.
+    ///
+    /// It covers every endpoint the module ships, wherever the route is mounted. A module route
+    /// under <c>/api/public/</c> moves this number, not core's delivery number.
+    /// </remarks>
+    int HttpContractVersion => 0;
+
+    /// <summary>
     /// Names of modules that must be configured before this one.
     /// </summary>
     /// <remarks>

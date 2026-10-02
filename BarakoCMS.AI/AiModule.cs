@@ -17,6 +17,8 @@ public sealed class AiModule : IBarakoModule
 {
     public string Name => "AI";
 
+    public int HttpContractVersion => 1;
+
     /// <summary>Settings used to live at the root "Ai" section. See IBarakoModule.</summary>
     public string? LegacyConfigurationSection => AiOptions.SectionName;
 

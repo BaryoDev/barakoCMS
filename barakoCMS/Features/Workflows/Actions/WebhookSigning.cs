@@ -594,33 +594,11 @@ internal static class WebhookSigning
         LooksProtected(storedValue) || AesGcmEnvelope.IsWellFormed(storedValue);
 
     /// <summary>
-    /// Parameter names whose value is a credential, and so must never be stored on a run record or
-    /// returned by the API.
+    /// Whether a parameter's value is a credential, and so must never be stored on a run record or
+    /// returned by the API. The rule is <see cref="CredentialNames.IsCredential"/>, the one the
+    /// settings endpoint refuses a key by.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <see cref="SecretParameter"/> is the one this codebase encrypts, but it is not the only name a
-    /// credential arrives under. A workflow action's parameters are free-form, so a connector call
-    /// configured by hand carries whatever the third party calls it: a Password, a Token, an ApiKey.
-    /// Redacting only the exact string "Secret" left every one of those in the execution log, which
-    /// is served over the API to anyone who can read workflow runs.
-    /// </para>
-    /// <para>
-    /// Matching is on a substring, case-insensitively, and deliberately errs towards redacting. A
-    /// parameter called <c>TokenUrl</c> is not a secret and will still be hidden here, which costs an
-    /// operator one lookup in the workflow definition. The other way round costs a credential.
-    /// </para>
-    /// </remarks>
-    private static readonly string[] SensitiveNameParts =
-    [
-        "secret", "password", "passwd", "pwd", "token", "apikey", "api_key",
-        "credential", "privatekey", "private_key", "accesskey", "access_key",
-    ];
-
-    /// <summary>Whether a parameter name reads as credential-bearing.</summary>
-    public static bool IsSensitiveParameterName(string name) =>
-        !string.IsNullOrEmpty(name)
-        && SensitiveNameParts.Any(part => name.Contains(part, StringComparison.OrdinalIgnoreCase));
+    public static bool IsSensitiveParameterName(string name) => CredentialNames.IsCredential(name);
 
     /// <summary>A copy of the parameters with credential values left out, for anything stored or shown.</summary>
     public static Dictionary<string, string> WithoutSecret(IReadOnlyDictionary<string, string> parameters)

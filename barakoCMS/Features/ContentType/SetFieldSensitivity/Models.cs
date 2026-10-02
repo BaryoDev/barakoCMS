@@ -8,10 +8,13 @@ internal class Request
     public SensitivityLevel Sensitivity { get; set; }
 
     /// <summary>
-    /// Roles allowed to read the field while it is not Public. Empty falls back to the default
-    /// policy for the level (HR for Sensitive, SuperAdmin only for Hidden).
+    /// Roles allowed to read the field while it is not Public, by id or by name. Empty falls back
+    /// to the capability for the level (view_sensitive for Sensitive, view_hidden for Hidden).
     /// </summary>
     /// <remarks>
+    /// A name is stored as the id of the role that carries it, so renaming the role changes
+    /// nothing, and the response names the roles again. A name no role carries is stored as it is.
+    ///
     /// Replaced with the level rather than carried over from the level being left behind. A list
     /// written for Sensitive is not a decision about who may read a Hidden field, and leaving it in
     /// place would silently reinstate an old allowlist the next time somebody raised the level.
