@@ -331,6 +331,38 @@ Under the hood `AddBarakoCMS` collects the modules and:
 Default services (e.g. the mock `IEmailService`) are registered with `TryAdd`, so a module can
 substitute a real implementation.
 
+### Durable work
+
+**No host implements this yet.** The interfaces below are in `BarakoCMS.Abstractions` so they can be
+reviewed as a contract first. The host registers nothing for them, so resolving one fails until the
+implementation lands (#965). What follows is what the interfaces' own documentation promises, and
+what an in-memory fake in this repository's tests keeps.
+
+- `IDurableOutbox` queues a message, now (`EnqueueAsync`) or no earlier than a time
+  (`ScheduleAsync`). Both return the message's id.
+- `IDurableRuns` starts a run once per id (`StartAsync`), parks it until a key is resumed or a
+  deadline passes (`WaitAsync`), and resumes it (`ResumeAsync`). Each answers false when its key
+  cannot be used, and stages nothing then.
+- `IDurableMessageHandler<TMessage>` handles one message type. It is a plain class registered in
+  `ConfigureServices`, and it is given the message, the tenant and the message's id.
+
+The rules a module writes against:
+
+- **Staged, not sent.** Every call stages into the session the caller is writing with and commits
+  with that session's save, or not at all. Save afterwards.
+- **The tenant is the session's.** No call takes a tenant. The handler runs in the tenant the
+  message was queued in and is told which.
+- **Attempted at least once.** A message can reach its handler more than once, so a handler is
+  idempotent on `DurableMessageContext.MessageId`. No order is promised between two messages.
+- **A throw is a failed attempt.** It is retried later and, when the attempts run out, kept as a
+  dead letter. A handler that knows a failure is permanent records it and returns.
+- **A unit of work that loses a key to another fails to commit** with
+  `DurableWorkConflictException`, and nothing in it is committed.
+- **A message is stored data.** It is written as JSON under its type's name, so a renamed type
+  strands what is already stored. It must not carry a credential.
+- **Keys start with the module's name** (`forms:reply:...`), because run ids and wait keys share
+  one namespace per tenant with every other module.
+
 ## Writing a module outside this repository
 
 Everything above applies. This section is what a module that ships as its own package needs on top.

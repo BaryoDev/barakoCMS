@@ -26,6 +26,16 @@ public sealed class S3FileStorage : IFileStorage
 
     public async Task<StoredObjectRef> PutAsync(Stream content, string key, string contentType, bool isPublic, CancellationToken ct = default)
     {
+        // A bucket policy or CDN scoped to public/* serves whatever is under it, so a private
+        // object written there is public whatever its row says. Refused rather than rewritten: the
+        // caller stores the key it asked for.
+        if (FileKeys.Contradicts(key, isPublic))
+        {
+            throw new ArgumentException(
+                $"A {(isPublic ? "public" : "private")} object cannot be stored under '{FileKeys.Prefix(!isPublic)}'.",
+                nameof(key));
+        }
+
         /* Buffer to a seekable stream so the SDK knows the length up front — avoids chunked-signing
          * issues against self-hosted stores and R2 and works for non-seekable upload streams. */
         using var buffer = new MemoryStream();
@@ -64,6 +74,7 @@ public sealed class S3FileStorage : IFileStorage
     public string? PublicUrl(string key, bool isPublic)
     {
         if (!isPublic || string.IsNullOrEmpty(_opts.PublicBaseUrl)) return null;
+        if (FileKeys.Contradicts(key, isPublic)) return null;
         return $"{_opts.PublicBaseUrl!.TrimEnd('/')}/{key}";
     }
 

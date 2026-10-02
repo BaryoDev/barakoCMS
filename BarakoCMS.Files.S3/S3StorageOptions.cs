@@ -26,22 +26,26 @@ public sealed class S3StorageOptions
     public bool ForcePathStyle { get; set; } = true;
 
     /// <summary>
-    /// The public base URL a public object is reachable at (a bucket public URL, an R2 public bucket /
-    /// custom domain, or a CDN in front). Combined with the object key to form the file's public URL.
-    /// If null, public files fall back to being proxied through the API.
+    /// The public base URL a public object is reachable at: the URL of a bucket that grants anonymous
+    /// read on <c>public/*</c>, or a CDN in front of it. The object key, which already starts with
+    /// <c>public/</c>, is appended to form the file's public URL, so this is the root of the bucket
+    /// or of the CDN and never a path ending in <c>/public</c>. If null, public files fall back to
+    /// being proxied through the API.
     /// </summary>
     public string? PublicBaseUrl { get; set; }
 
     /// <summary>
     /// Set a public-read ACL on public objects. AWS applies it on a bucket with ACLs enabled. Cloudflare
-    /// R2, Garage and SeaweedFS do not apply an ACL sent with an upload, so make the bucket public
-    /// instead and set this false.
+    /// R2, Garage and SeaweedFS do not apply an ACL sent with an upload, so set this false there.
     ///
-    /// <para>Caveat with a public bucket (the R2 setup): every object in it is readable by anyone who
-    /// knows the key, so a "private" file physically resides in public space and is protected only by
-    /// its unguessable key (the app never discloses a private file's key or URL). With AWS the
-    /// per-object ACL keeps private objects genuinely private. If you need strict private files on R2,
-    /// use a separate private bucket for them.</para>
+    /// <para>Do not make the bucket public as a whole instead: every object in it is then readable by
+    /// anyone who knows the key, private files included. Public files are stored under
+    /// <c>public/</c> and private ones under <c>private/</c>, so grant anonymous read on
+    /// <c>public/*</c> only, or let a CDN read only that prefix while its origin path stays empty,
+    /// so the URL path is the key. Where the store offers no grant narrower than the bucket, leave
+    /// <see cref="PublicBaseUrl"/> null and public files are served through the API. A file stored
+    /// before the prefixes existed sits at the bucket root whatever its visibility, and a grant on
+    /// <c>public/*</c> does not cover it.</para>
     /// </summary>
     public bool UsePublicReadAcl { get; set; } = true;
 }

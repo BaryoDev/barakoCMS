@@ -4,6 +4,7 @@ using barakoCMS.Infrastructure.Connectors;
 using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
+using Marten.Patching;
 
 namespace barakoCMS.Features.Connectors;
 
@@ -254,6 +255,26 @@ internal sealed class UpdateConnectorEndpoint(
             ThrowIfAnyErrors();
         }
 
+        // The client secret goes to the token URL and nowhere else, so the same reasoning applies to
+        // it: an edit must not send a secret its editor cannot read somewhere nobody entered it for.
+        // The whole URL is compared, not the origin. A token endpoint is one exact address, and
+        // another path on a shared identity host can be another party's.
+        var tokenUrl = req.Settings?.GetValueOrDefault(ConnectorSettingKeys.TokenUrl)?.Trim();
+
+        if (!string.IsNullOrEmpty(tokenUrl)
+            && !string.Equals(
+                connector.Settings?.GetValueOrDefault(ConnectorSettingKeys.TokenUrl)?.Trim(), tokenUrl, StringComparison.Ordinal)
+            && req.Secrets?.ContainsKey(ConnectorSecretKeys.ClientSecret) != true
+            && await session.Query<ConnectorSecret>()
+                .AnyAsync(s => s.ConnectorId == connector.Id && s.Key == ConnectorSecretKeys.ClientSecret, ct))
+        {
+            AddError(new FluentValidation.Results.ValidationFailure($"secrets.{ConnectorSecretKeys.ClientSecret}",
+                "The token URL is new or has changed, so the stored "
+                + $"{ConnectorSecretKeys.ClientSecret} has to be entered again, or cleared, before the connector can be saved."));
+
+            ThrowIfAnyErrors();
+        }
+
         connector.Name = req.Name.Trim();
         connector.BaseUrl = req.BaseUrl.Trim();
         connector.Auth = Enum.Parse<ConnectorAuth>(req.Auth, ignoreCase: true);
@@ -398,13 +419,16 @@ internal sealed class TestConnectorEndpoint(
         }
 
         var result = await sender.ProbeAsync(connector, ct);
+        var described = result.Describe();
 
-        connector.LastTestedAt = DateTime.UtcNow;
-        connector.LastTestResult = result.Describe();
-        session.Store(connector);
+        // The two fields a test owns, patched. Storing the document read before the probe would
+        // write every field back as it was then, and undo an update that landed while the probe
+        // was out.
+        session.Patch<Connector>(connector.Id).Set(x => x.LastTestedAt, (DateTime?)DateTime.UtcNow);
+        session.Patch<Connector>(connector.Id).Set(x => x.LastTestResult, described);
 
         await ConnectorGate.AuditAsync(session, tenant.Slug, "connector.tested", connector, User,
-            extra: new Dictionary<string, object> { ["result"] = connector.LastTestResult },
+            extra: new Dictionary<string, object> { ["result"] = described },
             ct: ct);
 
         await session.SaveChangesAsync(ct);
