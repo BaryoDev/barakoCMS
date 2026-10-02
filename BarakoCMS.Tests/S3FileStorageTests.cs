@@ -88,6 +88,69 @@ public class S3FileStorageTests : IAsyncLifetime
         r.PublicUrl.Should().BeNull("private files are not publicly addressable");
     }
 
+    /// <summary>
+    /// The plain key, and one a store that drops a leading slash would land under <c>public/</c>
+    /// all the same. <c>FileKeysTests</c> covers the other shapes without a store.
+    /// </summary>
+    [Theory]
+    [InlineData("public/leak.pdf")]
+    [InlineData("/public/leak.pdf")]
+    public async Task A_private_object_is_refused_under_the_public_prefix(string key)
+    {
+        var refused = async () => await _storage.PutAsync(
+            Bytes("secret"), key, "application/pdf", isPublic: false);
+
+        await refused.Should().ThrowAsync<ArgumentException>(
+            "a policy or CDN scoped to public/* serves whatever is under it");
+        (await _storage.GetAsync("public/leak.pdf")).Should().BeNull("a refused write stores nothing");
+
+        // The pairing. A storage that refused every write would satisfy the assertions above.
+        var kept = await _storage.PutAsync(Bytes("secret"), "private/kept.pdf", "application/pdf", isPublic: false);
+        kept.Key.Should().Be("private/kept.pdf");
+        kept.PublicUrl.Should().BeNull();
+        Encoding.UTF8.GetString((await _storage.GetAsync("private/kept.pdf"))!).Should().Be("secret");
+    }
+
+    [Theory]
+    [InlineData("private/pic.png")]
+    [InlineData("/private/pic.png")]
+    public async Task A_public_object_is_refused_under_the_private_prefix(string key)
+    {
+        var refused = async () => await _storage.PutAsync(
+            Bytes("img"), key, "image/png", isPublic: true);
+
+        await refused.Should().ThrowAsync<ArgumentException>(
+            "its public URL would point at a prefix no public grant covers");
+        (await _storage.GetAsync("private/pic.png")).Should().BeNull("a refused write stores nothing");
+        _storage.PublicUrl(key, isPublic: true).Should().BeNull();
+
+        // The pairing, and the URL a grant on public/* has to cover.
+        var kept = await _storage.PutAsync(Bytes("img"), "public/pic.png", "image/png", isPublic: true);
+        kept.Key.Should().Be("public/pic.png");
+        kept.PublicUrl.Should().Be("https://cdn.example.com/public/pic.png");
+        Encoding.UTF8.GetString((await _storage.GetAsync("public/pic.png"))!).Should().Be("img");
+    }
+
+    /// <summary>
+    /// A key from before the prefixes sits at the bucket root under neither of them. It is written,
+    /// read, given its URL and deleted exactly as it was.
+    /// </summary>
+    [Theory]
+    [InlineData(true, "https://cdn.example.com/0f3a9c.png")]
+    [InlineData(false, null)]
+    public async Task A_key_under_neither_prefix_is_stored_read_and_deleted_as_before(bool isPublic, string? url)
+    {
+        var key = "0f3a9c.png";
+
+        var stored = await _storage.PutAsync(Bytes("old"), key, "image/png", isPublic);
+        stored.Key.Should().Be(key);
+        stored.PublicUrl.Should().Be(url);
+        Encoding.UTF8.GetString((await _storage.GetAsync(key))!).Should().Be("old");
+
+        await _storage.DeleteAsync(key);
+        (await _storage.GetAsync(key)).Should().BeNull();
+    }
+
     [Fact]
     public async Task Get_missing_key_returns_null()
     {

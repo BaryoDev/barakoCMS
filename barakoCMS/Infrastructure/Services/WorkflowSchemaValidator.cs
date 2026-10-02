@@ -382,6 +382,58 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
         return (transitionValid, spelling);
     }
 
+    private static readonly string[] ConditionalBranches = ["ThenActions", "ElseActions"];
+
+    /// <summary>
+    /// Refuses an onFailure on a child of a Conditional, in either branch.
+    /// </summary>
+    /// <remarks>
+    /// A child has no policy: the Conditional fails or succeeds as one action. Accepted and
+    /// ignored, a chain written inside a branch would look as though it stops and would not.
+    ///
+    /// Any casing of the type, the branch name and the key, the way the branches are matched where
+    /// their credentials are handled. A branch that is not a JSON list is left to the checks that
+    /// read branches, and never runs.
+    /// </remarks>
+    private static void RefuseChildPolicies(WorkflowAction action, string fieldPrefix, WorkflowValidationResult result)
+    {
+        if (action.Parameters is null) return;
+        if (!string.Equals(action.Type, "Conditional", StringComparison.OrdinalIgnoreCase)) return;
+
+        foreach (var (name, json) in action.Parameters)
+        {
+            if (string.IsNullOrWhiteSpace(json)) continue;
+            if (!ConditionalBranches.Contains(name, StringComparer.OrdinalIgnoreCase)) continue;
+
+            try
+            {
+                using var branch = System.Text.Json.JsonDocument.Parse(json);
+                if (branch.RootElement.ValueKind != System.Text.Json.JsonValueKind.Array) continue;
+
+                var child = 0;
+                foreach (var element in branch.RootElement.EnumerateArray())
+                {
+                    if (element.ValueKind == System.Text.Json.JsonValueKind.Object
+                        && element.EnumerateObject().Any(p => string.Equals(p.Name, "onFailure", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        result.Errors.Add(new ValidationError
+                        {
+                            Field = $"{fieldPrefix}.parameters.{name}[{child}].onFailure",
+                            Message = "An action inside a Conditional has no onFailure. Set it on the Conditional, which fails or succeeds as one action"
+                        });
+                        result.IsValid = false;
+                    }
+
+                    child++;
+                }
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                // Not JSON, so there is no child to look at. The action refuses the branch when it runs.
+            }
+        }
+    }
+
     private void ValidateAction(WorkflowAction action, int index, WorkflowValidationResult result)
     {
         var fieldPrefix = $"actions[{index}]";
@@ -408,6 +460,20 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
             result.IsValid = false;
             return;
         }
+
+        // A number is accepted wherever a name is, so a value that names no policy can arrive. It
+        // would be stored and then read as neither, which here means the chain is not stopped.
+        if (action.OnFailure is { } policy && !Enum.IsDefined(policy))
+        {
+            result.Errors.Add(new ValidationError
+            {
+                Field = $"{fieldPrefix}.onFailure",
+                Message = $"onFailure must be one of: {string.Join(", ", Enum.GetNames<WorkflowFailurePolicy>())}"
+            });
+            result.IsValid = false;
+        }
+
+        RefuseChildPolicies(action, fieldPrefix, result);
 
         // Validate required parameters
         var metadata = _pluginRegistry.GetActionMetadata(action.Type);
