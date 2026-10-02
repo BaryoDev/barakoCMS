@@ -172,7 +172,8 @@ The operators, the five filter cap and the 256 character cap are the same. What 
 asking:
 
 - A filter is accepted on a declared field the caller reads unmasked: a `Public` field, or a
-  `Sensitive` or `Hidden` one their role may see. Any other field returns 400, in the same words as
+  `Sensitive` or `Hidden` one their stored roles may see (by `view_sensitive`, `view_hidden`, or
+  the field's own role list; see [access-control.md](access-control.md)). Any other field returns 400, in the same words as
   a field that does not exist, and the answer does not list the type's fields.
 - A filtered list leaves out an entry whose document sensitivity withholds its data from the
   caller. Unfiltered, that entry comes back blanked; matched by a filter, it would say what the

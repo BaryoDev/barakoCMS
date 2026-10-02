@@ -32,7 +32,8 @@ public class EntriesListFieldFilterTests
         _client = factory.CreateClient();
     }
 
-    // Name and Stage are Public, Salary is Sensitive (HR and SuperAdmin), Pin is Hidden (SuperAdmin).
+    // Name and Stage are Public, Salary is Sensitive (view_sensitive), Pin is Hidden (view_hidden).
+    // The seeded SuperAdmin role reads both.
     private async Task<string> SeedTypeAsync()
     {
         var type = "ff" + Guid.NewGuid().ToString("N")[..10];
@@ -104,9 +105,12 @@ public class EntriesListFieldFilterTests
         return ids;
     }
 
-    // A stored user whose database role grants read on the type, holding a token that carries
-    // tokenRole for the sensitivity checks. The same split SensitivityIntegrationTests uses.
-    private async Task<string> ReaderAsync(string tokenRole, string type)
+    // A stored user whose database role grants read on the type. What they may see is decided by
+    // what is stored: "SuperAdmin" also gives them the seeded SuperAdmin role, a capability name
+    // puts that capability on their role, and anything else leaves the role with none. The role's
+    // name is random, and the token claims the names in tokenRoles, or the role's own when none
+    // are given. A name in the token decides nothing.
+    private async Task<string> ReaderAsync(string access, string type, params string[] tokenRoles)
     {
         using var scope = _factory.Services.CreateScope();
         var store = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
@@ -116,6 +120,7 @@ public class EntriesListFieldFilterTests
         {
             Id = Guid.NewGuid(),
             Name = $"dbrole_{Guid.NewGuid():N}",
+            SystemCapabilities = SystemCapabilities.IsKnown(access) ? new List<string> { access } : new List<string>(),
             Permissions = new List<ContentTypePermission>
             {
                 new()
@@ -134,12 +139,14 @@ public class EntriesListFieldFilterTests
             Id = Guid.NewGuid(),
             Username = $"user_{Guid.NewGuid()}",
             Email = $"{Guid.NewGuid()}@example.com",
-            RoleIds = new List<Guid> { role.Id },
+            RoleIds = access == "SuperAdmin"
+                ? new List<Guid> { role.Id, SystemRoles.SuperAdminRoleId }
+                : new List<Guid> { role.Id },
         };
         session.Store(user);
         await session.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        return _factory.CreateToken(new[] { tokenRole }, user.Id.ToString());
+        return _factory.CreateToken(tokenRoles.Length == 0 ? new[] { role.Name } : tokenRoles, user.Id.ToString());
     }
 
     private Task<string> ViewerAsync(string type) => ReaderAsync($"Viewer_{Guid.NewGuid():N}", type);
@@ -229,22 +236,52 @@ public class EntriesListFieldFilterTests
         var high = await SeedEntryAsync(type, "Ana", "open", 60000, pin: Pin);
         var low = await SeedEntryAsync(type, "Ben", "open", 20000);
 
-        var hr = await ReaderAsync("HR", type);
+        var nurse = await ReaderAsync(SystemCapabilities.ViewSensitive, type);
+        var auditor = await ReaderAsync(SystemCapabilities.ViewHidden, type);
         var superAdmin = await ReaderAsync("SuperAdmin", type);
 
-        var all = await ListAsync(hr, $"contentType={type}&pageSize=100");
+        var all = await ListAsync(nurse, $"contentType={type}&pageSize=100");
         all.Ids.Should().HaveCount(2);
         all.Ids.Should().BeEquivalentTo(new[] { high, low });
 
-        var bySalary = await ListAsync(hr, $"contentType={type}&pageSize=100&filter[Salary][gte]=50000");
+        var bySalary = await ListAsync(nurse, $"contentType={type}&pageSize=100&filter[Salary][gte]=50000");
         bySalary.Ids.Should().HaveCount(1);
         bySalary.Ids.Should().Equal(high);
 
-        await RefusedAsync(hr, $"contentType={type}&filter[Pin][eq]={Pin}");
+        await RefusedAsync(nurse, $"contentType={type}&filter[Pin][eq]={Pin}");
 
         var byPin = await ListAsync(superAdmin, $"contentType={type}&pageSize=100&filter[Pin][eq]={Pin}");
         byPin.Ids.Should().HaveCount(1);
         byPin.Ids.Should().Equal(high);
+
+        var auditorByPin = await ListAsync(auditor, $"contentType={type}&pageSize=100&filter[Pin][eq]={Pin}");
+        auditorByPin.Ids.Should().HaveCount(1, "view_hidden is what a Hidden field asks for");
+        auditorByPin.Ids.Should().Equal(high);
+        await RefusedAsync(auditor, $"contentType={type}&filter[Salary][gte]=50000");
+    }
+
+    /// <summary>
+    /// The names the old rule read from the token. A caller whose stored role holds no capability
+    /// and whose token claims both is refused the filters and still has withheld entries dropped.
+    /// </summary>
+    [Fact]
+    public async Task A_role_name_in_the_token_opens_no_filter_and_matches_no_withheld_entry()
+    {
+        var type = await SeedTypeAsync();
+        var claimant = await ReaderAsync("Viewer", type, "HR", "SuperAdmin");
+        var open = await SeedEntryAsync(type, "Ana", "open", 60000, pin: Pin);
+        await SeedEntryAsync(type, "Ana", "open", 60000, SensitivityLevel.Sensitive);
+        await SeedEntryAsync(type, "Ana", "open", 60000, SensitivityLevel.Hidden);
+
+        await RefusedAsync(claimant, $"contentType={type}&filter[Salary][gte]=50000");
+        await RefusedAsync(claimant, $"contentType={type}&filter[Pin][eq]={Pin}");
+
+        var unfiltered = await ListAsync(claimant, $"contentType={type}&pageSize=100");
+        unfiltered.Ids.Should().HaveCount(3, "the control: this caller lists the type");
+
+        var filtered = await ListAsync(claimant, $"contentType={type}&pageSize=100&filter[Name][eq]=Ana");
+        filtered.Ids.Should().HaveCount(1);
+        filtered.Ids.Should().Equal(open);
     }
 
     [Fact]
