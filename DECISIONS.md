@@ -23,7 +23,7 @@ right to, and it resolves them without anyone having to predict the future corre
 
 ## D1. The event-sourced flag belongs to the content type NAME
 
-**Decided:** 22 Aug 2026. **Issue:** #230. **Status:** accepted, not yet implemented.
+**Decided:** 22 Aug 2026. **Issue:** #230. **Status:** implemented.
 
 A content type declares once whether its content is event sourced, and that choice is permanent.
 The flag lives in its own `ContentTypeSourcingPolicy { Name, EventSourced, DecidedAt }` record,
@@ -48,7 +48,7 @@ by id with a mutable display name, this moves to that id.
 
 ## D2. An event-sourced type may not hold non-Public fields
 
-**Decided:** 22 Aug 2026. **Issue:** #230. **Status:** accepted, not yet implemented.
+**Decided:** 22 Aug 2026. **Issue:** #230. **Status:** implemented.
 
 Enforced at type creation and at field-add, using the `FieldDefinition.Sensitivity` that already
 exists.
@@ -81,7 +81,7 @@ not remove it, and the documentation must say so rather than implying compliance
 
 ## D3. Event-sourced types use expected-version concurrency
 
-**Decided:** 22 Aug 2026. **Issue:** #230. **Status:** accepted, not yet implemented.
+**Decided:** 22 Aug 2026. **Issue:** #230. **Status:** implemented.
 
 A write to an event-sourced type made against a stale read is rejected with 409. Other types keep
 last-write-wins.
@@ -140,7 +140,7 @@ nothing and passes, which is a failure this project has shipped before.
 
 ## D5. Events carry when they happened
 
-**Decided:** 22 Aug 2026. **Issue:** #228. **Status:** accepted, not yet implemented.
+**Decided:** 22 Aug 2026. **Issue:** #228. **Status:** implemented.
 
 Every content event carries `OccurredAt`, set once by `IContentWriter`. `Content.Apply` reads it
 from the event rather than taking it as a parameter or reading the clock.
@@ -366,7 +366,7 @@ the one to revisit.
 
 ## D11. Authorisation is enforced in the application; the database enforces tenancy only
 
-**Decided:** 2 Sep 2026. **Issues:** #445, #446. **Status:** decided; both pieces of work outstanding.
+**Decided:** 2 Sep 2026. **Issues:** #445, #446. **Status:** implemented. Tenancy at the database is off unless `Tenancy:DatabaseEnforcement` is set.
 
 `IPermissionResolver` is the authorisation boundary. Content CRUD, row-level conditions, field
 sensitivity and the SuperAdmin bypass are decided in C#, against a database connection that is

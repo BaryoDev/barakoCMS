@@ -1,5 +1,11 @@
 # BarakoCMS Development Standards
 
+> **Historical.** Last updated on 5 December 2025 and kept for reference only. It describes an older
+> codebase: it lists seven field types where `barakoCMS/Core/Validation/FieldTypeRegistry.cs` now
+> registers twenty-one, and it points at an `AttendancePOC` project that is no longer in the
+> repository. The coding standard is [CLAUDE.md](CLAUDE.md) and the contribution rules are in
+> [CONTRIBUTING.md](CONTRIBUTING.md).
+
 This document defines the coding standards and conventions for developing with and extending BarakoCMS. These standards ensure consistency, maintainability, and clarity across the codebase.
 
 ## Table of Contents

@@ -26,8 +26,8 @@ If you discover a security vulnerability in BarakoCMS, please report it responsi
 | 2.x | Not supported | ended |
 | < 2.0 | Not supported | ended |
 
-4.0 shipped on 7 September 2026 and the current published package is 4.0.1. 3.x is therefore in its
-twelve-month window, which runs from that day and ends on 7 September 2027.
+4.0 shipped on 7 September 2026. 3.x is therefore in its twelve-month window, which runs from that
+day and ends on 7 September 2027. The current release is the newest dated entry in `CHANGELOG.md`.
 
 ### What "supported" means
 
@@ -45,7 +45,7 @@ consequence.
 A major is actively supported from the day it ships until twelve months after its successor ships.
 That gives a full year to move once a new major exists, and it is a rule rather than a date, so it
 does not go stale in this table. The 3.x row used to carry a fixed date, worked out from a 4.0 that
-was expected in August 2026 and has not shipped, which is exactly the staleness this rule exists to
+was expected in August 2026 and shipped in September, which is exactly the staleness this rule exists to
 avoid. Dates go in the release notes for the release that starts the clock, not here.
 
 There is no long-term-support line. If one is ever offered it will be announced as its own
@@ -92,9 +92,15 @@ When deploying BarakoCMS:
   signing key: rotating it makes existing MFA secrets undecryptable and locks out enrolled users,
   so treat rotation as a migration.
 - Set a dedicated `Secrets:Key`. It encrypts credentials an operator entered in the admin, the email
-  provider API key today, and falls back to the JWT signing key when unset. The same warning applies
+  provider API key and the credential parameters on workflow actions, and falls back to the JWT
+  signing key when unset. The same warning applies
   as for `Mfa:Key`: rotating it makes stored credentials undecryptable, and the recovery is somebody
   typing them in again. They are separate keys so rotating one does not retire the other.
+- Set `Connectors:Key` before storing a connector credential. It encrypts connector credentials and
+  has no fallback: without it, saving a connector that carries a credential is refused with a 400
+  naming the setting. It must be at least 32 characters and must not equal `JWT:Key`, `Mfa:Key` or
+  `Secrets:Key`, or the API refuses to start. Rotating it makes stored connector credentials
+  undecryptable, so they have to be entered again.
 - Enable MFA on admin accounts. Every sign-in path (password, email code, social) honors it.
 
 ## Known advisories we accept

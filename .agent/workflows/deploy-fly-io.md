@@ -44,7 +44,14 @@ This workflow will guide you through deploying your PostgreSQL database and the 
    ```
    *This automatically sets the `DATABASE_URL` secret.*
 
-3. Deploy the Backend.
+3. Set the JWT signing key.
+   ```bash
+   fly secrets set --app barako-api JWT__Key="$(openssl rand -base64 48)"
+   ```
+   *The API refuses to start without `JWT:Key`, or with one shorter than 32 characters, so without
+   this step the machine restarts in a loop.*
+
+4. Deploy the Backend.
    ```bash
    fly deploy
    ```
