@@ -73,6 +73,9 @@ public class ConditionEvaluator : IConditionEvaluator
                     if (op is not ("_eq" or "_ne"))
                         return false;
 
+                    if (!CallerAttributes.IsComparable(actualValue))
+                        return false;
+
                     // Compared as it is stored: a profile value is never read as a variable itself.
                     if (!Compare(op, actualValue, attribute))
                         return false;

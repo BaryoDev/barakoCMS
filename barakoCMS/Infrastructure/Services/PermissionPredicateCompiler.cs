@@ -131,9 +131,21 @@ internal static class PermissionPredicateCompiler
 
             foreach (var (op, rawExpected) in operators)
             {
-                if (!TryCompileOperator(op, value, Normalize(rawExpected), userId, callerProfile, out var comparison, out var opParameters))
+                var expected = Normalize(rawExpected);
+
+                if (!TryCompileOperator(op, value, expected, userId, callerProfile, out var comparison, out var opParameters))
                 {
                     return false;
+                }
+
+                // A caller attribute is compared with a scalar or with nothing: see
+                // CallerAttributes.IsComparable, which is what the evaluator asks. Only a data field
+                // can hold a list or an object, and only a data field has a presence check. The
+                // guard names the field once more, after the comparison, so its parameter is last.
+                if (presence is not null && CallerAttributes.IsReference(expected))
+                {
+                    comparison = $"{comparison} AND {CallerAttributes.ComparableSql("d.data -> 'Data' -> ?")}";
+                    opParameters.Add(field);
                 }
 
                 // The check that stops the whole class of bug this file is exposed to. Parameters

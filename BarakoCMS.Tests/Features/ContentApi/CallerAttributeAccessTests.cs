@@ -157,9 +157,12 @@ public class CallerAttributeAccessTests
         return (north, south, unbranched);
     }
 
-    private static async Task<List<Guid>> ListedAsync(HttpClient client, string type)
+    /// <summary>What the caller can list of one type, or of every type when none is named.</summary>
+    private static async Task<List<Guid>> ListedAsync(HttpClient client, string? type)
     {
-        var res = await client.GetAsync($"/api/contents?contentType={type}&pageSize=50");
+        var res = await client.GetAsync(type is null
+            ? "/api/contents?pageSize=50"
+            : $"/api/contents?contentType={type}&pageSize=50");
         res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
 
         using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
@@ -267,15 +270,24 @@ public class CallerAttributeAccessTests
     }
 
     [Fact]
-    public async Task A_member_without_the_attribute_matches_nothing_when_the_database_cannot_page_the_rule()
+    public async Task A_list_of_every_type_is_answered_per_entry_and_gives_a_member_without_the_attribute_nothing()
     {
+        // With no contentType the list asks for no predicate and puts every entry through the
+        // evaluator, so this is the per-entry path with the variable unresolved. Naming the type
+        // would not do: the compiler answers FALSE for an unresolved variable before it looks at
+        // the rest of the rule, and the per-entry path would never run.
         var type = NewType();
-        await SeedAsync(type);
-        var (client, userId) = await MemberAsync(type,
-            () => Rule("_ne", ("Title", "_nin", new List<object> { 42L })));
-        await ProfileAsync(userId, new Dictionary<string, string> { ["ward"] = "north" });
+        var (_, south, _) = await SeedAsync(type);
+        var (client, userId) = await MemberAsync(type, () => Rule("_ne"));
 
-        (await ListedAsync(client, type)).Should().BeEmpty();
+        await ProfileAsync(userId, new Dictionary<string, string> { ["ward"] = "north" });
+        (await ListedAsync(client, null)).Should().BeEmpty("the member has no branch, and reads no other type");
+
+        // The control: the same list, once they have a branch, is the three entries of the other one.
+        await ProfileAsync(userId, Branch("north"));
+        var listed = await ListedAsync(client, null);
+        listed.Should().HaveCount(3);
+        listed.Should().BeEquivalentTo(south);
     }
 
     [Fact]

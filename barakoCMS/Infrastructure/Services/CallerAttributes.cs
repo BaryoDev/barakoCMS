@@ -46,6 +46,29 @@ internal static class CallerAttributes
         return true;
     }
 
+    /// <summary>
+    /// Whether a field's value is one a caller attribute can be compared with. A list or an object
+    /// is not, and matches nothing.
+    /// </summary>
+    /// <remarks>
+    /// The evaluator compares the text of both sides, and the text of a list read back from storage
+    /// is the name of its type while the compiled predicate sees its JSON. For a value written into
+    /// a rule that difference is old and its author's to avoid. A profile value is tenant data, so
+    /// here it would let whoever sets a profile choose which of the two answers is the wrong one.
+    /// </remarks>
+    public static bool IsComparable(object? fieldValue) => fieldValue switch
+    {
+        null => true,
+        string => true,
+        JsonElement element => element.ValueKind is not (JsonValueKind.Array or JsonValueKind.Object),
+        System.Collections.IEnumerable => false,
+        _ => true,
+    };
+
+    /// <summary>The same rule in SQL, for a jsonb expression holding one <c>?</c>.</summary>
+    public static string ComparableSql(string extraction) =>
+        $"jsonb_typeof({extraction}) NOT IN ('array', 'object')";
+
     /// <summary>Whether any comparison in these conditions is against a variable.</summary>
     public static bool Mentioned(Dictionary<string, object> conditions)
     {
@@ -95,6 +118,11 @@ internal static class CallerAttributes
 
             if (value.Length > MaxValueLength)
                 return $"A profile attribute value holds at most {MaxValueLength} characters.";
+
+            // The name passed IsName above, so it is safe to say which one. A NUL is the case that
+            // matters: jsonb refuses it, and the save would fail after the request was accepted.
+            if (value.Any(char.IsControl))
+                return $"The profile attribute '{name}' holds a control character, such as a line break or a NUL.";
         }
 
         return null;

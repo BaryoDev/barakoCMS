@@ -46,10 +46,8 @@ public class PermissionResolver(
 
         // Roles come from the user's membership in the current tenant (falling back to the user's
         // legacy roles when there's no membership).
-        var membership = await barakoCMS.Infrastructure.Multitenancy.MembershipRoles
-            .ActiveMembershipAsync(session, user.Id, tenant.Slug, cancellationToken);
-
-        var roleIds = barakoCMS.Infrastructure.Multitenancy.MembershipRoles.EffectiveRoleIds(user, membership);
+        var (roleIds, membership) = await barakoCMS.Infrastructure.Multitenancy.MembershipRoles
+            .ResolveAsync(session, user, tenant.Slug, cancellationToken);
 
         IReadOnlyList<Models.Role> roles = roleIds.Count == 0
             ? Array.Empty<Models.Role>()

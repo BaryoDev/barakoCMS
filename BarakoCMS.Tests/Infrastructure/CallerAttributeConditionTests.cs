@@ -251,8 +251,68 @@ public class CallerAttributeConditionTests
 
         predicate.Compiled.Should().BeTrue();
         predicate.Sql.Should().NotContain("north", "a profile value never becomes SQL text");
-        predicate.Parameters.Should().HaveCount(3);
-        predicate.Parameters.Should().Equal("Branch", "Branch", hostile);
+
+        // The field name three times (present, its value, its JSON type) and the value once, in the
+        // order the placeholders appear.
+        predicate.Parameters.Should().HaveCount(4);
+        predicate.Parameters.Should().Equal("Branch", "Branch", hostile, "Branch");
+        predicate.Sql!.Count(ch => ch == '?').Should().Be(4, "one placeholder for each parameter");
+    }
+
+    [Fact]
+    public void The_compiled_predicate_refuses_a_list_or_an_object_only_against_a_caller_attribute()
+    {
+        var profile = Profile("branch", "north");
+
+        var variable = new PermissionRule { Enabled = true, Conditions = Rule("Branch", "_eq", "$CURRENT_USER.branch") };
+        PermissionPredicateCompiler.Compile([variable], _user.Id, profile).Sql
+            .Should().Contain("NOT IN ('array', 'object')");
+
+        var written = new PermissionRule { Enabled = true, Conditions = Rule("Branch", "_eq", "north") };
+        var literal = PermissionPredicateCompiler.Compile([written], _user.Id, profile);
+        literal.Sql.Should().NotContain("NOT IN ('array', 'object')", "a value written into a rule compares as it did");
+        literal.Parameters.Should().HaveCount(3);
+
+        // A document property is never a list, and has no field name to bind.
+        var owner = new PermissionRule { Enabled = true, Conditions = Rule("$createdBy", "_eq", "$CURRENT_USER.branch") };
+        var byOwner = PermissionPredicateCompiler.Compile([owner], _user.Id, profile);
+        byOwner.Sql.Should().NotContain("NOT IN ('array', 'object')");
+        byOwner.Parameters.Should().HaveCount(1);
+        byOwner.Parameters.Should().Equal("north");
+    }
+
+    [Fact]
+    public void A_field_holding_a_list_or_an_object_matches_nothing_against_a_caller_attribute()
+    {
+        var list = new List<object> { "north" };
+        var bag = new Dictionary<string, object> { ["name"] = "north" };
+
+        // The text the evaluator would otherwise compare: the name of the type, not the JSON.
+        var asList = Profile("branch", list.ToString()!);
+        var asBag = Profile("branch", bag.ToString()!);
+
+        _evaluator.Evaluate(Rule("Branch", "_eq", "$CURRENT_USER.branch"), Entry(list), _user, asList)
+            .Should().BeFalse("a profile value must not be able to name every entry whose field is a list");
+        _evaluator.Evaluate(Rule("Branch", "_eq", "$CURRENT_USER.branch"), Entry(bag), _user, asBag)
+            .Should().BeFalse();
+
+        var north = Profile("branch", "north");
+        foreach (var field in new object[]
+                 {
+                     list,
+                     bag,
+                     JsonDocument.Parse("""["north"]""").RootElement,
+                     JsonDocument.Parse("""{"name":"north"}""").RootElement,
+                 })
+        {
+            _evaluator.Evaluate(Rule("Branch", "_ne", "$CURRENT_USER.branch"), Entry(field), _user, north)
+                .Should().BeFalse("a list or an object is not a branch other than north either");
+        }
+
+        // The control, and the limit of this change: a value written into a rule compares as it
+        // always did, type name and all.
+        _evaluator.Evaluate(Rule("Branch", "_eq", list.ToString()!), Entry(list), _user, north).Should().BeTrue();
+        _evaluator.Evaluate(Rule("Branch", "_ne", "north"), Entry(list), _user, north).Should().BeTrue();
     }
 
     [Fact]
@@ -275,6 +335,15 @@ public class CallerAttributeConditionTests
             .Should().NotBeNull();
         CallerAttributes.ProfileError(new Dictionary<string, string> { ["branch"] = "north", ["Branch"] = "south" })
             .Should().NotBeNull("two names that differ only by case are a mistake waiting to be read");
+
+        foreach (var value in new[] { "nor\u0000th", "nor\nth", "north\t", "\u001fnorth" })
+        {
+            CallerAttributes.ProfileError(Profile("ward", value)).Should().Contain("'ward'",
+                "a control character is refused, naming the attribute, before the database refuses it");
+        }
+
+        CallerAttributes.ProfileError(Profile("branch", "it's 50% a\\b 1.5 \u00e9")).Should().BeNull(
+            "punctuation and letters outside ASCII are values like any other");
 
         var tooMany = Enumerable.Range(0, CallerAttributes.MaxAttributes + 1)
             .ToDictionary(i => $"a{i}", _ => "x");

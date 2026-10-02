@@ -29,6 +29,12 @@ public class CallerAttributeAgreementTests
 
     private static readonly Guid Caller = Guid.Parse("11111111-2222-3333-4444-555555555555");
 
+    private static readonly string Longest = new('n', 256);
+
+    /// <summary>
+    /// What a field can hold. The list and the object are here because a caller attribute must
+    /// match neither, in memory or in SQL, whatever text the profile holds.
+    /// </summary>
     private static readonly object?[] Values =
     [
         "north",
@@ -38,9 +44,17 @@ public class CallerAttributeAgreementTests
         null,
         42L,
         "42",
+        1.5m,
+        "1.5",
         true,
         "True",
         "$CURRENT_USER.branch",
+        "it's",
+        "50%",
+        "a\\b",
+        Longest,
+        new List<object> { "north" },
+        new Dictionary<string, object> { ["name"] = "north" },
     ];
 
     private static readonly string[] Scalars =
@@ -65,6 +79,11 @@ public class CallerAttributeAgreementTests
         ("an empty branch", new Dictionary<string, string> { ["branch"] = "", ["ward"] = "True" }),
         ("a branch that is itself a variable",
             new Dictionary<string, string> { ["branch"] = "$CURRENT_USER", ["ward"] = "$CURRENT_USER.branch" }),
+        ("the JSON text of a list and of an object",
+            new Dictionary<string, string> { ["branch"] = "[\"north\"]", ["ward"] = "{\"name\": \"north\"}" }),
+        ("a quote and a percent sign", new Dictionary<string, string> { ["branch"] = "it's", ["ward"] = "50%" }),
+        ("a backslash and a decimal", new Dictionary<string, string> { ["branch"] = "a\\b", ["ward"] = "1.5" }),
+        ("the longest value a profile holds", new Dictionary<string, string> { ["branch"] = Longest }),
     ];
 
     private static object Stored(object? value) => value ?? JsonDocument.Parse("null").RootElement;
@@ -130,8 +149,13 @@ public class CallerAttributeAgreementTests
             new() { ["Branch"] = "" },
             new() { ["Ward"] = "north" },
             new() { ["Branch"] = "$CURRENT_USER" },
+            new() { ["Branch"] = new List<object> { "north" }, ["Ward"] = new Dictionary<string, object> { ["name"] = "north" } },
+            new() { ["Branch"] = new Dictionary<string, object> { ["name"] = "north" } },
+            new() { ["Branch"] = "it's", ["Ward"] = "50%" },
+            new() { ["Branch"] = "a\\b", ["Ward"] = 1.5m },
+            new() { ["Branch"] = Longest },
         };
-        seeded.AddRange(Enumerable.Range(0, 52).Select(_ => Data(rng)));
+        seeded.AddRange(Enumerable.Range(0, 47).Select(_ => Data(rng)));
 
         using (var scope = _fixture.Services.CreateScope())
         {
@@ -163,6 +187,26 @@ public class CallerAttributeAgreementTests
 
         contents.Should().HaveCount(60, "every seeded entry has to come back");
 
+        // The text the evaluator would compare for a list or an object: after a read it is the
+        // name of the CLR type, which no generator would think to put in a profile. Taken from the
+        // stored entries so it is whatever production really sees.
+        var listFields = contents
+            .Where(c => c.Data.TryGetValue("Branch", out var v) && v is System.Collections.IList)
+            .ToList();
+        var bagFields = contents
+            .Where(c => c.Data.TryGetValue("Branch", out var v) && v is System.Collections.IDictionary)
+            .ToList();
+        listFields.Should().NotBeEmpty("an entry whose Branch is a list was seeded");
+        bagFields.Should().NotBeEmpty("an entry whose Branch is an object was seeded");
+
+        var profiles = Profiles.ToList();
+        profiles.Add(("the text a list and an object read as in memory", new Dictionary<string, string>
+        {
+            ["branch"] = listFields[0].Data["Branch"].ToString()!,
+            ["ward"] = bagFields[0].Data["Branch"].ToString()!,
+        }));
+        var nonScalar = listFields.Concat(bagFields).Select(c => c.Id).ToHashSet();
+
         var rules = new List<Dictionary<string, object>>
         {
             One("Branch", "_eq", "$CURRENT_USER.branch"),
@@ -177,7 +221,7 @@ public class CallerAttributeAgreementTests
 
         foreach (var conditions in rules)
         {
-            foreach (var (name, profile) in Profiles)
+            foreach (var (name, profile) in profiles)
             {
                 var rule = new PermissionRule { Enabled = true, Conditions = conditions };
                 var predicate = PermissionPredicateCompiler.Compile([rule], user.Id, profile);
@@ -216,8 +260,41 @@ public class CallerAttributeAgreementTests
 
         compiled.Should().BeGreaterThan(200,
             "a compiler that declines everything makes this vacuous, and it compiled {0} of {1}",
-            compiled, rules.Count * Profiles.Length);
+            compiled, rules.Count * profiles.Count);
         selectedSome.Should().BeGreaterThan(10, "agreeing on nothing at all is not agreement");
+
+        // Agreement alone would be satisfied by both sides granting on a list. Under the two named
+        // rules, for every profile, neither side selects an entry whose Branch is a list or an object.
+        foreach (var conditions in rules.Take(2))
+        {
+            foreach (var (name, profile) in profiles)
+            {
+                contents
+                    .Where(c => nonScalar.Contains(c.Id) && evaluator.Evaluate(conditions, c, user, profile))
+                    .Should().BeEmpty("a list or an object matches no caller attribute, with {0}", name);
+            }
+        }
+
+        // And the values with a quote, a percent sign, a backslash and 256 characters each select
+        // the entry that holds exactly that text, so they reach the comparison whole.
+        foreach (var text in new[] { "it's", "a\\b", Longest })
+        {
+            var conditions = One("Branch", "_eq", "$CURRENT_USER.branch");
+            var profile = new Dictionary<string, string> { ["branch"] = text };
+            var predicate = PermissionPredicateCompiler.Compile(
+                [new PermissionRule { Enabled = true, Conditions = conditions }], user.Id, profile);
+
+            using var scope = _fixture.Services.CreateScope();
+            var query = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+            var bySql = await query.Query<Content>()
+                .Where(c => c.ContentType == type && c.MatchesSql(predicate.Sql!, predicate.Parameters))
+                .ToListAsync();
+
+            bySql.Should().NotBeEmpty("an entry holding exactly that text was seeded");
+            bySql.Should().OnlyContain(c => (c.Data["Branch"] as string) == text);
+            contents.Where(c => evaluator.Evaluate(conditions, c, user, profile)).Select(c => c.Id)
+                .Should().BeEquivalentTo(bySql.Select(c => c.Id));
+        }
     }
 
     [Fact]

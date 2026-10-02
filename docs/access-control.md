@@ -86,10 +86,14 @@ created them:
 
 The profile is `Membership.Profile`, a map of text values. It is written with the member, by
 `POST /api/tenants/members` and `PUT /api/tenants/members/{userId}` (`profile`), both behind
-`manage_tenant_members`, and by nothing else. A member cannot set their own. `PUT` replaces the whole
-profile when it sends one and keeps the stored one when it does not. A profile holds at most 32
-attributes; a name starts with a letter, holds letters, digits and underscores, and is at most 64
-characters; a value is at most 256.
+`manage_tenant_members`, and by nothing else. A member holding that capability can set their own
+profile, which is within what they can already do by assigning themselves a role. A member without
+it cannot. Both routes replace the whole profile when the request sends one and keep the stored one
+when it does not, except that a member who had been removed and is added again starts with what the
+request carries, or none. A profile holds at most 32 attributes; a name starts with a letter, holds
+letters, digits and underscores, and is at most 64 characters; a value is at most 256 and holds no
+control character. The audit entry for a member write records the names added, removed and
+changed, never the values.
 
 What a rule author needs to know:
 
@@ -99,7 +103,7 @@ What a rule author needs to know:
 - A caller with no value matches nothing, whatever the operator: no active membership in this
   tenant, no attribute of that name, or an empty value. `_ne` does not grant in that case.
 - The value is compared as text, the way a value written into the rule is, so a profile value of
-  `42` matches a number field holding 42.
+  `42` matches a number field holding 42. A field that holds a list or an object matches nothing.
 - It is read from the membership on every request and is not in the token. A change applies to the
   member's next request.
 - A user whose roles come only from `User.RoleIds`, with no membership row in the tenant, has no

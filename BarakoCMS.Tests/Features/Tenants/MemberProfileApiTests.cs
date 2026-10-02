@@ -43,7 +43,9 @@ public class MemberProfileApiTests
         return slug;
     }
 
-    private async Task<Guid> UserAsync()
+    private static string NewEmail() => $"prof-{Guid.NewGuid():n}@example.com";
+
+    private async Task<Guid> UserAsync(string? email = null)
     {
         using var scope = _factory.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
@@ -52,7 +54,7 @@ public class MemberProfileApiTests
         {
             Id = id,
             Username = $"prof-{Guid.NewGuid():n}"[..14],
-            Email = $"prof-{Guid.NewGuid():n}@example.com",
+            Email = email ?? NewEmail(),
             PasswordHash = string.Empty,
         });
         await session.SaveChangesAsync();
@@ -97,12 +99,34 @@ public class MemberProfileApiTests
     }
 
     /// <summary>A member of the tenant holding the User role, with the profile given.</summary>
-    private async Task<Guid> MemberAsync(string slug, Dictionary<string, string>? profile = null)
+    private async Task<Guid> MemberAsync(
+        string slug, Dictionary<string, string>? profile = null, string? email = null)
     {
-        var userId = await UserAsync();
+        var userId = await UserAsync(email);
         await MembershipAsync(userId, slug, SystemRoles.UserRoleId, profile);
         return userId;
     }
+
+    /// <summary>The newest audit entry of an action about a member, as JSON.</summary>
+    private async Task<JsonElement> LastAuditAsync(string slug, string action, Guid target)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+        var targetId = target.ToString();
+
+        var entries = await session.Query<AuditEvent>()
+            .Where(e => e.TenantSlug == slug && e.Action == action && e.TargetId == targetId)
+            .ToListAsync();
+
+        entries.Should().NotBeEmpty("the write was audited");
+        var metadata = entries.OrderByDescending(e => e.CreatedAt).First().Metadata;
+        metadata.Should().NotBeNull();
+
+        return JsonDocument.Parse(JsonSerializer.Serialize(metadata)).RootElement.Clone();
+    }
+
+    private static List<string> Names(JsonElement metadata, string key) =>
+        metadata.GetProperty(key).EnumerateArray().Select(name => name.GetString()!).ToList();
 
     private async Task<Membership> RowAsync(Guid userId, string slug)
     {
@@ -230,17 +254,8 @@ public class MemberProfileApiTests
         // POST reactivates and rewrites the row of somebody who is already a member, so it is a
         // second way to reach the same profile.
         var slug = await TenantAsync();
-        var userId = await UserAsync();
-        var email = $"self-{Guid.NewGuid():n}@example.com";
-        using (var scope = _factory.Services.CreateScope())
-        {
-            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-            var user = await session.LoadAsync<User>(userId);
-            user!.Email = email;
-            session.Store(user);
-            await session.SaveChangesAsync();
-        }
-        await MembershipAsync(userId, slug, SystemRoles.UserRoleId, Branch("south"));
+        var email = NewEmail();
+        var userId = await MemberAsync(slug, Branch("south"), email);
 
         var response = await ClientFor(userId, slug, "User").PostAsJsonAsync("/api/tenants/members",
             new { email, roleIds = new[] { SystemRoles.UserRoleId }, profile = Branch("north") });
@@ -350,6 +365,195 @@ public class MemberProfileApiTests
 
         (await RowAsync(userId, slug)).Profile.Should().BeEmpty(
             "the branch they held before they were removed is not one they were given now");
+    }
+
+    [Fact]
+    public async Task A_roles_only_write_from_a_stale_read_does_not_bring_back_a_cleared_profile()
+    {
+        var slug = await TenantAsync();
+        var admin = await AdminOfAsync(slug);
+        var member = await MemberAsync(slug, Branch("north"));
+
+        // One administrator's roles edit reads the row while the member still has a branch.
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var read = (await session.Query<Membership>()
+            .Where(m => m.UserId == member && m.TenantSlug == slug)
+            .ToListAsync()).Should().ContainSingle().Which;
+        read.Profile.Should().Contain("branch", "north", "the read has to be the stale one");
+
+        // Another clears the profile, and that commits first.
+        var cleared = await admin.PutAsJsonAsync($"/api/tenants/members/{member}",
+            Edit(new Dictionary<string, string>()));
+        cleared.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await RowAsync(member, slug)).Profile.Should().BeEmpty();
+
+        // The first one's write, which is what both member routes queue for a request with no profile.
+        global::barakoCMS.Features.Tenants.Members.Members.QueueWrite(
+            session, read, [SystemRoles.HRRoleId], MembershipStatus.Active, profile: null);
+        await session.SaveChangesAsync();
+
+        var row = await RowAsync(member, slug);
+        row.RoleIds.Should().Equal(SystemRoles.HRRoleId);
+        row.Profile.Should().BeEmpty("a write that carries no profile cannot put one back");
+    }
+
+    [Fact]
+    public async Task Adding_somebody_who_is_already_a_member_keeps_their_profile_when_the_request_has_none()
+    {
+        var slug = await TenantAsync();
+        var admin = await AdminOfAsync(slug);
+        var email = NewEmail();
+        var member = await MemberAsync(slug, Branch("north"), email);
+
+        var again = await admin.PostAsJsonAsync("/api/tenants/members",
+            new { email, roleIds = new[] { SystemRoles.HRRoleId } });
+        NotRateLimited(again);
+        again.StatusCode.Should().Be(HttpStatusCode.OK, await again.Content.ReadAsStringAsync());
+
+        var row = await RowAsync(member, slug);
+        row.RoleIds.Should().Equal(SystemRoles.HRRoleId);
+        row.Profile.Should().HaveCount(1);
+        row.Profile.Should().Contain("branch", "north", "a client that knows nothing of profiles must not erase one");
+
+        using (var body = JsonDocument.Parse(await again.Content.ReadAsStringAsync()))
+            body.RootElement.GetProperty("profile").GetProperty("branch").GetString().Should().Be("north");
+
+        // And one that does send a profile replaces it.
+        var replaced = await admin.PostAsJsonAsync("/api/tenants/members",
+            new { email, roleIds = new[] { SystemRoles.HRRoleId }, profile = Branch("south") });
+        replaced.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await RowAsync(member, slug)).Profile.Should().Contain("branch", "south");
+    }
+
+    [Fact]
+    public async Task The_audit_entry_names_what_changed_in_a_profile_and_never_a_value()
+    {
+        var slug = await TenantAsync();
+        var admin = await AdminOfAsync(slug);
+        var member = await MemberAsync(slug, new Dictionary<string, string>
+        {
+            ["branch"] = "north-branch-value",
+            ["ward"] = "ward-seven-value",
+        });
+
+        var changed = await admin.PutAsJsonAsync($"/api/tenants/members/{member}", Edit(new Dictionary<string, string>
+        {
+            ["branch"] = "south-branch-value",
+            ["level"] = "level-three-value",
+        }));
+        NotRateLimited(changed);
+        changed.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var entry = await LastAuditAsync(slug, "tenant.member.updated", member);
+        Names(entry, "profileAdded").Should().Equal("level");
+        Names(entry, "profileRemoved").Should().Equal("ward");
+        Names(entry, "profileChanged").Should().Equal("branch");
+
+        var text = entry.GetRawText();
+        foreach (var value in new[] { "north-branch-value", "south-branch-value", "ward-seven-value", "level-three-value" })
+            text.Should().NotContain(value, "the audit entry holds names, never values");
+    }
+
+    [Fact]
+    public async Task The_audit_entry_says_nothing_about_a_profile_that_did_not_change()
+    {
+        var slug = await TenantAsync();
+        var admin = await AdminOfAsync(slug);
+        var member = await MemberAsync(slug, Branch("north"));
+
+        // A roles-only edit, then one that sends the profile the member already has.
+        foreach (var body in new[] { Edit(null), Edit(Branch("north")) })
+        {
+            var response = await admin.PutAsJsonAsync($"/api/tenants/members/{member}", body);
+            NotRateLimited(response);
+            response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+            var entry = await LastAuditAsync(slug, "tenant.member.updated", member);
+            entry.TryGetProperty("roleIds", out _).Should().BeTrue("this is the entry for the edit");
+            entry.EnumerateObject().Select(p => p.Name).Where(name => name.StartsWith("profile", StringComparison.Ordinal))
+                .Should().BeEmpty("nothing about the profile changed");
+        }
+
+        // The control: the same route, with a different value, does say so.
+        (await admin.PutAsJsonAsync($"/api/tenants/members/{member}", Edit(Branch("south"))))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        Names(await LastAuditAsync(slug, "tenant.member.updated", member), "profileChanged").Should().Equal("branch");
+    }
+
+    [Fact]
+    public async Task Adding_a_member_with_a_profile_is_audited_by_name()
+    {
+        var slug = await TenantAsync();
+        var admin = await AdminOfAsync(slug);
+
+        var added = await admin.PostAsJsonAsync("/api/tenants/members", new
+        {
+            email = NewEmail(),
+            roleIds = new[] { SystemRoles.UserRoleId },
+            profile = new Dictionary<string, string> { ["branch"] = "north-branch-value" },
+        });
+        added.StatusCode.Should().Be(HttpStatusCode.OK);
+        var userId = JsonDocument.Parse(await added.Content.ReadAsStringAsync())
+            .RootElement.GetProperty("userId").GetGuid();
+
+        var entry = await LastAuditAsync(slug, "tenant.member.added", userId);
+        Names(entry, "profileAdded").Should().Equal("branch");
+        entry.GetRawText().Should().NotContain("north-branch-value");
+    }
+
+    [Fact]
+    public async Task A_value_holding_a_control_character_is_refused_on_both_routes()
+    {
+        var slug = await TenantAsync();
+        var admin = await AdminOfAsync(slug);
+        var member = await MemberAsync(slug, Branch("south"));
+
+        foreach (var value in new[] { "nor\u0000th", "nor\nth", "north\t" })
+        {
+            var profile = new Dictionary<string, string> { ["ward"] = value };
+
+            var put = await admin.PutAsJsonAsync($"/api/tenants/members/{member}", Edit(profile));
+            NotRateLimited(put);
+            put.StatusCode.Should().Be(HttpStatusCode.BadRequest, "a control character is refused before the save");
+            (await put.Content.ReadAsStringAsync()).Should().Contain("ward", "the answer names the attribute");
+
+            var email = NewEmail();
+            var post = await admin.PostAsJsonAsync("/api/tenants/members",
+                new { email, roleIds = new[] { SystemRoles.UserRoleId }, profile });
+            NotRateLimited(post);
+            post.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+            using var scope = _factory.Services.CreateScope();
+            var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+            (await session.Query<User>().Where(u => u.Email == email).ToListAsync())
+                .Should().BeEmpty("a refused add invites nobody");
+        }
+
+        var stored = (await RowAsync(member, slug)).Profile;
+        stored.Should().HaveCount(1);
+        stored.Should().Contain("branch", "south");
+    }
+
+    [Fact]
+    public async Task A_member_without_the_capability_who_sends_a_bad_profile_is_refused_as_forbidden()
+    {
+        // The gate is a global pre-processor and FastEndpoints runs those when a request fails
+        // binding or validation too, which RoleGateTests holds for every gated route with a body
+        // that is not JSON. So the answer is the gate's, not the validator's, and it says nothing
+        // about what a profile may hold.
+        var slug = await TenantAsync();
+        var member = await MemberAsync(slug, Branch("south"));
+
+        var response = await ClientFor(member, slug, "User").PutAsJsonAsync($"/api/tenants/members/{member}",
+            Edit(new Dictionary<string, string> { ["branch name"] = "" }));
+
+        NotRateLimited(response);
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        var stored = (await RowAsync(member, slug)).Profile;
+        stored.Should().HaveCount(1);
+        stored.Should().Contain("branch", "south", "refused either way, nothing is stored");
     }
 
     [Fact]

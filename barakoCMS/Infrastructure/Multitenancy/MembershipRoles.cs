@@ -14,25 +14,28 @@ public static class MembershipRoles
 {
     public static async Task<List<Guid>> EffectiveRoleIdsAsync(
         IQuerySession session, User user, string tenantSlug, CancellationToken ct) =>
-        EffectiveRoleIds(user, await ActiveMembershipAsync(session, user.Id, tenantSlug, ct));
+        (await ResolveAsync(session, user, tenantSlug, ct)).RoleIds;
 
     /// <summary>
-    /// The user's active membership in the tenant, or null. One query, so a caller that needs the
-    /// member profile as well as the roles reads both from the same row.
+    /// The one body behind <see cref="EffectiveRoleIdsAsync"/>: the effective role ids, and the
+    /// active membership they were read from so its profile costs no second query.
     /// </summary>
-    public static Task<Membership?> ActiveMembershipAsync(
-        IQuerySession session, Guid userId, string tenantSlug, CancellationToken ct) =>
-        session.Query<Membership>()
-            .Where(m => m.UserId == userId && m.TenantSlug == tenantSlug && m.Status == MembershipStatus.Active)
-            .FirstOrDefaultAsync(ct);
-
-    public static List<Guid> EffectiveRoleIds(User user, Membership? membership)
+    /// <remarks>
+    /// Anything that changes which roles a user holds in a tenant goes here, so the permission
+    /// resolver (which needs the row) and every caller of the wrapper cannot come to differ.
+    /// </remarks>
+    internal static async Task<(List<Guid> RoleIds, Membership? Membership)> ResolveAsync(
+        IQuerySession session, User user, string tenantSlug, CancellationToken ct)
     {
         var global = user.RoleIds ?? new List<Guid>();
 
-        if (membership is null)
-            return global;
+        var membership = await session.Query<Membership>()
+            .Where(m => m.UserId == user.Id && m.TenantSlug == tenantSlug && m.Status == MembershipStatus.Active)
+            .FirstOrDefaultAsync(ct);
 
-        return membership.RoleIds.Union(global).ToList();
+        if (membership is null)
+            return (global, null);
+
+        return (membership.RoleIds.Union(global).ToList(), membership);
     }
 }
