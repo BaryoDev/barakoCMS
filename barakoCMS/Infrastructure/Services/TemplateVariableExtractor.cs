@@ -67,6 +67,32 @@ public interface ITemplateVariableExtractor
         encoding == TemplateValueEncoding.None
             ? ResolveVariables(template, content)
             : throw new NotSupportedException($"{GetType().Name} does not support {encoding} encoding.");
+
+    /// <summary>
+    /// Reads what one action's templates name beyond the entry, so the resolves that follow for the
+    /// same entry can fill it: the site's time zone and currency, who created the entry, and the
+    /// transition that fired the workflow.
+    /// </summary>
+    /// <param name="content">The entry the templates are resolved against.</param>
+    /// <param name="triggerEvent">The trigger that fired, such as <c>transition:Approve</c>.</param>
+    /// <param name="eventSequence">The sequence of the event that fired it, or zero when it is not known.</param>
+    /// <param name="templates">The action's parameter values. Only what they name is read.</param>
+    /// <param name="ct">Cancellation token for the reads.</param>
+    /// <remarks>
+    /// The default does nothing, so an implementation written before this existed still compiles and
+    /// leaves the placeholders it does not know as written.
+    /// </remarks>
+    Task PrepareAsync(
+        Content content, string? triggerEvent, long eventSequence, IEnumerable<string> templates, CancellationToken ct = default) =>
+        Task.CompletedTask;
+
+    /// <summary>
+    /// The same for a simulation, which is handed an entry the caller wrote. No user and no event is
+    /// read: the author and the transition are filled with sample values.
+    /// </summary>
+    Task PrepareSampleAsync(
+        Content content, string? triggerEvent, IEnumerable<string> templates, CancellationToken ct = default) =>
+        Task.CompletedTask;
 }
 
 /// <summary>How a substituted value is written into the text a template produces.</summary>
@@ -91,7 +117,8 @@ public class TemplateVariableExtractor(IDocumentSession session) : ITemplateVari
     {
         var collection = new TemplateVariableCollection
         {
-            SystemVariables = GetSystemVariables()
+            SystemVariables = GetSystemVariables(),
+            Formats = GetFormats()
         };
 
         // Get sample content to extract data fields
@@ -108,14 +135,183 @@ public class TemplateVariableExtractor(IDocumentSession session) : ITemplateVari
         return collection;
     }
 
-    // Matches {{ variable }} tokens. Field/variable names are limited to identifier-ish characters.
-    private static readonly Regex TemplateToken = new(@"\{\{\s*([A-Za-z0-9_.]+)\s*\}\}", RegexOptions.Compiled);
+    private static readonly Regex TemplateToken = TemplateExpression.Token;
+
+    private Guid _preparedFor;
+    private TemplateContext _prepared = TemplateContext.Unprepared;
 
     public string ResolveVariables(string template, Content content) =>
-        Resolve(template, content, TemplateValueEncoding.None);
+        Resolve(template, content, TemplateValueEncoding.None, PreparedFor(content));
 
     public string ResolveVariables(string template, Content content, TemplateValueEncoding encoding) =>
-        Resolve(template, content, encoding);
+        Resolve(template, content, encoding, PreparedFor(content));
+
+    /// <remarks>
+    /// Kept on the extractor and not handed to each resolve, because a Conditional resolves its
+    /// children with the extractor of the same scope and is told nothing but the entry. Kept per
+    /// entry, so a resolve for some other entry never reads this one's author.
+    /// </remarks>
+    private TemplateContext PreparedFor(Content? content) =>
+        content is not null && content.Id == _preparedFor ? _prepared : TemplateContext.Unprepared;
+
+    public async Task PrepareAsync(
+        Content content, string? triggerEvent, long eventSequence, IEnumerable<string> templates, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(content, nameof(content));
+
+        var needs = TemplateExpression.Needs(templates);
+        var (zone, currency) = needs.Site ? await SiteSettingsAsync(ct) : NoSiteSettings;
+
+        _prepared = new TemplateContext(
+            zone,
+            currency,
+            needs.Author ? await PersonAsync(content.CreatedBy, ct) : null,
+            needs.Transition ? await TransitionAsync(content, triggerEvent, eventSequence, ct) : null);
+        _preparedFor = content.Id;
+    }
+
+    public async Task PrepareSampleAsync(
+        Content content, string? triggerEvent, IEnumerable<string> templates, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(content, nameof(content));
+
+        var (zone, currency) = TemplateExpression.Needs(templates).Site ? await SiteSettingsAsync(ct) : NoSiteSettings;
+        var transition = triggerEvent is null ? null : WorkflowEvents.TransitionName(triggerEvent);
+
+        _prepared = new TemplateContext(
+            zone,
+            currency,
+            TemplatePerson.Sample,
+            transition is { Length: > 0 } ? new TemplateTransition(transition, content.UpdatedAt, TemplatePerson.Sample) : null);
+        _preparedFor = content.Id;
+    }
+
+    private static readonly (TimeZoneInfo? Zone, string? Currency) NoSiteSettings = (TimeZoneInfo.Utc, null);
+
+    /// <summary>The time zone and currency of the tenant's published <c>site</c> entry.</summary>
+    /// <remarks>
+    /// No entry, or no <c>TimeZone</c> on it, is UTC. A <c>TimeZone</c> this server does not know is
+    /// null, which leaves every date format as written: a typing mistake in the setting should show
+    /// in the first message sent, and UTC in its place would be hours wrong and look right.
+    /// </remarks>
+    private async Task<(TimeZoneInfo? Zone, string? Currency)> SiteSettingsAsync(CancellationToken ct)
+    {
+        var site = await session.Query<Content>()
+            .Where(c => c.ContentType == barakoCMS.Features.Site.ShareLinks.ShareLinkKeys.SiteType
+                        && c.Status == ContentStatus.Published)
+            .OrderBy(c => c.CreatedAt)
+            .Take(1)
+            .FirstOrDefaultAsync(ct);
+
+        var zone = Setting(site, "TimeZone");
+
+        return (zone is null ? TimeZoneInfo.Utc : TemplateExpression.Zone(zone),
+            TemplateExpression.CurrencyCode(Setting(site, "Currency")));
+    }
+
+    private static string? Setting(Content? site, string name)
+    {
+        if (site?.Data is null) return null;
+
+        foreach (var (key, value) in site.Data)
+        {
+            if (string.Equals(key, name, StringComparison.OrdinalIgnoreCase))
+            {
+                var text = value?.ToString()?.Trim();
+                return string.IsNullOrEmpty(text) ? null : text;
+            }
+        }
+
+        return null;
+    }
+
+    private bool? _tenantIsRegistered;
+
+    /// <summary>The user as a template may name them, or nobody.</summary>
+    /// <remarks>
+    /// A user is global and a workflow belongs to one tenant, so the id on an entry is not enough to
+    /// hand out a name and an address: a platform administrator working under a tenant header, a
+    /// member since removed and the owner of an API key all leave their id on what they touch. In a
+    /// registered tenant only an active member is named. Anyone else is nobody, like a deleted account.
+    /// </remarks>
+    private async Task<TemplatePerson> PersonAsync(Guid userId, CancellationToken ct)
+    {
+        if (userId == Guid.Empty || !await IsNameableAsync(userId, ct)) return TemplatePerson.Nobody;
+
+        var user = await session.LoadAsync<User>(userId, ct);
+        return user is null ? TemplatePerson.Nobody : new TemplatePerson(user.Username, user.Email);
+    }
+
+    /// <summary>
+    /// The rule sign-in applies in <c>TokenIssuer</c>: the default tenant and a slug nobody
+    /// registered have no memberships to ask, and every user of the deployment works there. A
+    /// registered tenant asks for an active membership.
+    /// </summary>
+    private async Task<bool> IsNameableAsync(Guid userId, CancellationToken ct)
+    {
+        var slug = barakoCMS.Infrastructure.Multitenancy.TenantScopes.SlugFor(session.TenantId);
+        if (slug == Tenant.DefaultSlug) return true;
+
+        _tenantIsRegistered ??= await session.Query<Tenant>().AnyAsync(t => t.Slug == slug, ct);
+        if (_tenantIsRegistered == false) return true;
+
+        return await session.Query<Membership>()
+            .AnyAsync(m => m.UserId == userId && m.TenantSlug == slug && m.Status == MembershipStatus.Active, ct);
+    }
+
+    /// <summary>The transition event that fired the workflow, or null when there is none to name.</summary>
+    /// <remarks>
+    /// Read from the event and not from the entry. By the time an action runs the entry may have
+    /// been edited again, and its last editor and time are then somebody else's.
+    ///
+    /// With a sequence it is that one event, read by its sequence and checked to be on this entry's
+    /// stream. Not the stream itself: every edit on it carries the entry's whole data, and an entry
+    /// edited thousands of times would be read in full to find one event.
+    ///
+    /// Without a sequence, which is the engine called directly by a host or a test, it is the
+    /// latest event of that transition on the entry. Two transitions of one name before the first
+    /// is handled would both name the later one. An event stored before events carried their own
+    /// time gives the entry's last change as the time.
+    /// </remarks>
+    private async Task<TemplateTransition?> TransitionAsync(
+        Content content, string? triggerEvent, long eventSequence, CancellationToken ct)
+    {
+        if (triggerEvent is null || WorkflowEvents.TransitionName(triggerEvent) is not { Length: > 0 } name)
+        {
+            return null;
+        }
+
+        if (eventSequence > 0)
+        {
+            var fired = await session.Events.QueryAllRawEvents()
+                .Where(e => e.Sequence == eventSequence)
+                .FirstOrDefaultAsync(ct);
+
+            if (fired is null || fired.StreamId != content.Id || fired.Data is not barakoCMS.Events.ContentTransitioned at)
+            {
+                return null;
+            }
+
+            return new TemplateTransition(
+                at.Transition, ContentProjection.OccurredAt(fired), await PersonAsync(at.UpdatedBy, ct));
+        }
+
+        var contentId = content.Id;
+        var latest = await session.Events.QueryRawEventDataOnly<barakoCMS.Events.ContentTransitioned>()
+            .Where(e => e.Id == contentId && e.Transition == name)
+            .OrderByDescending(e => e.OccurredAt)
+            .FirstOrDefaultAsync(ct);
+
+        if (latest is null)
+        {
+            return null;
+        }
+
+        return new TemplateTransition(
+            latest.Transition,
+            latest.OccurredAt == default ? content.UpdatedAt : latest.OccurredAt,
+            await PersonAsync(latest.UpdatedBy, ct));
+    }
 
     /// <summary>
     /// The resolution itself, which needs no database. Static so a caller holding no extractor, such
@@ -125,7 +321,10 @@ public class TemplateVariableExtractor(IDocumentSession session) : ITemplateVari
     /// There is no syntax for inserting a value raw into HTML. A data field can hold whatever a public
     /// form submitted, and the template cannot tell such a field from one an editor wrote.
     /// </remarks>
-    public static string Resolve(string template, Content content, TemplateValueEncoding encoding)
+    public static string Resolve(string template, Content content, TemplateValueEncoding encoding) =>
+        Resolve(template, content, encoding, TemplateContext.Unprepared);
+
+    internal static string Resolve(string template, Content content, TemplateValueEncoding encoding, TemplateContext context)
     {
         ArgumentNullException.ThrowIfNull(content, nameof(content));
 
@@ -135,9 +334,10 @@ public class TemplateVariableExtractor(IDocumentSession session) : ITemplateVari
         // Single pass over the ORIGINAL template. Because each {{...}} token is resolved exactly
         // once and substituted values are NOT re-scanned, a content field whose value itself
         // contains "{{data.Other}}" cannot inject/leak another field (second-order injection).
+        // A formatted value, a name and a duration go through Encode like any other value.
         return TemplateToken.Replace(template, match =>
         {
-            var value = ValueFor(match.Groups[1].Value, content);
+            var value = TemplateExpression.Evaluate(match.Groups[1].Value, content, context);
             return value is null ? match.Value : Encode(value, encoding);
         });
     }
@@ -150,38 +350,6 @@ public class TemplateVariableExtractor(IDocumentSession session) : ITemplateVari
         TemplateValueEncoding.SingleLine => LineBreaks.Replace(value, " "),
         _ => value,
     };
-
-    /// <summary>The value a token stands for, or null when the token is not a known variable.</summary>
-    private static string? ValueFor(string key, Content content)
-    {
-        // An erased entry has no status or timestamps to report. Empty, not the defaults of a new
-        // Content, which would read as Draft and the time the action ran.
-        if (content is barakoCMS.Features.Workflows.ErasedContent && key is "status" or "createdAt" or "updatedAt")
-        {
-            return string.Empty;
-        }
-
-        switch (key)
-        {
-            case "id": return content.Id.ToString();
-            case "contentType": return content.ContentType ?? string.Empty;
-            case "status": return content.Status.ToString();
-            case "createdAt": return content.CreatedAt.ToString("o");
-            case "updatedAt": return content.UpdatedAt.ToString("o");
-        }
-
-        if (key.StartsWith("data.", StringComparison.Ordinal) && content.Data != null)
-        {
-            var fieldName = key.Substring("data.".Length);
-            if (content.Data.TryGetValue(fieldName, out var value))
-            {
-                return value?.ToString() ?? string.Empty;
-            }
-        }
-
-        // Unknown variable: the caller leaves the original token untouched.
-        return null;
-    }
 
     private List<TemplateVariable> GetSystemVariables()
     {
@@ -221,9 +389,97 @@ public class TemplateVariableExtractor(IDocumentSession session) : ITemplateVari
                 Description = "When the content was last updated",
                 Example = "2024-12-16T15:30:00Z",
                 Type = "datetime"
+            },
+            new()
+            {
+                Name = "{{createdBy.name}}",
+                Description = "Username of whoever created the content. Empty when no user did",
+                Example = "maria",
+                Type = "string"
+            },
+            new()
+            {
+                Name = "{{createdBy.email}}",
+                Description = "Email address of whoever created the content. Empty when no user did",
+                Example = "maria@example.com",
+                Type = "string"
+            },
+            new()
+            {
+                Name = "{{transition.name}}",
+                Description = "The transition that fired the workflow. Transition triggers only",
+                Example = "Approve",
+                Type = "string"
+            },
+            new()
+            {
+                Name = "{{transition.at}}",
+                Description = "When the transition happened. Transition triggers only",
+                Example = "2024-12-16T15:30:00Z",
+                Type = "datetime"
+            },
+            new()
+            {
+                Name = "{{transition.by.name}}",
+                Description = "Username of whoever made the transition. Transition triggers only",
+                Example = "maria",
+                Type = "string"
+            },
+            new()
+            {
+                Name = "{{transition.by.email}}",
+                Description = "Email address of whoever made the transition. Transition triggers only",
+                Example = "maria@example.com",
+                Type = "string"
             }
         };
     }
+
+    private static List<TemplateVariable> GetFormats() =>
+    [
+        new()
+        {
+            Name = "{{createdAt | date \"MMM d, h:mm tt\"}}",
+            Description = "A date in the site's time zone, in a .NET date format. A second argument names another zone, such as \"Asia/Manila\"",
+            Example = "Dec 16, 6:00 PM",
+            Type = "string"
+        },
+        new()
+        {
+            Name = "{{data.Field | money}}",
+            Description = "A number with two decimals, after the site's currency code. An argument names another code, such as \"USD\"",
+            Example = "PHP 1,250.00",
+            Type = "string"
+        },
+        new()
+        {
+            Name = "{{data.Field | upper}}",
+            Description = "The value in capitals",
+            Example = "TEXT",
+            Type = "string"
+        },
+        new()
+        {
+            Name = "{{data.Field | lower}}",
+            Description = "The value in small letters",
+            Example = "text",
+            Type = "string"
+        },
+        new()
+        {
+            Name = "{{duration createdAt updatedAt}}",
+            Description = "The time between two dates, in hours and minutes",
+            Example = "8 hours 30 minutes",
+            Type = "string"
+        },
+        new()
+        {
+            Name = "{{hours createdAt updatedAt}}",
+            Description = "The time between two dates, in hours to one decimal",
+            Example = "8.5",
+            Type = "number"
+        },
+    ];
 
     private List<TemplateVariable> ExtractDataFields(Content content)
     {
