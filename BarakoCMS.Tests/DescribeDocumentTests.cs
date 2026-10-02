@@ -81,6 +81,21 @@ public class DescribeDocumentTests
     }
 
     [Fact]
+    public void An_editor_hint_added_to_the_vocabulary_is_described_with_the_field_types_it_is_for()
+    {
+        FieldPresentation.Editors.Should().NotBeEmpty();
+        FieldPresentation.Editors.Select(e => e.Name).Should().NotContain("gallery", "the control: there is no such hint today");
+        FieldPresentation.Spec[] hints = [.. FieldPresentation.Editors, new FieldPresentation.Spec("gallery", ["array"])];
+
+        var described = DescribeDocument.FieldHints(hints);
+
+        described.Should().HaveCount(FieldPresentation.Editors.Count + 1);
+        described.Select(h => h.Name).Should().Equal(hints.Select(h => h.Name));
+        described[described.Count - 1].FieldTypes.Should().Equal(["array"]);
+        described.Single(h => h.Name == "image").FieldTypes.Should().Equal(["url", "string"]);
+    }
+
+    [Fact]
     public void A_module_left_off_the_enabled_list_is_not_described()
     {
         var catalogue = new ModuleCatalogue(

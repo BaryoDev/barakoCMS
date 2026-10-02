@@ -47,6 +47,20 @@ public interface IContentTypeValidatorService
         LifecycleDefinition? lifecycle,
         IReadOnlyCollection<FieldDefinition> fields)
         => ValidateLifecycle(lifecycle);
+
+    /// <summary>
+    /// Checks the route template a type declares. Null is valid and means the type has none.
+    /// </summary>
+    /// <remarks>
+    /// The default is the rule itself, so an implementor written before this member refuses what
+    /// the built-in validator refuses. The feed and the sitemap check a stored template again
+    /// before they use it.
+    /// </remarks>
+    (bool IsValid, List<string> Errors) ValidateRouteTemplate(string? routeTemplate)
+    {
+        var errors = FieldPresentation.RouteTemplateErrors(routeTemplate);
+        return (errors.Count == 0, errors);
+    }
 }
 
 public class ContentTypeValidatorService : IContentTypeValidatorService
@@ -151,10 +165,13 @@ public class ContentTypeValidatorService : IContentTypeValidatorService
                 }
 
                 errors.AddRange(MoneyFields.DefinitionErrors(field));
+                errors.AddRange(FieldPresentation.DefinitionErrors(field));
 
                 if (!stored.Contains(field))
                     errors.AddRange(FieldRules.DefinitionErrors(field));
             }
+
+            errors.AddRange(FieldPresentation.RoleErrors(fields));
         }
 
         return (errors.Count == 0, errors);

@@ -121,7 +121,10 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
             // lists is not read as a change to who may see it.
             await barakoCMS.Core.RoleReferences.ToIdsAsync(_session, type.Fields, ct);
             if (match is not null)
+            {
                 await barakoCMS.Core.RoleReferences.ToIdsAsync(_session, match.Fields ?? [], ct);
+                KeepStoredPresentation(type, match);
+            }
 
             foreach (var error in await TypeErrorsAsync(type, match, maxFields, ct))
                 AddError(new ValidationFailure($"contentTypes[{i}]", $"Content type '{Shorten(type.Name)}': {error}"));
@@ -155,6 +158,8 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
                 // content off the public API with the import still reporting success.
                 match.IsPubliclyDeliverable = type.IsPubliclyDeliverable;
                 match.IsSingleton = type.IsSingleton;
+                // Kept when the bundle carries none, for the reason KeepStoredPresentation gives.
+                match.RouteTemplate = type.RouteTemplate ?? match.RouteTemplate;
                 match.UpdatedAt = DateTimeOffset.UtcNow;
                 toStore.Add(match);
             }
@@ -175,6 +180,7 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
                     Lifecycle = type.Lifecycle,
                     IsPubliclyDeliverable = type.IsPubliclyDeliverable,
                     IsSingleton = type.IsSingleton,
+                    RouteTemplate = type.RouteTemplate,
                     CreatedAt = DateTimeOffset.UtcNow,
                     UpdatedAt = DateTimeOffset.UtcNow,
                 };
@@ -314,6 +320,42 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
     }
 
     /// <summary>
+    /// Gives each bundle field the editor, section and role its stored counterpart holds, where
+    /// the bundle carries none.
+    /// </summary>
+    /// <remarks>
+    /// A bundle exported before these members existed cannot carry them, and once read a member
+    /// left out and a member set to null are the same. Replacing would clear every hint on the
+    /// stored type with the import still reporting success. So null keeps and a value replaces,
+    /// which means a bundle cannot clear one: the presentation endpoint does that.
+    ///
+    /// Only on a field whose type the bundle leaves as it is, since each value is tied to field
+    /// types. A stored role is not kept when the bundle gives that role to another field, so a
+    /// bundle can move one. Run before the type is checked, so what is checked is what is stored.
+    /// </remarks>
+    private static void KeepStoredPresentation(ContentTypeDefinition type, ContentTypeDefinition stored)
+    {
+        foreach (var field in type.Fields)
+        {
+            var current = (stored.Fields ?? []).FirstOrDefault(
+                f => f is not null && string.Equals(f.Name, field.Name, StringComparison.OrdinalIgnoreCase));
+
+            if (current is null || !string.Equals(current.Type, field.Type, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            field.Editor ??= current.Editor;
+            field.Section ??= current.Section;
+
+            if (field.Role is null
+                && current.Role is not null
+                && !type.Fields.Any(f => string.Equals(f.Role, current.Role, StringComparison.Ordinal)))
+            {
+                field.Role = current.Role;
+            }
+        }
+    }
+
+    /// <summary>
     /// Points each reference field holding the source id of another record in this bundle at the id
     /// that record is imported under. A reference to anything outside the bundle is left alone, and
     /// validation refuses it unless it exists here.
@@ -392,6 +434,19 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
                 .SelectMany(chunk => validator.Validate(type.Name, type.DisplayName, chunk.ToList(), carried).Errors)
                 .Distinct()
                 .ToList();
+
+        errors.AddRange(validator.ValidateRouteTemplate(type.RouteTemplate).Errors);
+
+        // The validator refuses a role two fields declare, but it saw an oversized list a chunk at
+        // a time, and the two can sit in different chunks.
+        if (type.Fields.Count > maxFields
+            && type.Fields
+                .Where(f => !string.IsNullOrEmpty(f.Role))
+                .GroupBy(f => f.Role, StringComparer.Ordinal)
+                .Any(g => g.Count() > 1))
+        {
+            errors.Add("a role is declared by more than one field, and one field of a type holds a role.");
+        }
 
         // Refused here because the validator does not check it. Two fields of one name let a bundle
         // declare a field both Sensitive and Public, and public delivery serves it as the Public one.
