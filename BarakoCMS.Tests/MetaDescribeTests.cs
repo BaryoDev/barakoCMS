@@ -169,6 +169,47 @@ public class MetaDescribeTests
         FieldRules.DefinitionErrors(field).Should().BeEmpty("the alias is read as the rule it is listed under");
     }
 
+    /// <summary>
+    /// The editor hints and roles listed are the ones a content type save accepts, on the field
+    /// types it accepts them on, asked of the validator itself.
+    /// </summary>
+    [Theory]
+    [InlineData("fieldEditors")]
+    [InlineData("fieldRoles")]
+    public async Task The_editor_hints_and_roles_described_are_the_ones_a_type_save_accepts(string part)
+    {
+        var document = await DescribeAsync(await CallerHolding());
+
+        var vocabulary = part == "fieldEditors" ? FieldPresentation.Editors : FieldPresentation.Roles;
+        vocabulary.Should().NotBeEmpty();
+
+        var described = document.GetProperty(part).EnumerateArray().ToList();
+        described.Should().HaveCount(vocabulary.Count);
+        described.Select(Name).Should().Equal(vocabulary.Select(v => v.Name));
+
+        var validator = new ContentTypeValidatorService();
+
+        foreach (var hint in described)
+        {
+            var listed = Strings(hint, "fieldTypes");
+            listed.Should().NotBeEmpty("{0} applies to some field type", Name(hint));
+
+            foreach (var type in FieldTypeRegistry.Types.Select(t => t.Name))
+            {
+                var field = new FieldDefinition { Name = "Field", DisplayName = "Field", Type = type };
+                if (part == "fieldEditors") field.Editor = Name(hint);
+                else field.Role = Name(hint);
+
+                // Only what the presentation check says. A choice or a reference is refused for
+                // other reasons, in words that name neither the editor nor the role.
+                var refused = validator.Validate("probe", "Probe", [field]).Errors
+                    .Any(error => error.Contains("applies to a field of type"));
+
+                refused.Should().Be(!listed.Contains(type), "'{0}' on a field of type '{1}'", Name(hint), type);
+            }
+        }
+    }
+
     [Fact]
     public async Task A_caller_holding_no_capability_gets_the_field_types_and_rules_and_nothing_else()
     {
@@ -303,7 +344,10 @@ public class MetaDescribeTests
         var document = await DescribeAsync(client);
 
         document.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(
-            ["apiContractVersion", "fieldTypes", "rules", "capabilities", "workflowActions", "modules"]);
+        [
+            "apiContractVersion", "fieldTypes", "rules", "fieldEditors", "fieldRoles",
+            "capabilities", "workflowActions", "modules",
+        ]);
 
         var fieldTypes = document.GetProperty("fieldTypes").EnumerateArray().ToList();
         fieldTypes.Should().NotBeEmpty();
@@ -318,6 +362,16 @@ public class MetaDescribeTests
         foreach (var rule in rules)
         {
             rule.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(["name", "aliases"]);
+        }
+
+        foreach (var part in new[] { "fieldEditors", "fieldRoles" })
+        {
+            var hints = document.GetProperty(part).EnumerateArray().ToList();
+            hints.Should().NotBeEmpty();
+            foreach (var hint in hints)
+            {
+                hint.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(["name", "fieldTypes"]);
+            }
         }
 
         document.GetProperty("capabilities").GetArrayLength().Should().BeGreaterThan(0);

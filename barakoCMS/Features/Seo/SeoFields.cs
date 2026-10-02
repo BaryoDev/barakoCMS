@@ -114,15 +114,15 @@ internal static class SeoFields
     /// The fallback is the part worth having. An empty meta title is worse than no tag at all: a
     /// search engine shown one indexes the page with nothing to display, whereas a page with no tag
     /// gets a title chosen from its content. So an unset meta title resolves to the entry's own
-    /// title, found the way the admin finds it, and only a genuinely titleless entry resolves to
-    /// null.
+    /// title, the field the type gives the title role first and then found the way the admin finds
+    /// it, and only a genuinely titleless entry resolves to null.
     ///
     /// Case-insensitive lookups throughout, because an entry can hold "metatitle" under a field
     /// declared "MetaTitle" and every other reader in this codebase matches that way.
     /// </remarks>
-    public static SeoMetadata Resolve(IReadOnlyDictionary<string, object> data)
+    public static SeoMetadata Resolve(IReadOnlyDictionary<string, object> data, ContentTypeDefinition? definition)
     {
-        var title = Text(data, MetaTitle) ?? EntryTitle(data);
+        var title = Text(data, MetaTitle) ?? RoleTitle(data, definition) ?? EntryTitle(data);
 
         return new SeoMetadata(
             Title: title,
@@ -131,6 +131,16 @@ internal static class SeoFields
             ImageUrl: Text(data, SocialImage),
             NoIndex: Flag(data, NoIndex));
     }
+
+    /// <summary>The metadata for one entry whose type is not at hand, so no field role is read.</summary>
+    public static SeoMetadata Resolve(IReadOnlyDictionary<string, object> data) => Resolve(data, null);
+
+    // The field the type gives the title role, read ahead of the guessed names.
+    private static string? RoleTitle(IReadOnlyDictionary<string, object> data, ContentTypeDefinition? definition) =>
+        barakoCMS.Core.Validation.FieldPresentation.FieldWithRole(
+            definition, barakoCMS.Core.Validation.FieldPresentation.TitleRole) is { } field
+            ? Text(data, field)
+            : null;
 
     /// <summary>
     /// The entry's own title, from the first of the names the admin looks for.

@@ -438,13 +438,17 @@ same registries the API checks requests against, so a client does not keep its o
     { "name": "int", "aliases": ["integer", "number"], "editorHint": "number", "ruleNames": ["min", "max", "requiredWhen"] }
   ],
   "rules": [ { "name": "pattern", "aliases": ["regex"] } ],
+  "fieldEditors": [ { "name": "blocks", "fieldTypes": ["json", "array"] } ],
+  "fieldRoles": [ { "name": "title", "fieldTypes": ["string", "text"] } ],
   "capabilities": [ { "name": "manage_roles", "source": "core", "note": null } ],
   "workflowActions": [ { "type": "Webhook", "requiredParameters": ["Url"], "optionalParameters": ["Secret"], "secretParameters": ["Secret"] } ],
   "modules": [ { "name": "Accounting" } ]
 }
 ```
 
-`fieldTypes` and `rules` go to every signed-in caller. The other three repeat what an endpoint with
+`fieldTypes`, `rules`, `fieldEditors` and `fieldRoles` go to every signed-in caller. The last two
+are the values a field's `editor` and `role` may hold, see
+[field-hints-and-roles.md](field-hints-and-roles.md). The other three repeat what an endpoint with
 a gate of its own already lists, so each is `null` for a caller that endpoint would refuse, and a
 list, possibly empty, for one it would serve. So `null` means withheld, and an empty list means none:
 
@@ -533,7 +537,7 @@ says.
 | `Features/Audit/*` | `view_audit_log` | `GET /api/audit` | SuperAdmin, Admin |
 | `Features/Settings/*` | `manage_settings` | `/api/settings`, `GET /api/settings/email` | SuperAdmin, Admin |
 | `Features/Settings/Email/*` | `manage_email_settings` | `PUT /api/settings/email`, `POST /api/settings/email/test` | SuperAdmin |
-| `Features/ContentType/*` | `manage_content_types` | `/api/content-types` (and its `/api/schemas` alias), `POST /api/content-types/{name}/rebuild`, `POST /api/content-types/{name}/seo-fields` | SuperAdmin, Admin |
+| `Features/ContentType/*` | `manage_content_types` | `/api/content-types` (and its `/api/schemas` alias), `POST /api/content-types/{name}/rebuild`, `POST /api/content-types/{name}/seo-fields`, `PUT /api/content-types/{name}/fields/{field}/presentation`, `PUT /api/content-types/{name}/route-template` | SuperAdmin, Admin |
 | `Features/Modules/*` | `view_modules` | `GET /api/modules` | SuperAdmin, Admin |
 | `Features/ContentType/*` | `manage_public_delivery` | `PUT /api/content-types/{name}/public-delivery`, `PUT /api/content-types/{name}/fields/{field}/sensitivity` | SuperAdmin, Admin |
 | `Features/Monitoring/*` | `view_monitoring` | `GET /api/monitoring/health`, `/k8s`, `/metrics` | SuperAdmin, Admin |

@@ -56,6 +56,9 @@ the repository.
   that carries a different one, or none where the stored field has one, is refused, and
   `PUT /api/content-types/{name}/fields/{field}/currency` is the way to change it. A field the
   stored type does not have yet takes what the bundle declares.
+- A field's `editor`, `section` and `role` and a type's `routeTemplate` travel in the bundle and are
+  checked the way `POST /api/content-types` checks them. They are replaced with what the bundle
+  declares, so a bundle exported before one was set clears it on the stored type.
 - Each entry goes through the same write path as `POST /api/contents`: a field the caller may not
   see is dropped, the entry is validated against its type as the bundle leaves it, the type's
   lifecycle hooks run, and the entry starts in the type's initial lifecycle state. The singleton cap

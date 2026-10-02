@@ -29,6 +29,12 @@ internal class Request
     public bool IsSingleton { get; set; }
 
     /// <summary>
+    /// Where an entry of this type lives on the site, such as <c>/blog/{slug}</c>. Null, the
+    /// default, leaves the feed and the sitemap on <c>Feeds:Paths:{type}</c> and <c>/{type}/{slug}</c>.
+    /// </summary>
+    public string? RouteTemplate { get; set; }
+
+    /// <summary>
     /// Make the event stream the source of truth for entries of this type. Permanent.
     /// </summary>
     /// <remarks>
@@ -81,6 +87,14 @@ internal class Endpoint(
             isValid = false;
             errors.AddRange(lifecycleErrors);
         }
+
+        var (routeValid, routeErrors) = validator.ValidateRouteTemplate(req.RouteTemplate);
+        if (!routeValid)
+        {
+            isValid = false;
+            errors.AddRange(routeErrors);
+        }
+
         if (!isValid)
         {
             // Was the one endpoint emitting two error shapes: this list, and ProblemDetails from
@@ -201,6 +215,7 @@ internal class Endpoint(
             Fields = req.Fields,
             IsPubliclyDeliverable = req.IsPubliclyDeliverable,
             IsSingleton = req.IsSingleton,
+            RouteTemplate = req.RouteTemplate,
             CreatedAt = DateTimeOffset.UtcNow,
             UpdatedAt = DateTimeOffset.UtcNow
         };

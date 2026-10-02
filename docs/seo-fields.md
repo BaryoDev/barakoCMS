@@ -62,7 +62,9 @@ type has no SEO fields" for "this entry has not filled them in".
 a search engine shown one indexes the page with nothing to display, whereas a page with no tag gets
 a title chosen from its content.
 
-The entry title is found under `Title`, `Name`, `DisplayName`, `Label`, `Subject` or `Heading`, in
+The field the type gives the `title` role is read first, when it has one and the entry holds a
+value in it (see [field-hints-and-roles.md](field-hints-and-roles.md)). Failing that, the entry
+title is found under `Title`, `Name`, `DisplayName`, `Label`, `Subject` or `Heading`, in
 that order, which is exactly the list the admin uses to label an entry. Two lists would answer
 differently the first time one of them gained a name, and the symptom is a page whose tab and whose
 search result disagree.

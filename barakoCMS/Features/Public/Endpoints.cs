@@ -197,6 +197,19 @@ internal static class PublicDelivery
     /// <summary>One batched load per request regardless, but a cap keeps the response bounded.</summary>
     public const int MaxIncludes = 5;
 
+    /// <summary>
+    /// The frontend path of an entry of this type, holding <c>{slug}</c>: the type's own route
+    /// template, else <c>Feeds:Paths:{type}</c>, else <c>/{type}/{slug}</c>.
+    /// </summary>
+    /// <remarks>
+    /// One answer for the feed and the sitemap, which link to the same pages. A stored template
+    /// that a save would refuse is passed over, so the link stays a path on the configured host.
+    /// </remarks>
+    public static string PathTemplate(ContentTypeDefinition def, IConfiguration config) =>
+        barakoCMS.Core.Validation.FieldPresentation.IsRouteTemplate(def.RouteTemplate)
+            ? def.RouteTemplate!
+            : config[$"Feeds:Paths:{def.Name}"] ?? $"/{def.Name}/{{slug}}";
+
     public static string? SlugValue(ContentDoc c, string? slugField) =>
         slugField is not null && c.Data.TryGetValue(slugField, out var v) ? v?.ToString() : null;
 
@@ -260,7 +273,7 @@ internal static class PublicDelivery
         // Resolved off the projected data, not the document, so a field the type marked non-Public
         // cannot reach a frontend through this block after being scrubbed out of Data.
         var seo = barakoCMS.Features.Seo.SeoFields.IsOptedIn(def)
-            ? barakoCMS.Features.Seo.SeoFields.Resolve(data)
+            ? barakoCMS.Features.Seo.SeoFields.Resolve(data, def)
             : null;
 
         return new PublicContentResponse(

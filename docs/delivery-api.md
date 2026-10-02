@@ -41,6 +41,12 @@ exist.
 | GET | `/api/public/sitemap.xml` | sitemap |
 | GET | `/api/public/events` | a server-sent event stream of changes (off by default, see below) |
 
+The feed takes an item's title, description and date from the fields the type gives the `title`,
+`summary` and `date` roles, and the feed and the sitemap build each link from the type's
+`routeTemplate`. A type that declares neither is read by field name and linked at
+`Feeds:Paths:{type}` or `/{type}/{slug}`, as before. See
+[field-hints-and-roles.md](field-hints-and-roles.md).
+
 `/{type}/{slug}` needs the type to have a slug field: a field of type `slug`, or failing that a
 field named `slug`. Without one the route is 404.
 

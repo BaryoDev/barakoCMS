@@ -148,6 +148,7 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
                 // content off the public API with the import still reporting success.
                 match.IsPubliclyDeliverable = type.IsPubliclyDeliverable;
                 match.IsSingleton = type.IsSingleton;
+                match.RouteTemplate = type.RouteTemplate;
                 match.UpdatedAt = DateTimeOffset.UtcNow;
                 toStore.Add(match);
             }
@@ -168,6 +169,7 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
                     Lifecycle = type.Lifecycle,
                     IsPubliclyDeliverable = type.IsPubliclyDeliverable,
                     IsSingleton = type.IsSingleton,
+                    RouteTemplate = type.RouteTemplate,
                     CreatedAt = DateTimeOffset.UtcNow,
                     UpdatedAt = DateTimeOffset.UtcNow,
                 };
@@ -385,6 +387,19 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
                 .SelectMany(chunk => validator.Validate(type.Name, type.DisplayName, chunk.ToList(), carried).Errors)
                 .Distinct()
                 .ToList();
+
+        errors.AddRange(validator.ValidateRouteTemplate(type.RouteTemplate).Errors);
+
+        // The validator refuses a role two fields declare, but it saw an oversized list a chunk at
+        // a time, and the two can sit in different chunks.
+        if (type.Fields.Count > maxFields
+            && type.Fields
+                .Where(f => !string.IsNullOrEmpty(f.Role))
+                .GroupBy(f => f.Role, StringComparer.Ordinal)
+                .Any(g => g.Count() > 1))
+        {
+            errors.Add("a role is declared by more than one field, and one field of a type holds a role.");
+        }
 
         // Refused here because the validator does not check it. Two fields of one name let a bundle
         // declare a field both Sensitive and Public, and public delivery serves it as the Public one.
