@@ -82,11 +82,13 @@ public class UniquenessWritePathTests
     // ---- the lock ---------------------------------------------------------------------------------
 
     /// <summary>
-    /// The first write holds the lock until it commits. Without the lock the second write reads no
-    /// holder, because the first is not committed, and both land.
+    /// The first write holds the lock and has not committed, so the second cannot see it in the
+    /// database. Only the lock can refuse the second, and it does so as in progress once the wait
+    /// runs out. Without the lock the second write finds no holder and is staged. Deterministic: it
+    /// does not depend on how long either write takes.
     /// </summary>
     [Fact]
-    public async Task A_second_write_of_a_held_value_waits_for_the_first_to_commit_and_is_then_refused()
+    public async Task A_write_of_a_value_another_uncommitted_write_holds_is_refused_as_in_progress()
     {
         var store = _fixture.Services.GetRequiredService<IDocumentStore>();
         var tenant = $"unl-{Guid.NewGuid():N}"[..14];
@@ -96,23 +98,114 @@ public class UniquenessWritePathTests
         await using var first = store.LightweightSession(tenant);
         await new ContentWriter(first, new ContentSourcingPolicyService(first)).CreateAsync(Created(type, "B-7"), Ct);
 
-        await using var second = store.LightweightSession(tenant);
-        var secondWriter = new ContentWriter(second, new ContentSourcingPolicyService(second));
-        var racing = Task.Run(async () =>
+        await using (var second = store.LightweightSession(tenant))
         {
-            await secondWriter.CreateAsync(Created(type, "B-7"), Ct);
-            await second.SaveChangesAsync(Ct);
-        }, Ct);
+            var secondWriter = new ContentWriter(second, new ContentSourcingPolicyService(second));
+            var write = async () => await secondWriter.CreateAsync(Created(type, "B-7"), Ct);
 
-        var finished = await Task.WhenAny(racing, Task.Delay(TimeSpan.FromSeconds(2), Ct));
-        finished.Should().NotBeSameAs(racing, "the second write waits on the lock the first one holds");
+            var refused = await write.Should().ThrowAsync<ContentUniquenessException>();
+            refused.Which.IsInProgress.Should().BeTrue("the first write had not committed, so only its lock can stand in the way");
+            refused.Which.Message.Should().Contain("Try again");
+        }
 
         await first.SaveChangesAsync(Ct);
-
-        var outcome = async () => await racing.WaitAsync(TimeSpan.FromSeconds(30), Ct);
-        await outcome.Should().ThrowAsync<ContentUniquenessException>();
-
         (await CountAsync(store, tenant, type)).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task A_write_of_a_value_a_committed_entry_holds_is_refused_as_held()
+    {
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var tenant = $"unl-{Guid.NewGuid():N}"[..14];
+        var type = NewType();
+        await StoreTypeAsync(store, tenant, Badges(type));
+
+        await using (var first = store.LightweightSession(tenant))
+        {
+            await new ContentWriter(first, new ContentSourcingPolicyService(first)).CreateAsync(Created(type, "B-6"), Ct);
+            await first.SaveChangesAsync(Ct);
+        }
+
+        await using var second = store.LightweightSession(tenant);
+        var write = async () => await new ContentWriter(second, new ContentSourcingPolicyService(second))
+            .CreateAsync(Created(type, "B-6"), Ct);
+
+        var refused = await write.Should().ThrowAsync<ContentUniquenessException>();
+        refused.Which.IsInProgress.Should().BeFalse();
+        refused.Which.Rule.Should().Be(BadgeRule);
+    }
+
+    /// <summary>
+    /// A writer that commits more than once forgets, at each commit, what it wrote: another request
+    /// may move one of those entries afterwards, and only the database knows.
+    /// </summary>
+    [Fact]
+    public async Task A_writer_that_committed_still_sees_a_value_another_request_moved_onto_one_of_its_entries()
+    {
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var tenant = $"unl-{Guid.NewGuid():N}"[..14];
+        var type = NewType();
+        await StoreTypeAsync(store, tenant, Badges(type));
+
+        await using var longLived = store.LightweightSession(tenant);
+        var writer = new ContentWriter(longLived, new ContentSourcingPolicyService(longLived));
+        var moved = await writer.CreateAsync(Created(type, "Y-1"), Ct);
+        await longLived.SaveChangesAsync(Ct);
+
+        await using (var other = store.LightweightSession(tenant))
+        {
+            var entry = await other.LoadAsync<Content>(moved.Id, Ct);
+            await new ContentWriter(other, new ContentSourcingPolicyService(other)).AppendAsync(
+                entry!, new ContentUpdated(entry!.Id, new Dictionary<string, object> { ["Badge"] = "X-1" }, Guid.NewGuid(), null, DateTime.UtcNow), Ct);
+            await other.SaveChangesAsync(Ct);
+        }
+
+        var write = async () => await writer.CreateAsync(Created(type, "X-1"), Ct);
+
+        await write.Should().ThrowAsync<ContentUniquenessException>();
+    }
+
+    /// <summary>
+    /// A forced rule left two entries sharing a value. A sweep publishing both rewrites each without
+    /// changing what it holds, and neither is refused over the other, though both go through one
+    /// writer.
+    /// </summary>
+    [Fact]
+    public async Task A_sweep_publishes_two_entries_that_share_a_value_under_a_forced_rule()
+    {
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var tenant = $"uns-{Guid.NewGuid():N}"[..14];
+        var type = NewType();
+        await StoreTypeAsync(store, tenant, Badges(type));
+
+        var ids = new[] { Guid.NewGuid(), Guid.NewGuid() };
+        await using (var seed = store.LightweightSession(tenant))
+        {
+            foreach (var id in ids)
+            {
+                seed.Store(new Content
+                {
+                    Id = id,
+                    ContentType = type,
+                    Status = ContentStatus.Draft,
+                    ScheduledPublishAt = DateTime.UtcNow.AddMinutes(-5),
+                    Data = new() { ["Badge"] = "S-1" },
+                });
+            }
+
+            await seed.SaveChangesAsync(Ct);
+        }
+
+        await using (var sweep = store.LightweightSession(tenant))
+        {
+            var applied = await ScheduledContentService.SweepTenantAsync(sweep, DateTime.UtcNow, Ct);
+            applied.Should().Be(2);
+        }
+
+        await using var check = store.QuerySession(tenant);
+        var stored = await check.LoadManyAsync<Content>(Ct, ids);
+        stored.Should().HaveCount(2);
+        stored.Should().OnlyContain(c => c.Status == ContentStatus.Published);
     }
 
     [Fact]
@@ -307,5 +400,64 @@ public class UniquenessWritePathTests
             new Dictionary<string, string> { ["Field"] = "data.Badge", ["Value"] = value },
             new Content { Id = contentId, LastModifiedBy = Guid.NewGuid() },
             Ct);
+    }
+
+    // ---- the accounting module, which stores accounts around the writer ---------------------------
+
+    /// <summary>
+    /// <c>POST /api/accounting/accounts</c> stores the entry with <c>session.Store</c> from the
+    /// caller's values, so it applies the account type's rules itself.
+    /// </summary>
+    [Fact]
+    public async Task An_account_created_through_the_accounting_route_is_held_to_the_account_types_rules()
+    {
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var tenant = $"una-{Guid.NewGuid():N}"[..14].ToLowerInvariant();
+        var userId = Guid.NewGuid();
+
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new Tenant { Id = Guid.NewGuid(), Slug = tenant, Name = tenant, IsActive = true });
+            session.Store(new User
+            {
+                Id = userId,
+                Username = $"una-{Guid.NewGuid():n}"[..14],
+                Email = $"una-{Guid.NewGuid():n}@example.com",
+                RoleIds = [SystemRoles.SuperAdminRoleId],
+            });
+            session.Store(new Membership
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                TenantSlug = tenant,
+                Status = MembershipStatus.Active,
+                RoleIds = [SystemRoles.SuperAdminRoleId],
+            });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var account = BarakoCMS.Accounting.AccountingContentTypes.AccountDefinition();
+        account.Uniqueness = [new UniquenessRule { Name = "OneAccountPerName", Fields = ["Name"] }];
+        await StoreTypeAsync(store, tenant, account);
+
+        var client = _fixture.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
+            "Bearer", _fixture.CreateToken(
+                roles: ["SuperAdmin", "Admin"],
+                userId: userId.ToString(),
+                additionalClaims: new Dictionary<string, string> { ["tenant"] = tenant }));
+        client.DefaultRequestHeaders.Add("X-Tenant", tenant);
+
+        var first = await client.PostAsJsonAsync("/api/accounting/accounts", new { code = "1000", name = "Cash" }, Ct);
+        first.StatusCode.Should().Be(HttpStatusCode.Created, await first.Content.ReadAsStringAsync(Ct));
+
+        var second = await client.PostAsJsonAsync("/api/accounting/accounts", new { code = "1001", name = "Cash" }, Ct);
+        var body = await second.Content.ReadAsStringAsync(Ct);
+        second.StatusCode.Should().Be(HttpStatusCode.Conflict, body);
+        body.Should().Contain("OneAccountPerName");
+
+        await using var check = store.QuerySession(tenant);
+        (await check.Query<Content>().CountAsync(c => c.ContentType == account.Name, Ct)).Should().Be(1);
     }
 }

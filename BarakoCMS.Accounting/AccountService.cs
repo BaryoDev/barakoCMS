@@ -39,6 +39,16 @@ public class AccountService
         ?? throw new InvalidOperationException(
             "This AccountService was built on a read-only IQuerySession; it cannot write accounts.");
 
+    private barakoCMS.Infrastructure.Services.ContentWriter? _rules;
+
+    /// <summary>
+    /// Applies the account type's uniqueness rules, since accounts are stored around the content
+    /// writer. One per service, so accounts staged together are checked against each other.
+    /// </summary>
+    private barakoCMS.Infrastructure.Services.ContentWriter Rules => _rules ??=
+        new barakoCMS.Infrastructure.Services.ContentWriter(
+            WriteSession, new barakoCMS.Infrastructure.Services.ContentSourcingPolicyService(WriteSession));
+
     /// <summary>The whole chart, ordered by code.</summary>
     public async Task<IReadOnlyList<Account>> GetAllAsync(CancellationToken ct = default) =>
         (await AccountingContentReader.AccountsAsync(_query, ct))
@@ -73,6 +83,7 @@ public class AccountService
         {
             staged.Data = data;
             staged.UpdatedAt = DateTime.UtcNow;
+            await Rules.CheckUniquenessAsync(staged, ct);
             session.Store(staged);
             return;
         }
@@ -87,11 +98,12 @@ public class AccountService
         {
             match.Data = data;
             match.UpdatedAt = DateTime.UtcNow;
+            await Rules.CheckUniquenessAsync(match, ct);
             session.Store(match);
             return;
         }
 
-        session.Store(new barakoCMS.Models.Content
+        var created = new barakoCMS.Models.Content
         {
             Id = Guid.NewGuid(),
             ContentType = AccountingContentTypes.Account,
@@ -100,7 +112,10 @@ public class AccountService
             Data = data,
             CreatedAt = account.CreatedAt == default ? DateTime.UtcNow : account.CreatedAt,
             UpdatedAt = DateTime.UtcNow,
-        });
+        };
+
+        await Rules.CheckUniquenessAsync(created, ct);
+        session.Store(created);
     }
 
     /// <summary>Convenience for seeding: upserts many accounts into one unit of work.</summary>

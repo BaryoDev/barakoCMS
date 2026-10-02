@@ -139,6 +139,7 @@ public class UniquenessRuleTests
                 new { name = "Badge", displayName = "Badge", type = "string" },
                 new { name = "Amount", displayName = "Amount", type = "decimal" },
                 new { name = "Code", displayName = "Code", type = "uuid" },
+                new { name = "Mail", displayName = "Mail", type = "email" },
                 new { name = "Note", displayName = "Note", type = "string" },
             },
             uniqueness = new[]
@@ -146,6 +147,7 @@ public class UniquenessRuleTests
                 new { name = "OneHolderPerBadge", fields = new[] { "Badge" } },
                 new { name = "OneHolderPerAmount", fields = new[] { "Amount" } },
                 new { name = "OneHolderPerCode", fields = new[] { "Code" } },
+                new { name = "OneHolderPerMail", fields = new[] { "Mail" } },
             },
         }, Ct);
 
@@ -369,6 +371,22 @@ public class UniquenessRuleTests
     }
 
     [Fact]
+    public async Task An_email_is_compared_with_capitals_from_A_to_Z_lowered()
+    {
+        var tenant = await TenantAsync();
+        var client = await TeacherOfAsync(tenant);
+        var type = await BadgesAsync(client);
+
+        (await CreateAsync(client, type, new() { ["Mail"] = "teacher@school.example" })).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var shouted = await CreateAsync(client, type, new() { ["Mail"] = "Teacher@School.Example" });
+        shouted.StatusCode.Should().Be(HttpStatusCode.Conflict, await BodyAsync(shouted));
+        (await BodyAsync(shouted)).Should().Contain("OneHolderPerMail");
+
+        (await CreateAsync(client, type, new() { ["Mail"] = "other@school.example" })).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
     public async Task An_entry_with_nothing_in_a_compared_field_is_outside_the_rule()
     {
         var tenant = await TenantAsync();
@@ -417,6 +435,9 @@ public class UniquenessRuleTests
     [InlineData("Secret", null, "which is Sensitive")]
     [InlineData("Tags", null, "a rule compares a field holding one text, number or boolean")]
     [InlineData("Note", "Lunch", "which is not a declared state")]
+    [InlineData("When", null, "a rule compares a field holding one text, number or boolean")]
+    [InlineData("Day", null, "a rule compares a field holding one text, number or boolean")]
+    [InlineData("At", null, "a rule compares a field holding one text, number or boolean")]
     public async Task A_rule_the_type_cannot_hold_is_refused_when_the_type_is_created(
         string field, string? whenState, string expected)
     {
@@ -432,6 +453,9 @@ public class UniquenessRuleTests
                 new { name = "Note", displayName = "Note", type = "string" },
                 new { name = "Secret", displayName = "Secret", type = "string", sensitivity = "Sensitive" },
                 new { name = "Tags", displayName = "Tags", type = "array" },
+                new { name = "When", displayName = "When", type = "datetime" },
+                new { name = "Day", displayName = "Day", type = "date" },
+                new { name = "At", displayName = "At", type = "time" },
             },
             lifecycle = Clock(),
             uniqueness = new[] { new { name = "Probe", fields = new[] { field }, whenState } },

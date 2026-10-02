@@ -250,6 +250,107 @@ public class UniquenessExistingEntriesTests
         (await BodyAsync(response)).Should().Contain("the type declares no lifecycle");
     }
 
+    /// <summary>
+    /// Raising another field rewrites every entry's search text through one writer. Two entries a
+    /// forced rule left sharing a value are both rewritten, though neither changes what it holds.
+    /// </summary>
+    [Fact]
+    public async Task Raising_another_field_rewrites_entries_that_share_a_value_under_a_forced_rule()
+    {
+        var client = await AdminOfNewTenantAsync();
+        var (type, ids) = await RegisterAsync(client, "B-1", "B-1");
+        (await SetRulesAsync(client, type, BadgeRule, force: true)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var raise = await client.PutAsJsonAsync(
+            $"/api/content-types/{type}/fields/Note/sensitivity", new { sensitivity = "Sensitive" }, Ct);
+
+        raise.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(raise));
+        ids.Should().HaveCount(2);
+        foreach (var id in ids)
+        {
+            (await client.GetAsync($"/api/contents/{id}", Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+    }
+
+    /// <summary>
+    /// A caller whose read rule shows only drafts is listed only the drafts among the duplicates.
+    /// </summary>
+    [Fact]
+    public async Task The_duplicates_list_leaves_out_entries_the_callers_read_rule_hides()
+    {
+        var (token, _) = await TestHelpers.CreateAdminUserAsync(_fixture);
+        var admin = _fixture.CreateClient();
+        admin.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+        var type = $"rrd{Guid.NewGuid():n}"[..14];
+        (await admin.PostAsJsonAsync("/api/content-types", new
+        {
+            name = type,
+            displayName = "Register",
+            fields = new[] { new { name = "Badge", displayName = "Badge", type = "string" } },
+        }, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var draft = await IdOfAsync(await admin.PostAsJsonAsync("/api/contents", new
+        {
+            contentType = type, data = new Dictionary<string, object> { ["Badge"] = "D-1" }, status = "Draft",
+        }, Ct));
+        var published = await IdOfAsync(await admin.PostAsJsonAsync("/api/contents", new
+        {
+            contentType = type, data = new Dictionary<string, object> { ["Badge"] = "D-1" }, status = "Published",
+        }, Ct));
+        (await SetRulesAsync(admin, type, BadgeRule, force: true)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var userId = Guid.NewGuid();
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var role = new Role
+            {
+                Id = Guid.NewGuid(),
+                Name = $"DraftReader_{Guid.NewGuid():n}",
+                SystemCapabilities = ["manage_content_types"],
+                Permissions =
+                [
+                    new ContentTypePermission
+                    {
+                        ContentTypeSlug = type,
+                        Read = new PermissionRule
+                        {
+                            Enabled = true,
+                            Conditions = new Dictionary<string, object>
+                            {
+                                ["$status"] = new Dictionary<string, object> { ["_eq"] = "Draft" },
+                            },
+                        },
+                    },
+                ],
+            };
+            session.Store(role);
+            session.Store(new User
+            {
+                Id = userId,
+                Username = $"rrd-{Guid.NewGuid():n}"[..14],
+                Email = $"rrd-{Guid.NewGuid():n}@example.com",
+                RoleIds = [role.Id],
+            });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var reader = _fixture.CreateClient();
+        reader.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
+            "Bearer", _fixture.CreateToken(roles: ["DraftReader"], userId: userId.ToString()));
+
+        var listed = await reader.GetAsync($"/api/content-types/{type}/uniqueness/{Rule}/duplicates?pageSize=100", Ct);
+        var body = await BodyAsync(listed);
+        listed.StatusCode.Should().Be(HttpStatusCode.OK, body);
+
+        using var doc = JsonDocument.Parse(body);
+        var items = doc.RootElement.GetProperty("items").EnumerateArray().Select(i => i.GetProperty("id").GetGuid()).ToList();
+        items.Should().HaveCount(1);
+        items.Should().Contain(draft).And.NotContain(published);
+        doc.RootElement.GetProperty("totalItems").GetInt32().Should().Be(1);
+    }
+
     [Fact]
     public async Task Raising_the_sensitivity_of_a_field_a_rule_compares_is_refused()
     {

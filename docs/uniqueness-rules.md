@@ -31,9 +31,13 @@ curl -s -X POST $BASE/api/content-types -H "Authorization: Bearer $ADMIN" \
   The refusal names it.
 - `fields`: one to five fields of the type, compared together, or `$createdBy` for the user who
   created the entry. A field has to be Public and hold one value: `string`, `text`, `int`,
-  `decimal`, `money`, `bool`, `date`, `datetime`, `time`, `email`, `url`, `slug`, `uuid`,
-  `reference`, or a `choice` that takes one option. `GET /api/meta/describe` lists these under
-  `uniqueness`.
+  `decimal`, `money`, `bool`, `email`, `url`, `slug`, `uuid`, `reference`, or a `choice` that
+  takes one option. `GET /api/meta/describe` lists these under `uniqueness`. Any other field type
+  is refused, including one added later until it is placed on that list.
+- `date`, `datetime` and `time` are refused. The API accepts one instant or one time of day in many
+  spellings (`2026-10-02T00:00:00Z` and `2026-10-02T08:00:00+08:00`, `9:00` and `09:00`) and
+  stores each as written, so a rule comparing them as written would let the same value in twice,
+  and the database cannot read every spelling .NET accepts to compare them as values.
 - `whenState`: optional. A lifecycle state of the type. The rule then counts only entries in that
   state, so an entry that leaves it frees its values. Without it every entry of the type counts,
   whatever its state or status.
@@ -55,6 +59,10 @@ PostgreSQL compares them, as `jsonb`, the same way for the check and for the loc
 - An id (`uuid` or `reference`) ignoring case, braces, parentheses and dashes, since the API
   accepts an id in any of those spellings and stores it as written. An id written in the `0x`
   hexadecimal form is compared as written.
+- An `email` with the capitals A to Z lowered, the whole address: `Teacher@School.Example` and
+  `teacher@school.example` are one address. Letters outside A to Z are compared as written,
+  because the database and .NET need not lower them alike.
+- A `url` and anything else of type text exactly, as written.
 - `$createdBy` by user id.
 - An entry with no value in one of the fields of a rule (the field missing, `null` or `""`) is
   outside that rule, as a row holding NULL is outside a unique index. So is an entry nobody created
@@ -90,22 +98,48 @@ because the caller may have no right to read that entry. Nothing of the refused 
 | Collection sync | Checked on each entry. The run stops at that item and is logged at error level; the items written before it stay. |
 | `POST /api/public/forms/{slug}` | Checked like a create, `409`. A submission has no creator, so a `$createdBy` rule does not count it. |
 | Workflow `UpdateField` and `CreateTask` | Checked; the action fails and the run records the failure. `UpdateField` checks an entry with no event stream too. |
+| `POST /api/accounting/accounts` and `AccountService.UpsertAsync` | They store account entries with `session.Store`, around the writer, and apply the account type's rules themselves through `ContentWriter.CheckUniquenessAsync`. `409` from the route. |
 | `DELETE /api/contents/{id}/erase` and any delete | Nothing to release: the check reads the stored entries, and a removed entry holds nothing. |
 | Event-sourced types | The writer folds the stream and checks the entry it is about to store, as for every other type. |
 
-Three writes go around the content writer and are not checked: the stream rebuild
-(`POST /api/content-types/{name}/rebuild`), which stores what the stream already says; the data
-seeder; and `BarakoCMS.Accounting` writing its account entries directly. None of them is a way for
-a caller to send values.
+Two writes go around the content writer and are not checked: the stream rebuild
+(`POST /api/content-types/{name}/rebuild`), which stores what the stream already says, and the data
+seeder. Neither takes values from a caller. A module that stores entries with `session.Store`
+applies the rules by calling `ContentWriter.CheckUniquenessAsync` before it stores, as the
+accounting module does.
+
+A write that is refused because another write of the same values has not finished within five
+seconds (see below) is also a `409`, whose message says to try again.
+
+### What a refusal tells the caller
+
+A `409` says that some entry holds the values sent. That is the feature, and it is also an answer
+to "does an entry hold this value" for anyone who can make the write:
+
+- An anonymous visitor submitting a public form on a type with a rule (one submission per email,
+  say) learns whether an address has been used. Form submissions are rate limited (the `forms`
+  policy: by default five submissions per client address every ten minutes across all forms), which
+  slows this down and does not stop it.
+- A caller whose read is limited by a row rule learns that an entry they cannot see holds the
+  value, though not which entry.
+
+Sensitive and Hidden fields cannot be in a rule for this reason. For a Public field on a type with
+a public form, decide whether that answer is acceptable before declaring the rule.
 
 ## What makes it hold
 
 Two requests at once each reading "no other entry holds this" and both writing is the failure this
 exists to stop, so the check alone is not enough. Each write takes a PostgreSQL advisory lock in its
 own transaction, keyed on the tenant, the type, the rule and a hash of the values, before it reads.
-A second write of the same values waits until the first commits or rolls back, then reads what the
-first left. Writes of other values do not wait. The lock is released by the commit or the rollback,
-so a crash leaves nothing behind and a rerun starts clean. There is no record of who holds what to
+A second write of the same values keeps trying for the lock until the first commits or rolls back,
+then reads what the first left. Writes of other values do not wait. The lock is released by the
+commit or the rollback, so a crash leaves nothing behind and a rerun starts clean.
+
+The lock is tried, not waited on, for up to five seconds. Inside a spreadsheet or bundle import the
+holder's transaction lasts until the whole import commits, so a write of a value an import row took
+gives up after five seconds with a `409` that says to try again, rather than waiting for the import.
+For the same reason two imports taking the same values in opposite orders cannot deadlock: each
+gives up on the row the other holds, which becomes that row's error. There is no record of who holds what to
 release when an entry leaves the state, changes its values or is erased: the entries are what is
 read.
 
@@ -142,7 +176,8 @@ curl -s "$BASE/api/content-types/timeentry/uniqueness/OneOpenEntryPerTeacher/dup
   -H "Authorization: Bearer $ADMIN"
 ```
 
-Ids and creation times only, paged, for a caller with `manage_content_types` and read on the type.
+Ids and creation times only, paged, for a caller with `manage_content_types` and read on the type,
+and only the entries the caller's read rules let them see, as the entries list does.
 
 The count is read before the save. A write that read the type before the rule landed can still add
 an entry to it.
@@ -163,7 +198,6 @@ rule compares; `PUT /api/content-types/{name}/uniqueness` is how a stored type's
 - The check reads the type's entries through an expression the content type index does not cover,
   so its cost grows with the tenant's entries of the type. It runs on writes of types that declare
   a rule and only those.
-- Two writes that each take several locks in a different order can deadlock. PostgreSQL ends one of
-  them and it answers `500`; sending it again succeeds.
+- A write waits at most five seconds for another write of the same values, polling the lock.
 - `whenState` names a lifecycle state. Draft, Published and Archived are not states for this.
 - The obsolete synchronous `IContentWriter.Create` and `Append` do not apply rules.

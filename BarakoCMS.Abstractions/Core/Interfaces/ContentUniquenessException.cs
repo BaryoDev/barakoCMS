@@ -16,14 +16,29 @@ namespace barakoCMS.Core.Interfaces;
 public sealed class ContentUniquenessException : Exception
 {
     public ContentUniquenessException(string contentType, string rule, string? whenState)
-        : base(whenState is null
+        : this(contentType, rule, whenState, inProgress: false, whenState is null
             ? $"The rule '{rule}' on '{contentType}' allows one entry per value, and another entry already holds this one."
             : $"The rule '{rule}' on '{contentType}' allows one entry per value while {whenState}, and another entry already holds this one.")
+    {
+    }
+
+    private ContentUniquenessException(string contentType, string rule, string? whenState, bool inProgress, string message)
+        : base(message)
     {
         ContentType = contentType;
         Rule = rule;
         WhenState = whenState;
+        IsInProgress = inProgress;
     }
+
+    /// <summary>
+    /// Another write of the same values under the rule has not committed, and did not within the
+    /// time the writer waits. Whether it will hold them is not known yet, so the write may be sent
+    /// again.
+    /// </summary>
+    public static ContentUniquenessException InProgress(string contentType, string rule, string? whenState) =>
+        new(contentType, rule, whenState, inProgress: true,
+            $"Another write of the same values under the rule '{rule}' on '{contentType}' has not finished. Try again shortly.");
 
     /// <summary>The content type, as its definition names it.</summary>
     public string ContentType { get; }
@@ -33,4 +48,10 @@ public sealed class ContentUniquenessException : Exception
 
     /// <summary>The lifecycle state the rule counts, or null when it counts every entry.</summary>
     public string? WhenState { get; }
+
+    /// <summary>
+    /// True when the values were not found held but another write of them was still in flight, so
+    /// sending the write again may succeed.
+    /// </summary>
+    public bool IsInProgress { get; }
 }

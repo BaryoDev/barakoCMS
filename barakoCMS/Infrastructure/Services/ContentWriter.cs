@@ -383,6 +383,18 @@ public sealed class ContentWriter : IContentWriter
     }
 
     /// <summary>
+    /// Checks an entry against its type's uniqueness rules, for code that stores it with
+    /// <c>session.Store</c> instead of through this writer.
+    /// </summary>
+    /// <remarks>
+    /// Call it with the entry as it will be stored, before storing it, and save through the same
+    /// session: the lock it takes lasts until that session commits. It stages and ejects nothing.
+    /// </remarks>
+    /// <exception cref="ContentUniquenessException">Another entry holds the values of one rule.</exception>
+    public Task CheckUniquenessAsync(Content entry, CancellationToken cancellationToken)
+        => _uniqueness.EnforceAsync(entry, cancellationToken);
+
+    /// <summary>
     /// Checks a stored entry, as this write leaves it, against its type's uniqueness rules.
     /// </summary>
     /// <remarks>

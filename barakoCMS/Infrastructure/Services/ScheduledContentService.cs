@@ -367,6 +367,18 @@ public class ScheduledContentService : BackgroundService
                         "Scheduled transition for {ContentId} was overtaken by another writer; leaving it for the next sweep",
                         content.Id);
                 }
+                catch (barakoCMS.Core.Interfaces.ContentUniquenessException ex)
+                {
+                    // A schedule changes no compared value, so this is a write of the same values
+                    // still in flight elsewhere, or a race the writer lost. Left for the next sweep
+                    // like an overtaken item, so one entry cannot stop the rest of the batch or the
+                    // tenants after it. The writer has already ejected what was staged.
+                    session.EjectAllPendingChanges();
+
+                    logger?.LogWarning(
+                        "Scheduled transition for {ContentId} was refused by the uniqueness rule {Rule}; leaving it for the next sweep",
+                        content.Id, barakoCMS.Infrastructure.Logging.LogSafe.Value(ex.Rule));
+                }
             }
 
             // A short batch means the backlog is drained. A full batch that applied nothing means

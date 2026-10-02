@@ -30,10 +30,22 @@ internal static class UniquenessRules
 
     private const int MaxEchoLength = 50;
 
-    /// <summary>The field types a rule may name: the ones whose value is one text, number or boolean.</summary>
+    /// <summary>
+    /// The field types a rule may name: the ones whose value is one text, number or boolean, and
+    /// whose spellings of one value the comparison can tell apart.
+    /// </summary>
+    /// <remarks>
+    /// An allow list, so a field type added later is refused until it is placed here on purpose.
+    /// Not <c>date</c>, <c>datetime</c> or <c>time</c>: the validator accepts one instant or one time
+    /// of day in many spellings (<c>2026-10-02T00:00:00Z</c> and <c>2026-10-02T08:00:00+08:00</c>,
+    /// <c>9:00</c> and <c>09:00</c>) and stores each as written, and a collection sync writes a date
+    /// in the serializer's form. Compared as text, the same value written two ways would pass, and
+    /// the database cannot read every spelling .NET accepts, so the two sides could not normalise
+    /// them alike.
+    /// </remarks>
     public static IReadOnlyList<string> FieldTypes { get; } =
     [
-        "string", "text", "int", "decimal", "money", "bool", "date", "datetime", "time",
+        "string", "text", "int", "decimal", "money", "bool",
         "email", "url", "slug", "uuid", "reference", "choice",
     ];
 
@@ -48,6 +60,13 @@ internal static class UniquenessRules
 
     /// <summary>The entry's creator, not a data field.</summary>
     public const string CreatorKind = "creator";
+
+    /// <summary>
+    /// An email address, compared with A to Z lowered and nothing else, on both sides, so
+    /// <c>A@x.com</c> and <c>a@x.com</c> are one address. Letters outside A to Z are compared as
+    /// written, because the database's lower case and .NET's need not agree on them.
+    /// </summary>
+    public const string EmailKind = "email";
 
     /// <param name="Name">The field as the type declares it, or <see cref="UniquenessRule.CreatedByField"/>.</param>
     /// <param name="Kind">One of <see cref="PlainKind"/>, <see cref="IdKind"/> and <see cref="CreatorKind"/>.</param>
@@ -163,7 +182,10 @@ internal static class UniquenessRules
     private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
 
     private static Part PartFor(FieldDefinition field) =>
-        new(field.Name, IsType(field.Type, "reference") || IsType(field.Type, "uuid") ? IdKind : PlainKind);
+        new(field.Name,
+            IsType(field.Type, "reference") || IsType(field.Type, "uuid") ? IdKind
+            : IsType(field.Type, "email") ? EmailKind
+            : PlainKind);
 
     private static List<string> Problems(
         UniquenessRule? rule, IReadOnlyCollection<FieldDefinition> fields, LifecycleDefinition? lifecycle)

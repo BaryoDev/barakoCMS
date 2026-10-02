@@ -1,5 +1,6 @@
 using FastEndpoints;
 using Marten;
+using Marten.Linq.MatchesSql;
 using barakoCMS.Core.Validation;
 using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Services;
@@ -28,9 +29,9 @@ internal sealed class DuplicateEntry
 /// How an operator finds the entries a rule declared with <c>force</c> left as they were. Read in
 /// the database, a page at a time; the values are compared there exactly as a write compares them.
 ///
-/// Ids only. The caller needs the capability that declares rules and read on the type, since the
-/// list says which entries exist, and opens each entry through the content API, which applies its
-/// own rules to what it shows.
+/// Ids only, and only of entries the caller may read: the capability that declares rules, read on
+/// the type, and the type's row rules applied to each entry as the entries list applies them, since
+/// the list says which entries exist.
 /// </remarks>
 internal class Endpoint(
     IDocumentSession session,
@@ -71,11 +72,37 @@ internal class Endpoint(
             return;
         }
 
-        var page = await ContentUniqueness
+        var duplicates = ContentUniqueness
             .Duplicates(session, store.Options.DatabaseSchemaName, def.Name, rule)
             .OrderBy(c => c.CreatedAt)
-            .ThenBy(c => c.Id)
-            .ToPagedResponseAsync(req, ct);
+            .ThenBy(c => c.Id);
+
+        // Only the entries the caller may read, as the entries list does: a row rule that hides an
+        // entry hides it here too, and the count is of what is listed.
+        var predicate = await permissionResolver.ReadPredicateAsync(user, def.Name, ct);
+
+        PaginatedResponse<barakoCMS.Models.Content> page;
+        if (predicate.Compiled)
+        {
+            page = await duplicates
+                .Where(c => c.MatchesSql(predicate.Sql!, predicate.Parameters))
+                .ToPagedResponseAsync(req, ct);
+        }
+        else
+        {
+            // A rule only the entry can answer: every duplicate is read and asked, as the entries
+            // list does for the same rules.
+            var readable = new List<barakoCMS.Models.Content>();
+            foreach (var entry in await duplicates.ToListAsync(ct))
+            {
+                if (await permissionResolver.CanPerformActionAsync(user, def.Name, "read", entry, ct))
+                {
+                    readable.Add(entry);
+                }
+            }
+
+            page = readable.ToPagedResponse(req);
+        }
 
         await Send.OkAsync(new PaginatedResponse<DuplicateEntry>
         {

@@ -6,6 +6,7 @@ using barakoCMS.Core.Validation;
 using barakoCMS.Models;
 using Marten;
 using Marten.Linq.MatchesSql;
+using Marten.Services;
 using LogSafe = barakoCMS.Infrastructure.Logging.LogSafe;
 
 namespace barakoCMS.Infrastructure.Services;
@@ -22,6 +23,13 @@ namespace barakoCMS.Infrastructure.Services;
 /// first to commit or roll back and then reads what the first left. The lock ends with the
 /// transaction, so nothing is left behind by a crash and there is nothing to release when an entry
 /// leaves the state, changes its value or is erased: the entries themselves are what is read.
+/// </para>
+/// <para>
+/// The lock is tried rather than waited on, again and again until <see cref="LockWait"/> runs out.
+/// A waiting lock has no bound of its own, and inside an import the holder's transaction lasts until
+/// the whole import commits. A lock that never waits in the database also cannot deadlock: two
+/// imports taking the same values in opposite orders each give up on the row the other holds,
+/// instead of one of them failing with a deadlock.
 /// </para>
 /// <para>
 /// Not a unique index, because every type of every tenant shares one table and an index per rule
@@ -45,18 +53,26 @@ namespace barakoCMS.Infrastructure.Services;
 /// </remarks>
 internal sealed class ContentUniqueness(IDocumentSession session, ILogger? logger = null)
 {
-    private const string LockSql =
-        "select 1 from pg_advisory_xact_lock(hashtextextended(?, 0) # jsonb_hash_extended(?::jsonb, 0))";
+    private const string TryLockSql =
+        "select pg_try_advisory_xact_lock(hashtextextended(?, 0) # jsonb_hash_extended(?::jsonb, 0))";
+
+    /// <summary>How long a write tries for the lock before it is refused as in progress elsewhere.</summary>
+    public static readonly TimeSpan LockWait = TimeSpan.FromSeconds(5);
+
+    private static readonly TimeSpan LongestPause = TimeSpan.FromMilliseconds(200);
 
     private const string NoCreator = "00000000-0000-0000-0000-000000000000";
 
     private readonly Dictionary<string, TypeRules?> _types = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// The values each entry written through this session holds, by rule. The session's own writes
-    /// are not all stored yet, so a query cannot answer for them.
+    /// The values each entry written through this session since its last commit holds, by rule. Those
+    /// writes are not stored yet, so a query cannot answer for them. Forgotten on every commit, after
+    /// which the database answers again and another request may have moved any of them.
     /// </summary>
     private readonly Dictionary<Guid, Dictionary<string, string>> _held = new();
+
+    private bool _listening;
 
     private sealed record TypeRules(string Name, IReadOnlyList<UniquenessRules.Usable> Rules);
 
@@ -86,16 +102,20 @@ internal sealed class ContentUniqueness(IDocumentSession session, ILogger? logge
             }
 
             await session.BeginTransactionAsync(ct);
-            await session.QueryAsync<int>(LockSql, ct, LockScope(type.Name, rule.Name), key.Json);
+            await LockAsync(type, rule, key, ct);
 
             var heldHere = _held.Any(other =>
                 other.Key != entry.Id
                 && other.Value.TryGetValue(rule.Name, out var theirs)
                 && string.Equals(theirs, key.Canonical, StringComparison.Ordinal));
 
-            if (heldHere
-                || (await HeldByAnotherAsync(type, rule, key, entry.Id, ct)
-                    && !await HeldAlreadyAsync(rule, key, entry.Id, ct)))
+            // The exemption applies to both: an entry that held these values before this write is
+            // not refused over another holding them too, whether that other is stored or was
+            // written earlier through this session. A sweep or a rebuild that rewrites two entries
+            // a forced rule left sharing a value then writes both. For an entry this session already
+            // wrote, what it held is that write, not the stored row the write has not reached yet.
+            if ((heldHere || await HeldByAnotherAsync(type, rule, key, entry.Id, ct))
+                && !await HeldBeforeAsync(rule, key, entry.Id, ct))
             {
                 throw new ContentUniquenessException(type.Name, rule.Name, rule.WhenState);
             }
@@ -103,12 +123,68 @@ internal sealed class ContentUniqueness(IDocumentSession session, ILogger? logge
             holds[rule.Name] = key.Canonical;
         }
 
+        ListenForCommits();
         _held[entry.Id] = holds;
     }
 
+    private async Task<bool> HeldBeforeAsync(UniquenessRules.Usable rule, EntryKey key, Guid entryId, CancellationToken ct) =>
+        _held.TryGetValue(entryId, out var written)
+            ? written.TryGetValue(rule.Name, out var was) && string.Equals(was, key.Canonical, StringComparison.Ordinal)
+            : await HeldAlreadyAsync(rule, key, entryId, ct);
+
+    /// <summary>Tries for the lock until it is taken or <see cref="LockWait"/> runs out.</summary>
+    /// <remarks>
+    /// The lock is the transaction's, so a lock this session already holds is taken again at once,
+    /// which is what lets one import write several entries with one value under a rule that has no
+    /// state of its own to fail them.
+    /// </remarks>
+    private async Task LockAsync(TypeRules type, UniquenessRules.Usable rule, EntryKey key, CancellationToken ct)
+    {
+        var scope = LockScope(type.Name, rule.Name);
+        var deadline = DateTime.UtcNow + LockWait;
+        var pause = TimeSpan.FromMilliseconds(20);
+
+        while (true)
+        {
+            var taken = await session.QueryAsync<bool>(TryLockSql, ct, scope, key.Json);
+            if (taken.Count > 0 && taken[0])
+            {
+                return;
+            }
+
+            if (DateTime.UtcNow >= deadline)
+            {
+                throw ContentUniquenessException.InProgress(type.Name, rule.Name, rule.WhenState);
+            }
+
+            await Task.Delay(pause, ct);
+            pause = pause * 2 < LongestPause ? pause * 2 : LongestPause;
+        }
+    }
+
+    private void ListenForCommits()
+    {
+        if (_listening)
+        {
+            return;
+        }
+
+        _listening = true;
+        session.Listeners.Add(new ForgetOnCommit(this));
+    }
+
+    private sealed class ForgetOnCommit(ContentUniqueness uniqueness) : DocumentSessionListenerBase
+    {
+        public override Task AfterCommitAsync(IDocumentSession session, IChangeSet commit, CancellationToken token)
+        {
+            uniqueness.Reset();
+            return Task.CompletedTask;
+        }
+    }
+
     /// <summary>
-    /// Forgets what this session's writes hold. Called once the session's pending changes are
-    /// ejected, when none of them will be stored.
+    /// Forgets what this session's writes hold: on a commit, after which they are stored, and once
+    /// the session's pending changes are ejected, when none of them will be.
     /// </summary>
     public void Reset() => _held.Clear();
 
@@ -308,6 +384,10 @@ internal sealed class ContentUniqueness(IDocumentSession session, ILogger? logge
                 {
                     text = StripId(text);
                 }
+                else if (part.Kind == UniquenessRules.EmailKind)
+                {
+                    text = LowerAscii(text);
+                }
 
                 if (text.Length == 0)
                 {
@@ -362,6 +442,21 @@ internal sealed class ContentUniqueness(IDocumentSession session, ILogger? logge
 
         return found is null ? null : data[found];
     }
+
+    private const string Upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+    private const string Lower = "abcdefghijklmnopqrstuvwxyz";
+
+    /// <summary>The C# side of <c>translate(value, Upper, Lower)</c>: A to Z lowered, nothing else.</summary>
+    private static string LowerAscii(string value) =>
+        string.Create(value.Length, value, (span, source) =>
+        {
+            for (var i = 0; i < source.Length; i++)
+            {
+                var c = source[i];
+                span[i] = c is >= 'A' and <= 'Z' ? (char)(c + 32) : c;
+            }
+        });
 
     /// <summary>The C# side of <c>translate(lower(value), '{}()-', '')</c>.</summary>
     private static string StripId(string value)
@@ -426,6 +521,9 @@ internal sealed class ContentUniqueness(IDocumentSession session, ILogger? logge
                 .Append($"WHEN '{UniquenessRules.CreatorKind}' THEN to_jsonb(NULLIF({alias}.data ->> 'CreatedBy', '{NoCreator}')) ")
                 .Append($"WHEN '{UniquenessRules.IdKind}' THEN (SELECT CASE WHEN jsonb_typeof(e.value) = 'string' ")
                 .Append("THEN to_jsonb(translate(lower(e.value #>> '{}'), '{}()-', '')) ELSE e.value END ")
+                .Append(value)
+                .Append($") WHEN '{UniquenessRules.EmailKind}' THEN (SELECT CASE WHEN jsonb_typeof(e.value) = 'string' ")
+                .Append($"THEN to_jsonb(translate(e.value #>> '{{}}', '{Upper}', '{Lower}')) ELSE e.value END ")
                 .Append(value)
                 .Append(") ELSE (SELECT e.value ")
                 .Append(value)
