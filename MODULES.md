@@ -171,6 +171,24 @@ discovered module goes through the same contract check as one the host added, an
 the module, the version it declared and the range core accepts. See
 [docs/module-inventory.md](docs/module-inventory.md).
 
+### The version of your own endpoints
+
+`ContractVersion` is about what your module compiles against. A module that serves endpoints has a
+second, unrelated number: the version of the JSON and status codes those endpoints answer with,
+which is what a console or a renderer calling them depends on.
+
+```csharp
+public int HttpContractVersion => 1;
+```
+
+Move it when you remove or rename a response field, change a field's type or a status code, or
+start refusing a request you used to accept. Adding an optional field does not move it. It is
+independent of core's own HTTP versions and of your package version.
+
+The default is `0`, meaning unstated. Core does not check the number. It reports it in
+`GET /api/meta` under `moduleContractVersions`, one `{ name, version }` entry per enabled module,
+to callers who hold `view_modules`. A module the enabled list left off is not in that list.
+
 ## Writing a module
 
 The contract ships as [`BarakoCMS.Abstractions`](BarakoCMS.Abstractions): `IBarakoModule`,

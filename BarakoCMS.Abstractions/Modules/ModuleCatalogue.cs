@@ -25,7 +25,10 @@ internal sealed class ModuleCatalogue
     {
         var running = new HashSet<IBarakoModule>(enabled, ReferenceEqualityComparer.Instance);
         return new ModuleCatalogue(seen
-            .Select(m => new ModuleCatalogueEntry(m.Name, m.ContractVersion, running.Contains(m)))
+            .Select(m => new ModuleCatalogueEntry(m.Name, m.ContractVersion, running.Contains(m))
+            {
+                HttpContractVersion = m.HttpContractVersion,
+            })
             .ToArray());
     }
 }
@@ -33,4 +36,8 @@ internal sealed class ModuleCatalogue
 /// <param name="Name"><see cref="IBarakoModule.Name"/>, verbatim.</param>
 /// <param name="ContractVersion"><see cref="IBarakoModule.ContractVersion"/>, zero when unstated.</param>
 /// <param name="Enabled">Whether the module was registered and runs in this process.</param>
-internal sealed record ModuleCatalogueEntry(string Name, int ContractVersion, bool Enabled);
+internal sealed record ModuleCatalogueEntry(string Name, int ContractVersion, bool Enabled)
+{
+    /// <summary><see cref="IBarakoModule.HttpContractVersion"/>, zero when unstated.</summary>
+    public int HttpContractVersion { get; init; }
+}

@@ -459,6 +459,7 @@ public static class ServiceCollectionExtensions
         [
             "ETag",
             barakoCMS.Features.Monitoring.Meta.ApiContract.HeaderName,
+            barakoCMS.Features.Monitoring.Meta.ApiContract.DeliveryHeaderName,
         ];
 
         services.AddCors(options =>
@@ -1551,6 +1552,7 @@ public static class ServiceCollectionExtensions
             {
                 context.Response.Headers.TryAdd(
                     barakoCMS.Features.Monitoring.Meta.ApiContract.HeaderName, contractVersion);
+                context.Response.Headers.TryAdd(barakoCMS.Features.Monitoring.Meta.ApiContract.DeliveryHeaderName, barakoCMS.Features.Monitoring.Meta.ApiContract.DeliveryHeaderValue);
                 return Task.CompletedTask;
             });
 
