@@ -1319,6 +1319,50 @@ public class CapabilityGateTests
           + "asks for the fallback");
     }
 
+    /// <summary>
+    /// The describe document leaves a part out with the gate's own check, fallback included. Same
+    /// kind of caller on both hosts: a token naming SuperAdmin and a stored user holding no roles.
+    /// </summary>
+    /// <remarks>
+    /// Red if the endpoint asks the permission resolver directly: this caller holds no capability,
+    /// so with the fallback on it would get three nulls where the three listing endpoints serve it.
+    /// </remarks>
+    [Fact]
+    public async Task The_describe_document_follows_the_legacy_fallback_the_way_the_listing_gates_do()
+    {
+        string[] parts = ["capabilities", "workflowActions", "modules"];
+
+        var on = await DescribeDocumentAsync(await CallerWithNoStoredRoles("SuperAdmin"));
+        foreach (var part in parts)
+        {
+            on.GetProperty(part).ValueKind.Should().Be(System.Text.Json.JsonValueKind.Array,
+                "{0} is listed by an endpoint whose gate names SuperAdmin, and the fallback is on", part);
+        }
+
+        on.GetProperty("capabilities").GetArrayLength().Should().BeGreaterThan(0);
+        on.GetProperty("workflowActions").GetArrayLength().Should().BeGreaterThan(0);
+
+        var unset = await DescribeDocumentAsync(await CallerWithNoStoredRoles("SuperAdmin", LegacyFallback.Unset));
+        foreach (var part in parts)
+        {
+            unset.GetProperty(part).ValueKind.Should().Be(System.Text.Json.JsonValueKind.Null,
+                "{0} is not shown on a role name alone unless the deployment asks for the fallback", part);
+        }
+
+        unset.GetProperty("fieldTypes").GetArrayLength().Should().BeGreaterThan(0,
+            "the caller is signed in, which is all the field types ask for");
+    }
+
+    private static async Task<System.Text.Json.JsonElement> DescribeDocumentAsync(HttpClient client)
+    {
+        var response = await client.GetAsync("/api/meta/describe", TestContext.Current.CancellationToken);
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        response.StatusCode.Should().Be(HttpStatusCode.OK, body);
+
+        using var parsed = System.Text.Json.JsonDocument.Parse(body);
+        return parsed.RootElement.Clone();
+    }
+
     private enum LegacyFallback
     {
         /// <summary>Nobody set it, so the caller gets whatever 4.0 defaults to.</summary>

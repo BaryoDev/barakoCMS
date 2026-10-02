@@ -37,6 +37,16 @@ internal static class TenantPartitions
     public static async Task<IReadOnlyList<string>> ListAsync(
         IDocumentStore store, IConfiguration configuration, string distinctTenantIdsSql, CancellationToken ct)
     {
+        // In Multi, registered tenants and nothing else, whether or not Postgres enforces the
+        // filter: rows in the default partition or under a slug nobody registered are left as they
+        // are. Inactive tenants stay listed, for the reason given above.
+        if (!ServesDefaultPartition(configuration))
+        {
+            return (await FromRegistryAsync(store, ct))
+                .Where(slug => slug != StorageConstants.DefaultTenantId && slug != Tenant.DefaultSlug)
+                .ToList();
+        }
+
         return Enforced(configuration)
             ? await FromRegistryAsync(store, ct)
             : await FromRowsAsync(store, distinctTenantIdsSql, ct);
@@ -74,4 +84,18 @@ internal static class TenantPartitions
 
         return partitions;
     }
+
+    /// <summary>
+    /// Whether background work visits the default partition: always, except in Multi, where it
+    /// belongs to no tenant. Null is a caller built without configuration, which is Single.
+    /// </summary>
+    public static bool ServesDefaultPartition(IConfiguration? configuration) =>
+        configuration is null || !TenancyOptions.FromConfiguration(configuration).IsMulti;
+
+    /// <summary>
+    /// Whether <see cref="ListAsync"/> answers from the registry, with enforcement on or in Multi,
+    /// so a listed partition may hold nothing and is worth asking before a full pass over it.
+    /// </summary>
+    public static bool ListsFromRegistry(IConfiguration configuration) =>
+        Enforced(configuration) || !ServesDefaultPartition(configuration);
 }

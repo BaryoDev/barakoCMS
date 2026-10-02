@@ -4,7 +4,7 @@ namespace BarakoCMS.Files;
  * Storage abstraction so file bytes can live in Postgres (the default) or an S3-compatible object
  * store (the BarakoCMS.Files.S3 provider), chosen by configuration. Metadata (name, type, size,
  * which store, the key) stays in Postgres as a StoredFile record; only the bytes move. A provider
- * that can serve bytes directly and publicly (S3 with a public bucket or CDN) returns a PublicUrl the
+ * that can serve bytes directly and publicly (S3 with anonymous read on public/* or a CDN) returns a PublicUrl the
  * frontend uses as an <img> src; a provider that can't (Postgres) returns null and the bytes are
  * delivered through the API instead.
  */

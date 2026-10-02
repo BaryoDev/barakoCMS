@@ -34,6 +34,30 @@ public class TenantAccessMiddleware(RequestDelegate next, ILogger<TenantAccessMi
         var isPublic = path.HasValue &&
             path.Value!.EndsWith(PublicSuffix, StringComparison.OrdinalIgnoreCase);
 
+        // In Multi, on every route including the two exempt kinds below: a token minted for the
+        // default partition or for a slug with no active tenant, before the switch to Multi or
+        // before its tenant was switched off, is not good for the rest of its fifteen minutes. The
+        // answer comes from the cached list resolution reads, so this adds no database read.
+        if (context.User.Identity is { IsAuthenticated: true }
+            && context.User.FindFirst("tenant")?.Value is { Length: > 0 } claimed
+            && context.RequestServices.GetRequiredService<TenancyOptions>().IsMulti)
+        {
+            var slug = claimed.Trim().ToLowerInvariant();
+            var active = await context.RequestServices.GetRequiredService<ITenantDomainSource>()
+                .GetAsync(context.RequestAborted);
+
+            if (slug == Models.Tenant.DefaultSlug || !active.IsActiveTenant(slug))
+            {
+                logger.LogWarning(
+                    "Tenant access denied: token tenant '{TokenTenant}' is not a registered, active tenant and Tenancy:Mode is Multi, for {Method} {Path}.",
+                    LogSafe.Value(claimed), LogSafe.Value(context.Request.Method), LogSafe.Value(path.Value));
+
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                await context.Response.WriteAsync("This session is not valid for this tenant.");
+                return;
+            }
+        }
+
         if (!isGlobalIdentity && !isPublic && context.User.Identity is { IsAuthenticated: true })
         {
             var tokenTenant = context.User.FindFirst("tenant")?.Value;

@@ -136,7 +136,7 @@ internal sealed class WorkflowRunRetentionService : BackgroundService
         {
             var removed = 0;
 
-            var fromRegistry = TenantPartitions.Enforced(_config);
+            var fromRegistry = TenantPartitions.ListsFromRegistry(_config);
 
             foreach (var tenantId in await TenantPartitions.ListAsync(_store, _config, PartitionsWithRunsSql, ct))
             {
