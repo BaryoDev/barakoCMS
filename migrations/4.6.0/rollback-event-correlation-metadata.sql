@@ -1,14 +1,15 @@
 -- Undoes migrations/4.6.0/event-correlation-metadata.sql, for a rollback to a release before it.
 --
--- Needed because the refusal runs both ways. A pre-4.6.0 build asserts its own schema: it reports
--- the two columns as columns to drop, and it calls mt_quick_append_events with the argument list
--- it knows, which the 4.6.0 function does not accept.
+-- Needed because the refusal runs both ways. A pre-4.6.0 build asserts its own schema at start-up:
+-- it reports the two columns as columns to drop and the function as one to replace, and does not
+-- start.
 --
 -- What is lost: the correlation id and the causation id of every event written since the upgrade.
 -- The events themselves, their data and their order are untouched, and nothing in a pre-4.6.0
 -- build reads either column.
 --
--- Run it with the API stopped, then start the older build.
+-- Stop 4.6.0 first, then run it, then start the older build. A 4.6.0 instance still serving names
+-- the two columns in every event it writes, so it cannot write once they are gone.
 --
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/rollback-event-correlation-metadata.sql
 --

@@ -8,8 +8,8 @@ namespace barakoCMS.Infrastructure.Tracing;
 /// while that work runs.
 /// </summary>
 /// <remarks>
-/// Ambient, because the things that need it are built far from where it is known: a Marten session
-/// is opened by <see cref="Multitenancy.TenantSessionFactory"/> and a workflow run is queued inside
+/// Ambient, because the things that need it run far from where it is known: events are stamped
+/// by <see cref="EventOriginListener"/> when a session saves, and a workflow run is queued inside
 /// the projection daemon, and neither is handed a request.
 ///
 /// Three places begin one. A request, in <see cref="Middleware.CorrelationIdMiddleware"/>. The

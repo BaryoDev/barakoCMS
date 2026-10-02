@@ -799,8 +799,8 @@ internal sealed class WorkflowRunner(
     /// <remarks>
     /// The runner has no request, so the run supplies both halves. Its correlation id goes on the
     /// log lines of the attempt and on every event the action writes, and its traceparent is the
-    /// parent of the attempt's span, so the action's outbound calls carry that trace onward. Begun
-    /// before the scope is built, because the scope's session is stamped when it is opened.
+    /// parent of the attempt's span, so the action's outbound calls carry that trace onward. Both
+    /// last for the whole attempt, because events are stamped when the action saves.
     /// </remarks>
     private async Task<Outcome> ExecuteAsync(
         IDocumentStore store, WorkflowRun run, WorkflowActionAttempt attempt, string tenantId, CancellationToken ct)

@@ -167,6 +167,64 @@ public class EventCorrelationTests
     }
 
     /// <remarks>
+    /// Marten stamps every session it opens with the current span's root id and parent id, and the
+    /// parent id is the caller's header as sent. The scoped session is not the only way in: a
+    /// module can open one straight from the store inside a request. The parent here is 55
+    /// characters with a valid version, which is all the runtime asks before it takes a
+    /// <c>traceparent</c> for W3C, and has a line break where the last hyphen belongs.
+    /// </remarks>
+    [Fact]
+    public async Task A_session_opened_straight_from_the_store_inside_a_request_stores_the_checked_ids()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = _factory.Services.GetRequiredService<IDocumentStore>();
+        var id = Guid.NewGuid();
+        var requestId = $"direct-{Guid.NewGuid():N}";
+        var sent = $"00-{ActivityTraceId.CreateRandom().ToHexString()}-{ActivitySpanId.CreateRandom().ToHexString()}\n01";
+
+        using var request = new Activity("request under test");
+        request.SetParentId(sent);
+        request.Start();
+
+        using (Correlation.Begin(requestId))
+        await using (var session = store.LightweightSession())
+        {
+            session.Events.StartStream<barakoCMS.Models.Content>(id, NewCreated(id));
+            await session.SaveChangesAsync(ct);
+        }
+
+        var created = await FirstEventAsync(id);
+        created.CorrelationId.Should().Be(requestId, "one request, one id, whichever way the session was opened");
+        created.CausationId.Should().Be(Correlation.TraceParentOf(request),
+            "the cause is the span that wrote the event, built from its typed ids, or nothing");
+        (created.CausationId ?? string.Empty).Should().NotContain("\n").And.NotBe(sent);
+    }
+
+    [Fact]
+    public async Task A_session_opened_straight_from_the_store_never_stores_an_oversized_parent_id()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = _factory.Services.GetRequiredService<IDocumentStore>();
+        var id = Guid.NewGuid();
+
+        using var request = new Activity("request under test");
+        request.SetParentId("forged" + new string('z', 10 * 1024));
+        request.Start();
+
+        await using (var session = store.LightweightSession())
+        {
+            session.Events.StartStream<barakoCMS.Models.Content>(id, NewCreated(id));
+            await session.SaveChangesAsync(ct);
+        }
+
+        var created = await FirstEventAsync(id);
+        (created.CorrelationId ?? string.Empty).Should().NotContain("forged");
+        (created.CorrelationId ?? string.Empty).Length.Should().BeLessThanOrEqualTo(Correlation.MaxLength);
+        (created.CausationId ?? string.Empty).Should().NotContain("forged");
+        (created.CausationId ?? string.Empty).Length.Should().BeLessThanOrEqualTo(55);
+    }
+
+    /// <remarks>
     /// The other place a run is queued. An erasure queues its Deleted runs inside the request, on
     /// the request's session, so the origin is the request's own and not an event's. The workflow
     /// has no actions, so the run is finished the moment it is stored and no runner touches it.
@@ -220,6 +278,10 @@ public class EventCorrelationTests
         new(ActivityTraceId.CreateRandom().ToHexString(), ActivitySpanId.CreateRandom().ToHexString());
 
     private static string NewTypeName() => $"corr-{Guid.NewGuid():N}";
+
+    private static ContentCreated NewCreated(Guid id) => new(
+        id, NewTypeName(), new Dictionary<string, object> { ["Title"] = "direct" },
+        ContentStatus.Draft, Guid.NewGuid(), null, SensitivityLevel.Public, DateTime.UtcNow);
 
     private async Task AuthenticateAsync()
     {

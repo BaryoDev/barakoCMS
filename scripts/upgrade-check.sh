@@ -8,7 +8,10 @@
 #
 # The sequence, which is also the documented upgrade and rollback procedure:
 #
-#   1. stand up a database with the released FROM_VERSION and put real content in it
+#   1. stand up a database with the released FROM_VERSION and put real content in it. On a 4.x
+#      start, migrations/4.6.0/event-correlation-metadata.sql is applied here, under the running
+#      FROM_VERSION, which must then still write an event: that file is documented as one that
+#      goes in ahead of the deploy
 #   2. db-assert must FAIL on both hosts, because 4.0's schema does not match a 3.x database
 #   3. apply the reviewed core migrations, migrations/4.0.0/3.x-to-4.0.sql,
 #      migrations/4.2.0/user-normalized-identity.sql, migrations/4.2.0/site-share-links.sql,
@@ -231,6 +234,30 @@ CONTENT_ID=$(curl -s -X POST "$OLD_URL/api/contents" -H "Authorization: Bearer $
 curl -s -X PUT "$OLD_URL/api/contents/$CONTENT_ID/status" -H "Authorization: Bearer $TOKEN" \
     -H 'Content-Type: application/json' -d '{"newStatus":1}' >/dev/null
 
+# The event correlation file (#691) is documented as one that goes in while the old build is still
+# serving. That holds only because the old build writes an event with an INSERT naming its own
+# columns and never calls the function the file replaces, so it is checked here against a live
+# FROM_VERSION and not taken from reading. The file runs again in its place below, after the 4.4.0
+# file, which is what leaves one function and not two. On a 3.x start it is left out: nobody is
+# told to apply it under 3.x, and the 4.0.0 file expects the event store as 3.x left it.
+if [ "$FROM_3X" = 0 ]; then
+    step "migrations/4.6.0/event-correlation-metadata.sql goes in under the running ${FROM_VERSION}, which keeps writing"
+    LAST_SEQ=$(psql_q "select coalesce(max(seq_id), 0) from mt_events;")
+    docker cp migrations/4.6.0/event-correlation-metadata.sql "$PG:/tmp/event-correlation-early.sql"
+    docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/event-correlation-early.sql >/dev/null
+    EARLY_CODE=$(curl -s -o /dev/null -w '%{http_code}' -X PUT "$OLD_URL/api/contents/$CONTENT_ID/status" \
+        -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"newStatus":0}' || true)
+    case "$EARLY_CODE" in
+        2??) ;;
+        *) fail "${FROM_VERSION} answered $EARLY_CODE to a status change made after migrations/4.6.0/event-correlation-metadata.sql was applied. The file is documented as safe to apply while the old build serves, and it is not." ;;
+    esac
+    WRITTEN_AFTER=$(psql_q "select count(*) from mt_events where stream_id = '$CONTENT_ID' and seq_id > ${LAST_SEQ:-0};")
+    [ "${WRITTEN_AFTER:-0}" -ge 1 ] \
+        || fail "${FROM_VERSION} answered $EARLY_CODE but stored no event after migrations/4.6.0/event-correlation-metadata.sql was applied"
+    old_is_running
+    echo "${FROM_VERSION} answered $EARLY_CODE and stored $WRITTEN_AFTER event(s) after the file"
+fi
+
 EVENTS_BEFORE=$(psql_q "select count(*) from mt_events where stream_id = '$CONTENT_ID';")
 [ "$EVENTS_BEFORE" -ge 2 ] || fail "expected an event stream from ${FROM_VERSION}, found $EVENTS_BEFORE events"
 echo "stream $CONTENT_ID has $EVENTS_BEFORE events"
@@ -307,9 +334,11 @@ step "applying migrations/4.5.0/refresh-token-hash-index.sql"
 docker cp migrations/4.5.0/refresh-token-hash-index.sql "$PG:/tmp/refresh-hash.sql"
 docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/refresh-hash.sql >/dev/null
 
-# The correlation and causation columns on mt_events, and the append function that fills them
-# (#691). After the 4.4.0 file, which replaces the function this one replaces again: run the other
-# way round, the 4.4.0 file would add back a second function under the old argument list.
+# The correlation and causation columns on mt_events, and the declared append function with the
+# two matching arguments (#691). After the 4.4.0 file, which replaces the function this one
+# replaces again: run the other way round, the 4.4.0 file would add back a second function under
+# the old argument list. On a 4.x start this is the file's second run, the first being under the
+# running FROM_VERSION above.
 step "applying migrations/4.6.0/event-correlation-metadata.sql"
 docker cp migrations/4.6.0/event-correlation-metadata.sql "$PG:/tmp/event-correlation.sql"
 docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/event-correlation.sql >/dev/null
@@ -391,8 +420,8 @@ EVENTS_AFTER=$(psql_q "select count(*) from mt_events where stream_id = '$CONTEN
     || fail "no event appended to the pre-existing stream ($EVENTS_BEFORE then $EVENTS_AFTER)"
 echo "$EVENTS_BEFORE then $EVENTS_AFTER events"
 
-# The new build's append goes through the function the 4.6.0 file installed. An append that left
-# the column empty would mean the file and the build disagree about the argument order.
+# The new build's INSERT names the two columns the 4.6.0 file added. The events FROM_VERSION wrote,
+# the one it wrote after the file included, have neither.
 step "the new event carries a correlation id, and the older ones on the stream have none"
 CORRELATED=$(psql_q "select count(*) from mt_events where stream_id = '$CONTENT_ID' and correlation_id is not null;")
 [ "$CORRELATED" = "$((EVENTS_AFTER - EVENTS_BEFORE))" ] \

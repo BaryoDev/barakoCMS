@@ -144,16 +144,25 @@ public class WorkflowProjectionOriginTests
         _seenCause.Should().BeNull();
     }
 
+    /// <remarks>
+    /// Asserted from inside the call, where the queue reads it. Whatever was ambient when the
+    /// daemon reached this event, another event's request or a scope of the host's, is not what
+    /// caused this run.
+    /// </remarks>
     [Fact]
-    public async Task The_origin_ends_with_the_event()
+    public async Task An_events_origin_replaces_whatever_was_ambient_when_the_daemon_reached_it()
     {
         var e = Envelope(new barakoCMS.Events.ContentUpdated(
-            _contentId, new Dictionary<string, object>(), Guid.NewGuid(), null, DateTime.UtcNow), "req-ends", TraceParent);
+            _contentId, new Dictionary<string, object>(), Guid.NewGuid(), null, DateTime.UtcNow), "req-this-event", TraceParent);
 
-        await new WorkflowProjection(_services).Project(e, _ops, CancellationToken.None);
+        using (Correlation.Begin("some-other-request"))
+        {
+            await new WorkflowProjection(_services).Project(e, _ops, CancellationToken.None);
 
-        _calls.Should().Be(1);
-        Correlation.Id.Should().BeNull("the next event the daemon handles must not inherit this one's request");
+            _calls.Should().Be(1);
+            _seenId.Should().Be("req-this-event");
+            _seenCause.Should().Be(TraceParent);
+        }
     }
 
     private IEvent<T> Envelope<T>(T data, string? correlationId, string? causationId) where T : notnull

@@ -88,6 +88,25 @@ public class WorkflowActionSpanTests
     }
 
     /// <remarks>
+    /// A run whose JSON was edited by hand, or damaged. Throwing here would be before the attempt
+    /// runs and on every claim after it, so that run would never finish while tracing is on.
+    /// </remarks>
+    [Fact]
+    public void A_stored_run_with_a_null_trigger_or_action_type_still_gets_its_span()
+    {
+        var run = NewRun();
+        run.TriggerEvent = null!;
+        run.Actions[0].ActionType = null!;
+
+        using var listener = ListenToBarakoSpans();
+        using var span = BarakoTracing.StartWorkflowAction(run, run.Actions[0], "acme");
+
+        span.Should().NotBeNull();
+        span!.GetTagItem(BarakoTracing.WorkflowTriggerTag).Should().Be(string.Empty);
+        span.GetTagItem(BarakoTracing.WorkflowActionTag).Should().Be(string.Empty);
+    }
+
+    /// <remarks>
     /// What makes "the receiver is sent the same trace" true. The action's span is current while
     /// the action runs, and <c>HttpClient</c> writes <c>traceparent</c> from whatever span is
     /// current. The receiver is a loopback socket that keeps the request it was sent, because a

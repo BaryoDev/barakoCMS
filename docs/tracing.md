@@ -54,8 +54,13 @@ Both are null where no request caused the write: a scheduled publish, a collecti
 own background work, and every event and run stored before 4.6. Nothing reads either as required.
 
 An existing database needs `migrations/4.6.0/event-correlation-metadata.sql` before 4.6 starts.
-See [upgrading-to-4.0.md](upgrading-to-4.0.md): it has to run with every instance of the old build
-stopped.
+It can be applied while the old build is still serving; see
+[upgrading-to-4.0.md](upgrading-to-4.0.md).
+
+The two values are put on the events when a session saves, by a listener on the document store, so
+a module that opens its own session from `IDocumentStore` gets the same ids as the scoped one.
+Marten's default for a session is the raw parent id of the current span, which is the caller's
+header as sent; that value is never stored.
 
 ## Exporting spans
 
@@ -104,7 +109,7 @@ traces that start here.
 The request span, started by ASP.NET Core:
 
 `http.request.method`, `http.route`, `http.response.status_code`, `url.scheme`,
-`network.protocol.version`, `server.address`, `server.port`, `error.type`, `barako.correlation_id`.
+`network.protocol.version`, `error.type`, `barako.correlation_id`.
 
 The span of an outbound HTTP call (a webhook, a connector request, an email provider):
 
@@ -119,9 +124,15 @@ The span of an outbound HTTP call (a webhook, a connector request, an email prov
 
 That is the whole list. `SpanScrubber` removes every other attribute from the first two before
 export, along with the status description. The request path and query string are not exported,
-because a path here can hold a share link or a preview token. The URL of an outbound call is not
-exported, only its host and port, because a webhook URL is often the credential. Exceptions are not
-recorded on spans. No header, body, token, email address or action parameter is on any span.
+because a path here can hold a share link or a preview token. The host a request was sent to is
+not exported either: it is the caller's Host header. The URL of an outbound call is not exported,
+only its host and port, because a webhook URL is often the credential. Exceptions are not recorded
+on spans. No header, body, token, email address or action parameter is on any span.
+
+The two lists apply by span kind as well as by source: every Server span is cut to the first list
+and every Client span to the second, whatever started it. So a host that gives ASP.NET Core a
+source of its own does not get the path back, and a Client span from a source you add yourself,
+a database driver for one, is cut to the second list too.
 
 The health probes under `/health` and the `/metrics` scrape are not traced.
 

@@ -1,19 +1,21 @@
 -- Adds the correlation id and the causation id to every stored event (#691).
 --
--- Two nullable columns on mt_events, and two more arguments on mt_quick_append_events so an append
--- can fill them. correlation_id is the id of the request that wrote the event, the same value the
--- response carries in X-Correlation-ID. causation_id is the W3C traceparent of the span that wrote
--- it. An event stored before this file ran keeps both null, and nothing reads them as required.
+-- Two nullable columns on mt_events, and the two matching arguments on mt_quick_append_events.
+-- correlation_id is the id of the request that wrote the event, the same value the response
+-- carries in X-Correlation-ID. causation_id is the W3C traceparent of the span that wrote it. An
+-- event stored before this file ran keeps both null, and nothing reads them as required.
 --
 -- Why this file has to exist: the app runs AutoCreate.CreateOnly in production and on playground,
 -- which never alters a table or replaces a function that is already there. Without it the new
 -- build reaches ApplyMartenSchemaAsync, reports the difference and does not start.
 --
--- Run it with the API stopped, and start only the new build afterwards. This is not a file that
--- can go in early: the function's argument list changes, so a 4.5 build still running after it
--- calls a function that no longer exists and every content write fails until that build is
--- replaced. For the same reason a rolling update that keeps old instances serving does not work
--- for this release; stop them first.
+-- It can be applied while the old build is still serving, then deploy, like the 4.3.0 and 4.4.0
+-- event store files. The app appends in Marten's Rich mode (RestoreV8Defaults), where an event is
+-- written by a plain INSERT that names its own columns, so a 4.5 build keeps writing with the two
+-- columns there and never calls the function this replaces. scripts/upgrade-check.sh writes
+-- through the old build after this file to hold that true. The same caveat as those files: an old
+-- instance that restarts after this file fails its own start-up schema assertion, so apply it
+-- shortly before the deploy and not days ahead.
 --
 -- Cost: two ADD COLUMN with no default, which is a catalogue change and not a table rewrite, and
 -- one function replacement. No row is touched.

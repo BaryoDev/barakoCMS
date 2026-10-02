@@ -15,8 +15,8 @@ namespace BarakoCMS.Tests;
 /// <remarks>
 /// The middleware is run on its own over a <see cref="DefaultHttpContext"/>, because a header with
 /// a line break in it cannot be sent through an <c>HttpClient</c>. What is asserted is the id the
-/// rest of the request sees (<see cref="Correlation.Id"/>, which is what the session factory stamps
-/// on events and what the log context carries) and the header written when the response starts.
+/// rest of the request sees (<see cref="Correlation.Id"/>, which is what is stamped on events and
+/// what the log context carries) and the header written when the response starts.
 ///
 /// A span here is a plain <see cref="Activity"/> started by the test. It is current for this test's
 /// own flow only and nothing listens to it.
@@ -115,15 +115,31 @@ public class CorrelationIdMiddlewareTests
         echoed.Should().Be(seen);
     }
 
+    /// <remarks>
+    /// Read from inside the pipeline, after it has yielded, which is where an endpoint opens its
+    /// session and saves. Reading it back out here after the request would prove nothing: a value
+    /// set inside an awaited method never reaches its caller, with or without the middleware.
+    /// </remarks>
     [Fact]
-    public async Task The_id_is_ambient_only_while_the_request_runs()
+    public async Task The_id_is_still_ambient_after_the_rest_of_the_pipeline_has_awaited()
     {
-        Correlation.Id.Should().BeNull("nothing has begun one in this test's flow");
+        var context = new DefaultHttpContext();
+        context.Request.Headers[Header] = "inside-1";
 
-        var (seen, _) = await RunAsync("inside-1");
+        string? before = null;
+        string? after = null;
+        var middleware = new CorrelationIdMiddleware(async _ =>
+        {
+            before = Correlation.Id;
+            await Task.Yield();
+            await Task.Delay(1);
+            after = Correlation.Id;
+        });
 
-        seen.Should().Be("inside-1");
-        Correlation.Id.Should().BeNull("the request ended, and its id must not reach whatever runs next");
+        await middleware.Invoke(context);
+
+        before.Should().Be("inside-1");
+        after.Should().Be("inside-1", "an endpoint saves after it has awaited, and the id has to still be there");
     }
 
     /// <summary>

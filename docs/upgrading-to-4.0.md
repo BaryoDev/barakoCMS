@@ -76,9 +76,11 @@ runs. Each explains itself in its header. Skip a file whose directory is newer t
 The event correlation file (4.6.0) adds two nullable columns to `mt_events` and replaces the
 function that appends events, so each event can record the request that wrote it
 ([tracing.md](tracing.md)). It runs after the `4.4.0` file, which replaces the same function.
-Unlike the other schema files it cannot be applied ahead of the deploy: once it has run, a 4.5 or
-earlier build that is still serving fails every content write, because it calls the function with
-the old argument list. Stop every instance of the old build, run it, then start 4.6.0.
+Coming from 4.5 it can be applied while 4.5 is still serving, then deploy, like the two Marten
+files: 4.5 writes an event with an INSERT that names its own columns, so the two new nullable
+columns do not stop it, and it does not call the function. CI applies the file under a running
+4.1 and writes through it. An old instance that restarts after the file fails its own start-up
+schema assertion, so do not leave long between the file and the deploy.
 
 The user file moves the unique indexes on username and email to their lowercased, trimmed forms,
 which is what sign-in compares. If two existing accounts differ only by case, such as

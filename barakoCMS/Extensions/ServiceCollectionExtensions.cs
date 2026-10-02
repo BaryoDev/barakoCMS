@@ -886,10 +886,10 @@ public static class ServiceCollectionExtensions
             options.Events.TenancyStyle = JasperFx.MultiTenancy.TenancyStyle.Conjoined;
 
             // Each event keeps the correlation id of the request that wrote it and the traceparent
-            // of the span that did, both set on the session by TenantSessionFactory. Two columns on
-            // mt_events and two more arguments to mt_quick_append_events, so a database that already
-            // exists takes migrations/4.6.0/event-correlation-metadata.sql before this build starts.
-            // An event stored before the columns existed reads back with both null.
+            // of the span that did. Two columns on mt_events and two more arguments on the declared
+            // mt_quick_append_events, so a database that already exists takes
+            // migrations/4.6.0/event-correlation-metadata.sql before this build starts. An event
+            // stored before the columns existed reads back with both null.
             options.Events.MetadataConfig.CorrelationIdEnabled = true;
             options.Events.MetadataConfig.CausationIdEnabled = true;
 
@@ -920,6 +920,11 @@ public static class ServiceCollectionExtensions
             options.Listeners.Add(new barakoCMS.Features.Public.Events.ContentChangeListener(
                 sp.GetRequiredService<barakoCMS.Features.Public.Events.ContentChangeBroadcaster>(),
                 sp.GetRequiredService<ILogger<barakoCMS.Features.Public.Events.ContentChangeListener>>()));
+
+            // What goes in the correlation and causation columns is decided here, for every session
+            // of the store and not only the scoped one: Marten's own default is the raw parent id of
+            // the current span, which is the caller's header as sent.
+            options.Listeners.Add(new barakoCMS.Infrastructure.Tracing.EventOriginListener());
 
             // Each module registers its own document types through a surface that only accepts
             // types it ships. ConfigureMarten still runs for modules that predate ConfigureSchema,

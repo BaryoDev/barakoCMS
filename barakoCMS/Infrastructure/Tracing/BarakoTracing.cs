@@ -80,6 +80,8 @@ internal static class BarakoTracing
         }
     }
 
-    private static string Bounded(string value) =>
-        value.Length <= MaxNameLength ? value : value[..MaxNameLength];
+    /// <summary>A stored name, cut to a length a span attribute can carry. Null, which only damaged data holds, is empty.</summary>
+    private static string Bounded(string? value) =>
+        value is null ? string.Empty
+        : value.Length <= MaxNameLength ? value : value[..MaxNameLength];
 }
