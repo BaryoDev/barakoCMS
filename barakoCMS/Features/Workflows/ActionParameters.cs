@@ -25,10 +25,13 @@ internal static class ActionParameters
     /// A conditional's branches are JSON holding child actions. Resolving them as one string would
     /// let a quote in a value rewrite that JSON, and would give the child's parameters no encoding
     /// at all, so they are left as written and the conditional resolves each child's parameters.
+    /// Its condition is left as written too: the conditional reads the token's value from the entry
+    /// itself, and a value substituted first would be parsed as part of the comparison.
     /// </summary>
     public static bool IsResolvedByTheAction(string actionType, string parameter) =>
         actionType == "Conditional"
-        && (parameter.Equals("ThenActions", StringComparison.OrdinalIgnoreCase)
+        && (parameter.Equals("Condition", StringComparison.OrdinalIgnoreCase)
+            || parameter.Equals("ThenActions", StringComparison.OrdinalIgnoreCase)
             || parameter.Equals("ElseActions", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>The parameter the runner and the engine use to tell an action which trigger fired.</summary>

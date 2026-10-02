@@ -65,6 +65,9 @@ half-filled theme renders rather than breaks.
 | `HeaderActions` | json | Call to action links after the header links. See [MenuLinks and HeaderActions](#menulinks-and-headeractions) |
 | `Plugins` | json | The plugins this tenant renders. See [Plugins](#plugins) |
 | `Presets` | json | Saved blocks a designer builds in barakoBrew, which barakoPress renders |
+| `HomePath` | string | The site path of the page served at `/`, such as `/home`. Unset, `/` is what the renderer serves by default |
+| `Labels` | json | The words the renderer's screens print for a visitor. See [Labels](#labels) |
+| `OptionStyles` | json | A tone, icon and word per option of a choice field. See [OptionStyles](#optionstyles) |
 
 ### Colors
 
@@ -151,6 +154,31 @@ colours its `EntryType` choice field this way:
 ```json
 { "project.AreaOfFocus": { "Providing clean water": "sky", "Supporting education": "gold" }, "event.EntryType": { "Fundraiser": "gold", "Outreach": "sky" } }
 ```
+
+### OptionStyles
+
+Keyed like `OptionColors`, by `type.field` and then by option, each option an object with an optional
+`tone`, `icon` and `label`:
+
+```json
+{ "project.AreaOfFocus": { "Providing clean water": { "tone": "sky", "icon": "location", "label": "Water" } } }
+```
+
+`tone` names a colour as `OptionColors` does, `icon` is one of the renderer's icon names, and `label`
+is the word a visitor reads in place of the option's value. A style for an option wins over its
+`OptionColors` entry, field by field. See
+[Collections](https://github.com/BaryoDev/barakoPress/blob/master/docs/collections.md).
+
+### Labels
+
+An object of label key to the words printed, for the copy the renderer's own screens carry:
+
+```json
+{ "minRead": "minutong pagbasa", "by": "ni", "related": "Kaugnay" }
+```
+
+A key left out keeps the renderer's English. The keys are the renderer's, listed in
+[Sites](https://github.com/BaryoDev/barakoPress/blob/master/docs/sites.md).
 
 ### Variants
 
