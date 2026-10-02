@@ -443,32 +443,6 @@ internal sealed class WorkflowRunner(
     }
 
     /// <summary>
-    /// Writes NextDueAt on a run the query offered that turned out not to be due.
-    /// </summary>
-    /// <remarks>
-    /// Only a run stored without the value gets here in practice. Left alone it would be offered on
-    /// every pass until its wait ran out, taking one of the slots a due run needs.
-    /// </remarks>
-    private static async Task RecordNextDueAsync(IDocumentSession session, WorkflowRun run, CancellationToken ct)
-    {
-        var stored = run.NextDueAt;
-        run.Recompute();
-        if (run.NextDueAt == stored) return;
-
-        session.Update(run);
-
-        try
-        {
-            await session.SaveChangesAsync(ct);
-        }
-        catch (Exception ex) when (ex is JasperFx.ConcurrencyException
-            || ex.GetType().Name.Contains("Concurrency"))
-        {
-            // Another node wrote the run first, and its write carries the value.
-        }
-    }
-
-    /// <summary>
     /// The attempt that should run next, or null.
     /// </summary>
     /// <remarks>
