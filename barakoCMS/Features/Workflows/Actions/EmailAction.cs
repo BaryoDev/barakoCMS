@@ -13,6 +13,7 @@ namespace barakoCMS.Features.Workflows.Actions;
     Description = "Send email notifications",
     Group = WorkflowActionGroup.Comms,
     RequiredParameters = new[] { "To", "Subject", "Body" },
+    OptionalParameters = new[] { "Attachments" },
     ExampleJson = @"{""Type"":""Email"",""Parameters"":{""To"":""admin@example.com"",""Subject"":""Workflow Triggered"",""Body"":""Content {{id}} was updated""}}"
 )]
 internal class EmailAction : IWorkflowAction
@@ -20,16 +21,27 @@ internal class EmailAction : IWorkflowAction
     private readonly IEmailService _emailService;
     private readonly ILogger<EmailAction> _logger;
     private readonly TenantContext? _tenant;
+    private readonly IFileStore? _files;
+    private readonly EmailAttachmentLimits _limits;
+
+    internal const string AttachmentsParameter = "Attachments";
 
     /// <summary>
     /// Creates a new EmailAction. Without a <paramref name="tenant"/> the email is sent as belonging
-    /// to no tenant.
+    /// to no tenant, and without <paramref name="files"/> an email that names an attachment fails.
     /// </summary>
-    public EmailAction(IEmailService emailService, ILogger<EmailAction> logger, TenantContext? tenant = null)
+    public EmailAction(
+        IEmailService emailService,
+        ILogger<EmailAction> logger,
+        TenantContext? tenant = null,
+        IFileStore? files = null,
+        IConfiguration? configuration = null)
     {
         _emailService = emailService;
         _logger = logger;
         _tenant = tenant;
+        _files = files;
+        _limits = EmailAttachmentLimits.From(configuration);
     }
 
     /// <inheritdoc />
@@ -62,21 +74,77 @@ internal class EmailAction : IWorkflowAction
                 "The 'To' parameter must resolve to exactly one email address.");
         }
 
+        // Everything that can refuse an attachment happens here, before the send. Nothing after the
+        // send reads a file, so a message that went out is never failed over one.
+        IReadOnlyList<EmailAttachment> attachments = Array.Empty<EmailAttachment>();
+        var named = parameters.Where(p => p.Key.Equals(AttachmentsParameter, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (named.Count > 1)
+        {
+            return WorkflowActionResult.PermanentFailure($"The '{AttachmentsParameter}' parameter is declared more than once.");
+        }
+
+        if (named.Count == 1)
+        {
+            if (EmailProvider.IsMock(_emailService))
+            {
+                return WorkflowActionResult.PermanentFailure(
+                    "No email provider is configured, so nothing was sent. Register a real IEmailService and restart.");
+            }
+
+            EmailAttachments.Resolution resolution;
+            try
+            {
+                resolution = await EmailAttachments.ResolveAsync(named[0].Value, content, _files, _limits, ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning("Reading an email attachment failed ({Exception}).", ex.GetType().Name);
+                return WorkflowActionResult.Failure($"A file to attach could not be read ({ex.GetType().Name}).");
+            }
+
+            if (resolution.Refusal is not null)
+            {
+                return resolution.Refusal;
+            }
+
+            attachments = resolution.Files;
+        }
+
         try
         {
             // On the tenant's behalf: the run's scope carries the tenant whose workflow this is.
-            if (_tenant is null)
+            if (attachments.Count == 0)
             {
-                await _emailService.SendEmailAsync(to, subject, body, ct);
+                if (_tenant is null)
+                {
+                    await _emailService.SendEmailAsync(to, subject, body, ct);
+                }
+                else
+                {
+                    await _emailService.SendForTenantAsync(_tenant.Slug, to, subject, body, ct);
+                }
+            }
+            else if (_tenant is null)
+            {
+                await _emailService.SendEmailAsync(to, subject, body, attachments, ct);
             }
             else
             {
-                await _emailService.SendForTenantAsync(_tenant.Slug, to, subject, body, ct);
+                await _emailService.SendForTenantAsync(_tenant.Slug, to, subject, body, attachments, ct);
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             throw;
+        }
+        catch (NotSupportedException) when (attachments.Count > 0)
+        {
+            // Permanent: the provider is the same one on every retry.
+            return WorkflowActionResult.PermanentFailure("The registered email provider does not send attachments.");
         }
         catch (Exception ex)
         {

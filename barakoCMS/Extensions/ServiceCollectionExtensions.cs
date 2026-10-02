@@ -981,6 +981,7 @@ public static class ServiceCollectionExtensions
         // provider (e.g. a Resend email module) without being clobbered by these mocks.
         services.TryAddScoped<barakoCMS.Core.Interfaces.IEmailService, barakoCMS.Infrastructure.Services.MockEmailService>();
         services.TryAddScoped<barakoCMS.Core.Interfaces.ISmsService, barakoCMS.Infrastructure.Services.MockSmsService>();
+        services.TryAddScoped<barakoCMS.Core.Interfaces.IFileStore, barakoCMS.Infrastructure.Services.NoFileStore>();
         services.AddScoped<barakoCMS.Core.Interfaces.ISensitivityService, barakoCMS.Infrastructure.Services.SensitivityService>();
         services.AddScoped<barakoCMS.Core.Interfaces.IContentSourcingPolicy, barakoCMS.Infrastructure.Services.ContentSourcingPolicyService>();
         // The public projection, so a module serving its own anonymous route does not hold a second

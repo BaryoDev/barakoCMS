@@ -108,7 +108,9 @@ public class WorkflowToolsApiTests : IAsyncLifetime
         byType["UpdateField"].OptionalParameters.Should().Equal("TargetId");
         byType["Conditional"].OptionalParameters.Should().Equal("ElseActions");
 
-        foreach (var type in new[] { "Email", "SMS", "Request" })
+        byType["Email"].OptionalParameters.Should().Equal("Attachments");
+
+        foreach (var type in new[] { "SMS", "Request" })
         {
             byType[type].OptionalParameters.Should().BeEmpty(type);
         }

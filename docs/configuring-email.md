@@ -122,6 +122,68 @@ exactly one email address." and nothing is sent, whichever provider is configure
 The same applies to an `Email` inside a `Conditional`: its parameters are resolved when the child
 runs, not as part of the branch's JSON.
 
+## Attachments in a workflow email
+
+An `Email` action takes an optional `Attachments` parameter naming files stored by the
+BarakoCMS.Files module:
+
+```json
+{
+  "Type": "Email",
+  "Parameters": {
+    "To": "{{data.Email}}",
+    "Subject": "Your receipt",
+    "Body": "<p>Thank you, {{data.Name}}.</p>",
+    "Attachments": "{{data.Receipt}}"
+  }
+}
+```
+
+The value is one file or a list separated by commas, semicolons or line breaks. Each item is a file
+id, or a link to `/api/files/{id}` or `/api/public/files/{id}`. A link with `?w=` attaches the
+original file, not the resize. A field holding a list of ids works as it is.
+
+**Which files.** A workflow runs with no signed-in caller, so there is nobody whose right to
+download a file can be checked. The rule is the entry's instead: a file is attached only when the
+entry the workflow is running for names it in one of its fields, by id or by link, and the file is
+stored in that entry's tenant. A file id typed into the workflow, or filled in from anywhere else,
+is refused unless the entry also names it. A workflow on a deleted entry has no fields left, so it
+cannot attach anything.
+
+That makes whoever can write the entry the one who chooses the file. Anyone who can set that field
+can have any file of the tenant mailed to the action's recipient, private files included, so do not
+fill `Attachments` from a field a public form accepts or one that untrusted editors can change.
+The file's public flag and the entry's sensitivity are not checked either: the recipient gets the
+file whatever they could have read in the API. Both are the workflow author's call.
+
+**Limits.** From configuration:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `Workflows:Email:Attachments:MaxCount` | 5 | Files on one email |
+| `Workflows:Email:Attachments:MaxFileBytes` | 10485760 (10 MB) | Size of one file |
+| `Workflows:Email:Attachments:MaxTotalBytes` | 15728640 (15 MB) | Size of all files on one email |
+
+Zero in any of them turns attachments off. A value that is not a whole number of zero or more fails
+every email that names an attachment, with the key in the reason, and leaves other emails alone.
+The files of one email are held in memory while it is sent, and a node can be sending as many
+emails at once as `Workflows:RunnerConcurrency` allows. Your provider has its own ceiling on message
+size, and encoding adds about a third.
+
+**When it cannot attach.** The action fails, the reason is on the run, and nothing is sent. An email
+never goes out with a file missing. That covers a file the entry does not name, a file this tenant
+does not have, an empty field, a value that is not a file id or link, a limit passed, no
+BarakoCMS.Files module, and an email provider that does not send attachments. None of these is
+retried, because a retry would get the same answer. A file store that fails while it is read is
+retried.
+
+The attachment carries the name the file was uploaded with, without any path, control characters
+or text direction marks, and the type the upload was checked against (`application/octet-stream`
+for a file stored before uploads were checked).
+
+Both shipped providers send attachments. A provider of your own implements the two `IEmailService`
+members that take attachments; until it does, an email that names one fails and says so.
+
 ## Auditing
 
 Changing email settings is recorded as `settings.email.changed` in the audit trail, with which
