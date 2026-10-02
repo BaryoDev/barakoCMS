@@ -1410,6 +1410,8 @@ public static class ServiceCollectionExtensions
 
         UseTenantAndAuthentication(app);
 
+        ModuleAppPipeline.Use(app, app.ApplicationServices.GetServices<IBarakoModule>());
+
         UseOutputCaching(app);
 
         UseFastEndpointsPipeline(app);
