@@ -20,10 +20,14 @@ public sealed class JobOptions
     /// <summary>How many times a handler may throw before the job is dead-lettered.</summary>
     public int MaxAttempts { get; init; } = DefaultMaxAttempts;
 
-    /// <summary>The wait after the first failure. Each failure after that doubles it.</summary>
+    /// <summary>
+    /// The wait after the first failure. Each failure after that doubles it. Every wait is then
+    /// shortened by a random share of up to a quarter, so jobs that failed together do not retry
+    /// together.
+    /// </summary>
     public int BackoffBaseSeconds { get; init; } = DefaultBackoffBaseSeconds;
 
-    /// <summary>The longest wait between two attempts, whatever the doubling says.</summary>
+    /// <summary>The longest wait between two attempts, whatever the doubling says. Jitter never passes it.</summary>
     public int BackoffMaxSeconds { get; init; } = DefaultBackoffMaxSeconds;
 
     /// <summary>

@@ -46,9 +46,20 @@ public class WorkflowRun
 
     public DateTimeOffset? CompletedAt { get; set; }
 
+    /// <summary>
+    /// The earliest moment the runner could claim an attempt of this run. Null once nothing is left
+    /// to claim, and on a run stored before this was kept.
+    /// </summary>
+    /// <remarks>
+    /// On the run rather than only on its attempts so the runner can ask the database for due runs.
+    /// Filtering after the read meant twenty backing-off runs hid every run queued behind them. The
+    /// runner reads a null on an unfinished run as due, so a run stored without it is still claimed.
+    /// </remarks>
+    public DateTimeOffset? NextDueAt { get; set; }
+
     public List<WorkflowActionAttempt> Actions { get; set; } = new();
 
-    /// <summary>Recomputes <see cref="Status"/> from the attempts.</summary>
+    /// <summary>Recomputes <see cref="Status"/> and <see cref="NextDueAt"/> from the attempts.</summary>
     /// <remarks>
     /// PartiallyFailed is a real state rather than a rounding of Failed. "Post to Facebook, then
     /// email, then tweet" is three independent things, and reporting the whole run as failed because
@@ -57,6 +68,8 @@ public class WorkflowRun
     /// </remarks>
     public void Recompute()
     {
+        NextDueAt = EarliestClaim();
+
         if (Actions.Count == 0)
         {
             Status = RunStatus.Succeeded;
@@ -78,6 +91,33 @@ public class WorkflowRun
 
         CompletedAt ??= DateTimeOffset.UtcNow;
     }
+
+    /// <summary>
+    /// Mirrors the order the runner claims in: a waiting attempt does not hold up the ones after it,
+    /// and nothing past a running attempt is looked at until that one finishes or its lease runs out.
+    /// An attempt with no time of its own is due at once, which <see cref="CreatedAt"/> stands in for.
+    /// </summary>
+    private DateTimeOffset? EarliestClaim()
+    {
+        DateTimeOffset? earliest = null;
+
+        foreach (var attempt in Actions.OrderBy(a => a.Ordinal))
+        {
+            if (attempt.Status == AttemptStatus.Running)
+            {
+                return Earlier(earliest, attempt.LeaseExpiresAt ?? CreatedAt);
+            }
+
+            if (attempt.Status != AttemptStatus.Pending) continue;
+
+            earliest = Earlier(earliest, attempt.NextAttemptAt ?? CreatedAt);
+        }
+
+        return earliest;
+    }
+
+    private static DateTimeOffset Earlier(DateTimeOffset? current, DateTimeOffset candidate) =>
+        current is { } value && value < candidate ? value : candidate;
 }
 
 public enum RunStatus { Pending, Running, Succeeded, Failed, PartiallyFailed }
