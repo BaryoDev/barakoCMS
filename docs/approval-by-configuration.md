@@ -412,8 +412,7 @@ and logged at warning level, which exists for a deployment whose entries predate
 This part is not in the walkthrough above and its requests were not run against the quickstart. It
 is tested by `TransitionRequiredFieldsTests`.
 
-A transition can name fields of the type that must hold a value once the move is made, and fields
-that may be sent with it:
+A transition can name fields of the type that must be sent with the move, and fields that may be:
 
 ```json
 { "name": "Reject", "from": "Submitted", "to": "Rejected",
@@ -431,9 +430,10 @@ curl -s -X PUT $BASE/api/contents/$INVOICE/status -H "Authorization: Bearer $APP
   -d '{"transition": "Reject", "data": {"RejectionReason": "No receipt attached"}}'
 ```
 
-- Without a value for `RejectionReason` the answer is `400` naming the field, and the entry stays
-  where it was. A blank string and `null` count as no value. A value already on the entry meets the
-  requirement, so a clerk can fill it in before the reviewer acts.
+- Without a value for `RejectionReason` in `data` the answer is `400` naming the field, and the
+  entry stays where it was. A blank string and `null` count as no value. A value already on the
+  entry does not count either: an entry rejected, sent back and rejected again needs a reason of
+  its own, or the workflow would send the first one out a second time.
 - `data` may carry only the fields the transition declares. Any other key is a `400`, and the
   answer lists the fields the transition takes without repeating the key that was sent.
 - The caller needs the transition permission and not `update`. That is how a reviewer who may not
@@ -442,12 +442,15 @@ curl -s -X PUT $BASE/api/contents/$INVOICE/status -H "Authorization: Bearer $APP
 - The values are checked the way an update checks them: a field the caller may not see is put back
   to its stored value, the type's validation runs over the whole entry (required fields, types and
   `validationRules`), and before-save hooks run. A reviewer who may not see a required field cannot
-  fill it, so the move is refused unless the entry already holds a value.
+  send it, so the move is refused with the field named, whatever the entry already holds.
 - The permission checks run first. A caller who may not perform the transition gets the same bare
   `403` as before and is not told which fields it requires.
 - The values and the move commit together. The entry's history shows an `Updated` beside the
   `Transitioned`, and a workflow on `transition:Reject` reads `{{data.RejectionReason}}`. A workflow
   on `Updated` fires too, because the data did change.
+- When `data` is sent, an edit to the entry by somebody else that commits while the move is in
+  flight makes the move a `409`, and an edit that committed just before is kept. The move does not
+  write another writer's field back to what it was.
 - `data` sent to a transition that declares no fields, or with `newStatus`, is ignored.
 
 The requirement is checked where a transition is made, which is this endpoint and nothing else.
@@ -455,10 +458,11 @@ Scheduled publishing, `UpdateField`, collection pushes and syncs change `status`
 lifecycle state. A workflow can still blank the field afterwards: this is a check on the move, not
 a rule the entry keeps.
 
-A stored transition naming a field the type no longer has (an import replaces a type's fields and
-keeps its lifecycle) is skipped for that name and logged at warning level, and the rest of what it
-requires still applies. An import refuses a bundle whose new lifecycle names a field the bundle's
-type does not declare, and one that changes what a stored transition requires.
+An import replaces a type's fields and keeps its lifecycle, so it refuses a bundle that leaves out
+a field a stored transition names, one that changes what a stored transition requires, and one
+whose new lifecycle names a field the bundle's type does not declare. A stored transition that
+names a field the type does not have anyway is skipped for that name and logged at warning level,
+and the rest of what it requires still applies.
 
 ## What this page does not cover
 

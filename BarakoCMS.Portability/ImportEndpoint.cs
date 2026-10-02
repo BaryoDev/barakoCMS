@@ -413,6 +413,7 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
             return errors;
 
         errors.AddRange(SensitivityChanges(type, stored));
+        errors.AddRange(DroppedTransitionFields(type, stored));
 
         var entries = await EntryCountAsync(stored, ct);
 
@@ -447,6 +448,41 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
         }
 
         return errors;
+    }
+
+    /// <summary>
+    /// Fields a stored transition names that the stored type has and the bundle leaves out.
+    /// </summary>
+    /// <remarks>
+    /// An import replaces a type's fields and keeps its lifecycle. A transition naming a field the
+    /// type no longer has skips that name on every move, so dropping the field would switch a
+    /// requirement off with nothing said. A name the stored type already lacks is not reported: that
+    /// requirement is skipped today, and a bundle exported from this tenant has to import back.
+    /// </remarks>
+    private static IEnumerable<string> DroppedTransitionFields(ContentTypeDefinition type, ContentTypeDefinition stored)
+    {
+        if (stored.Lifecycle is null)
+            yield break;
+
+        foreach (var transition in stored.Lifecycle.Transitions)
+        {
+            var named = (transition.RequiredFields ?? [])
+                .Concat(transition.OptionalFields ?? [])
+                .Where(n => !string.IsNullOrWhiteSpace(n))
+                .Distinct(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var name in named)
+            {
+                if (!stored.Fields.Any(f => f.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+
+                if (type.Fields.Any(f => f.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+
+                yield return $"field '{name}' is named by the stored transition '{transition.Name}' and the "
+                             + "bundle leaves it out, which would stop that transition asking for it. Keep the field.";
+            }
+        }
     }
 
     /// <summary>

@@ -13,6 +13,7 @@ internal class Endpoint(
     barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver,
     barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
     IContentWriter contentWriter,
+    IContentSourcingPolicy sourcing,
     IConfiguration configuration,
     ILogger<Endpoint> logger) : Endpoint<Request, Response>
 {
@@ -159,8 +160,8 @@ internal class Endpoint(
     /// violation and allows it, which is a deliberate escape hatch rather than an oversight, and it
     /// defaults to on.
     ///
-    /// A transition may declare fields. The ones it requires must hold a value once the move is
-    /// made, on the entry already or sent in Data, and Data may carry only the fields the transition
+    /// A transition may declare fields. The ones it requires must be sent in Data with the move, a
+    /// value already on the entry does not count, and Data may carry only the fields the transition
     /// declares. The caller needs the transition permission and not Update to send them: a reviewer
     /// who may not edit an entry still has to say why they rejected it, and the declared list is
     /// what keeps that from becoming a general edit. Sent values go through the gates an update
@@ -274,17 +275,44 @@ internal class Endpoint(
         }
 
         Dictionary<string, object>? data = null;
-        Guid? expectedDocVersion = null;
+        var sentValues = new Dictionary<barakoCMS.Models.FieldDefinition, object?>();
+        IReadOnlyDictionary<string, object> stored = content.Data;
+        long? streamVersion = null;
+        Guid? documentVersion = null;
 
         if (takes.TakesFields && req.Data is { Count: > 0 } sent)
         {
-            // The sent values are laid over a copy of the stored data, so what is validated and
-            // stored is the whole entry. The version is read here so a write that lands between
-            // this read and the commit fails the commit instead of being overwritten by the copy.
-            expectedDocVersion = (await session.MetadataForAsync(content, ct))?.CurrentVersion;
-            data = new Dictionary<string, object>(content.Data, content.Data.Comparer);
+            // The version first, the entry second. A transition never wrote data before, so the copy
+            // loaded at the top of the request was good enough; now the sent values are laid over a
+            // copy of the whole bag, and a bag read before another writer's commit would put that
+            // writer's fields back as they were. Reading the version and then the entry again means
+            // a write before this point is in the copy, and a write after it fails the commit.
+            //
+            // An event-sourced type is guarded by its stream version, which the writer binds to the
+            // append. Every other type is guarded by the document's own version, bound below.
+            if (await sourcing.IsEventSourcedAsync(content.ContentType, ct))
+            {
+                streamVersion = (await session.Events.FetchStreamStateAsync(content.Id, ct))?.Version ?? 0;
+            }
+            else
+            {
+                documentVersion = (await session.MetadataForAsync(content, ct))?.CurrentVersion;
+            }
 
-            var written = new HashSet<barakoCMS.Models.FieldDefinition>();
+            var current = await session.LoadAsync<barakoCMS.Models.Content>(content.Id, ct);
+
+            // The checks above read the first copy. If the entry moved state since, they answered
+            // for a state it is no longer in.
+            if (current is null
+                || !string.Equals(current.LifecycleState, content.LifecycleState, StringComparison.Ordinal))
+            {
+                ThrowError(ChangedByAnotherWriter, 409);
+                return;
+            }
+
+            stored = current.Data;
+            data = new Dictionary<string, object>(current.Data, current.Data.Comparer);
+
             var notTaken = 0;
 
             foreach (var (key, value) in sent)
@@ -296,7 +324,7 @@ internal class Endpoint(
                     continue;
                 }
 
-                if (!written.Add(field))
+                if (!sentValues.TryAdd(field, value))
                 {
                     AddError($"Field '{field.DisplayName}' ({field.Name}) was sent more than once, ignoring case.");
                     continue;
@@ -319,10 +347,10 @@ internal class Endpoint(
             // A caller who may not see a field may not change it. Reverts any such field to what is
             // stored, before the required check reads it.
             await Resolve<ISensitivityService>()
-                .ApplyWriteAsync(content.ContentType, data, content.Data, HttpContext, ct);
+                .ApplyWriteAsync(content.ContentType, data, stored, HttpContext, ct);
         }
 
-        foreach (var field in TransitionFields.Blank(takes, data ?? content.Data))
+        foreach (var field in TransitionFields.NotSent(takes, data, sentValues))
         {
             AddError($"Field '{field.DisplayName}' ({field.Name}) is required by the transition '{transition.Name}'.");
         }
@@ -346,7 +374,7 @@ internal class Endpoint(
             }
 
             var hookErrors = await Resolve<barakoCMS.Infrastructure.Services.IContentLifecycleRunner>()
-                .RunBeforeSaveAsync(content.ContentType, content.Id, data, content.Data, userId, ct);
+                .RunBeforeSaveAsync(content.ContentType, content.Id, data, stored, userId, ct);
             if (hookErrors.Count > 0)
             {
                 foreach (var error in hookErrors)
@@ -377,13 +405,20 @@ internal class Endpoint(
 
         try
         {
-            await contentWriter.AppendOptimisticAsync(content, events, ct);
-
-            // After the append and before the commit: the writer loads the document again to store
-            // it, and a version bound before that load is discarded.
-            if (expectedDocVersion is { } expected)
+            if (data is null)
             {
-                session.UpdateExpectedVersion(content, expected);
+                await contentWriter.AppendOptimisticAsync(content, events, ct);
+            }
+            else
+            {
+                await contentWriter.AppendAsync(content, events, streamVersion, ct);
+
+                // After the append and before the commit: the writer loads the document again to
+                // store it, and a version bound before that load is discarded.
+                if (documentVersion is { } expected)
+                {
+                    session.UpdateExpectedVersion(content, expected);
+                }
             }
 
             await AuditLog.RecordAsync(session, tenant.Slug, $"content.transitioned", userId, user.Username,
@@ -393,11 +428,15 @@ internal class Endpoint(
 
             await session.SaveChangesAsync(ct);
         }
+        catch (StaleContentException)
+        {
+            ThrowError(ChangedByAnotherWriter, 409);
+        }
         catch (Exception ex) when (ex is JasperFx.ConcurrencyException
             || ex.GetType().Name.Contains("Concurrency")
             || ex.GetType().Name.Contains("UnexpectedMaxEventId"))
         {
-            ThrowError("The content was changed by another writer. Please refresh and try again.", 409);
+            ThrowError(ChangedByAnotherWriter, 409);
         }
 
         await Send.ResponseAsync(new Response
@@ -405,4 +444,7 @@ internal class Endpoint(
             Message = $"{transition.Name} moved this entry to {transition.To}",
         });
     }
+
+    private const string ChangedByAnotherWriter =
+        "The content was changed by another writer. Please refresh and try again.";
 }

@@ -9,9 +9,9 @@ namespace barakoCMS.Core.Validation;
 /// </summary>
 /// <remarks>
 /// A stored transition naming a field the type no longer has is skipped on a move instead of
-/// failing it. A Portability import replaces a type's fields and keeps its lifecycle, so the two can
-/// drift apart, and a requirement nobody can meet would leave every entry stuck in its state.
-/// <see cref="Resolve"/> reports what it skipped so the caller can log it.
+/// failing it. The API refuses to save one and an import refuses to drop such a field, but a type
+/// stored some other way can still hold one, and a requirement nobody can meet would leave every
+/// entry stuck in its state. <see cref="Resolve"/> reports what it skipped so the caller can log it.
 ///
 /// Names match a field ignoring case and the first match wins, which is how the entry validator
 /// reads a data bag.
@@ -120,22 +120,48 @@ internal static class TransitionFields
     }
 
     /// <summary>
-    /// The required fields the data bag leaves blank, read the way a required field is read on an
-    /// entry write.
+    /// The required fields this move was not given a value for.
     /// </summary>
-    public static List<FieldDefinition> Blank(Resolved resolved, IReadOnlyDictionary<string, object> data)
+    /// <param name="data">The entry as it will be stored, or null when the request sent nothing.</param>
+    /// <param name="sent">The value the request sent for each field, as the request held it.</param>
+    /// <remarks>
+    /// A value already on the entry does not count. An entry rejected, sent back and rejected again
+    /// would otherwise pass on the first rejection's reason, and the workflow on the move would send
+    /// that one out again. Blank is read the way a required field is read on an entry write.
+    ///
+    /// <paramref name="data"/> is read after write-path sensitivity has run. That step puts the
+    /// stored value back for a field the caller may not see, so a sent value that did not survive it
+    /// counts as not sent, and the move is refused instead of going through with the caller's value
+    /// thrown away. Dropping the <c>WasSent</c> test is what lets a stored value stand in.
+    /// </remarks>
+    public static List<FieldDefinition> NotSent(
+        Resolved resolved,
+        IReadOnlyDictionary<string, object>? data,
+        IReadOnlyDictionary<FieldDefinition, object?> sent)
     {
-        var blank = new List<FieldDefinition>();
+        if (data is null)
+            return resolved.Required.ToList();
+
+        var missing = new List<FieldDefinition>();
 
         foreach (var field in resolved.Required)
         {
             var pair = data.FirstOrDefault(kv => Matches(kv.Key, field.Name));
-            if (pair.Key is null || ContentValidatorService.IsBlank(field, pair.Value))
-                blank.Add(field);
+            if (pair.Key is null
+                || ContentValidatorService.IsBlank(field, pair.Value)
+                || !WasSent(field, pair.Value, sent))
+            {
+                missing.Add(field);
+            }
         }
 
-        return blank;
+        return missing;
     }
+
+    // The same object, not an equal one: a stored value that happens to equal what was sent was
+    // still put there by the sensitivity step and not by the caller.
+    private static bool WasSent(FieldDefinition field, object? kept, IReadOnlyDictionary<FieldDefinition, object?> sent) =>
+        sent.TryGetValue(field, out var value) && ReferenceEquals(value, kept);
 
     public static bool Matches(string? a, string? b) =>
         string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
