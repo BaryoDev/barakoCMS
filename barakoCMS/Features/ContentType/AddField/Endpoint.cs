@@ -192,9 +192,8 @@ internal sealed class Endpoint(
         definition.UpdatedAt = DateTime.UtcNow;
         session.Store(definition);
 
-        // Role names as they are now, for the entry. The field itself stores ids.
-        var named = new FieldDefinition { VisibleToRoles = [.. field.VisibleToRoles] };
-        await barakoCMS.Core.RoleReferences.ToNamesAsync(session, [named], ct);
+        // The field stores role ids. The entry holds each id with the name it has now.
+        var roles = await RoleAudit.RoleListsAsync(session, [field.VisibleToRoles], [], ct);
 
         var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
         await AuditLog.RecordAsync(session, tenant.Slug, "contenttype.field_added", actorId,
@@ -206,7 +205,8 @@ internal sealed class Endpoint(
                 ["type"] = field.Type,
                 ["required"] = field.IsRequired,
                 ["sensitivity"] = field.Sensitivity.ToString(),
-                ["visibleToRoles"] = named.VisibleToRoles,
+                ["visibleToRoleIds"] = roles[0].Ids,
+                ["visibleToRoles"] = roles[0].Names,
             }, ct: ct);
 
         await session.SaveChangesAsync(ct);

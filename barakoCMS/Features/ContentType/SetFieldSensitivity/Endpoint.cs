@@ -163,14 +163,11 @@ internal class Endpoint(
         def.UpdatedAt = DateTimeOffset.UtcNow;
         session.Store(def);
 
-        // The entry holds role names as they are now. The field stores ids, and an id says nothing
-        // to a reader once its role is renamed or deleted.
-        var named = new[]
-        {
-            new FieldDefinition { VisibleToRoles = rolesBefore },
-            new FieldDefinition { VisibleToRoles = [.. field.VisibleToRoles] },
-        };
-        await barakoCMS.Core.RoleReferences.ToNamesAsync(session, named, ct);
+        // Stored as role ids, answered as role names, which is what a client sends back. A copy,
+        // so the stored field is not the one rewritten. The same lookup names the roles for the
+        // audit entry, which holds each id with the name it has now.
+        var answered = new FieldDefinition { VisibleToRoles = [.. field.VisibleToRoles] };
+        var roles = await RoleAudit.RoleListsAsync(session, [rolesBefore, field.VisibleToRoles], [answered], ct);
 
         // Lowering is a disclosure, so it gets an action of its own. Alerting on it should not mean
         // reading the metadata of every sensitivity change.
@@ -188,8 +185,10 @@ internal class Endpoint(
                 ["field"] = field.Name,
                 ["from"] = from.ToString(),
                 ["to"] = to.ToString(),
-                ["visibleToRolesFrom"] = named[0].VisibleToRoles,
-                ["visibleToRolesTo"] = named[1].VisibleToRoles,
+                ["visibleToRoleIdsFrom"] = roles[0].Ids,
+                ["visibleToRolesFrom"] = roles[0].Names,
+                ["visibleToRoleIdsTo"] = roles[1].Ids,
+                ["visibleToRolesTo"] = roles[1].Names,
                 ["maskFrom"] = maskBefore.ToString(),
                 ["maskTo"] = field.Mask.ToString(),
                 ["publiclyDeliverable"] = def.IsPubliclyDeliverable,
@@ -203,11 +202,6 @@ internal class Endpoint(
 
         // The delivery OpenAPI document lists only the Public fields of a type, so this changed it.
         openApiCache.Invalidate(tenant.Slug);
-
-        // Stored as role ids, answered as role names, which is what a client sends back. A copy,
-        // so the stored field is not the one rewritten.
-        var answered = new FieldDefinition { VisibleToRoles = [.. field.VisibleToRoles] };
-        await barakoCMS.Core.RoleReferences.ToNamesAsync(session, [answered], ct);
 
         await Send.OkAsync(new Response
         {

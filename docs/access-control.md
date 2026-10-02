@@ -812,15 +812,15 @@ display prefix.
 | Role deleted | `role.deleted` | `name`, `capabilities`, `permissions` |
 | Global role given to a user | `user.role.assigned` | `roleId`, `roleName` |
 | Global role taken from a user | `user.role.removed` | `roleId`, `roleName` |
-| Tenant created | `tenant.member.added` in the new tenant's log | `roleIds`, `roleNames`, `tenantCreated` |
+| Tenant created | `tenant.member.added` in the new tenant's log | `invited` (false), `roleIds`, `roleNames`, `tenantCreated` |
 | Tenant switched off or on | `tenant.deactivated`, `tenant.activated` in that tenant's log | none |
 | Member added, or added again | `tenant.member.added` | `invited`, `roleIds`, `roleNames`; `previousStatus`, `previousRoleIds`, `previousRoleNames` when the membership already existed |
 | Member's roles or status changed (suspending is this) | `tenant.member.updated` | `status`, `roleIds`, `roleNames`, `previousStatus`, `previousRoleIds`, `previousRoleNames` |
 | Member removed | `tenant.member.removed` | `previousStatus`, `previousRoleIds`, `previousRoleNames` |
 | API key created | `apikey.created` | `name`, `scopes`, `contentTypes`, `actsAsUserId`, `expiresAt` when set |
 | API key revoked | `apikey.revoked` | `name`, `actsAsUserId` |
-| Field added | `contenttype.field_added` | `field`, `type`, `required`, `sensitivity`, `visibleToRoles` |
-| Field's level, role list or mask changed | `contenttype.field.sensitivity.changed` or `.lowered` | `from`, `to`, `visibleToRolesFrom`, `visibleToRolesTo`, `maskFrom`, `maskTo` |
+| Field added | `contenttype.field_added` | `field`, `type`, `required`, `sensitivity`, `visibleToRoleIds`, `visibleToRoles` |
+| Field's level, role list or mask changed | `contenttype.field.sensitivity.changed` or `.lowered` | `from`, `to`, `visibleToRoleIdsFrom`, `visibleToRolesFrom`, `visibleToRoleIdsTo`, `visibleToRolesTo`, `maskFrom`, `maskTo` |
 
 The three member rows also carry `profileAdded`, `profileRemoved` and `profileChanged` when a
 profile changed: the attribute names, never their values.
@@ -828,8 +828,16 @@ profile changed: the attribute names, never their values.
 ### Where a membership is written
 
 A membership has three writers, `Members.AddAsync`, `ChangeAsync` and `RemoveAsync`, and each stages
-its row beside the write. The member routes and tenant creation all go through them, and
-`MembershipWriterTests` fails if any other source file writes a membership.
+its row beside the write. The member routes and tenant creation all go through them. The patch they
+share, `QueueWrite`, is private to `Members`, so no other file can queue a membership write with no
+row.
+
+`MembershipWriterTests` reads the source for a write anywhere else. Outside the member endpoints
+file and outside comment lines it fails on `new Membership` as a whole word, on `Membership x = new(`,
+on a session call typed on the document (`Patch<Membership>`, `Store<Membership>`, and the insert,
+update and delete spellings), and on any file that loads or queries memberships and also calls
+`.Store(`, `.Insert(` or `.Update(`. It does not catch a membership handed to another file that
+stores it, or a write through raw SQL.
 
 ### Ids and names
 
@@ -840,9 +848,14 @@ rename. Beside it is the name the role had when the change was made (`roleName`,
 rewritten, so the two cannot come apart inside it; after a rename the row still says what the role
 was called at the time. A role that no longer exists has an empty name beside its id.
 
-The field rows hold names only (`visibleToRoles`, `visibleToRolesFrom`, `visibleToRolesTo`). A field
-stores its role list as ids, and the row resolves them through `RoleReferences.ToNamesAsync` when the
-change is made, the same way the API answers. An entry that resolves to no role is kept as stored.
+The field rows follow the same rule. A field stores its role list as ids, so `visibleToRoleIds`,
+`visibleToRoleIdsFrom` and `visibleToRoleIdsTo` hold those ids, and `visibleToRoles`,
+`visibleToRolesFrom` and `visibleToRolesTo` hold the names beside them in the same order, resolved
+through `RoleReferences.ToNamesAsync` when the change is made. A stored id whose role is gone has an
+empty name. Text the request sent that matched no role is stored on the field as sent; in the row it
+has an empty id and the text as its name. Each of these lists is the same capped object a role row
+uses: the first 50 `items`, the full `count`, `truncated`, and a name cut at 200 characters, since
+nothing limits the list a request sends.
 
 ### The shape of a role row
 

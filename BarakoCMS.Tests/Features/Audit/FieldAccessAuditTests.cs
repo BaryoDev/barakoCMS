@@ -89,8 +89,10 @@ public class FieldAccessAuditTests
         var row = rows[0];
         row.Text("from").Should().Be("Sensitive");
         row.Text("to").Should().Be("Sensitive");
-        row.Strings("visibleToRolesFrom").Should().Equal(first.Name);
-        row.Strings("visibleToRolesTo").Should().Equal(first.Name, second.Name);
+        row.Items("visibleToRolesFrom").Should().Equal(first.Name);
+        row.Items("visibleToRoleIdsFrom").Should().Equal(first.Id.ToString());
+        row.Items("visibleToRolesTo").Should().Equal(first.Name, second.Name);
+        row.Items("visibleToRoleIdsTo").Should().Equal(first.Id.ToString(), second.Id.ToString());
         row.Text("maskFrom").Should().Be("Default");
         row.Text("maskTo").Should().Be("Last4");
 
@@ -121,6 +123,49 @@ public class FieldAccessAuditTests
         rows.Should().HaveCount(1);
         rows[0].Text("field").Should().Be("Diagnosis");
         rows[0].Text("sensitivity").Should().Be("Sensitive");
-        rows[0].Strings("visibleToRoles").Should().Equal(role.Name);
+        rows[0].Items("visibleToRoles").Should().Equal(role.Name);
+        rows[0].Items("visibleToRoleIds").Should().Equal(role.Id.ToString());
+    }
+
+    /// <summary>
+    /// Nothing limits the role list a request sends, and an entry no role carries is stored as
+    /// sent, so the audit entry is what has to be bounded.
+    /// </summary>
+    [Fact]
+    public async Task A_long_role_list_of_unknown_names_is_cut_and_clipped_in_the_entry()
+    {
+        var type = await TypeAsync(new FieldDefinition
+        {
+            Name = "Salary",
+            DisplayName = "Salary",
+            Type = "string",
+            Sensitivity = SensitivityLevel.Sensitive,
+        });
+        var client = await AdminAsync();
+        var marker = Guid.NewGuid().ToString("N");
+        var sent = new List<string> { marker + new string('x', 400) };
+        sent.AddRange(Enumerable.Range(0, 69).Select(i => $"{marker}-{i}"));
+
+        var changed = await client.PutAsJsonAsync(
+            $"/api/content-types/{type.Name}/fields/Salary/sensitivity",
+            new { sensitivity = "Sensitive", visibleToRoles = sent });
+        changed.StatusCode.Should().Be(HttpStatusCode.OK, await changed.Content.ReadAsStringAsync());
+
+        var rows = await AuditRows.ForTargetAsync(
+            _factory, "contenttype.field.sensitivity.changed", type.Id.ToString());
+
+        rows.Should().HaveCount(1);
+        var names = rows[0].Element("visibleToRolesTo");
+        names.GetProperty("count").GetInt32().Should().Be(70);
+        names.GetProperty("truncated").GetBoolean().Should().BeTrue();
+        var items = names.GetProperty("items").EnumerateArray().Select(e => e.GetString()!).ToList();
+        items.Should().HaveCount(50);
+        items[0].Should().HaveLength(200);
+        items[1].Should().Be($"{marker}-0");
+
+        var ids = rows[0].Element("visibleToRoleIdsTo").GetProperty("items").EnumerateArray()
+            .Select(e => e.GetString()).ToList();
+        ids.Should().HaveCount(50);
+        ids.Should().OnlyContain(id => id == string.Empty, "none of these is a role");
     }
 }

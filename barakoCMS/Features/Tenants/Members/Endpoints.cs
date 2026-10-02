@@ -66,7 +66,7 @@ internal static class Members
     /// <summary>What a member holds at one moment, read before a change so the entry can say what it replaced.</summary>
     public sealed record Held(MembershipStatus Status, List<Guid> RoleIds)
     {
-        public static Held By(Membership membership) => new(membership.Status, membership.RoleIds.ToList());
+        public static Held By(Membership membership) => new(membership.Status, (membership.RoleIds ?? []).ToList());
     }
 
     /// <summary>
@@ -129,7 +129,7 @@ internal static class Members
     /// The document passed in is brought up to date for the response only. The session is a
     /// lightweight one and does not track it.
     /// </remarks>
-    public static void QueueWrite(
+    private static void QueueWrite(
         IDocumentSession session,
         Membership membership,
         List<Guid> roleIds,

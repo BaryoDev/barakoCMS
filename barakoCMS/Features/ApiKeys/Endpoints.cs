@@ -118,10 +118,16 @@ internal sealed record ApiKeyListItem(
 /// <summary>GET /api/api-keys — list the current tenant's keys (never the secret or hash).</summary>
 internal class ListApiKeysEndpoint(IQuerySession session) : Endpoint<ListRequest, PaginatedResponse<ApiKeyListItem>>
 {
+    /// <summary>
+    /// Who may read a key's scopes. The audit list asks this same gate before it returns that
+    /// detail of a key entry.
+    /// </summary>
+    internal static readonly RequiredCapability Gate = new(SystemCapabilities.ManageApiKeys, ["SuperAdmin", "Admin"]);
+
     public override void Configure()
     {
         Get("/api/api-keys");
-        Definition.RequireCapability(SystemCapabilities.ManageApiKeys, "SuperAdmin", "Admin");
+        Definition.RequireCapability(Gate.Capability, [.. Gate.LegacyRoles]);
     }
 
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)

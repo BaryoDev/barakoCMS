@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.Text.Json;
+using barakoCMS.Core;
 using barakoCMS.Models;
+using Marten;
 
 namespace barakoCMS.Infrastructure.Audit;
 
@@ -104,6 +106,63 @@ internal static class RoleAudit
         return metadata;
     }
 
+    /// <summary>One role list of a field as an entry holds it: ids, and names beside them in the same order.</summary>
+    internal sealed record RoleList(Dictionary<string, object> Ids, Dictionary<string, object> Names);
+
+    /// <summary>
+    /// The role lists of a field, for an entry. A field stores role ids, and an entry it could not
+    /// tie to a role as the text that was sent.
+    /// </summary>
+    /// <remarks>
+    /// The id is the reference, since it survives a rename, and the name is what the role was
+    /// called when the change was made. A stored id whose role is gone has an empty name, and
+    /// stored text that is not an id has an empty id and the text as its name. Capped and clipped
+    /// like every other list here, because nothing limits what a request puts in the list.
+    ///
+    /// One lookup serves every list passed and <paramref name="alsoResolve"/>, which is how the
+    /// endpoint names the roles in its response without asking again.
+    /// </remarks>
+    public static async Task<List<RoleList>> RoleListsAsync(
+        IQuerySession session, List<string>?[] lists, IEnumerable<FieldDefinition> alsoResolve, CancellationToken ct)
+    {
+        var kept = lists
+            .Select(list => (list ?? new List<string>())
+                .Take(MaxItems)
+                .Select(entry => entry ?? string.Empty)
+                .ToList())
+            .ToList();
+
+        // One definition per entry, so each comes back in its own place: resolving a whole list
+        // drops an entry that resolves to a name already in it.
+        var single = kept
+            .Select(list => list.Select(entry => new FieldDefinition { VisibleToRoles = [entry] }).ToList())
+            .ToList();
+
+        await RoleReferences.ToNamesAsync(session, single.SelectMany(list => list).Concat(alsoResolve), ct);
+
+        var described = new List<RoleList>();
+        for (var i = 0; i < kept.Count; i++)
+        {
+            var ids = new List<string>();
+            var names = new List<string>();
+
+            for (var j = 0; j < kept[i].Count; j++)
+            {
+                var stored = kept[i][j];
+                var resolved = single[i][j].VisibleToRoles.FirstOrDefault() ?? string.Empty;
+                var isId = RoleReferences.IsId(stored, out _);
+
+                ids.Add(isId ? stored : string.Empty);
+                names.Add(Clip(isId && string.Equals(resolved, stored, StringComparison.Ordinal) ? string.Empty : resolved));
+            }
+
+            var count = lists[i]?.Count ?? 0;
+            described.Add(new RoleList(Capped(ids, count), Capped(names, count)));
+        }
+
+        return described;
+    }
+
     private static Dictionary<string, object> DescribePermission(ContentTypePermission permission)
     {
         var actions = new List<string>();
@@ -171,11 +230,13 @@ internal static class RoleAudit
         _ => new List<string>(),
     };
 
-    private static Dictionary<string, object> Capped<T>(IReadOnlyCollection<T> items) => new()
+    private static Dictionary<string, object> Capped<T>(IReadOnlyCollection<T> items) => Capped(items, items.Count);
+
+    private static Dictionary<string, object> Capped<T>(IReadOnlyCollection<T> items, int count) => new()
     {
         ["items"] = items.Take(MaxItems).ToList(),
-        ["count"] = items.Count,
-        ["truncated"] = items.Count > MaxItems,
+        ["count"] = count,
+        ["truncated"] = count > MaxItems,
     };
 
     private static string Clip(string? value) =>

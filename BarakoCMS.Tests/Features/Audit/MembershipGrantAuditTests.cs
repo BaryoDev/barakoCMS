@@ -117,6 +117,7 @@ public class MembershipGrantAuditTests
     [Theory]
     [InlineData(MembershipStatus.Active)]
     [InlineData(MembershipStatus.Suspended)]
+    [InlineData(MembershipStatus.Removed)]
     public async Task Adding_somebody_who_is_already_a_member_records_what_they_held_before(MembershipStatus status)
     {
         var slug = await AuditTenants.CreateAsync(_factory);
@@ -137,6 +138,36 @@ public class MembershipGrantAuditTests
         row.Strings("previousRoleNames").Should().Equal(held.Name);
         row.Strings("roleIds").Should().Equal(SystemRoles.UserRoleId.ToString());
         row.Strings("roleNames").Should().Equal(await RoleNameAsync(SystemRoles.UserRoleId));
+    }
+
+    /// <summary>
+    /// A member route refuses a role carrying a platform capability from a caller who is not a
+    /// SuperAdmin, after it has loaded the membership and before any writer runs.
+    /// </summary>
+    [Fact]
+    public async Task A_refused_member_write_leaves_no_entry_for_that_member()
+    {
+        var slug = await AuditTenants.CreateAsync(_factory);
+        var (client, _) = await AuditTenants.AdminAsync(_factory, slug);
+        var memberId = await AuditTenants.MemberAsync(_factory, slug, MembershipStatus.Active);
+        var platform = await AuditTenants.RoleAsync(_factory, SystemCapabilities.ManageRoles);
+
+        var allowed = await client.PutAsJsonAsync($"/api/tenants/members/{memberId}",
+            new { roleIds = new[] { SystemRoles.UserRoleId }, status = "Active" });
+        allowed.StatusCode.Should().Be(HttpStatusCode.OK, await allowed.Content.ReadAsStringAsync());
+
+        var put = await client.PutAsJsonAsync($"/api/tenants/members/{memberId}",
+            new { roleIds = new[] { platform.Id }, status = "Active" });
+        put.StatusCode.Should().Be(HttpStatusCode.Forbidden, await put.Content.ReadAsStringAsync());
+
+        var post = await client.PostAsJsonAsync("/api/tenants/members",
+            new { email = $"aud-{memberId:N}@example.com", roleIds = new[] { platform.Id } });
+        post.StatusCode.Should().Be(HttpStatusCode.Forbidden, await post.Content.ReadAsStringAsync());
+
+        var updated = await AuditRows.ForTargetAsync(_factory, "tenant.member.updated", memberId.ToString());
+        updated.Should().HaveCount(1, "the allowed edit is there, so this member's entries are reachable");
+        updated[0].Strings("roleIds").Should().Equal(SystemRoles.UserRoleId.ToString());
+        (await AuditRows.ForTargetAsync(_factory, "tenant.member.added", memberId.ToString())).Should().BeEmpty();
     }
 
     [Fact]

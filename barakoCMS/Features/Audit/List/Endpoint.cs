@@ -89,12 +89,6 @@ internal class Endpoint(
     IQuerySession session,
     barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<ListRequest, PaginatedResponse<AuditEventDto>>
 {
-    /// <summary>The gate on <c>GET /api/roles</c>, which is where a role's capabilities are read.</summary>
-    private static readonly RequiredCapability RolesGate = new(SystemCapabilities.ManageRoles, ["SuperAdmin"]);
-
-    /// <summary>The gate on <c>GET /api/api-keys</c>, which is where a key's scopes are read.</summary>
-    private static readonly RequiredCapability KeysGate = new(SystemCapabilities.ManageApiKeys, ["SuperAdmin", "Admin"]);
-
     public override void Configure()
     {
         Get("/api/audit");
@@ -136,12 +130,12 @@ internal class Endpoint(
             .Skip(req.Skip).Take(req.Take)
             .ToListAsync(ct);
 
-        // Asked by the rule the gate itself uses, and only when the page holds a row the answer
-        // changes.
+        // The gates are the ones GET /api/roles and GET /api/api-keys declare, asked by the rule
+        // the gate itself uses, and only when the page holds a row the answer changes.
         var mayListRoles = items.Any(e => e.Action.StartsWith("role.", StringComparison.Ordinal))
-            && await CapabilityGateProcessor.HoldsAsync(HttpContext, RolesGate, ct);
+            && await CapabilityGateProcessor.HoldsAsync(HttpContext, barakoCMS.Features.Roles.List.Endpoint.Gate, ct);
         var mayListKeys = items.Any(e => e.Action.StartsWith("apikey.", StringComparison.Ordinal))
-            && await CapabilityGateProcessor.HoldsAsync(HttpContext, KeysGate, ct);
+            && await CapabilityGateProcessor.HoldsAsync(HttpContext, barakoCMS.Features.ApiKeys.ListApiKeysEndpoint.Gate, ct);
 
         await Send.ResponseAsync(new PaginatedResponse<AuditEventDto>
         {
