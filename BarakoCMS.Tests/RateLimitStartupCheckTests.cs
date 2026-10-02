@@ -28,6 +28,16 @@ namespace BarakoCMS.Tests;
 /// host maps exactly what its test says. A module's endpoints are only ever mapped here with the
 /// module's services registered: FastEndpoints constructs every endpoint as it maps the routes, so
 /// a host without those services stops there, before the check.
+/// <para>
+/// No app built here is disposed, and that is deliberate. The check runs last in
+/// <c>UseBarakoCMS</c>, so every app here has mapped its FastEndpoints routes by then, the ones
+/// expected to throw included. Mapping points FastEndpoints' process-wide service resolver at the
+/// app that mapped last, and it stays there until another host maps. Code that resolves through
+/// it outside a request, <c>JwtBearer.CreateToken</c> in the token issuer for one, then asks this
+/// app's container, so a disposed one fails a later test in another class with
+/// <c>ObjectDisposedException</c>. Left alive, the container answers. It is the rule
+/// <c>IntegrationTestFixture.WithSetting</c> states for the hosts it builds.
+/// </para>
 /// </remarks>
 [Collection("Sequential")]
 public class RateLimitStartupCheckTests
@@ -41,7 +51,7 @@ public class RateLimitStartupCheckTests
     [Fact]
     public async Task A_host_route_naming_a_policy_nobody_defined_stops_the_host_naming_both()
     {
-        await using var app = await BuildAsync();
+        var app = await BuildAsync();
         app.MapGet("/bookings/status", () => "ok").RequireRateLimiting("booking-status");
 
         Action use = () => app.UseBarakoCMS();
@@ -53,7 +63,7 @@ public class RateLimitStartupCheckTests
     [Fact]
     public async Task The_same_host_passes_once_configuration_defines_the_policy()
     {
-        await using var app = await BuildAsync(setting: ("RateLimiting:Policies:booking-status:PermitLimit", "5"));
+        var app = await BuildAsync(setting: ("RateLimiting:Policies:booking-status:PermitLimit", "5"));
         app.MapGet("/bookings/status", () => "ok").RequireRateLimiting("booking-status");
 
         Action use = () => app.UseBarakoCMS();
@@ -64,7 +74,7 @@ public class RateLimitStartupCheckTests
     [Fact]
     public async Task A_registered_module_whose_route_names_its_own_policy_passes()
     {
-        await using var app = await BuildAsync(module: new FormsModule());
+        var app = await BuildAsync(module: new FormsModule());
 
         Action use = () => app.UseBarakoCMS();
 
@@ -74,7 +84,7 @@ public class RateLimitStartupCheckTests
     [Fact]
     public async Task A_registered_module_whose_route_names_a_missing_policy_stops_the_host()
     {
-        await using var app = await BuildAsync(module: new FormsWithoutItsPolicy());
+        var app = await BuildAsync(module: new FormsWithoutItsPolicy());
 
         Action use = () => app.UseBarakoCMS();
 
@@ -87,7 +97,7 @@ public class RateLimitStartupCheckTests
     [InlineData(false)]
     public async Task A_host_that_registers_its_own_delivery_policy_is_told_the_name_is_reserved(bool beforeCore)
     {
-        await using var app = await BuildAsync(
+        var app = await BuildAsync(
             beforeCore: beforeCore,
             own: services => services.Configure<RateLimiterOptions>(o =>
                 o.AddPolicy("delivery", _ => RateLimitPartition.GetNoLimiter("own"))));
@@ -101,7 +111,7 @@ public class RateLimitStartupCheckTests
     [Fact]
     public async Task A_configured_policy_with_the_name_of_a_module_policy_stops_the_host_naming_the_setting()
     {
-        await using var app = await BuildAsync(
+        var app = await BuildAsync(
             module: new FormsModule(),
             setting: ("RateLimiting:Policies:forms:PermitLimit", "5"));
 
