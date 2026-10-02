@@ -74,41 +74,45 @@ public class ResourceContractTests
     /// </remarks>
     private static bool IsPackageModel(Type type) =>
         type.IsClass
+        && !type.IsArray
         && type.Assembly == Package
         && type.Namespace == "barakoCMS.Models"
         && !typeof(barakoCMS.Models.PaginatedRequest).IsAssignableFrom(type);
 
     /// <summary>
     /// The package model a request binds: the request itself, a type it derives from, or the element
-    /// of a collection it is. Null when it binds none.
+    /// of an array or collection it is, however deeply those are nested. Null when it binds none.
     /// </summary>
     /// <remarks>
+    /// An array is unwrapped before anything is asked of it. The runtime gives <c>Role[]</c> the
+    /// namespace and assembly of <c>Role</c>, so the array would otherwise pass for a model itself
+    /// and be reported under the wrong name.
+    ///
     /// Properties are not followed. A model nested inside a request, as the sample entry of a
     /// workflow dry run is, is not found.
     /// </remarks>
-    private static Type? BoundModel(Type request)
+    private static Type? BoundModel(Type request) => BoundModel(request, depth: 0);
+
+    private static Type? BoundModel(Type request, int depth)
     {
-        var candidates = new List<Type> { request };
+        // A collection of collections ends somewhere. The bound stops a type that enumerates itself.
+        if (depth > 8) return null;
 
         if (request.IsArray)
         {
-            candidates.Add(request.GetElementType()!);
+            return BoundModel(request.GetElementType()!, depth + 1);
+        }
+
+        for (var b = request; b is not null; b = b.BaseType)
+        {
+            if (IsPackageModel(b)) return b;
         }
 
         foreach (var shape in request.GetInterfaces().Append(request))
         {
-            if (shape.IsGenericType && shape.GetGenericTypeDefinition() == typeof(IEnumerable<>))
-            {
-                candidates.Add(shape.GetGenericArguments()[0]);
-            }
-        }
+            if (!shape.IsGenericType || shape.GetGenericTypeDefinition() != typeof(IEnumerable<>)) continue;
 
-        foreach (var candidate in candidates)
-        {
-            for (var b = candidate; b is not null; b = b.BaseType)
-            {
-                if (IsPackageModel(b)) return b;
-            }
+            if (BoundModel(shape.GetGenericArguments()[0], depth + 1) is { } element) return element;
         }
 
         return null;
@@ -171,13 +175,21 @@ public class ResourceContractTests
         BoundModel(typeof(WorkflowSubclassRequest)).Should().Be(typeof(barakoCMS.Models.WorkflowDefinition),
             "a subclass binds every property of the document it derives from");
         BoundModel(typeof(List<barakoCMS.Models.Role>)).Should().Be(typeof(barakoCMS.Models.Role));
-        BoundModel(typeof(barakoCMS.Models.Role[])).Should().Be(typeof(barakoCMS.Models.Role));
+        BoundModel(typeof(barakoCMS.Models.Role[])).Should().Be(typeof(barakoCMS.Models.Role),
+            "an array shares its element's namespace, and the model is the element");
+        BoundModel(typeof(barakoCMS.Models.Role[][])).Should().Be(typeof(barakoCMS.Models.Role));
+        BoundModel(typeof(IEnumerable<barakoCMS.Models.Role>)).Should().Be(typeof(barakoCMS.Models.Role));
+        BoundModel(typeof(List<barakoCMS.Models.Role[]>)).Should().Be(typeof(barakoCMS.Models.Role));
+        BoundModel(typeof(WorkflowSubclassRequest[])).Should().Be(typeof(barakoCMS.Models.WorkflowDefinition));
+        BoundModel(typeof(List<WorkflowSubclassRequest>)).Should().Be(typeof(barakoCMS.Models.WorkflowDefinition));
         BoundModel(typeof(barakoCMS.Models.Connector)).Should().Be(typeof(barakoCMS.Models.Connector),
             "the rule is the namespace, so a document nobody listed is covered");
 
         BoundModel(typeof(barakoCMS.Models.PaginatedRequest)).Should().BeNull();
         BoundModel(typeof(barakoCMS.Models.ListRequest)).Should().BeNull();
         BoundModel(typeof(RunPageRequest)).Should().BeNull("a request that only pages derives from a type made to be bound");
+        BoundModel(typeof(barakoCMS.Models.ListRequest[])).Should().BeNull("an array of paging requests holds no model");
+        BoundModel(typeof(PlainRequest[])).Should().BeNull();
         BoundModel(typeof(PlainRequest)).Should().BeNull();
         BoundModel(typeof(string)).Should().BeNull();
     }
