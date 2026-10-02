@@ -79,6 +79,12 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
                 // minute for ninety minutes, running whichever sync a test had just configured at a
                 // moment the test did not choose.
                 { "CollectionSyncs:Enabled", "false" },
+                // The Memory health check reads the private memory of the process, and a full run
+                // keeps every host it built alive in this one process, which passes the default
+                // 4096 MB ceiling. Liveness and readiness then answer 503 for reasons no test
+                // chose. HealthProbeTests sets the ceiling low on a host of its own to prove the
+                // check still fails. See #1081.
+                { "HealthChecks:MaxPrivateMemoryMegabytes", "1048576" },
                 // The job queue, tuned for a test run: a retry waits nothing, so a job that fails
                 // five times dead-letters in seconds. The backoff arithmetic itself is
                 // JobBackoffTests, a unit test.

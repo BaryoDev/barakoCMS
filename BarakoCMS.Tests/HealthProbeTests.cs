@@ -157,6 +157,22 @@ public class HealthProbeTests
             "a liveness endpoint that runs no checks cannot report a wedged process");
     }
 
+    [Fact]
+    public async Task A_process_over_its_memory_ceiling_fails_liveness_and_readiness()
+    {
+        var healthy = _fixture.CreateClient();
+
+        (await Get(healthy, "/health/live")).Should().Be(Expect(healthy: true),
+            "the control: under the fixture's ceiling the Memory check passes");
+
+        var overCeiling = _fixture.WithSetting("HealthChecks:MaxPrivateMemoryMegabytes", "1").CreateClient();
+
+        (await Get(overCeiling, "/health/live")).Should().Be(Expect(healthy: false),
+            "a process past its private memory ceiling is what a restart clears");
+        (await Get(overCeiling, "/health/ready")).Should().Be(Expect(healthy: false),
+            "and it should take no traffic meanwhile");
+    }
+
     private static HttpStatusCode Expect(bool healthy) =>
         healthy ? HttpStatusCode.OK : HttpStatusCode.ServiceUnavailable;
 }
