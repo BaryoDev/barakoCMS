@@ -36,6 +36,23 @@ updates:
       - dependency-name: "FastEndpoints.Testing"
         update-types: ["version-update:semver-minor", "version-update:semver-major"]
 
+      # Marten and JasperFx stay where they are for the rest of 4.x and move once, in 5.0 (#1000,
+      # https://github.com/BaryoDev/barakoCMS/issues/1000). Production runs AutoCreate.CreateOnly,
+      # which does not alter an existing database, so a Marten release that changes its own schema
+      # needs a hand-made SQL file under migrations/, a rollback and a fresh upgrade check. That is
+      # not worth doing every week on a line 5.0 replaces. Drop both entries when #1000 lands.
+      #
+      # Named one by one, not as a wildcard: these two are the only packages of the family with a
+      # version in Directory.Packages.props. JasperFx.Events and the Weasel packages arrive through
+      # Marten and have no version of their own for a version update to move.
+      #
+      # Held by update-type, for the same reason as the entries above: a security update still
+      # comes through.
+      - dependency-name: "Marten"
+        update-types: ["version-update:semver-minor", "version-update:semver-patch"]
+      - dependency-name: "JasperFx"
+        update-types: ["version-update:semver-minor", "version-update:semver-patch"]
+
       # xunit.v3.extensibility.core carries no version of its own here: it must equal xunit.v3,
       # which depends on it, and those two pin each other exactly. Directory.Packages.props says so
       # in a comment directly above the line.
