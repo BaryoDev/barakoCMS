@@ -51,8 +51,12 @@ public interface IBarakoModule
     /// or with the module's package version.
     ///
     /// The default is <c>0</c>, meaning unstated: the module serves no endpoints, or its author has
-    /// not versioned them. Core reports the number in <c>GET /api/meta</c> for enabled modules, to
-    /// callers who hold <c>view_modules</c>, and does nothing else with it.
+    /// not versioned them. Core reports the number as <c>httpContractVersion</c> in the
+    /// <c>modules</c> part of <c>GET /api/meta/describe</c>, which lists enabled modules to callers
+    /// who may read <c>GET /api/modules</c>, and does nothing else with it.
+    ///
+    /// It covers every endpoint the module ships, wherever the route is mounted. A module route
+    /// under <c>/api/public/</c> moves this number, not core's delivery number.
     /// </remarks>
     int HttpContractVersion => 0;
 

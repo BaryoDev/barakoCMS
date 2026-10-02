@@ -4,7 +4,7 @@ namespace barakoCMS.Features.Monitoring.Meta;
 /// The versions of the HTTP contract this build of the API implements: the routes under
 /// <c>Features/*</c>, the JSON they accept and return, and the status codes they answer with.
 /// CLAUDE.md section 6 says what counts as a breaking change to it. One number per surface, so a
-/// change to what the console drives does not stop a renderer that reads only delivery. A module
+/// change to what the console drives does not move the number for delivery. A module
 /// versions its own endpoints through <see cref="barakoCMS.Modules.IBarakoModule.HttpContractVersion"/>.
 /// </summary>
 /// <remarks>
@@ -46,15 +46,24 @@ internal static class ApiContract
     public const string HeaderName = "X-Api-Contract-Version";
 
     /// <summary>
-    /// The delivery surface: the core routes a site reads without a console session, which is
-    /// everything under <c>/api/public/</c> and the two anonymous tenant lookups a renderer starts
-    /// from. The same kinds of change move it, and a change to an admin route alone does not.
+    /// The delivery surface: the core routes under <c>/api/public/</c> and the two anonymous
+    /// tenant lookups a renderer starts from. The same kinds of change move it, and a change to an
+    /// admin route alone does not. A route a module ships is on neither core surface, wherever it
+    /// is mounted, <c>/api/public/</c> included: it moves that module's
+    /// <see cref="barakoCMS.Modules.IBarakoModule.HttpContractVersion"/> and nothing here. A change
+    /// to something every core route shares, such as the error body, moves both core numbers.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Starts at 6 rather than 1. Until this number existed <see cref="Version"/> stood for the
     /// delivery routes too, so a consumer that begins checking delivery takes its floor from the
     /// number it already knew, and starting lower would put this API under that floor on the day
     /// the two were split. A literal of its own, not <c>= Version</c>, or the two could never part.
+    /// </para>
+    /// <para>
+    /// An API from before the split sends no delivery header. A consumer that finds it absent reads
+    /// <see cref="HeaderName"/> as the delivery number, which is what that number meant then.
+    /// </para>
     /// </remarks>
     public const int DeliveryVersion = 6;
 

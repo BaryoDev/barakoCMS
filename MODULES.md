@@ -183,11 +183,15 @@ public int HttpContractVersion => 1;
 
 Move it when you remove or rename a response field, change a field's type or a status code, or
 start refusing a request you used to accept. Adding an optional field does not move it. It is
-independent of core's own HTTP versions and of your package version.
+independent of core's own HTTP versions and of your package version, and it covers every endpoint
+you ship wherever the route is mounted: a module route under `/api/public/` moves this number, not
+core's delivery number. A change core makes to something every route shares, such as the error
+body, does not move it either, since the number is compiled into your package.
 
-The default is `0`, meaning unstated. Core does not check the number. It reports it in
-`GET /api/meta` under `moduleContractVersions`, one `{ name, version }` entry per enabled module,
-to callers who hold `view_modules`. A module the enabled list left off is not in that list.
+The default is `0`, meaning unstated. Core does not check the number. It reports it as
+`httpContractVersion` on each entry of the `modules` part of `GET /api/meta/describe`, which lists
+enabled modules to callers who may read `GET /api/modules`. A module the enabled list left off is
+not in that list.
 
 ## Writing a module
 

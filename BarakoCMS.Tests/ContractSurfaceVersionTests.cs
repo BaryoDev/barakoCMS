@@ -2,18 +2,17 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using barakoCMS.Features.Monitoring.Meta;
-using barakoCMS.Modules;
 using FluentAssertions;
 using Marten;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace BarakoCMS.Tests;
 
 /// <summary>
-/// One contract version per surface, from issue #902: the admin number a console checks, the
-/// delivery number a renderer checks, and one per module, each reported on its own.
+/// One contract version per core surface, from issue #902: the admin number a console checks and
+/// the delivery number a site can check, each reported on its own. A module's number is in the
+/// describe document, and <see cref="MetaDescribeTests"/> covers it there.
 /// </summary>
 /// <remarks>
 /// Names and numbers are written out as literals. A released console reads the header by its name,
@@ -25,34 +24,9 @@ public class ContractSurfaceVersionTests
     private const string AdminHeader = "X-Api-Contract-Version";
     private const string DeliveryHeader = "X-Delivery-Contract-Version";
 
-    private const string Zulu = "Zulu Surface Module";
-    private const string Mike = "Mike Surface Module";
-    private const string Alpha = "Alpha Surface Module";
-
     private readonly IntegrationTestFixture _factory;
 
     public ContractSurfaceVersionTests(IntegrationTestFixture factory) => _factory = factory;
-
-    private static readonly Lock Gate = new();
-    private static WebApplicationFactory<Program>? _withModules;
-
-    // Out of alphabetical order, one enabled module that states a version, one enabled module that
-    // states none, and one the enabled list left off that states a version nothing else uses, so
-    // its number showing up anywhere is unmistakable.
-    private WebApplicationFactory<Program> HostWithModules()
-    {
-        lock (Gate)
-        {
-            return _withModules ??= _factory.WithWebHostBuilder(builder =>
-                builder.ConfigureServices(services =>
-                    services.AddSingleton(new ModuleCatalogue(
-                    [
-                        new ModuleCatalogueEntry(Zulu, ModuleContract.Version, Enabled: true) { HttpContractVersion = 3 },
-                        new ModuleCatalogueEntry(Mike, 0, Enabled: false) { HttpContractVersion = 9 },
-                        new ModuleCatalogueEntry(Alpha, 0, Enabled: true),
-                    ]))));
-        }
-    }
 
     [Fact]
     public void The_two_core_surfaces_are_pinned_to_their_numbers()
@@ -80,16 +54,14 @@ public class ContractSurfaceVersionTests
         admin!.Should().ContainSingle().Which.Should().Be("6");
 
         response.Headers.TryGetValues(DeliveryHeader, out var delivery).Should().BeTrue(
-            "a renderer reads the delivery number from whatever answer it gets first, as a console does");
+            "a site reads the delivery number from whatever answer it gets first, as a console reads the admin one");
         delivery!.Should().ContainSingle().Which.Should().Be("6");
     }
 
     [Fact]
     public async Task Meta_keeps_the_admin_field_and_adds_the_delivery_one()
     {
-        var client = await CallerHolding(_factory);
-
-        using var meta = await MetaAsync(client);
+        using var meta = await MetaAsync(await CallerHolding());
 
         var admin = meta.RootElement.GetProperty("apiContractVersion");
         admin.ValueKind.Should().Be(JsonValueKind.Number, "a released console reads it as a number");
@@ -103,57 +75,20 @@ public class ContractSurfaceVersionTests
         meta.RootElement.GetProperty("swaggerEnabled").ValueKind.Should().BeOneOf(JsonValueKind.True, JsonValueKind.False);
     }
 
+    /// <summary>
+    /// <c>/api/meta</c> is not sent no-store, so it may not differ by caller. What depends on a
+    /// capability belongs to the describe document beside it.
+    /// </summary>
     [Fact]
-    public async Task A_caller_who_may_list_modules_gets_a_version_for_each_enabled_module()
+    public async Task Meta_is_the_same_for_a_caller_who_may_list_modules_and_one_who_may_not()
     {
-        var client = await CallerHolding(HostWithModules(), barakoCMS.Models.SystemCapabilities.ViewModules);
+        using var plain = await MetaAsync(await CallerHolding());
+        using var reader = await MetaAsync(await CallerHolding(barakoCMS.Models.SystemCapabilities.ViewModules));
 
-        using var meta = await MetaAsync(client);
-
-        var modules = meta.RootElement.GetProperty("moduleContractVersions").EnumerateArray().ToArray();
-        modules.Should().HaveCount(2, "two of the three modules run, and the one left off has no surface to version");
-        modules.Select(m => (m.GetProperty("name").GetString(), m.GetProperty("version").GetInt32()))
-            .Should().Equal([(Alpha, 0), (Zulu, 3)]);
-        foreach (var module in modules)
-        {
-            module.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(["name", "version"]);
-        }
-
-        meta.RootElement.GetRawText().Should().NotContain(Mike, "a module that does not run is not named here");
-    }
-
-    [Fact]
-    public async Task A_caller_who_may_not_list_modules_gets_no_module_versions()
-    {
-        // The positive control: the same host answers a caller holding view_modules with the list,
-        // so its absence below is the gate and not a host with nothing to say.
-        var allowed = await CallerHolding(HostWithModules(), barakoCMS.Models.SystemCapabilities.ViewModules);
-        using var seen = await MetaAsync(allowed);
-        seen.RootElement.GetProperty("moduleContractVersions").GetArrayLength().Should().Be(2);
-
-        var client = await CallerHolding(HostWithModules());
-
-        using var meta = await MetaAsync(client);
-
-        meta.RootElement.TryGetProperty("moduleContractVersions", out _).Should().BeFalse(
-            "the names are the enabled module list, which GET /api/modules keeps behind view_modules");
-        var body = meta.RootElement.GetRawText();
-        body.Should().NotContain(Alpha);
-        body.Should().NotContain(Zulu);
-        meta.RootElement.GetProperty("deliveryContractVersion").GetInt32().Should().Be(6,
-            "the core numbers are for every signed-in caller");
-    }
-
-    [Fact]
-    public async Task A_host_running_no_modules_answers_an_empty_list_to_a_caller_who_may_see_it()
-    {
-        var client = await CallerHolding(_factory, barakoCMS.Models.SystemCapabilities.ViewModules);
-
-        using var meta = await MetaAsync(client);
-
-        var modules = meta.RootElement.GetProperty("moduleContractVersions");
-        modules.ValueKind.Should().Be(JsonValueKind.Array, "none is an answer, and it differs from not being allowed to ask");
-        modules.GetArrayLength().Should().Be(0);
+        string[] expected = ["version", "apiContractVersion", "deliveryContractVersion", "swaggerEnabled"];
+        plain.RootElement.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(expected);
+        reader.RootElement.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(expected);
+        reader.RootElement.GetRawText().Should().Be(plain.RootElement.GetRawText());
     }
 
     private static async Task<JsonDocument> MetaAsync(HttpClient client)
@@ -168,7 +103,7 @@ public class ContractSurfaceVersionTests
     /// A signed-in caller whose one stored role holds exactly the capabilities given. The role name
     /// is unique per call: the fixture database is shared and role names are unique.
     /// </summary>
-    private async Task<HttpClient> CallerHolding(WebApplicationFactory<Program> host, params string[] capabilities)
+    private async Task<HttpClient> CallerHolding(params string[] capabilities)
     {
         var roleName = $"Surface Reader {Guid.NewGuid():N}";
 
@@ -193,7 +128,7 @@ public class ContractSurfaceVersionTests
         });
         await session.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        var client = host.CreateClient();
+        var client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer", _factory.CreateToken(roles: [roleName], userId: userId.ToString()));
         return client;

@@ -477,6 +477,7 @@ public static class ServiceCollectionExtensions
             //                            it cannot participate, and two editors overwrite each other.
             //   X-Api-Contract-Version   ApiContract documents this as the header a caller reads to
             //                            decide whether it can drive this API at all.
+            //   X-Delivery-Contract-Version   The same for a site that reads delivery from a browser.
             //
             // Retry-After is deliberately not here. The one place it is set is the SSE stream, and a
             // browser EventSource does not surface response headers to script at all, so exposing it
@@ -1566,7 +1567,9 @@ public static class ServiceCollectionExtensions
             {
                 context.Response.Headers.TryAdd(
                     barakoCMS.Features.Monitoring.Meta.ApiContract.HeaderName, contractVersion);
-                context.Response.Headers.TryAdd(barakoCMS.Features.Monitoring.Meta.ApiContract.DeliveryHeaderName, barakoCMS.Features.Monitoring.Meta.ApiContract.DeliveryHeaderValue);
+                context.Response.Headers.TryAdd(
+                    barakoCMS.Features.Monitoring.Meta.ApiContract.DeliveryHeaderName,
+                    barakoCMS.Features.Monitoring.Meta.ApiContract.DeliveryHeaderValue);
                 return Task.CompletedTask;
             });
 
