@@ -304,6 +304,15 @@ public class FileFieldAccessTests
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest, body);
         body.Should().Contain("more than once").And.NotContain(theirs.ToString());
 
+        // A JSON null under the first spelling is refused the same way.
+        var nullFirst = await stranger.Client.PostAsync("/api/contents", new StringContent(
+            $$"""{"contentType":"{{type}}","data":{"Title":"a","Cover":null,"cover":"{{theirs}}"}}""",
+            System.Text.Encoding.UTF8,
+            "application/json"), Ct);
+        var nullFirstBody = await nullFirst.Content.ReadAsStringAsync(Ct);
+        nullFirst.StatusCode.Should().Be(HttpStatusCode.BadRequest, nullFirstBody);
+        nullFirstBody.Should().Contain("more than once").And.NotContain(theirs.ToString());
+
         // The control: the first spelling alone.
         await CreatedIdAsync(await CreateAsync(stranger.Client, type, open.ToString()));
     }

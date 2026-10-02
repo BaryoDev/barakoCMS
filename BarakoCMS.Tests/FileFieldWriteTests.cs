@@ -196,7 +196,7 @@ public class FileFieldWriteTests
     }
 
     [Fact]
-    public async Task The_overloads_that_name_no_caller_take_a_public_file_only_whatever_request_is_running()
+    public async Task The_overloads_that_name_no_caller_take_a_public_file_only()
     {
         var files = new FakeFileStore();
         var owner = Guid.NewGuid();
@@ -232,6 +232,19 @@ public class FileFieldWriteTests
         isValid.Should().BeFalse("only the first spelling would be checked, and delivery reads both");
         errors.Should().ContainSingle().Which.Should().Contain("Cover").And.Contain("more than once");
         errors[0].Should().NotContain(theirs);
+
+        // A null first spelling is not a way past it, whether the body's null arrives as null or as
+        // a JsonElement of kind Null.
+        var nulls = new object?[] { null, System.Text.Json.JsonDocument.Parse("null").RootElement };
+        nulls.Should().HaveCount(2);
+        foreach (var first in nulls)
+        {
+            var data = new Dictionary<string, object> { ["Title"] = "a", ["Cover"] = first!, ["cover"] = theirs };
+            var (nullFirstValid, nullFirstErrors) = await validator.ValidateFieldsAsync(Schema, Type, data, null, caller);
+
+            nullFirstValid.Should().BeFalse("a null first key skipped every check on the second");
+            nullFirstErrors.Should().ContainSingle().Which.Should().Contain("more than once");
+        }
 
         // The control: the first spelling alone is accepted.
         (await validator.ValidateFieldsAsync(

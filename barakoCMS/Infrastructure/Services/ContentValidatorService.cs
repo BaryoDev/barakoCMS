@@ -200,6 +200,16 @@ public class ContentValidatorService(
         {
             var keyDetails = data.FirstOrDefault(k => k.Key.Equals(field.Name, StringComparison.OrdinalIgnoreCase));
 
+            // Only the first of two keys differing in case is read below, and delivery resolves
+            // both, so a file field sent twice is refused before anything else, a null first one
+            // included.
+            if (FileFields.IsFileField(field)
+                && data.Keys.Count(k => k.Equals(field.Name, StringComparison.OrdinalIgnoreCase)) > 1)
+            {
+                errors.Add($"Field '{field.DisplayName}' ({field.Name}) was sent more than once, ignoring case.");
+                continue;
+            }
+
             // Check Required
             var requiredByRule = !field.IsRequired && FieldRules.IsRequiredBy(field, data);
             if (field.IsRequired || requiredByRule)
@@ -224,7 +234,7 @@ public class ContentValidatorService(
                 {
                     // Ahead of the shape check, so text that is not an id is answered in the same
                     // words as an id the caller may not use.
-                    var error = await ValidateFileAsync(field, data, value, existing, caller);
+                    var error = await ValidateFileAsync(field, value, existing, caller);
                     if (error is not null)
                         errors.Add(error);
                 }
@@ -372,23 +382,16 @@ public class ContentValidatorService(
     /// caller administers. A write with no caller, such as a job or a system actor, takes a public
     /// file only.
     ///
-    /// The data may hold the field under more than one key that differ only in case, and only the
-    /// first is read above. Delivery resolves every one of them, so such a write is refused.
-    ///
     /// The value the entry already holds in this field is not asked about again. It was checked for
     /// whoever attached it, and asking for it as this caller would refuse every later edit of the
     /// entry by anyone else, and every edit after the file was deleted.
     /// </remarks>
     private async Task<string?> ValidateFileAsync(
         FieldDefinition field,
-        Dictionary<string, object> data,
         object value,
         Models.Content? existing,
         System.Security.Claims.ClaimsPrincipal? caller)
     {
-        if (data.Keys.Count(k => k.Equals(field.Name, StringComparison.OrdinalIgnoreCase)) > 1)
-            return $"Field '{field.DisplayName}' ({field.Name}) was sent more than once, ignoring case.";
-
         if (existing is not null && FileFields.Holds(existing.Data, field.Name, value))
             return null;
 

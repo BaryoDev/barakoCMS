@@ -57,6 +57,11 @@ is refused: only one of them would be checked, and a read answers both.
 | `POST /api/contents`, `PUT /api/contents/{id}`, a batch, a rollback, a collection push, a spreadsheet import, a bundle import | the signed-in user of the request | a public file, or a private one that user may download |
 | A transition carrying the field (`IContentTransitioner`) | the actor the move is made for, not the user whose request is running | for a user actor, a public file or one that user uploaded; for a system actor, a public file only |
 | A module calling `IContentValidatorService` itself | the `caller` it passes; none passed means no user | with no caller, a public file only |
+
+A host that replaces `IContentValidatorService` with its own validator does no file check unless
+it implements the overloads taking a caller, which by default call the older members. A decorator
+that wraps the built-in validator and forwards only the older members checks every write as no
+caller, so its writes take public files only.
 | A form submission (`BarakoCMS.Forms`) | nobody: a form does not offer a file field | nothing |
 | The `UpdateField` workflow action | nobody: a workflow runs for no user | a public file only; anything else fails the action for good |
 | A collection sync | nobody | nothing: a sync that maps a source value onto a file field is refused when it is saved |
