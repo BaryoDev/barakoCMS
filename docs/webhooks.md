@@ -31,7 +31,8 @@ or Hidden.
 
 `tenant` is the tenant the workflow fired in, spelled as the handle it resolves by (the value
 `GET /api/tenants/by-host/{host}` answers with and `X-Tenant` selects). The default tenant is
-`default`. It is read from the tenant the run belongs to, not from the action's parameters, so a
+`default`. `by-host` never answers `default`: it answers 404 for a host that names no tenant, so a
+receiver that resolved no tenant compares against `default`. It is read from the tenant the run belongs to, not from the action's parameters, so a
 workflow cannot name another tenant, and a webhook inside a `Conditional` carries its run's tenant.
 
 A `Deleted` delivery is about an entry that no longer exists, so its body is `event`, `tenant`,
@@ -45,6 +46,10 @@ signature proves a body came from this API, not which tenant's URL it was posted
 check a delivery captured for one tenant verifies when replayed at another tenant's URL. After the
 signature verifies, compare the body's `tenant` with the tenant the receiver resolved for the
 request, and refuse a body that names a different one.
+
+The check stops a captured delivery being replayed against another tenant. It does not stop a party
+that holds the secret, who can sign a body naming any tenant. Where tenants write their own
+workflows, give each tenant its own secret.
 
 The `X-Barako-Tenant` header carries the same value so a delivery can be routed before its body is
 read. It is not part of the signed string. Route on it, and decide on the body's `tenant`.

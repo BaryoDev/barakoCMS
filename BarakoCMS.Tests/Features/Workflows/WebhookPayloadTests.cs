@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using barakoCMS.Features.Workflows.Actions;
 using barakoCMS.Infrastructure.Http;
+using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Infrastructure.Security;
 using barakoCMS.Models;
 using FluentAssertions;
@@ -170,6 +171,63 @@ public class WebhookPayloadTests
         body.RootElement.GetProperty("contentId").GetGuid().Should().Be(erased.Id);
     }
 
+    /// <summary>
+    /// The nested tests above hand the Conditional one Webhook built here. This one takes both from
+    /// the host the way the runner does, in a scope opened for a tenant, and reads where the child's
+    /// delivery row was written. The session that stores the row is the one the body's tenant is
+    /// read from, so a child built in the wrong scope would write to the default partition.
+    /// </summary>
+    /// <remarks>
+    /// The host's address guard refuses loopback, so nothing is sent and the row records the
+    /// refusal. That leaves no body or header to read, and this passes with or without the tenant
+    /// in the body: it guards the wiring the field relies on.
+    /// </remarks>
+    [Fact]
+    public async Task A_webhook_inside_a_conditional_resolved_from_a_tenant_scope_writes_its_row_in_that_tenant()
+    {
+        const string tenant = "webhook-tenant-scope";
+        var runId = Guid.NewGuid();
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var content = Record("webhook-tenant-scope-record", SensitivityLevel.Public);
+
+        using (var scope = _fixture.Services.CreateScopeForTenant(tenant))
+        {
+            var actions = scope.ServiceProvider.GetServices<barakoCMS.Features.Workflows.IWorkflowAction>().ToList();
+            var conditionals = actions.Where(a => a.Type == "Conditional").ToList();
+            conditionals.Should().HaveCount(1, "the host registers one Conditional, and it is the real one");
+
+            await conditionals[0].RunAsync(
+                new Dictionary<string, string>
+                {
+                    ["Condition"] = $"{{{{contentType}}}} == {content.ContentType}",
+                    ["ThenActions"] = System.Text.Json.JsonSerializer.Serialize(new[]
+                    {
+                        new
+                        {
+                            Type = "Webhook",
+                            Parameters = new Dictionary<string, string>
+                            {
+                                ["Url"] = "http://127.0.0.1:9/hook",
+                                ["RunId"] = runId.ToString(),
+                            },
+                        },
+                    }),
+                    ["TriggerEvent"] = WorkflowEvents.Published,
+                },
+                content,
+                CancellationToken.None);
+        }
+
+        await using var inTenant = store.QuerySession(tenant);
+        var rows = await inTenant.Query<WebhookDelivery>().Where(d => d.RunId == runId).ToListAsync();
+        rows.Should().HaveCount(1, "the child was built in the tenant's scope, so its row is in the tenant's partition");
+        rows[0].Error.Should().Contain("not allowed", "loopback is refused by the host's guard, and the refusal is recorded");
+
+        await using var inDefault = store.QuerySession();
+        var strays = await inDefault.Query<WebhookDelivery>().Where(d => d.RunId == runId).ToListAsync();
+        strays.Should().BeEmpty("a child built in a plain scope would write here and name the default tenant");
+    }
+
     [Fact]
     public async Task A_delivery_in_the_default_tenant_says_default_and_not_the_name_the_store_uses_for_it()
     {
@@ -244,6 +302,7 @@ public class WebhookPayloadTests
         using var body = System.Text.Json.JsonDocument.Parse(listener.LastBody!);
 
         body.RootElement.GetProperty("tenant").GetString().Should().Be(tenant);
+        listener.LastHeaders.Should().ContainKey(WebhookSigning.DeliveryHeader, "the headers were recorded, so a missing one is missing");
         listener.LastHeaders.Should().NotContainKey(WebhookSigning.TenantHeader);
     }
 
