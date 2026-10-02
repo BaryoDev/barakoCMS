@@ -79,13 +79,28 @@ internal sealed class RequestAction(
         parameters.TryGetValue("IdempotencyKey", out var idempotencyKey);
 
         var composed = await composer.ComposeAsync(definition, connector, content, idempotencyKey, ct);
+
+        // The sender this host registers also writes the delivery row, for a refusal too, since
+        // "did it fire" is asked of a request that was never sent as often as of one that was. A
+        // sender a host put in its place is not asked to send a request that was refused.
+        var recording = sender as IConnectorDeliverySender;
+        var delivery = ConnectorDeliveryContext.From(slug, parameters);
+
         if (!composed.Ok)
         {
             logger.LogWarning("Request '{Slug}' was refused before sending: {Reason}", slug, composed.Refusal);
+
+            if (recording is not null)
+            {
+                await recording.SendAsync(connector, composed, definition.Success, definition.SuccessJsonPath, delivery, ct);
+            }
+
             return WorkflowActionResult.Failure(composed.Refusal!);
         }
 
-        var result = await sender.SendAsync(connector, composed, definition.Success, definition.SuccessJsonPath, ct);
+        var result = recording is not null
+            ? await recording.SendAsync(connector, composed, definition.Success, definition.SuccessJsonPath, delivery, ct)
+            : await sender.SendAsync(connector, composed, definition.Success, definition.SuccessJsonPath, ct);
 
         return result.Succeeded
             ? WorkflowActionResult.Success()

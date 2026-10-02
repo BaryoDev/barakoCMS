@@ -51,8 +51,10 @@ public class MetaDescribeTests
                 {
                     services.AddSingleton(new ModuleCatalogue(
                     [
-                        new ModuleCatalogueEntry(Zulu, ModuleContract.Version, Enabled: true),
-                        new ModuleCatalogueEntry(Mike, 0, Enabled: false),
+                        // HTTP versions unlike each other and unlike the module contract number
+                        // beside them, so reading the wrong one cannot give the right answer.
+                        new ModuleCatalogueEntry(Zulu, ModuleContract.Version, Enabled: true) { HttpContractVersion = 3 },
+                        new ModuleCatalogueEntry(Mike, 0, Enabled: false) { HttpContractVersion = 9 },
                         new ModuleCatalogueEntry(Alpha, 0, Enabled: true),
                     ]));
                     services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, DescribeProbeAction>();
@@ -268,11 +270,15 @@ public class MetaDescribeTests
         var modules = document.GetProperty("modules").EnumerateArray().ToList();
         modules.Should().HaveCount(2, "three were seen and one of them is switched off");
         modules.Select(Name).Should().Equal([Alpha, Zulu]);
+        modules.Select(m => m.GetProperty("httpContractVersion").GetInt32()).Should().Equal([0, 3],
+            "each module's own HTTP version, zero for one that states none, and not the module contract number");
 
         foreach (var module in modules)
         {
-            module.EnumerateObject().Select(p => p.Name).Should().Equal(["name"]);
+            module.EnumerateObject().Select(p => p.Name).Should().Equal(["name", "httpContractVersion"]);
         }
+
+        document.GetRawText().Should().NotContain(Mike, "a module that does not run is not named anywhere in the document");
 
         Withheld(document, "capabilities").Should().BeTrue();
         Withheld(document, "workflowActions").Should().BeTrue();

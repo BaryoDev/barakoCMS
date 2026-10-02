@@ -85,8 +85,8 @@ public class DescribeDocumentTests
     {
         var catalogue = new ModuleCatalogue(
         [
-            new ModuleCatalogueEntry("Zulu", ModuleContract.Version, Enabled: true),
-            new ModuleCatalogueEntry("Mike", 0, Enabled: false),
+            new ModuleCatalogueEntry("Zulu", ModuleContract.Version, Enabled: true) { HttpContractVersion = 3 },
+            new ModuleCatalogueEntry("Mike", 0, Enabled: false) { HttpContractVersion = 9 },
             new ModuleCatalogueEntry("Alpha", 0, Enabled: true),
         ]);
 
@@ -94,6 +94,7 @@ public class DescribeDocumentTests
 
         described.Should().HaveCount(2);
         described.Select(m => m.Name).Should().Equal(["Alpha", "Zulu"]);
+        described.Select(m => m.HttpContractVersion).Should().Equal([0, 3]);
     }
 
     private sealed class AlphaAction : IWorkflowAction

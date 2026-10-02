@@ -459,6 +459,7 @@ public static class ServiceCollectionExtensions
         [
             "ETag",
             barakoCMS.Features.Monitoring.Meta.ApiContract.HeaderName,
+            barakoCMS.Features.Monitoring.Meta.ApiContract.DeliveryHeaderName,
         ];
 
         services.AddCors(options =>
@@ -476,6 +477,7 @@ public static class ServiceCollectionExtensions
             //                            it cannot participate, and two editors overwrite each other.
             //   X-Api-Contract-Version   ApiContract documents this as the header a caller reads to
             //                            decide whether it can drive this API at all.
+            //   X-Delivery-Contract-Version   The same for a site that reads delivery from a browser.
             //
             // Retry-After is deliberately not here. The one place it is set is the SSE stream, and a
             // browser EventSource does not surface response headers to script at all, so exposing it
@@ -1061,6 +1063,7 @@ public static class ServiceCollectionExtensions
     {
         services.AddSingleton<barakoCMS.Infrastructure.Connectors.IConnectorSecretProtector, barakoCMS.Infrastructure.Connectors.ConnectorSecretProtector>();
         services.AddSingleton(new barakoCMS.Infrastructure.Connectors.ConnectorTokenCache(TimeProvider.System));
+        services.AddSingleton<barakoCMS.Infrastructure.Connectors.IConnectorDeliveryLog, barakoCMS.Infrastructure.Connectors.ConnectorDeliveryLog>();
         services.AddScoped<barakoCMS.Infrastructure.Connectors.IConnectorSender, barakoCMS.Infrastructure.Connectors.ConnectorSender>();
         services.AddScoped<barakoCMS.Infrastructure.Connectors.IRequestComposer, barakoCMS.Infrastructure.Connectors.RequestComposer>();
         services.AddScoped<barakoCMS.Infrastructure.Connectors.IQueryRunner, barakoCMS.Infrastructure.Connectors.QueryRunner>();
@@ -1433,6 +1436,8 @@ public static class ServiceCollectionExtensions
 
         UseTenantAndAuthentication(app);
 
+        app.UseMiddleware<barakoCMS.Infrastructure.Security.RateLimitAfterAuthentication>();
+
         ModuleAppPipeline.Use(app, app.ApplicationServices.GetServices<IBarakoModule>());
 
         UseOutputCaching(app);
@@ -1444,6 +1449,8 @@ public static class ServiceCollectionExtensions
         UseHealthEndpoints(app, configuration);
 
         UseOpenApi(app, configuration, env);
+
+        barakoCMS.Infrastructure.Security.RateLimitSetup.RequireRegisteredPolicies(app);
 
         return app;
     }
@@ -1567,6 +1574,9 @@ public static class ServiceCollectionExtensions
             {
                 context.Response.Headers.TryAdd(
                     barakoCMS.Features.Monitoring.Meta.ApiContract.HeaderName, contractVersion);
+                context.Response.Headers.TryAdd(
+                    barakoCMS.Features.Monitoring.Meta.ApiContract.DeliveryHeaderName,
+                    barakoCMS.Features.Monitoring.Meta.ApiContract.DeliveryHeaderValue);
                 return Task.CompletedTask;
             });
 

@@ -270,6 +270,75 @@ anonymously, with nothing to tell the caller when it stopped being.
 
 Still no admin UI for it: the endpoint is called directly.
 
+## Update (2026-10-02): who may see a value is a capability and a role id
+
+Until 4.6.0 two role names decided it, read back from the token: `HR` saw a
+Sensitive field that listed no roles of its own, `SuperAdmin` saw everything,
+and a field's `visibleToRoles` held role names. A clinic's Nurse role could be
+granted nothing that opened a Sensitive field, and renaming a role changed who
+could read the fields that listed it (#883).
+
+What decides it now, in order:
+
+1. The holder of the seeded SuperAdmin role, by its id, sees everything.
+2. A field with a `visibleToRoles` list is seen by the holders of those roles and
+   nobody else. The list replaces the default, it does not add to it.
+3. A field with no list is seen by a role holding `view_sensitive` when the field
+   is Sensitive, and `view_hidden` when it is Hidden. The two are separate:
+   holding one does not give the other. `*` satisfies both.
+4. An entry whose own level is Sensitive or Hidden follows rule 3.
+
+The same rules decide who may set a field: a caller who may not see it may not
+write it.
+
+The caller's roles are read from the store on each request, the roles they hold
+in the current tenant, not from the token's role claims. Taking a capability off
+a role, or a role off a user, applies on the next request rather than when the
+token expires. A read or a write costs up to three small queries, once per
+request, when the entry or its type is restricted, and none for a Public entry
+of a type with no restricted field.
+
+The rule has one home, `ISensitivityService.MaySeeFieldAsync` and
+`MaySeeDocumentAsync`. The scrub, the write guard and the entries list's field
+filters all ask those two, so what a caller may filter on, what they are shown
+and what they may set cannot drift apart.
+
+`visibleToRoles` is stored as role ids and is still names on the wire. The
+content type endpoints, a blueprint and the import accept names and store the id
+of the role that carries each one. `GET /api/content-types`, the sensitivity endpoint's
+answer and an export give the names back, as the roles are called now, so a
+client reads and sends what it always did and a rename shows up without changing
+who can read the field. A name no role carries is stored as it is and matches a
+role of exactly that name on read, which is also how a definition stored before
+4.6.0 keeps working until it is migrated.
+
+**Upgrading.** `migrations/4.6.0/sensitivity-by-capability.sql` gives the seeded
+HR role (id `00000000-0000-0000-0000-000000000003`, while it is still named
+`HR`) the `view_sensitive` capability and rewrites the names in every stored
+`visibleToRoles` to ids. The seeder grants the same capability to the same role
+on every start, so a host that runs the seeder keeps that role's access even
+where the file was skipped. A role named `HR` under any other id is left alone
+by both, since from 4.6.0 that can be a role an operator made, and the file
+names it in a notice. Stop the API before running the file and start 4.6.0
+after: an earlier release serving a migrated database masks every listed field
+for the roles on its list until 4.6.0 is up. Nobody else gains anything: Admin
+never read a Sensitive value and does not start to.
+
+**Who may hand the capabilities out.** A role carrying `view_hidden` is assigned
+only by a SuperAdmin, on `/api/users/{id}/roles` and on `/api/tenants/members`,
+the rule a role carrying `manage_roles` already follows. Only SuperAdmin read a
+Hidden value before, and no role an Admin could assign opened one. A role
+carrying `view_sensitive` is assigned like any other, as HR was.
+
+Only SuperAdmin, Admin and User are seeded now. HR comes with the demo content
+(`Seed:DemoContent`), and `HR` is no longer a reserved role name (#884). A
+database that already holds the HR role keeps it, and it still cannot be deleted.
+
+Proven by `SensitivityByCapabilityTests`, `HiddenCapabilityGrantTests`,
+`BlueprintRoleReferenceTests`, `SensitivityIntegrationTests`,
+`RoleReferencePortabilityTests`, `SeededRolesTests` and
+`SensitivityByCapabilityMigrationTests`.
+
 ## Tested (2026-07-16): the bug this replaced
 
 Ran as real HTTP integration tests (Testcontainers Postgres, role tokens,
@@ -309,9 +378,10 @@ real and testable, and these red tests go green.
 
 ## How to verify what works today
 
-The seeder creates an `AttendanceRecord` content type (fields incl. `SSN`,
-`BirthDay`), three records marked `Sensitivity = Sensitive`, and roles
-`SuperAdmin` + `HR`. Sign in as each and `GET /api/contents/{id}`:
+With `Seed:DemoContent` on, the seeder creates an `AttendanceRecord` content type
+(fields incl. `SSN`, `BirthDay`), three records marked `Sensitivity = Sensitive`,
+and an `HR` role holding `view_sensitive` beside `SuperAdmin`. Sign in as each
+and `GET /api/contents/{id}`:
 
 - **SuperAdmin** sees `SSN` and `BirthDay`.
 - **HR** sees `BirthDay`, not `SSN`.
@@ -440,7 +510,7 @@ same registries the API checks requests against, so a client does not keep its o
   "rules": [ { "name": "pattern", "aliases": ["regex"] } ],
   "capabilities": [ { "name": "manage_roles", "source": "core", "note": null } ],
   "workflowActions": [ { "type": "Webhook", "requiredParameters": ["Url"], "optionalParameters": ["Secret"], "secretParameters": ["Secret"] } ],
-  "modules": [ { "name": "Accounting" } ]
+  "modules": [ { "name": "Pages", "httpContractVersion": 1 } ]
 }
 ```
 
@@ -452,11 +522,15 @@ list, possibly empty, for one it would serve. So `null` means withheld, and an e
 |---|---|---|
 | `capabilities` | `GET /api/capabilities` | `manage_roles` |
 | `workflowActions` | `GET /api/workflows/actions` | `manage_workflows` |
-| `modules` | the enabled entries of `GET /api/modules`, name only | `view_modules` |
+| `modules` | the enabled entries of `GET /api/modules`, by name, each with its `httpContractVersion` | `view_modules` |
 
 A workflow action carries the fields `GET /api/workflows/actions` returns for it. A module the
 enabled list left off is not in `modules`, and since it serves no endpoint and registers no action
 it adds nothing to the other two either.
+
+A module's `httpContractVersion` is the version of that module's own endpoints, wherever they are
+mounted, and `0` means the module states none. It is not the `contractVersion` in
+`GET /api/modules`, which is the module contract the module was compiled against.
 
 `workflowActions` is also `null` when the action registry cannot be read, which is what happens when
 a registered action fails to construct. The rest of the document still answers 200, and the server
@@ -543,13 +617,15 @@ says.
 | `Features/Connectors/*` | `view_connectors` | `GET /api/connectors`, `GET /api/connectors/{slug}` | SuperAdmin, Admin |
 | `Features/Connectors/*` | `manage_connectors` | `POST /api/connectors`, `PUT` and `DELETE /api/connectors/{slug}`, `POST /api/connectors/{slug}/test` | SuperAdmin, Admin |
 | `Features/Workflows/*` | `manage_workflows` | `/api/workflows`, `/api/workflows/actions`, `/variables`, `/validate`, `/dry-run`, `PUT /api/workflows/{id}/enabled`, `DELETE /api/workflows/{id}`, `POST /api/workflow-runs/{id}/cancel` | SuperAdmin, Admin |
-| `Features/WorkflowRuns/*` | `view_workflow_runs` | `GET /api/workflow-runs`, `GET /api/workflow-runs/{id}`, `GET /api/workflows/{id}/debug`, `GET /api/webhook-deliveries` | SuperAdmin, Admin |
+| `Features/WorkflowRuns/*` | `view_workflow_runs` | `GET /api/workflow-runs`, `GET /api/workflow-runs/{id}`, `GET /api/workflows/{id}/debug`, `GET /api/webhook-deliveries`, `GET /api/connector-deliveries` | SuperAdmin, Admin |
 | `Features/WorkflowRuns/*` | `retry_workflow_actions` | `POST /api/workflow-runs/{id}/actions/{ordinal}/retry` | SuperAdmin, Admin |
-| `Features/WebhookDeliveries/*` | `view_webhook_response_bodies` | The `responseBody` field on `GET /api/webhook-deliveries`, nothing else on the row | SuperAdmin |
+| `Features/WebhookDeliveries/*`, `Features/ConnectorDeliveries/*` | `view_webhook_response_bodies` | The `responseBody` field on `GET /api/webhook-deliveries`, and the `responseBody` and `requestHeaders` fields on `GET /api/connector-deliveries`, nothing else on the row | SuperAdmin |
 | `Features/Content/History/*` | `rollback_content` | `POST /api/contents/{id}/rollback/{versionId}` | SuperAdmin, Admin |
 | `Features/Content/Erase/*` | `erase_content` | `DELETE /api/contents/{id}/erase` | SuperAdmin |
 | `Features/Jobs/*` | `view_jobs` | `GET /api/jobs` | SuperAdmin, Admin |
 | `Features/Collections/Endpoints.cs` | `manage_collection_syncs` | `/api/collection-syncs`, `/api/collection-syncs/{slug}`, `POST /api/collection-syncs/{slug}/run` | SuperAdmin, Admin |
+| `Infrastructure/Services/SensitivityService.cs` | `view_sensitive` | No route. Sensitive fields that list no roles, and Sensitive entries, wherever content is read or written | SuperAdmin, and HR where it is seeded |
+| `Infrastructure/Services/SensitivityService.cs` | `view_hidden` | No route. Hidden fields that list no roles, and Hidden entries, wherever content is read or written | SuperAdmin |
 
 Users is two capabilities because its old gates were two: listing accounts and resetting
 someone's password were `Roles("SuperAdmin")`, while changing a user's roles and groups

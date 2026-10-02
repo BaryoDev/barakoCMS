@@ -40,4 +40,9 @@ public class TemplateVariableCollection
     /// Content-specific data fields.
     /// </summary>
     public List<TemplateVariable> DataFields { get; set; } = new();
+
+    /// <summary>
+    /// The formats and durations a placeholder can carry, each as an example to adapt.
+    /// </summary>
+    public List<TemplateVariable> Formats { get; set; } = new();
 }

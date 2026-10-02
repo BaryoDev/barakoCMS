@@ -19,8 +19,13 @@ public static class DataSeeder
 
         Console.WriteLine("[DataSeeder] Starting comprehensive data seeding...");
 
-        // 1. Seed Roles (including HR role for attendance demo)
+        // 1. Seed Roles
         await SeedRolesAsync(session);
+
+        // HR belongs to the attendance demo, so it comes with the demo content. Before the users,
+        // because the demo HR account holds it.
+        if (SeedsDemoContent(configuration, environment))
+            await SeedDemoHrRoleAsync(session);
 
         // 2. Seed Users (Admin, HR, Standard users)
         await SeedUsersAsync(session, configuration);
@@ -78,7 +83,13 @@ public static class DataSeeder
     // Models.SystemRoles, which is also what the API reports IsSystem from.
     public static readonly Guid SuperAdminRoleId = barakoCMS.Models.SystemRoles.SuperAdminRoleId;
     public static readonly Guid AdminRoleId = barakoCMS.Models.SystemRoles.AdminRoleId;
-    public static readonly Guid HRRoleId = barakoCMS.Models.SystemRoles.HRRoleId;
+    /// <summary>The id the demo HR role is seeded under, and the id an older database holds it under.</summary>
+    internal static readonly Guid DemoHrRoleId = Guid.Parse("00000000-0000-0000-0000-000000000003");
+
+    // Declared after DemoHrRoleId: static fields initialise in the order written.
+    [Obsolete("HR is a demo role, seeded only with the demo content, and no gate keys on its id. "
+            + "Removal planned for barakoCMS 6.0.")]
+    public static readonly Guid HRRoleId = DemoHrRoleId;
     public static readonly Guid UserRoleId = barakoCMS.Models.SystemRoles.UserRoleId;
 
     private static async Task SeedRolesAsync(IDocumentSession session)
@@ -88,7 +99,6 @@ public static class DataSeeder
         {
             new Role { Id = SuperAdminRoleId, Name = "SuperAdmin", Description = "Full system access" },
             new Role { Id = AdminRoleId, Name = "Admin", Description = "Administrator with full access" },
-            new Role { Id = HRRoleId, Name = "HR", Description = "Human Resources - manage attendance" },
             new Role { Id = UserRoleId, Name = "User", Description = "Standard user" }
         };
 
@@ -106,6 +116,16 @@ public static class DataSeeder
                 session.Store(existing);
                 Console.WriteLine($"[DataSeeder] Backfilled system capabilities on role: {existing.Name}");
             }
+        }
+
+        // A database seeded before HR moved behind the demo content still holds the role, and its
+        // holders read Sensitive fields because it was called HR. It is kept, and given the
+        // capability that replaced the name.
+        var storedHr = await session.LoadAsync<Role>(DemoHrRoleId);
+        if (storedHr is not null && GrantSensitiveToSeededHr(storedHr))
+        {
+            session.Store(storedHr);
+            Console.WriteLine("[DataSeeder] Granted view_sensitive to the seeded HR role");
         }
 
         // Save roles to database before querying for them in next step
@@ -150,6 +170,55 @@ public static class DataSeeder
             return false;
 
         role.SystemCapabilities = [.. role.SystemCapabilities, .. missing];
+        return true;
+    }
+
+    internal const string DemoHrRoleName = "HR";
+
+    /// <summary>Creates the HR role of the attendance demo, unless it or its name is already stored.</summary>
+    private static async Task SeedDemoHrRoleAsync(IDocumentSession session)
+    {
+        // Role names are uniquely indexed, so a role of the operator's own called HR keeps the name.
+        if (await session.Query<Role>().AnyAsync(r => r.Id == DemoHrRoleId || r.Name == DemoHrRoleName))
+            return;
+
+        var hr = new Role
+        {
+            Id = DemoHrRoleId,
+            Name = DemoHrRoleName,
+            Description = "Human Resources - manage attendance",
+        };
+        GrantSensitiveToSeededHr(hr);
+        session.Store(hr);
+        Console.WriteLine($"[DataSeeder] Created role: {hr.Name}");
+
+        // Saved here, so the user seeding that follows finds the role.
+        await session.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Gives the seeded HR role <see cref="barakoCMS.Models.SystemCapabilities.ViewSensitive"/>, and
+    /// reports whether that changed anything.
+    /// </summary>
+    /// <remarks>
+    /// Sensitive fields used to be readable by the role name "HR". This is the same access as a
+    /// capability, so a deployment upgraded onto it reads what it read before. It applies only to
+    /// the role the seeder made, still under its seeded name: a role renamed away from HR had lost
+    /// the access already, and a role of the operator's own called HR is theirs to grant.
+    ///
+    /// Like <see cref="ApplyCapabilityDefaults"/> it runs on every seed, with the same cost: taken
+    /// off this role, the capability comes back on the next restart. Renaming the role stops that.
+    /// </remarks>
+    internal static bool GrantSensitiveToSeededHr(Role role)
+    {
+        if (role.Id != DemoHrRoleId || !string.Equals(role.Name, DemoHrRoleName, StringComparison.Ordinal))
+            return false;
+
+        var held = role.SystemCapabilities ?? [];
+        if (barakoCMS.Models.SystemCapabilities.Satisfies(held, barakoCMS.Models.SystemCapabilities.ViewSensitive))
+            return false;
+
+        role.SystemCapabilities = [.. held, barakoCMS.Models.SystemCapabilities.ViewSensitive];
         return true;
     }
 
@@ -200,7 +269,6 @@ public static class DataSeeder
         // This avoids potential race conditions and ensures consistency
         var superAdminRole = new Role { Id = SuperAdminRoleId, Name = "SuperAdmin" };
         var adminRole = new Role { Id = AdminRoleId, Name = "Admin" };
-        var hrRole = new Role { Id = HRRoleId, Name = "HR" };
         var userRole = new Role { Id = UserRoleId, Name = "User" };
 
         // Roles are now using deterministic IDs, no validation needed
@@ -251,7 +319,9 @@ public static class DataSeeder
         // production so they never ship as usable accounts in a real deployment.
         var isDevelopment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development";
 
-        if (userCount == 0 && isDevelopment)
+        // The HR account needs the HR role, which is only there with the demo content or in a
+        // database that was seeded before the role moved behind it.
+        if (userCount == 0 && isDevelopment && await session.Query<Role>().AnyAsync(r => r.Id == DemoHrRoleId))
         {
             var hrUser = new User
             {
@@ -259,12 +329,15 @@ public static class DataSeeder
                 Username = "hr_manager",
                 Email = "hr@example.com",
                 PasswordHash = barakoCMS.Infrastructure.Auth.PasswordHashing.Hash("HRPassword123!"),
-                RoleIds = new List<Guid> { hrRole.Id, adminRole.Id },
+                RoleIds = new List<Guid> { DemoHrRoleId, adminRole.Id },
                 CreatedAt = DateTime.UtcNow
             };
             session.Store(hrUser);
             Console.WriteLine("[DataSeeder] Created HR user: hr_manager");
+        }
 
+        if (userCount == 0 && isDevelopment)
+        {
             var standardUser = new User
             {
                 Id = Guid.NewGuid(),

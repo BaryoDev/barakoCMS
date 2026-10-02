@@ -68,6 +68,13 @@ internal class Endpoint : Endpoint<Request, Response>
         Definition.RequireCapability(SystemCapabilities.ManageWorkflows, "SuperAdmin", "Admin");
     }
 
+    /// <summary>The trigger the simulation resolves as: the first transition the workflow names, or its first event.</summary>
+    private static string? SampleTrigger(CreateWorkflowRequest workflow)
+    {
+        var events = new[] { workflow.TriggerEvent }.Concat(workflow.TriggerEvents ?? []).Where(e => !string.IsNullOrWhiteSpace(e)).ToList();
+        return events.FirstOrDefault(WorkflowEvents.IsTransition) ?? events.FirstOrDefault();
+    }
+
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
         var overallTimer = Stopwatch.StartNew();
@@ -90,7 +97,11 @@ internal class Endpoint : Endpoint<Request, Response>
 
                 try
                 {
-                    // Resolve template variables in parameters
+                    // The sample entry is the caller's, so its author is not looked up: a simulation
+                    // that read users would turn any id into that user's address.
+                    await _variableExtractor.PrepareSampleAsync(
+                        req.SampleContent, SampleTrigger(req.Workflow), action.Parameters.Values, ct);
+
                     var resolvedParams = ActionParameters.Resolve(_variableExtractor, action.Type, action.Parameters, req.SampleContent);
 
                     var shown = Actions.WebhookSigning.WithoutSecret(action.Type, resolvedParams, out var unreadableBranches);

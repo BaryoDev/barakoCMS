@@ -84,9 +84,18 @@ is the signal that it needs entering again.
 
 ## Credentials do not go in the general settings store
 
-`POST /api/settings` refuses a key that looks like a credential (`apikey`, `password`, `secret`,
-`token`, `credential`, `privatekey`). Everything in that store is held in plaintext and returned in
-full by `GET /api/settings`, which is right for a feature flag and wrong for a sending credential.
+`POST /api/settings` refuses a key that looks like a credential: one that contains `secret`,
+`password`, `passwd`, `pwd`, `token`, `apikey`, `api_key`, `credential`, `privatekey`,
+`private_key`, `accesskey` or `access_key`, in any casing. It is the same rule that decides which
+workflow action parameters are encrypted and left out of responses. Everything in that store is held
+in plaintext and returned in full by `GET /api/settings`, which is right for a feature flag and
+wrong for a sending credential.
+
+A setting stored under such a key before the key was refused is still returned by
+`GET /api/settings` and still read by the API. Its value can no longer be changed through
+`POST /api/settings`, and it can be cleared there: save the key with an empty value (`"value": ""`)
+and the stored value is emptied. The row stays, since no route deletes a setting. An empty value for
+a key that has no row is refused like any other.
 
 ## The test send
 

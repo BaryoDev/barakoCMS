@@ -22,6 +22,8 @@ public sealed class FilesModule : IBarakoModule
 {
     public string Name => "Files";
 
+    public int HttpContractVersion => 1;
+
     public void ConfigureServices(IServiceCollection services, IConfiguration configuration)
     {
         /* Default storage. The S3 module, when present, replaces this (it runs after and overrides). */

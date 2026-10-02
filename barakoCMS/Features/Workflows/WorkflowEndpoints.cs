@@ -60,7 +60,8 @@ internal class CreateWorkflowEndpoint(
         workflow.Id = Guid.NewGuid();
         session.Store(workflow);
         await session.SaveChangesAsync(ct);
-        await Send.ResponseAsync(barakoCMS.Features.Workflows.WorkflowResponse.From(workflow), cancellation: ct);
+        await Send.ResponseAsync(
+            barakoCMS.Features.Workflows.WorkflowResponse.Saved(workflow, validation.Warnings), cancellation: ct);
     }
 }
 

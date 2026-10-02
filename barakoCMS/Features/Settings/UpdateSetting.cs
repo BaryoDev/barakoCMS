@@ -1,6 +1,7 @@
 using FastEndpoints;
 using Marten;
 using barakoCMS.Infrastructure.Auth;
+using barakoCMS.Infrastructure.Security;
 using barakoCMS.Models;
 
 namespace barakoCMS.Features.Settings;
@@ -26,19 +27,6 @@ internal class UpdateSettingEndpoint(IDocumentSession session, IConfiguration co
         Definition.RequireCapability(SystemCapabilities.ManageSettings, "SuperAdmin", "Admin");
     }
 
-    /// <summary>
-    /// Key fragments that mean the value is a credential, which this endpoint must not take.
-    /// </summary>
-    /// <remarks>
-    /// Everything stored here is written in plaintext and handed back in full by
-    /// <c>GET /api/settings</c>. That is fine for a feature flag and wrong for a credential, and the
-    /// screen invites it: a box labelled Value next to a key called Resend:ApiKey is going to get an
-    /// API key typed into it. Refusing names the endpoint that encrypts, rather than leaving the
-    /// operator to discover the difference from a database dump.
-    /// </remarks>
-    private static readonly string[] SecretKeyFragments =
-        ["apikey", "api_key", "password", "secret", "token", "credential", "privatekey"];
-
     public override async Task HandleAsync(UpdateSettingRequest req, CancellationToken ct)
     {
         // SystemSetting is one table for the whole deployment, so a tenant's administrator holding
@@ -49,20 +37,29 @@ internal class UpdateSettingEndpoint(IDocumentSession session, IConfiguration co
             ThrowError(PlatformScope.DeploymentWideMessage, 403);
         }
 
-        var looksSecret = SecretKeyFragments.FirstOrDefault(
-            f => req.Key.Contains(f, StringComparison.OrdinalIgnoreCase));
+        var setting = await session.Query<SystemSetting>()
+            .FirstOrDefaultAsync(s => s.Key == req.Key, ct);
 
-        if (looksSecret is not null)
+        // Everything stored here is written in plaintext and handed back in full by GET
+        // /api/settings. That is fine for a feature flag and wrong for a credential, and the screen
+        // invites it: a box labelled Value next to a key called Resend:ApiKey is going to get an API
+        // key typed into it. Refusing names the endpoint that encrypts, rather than leaving the
+        // operator to discover the difference from a database dump.
+        //
+        // The one save let through is an empty value for a row that already exists. No route deletes
+        // a setting, so without it a value stored before its key was refused could never be removed
+        // through the API.
+        var clearsStoredValue = setting is not null && req.Value == string.Empty;
+
+        if (CredentialNames.IsCredential(req.Key) && !clearsStoredValue)
         {
             ThrowError(
                 $"'{req.Key}' looks like a credential, and settings stored here are kept in plaintext and "
               + "returned by GET /api/settings. Email credentials go to PUT /api/settings/email, which "
-              + "encrypts them and never hands them back.", 400);
+              + "encrypts them and never hands them back. A value stored earlier under this key can be "
+              + "cleared by saving it with an empty value.", 400);
             return;
         }
-
-        var setting = await session.Query<SystemSetting>()
-            .FirstOrDefaultAsync(s => s.Key == req.Key, ct);
 
         if (setting == null)
         {
