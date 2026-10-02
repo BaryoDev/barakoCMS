@@ -45,7 +45,8 @@ internal sealed class WorkflowResponse
 ///
 /// The children a Conditional carries in <c>ThenActions</c> and <c>ElseActions</c> get the same
 /// treatment inside that JSON: credential-named keys are left out and each child gains a
-/// <c>SecretSet</c> of its own.
+/// <c>SecretSet</c> of its own. A branch that cannot be read that way is not returned at all, since
+/// nothing has looked inside it.
 /// </remarks>
 internal sealed class WorkflowActionResponse
 {
@@ -53,10 +54,22 @@ internal sealed class WorkflowActionResponse
     public Dictionary<string, string> Parameters { get; init; } = new();
     public bool SecretSet { get; init; }
 
-    public static WorkflowActionResponse From(WorkflowAction a) => new()
+    /// <summary>
+    /// The branches of a Conditional left out of <see cref="Parameters"/> because they are not a
+    /// JSON array, or repeat a property name in one object. Such a branch never runs.
+    /// </summary>
+    public List<string> UnreadableBranches { get; init; } = new();
+
+    public static WorkflowActionResponse From(WorkflowAction a)
     {
-        Type = a.Type,
-        Parameters = WebhookSigning.WithoutSecret(a.Type, a.Parameters),
-        SecretSet = WebhookSigning.HasSecret(a.Parameters),
-    };
+        var parameters = WebhookSigning.WithoutSecret(a.Type, a.Parameters, out var unreadableBranches);
+
+        return new()
+        {
+            Type = a.Type,
+            Parameters = parameters,
+            SecretSet = WebhookSigning.HasSecret(a.Parameters),
+            UnreadableBranches = unreadableBranches,
+        };
+    }
 }

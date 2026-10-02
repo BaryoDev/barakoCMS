@@ -335,6 +335,112 @@ public class ConditionalChildCredentialTests
         parameters["ElseActions"].Should().Contain("ops-channel").And.NotContain(token);
     }
 
+    [Fact]
+    public async Task A_child_two_branches_down_is_handed_the_api_key_as_typed()
+    {
+        var apiKey = NewApiKey();
+        var runKey = Guid.NewGuid().ToString();
+
+        // The same child in both inner branches, so which one the inner condition picks does not matter.
+        var inner = Branch(Child("CredentialEcho", new() { ["ApiKey"] = apiKey, ["RunId"] = runKey }));
+        var workflow = Conditional(thenActions: Branch(
+            Child("Conditional", new() { ["Condition"] = Condition, ["ThenActions"] = inner, ["ElseActions"] = inner })));
+
+        WebhookSigning.ProtectSecrets(workflow, Protector()).Should().BeTrue();
+        var saved = workflow.Actions.Single().Parameters;
+        saved["ThenActions"].Should().Contain(runKey).And.NotContain(apiKey, "saving the workflow encrypts the nested child's key");
+
+        var services = new ServiceCollection();
+        services.AddSingleton(Protector());
+        services.AddSingleton<IWorkflowAction>(new CredentialEchoAction());
+        services.AddSingleton<IWorkflowAction>(provider =>
+            new ConditionalAction(provider, NullLogger<ConditionalAction>.Instance));
+        var conditional = new ConditionalAction(services.BuildServiceProvider(), NullLogger<ConditionalAction>.Instance);
+
+        var result = await conditional.RunAsync(saved, PublishedContent(), TestContext.Current.CancellationToken);
+
+        result.Succeeded.Should().BeTrue();
+        CredentialEchoAction.ReceivedByRun.Should().ContainKey(runKey);
+        CredentialEchoAction.ReceivedByRun[runKey].Should().Be(apiKey);
+    }
+
+    /// <summary>Valid JSON whose child has two Parameters objects, the credential in the second.</summary>
+    private static string BranchRepeatingParameters(string type, string credentialName, string credential, string runKey) =>
+        "[{\"Type\":\"" + type + "\",\"Parameters\":{\"Channel\":\"ops-channel\"},"
+        + "\"Parameters\":{\"" + credentialName + "\":\"" + credential + "\",\"RunId\":\"" + runKey + "\"}}]";
+
+    [Fact]
+    public void A_branch_that_repeats_a_property_name_is_named_in_the_response_and_not_returned()
+    {
+        var secret = NewSecret();
+        var workflow = Conditional(
+            thenActions: BranchRepeatingParameters("Webhook", "Secret", secret, Guid.NewGuid().ToString()),
+            elseActions: Branch(Child("CredentialEcho", new() { ["Channel"] = "ops-channel" })));
+
+        var response = WorkflowActionResponse.From(workflow.Actions.Single());
+
+        response.UnreadableBranches.Should().HaveCount(1);
+        response.UnreadableBranches.Should().Equal("ThenActions");
+        response.Parameters.Should().NotContainKey("ThenActions");
+        response.Parameters.Should().ContainKey("ElseActions", "a branch that can be read is still returned");
+        response.Parameters["ElseActions"].Should().Contain("ops-channel");
+        JsonSerializer.Serialize(response).Should().NotContain(secret);
+    }
+
+    [Fact]
+    public void A_nested_branch_that_repeats_a_property_name_is_not_returned()
+    {
+        var secret = NewSecret();
+        var workflow = Conditional(thenActions: Branch(
+            Child("Conditional", new()
+            {
+                ["Condition"] = Condition,
+                ["ThenActions"] = BranchRepeatingParameters("Webhook", "Secret", secret, Guid.NewGuid().ToString()),
+            })));
+
+        var response = WorkflowActionResponse.From(workflow.Actions.Single());
+
+        response.UnreadableBranches.Should().BeEmpty("the outer branch itself can be read");
+        response.Parameters.Should().ContainKey("ThenActions");
+        response.Parameters["ThenActions"].Should().Contain("UnreadableBranches").And.NotContain(secret);
+    }
+
+    [Fact]
+    public void A_branch_that_is_not_valid_JSON_is_named_in_the_response_and_not_returned()
+    {
+        var secret = NewSecret();
+        var workflow = Conditional(thenActions: "[{\"Type\":\"Webhook\",\"Parameters\":{\"Secret\":\"" + secret + "\",");
+
+        var response = WorkflowActionResponse.From(workflow.Actions.Single());
+
+        response.UnreadableBranches.Should().HaveCount(1);
+        response.UnreadableBranches.Should().Equal("ThenActions");
+        JsonSerializer.Serialize(response).Should().NotContain(secret);
+    }
+
+    [Fact]
+    public async Task A_branch_that_repeats_a_property_name_is_refused_when_the_conditional_runs()
+    {
+        var apiKey = NewApiKey();
+        var runKey = Guid.NewGuid().ToString();
+        var workflow = Conditional(thenActions: BranchRepeatingParameters("CredentialEcho", "ApiKey", apiKey, runKey));
+
+        WebhookSigning.ProtectSecrets(workflow, Protector());
+        var saved = workflow.Actions.Single().Parameters;
+
+        var services = new ServiceCollection();
+        services.AddSingleton(Protector());
+        services.AddSingleton<IWorkflowAction>(new CredentialEchoAction());
+        var conditional = new ConditionalAction(services.BuildServiceProvider(), NullLogger<ConditionalAction>.Instance);
+
+        var result = await conditional.RunAsync(saved, PublishedContent(), TestContext.Current.CancellationToken);
+
+        result.Succeeded.Should().BeFalse();
+        result.Retryable.Should().BeFalse("the branch reads the same on the next attempt");
+        result.Error.Should().Contain("ThenActions").And.NotContain(apiKey);
+        CredentialEchoAction.ReceivedByRun.Should().NotContainKey(runKey, "a branch whose credentials were never encrypted must not run");
+    }
+
     private static async Task<string> PageHoldingAsync(HttpClient client, Guid id)
     {
         for (var page = 1; page <= 50; page++)

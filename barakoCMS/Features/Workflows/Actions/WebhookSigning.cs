@@ -236,6 +236,7 @@ internal static class WebhookSigning
     private const string ChildTypeProperty = "Type";
     private const string ChildParametersProperty = "Parameters";
     private const string ChildSecretSetProperty = "SecretSet";
+    private const string ChildUnreadableBranchesProperty = "UnreadableBranches";
     private static readonly string[] BranchParameters = ["ThenActions", "ElseActions"];
 
     // A branch is a JSON string inside a JSON document, never HTML, so the relaxed encoder keeps
@@ -263,18 +264,21 @@ internal static class WebhookSigning
         {
             if (!parameters.TryGetValue(branch, out var json)) continue;
 
-            var rewritten = RewriteBranch(json, child =>
-            {
-                var childType = TypeOfChild(child);
-                var childChanged = false;
-                foreach (var childParameters in ParameterObjects(child))
+            var readable = TryRewriteBranch(
+                json,
+                child =>
                 {
-                    childChanged |= RewriteStrings(childParameters, strings => rewrite(childType, strings));
-                }
+                    var childType = TypeOfChild(child);
+                    var childChanged = false;
+                    foreach (var childParameters in ParameterObjects(child))
+                    {
+                        childChanged |= RewriteStrings(childParameters, strings => rewrite(childType, strings));
+                    }
 
-                return childChanged;
-            });
-            if (rewritten is null) continue;
+                    return childChanged;
+                },
+                out var rewritten);
+            if (!readable || rewritten is null) continue;
 
             parameters[branch] = rewritten;
             changed = true;
@@ -283,15 +287,64 @@ internal static class WebhookSigning
         return changed;
     }
 
-    /// <summary>The branch with <paramref name="rewriteChild"/> applied to each child, or null when nothing changed.</summary>
-    /// <remarks>A branch that cannot be read as a JSON array is left as it is, which null also means here.</remarks>
-    private static string? RewriteBranch(string? json, Func<JsonObject, bool> rewriteChild)
+    /// <summary>
+    /// Whether a branch is one that saving, reading and running all read the same way: a JSON array
+    /// in which no object repeats a property name.
+    /// </summary>
+    /// <remarks>
+    /// A repeated name is valid JSON, and the two readers used here do not agree on which value
+    /// wins. Such a branch is not encrypted, not returned and not run, so a credential cannot sit in
+    /// the value one reader skips and another uses.
+    /// </remarks>
+    public static bool IsReadableBranch(string? json)
     {
-        if (string.IsNullOrWhiteSpace(json)) return null;
+        if (string.IsNullOrWhiteSpace(json)) return false;
 
         try
         {
-            if (JsonNode.Parse(json) is not JsonArray children) return null;
+            using var document = JsonDocument.Parse(json);
+            return document.RootElement.ValueKind == JsonValueKind.Array && !RepeatsAPropertyName(document.RootElement);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static bool RepeatsAPropertyName(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                if (RepeatsAPropertyName(item)) return true;
+            }
+
+            return false;
+        }
+
+        if (element.ValueKind != JsonValueKind.Object) return false;
+
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var property in element.EnumerateObject())
+        {
+            if (!names.Add(property.Name) || RepeatsAPropertyName(property.Value)) return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>Applies <paramref name="rewriteChild"/> to each child of a readable branch.</summary>
+    /// <param name="rewritten">The branch written out again, or null when no child changed.</param>
+    /// <returns>False when the branch is not readable (see <see cref="IsReadableBranch"/>).</returns>
+    private static bool TryRewriteBranch(string? json, Func<JsonObject, bool> rewriteChild, out string? rewritten)
+    {
+        rewritten = null;
+        if (!IsReadableBranch(json)) return false;
+
+        try
+        {
+            if (JsonNode.Parse(json!) is not JsonArray children) return false;
 
             var changed = false;
             foreach (var child in children)
@@ -299,11 +352,13 @@ internal static class WebhookSigning
                 if (child is JsonObject childObject) changed |= rewriteChild(childObject);
             }
 
-            return changed ? children.ToJsonString(BranchJson) : null;
+            if (changed) rewritten = children.ToJsonString(BranchJson);
+            return true;
         }
         catch (Exception ex) when (ex is JsonException or ArgumentException or InvalidOperationException)
         {
-            return null;
+            rewritten = null;
+            return false;
         }
     }
 
@@ -450,50 +505,77 @@ internal static class WebhookSigning
     /// The same, for an action as the API returns it: a Conditional's branches also lose their
     /// children's credential values, and each child says whether it has a secret set.
     /// </summary>
-    public static Dictionary<string, string> WithoutSecret(string? type, IReadOnlyDictionary<string, string> parameters)
+    public static Dictionary<string, string> WithoutSecret(string? type, IReadOnlyDictionary<string, string> parameters) =>
+        WithoutSecret(type, parameters, out _);
+
+    /// <param name="unreadableBranches">
+    /// The branches left out of the copy because they are not readable (see
+    /// <see cref="IsReadableBranch"/>). Nothing has checked such a branch for credentials, so it is
+    /// named here instead of returned.
+    /// </param>
+    public static Dictionary<string, string> WithoutSecret(
+        string? type, IReadOnlyDictionary<string, string> parameters, out List<string> unreadableBranches)
     {
+        unreadableBranches = [];
+
         var copy = WithoutSecret(parameters);
         if (!IsConditional(type)) return copy;
 
         foreach (var branch in BranchParameters)
         {
-            if (copy.TryGetValue(branch, out var json) && WithoutChildSecrets(json) is { } redacted)
+            if (!copy.TryGetValue(branch, out var json) || string.IsNullOrWhiteSpace(json)) continue;
+
+            if (!TryRewriteBranch(json, WithoutChildSecrets, out var redacted))
             {
-                copy[branch] = redacted;
+                copy.Remove(branch);
+                unreadableBranches.Add(branch);
+                continue;
             }
+
+            if (redacted is not null) copy[branch] = redacted;
         }
 
         return copy;
     }
 
-    private static string? WithoutChildSecrets(string? branchJson) =>
-        RewriteBranch(branchJson, child =>
+    private static bool WithoutChildSecrets(JsonObject child)
+    {
+        var nestsBranches = IsConditional(TypeOfChild(child));
+        var secretSet = false;
+        var unreadable = new JsonArray();
+
+        foreach (var parameters in ParameterObjects(child))
         {
-            var nestsBranches = IsConditional(TypeOfChild(child));
-            var secretSet = false;
+            secretSet |= parameters.Any(property =>
+                property.Key == SecretParameter && !string.IsNullOrWhiteSpace(StringOf(property.Value)));
 
-            foreach (var parameters in ParameterObjects(child))
+            foreach (var name in parameters.Select(property => property.Key).Where(IsSensitiveParameterName).ToList())
             {
-                secretSet |= parameters.Any(property =>
-                    property.Key == SecretParameter && !string.IsNullOrWhiteSpace(StringOf(property.Value)));
-
-                foreach (var name in parameters.Select(property => property.Key).Where(IsSensitiveParameterName).ToList())
-                {
-                    parameters.Remove(name);
-                }
-
-                if (!nestsBranches) continue;
-
-                foreach (var branch in BranchParameters)
-                {
-                    if (parameters.TryGetPropertyValue(branch, out var nested) && WithoutChildSecrets(StringOf(nested)) is { } redacted)
-                    {
-                        parameters[branch] = JsonValue.Create(redacted);
-                    }
-                }
+                parameters.Remove(name);
             }
 
-            child[ChildSecretSetProperty] = JsonValue.Create(secretSet);
-            return true;
-        });
+            if (!nestsBranches) continue;
+
+            foreach (var branch in BranchParameters)
+            {
+                if (!parameters.TryGetPropertyValue(branch, out var nested)) continue;
+
+                var json = StringOf(nested);
+                if (json is not null && string.IsNullOrWhiteSpace(json)) continue;
+
+                if (!TryRewriteBranch(json, WithoutChildSecrets, out var redacted))
+                {
+                    parameters.Remove(branch);
+                    unreadable.Add((JsonNode?)JsonValue.Create(branch));
+                    continue;
+                }
+
+                if (redacted is not null) parameters[branch] = JsonValue.Create(redacted);
+            }
+        }
+
+        child[ChildSecretSetProperty] = JsonValue.Create(secretSet);
+        if (unreadable.Count > 0) child[ChildUnreadableBranchesProperty] = unreadable;
+        return true;
+    }
 }

@@ -94,6 +94,14 @@ internal class ConditionalAction : IWorkflowAction
             return WorkflowActionResult.Success();
         }
 
+        // Saving and reading skip a branch they cannot read the same way this does, so its
+        // credentials were never encrypted. Running it would use them as stored.
+        if (!WebhookSigning.IsReadableBranch(actionsToExecute))
+        {
+            return WorkflowActionResult.PermanentFailure(
+                $"The '{(conditionResult ? "Then" : "Else")}Actions' parameter repeats a property name in one object, so it was not run.");
+        }
+
         var availableActions = _serviceProvider.GetService<IEnumerable<IWorkflowAction>>();
         if (availableActions == null)
         {
