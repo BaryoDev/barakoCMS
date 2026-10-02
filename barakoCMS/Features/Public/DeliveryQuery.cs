@@ -99,15 +99,25 @@ internal sealed class DeliveryQuery
         if (def is null)
             return new DeliveryQuery { Error = "Unknown content type." };
 
-        var allowed = def.Fields
-            .Where(readable ?? (f => f.Sensitivity == SensitivityLevel.Public))
-            .ToDictionary(f => f.Name, f => f.Type ?? string.Empty, StringComparer.OrdinalIgnoreCase);
+        Func<FieldDefinition, bool> canRead = readable ?? (f => f.Sensitivity == SensitivityLevel.Public);
+
+        // The first spelling wins. Nothing on the save path stops a type declaring two fields that
+        // differ only by case, and a dictionary that threw on the second would fail every request
+        // for that type.
+        var allowed = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var declared in def.Fields.Where(canRead))
+            allowed.TryAdd(declared.Name, declared.Type ?? string.Empty);
 
         var lists = ListFields(def);
 
         var filters = new List<DeliveryFilter>();
         DeliveryNear? near = null;
         string? sortValue = null;
+
+        // The lookup in SQL ignores the key's case, so a readable SalarY finds the value stored
+        // under a withheld Salary. A name with a withheld twin is refused, for a filter and a sort.
+        foreach (var withheld in def.Fields.Where(f => !canRead(f)))
+            allowed.Remove(withheld.Name);
 
         foreach (var (rawKey, rawValue) in query)
         {

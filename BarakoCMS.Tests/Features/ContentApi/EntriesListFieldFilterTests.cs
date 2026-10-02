@@ -266,6 +266,64 @@ public class EntriesListFieldFilterTests
             "a caller who reads all three matches all three");
     }
 
+    /// <summary>
+    /// Two fields that differ only by case, one withheld and one readable. Creating a content type
+    /// does not refuse that, and the SQL lookup ignores the key's case, so a filter on the readable
+    /// name would match the value stored under the withheld one.
+    /// </summary>
+    [Fact]
+    public async Task A_filter_naming_the_readable_twin_of_a_withheld_field_is_refused()
+    {
+        var type = "ff" + Guid.NewGuid().ToString("N")[..10];
+        Guid entry;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var store = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
+            using var session = store.LightweightSession();
+            session.Store(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(),
+                Name = type,
+                DisplayName = "Case twins",
+                Fields = new List<FieldDefinition>
+                {
+                    new() { Name = "Name", Type = "string", Sensitivity = SensitivityLevel.Public },
+                    new() { Name = "Salary", Type = "number", Sensitivity = SensitivityLevel.Sensitive },
+                    new() { Name = "SalarY", Type = "number", Sensitivity = SensitivityLevel.Public },
+                },
+            });
+
+            // The value sits under the withheld spelling only.
+            entry = Guid.NewGuid();
+            session.Store(new Content
+            {
+                Id = entry,
+                ContentType = type,
+                Sensitivity = SensitivityLevel.Public,
+                Data = new Dictionary<string, object> { ["Name"] = "Ana", ["Salary"] = 60000d },
+                CreatedAt = DateTime.UtcNow,
+            });
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        var viewer = await ViewerAsync(type);
+        var superAdmin = await ReaderAsync("SuperAdmin", type);
+
+        var unfiltered = await ListAsync(viewer, $"contentType={type}&pageSize=100");
+        unfiltered.Ids.Should().HaveCount(1);
+        unfiltered.Ids.Should().Equal(entry);
+
+        await RefusedAsync(viewer, $"contentType={type}&filter[SalarY][gte]=50000");
+        await RefusedAsync(viewer, $"contentType={type}&filter[Salary][gte]=50000");
+
+        var byName = await ListAsync(viewer, $"contentType={type}&pageSize=100&filter[Name][eq]=Ana");
+        byName.Ids.Should().HaveCount(1, "a field with no withheld twin still filters on this type");
+
+        var forSuperAdmin = await ListAsync(superAdmin, $"contentType={type}&pageSize=100&filter[SalarY][gte]=50000");
+        forSuperAdmin.Ids.Should().HaveCount(1, "a caller who reads both spellings filters on either");
+        forSuperAdmin.Ids.Should().Equal(entry);
+    }
+
     [Fact]
     public async Task A_filter_without_a_content_type_or_on_a_type_with_no_definition_is_refused()
     {

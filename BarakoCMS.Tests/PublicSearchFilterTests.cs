@@ -29,13 +29,13 @@ public class PublicSearchFilterTests
     // Three sports entries with the needle in the title, which ranks above a body hit, and one
     // news entry with it in the body. A limit of two therefore never reaches the news entry
     // unless the filter runs before the limit.
-    private async Task<string> SeedAsync()
+    private async Task<string> SeedAsync(params FieldDefinition[] extraFields)
     {
         var type = "sf" + Guid.NewGuid().ToString("N")[..10];
         using var scope = _factory.Services.CreateScope();
         var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
 
-        s.Store(new ContentTypeDefinition
+        var definition = new ContentTypeDefinition
         {
             IsPubliclyDeliverable = true,
             Id = Guid.NewGuid(),
@@ -53,7 +53,9 @@ public class PublicSearchFilterTests
                     Sensitivity = SensitivityLevel.Sensitive,
                 },
             },
-        });
+        };
+        definition.Fields.AddRange(extraFields);
+        s.Store(definition);
 
         void Add(string slug, string title, string body, string category, ContentStatus status = ContentStatus.Published) =>
             s.Store(new Content
@@ -135,6 +137,36 @@ public class PublicSearchFilterTests
             .Should().Be(HttpStatusCode.BadRequest, "an unknown field is refused, not ignored");
         (await StatusAsync(type, "q=a&filter[Secret][eq]=classified"))
             .Should().Be(HttpStatusCode.BadRequest, "and the answer does not depend on q being long enough to search");
+    }
+
+    /// <summary>
+    /// Creating a content type does not refuse two fields that differ only by case, so the type is
+    /// written straight to the store here as it would be stored. A search with no filter has
+    /// nothing to check against the fields and answers as it did before filters existed.
+    /// </summary>
+    [Fact]
+    public async Task A_type_with_fields_that_differ_only_by_case_still_answers_a_search_with_no_filter()
+    {
+        var type = await SeedAsync(new FieldDefinition { Name = "TitlE", DisplayName = "Title twin", Type = "string" });
+
+        var results = await SearchAsync(type, "limit=50");
+        results.Slugs.Should().HaveCount(4);
+
+        var filtered = await SearchAsync(type, "limit=50&filter[Category][eq]=news");
+        filtered.Slugs.Should().HaveCount(1);
+        filtered.Slugs.Should().Equal("news-1");
+    }
+
+    [Fact]
+    public async Task A_filter_naming_the_public_twin_of_a_field_that_is_not_public_is_refused()
+    {
+        var type = await SeedAsync(new FieldDefinition { Name = "SecreT", DisplayName = "Secret twin", Type = "string" });
+
+        (await StatusAsync(type, $"q={Needle}&filter[SecreT][eq]=classified"))
+            .Should().Be(HttpStatusCode.BadRequest,
+                "the lookup ignores the key's case, so this would match the value stored under Secret");
+        (await StatusAsync(type, $"q={Needle}&filter[Category][eq]=news"))
+            .Should().Be(HttpStatusCode.OK, "a field with no withheld twin still filters on this type");
     }
 
     [Fact]

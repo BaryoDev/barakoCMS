@@ -17,8 +17,13 @@ internal sealed class PublicContentFilterParser(IConfiguration config) : IPublic
     {
         ArgumentNullException.ThrowIfNull(query);
 
-        return new Parsed(DeliveryQuery.Parse(
-            DeliveryQuery.FilterPairs(query), definition, DeliveryQuery.MaxRadiusKm(config)));
+        // With no filter key there is nothing to check against the type, so nothing is parsed and
+        // a request without a filter cannot be refused over the type's fields.
+        var pairs = DeliveryQuery.FilterPairs(query);
+        if (pairs.Count == 0 && definition is not null)
+            return new Parsed(new DeliveryQuery());
+
+        return new Parsed(DeliveryQuery.Parse(pairs, definition, DeliveryQuery.MaxRadiusKm(config)));
     }
 
     private sealed class Parsed(DeliveryQuery parsed) : IPublicContentFilter

@@ -441,9 +441,12 @@ internal class PublicSearchEndpoint(IQuerySession session, IConfiguration config
         var slugField = PublicDelivery.SlugField(def!);
 
         // Checked before the short-query answer, so a refused filter is a 400 whatever q holds.
-        // sort is not read here: results are ranked, and the route has always ignored it.
-        var filters = DeliveryQuery.Parse(
-            DeliveryQuery.FilterPairs(HttpContext.Request.Query), def, DeliveryQuery.MaxRadiusKm(config));
+        // sort is not read here: results are ranked, and the route has always ignored it. With no
+        // filter key nothing is parsed, so a request without one answers as it did before filters.
+        var filterPairs = DeliveryQuery.FilterPairs(HttpContext.Request.Query);
+        var filters = filterPairs.Count == 0
+            ? new DeliveryQuery()
+            : DeliveryQuery.Parse(filterPairs, def, DeliveryQuery.MaxRadiusKm(config));
         if (!filters.IsValid)
         {
             AddError(filters.Error!);

@@ -74,6 +74,25 @@ public class PublicContentFilterParserTests
     }
 
     [Fact]
+    public void A_request_with_no_filter_is_not_checked_against_the_types_fields()
+    {
+        var def = Def();
+        def.Fields.Add(new FieldDefinition { Name = "Title", Type = "string", Sensitivity = SensitivityLevel.Public });
+        def.Fields.Add(new FieldDefinition { Name = "Cost", Type = "number", Sensitivity = SensitivityLevel.Public });
+
+        var none = Parser.Parse(Query(("q", "hat")), def);
+        none.Error.Should().BeNull();
+        none.IsEmpty.Should().BeTrue();
+
+        var filter = Parser.Parse(Query(("filter[title][eq]", "hat")), def);
+        filter.Error.Should().BeNull("two readable spellings of one name is not a reason to refuse");
+        filter.IsEmpty.Should().BeFalse();
+
+        Parser.Parse(Query(("filter[Cost][lte]", "50")), def).Error.Should().NotBeNullOrEmpty(
+            "Cost has a Sensitive twin, cost, and the lookup would find its value");
+    }
+
+    [Fact]
     public void An_unknown_content_type_is_refused()
     {
         Parser.Parse(Query(), null).Error.Should().NotBeNullOrEmpty();

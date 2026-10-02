@@ -42,24 +42,16 @@ public class SensitivityService : ISensitivityService
 
     public async ValueTask<bool> ApplyAsync(string contentType, SensitivityLevel level, IDictionary<string, object> data, HttpContext httpContext, CancellationToken ct = default)
     {
-        if (_mode == SensitivityMode.Off)
-            return false;
-
-        var user = httpContext.User;
-        if (user.IsInRole("SuperAdmin"))
-            return false; // SuperAdmin sees everything.
-
         // 1. Document-level.
-        if (level == SensitivityLevel.Hidden)
+        if (!MaySeeDocument(level, httpContext))
         {
             data.Clear();
-            return true; // whole document hidden
+            return level == SensitivityLevel.Hidden; // true when the whole document is hidden
         }
-        if (level == SensitivityLevel.Sensitive && !RoleAllowed(user, DefaultRolesFor(SensitivityLevel.Sensitive)))
-        {
-            data.Clear();
+
+        // Nothing below can mask for this caller, so the schema is not read for them.
+        if (SeesEverything(httpContext.User))
             return false;
-        }
 
         // 2. Field-level, from the content type's schema.
         var definition = await LoadDefinitionAsync(contentType, ct);
@@ -67,9 +59,7 @@ public class SensitivityService : ISensitivityService
         {
             foreach (var field in definition.Fields)
             {
-                if (field.Sensitivity == SensitivityLevel.Public)
-                    continue;
-                if (CallerMaySee(field, user))
+                if (MaySeeField(field, httpContext))
                     continue;
                 foreach (var key in MatchingKeys(data, field.Name))
                     ApplyMask(data, key, field);
@@ -104,21 +94,30 @@ public class SensitivityService : ISensitivityService
         return ValueTask.CompletedTask;
     }
 
+    /// <summary>
+    /// The read rule for a field. <see cref="ApplyAsync"/> masks exactly the fields this refuses,
+    /// so what a caller may filter on and what they are shown cannot drift apart.
+    /// </summary>
     public bool MaySeeField(FieldDefinition field, HttpContext httpContext) =>
-        _mode == SensitivityMode.Off
-        || httpContext.User.IsInRole("SuperAdmin")
+        SeesEverything(httpContext.User)
         || field.Sensitivity == SensitivityLevel.Public
         || CallerMaySee(field, httpContext.User);
 
+    /// <summary>
+    /// The read rule for a document. <see cref="ApplyAsync"/> clears the data of exactly the
+    /// documents this refuses.
+    /// </summary>
     public bool MaySeeDocument(SensitivityLevel level, HttpContext httpContext) =>
-        _mode == SensitivityMode.Off
-        || httpContext.User.IsInRole("SuperAdmin")
+        SeesEverything(httpContext.User)
         || level switch
         {
             SensitivityLevel.Public => true,
             SensitivityLevel.Sensitive => RoleAllowed(httpContext.User, DefaultRolesFor(SensitivityLevel.Sensitive)),
             _ => false,
         };
+
+    private bool SeesEverything(System.Security.Claims.ClaimsPrincipal user) =>
+        _mode == SensitivityMode.Off || user.IsInRole("SuperAdmin");
 
     private static void DropUnwritable(
         ContentTypeDefinition definition,

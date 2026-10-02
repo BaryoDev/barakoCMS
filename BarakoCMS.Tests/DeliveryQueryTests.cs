@@ -423,6 +423,58 @@ public class DeliveryQueryTests
         pairs.Select(p => p.Value).Should().BeEquivalentTo(new[] { "1", "2" });
     }
 
+    private static ContentTypeDefinition Twins(SensitivityLevel first, SensitivityLevel second) => new()
+    {
+        Name = "staff",
+        IsPubliclyDeliverable = true,
+        Fields = new List<FieldDefinition>
+        {
+            new() { Name = "Name", Type = "string", Sensitivity = SensitivityLevel.Public },
+            new() { Name = "Salary", Type = "number", Sensitivity = first },
+            new() { Name = "SalarY", Type = "number", Sensitivity = second },
+        },
+    };
+
+    /// <summary>
+    /// The save path does not refuse two fields that differ only by case, so such a type can be
+    /// stored, and parsing a request for it must not throw.
+    /// </summary>
+    [Fact]
+    public void Two_readable_fields_that_differ_only_by_case_do_not_fail_the_parse()
+    {
+        var def = Twins(SensitivityLevel.Public, SensitivityLevel.Public);
+
+        var none = DeliveryQuery.Parse(Array.Empty<KeyValuePair<string, string?>>(), def);
+        none.IsValid.Should().BeTrue(none.Error);
+
+        var q = DeliveryQuery.Parse([new KeyValuePair<string, string?>("filter[salary][gte]", "1")], def);
+        q.IsValid.Should().BeTrue(q.Error);
+        q.Filters.Should().ContainSingle().Which.Field.Should().Be("Salary", "the first spelling declared is the one kept");
+    }
+
+    /// <summary>
+    /// The SQL lookup ignores the key's case, so a filter on the readable twin would match the
+    /// value stored under the withheld one.
+    /// </summary>
+    [Theory]
+    [InlineData(SensitivityLevel.Sensitive, SensitivityLevel.Public)]
+    [InlineData(SensitivityLevel.Public, SensitivityLevel.Hidden)]
+    public void A_name_that_matches_a_withheld_field_ignoring_case_is_refused(SensitivityLevel first, SensitivityLevel second)
+    {
+        var def = Twins(first, second);
+
+        foreach (var name in new[] { "Salary", "SalarY", "salary" })
+        {
+            DeliveryQuery.Parse([new KeyValuePair<string, string?>($"filter[{name}][gte]", "50000")], def)
+                .IsValid.Should().BeFalse("'{0}' reaches a value the caller cannot read", name);
+            DeliveryQuery.Parse([new KeyValuePair<string, string?>("sort", name)], def)
+                .IsValid.Should().BeFalse("sorting by '{0}' orders by that value", name);
+        }
+
+        DeliveryQuery.Parse([new KeyValuePair<string, string?>("filter[Name][eq]", "Ana")], def)
+            .IsValid.Should().BeTrue("a field with no withheld twin still filters, so the refusals above are about the twin");
+    }
+
     [Fact]
     public void The_filter_parser_is_part_of_the_package_surface()
     {

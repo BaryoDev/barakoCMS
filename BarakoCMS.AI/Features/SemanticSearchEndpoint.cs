@@ -90,7 +90,7 @@ public class SemanticSearchEndpoint(
 
             if (matching.Count == 0)
             {
-                HttpContext.Response.Headers.CacheControl = "public, max-age=60";
+                SetCache();
                 await Send.OkAsync(empty, ct);
                 return;
             }
@@ -129,7 +129,15 @@ public class SemanticSearchEndpoint(
             if (results.Count >= limit) break;
         }
 
-        HttpContext.Response.Headers.CacheControl = "public, max-age=60";
+        SetCache();
         await Send.OkAsync(new SemanticResponse(results, results.Count, q) { Truncated = truncated }, ct);
+    }
+
+    // The answer is built from the resolved tenant, and the X-Tenant header is read before the
+    // host, so a shared cache keyed on the URL alone would serve one tenant's results to another.
+    private void SetCache()
+    {
+        HttpContext.Response.Headers.CacheControl = "public, max-age=60";
+        HttpContext.Response.Headers.Vary = barakoCMS.Infrastructure.Multitenancy.TenantResolutionMiddleware.TenantHeader;
     }
 }

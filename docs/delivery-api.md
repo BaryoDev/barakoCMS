@@ -128,6 +128,11 @@ being ignored, because filtering on a field you cannot read is an oracle: the va
 a response, but which entries come back reveals it. A silently ignored filter is worse still, since
 the caller cannot tell "no filter applied" from "no matches".
 
+A field name is matched without regard to case, in the request and in the stored entry. So when a
+type declares two fields that differ only by case and one of them is not `Public`, neither name can
+be filtered or sorted on: the lookup could land on the value the caller may not read. With both
+`Public`, the first one declared is used.
+
 Comparison happens in jsonb using the field's declared type, so a numeric field compares
 numerically: `filter[price][lt]=10` puts 9 below 10 instead of after it.
 

@@ -45,7 +45,9 @@ public interface ISensitivityService
     /// A read endpoint asks before it lets a caller filter or sort on a field: which entries match
     /// tells the caller the value, so a field that <see cref="ApplyAsync"/> would mask for them must
     /// not be matched for them either. The default answers for a Public field only, so an
-    /// implementation that does not override it refuses more, never less.
+    /// implementation that does not override it refuses more, never less. That holds only if the
+    /// implementation's <see cref="ApplyAsync"/> never masks a field declared Public: one that
+    /// does has to override this, or the default lets a caller filter on a field it masks.
     /// </remarks>
     bool MaySeeField(FieldDefinition field, HttpContext httpContext)
         => field.Sensitivity == SensitivityLevel.Public;
@@ -56,7 +58,8 @@ public interface ISensitivityService
     /// <remarks>
     /// The document-level half of <see cref="MaySeeField"/>: <see cref="ApplyAsync"/> clears the
     /// data of a document the caller may not see, and matching on that data would give it back one
-    /// guess at a time. The default answers for a Public document only.
+    /// guess at a time. The default answers for a Public document only, with the same condition:
+    /// an implementation that withholds a Public document has to override this.
     /// </remarks>
     bool MaySeeDocument(SensitivityLevel level, HttpContext httpContext)
         => level == SensitivityLevel.Public;
