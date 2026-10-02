@@ -78,6 +78,17 @@ public class TokenFieldDefinitionTests
         errors[0].Should().Contain("Code").And.Contain("not token");
     }
 
+    [Theory]
+    [InlineData("Slug")]
+    [InlineData("slug")]
+    public void A_token_field_named_slug_is_refused(string name)
+    {
+        var (isValid, errors) = Save(Token(f => f.Name = name));
+
+        isValid.Should().BeFalse();
+        errors.Should().Contain(e => e.Contains("cannot be named Slug"));
+    }
+
     [Fact]
     public void A_required_token_field_is_refused()
     {

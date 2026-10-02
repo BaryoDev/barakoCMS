@@ -193,6 +193,36 @@ internal class UpdateFieldAction : IWorkflowAction
 
         if (dataChanged)
         {
+            // Permanent: the field is a token on every retry. Checked whatever the value, a missing
+            // one included, since an entry with no stream is written below without the writer that
+            // would put the stored token back.
+            var tokenKey = field.StartsWith("data.", StringComparison.OrdinalIgnoreCase) ? field.Substring(5) : field;
+
+            barakoCMS.Models.FieldDefinition? token;
+            try
+            {
+                var definition = await _session.Query<barakoCMS.Models.ContentTypeDefinition>()
+                    .FirstOrDefaultAsync(d => d.Name == targetContent.ContentType, ct);
+                token = definition?.Fields.FirstOrDefault(
+                    f => f is not null
+                         && string.Equals(f.Name, tokenKey, StringComparison.OrdinalIgnoreCase)
+                         && barakoCMS.Core.Validation.TokenFields.IsToken(f.Type));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to load the content type for field {Field}", field);
+                return WorkflowActionResult.Failure($"Could not read the content type of content {targetContent.Id} ({ex.GetType().Name}).");
+            }
+
+            if (token is not null)
+            {
+                return WorkflowActionResult.PermanentFailure(
+                    $"Field '{token.Name}' is a token, which the server generates, so a workflow cannot write it.");
+            }
+        }
+
+        if (dataChanged && value is not null)
+        {
             // A parameter is text, and a money field that declares a currency takes a number. Text
             // stored there would make every later save of the entry fail, so it is read as an
             // amount here or the action fails, where the failure is seen. Every other field keeps
@@ -213,17 +243,7 @@ internal class UpdateFieldAction : IWorkflowAction
                 return WorkflowActionResult.Failure($"Could not read the content type of content {targetContent.Id} ({ex.GetType().Name}).");
             }
 
-            // Permanent: the field is a token on every retry. Checked whatever the value, a missing
-            // one included, since an entry with no stream is written below without the writer that
-            // would put the stored token back.
-            if (declared is not null && barakoCMS.Core.Validation.TokenFields.IsToken(declared.Type))
-            {
-                return WorkflowActionResult.PermanentFailure(
-                    $"Field '{declared.Name}' is a token, which the server generates, so a workflow cannot write it.");
-            }
-
-            if (value is not null
-                && declared is not null
+            if (declared is not null
                 && barakoCMS.Core.Validation.MoneyFields.TryResolve(declared, out var currency, out var scale))
             {
                 // Permanent, and the value is not named: it parses the same way on every retry, and

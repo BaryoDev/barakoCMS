@@ -65,7 +65,13 @@ internal static class PublicText
     {
         var byType = def.Fields.FirstOrDefault(f => string.Equals(f.Type, "slug", StringComparison.OrdinalIgnoreCase));
         if (byType is not null) return byType.Name;
-        return def.Fields.FirstOrDefault(f => string.Equals(f.Name, "slug", StringComparison.OrdinalIgnoreCase))?.Name;
+        // The core delivery rule: a field picked by its name alone is a slug only when the type
+        // serves it, so a Hidden field or a token named Slug is never embedded or returned.
+        return def.Fields.FirstOrDefault(f =>
+            string.Equals(f.Name, "slug", StringComparison.OrdinalIgnoreCase)
+            && f.Sensitivity == SensitivityLevel.Public
+            && (string.Equals(f.Type, "string", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(f.Type, "text", StringComparison.OrdinalIgnoreCase)))?.Name;
     }
 
     public static string? SlugValue(Content c, ContentTypeDefinition def)

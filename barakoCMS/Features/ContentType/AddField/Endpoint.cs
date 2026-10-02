@@ -196,6 +196,18 @@ internal sealed class Endpoint(
             ThrowIfAnyErrors();
         }
 
+        if (barakoCMS.Core.Validation.TokenFields.IsToken(field.Type))
+        {
+            var holding = await barakoCMS.Infrastructure.Services.TokenFieldEntries.HoldingAsync(
+                session, definition.Name, field.Name, ct);
+
+            if (holding > 0)
+            {
+                AddError(barakoCMS.Infrastructure.Services.TokenFieldEntries.Refusal(definition.Name, field.Name, holding));
+                ThrowIfAnyErrors(StatusCodes.Status409Conflict);
+            }
+        }
+
         if (field.IsRequired && field.DefaultValue is null)
         {
             var entries = await session.Query<barakoCMS.Models.Content>()

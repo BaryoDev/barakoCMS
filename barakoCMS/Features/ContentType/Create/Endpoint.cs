@@ -136,6 +136,16 @@ internal class Endpoint(
             ThrowError(DuplicateName, 409);
         }
 
+        // Entries can exist under a name with no type, holding whatever keys their writers chose.
+        foreach (var token in (req.Fields ?? []).Where(f => f is not null && barakoCMS.Core.Validation.TokenFields.IsToken(f.Type)))
+        {
+            var holding = await barakoCMS.Infrastructure.Services.TokenFieldEntries.HoldingAsync(session, slug, token.Name, ct);
+            if (holding > 0)
+            {
+                ThrowError(barakoCMS.Infrastructure.Services.TokenFieldEntries.Refusal(slug, token.Name, holding), 409);
+            }
+        }
+
         // 4. Sourcing policy. Read before anything is written, because two of the three answers here
         // are refusals and a refusal has to happen before the type exists.
         var standing = await sourcing.GetAsync(slug, ct);

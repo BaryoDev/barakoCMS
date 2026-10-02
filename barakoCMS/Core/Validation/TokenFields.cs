@@ -50,15 +50,29 @@ internal static class TokenFields
 
     public static string Generate(int length) => RandomNumberGenerator.GetString(Alphabet, length);
 
-    /// <summary>Whether a stored value is no token at all, so the entry is still owed one.</summary>
-    public static bool IsBlank(object? value) => value switch
+    /// <summary>
+    /// Whether a stored value could have been generated here: text of the alphabet, 16 to 128
+    /// characters long. Anything else, a missing value included, is replaced on the next save.
+    /// </summary>
+    /// <remarks>
+    /// Entry data can hold keys no field declares, so a value can be under a token's name from
+    /// before the field existed, written by a caller. The routes that add a token field refuse
+    /// while one is there; this is the writer's own check, for data stored some other way.
+    /// </remarks>
+    public static bool IsWellFormed(object? value)
     {
-        null => true,
-        string text => string.IsNullOrWhiteSpace(text),
-        JsonElement { ValueKind: JsonValueKind.Null or JsonValueKind.Undefined } => true,
-        JsonElement { ValueKind: JsonValueKind.String } element => string.IsNullOrWhiteSpace(element.GetString()),
-        _ => false,
-    };
+        var text = value switch
+        {
+            string s => s,
+            JsonElement { ValueKind: JsonValueKind.String } element => element.GetString(),
+            _ => null,
+        };
+
+        return text is not null
+            && text.Length >= MinLength
+            && text.Length <= MaxLength
+            && text.All(c => Alphabet.Contains(c));
+    }
 
     /// <summary>
     /// Raises a token field declared Public to Hidden, before the definition is checked and stored.
@@ -99,6 +113,14 @@ internal static class TokenFields
         {
             errors.Add($"Field '{field.Name}' is a token and cannot be Public. Declare it Hidden or "
                 + "Sensitive, with visibleToRoles for the roles that may read it.");
+        }
+
+        // Delivery no longer takes a token named Slug as the slug, but a reader written against the
+        // name alone would, so the name is kept off a token altogether.
+        if (string.Equals(field.Name, "slug", StringComparison.OrdinalIgnoreCase))
+        {
+            errors.Add($"Field '{field.Name}' is a token and cannot be named Slug, the name delivery "
+                + "reads an entry's address from. Name it for what it is, such as ClaimToken.");
         }
 
         if (field.IsRequired)

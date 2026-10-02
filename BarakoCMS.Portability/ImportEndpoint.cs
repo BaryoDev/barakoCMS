@@ -476,6 +476,18 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
                        + $"{string.Join(", ", nonPublic)} {(nonPublic.Count == 1 ? "is" : "are")} not.");
         }
 
+        // A token field the stored type does not have yet must not take over values entries
+        // already hold under its name, the add field rule.
+        foreach (var token in type.Fields.Where(f => barakoCMS.Core.Validation.FieldTypeRegistry.IsServerGenerated(f)
+                     && !(stored?.Fields ?? []).Any(s => s is not null
+                         && s.Name.Equals(f.Name, StringComparison.OrdinalIgnoreCase)
+                         && barakoCMS.Core.Validation.FieldTypeRegistry.IsServerGenerated(s))))
+        {
+            var holding = await TokenFieldEntries.HoldingAsync(_session, name, token.Name, ct);
+            if (holding > 0)
+                errors.Add(TokenFieldEntries.Refusal(name, token.Name, holding));
+        }
+
         if (stored is null)
             return errors;
 

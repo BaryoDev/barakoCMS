@@ -21,6 +21,11 @@ link, a one-time lookup code.
 - A transition cannot name a token field in `requiredFields` or `optionalFields`.
 - An event-sourced content type cannot have one. Its fields have to stay Public, and a token is
   never Public.
+- A token field cannot be named `Slug`.
+- A token field cannot be added under a name entries of the type already hold a value under
+  (`POST /api/content-types`, `POST /api/content-types/{name}/fields` and a bundle import answer
+  with the count of such entries). Entry data can hold keys no field declares, and such a value
+  would otherwise become the entry's token.
 
 ## The value
 
@@ -29,12 +34,14 @@ the digits and the lower case letters without `i`, `l`, `o` and `u`, so one that
 typed back has no look-alikes. That is 32 characters, five bits each: a 16 character token is 80
 bits and the default of 32 characters is 160.
 
-Before a token is used it is checked against the entries stored under the same content type name in
-the tenant, and against tokens the same request generated and has not committed yet. A value
-already held is thrown away and another is generated, up to five times, after which the write fails
-and nothing is stored. No database index backs the check, so two requests committing at the same
-moment are not compared with each other. At the shortest length two of them matching is as likely
-as two random 80 bit numbers matching.
+Uniqueness rests on that randomness: a new token is not looked up among the stored ones, because
+the lookup cannot use an index and would scan every entry of the type for each token. Tokens one
+request generates are kept apart. Among n tokens of L characters the chance that any two match is
+below n squared divided by 2 to the power 5L + 1. At the shortest length, 16 characters, and a
+million entries that is about 4 in 10 to the 13; at the default 32 it is below 1 in 10 to the 36.
+
+A stored value that is not text of this alphabet, 16 to 128 characters long, is not taken as the
+entry's token: the next save replaces it with a generated one.
 
 A token is not logged.
 
@@ -60,10 +67,13 @@ token it applies to every caller, a SuperAdmin included, and with `Sensitivity:M
 | Scheduled publish and unpublish, status changes | no data is written | unchanged |
 
 The rule lives in the content writer, which every one of these ends at, so a route added later gets
-it without asking. Two ways around the writer exist and neither is reachable over HTTP: code that
-stores a `Content` document through the session itself, and the obsolete synchronous
-`IContentWriter.Create` and `Append`, which cannot read a content type. Entries written either way
-get no token and keep whatever they were given.
+it without asking. Two ways around the writer exist: code that stores a `Content` document through
+the session itself, and the obsolete synchronous `IContentWriter.Create` and `Append`, which cannot
+read a content type. Entries written either way get no token and keep whatever they were given. One
+of the first is reachable over HTTP: the Accounting module's `POST /api/accounting/accounts` and its
+account upsert store the account entry directly and replace its data whole. A token field added to
+the account type would not be filled for those entries, and an upsert would remove a stored one, so
+the next save through the writer would issue a different token. Do not put a token field on it.
 
 ## Entries that predate the field
 
@@ -78,7 +88,7 @@ every entry one, save each once: a `PUT /api/contents/{id}` with the entry's own
 | `GET /api/contents/{id}`, `GET /api/contents`, `GET /api/contents/{id}/history` | A `Hidden` field: the roles in `visibleToRoles`, or with none listed a role holding `view_hidden`, and SuperAdmin. A `Sensitive` field: the same with `view_sensitive`. Everyone else gets the field removed (`Hidden`) or masked (`Sensitive`), as for any such field. |
 | `GET /api/contents?search=` | Nobody. A token is never matched by the search, for any caller. |
 | `GET /api/contents?filter[Field][eq]=` | A caller who may read the field. For anyone else the filter is refused, in the words used for a field that does not exist. |
-| Everything under `/api/public/`, feeds, the sitemap, the delivery OpenAPI document | Nobody. |
+| Everything under `/api/public/`, feeds, the sitemap, the delivery OpenAPI document | Nobody. The slug those serve comes from a field of type `slug`, or from a Public text field named `Slug`, never from a token or another field that is not Public. |
 | Webhook bodies, connector requests, public forms, semantic search | Nobody. Each takes only Public fields. |
 | `GET /api/portability/export` | Nobody. The field is left out of every exported entry. |
 
@@ -88,9 +98,10 @@ its token with an `eq` filter.
 
 A workflow reads the stored entry when it fills a placeholder, so `{{data.ClaimToken}}` in an email
 or SMS action carries the token to whoever the action sends to. That is how a token reaches the
-person it is for, and it is decided by whoever may edit workflows. The filled parameters are kept in
-the workflow's execution log, which the API serves, so a caller who may read that log reads the
-token there.
+person it is for, and it is decided by whoever may edit workflows. The workflow's execution log does
+not keep it: the log records the values of structural parameters only (content type, status, field
+name, target id and the like) and replaces every other value, such as a recipient, a subject, a body
+or a URL, with `[redacted]`.
 
 ## History, the audit log and backups
 

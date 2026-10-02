@@ -1,9 +1,7 @@
 using barakoCMS.Core.Validation;
 using barakoCMS.Events;
-using barakoCMS.Features.Public;
 using barakoCMS.Models;
 using Marten;
-using Marten.Linq.MatchesSql;
 
 namespace barakoCMS.Infrastructure.Services;
 
@@ -19,18 +17,18 @@ namespace barakoCMS.Infrastructure.Services;
 /// put back, whatever the event carried, and an entry that has none (it was written before its
 /// type had the field) is given one.
 ///
-/// A token is checked against the entries stored under the same type name in the session's tenant
-/// before it is used, and against the ones this writer issued and has not committed. No unique
-/// index backs that: two writers committing at the same moment are not checked against each other,
-/// and at the shortest length the chance they collide is that of two 80 bit numbers matching.
+/// Uniqueness rests on the randomness and is not looked up. A lookup could not use an index (the
+/// field is a key inside the entry's JSON), so it was a scan of every entry of the type per token,
+/// and a bulk import of N rows into a type of M entries was N scans of M rows, to guard against an
+/// event that does not happen: among n tokens of L characters the chance that any two match is
+/// below n squared over 2 to the power 5L + 1. At the shortest length (16, 80 bits) and a million
+/// entries that is about 4 in 10 to the 13. The tokens one writer issues are still kept apart,
+/// which costs nothing.
 ///
-/// A token is never logged and is not named in the one exception this throws.
+/// A token is never logged.
 /// </remarks>
 internal sealed class ContentTokenIssuer(IDocumentSession session)
 {
-    /// <summary>How many tokens are tried for one field before the write fails.</summary>
-    public const int MaxAttempts = 5;
-
     private readonly Dictionary<string, IReadOnlyList<FieldDefinition>> _fields = new(StringComparer.Ordinal);
     private readonly HashSet<string> _issued = new(StringComparer.Ordinal);
 
@@ -40,7 +38,7 @@ internal sealed class ContentTokenIssuer(IDocumentSession session)
         foreach (var field in await FieldsAsync(created.ContentType, ct))
         {
             RemoveKeys(created.Data, field.Name);
-            created.Data[field.Name] = await NewTokenAsync(created.ContentType, field, ct);
+            created.Data[field.Name] = NewToken(field);
         }
     }
 
@@ -63,10 +61,10 @@ internal sealed class ContentTokenIssuer(IDocumentSession session)
 
             RemoveKeys(updated.Data, field.Name);
 
-            if (storedKey is not null && !TokenFields.IsBlank(stored))
+            if (storedKey is not null && TokenFields.IsWellFormed(stored))
                 updated.Data[storedKey] = stored!;
             else
-                updated.Data[field.Name] = await NewTokenAsync(content.ContentType, field, ct);
+                updated.Data[field.Name] = NewToken(field);
         }
     }
 
@@ -101,26 +99,16 @@ internal sealed class ContentTokenIssuer(IDocumentSession session)
         return fields;
     }
 
-    private async Task<string> NewTokenAsync(string contentType, FieldDefinition field, CancellationToken ct)
+    private string NewToken(FieldDefinition field)
     {
-        for (var attempt = 0; attempt < MaxAttempts; attempt++)
+        string token;
+        do
         {
-            var token = TokenFields.Generate(TokenFields.LengthOf(field));
-
-            if (!_issued.Add(token))
-                continue;
-
-            var (sql, parameters) = DeliveryQuery.FieldEqualsIgnoreCaseSql(field.Name, token);
-            var held = await session.Query<Content>()
-                .Where(c => c.ContentType == contentType && c.MatchesSql(sql, parameters))
-                .AnyAsync(ct);
-
-            if (!held)
-                return token;
+            token = TokenFields.Generate(TokenFields.LengthOf(field));
         }
+        while (!_issued.Add(token));
 
-        throw new InvalidOperationException(
-            $"No unused token was found for field '{field.Name}' in {MaxAttempts} attempts, so the entry was not written.");
+        return token;
     }
 
     private static void RemoveKeys(Dictionary<string, object> data, string name)

@@ -63,12 +63,23 @@ public class TokenGenerationTests
     }
 
     [Theory]
-    [InlineData(null, true)]
-    [InlineData("", true)]
-    [InlineData("   ", true)]
-    [InlineData("a", false)]
-    public void A_stored_value_with_no_text_is_no_token(string? stored, bool blank)
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("0123456789abcde")]
+    [InlineData("chosen-by-an-editor")]
+    [InlineData("0123456789ABCDEF")]
+    [InlineData("0123456789abcdei")]
+    public void A_stored_value_the_server_could_not_have_generated_is_not_a_token(string? stored)
     {
-        TokenFields.IsBlank(stored).Should().Be(blank);
+        TokenFields.IsWellFormed(stored).Should().BeFalse();
+    }
+
+    [Fact]
+    public void A_generated_token_of_any_allowed_length_is_well_formed_and_a_number_is_not()
+    {
+        TokenFields.IsWellFormed(TokenFields.Generate(TokenFields.MinLength)).Should().BeTrue();
+        TokenFields.IsWellFormed(TokenFields.Generate(TokenFields.MaxLength)).Should().BeTrue();
+        TokenFields.IsWellFormed(TokenFields.Generate(TokenFields.MaxLength + 1)).Should().BeFalse();
+        TokenFields.IsWellFormed(1234567890123456L).Should().BeFalse();
     }
 }
