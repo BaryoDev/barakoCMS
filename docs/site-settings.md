@@ -327,9 +327,10 @@ a margin.
 
 **Redeeming.** The frontend posts `{ "key": "..." }` with the tenant resolved the same way as
 `GET /api/public/site`. A live link answers 200 with its `expiresAt` and records `lastUsedAt`. A
-wrong key, an expired or revoked link, and another tenant's key all answer the same 404. Both
-answers carry `Cache-Control: no-store`. Redeeming is rate limited per tenant and visitor
-(`RateLimiting:SiteShare`, 10 a minute by default). The key is never logged.
+wrong key, an expired or revoked link, another tenant's key and the key of a link to one entry or
+page (below) all answer the same 404. Both answers carry `Cache-Control: no-store`. Redeeming is
+rate limited per tenant and visitor (`RateLimiting:SiteShare`, 10 a minute by default). The key is
+never logged.
 
 **Sessions.** After a 200 the frontend may keep its own session so the previewer does not redeem on
 every page. Keep it for at most 24 hours, and never past the link's `expiresAt`; after that, redeem
@@ -337,6 +338,70 @@ again.
 
 **Revoking.** `DELETE` sets `revokedAt`, is audited as `site.share_link.revoked`, and the key stops
 redeeming at once. A session a frontend already started runs out on its own, within 24 hours.
+
+### Links to one entry or one page
+
+A link can also open one entry, whatever its status, so a client reviews one draft without the
+whole held site opening. The same document, key, hash, expiry, revocation and audit rows as a link
+to the site; what differs is what the link names and who may make it.
+
+| Route | Who | Answers |
+| :--- | :--- | :--- |
+| `POST /api/contents/{id}/share-links` | may update that entry | 201 `{ id, label, expiresAt, createdAt, scope, path, key }` |
+| `GET /api/contents/{id}/share-links` | may update that entry | a page of the entry's links, each with `scope`, `path` and `preview`, and `maxExpiryDays` beside `items` |
+| `DELETE /api/contents/{id}/share-links/{linkId}` | may update that entry | 204, or 404 for a link that is not this entry's |
+| `POST /api/public/site/share-links/open` | anyone | 200 `{ scope, expiresAt, path, entry }`, or 404 |
+
+**Creating.** The body is `{ "label": "...", "expiresAt": "...", "path": "..." }`, with the same
+label and expiry rules as a link to the site. Without `path` the link's `scope` is `entry`. With
+`path` it is `page`: the path the page is served at, starting with one `/`, at most 2048 characters,
+with no whitespace, backslash, `?` or `#`, so it cannot point off the site. The API stores the path
+and hands it back on open; it never looks anything up by it, so a page that moves keeps the path its
+link was made with. A link to an entry that could not be delivered (its type is not publicly
+deliverable, or the entry is not `Public`) is a 400, since it would open nothing. An entry holds at
+most 20 active links, and they do not count toward the site's 100.
+
+**Opening.** The frontend posts `{ "key": "..." }`. The key is in the body, so it is in no URL. The
+answer says what the key is for:
+
+- `scope: "site"`: a link to the whole site. No `entry`. The same meaning as a 200 from redeem.
+- `scope: "entry"` or `"page"`: `entry` is that one entry in the shape `GET /api/public/{type}/{slug}`
+  returns, and `path` is set for a page link.
+
+What an entry or page link opens is that one entry and nothing else:
+
+- Only fields the type marks `Public`. A link is not a signed-in caller.
+- Not an entry whose document sensitivity is not `Public`, and not an entry of a type that is not
+  publicly deliverable. Both answer 404, as does a link whose entry was deleted.
+- No other entry. The request names no entry, so there is no id to change. Reference fields come
+  back as the ids they are stored as; a referenced entry, a child page or a parent is read through
+  the ordinary delivery routes, which serve it only if it is published.
+- Nothing on another tenant: the key is looked up in the resolved tenant.
+- Not the whole held site: redeem answers 404 for this key.
+
+A wrong key, an expired or revoked link, another tenant's key and a link that opens nothing all
+answer the same 404 with the same body. Every answer from redeem and open carries
+`Cache-Control: no-store`, a 429 included, so no shared cache holds an entry a link opened. Open
+shares redeem's rate limit. `lastUsedAt` is recorded on a 200 only.
+
+**Managing.** Listing and revoking go through the entry, and need update on it. A link to the site
+is not listed or revoked there, and an entry's link is not listed or revoked under
+`/api/site/share-links`. Both are audited under the same two action names, with `scope` and
+`entryId` beside the label.
+
+**Stored links.** A link made before scopes existed has neither an entry nor a path and is a link
+to the site, as it always was. No schema change: the three new fields are in the document body and
+none is indexed.
+
+### Preview tokens
+
+`POST /api/preview` is deprecated and answers a signed-in caller with a `Deprecation` header. Its body and status codes
+have not changed, but the token is now the key of an entry link that lasts 30 minutes, so it shows
+in the entry's list with `preview: true`, its creation is audited and it can be revoked. It is the
+one kind of link accepted in the `?preview=` query of `GET /api/public/{type}/{slug}`: a query
+string reaches access logs, so a key that can last 90 days is not taken from one. A caller needs
+`read` on the entry to get a token, as before. These links are not counted toward the entry's 20,
+and the ones that have expired are deleted the next time the route issues one for the tenant.
 
 ## Why a content type
 

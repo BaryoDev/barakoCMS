@@ -13,9 +13,22 @@ using Microsoft.AspNetCore.WebUtilities;
 
 namespace barakoCMS.Features.Site.ShareLinks;
 
+/// <summary>What a link opens. Read off the stored link, so it cannot say one thing and open another.</summary>
+internal static class ShareLinkScope
+{
+    public const string Site = "site";
+    public const string Entry = "entry";
+    public const string Page = "page";
+
+    public static string Of(SiteShareLink link) =>
+        link.EntryId is null ? Site : link.Path is null ? Entry : Page;
+}
+
 internal static class ShareLinkKeys
 {
     public const string SiteType = "site";
+
+    public const int MaxLabelLength = 100;
 
     public static readonly TimeSpan DefaultLifetime = TimeSpan.FromDays(30);
     public static readonly TimeSpan MaxLifetime = TimeSpan.FromDays(90);
@@ -32,6 +45,12 @@ internal static class ShareLinkKeys
     /// still redeems.
     /// </summary>
     public const int MaxActive = 100;
+
+    /// <summary>
+    /// Active links per entry, for the same reason. Links issued by <c>POST /api/preview</c> are not
+    /// counted: that route has no answer for a full list, and each of those lasts 30 minutes.
+    /// </summary>
+    public const int MaxActivePerEntry = 20;
 
     /// <summary>Longer than any key this API issues, so an oversized body is not hashed.</summary>
     private const int MaxKeyLength = 256;
@@ -62,6 +81,39 @@ internal static class ShareLinkKeys
         return await session.Query<SiteShareLink>()
             .Where(l => l.KeyHash == hash && l.RevokedAt == null && l.ExpiresAt > now)
             .FirstOrDefaultAsync(ct);
+    }
+
+    /// <summary>
+    /// The entry an entry or page link opens, projected for anonymous delivery, or null.
+    /// </summary>
+    /// <remarks>
+    /// The link lifts the Published gate for this one entry and nothing else. The projection is the
+    /// one every anonymous read goes through, so a type that is not publicly deliverable, an entry
+    /// that is not Public and every field that is not Public stay closed. References are left as
+    /// the ids they are stored as: resolving one would need a rule for a draft on the other end,
+    /// and a frontend can read a published target through the ordinary routes.
+    /// </remarks>
+    public static async Task<barakoCMS.Features.Public.PublicContentResponse?> OpenEntryAsync(
+        IQuerySession session, SiteShareLink link, CancellationToken ct)
+    {
+        if (link.EntryId is not { } entryId)
+        {
+            return null;
+        }
+
+        var entry = await session.LoadAsync<barakoCMS.Models.Content>(entryId, ct);
+        if (entry is null)
+        {
+            return null;
+        }
+
+        var type = entry.ContentType;
+        var definition = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
+        return barakoCMS.Features.Public.PublicDelivery.ToPublic(
+            entry,
+            definition,
+            definition is null ? null : barakoCMS.Features.Public.PublicDelivery.SlugField(definition),
+            allowUnpublished: true);
     }
 
     /// <summary>Records a redemption by patching LastUsedAt alone.</summary>
@@ -103,6 +155,15 @@ internal sealed class ShareLinkResponse
     public DateTimeOffset? RevokedAt { get; init; }
     public DateTimeOffset? LastUsedAt { get; init; }
 
+    /// <summary><c>site</c>, <c>entry</c> or <c>page</c>.</summary>
+    public string Scope { get; init; } = ShareLinkScope.Site;
+
+    /// <summary>The path a page link was created for. Null for the other scopes.</summary>
+    public string? Path { get; init; }
+
+    /// <summary>True for a link <c>POST /api/preview</c> issued.</summary>
+    public bool Preview { get; init; }
+
     public static ShareLinkResponse From(SiteShareLink l) => new()
     {
         Id = l.Id,
@@ -112,6 +173,9 @@ internal sealed class ShareLinkResponse
         ExpiresAt = l.ExpiresAt,
         RevokedAt = l.RevokedAt,
         LastUsedAt = l.LastUsedAt,
+        Scope = ShareLinkScope.Of(l),
+        Path = l.Path,
+        Preview = l.Preview,
     };
 }
 
@@ -135,7 +199,7 @@ internal sealed class CreateShareLinkValidator : Validator<CreateShareLinkReques
 {
     public CreateShareLinkValidator()
     {
-        RuleFor(x => x.Label).NotEmpty().MaximumLength(100);
+        RuleFor(x => x.Label).NotEmpty().MaximumLength(ShareLinkKeys.MaxLabelLength);
 
         // A minute of slack past the maximum, so a client that asks for the reported maximum from now
         // is not refused because its clock runs a little ahead of this one. The time the request takes
@@ -183,7 +247,7 @@ internal sealed class CreateShareLinkEndpoint(
 
         var now = DateTimeOffset.UtcNow;
         var active = await session.Query<SiteShareLink>()
-            .CountAsync(l => l.RevokedAt == null && l.ExpiresAt > now, ct);
+            .CountAsync(l => l.EntryId == null && l.RevokedAt == null && l.ExpiresAt > now, ct);
         if (active >= ShareLinkKeys.MaxActive)
         {
             AddError($"This site already has {ShareLinkKeys.MaxActive} active share links. Revoke one first.");
@@ -245,8 +309,9 @@ internal sealed class ListShareLinksEndpoint(
             return;
         }
 
-        var total = await session.Query<SiteShareLink>().CountAsync(ct);
+        var total = await session.Query<SiteShareLink>().Where(l => l.EntryId == null).CountAsync(ct);
         var page = await session.Query<SiteShareLink>()
+            .Where(l => l.EntryId == null)
             .OrderByDescending(l => l.CreatedAt)
             .Skip(req.Skip)
             .Take(req.Take)
@@ -286,7 +351,9 @@ internal sealed class RevokeShareLinkEndpoint(
         var link = Guid.TryParse(Route<string>("id"), out var id)
             ? await session.LoadAsync<SiteShareLink>(id, ct)
             : null;
-        if (link is null)
+
+        // An entry's links are revoked through the entry, by whoever may update that entry.
+        if (link is null || link.EntryId is not null)
         {
             await Send.NotFoundAsync(ct);
             return;
@@ -318,10 +385,12 @@ internal sealed class RedeemShareLinkResponse
     public DateTimeOffset ExpiresAt { get; init; }
 }
 
-/// <summary>POST /api/public/site/share-links/redeem: is this key a live share link for the resolved tenant.</summary>
+/// <summary>POST /api/public/site/share-links/redeem: is this key a live link to the whole site for the resolved tenant.</summary>
 /// <remarks>
-/// 200 or 404 and nothing else. A wrong key, an expired or revoked link and another tenant's key all
-/// answer the same 404, so the route says nothing about which links exist.
+/// 200 or 404 and nothing else. A wrong key, an expired or revoked link, another tenant's key and a
+/// key that opens one entry all answer the same 404, so the route says nothing about which links
+/// exist. An entry or page key has to be refused here: a frontend reads this 200 as leave to show
+/// the whole held site.
 /// </remarks>
 internal sealed class RedeemShareLinkEndpoint(
     IDocumentSession session) : Endpoint<RedeemShareLinkRequest, RedeemShareLinkResponse>
@@ -339,7 +408,7 @@ internal sealed class RedeemShareLinkEndpoint(
 
         var now = DateTimeOffset.UtcNow;
         var link = await ShareLinkKeys.FindActiveAsync(session, req.Key, now, ct);
-        if (link is null)
+        if (link is not { EntryId: null })
         {
             await Send.NotFoundAsync(ct);
             return;

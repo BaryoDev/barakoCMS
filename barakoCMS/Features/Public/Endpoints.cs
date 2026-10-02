@@ -543,9 +543,32 @@ internal class GetBySlugEndpoint(
          * the Published gate. Binding to the id (not just the slug) means a duplicate-slug draft can't be
          * substituted for the one the token was minted for. */
         var previewToken = Query<string>(barakoCMS.Infrastructure.Preview.PreviewToken.QueryParam, isRequired: false);
-        var previewId = string.IsNullOrEmpty(previewToken)
-            ? null
-            : barakoCMS.Infrastructure.Preview.PreviewToken.ValidatedEntryId(config, previewToken!, tenant.Slug, type, slug);
+
+        /* What POST /api/preview hands out is the key of an entry share link, looked up in this
+         * tenant, so revoking the link ends the preview at once. Only a link that route issued is
+         * taken from the query: a key an editor made can last 90 days, and a query string is logged.
+         * A JWT from before the route issued links is still verified until it runs out, 30 minutes
+         * at most; a share key holds no dot, which is how the two are told apart.
+         *
+         * A link names an entry, not a slug. At any other slug it is no token at all and the read
+         * is the ordinary published one, which is what a JWT for another slug always got. */
+        Guid? previewId = null;
+        barakoCMS.Models.SiteShareLink? previewLink = null;
+        var previewNow = DateTimeOffset.UtcNow;
+        if (!string.IsNullOrEmpty(previewToken) && previewToken.Contains('.'))
+        {
+            previewId = barakoCMS.Infrastructure.Preview.PreviewToken.ValidatedEntryId(config, previewToken, tenant.Slug, type, slug);
+        }
+        else if (!string.IsNullOrEmpty(previewToken)
+                 && await barakoCMS.Features.Site.ShareLinks.ShareLinkKeys.FindActiveAsync(session, previewToken, previewNow, ct)
+                     is { Preview: true, EntryId: { } linkedId } found
+                 && await session.LoadAsync<ContentDoc>(linkedId, ct) is { } linked
+                 && linked.ContentType == type
+                 && string.Equals(PublicDelivery.SlugValue(linked, slugField), slug, StringComparison.OrdinalIgnoreCase))
+        {
+            previewLink = found;
+            previewId = linkedId;
+        }
 
         ContentDoc? match;
         if (previewId is Guid id)
@@ -583,6 +606,13 @@ internal class GetBySlugEndpoint(
 
         var projected = match is null ? null : PublicDelivery.ToPublic(match, def, slugField, allowUnpublished: previewId is not null);
         if (projected is null) { await Send.NotFoundAsync(ct); return; }
+
+        if (previewLink is not null)
+        {
+            var write = Resolve<IDocumentSession>();
+            barakoCMS.Features.Site.ShareLinks.ShareLinkKeys.RecordUse(write, previewLink, previewNow);
+            await write.SaveChangesAsync(ct);
+        }
 
         if (previewId is not null)
             HttpContext.Response.Headers.CacheControl = "no-store"; /* never cache a draft */
