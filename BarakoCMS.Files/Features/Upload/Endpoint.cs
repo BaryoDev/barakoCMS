@@ -29,7 +29,7 @@ public class Endpoint(
     IFileScanner scanner,
     barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : EndpointWithoutRequest<Response>
 {
-    private const long MaxBytes = 10L * 1024 * 1024;
+    private const long MaxBytes = UploadTypes.MaxBytes;
 
     private static IReadOnlyCollection<string> Allowed => UploadTypes.Names;
 

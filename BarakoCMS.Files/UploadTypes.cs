@@ -17,6 +17,9 @@ internal static class UploadTypes
     /// <summary>How many leading bytes <see cref="Matches"/> needs to decide.</summary>
     public const int HeadLength = 64;
 
+    /// <summary>The largest file the module stores, whichever way it arrives.</summary>
+    public const long MaxBytes = 10L * 1024 * 1024;
+
     private static readonly Dictionary<string, Func<ReadOnlySpan<byte>, bool>> Signatures =
         new(StringComparer.OrdinalIgnoreCase)
         {
