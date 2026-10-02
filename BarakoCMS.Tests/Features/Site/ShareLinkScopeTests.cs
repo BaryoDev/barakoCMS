@@ -614,7 +614,7 @@ public class ShareLinkScopeTests
         var admin = await _host.SuperAdminInAsync(tenant);
         var created = await ShareLinkTestHost.CreateEntryLinkAsync(admin, wip, new { label = "Audited entry link" });
         var key = KeyOf(created);
-        var hash = ShareLinkTestHost.Sha256Hex(key);
+        var hash = ShareLinkTestHost.EntryHashHex(key);
         (await _host.StoredLinksAsync(tenant)).Single().KeyHash.Should().Be(hash, "otherwise the absence below proves nothing");
         (await _host.OpenAsync(tenant, key)).StatusCode.Should().Be(HttpStatusCode.OK);
         (await admin.DeleteAsync($"{ShareLinkTestHost.EntryLinks(wip)}/{created.GetProperty("id").GetGuid()}", Ct))
@@ -628,6 +628,6 @@ public class ShareLinkScopeTests
         audits.Select(a => a.Action).Should().BeEquivalentTo(["site.share_link.created", "site.share_link.revoked"]);
         var auditText = JsonSerializer.Serialize(audits);
         auditText.Should().Contain("Audited entry link").And.Contain(wip.ToString());
-        auditText.Should().NotContain(hash).And.NotContain(key);
+        auditText.Should().NotContain(hash).And.NotContain(key).And.NotContain(ShareLinkTestHost.Sha256Hex(key));
     }
 }
