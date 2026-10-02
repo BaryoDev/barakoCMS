@@ -63,6 +63,7 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/4.2.0/stored-files-parent-
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.2.0/forms-public-forms.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.5.0/email-sent-emails.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/external-auth-identities.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/forms-email-verification.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.3.0/collection-syncs.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.3.0/marten-9-37-event-store-columns.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.4.0/marten-9-38-quick-append-events.sql
@@ -102,7 +103,8 @@ a live API it never finishes.
 The Files file builds its index `CONCURRENTLY`, which is why it runs on its own, without
 `--single-transaction`. The refresh token file is a plain build inside a transaction: with the API
 stopped the table takes moments, and an invalid index left by an earlier `CONCURRENTLY` attempt is
-dropped and built again. The Forms file creates one empty table. All of them are safe to run twice.
+dropped and built again. The Forms file creates one empty table, and the 4.6.0 Forms file creates
+the two empty tables a form uses to verify an email field. All of them are safe to run twice.
 
 The Email file creates the empty table Email.Resend uses to record which tenant sent each email,
 so a later bounce can be put back on that tenant. It is safe to run twice.
@@ -194,6 +196,7 @@ statements from the file by hand rather than re-running the whole thing.
 Stop 4.0, then:
 
 ```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/rollback-forms-email-verification.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/rollback-external-auth-identities.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/rollback-sensitivity-by-capability.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.5.0/rollback-email-sent-emails.sql
