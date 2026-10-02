@@ -13,7 +13,7 @@ public class BalancesEndpoint(
     {
         Get("/api/accounting/balances");
         Definition.RequireCapability(
-            AccountingCapabilities.ViewLedger, AccountingCapabilities.LegacyRoles);
+            AccountingCapabilities.ViewLedger, AccountingCapabilities.Defaults.LegacyRoles);
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
@@ -29,7 +29,7 @@ public class AccountLedgerEndpoint(ReportingService reports) : Endpoint<AccountL
     {
         Get("/api/accounting/accounts/{code}/ledger");
         Definition.RequireCapability(
-            AccountingCapabilities.ViewLedger, AccountingCapabilities.LegacyRoles);
+            AccountingCapabilities.ViewLedger, AccountingCapabilities.Defaults.LegacyRoles);
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)

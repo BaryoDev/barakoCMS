@@ -38,7 +38,7 @@ internal static class FlagAdmin
     public static Task<bool> AllowedAsync(
         IQuerySession session, ClaimsPrincipal user, IConfiguration configuration, CancellationToken ct) =>
         PlatformScope.HoldsGloballyAsync(session, user, configuration,
-            FeatureFlagCapabilities.ManageFeatureFlags, FeatureFlagCapabilities.LegacyRoles, ct);
+            FeatureFlagCapabilities.ManageFeatureFlags, FeatureFlagCapabilities.Defaults.LegacyRoles, ct);
 }
 
 /// <summary>GET /api/feature-flags/admin — all flags with their full config.</summary>
@@ -48,7 +48,7 @@ public class ListFlagsEndpoint(IQuerySession session, IConfiguration configurati
     {
         Get("/api/feature-flags/admin");
         Definition.RequireCapability(
-            FeatureFlagCapabilities.ManageFeatureFlags, FeatureFlagCapabilities.LegacyRoles);
+            FeatureFlagCapabilities.ManageFeatureFlags, FeatureFlagCapabilities.Defaults.LegacyRoles);
     }
 
     public override async Task HandleAsync(CancellationToken ct)
@@ -86,7 +86,7 @@ public class SaveFlagEndpoint(IDocumentSession session, IConfiguration configura
     {
         Post("/api/feature-flags/admin");
         Definition.RequireCapability(
-            FeatureFlagCapabilities.ManageFeatureFlags, FeatureFlagCapabilities.LegacyRoles);
+            FeatureFlagCapabilities.ManageFeatureFlags, FeatureFlagCapabilities.Defaults.LegacyRoles);
     }
 
     public override async Task HandleAsync(UpsertFlagRequest req, CancellationToken ct)
@@ -126,7 +126,7 @@ public class ToggleFlagEndpoint(IDocumentSession session, IConfiguration configu
     {
         Post("/api/feature-flags/admin/{key}/toggle");
         Definition.RequireCapability(
-            FeatureFlagCapabilities.ManageFeatureFlags, FeatureFlagCapabilities.LegacyRoles);
+            FeatureFlagCapabilities.ManageFeatureFlags, FeatureFlagCapabilities.Defaults.LegacyRoles);
     }
 
     public override async Task HandleAsync(KeyRequest req, CancellationToken ct)
@@ -153,7 +153,7 @@ public class DeleteFlagEndpoint(IDocumentSession session, IConfiguration configu
     {
         Delete("/api/feature-flags/admin/{key}");
         Definition.RequireCapability(
-            FeatureFlagCapabilities.ManageFeatureFlags, FeatureFlagCapabilities.LegacyRoles);
+            FeatureFlagCapabilities.ManageFeatureFlags, FeatureFlagCapabilities.Defaults.LegacyRoles);
     }
 
     public override async Task HandleAsync(KeyRequest req, CancellationToken ct)

@@ -1,3 +1,6 @@
+using barakoCMS.Models;
+using barakoCMS.Modules;
+
 namespace BarakoCMS.FeatureFlags;
 
 /// <summary>
@@ -13,17 +16,20 @@ public static class FeatureFlagCapabilities
     /// <summary>List, create, toggle and delete feature flags.</summary>
     public const string ManageFeatureFlags = "manage_feature_flags";
 
+    internal static readonly string[] All = [ManageFeatureFlags];
+
     /// <summary>
-    /// The roles that reached these endpoints before the migration, which is what the old
-    /// <c>Roles(...)</c> gate listed.
+    /// Who starts with these: the seeded Admin role, by its id, which is the role the old
+    /// <c>Roles(...)</c> gate let in.
     /// </summary>
     /// <remarks>
     /// SuperAdmin holds <c>*</c>, which satisfies a capability from a module core has never heard
-    /// of, so it is listed as a legacy fallback and deliberately not granted anything at seed.
+    /// of, so it is on the legacy list and deliberately not granted anything at seed.
     /// </remarks>
-    public static readonly string[] LegacyRoles = ["Admin", "SuperAdmin"];
+    internal static readonly CapabilityDefaults Defaults = CapabilityDefaults.For(All).GrantedTo(SystemRoles.Admin);
 
-    internal static readonly string[] SeededRoles = ["Admin"];
-
-    internal static readonly string[] All = [ManageFeatureFlags];
+    /// <summary>The role names the gates honour while <c>Auth:LegacyRoleFallback</c> is on.</summary>
+    [Obsolete("The gates take their legacy list from the module's own capability defaults, so nothing "
+            + "outside the module needs this. Removal planned for barakoCMS 6.0.")]
+    public static readonly string[] LegacyRoles = [.. Defaults.LegacyRoles];
 }

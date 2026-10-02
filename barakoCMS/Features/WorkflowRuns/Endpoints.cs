@@ -122,7 +122,7 @@ internal static class RunGate
     /// retrying, so the fallback preserves what the names already opened while the split decides
     /// what a role created at runtime can be given.
     /// </summary>
-    internal static readonly string[] LegacyRoles = ["SuperAdmin", "Admin"];
+    internal static readonly IReadOnlyList<string> LegacyRoles = CapabilityGate.AdminLegacyRoles;
 }
 
 internal sealed class ListRunsEndpoint(

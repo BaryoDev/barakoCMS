@@ -28,7 +28,7 @@ public sealed class SeriesEndpoint(
     {
         Get("/api/analytics/{websiteId}/series");
         Definition.RequireCapability(
-            AnalyticsCapabilities.ViewAnalytics, AnalyticsCapabilities.LegacyRoles);
+            AnalyticsCapabilities.ViewAnalytics, AnalyticsCapabilities.Defaults.LegacyRoles);
     }
 
     public override async Task HandleAsync(AnalyticsWindowRequest req, CancellationToken ct)

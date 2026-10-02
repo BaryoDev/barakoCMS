@@ -1,3 +1,6 @@
+using barakoCMS.Models;
+using barakoCMS.Modules;
+
 namespace BarakoCMS.Accounting;
 
 /// <summary>
@@ -23,17 +26,24 @@ public static class AccountingCapabilities
     /// </remarks>
     public const string PostEntries = "post_journal_entries";
 
+    internal static readonly string[] All = [ViewLedger, PostEntries];
+
+    /// <summary>The Accountant role this module seeds: its fixed id and its seeded name.</summary>
+    internal static readonly SeededRole Accountant = new(AccountingModule.AccountantRoleId, "Accountant");
+
     /// <summary>
-    /// The roles that reached these endpoints before the migration, which is exactly what the old
-    /// <c>Roles("Accountant", "Admin", "SuperAdmin")</c> gate listed.
+    /// Who starts with these: the module's Accountant role and the seeded Admin role, each by its
+    /// id. They are the roles the old <c>Roles("Accountant", "Admin", "SuperAdmin")</c> gate let in.
     /// </summary>
     /// <remarks>
-    /// SuperAdmin is not here: it holds <c>*</c>, which satisfies a capability from a module core has
-    /// never heard of, so granting it explicitly would be bookkeeping with nothing behind it.
+    /// SuperAdmin is not granted: it holds <c>*</c>, which satisfies a capability from a module core
+    /// has never heard of, so granting it explicitly would be bookkeeping with nothing behind it.
     /// </remarks>
-    public static readonly string[] LegacyRoles = ["Accountant", "Admin", "SuperAdmin"];
+    internal static readonly CapabilityDefaults Defaults =
+        CapabilityDefaults.For(All).GrantedTo(Accountant, SystemRoles.Admin);
 
-    internal static readonly string[] SeededRoles = ["Accountant", "Admin"];
-
-    internal static readonly string[] All = [ViewLedger, PostEntries];
+    /// <summary>The role names the gates honour while <c>Auth:LegacyRoleFallback</c> is on.</summary>
+    [Obsolete("The gates take their legacy list from the module's own capability defaults, so nothing "
+            + "outside the module needs this. Removal planned for barakoCMS 6.0.")]
+    public static readonly string[] LegacyRoles = [.. Defaults.LegacyRoles];
 }

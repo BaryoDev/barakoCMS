@@ -680,7 +680,14 @@ Two things keep an existing deployment working:
   The cost of that, plainly: a default you have deliberately removed from a seeded system
   role comes back on the next restart, because nothing records that the removal was
   deliberate. If you need one gone for good, do not run the seeder. A role you created is
-  untouched, since the defaults are keyed on the names the seeder creates.
+  untouched, since the defaults are keyed on the roles the seeder creates.
+
+  The seeder finds each system role by its fixed id, and by its name only where no role holds
+  the id. A seeded role you renamed keeps its new name, its permissions and its defaults. Before
+  4.6.0 the seeder looked by name, found nothing after a rename, and stored a new role under the
+  same id on the next start, which put the old name back and emptied the role's permissions. A
+  renamed role's holders reach what its capabilities open; a gate's legacy role fallback and any
+  check of the role name in a token see the new name.
 - The gate can also honour the role names it replaced, which is what makes access survive
   on a host that never calls the seeder. From 4.0 that is off unless you ask for it.
 
@@ -831,6 +838,7 @@ it on the routing table, which is where `GET /api/capabilities` and the role wri
 | Email (Resend) | `view_email_events` | `GET /api/email-events` |
 | Feature flags | `manage_feature_flags` | everything under `/api/feature-flags/admin` |
 | Files | `upload_files` | `POST /api/files`, `GET /api/files`, `GET /api/files/{id}/meta`, `PATCH /api/files/{id}`, `GET /api/files/{id}/usage`, `DELETE /api/files/{id}` |
+| Files | `manage_all_files` | no route of its own: `GET /api/files/{id}` and `DELETE /api/files/{id}` for a private file somebody else uploaded |
 | Forms | `manage_forms` | `GET /api/forms`, `PUT /api/forms/{contentType}` |
 | Import | `analyze_spreadsheets` | `POST /api/import/analyze` |
 | Portability | `export_content` | `GET /api/portability/export` |
@@ -862,23 +870,45 @@ A global role rather than SuperAdmin alone, because a single-tenant deployment's
 role globally and can resolve to any tenant slug, a subdomain nobody registered included. The rule
 lives in `PlatformScope` (`barakoCMS/Infrastructure/Auth`).
 
-Files is one grant, not a split, but it is not uniform either. `upload_files` opens list, describe
+Files is two names, and the first is not uniform. `upload_files` opens list, describe
 and edit for every file in the tenant, and delete and download for a file this account uploaded,
 because none of list, describe or edit exposes bytes or destroys anything the caller could not
 already see through those same routes. Delete and download are the two that leave the caller with
 something they did not have (the bytes) or take something away for good, so both also need the
-uploader, or an account holding Admin or SuperAdmin; `upload_files` on its own is not enough. Until
+uploader, or a caller holding `manage_all_files`; `upload_files` on its own is not enough. Until
 content can reference a file (#141) there is no richer answer than that. Before issue #547 the two
 gates disagreed: download already asked for the uploader or an admin, delete asked only for
 `upload_files`, so a media editor could delete a file they could not read. A module that reads or
 deletes a file through `IFileStore` names the signed-in user, and the store applies these same two
 rules to that user; see `MODULES.md`.
 
-A module grants its own capabilities at seed time, to the roles its old `Roles(...)` gate listed,
-using `ModuleCapabilities.GrantAsync`. Additive, idempotent, and it skips a role the host never
-seeded rather than inventing one. SuperAdmin is not granted anything: it holds `*`, which satisfies a
-capability from a module core has never heard of. A module you do not install grants nothing, because
-its seeder never runs.
+`manage_all_files` is what the role names Admin and SuperAdmin used to decide here (#886). The
+seeded Admin role holds it by default and SuperAdmin satisfies it through `*`, so both read and
+delete what they did before. A role of any name can be given it: a Site Manager role holding
+`manage_all_files` downloads another user's private file, and with `upload_files` as well deletes
+one. Like every capability it is answered from the caller's stored roles in the current tenant on
+each request, not from the role names in the token, so an account whose token says Admin and
+whose roles do not carry the capability is refused. Admin holds it only once the Files module's
+seed has run: a host that never calls `RunBarakoModuleSeedersAsync`, the Suite started with
+`SKIP_SEEDER=true`, and a Suite start where the Files seeder threw (logged, and the host carries
+on) all leave Admin without it. The names open it again only where
+`Auth:LegacyRoleFallback` is on. The Files module's `HttpContractVersion` is 2 from this change. The check also refuses an API key, a caller who is not signed in
+and a token issued for another tenant, before it looks at the file. Proven by
+`FileOwnershipCapabilityTests` and `FileStoreSeamTests`.
+
+A module declares its defaults once, as a `CapabilityDefaults`: the capabilities, and the seeded
+roles that start with them, each named by the id it is seeded under (`SystemRoles.Admin` for the
+Admin role). The seed grants from that declaration with its `GrantAsync`, and the
+module's gates take their legacy role list from it, so no module lists role names. The roles are
+the ones its old `Roles(...)` gate listed. The grant finds a role by its seeded id, so a seeded
+role that was renamed is still granted; where no role holds the id it falls back to the role
+carrying the seeded name, which is how grants were keyed before. Where neither exists it skips the
+role rather than inventing one. It only ever adds, so a capability you gave a role stays, and it
+runs on every start, so a default you took off a seeded role comes back on the next one, as core's
+own defaults do. SuperAdmin is not granted anything: it holds `*`, which satisfies a capability
+from a module core has never heard of. A module you do not install grants nothing, because its
+seeder never runs. Proven by `ModuleCapabilityDefaultsTests`.
+
 Content types split for the audit-log reason rather than the users reason: both gates were the same
 role pair, so one name would have covered them and no seeded role would have noticed. They are split
 because designing a schema and deciding what an anonymous caller can read are different jobs. Field

@@ -48,8 +48,12 @@ Attach the returned `id` to your own documents; fetch it later with the download
 fetch it with the token and use an object URL, or upload with `isPublic=true` and use the public
 route.
 
-Every route except the two public ones is gated on the `upload_files` capability, which the module
-grants to Admin at startup. The where-used lookup scans the tenant's entries for the file's id or
+Every route except the download and the two public ones is gated on the `upload_files` capability.
+The download asks only for a signed-in user, and then for the file to be theirs. A private file
+somebody else uploaded is downloaded, and deleted, only by a caller holding `manage_all_files`;
+`upload_files` alone does not open it. The module grants both capabilities to the seeded Admin
+role at startup, SuperAdmin satisfies both, and any role you create can be given either. The
+where-used lookup scans the tenant's entries for the file's id or
 its storage key as a substring of any field, so it finds a bare id, a `/api/public/files/{id}` URL
 with or without `?w=`, and an object store's public URL. A usage row always carries the entry's id
 and status; its title is there only when the caller holds read on the type and the sensitivity
@@ -82,8 +86,8 @@ public sealed class Receipts(IFileStore files)
   `PublicUrlAsync` gives the object store's URL when the store serves the file itself, and
   otherwise the path `/api/public/files/{id}`.
 - `FindAsync` and `OpenAsync` take the signed-in user and hand over what that user could download:
-  a public file, or a private one that is theirs or that they administer, the rule
-  `GET /api/files/{id}` applies. An API key, a principal that is not signed in and a token for
+  a public file, or a private one that is theirs or that `manage_all_files` opens for them, the
+  rule `GET /api/files/{id}` applies. An API key, a principal that is not signed in and a token for
   another tenant read public files only. Pass the current request's principal: token revocation,
   tenant activity and device trust are the request pipeline's checks and are not run again here.
 - `SaveAsync` runs the checks `POST /api/files` runs (type, content, 10 MB, the scanner when
