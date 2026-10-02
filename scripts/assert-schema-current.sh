@@ -43,7 +43,12 @@ cat >&2 <<'EOF'
 The deploy was stopped BEFORE the running container was replaced, so the site is still up on the
 previous build and the database is untouched.
 
-AutoCreate.CreateOnly will not apply these. Run the migrations for the version being deployed:
+AutoCreate.CreateOnly will not apply these. Run the migrations for the version being deployed. From
+4.6.0 the image does it, in order, and records each one (docs/migrations.md):
+
+    docker compose run --rm --no-deps <service> db-migrate
+
+With an older image, apply each file by hand:
 
     psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/<version>/<file>.sql
 

@@ -344,20 +344,23 @@ more fields than the limit keeps working, and only adding fields to it is refuse
 
 ```bash
 docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml run --rm --no-deps app db-migrate
 docker compose -f docker-compose.prod.yml run --rm --no-deps app db-assert
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-Change `BARAKO_TAG` first, then run `db-assert` between the pull and the `up`. It exits 0 when the
-database already holds every object the new build declares, and non-zero listing what is
-outstanding.
+Change `BARAKO_TAG` first, then run `db-migrate` and `db-assert` between the pull and the `up`.
+`db-migrate` (4.6.0 and later) applies the SQL files the release ships that this database has not
+had, and records each one; [migrations.md](migrations.md) covers what its first run does on a
+database that was migrated by hand. `db-assert` exits 0 when the database already holds every
+object the new build declares, and non-zero listing what is outstanding.
 
 That middle step is not optional on an existing database. A new table is created on start, but an
 existing table is never altered: production runs `AutoCreate.CreateOnly`. So a release carrying a
 change to a table you already have does not migrate it and does not skip it either, it throws on
 start and the container restarts forever, with the previous one already gone. Releases that need
-this ship the SQL in `migrations/<version>/`; apply it while the old build is still serving, then
-`up`.
+this ship the SQL in `migrations/<version>/`, and `db-migrate` is what applies it. An image older
+than 4.6.0 has no `db-migrate`: apply the files with `psql` as each file's header says.
 
 Read [upgrading-to-4.0.md](upgrading-to-4.0.md) before moving to 4.0, which does not boot without
 its migration.

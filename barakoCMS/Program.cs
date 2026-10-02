@@ -54,7 +54,7 @@ try
 
     Log.Information("Starting BarakoCMS Host...");
 
-    // A bare first argument names a JasperFx command (db-assert, db-patch, db-apply, help). A
+    // A bare first argument names a command: db-migrate, or JasperFx's db-assert, db-patch, db-apply and help. A
     // leading dash is a .NET or ASP.NET flag such as --urls, which JasperFx detects and hands
     // straight back to the normal host, so those still serve and still need the schema work
     // below. Deciding this on args.Length alone left a --urls host with whatever tables its first
@@ -104,7 +104,7 @@ try
     // Dispatches a db-* command when one was named, and runs the host exactly as app.Run() did
     // otherwise. A failed command comes back as a return value rather than an exception, so it has
     // to reach the exit code the same way the catch below does.
-    Environment.ExitCode = await app.RunJasperFxCommands(args);
+    Environment.ExitCode = await app.RunBarakoCommandsAsync(args);
 }
 catch (Exception ex)
 {

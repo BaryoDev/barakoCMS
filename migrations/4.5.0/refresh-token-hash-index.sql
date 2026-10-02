@@ -19,6 +19,9 @@
 -- Safe to run twice. An invalid index left by an earlier CONCURRENTLY attempt under the same name
 -- is dropped and built again, since IF NOT EXISTS would otherwise keep it.
 
+-- For db-migrate (docs/migrations.md). It records this file without running it when the index is there and valid.
+-- barako:skip-when: select exists (select 1 from pg_index x join pg_class c on c.oid = x.indexrelid join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relname = 'mt_doc_refresh_tokens_uidx_token_hash' and x.indisvalid)
+
 DO $$
 BEGIN
     IF EXISTS (

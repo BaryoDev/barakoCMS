@@ -24,6 +24,9 @@
 -- the tenant policy. db-assert run with enforcement on then reports the policy as outstanding;
 -- db-apply adds it. See "Schema changes after 4.0" in docs/upgrading-to-4.0.md.
 
+-- For db-migrate (docs/migrations.md). It records this file without running it when the table is there.
+-- barako:skip-when: select to_regclass('public.mt_doc_site_share_links') is not null
+
 CREATE TABLE IF NOT EXISTS public.mt_doc_site_share_links (
     tenant_id           varchar                     NOT NULL DEFAULT '*DEFAULT*',
     id                  uuid                        NOT NULL,

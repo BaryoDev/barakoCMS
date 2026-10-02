@@ -31,4 +31,10 @@
     <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- This module's migration, shipped in its own assembly so db-migrate records it under the
+         module and runs it only where the module is enabled. See MODULES.md, "Migrations". -->
+    <EmbeddedResource Include="..\migrations\4.2.0\forms-public-forms.sql" LogicalName="barako-migrations/4.2.0/forms-public-forms.sql" />
+  </ItemGroup>
 </Project>

@@ -71,6 +71,10 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.5.0
 The two Marten files bring the event store up to the Marten version the release you are deploying
 runs. Each explains itself in its header. Skip a file whose directory is newer than that release.
 
+With a 4.6.0 or later image, `db-migrate` applies these files in place of the `psql` lines above.
+See [migrations.md](migrations.md), and run `db-migrate --status` first: CI proves the `psql` route
+from 3.x and does not yet run `db-migrate` against a 3.x database.
+
 The user file moves the unique indexes on username and email to their lowercased, trimmed forms,
 which is what sign-in compares. If two existing accounts differ only by case, such as
 `Admin@example.com` and `admin@example.com`, it refuses, changes nothing, and lists both accounts by
@@ -247,8 +251,14 @@ docker compose run --rm --no-deps app db-apply
 
 The mount and `--user` are there because the image runs as a non-root user that cannot write to
 your directory otherwise. A host built from the NuGet packages answers the same commands when its
-`Program.cs` ends with `app.RunJasperFxCommands(args)`, as both hosts in this repository do:
-`dotnet YourHost.dll db-assert`.
+`Program.cs` ends with `app.RunBarakoCommandsAsync(args)`, as both hosts in this repository do:
+`dotnet YourHost.dll db-assert`. Through 4.5.0 that line was `app.RunJasperFxCommands(args)`, which
+still runs these three commands and does not know `db-migrate`.
+
+From 4.6.0 the files under `migrations/` do not have to be applied one by one. `db-migrate` runs
+the ones a database has not had and records each in a ledger, and on a database that already has
+them it records them without running them. [migrations.md](migrations.md) has the command, what
+its first run does on an existing database, and what it prints.
 
 `db-patch` writes two files: `upgrade.sql` and `upgrade.drop.sql`, the second being the rollback.
 Read both before running either. The point of the reviewed-file route is that a destructive

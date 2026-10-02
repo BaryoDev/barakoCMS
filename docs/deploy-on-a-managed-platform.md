@@ -210,9 +210,14 @@ upgrades need none either. An upgrade that needs a change to an existing object 
 rather than attempting a live migration, and a module that wants such a change is named in the log
 by the module schema preflight.
 
-When a release needs a SQL step, it ships under `migrations/<version>/` and the upgrade notes say so.
-Run it against the managed database before rolling out the new image, from anywhere with `psql`
-and network access (Cloud Shell, a bastion, a one-off task):
+When a release needs a SQL step, it ships under `migrations/<version>/` and inside the image. From
+4.6.0, run the image with `db-migrate` as a one-off job before rolling out, in the same form as
+`db-assert` below. It applies the files this database has not had and records each in a ledger
+table; [migrations.md](migrations.md) describes it. The job form on each platform is not tested
+here.
+
+With an older image, or to apply one file by hand, run it from anywhere with `psql` and network
+access (Cloud Shell, a bastion, a one-off task):
 
 ```bash
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/<version>/<file>.sql
