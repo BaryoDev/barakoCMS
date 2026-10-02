@@ -3,15 +3,21 @@
 -- barako:rerunnable
 --
 -- A release before 4.6.0 reads a tenant's public profile from the tenant document only. This file
--- puts the profile back there: for each tenant, every profile value that is blank on the tenant
--- document is filled from the tenant's site entry, where the entry has one. It reads the entry the
--- way 4.6.0 did, so the earlier release answers with what 4.6.0 was answering: the one Published,
--- Public entry of a publicly deliverable site type, and only fields that type marks Public.
+-- puts the profile back there, and it fills blanks only: for each tenant, a profile value that is
+-- blank on the tenant document is filled from the tenant's site entry, where the entry has one.
+-- It reads the one Published, Public entry of a publicly deliverable site type, only fields that
+-- type marks Public, and a link only when it is an http or https address.
 --
--- A value still on the tenant document is not overwritten, so a tenant the forward file left alone,
--- and a field where the two sides differed, go back to exactly what the earlier release served.
--- An edit made to the site entry on 4.6.0 is what gets copied, since that is the newest value. A
--- value cleared on the site entry stays cleared.
+-- So, for a value the forward file moved, the earlier release answers with what the site entry
+-- holds now, an edit made on 4.6.0 included, and a value cleared on the site entry stays cleared.
+-- A value still on the tenant document is not overwritten. That covers a tenant the forward file
+-- left alone or was never run for, and a field where the two sides differed: the earlier release
+-- answers with the tenant document's value, as it did before the upgrade, even where 4.6.0 was
+-- answering with a different one from the site entry. An edit made to such a field on 4.6.0 is
+-- not carried back.
+--
+-- ONE TENANT. Set barako.only_tenant to a handle and only that tenant is looked at, as in the
+-- forward file.
 --
 -- WHAT IS LOST: nothing. The values stay in the site entry as well, and the fields the forward file
 -- added to a site type stay on it. An earlier release does not read them from there and is not
@@ -52,6 +58,7 @@ DECLARE
     restored_here       integer;
     restored            integer := 0;
     restored_tenants    integer := 0;
+    only_tenant         constant text := nullif(btrim(coalesce(current_setting('barako.only_tenant', true), '')), '');
 BEGIN
     IF to_regclass('public.mt_doc_tenants') IS NULL
         OR to_regclass('public.mt_doc_contents') IS NULL
@@ -64,6 +71,7 @@ BEGIN
     FOR tenant IN
         SELECT t.id, t.data
         FROM public.mt_doc_tenants t
+        WHERE only_tenant IS NULL OR t.data ->> 'Slug' = only_tenant
         ORDER BY t.data ->> 'Slug'
         FOR UPDATE
     LOOP
@@ -122,6 +130,7 @@ BEGIN
             ORDER BY e.key
             LIMIT 1;
             CONTINUE WHEN NOT FOUND;
+            CONTINUE WHEN tenant_key IN ('LogoUrl', 'LocationUrl', 'ContactUrl') AND val !~* '^https?://[^[:space:]/]+';
 
             tenant_data := jsonb_set(tenant_data, ARRAY[tenant_key], to_jsonb(val), true);
             restored_here := restored_here + 1;
@@ -137,6 +146,7 @@ BEGIN
         END IF;
     END LOOP;
 
-    RAISE NOTICE 'tenant profile: put % value(s) back on % tenant document(s)', restored, restored_tenants;
+    RAISE NOTICE 'tenant profile: put % value(s) back on % tenant document(s)%', restored, restored_tenants,
+        CASE WHEN only_tenant IS NULL THEN '' ELSE '. Only ' || only_tenant || ' was looked at' END;
 END
 $rollback$;

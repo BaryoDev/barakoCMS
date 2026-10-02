@@ -67,8 +67,9 @@ internal sealed class TenantWriteRequest
     public string Handle { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
 
-    // The seven profile fields below are bound only so TenantWriteRequestValidator can refuse a
-    // value sent in one, by name. Dropping the properties would have the binder skip them, and a
+    // The seven profile fields below are bound so TenantWriteRequestValidator can refuse a value
+    // sent in one, by name, and so an update can tell an empty string (clear what is stored) from
+    // null or absent (leave it). Dropping the properties would have the binder skip them, and a
     // caller that still sets a tenant's About here would get a 200 for a value nothing stored.
     public string? LogoUrl { get; set; }
     public string? About { get; set; }
@@ -92,8 +93,9 @@ internal sealed class TenantWriteRequest
 
 /// <summary>Refuses a tenant write that sets a profile field, naming the site field it moved to.</summary>
 /// <remarks>
-/// A blank counts as not sent, so a client that echoes a tenant back with nothing in these is not
-/// refused. Covers create and update, which share the request.
+/// A blank is not a value, so a client that echoes a tenant back with nothing in these is not
+/// refused, and an update can send an empty string to clear one. Covers create and update, which
+/// share the request.
 /// </remarks>
 internal sealed class TenantWriteRequestValidator : Validator<TenantWriteRequest>
 {
@@ -219,8 +221,9 @@ internal class CreateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
 
 /// <summary>PUT /api/tenants/{handle}: update a tenant's name, domains and active flag (platform admin).</summary>
 /// <remarks>
-/// Profile values still on the stored document are left as they are. This used to overwrite all
-/// seven with whatever the request held, so a request that left them out blanked them.
+/// A profile value still on the stored document is left as it is unless the request sends that
+/// field as an empty string, which blanks it. This used to overwrite all seven with whatever the
+/// request held, so a request that left them out blanked them.
 /// </remarks>
 internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, TenantResponse>
 {
@@ -259,6 +262,7 @@ internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
         { ThrowError($"'{clash.Domain}' is already a domain of tenant '{clash.Slug}'. A domain belongs to one tenant.", 409); }
 
         tenant.Name = req.Name;
+        TenantProfiles.ClearBlanked(tenant, req);
         tenant.IsActive = req.IsActive;
         if (domains is not null)
             tenant.Domains = domains.ToList();

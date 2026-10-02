@@ -18,13 +18,16 @@ namespace BarakoCMS.Tests.Features.Tenants;
 /// </summary>
 /// <remarks>
 /// The files are run as they are, against the database the suite shares, so what they write is read
-/// back through the API and through Marten and not through a copy of their own assumptions. That
-/// means a run also visits tenants other tests left behind. Each test therefore looks only at the
-/// tenants it made, and the files only ever act on a tenant that holds profile values, which no
-/// other class stores.
+/// back through the API and through Marten and not through a copy of their own assumptions.
 ///
-/// The site type is stored by hand with two fields, which is the type a tenant made from the
-/// blueprint before the profile fields were in it.
+/// Every run sets <c>barako.only_tenant</c> to the one tenant the test made, which is the files'
+/// own way of looking at a single tenant. Without it the forward file would visit every tenant
+/// holding a profile value, and the rollback every tenant with a published site entry, writing to
+/// rows other classes left behind. The run over every tenant is what
+/// <c>scripts/upgrade-check.sh</c> does.
+///
+/// The site type is stored by hand with <c>Name</c> and <c>Logo</c>, which is the type a tenant
+/// made from the blueprint before the profile fields were in it.
 /// </remarks>
 [Collection("Sequential")]
 public class TenantProfileMigrationTests
@@ -49,26 +52,9 @@ public class TenantProfileMigrationTests
         t.ContactUrl = "https://club.example/contact";
     }
 
-    private async Task StoreSiteTypeAsync(string slug, params FieldDefinition[] extraFields)
-    {
-        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
-        await using var session = store.LightweightSession(slug);
-        session.Store(new ContentTypeDefinition
-        {
-            Id = Guid.NewGuid(),
-            Name = "site",
-            DisplayName = "Site",
-            IsPubliclyDeliverable = true,
-            IsSingleton = true,
-            Fields =
-            [
-                new FieldDefinition { Name = "Name", DisplayName = "Site name", Type = "string", IsRequired = true },
-                new FieldDefinition { Name = "Logo", DisplayName = "Logo", Type = "url" },
-                .. extraFields,
-            ],
-        });
-        await session.SaveChangesAsync(Ct);
-    }
+    private Task StoreSiteTypeAsync(string slug, params FieldDefinition[] extraFields) =>
+        TenantProfileSeed.StoreSiteTypeAsync(
+            _fixture, slug, Ct, [TenantProfileSeed.Declared("Logo", "url"), .. extraFields]);
 
     private async Task<Guid> PublishedEntryAsync(string slug, Dictionary<string, object> data)
     {
@@ -92,8 +78,8 @@ public class TenantProfileMigrationTests
     private static string? Delivered(JsonElement data, string field) =>
         data.TryGetProperty(field, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 
-    /// <summary>Runs one of the two files as written and returns the notices it raised.</summary>
-    private async Task<List<string>> RunAsync(string file)
+    /// <summary>Runs one of the two files as written, for one tenant, and returns the notices it raised.</summary>
+    private async Task<List<string>> RunAsync(string file, string slug)
     {
         var sql = await File.ReadAllTextAsync(Path.Combine(RepositoryRoot(), "migrations", "4.6.0", file), Ct);
         var notices = new List<string>();
@@ -101,8 +87,18 @@ public class TenantProfileMigrationTests
         await using var connection = new NpgsqlConnection(_fixture.ConnectionString);
         connection.Notice += (_, e) => notices.Add(e.Notice.MessageText);
         await connection.OpenAsync(Ct);
+
+        await using (var scope = new NpgsqlCommand("select set_config('barako.only_tenant', @slug, false)", connection))
+        {
+            scope.Parameters.AddWithValue("slug", slug);
+            await scope.ExecuteNonQueryAsync(Ct);
+        }
+
         await using var command = new NpgsqlCommand(sql, connection);
         await command.ExecuteNonQueryAsync(Ct);
+
+        notices.Should().Contain(n => n.Contains($"Only {slug} was looked at"),
+            "the file says when it ran for one tenant, and a run that did not would write to other classes' rows");
         return notices;
     }
 
@@ -126,7 +122,7 @@ public class TenantProfileMigrationTests
         var entryId = await PublishedEntryAsync(slug, new Dictionary<string, object> { ["Name"] = "The club" });
         (await DeliveredSiteAsync(slug)).TryGetProperty("About", out _).Should().BeFalse("nothing has moved yet");
 
-        await RunAsync(Up);
+        await RunAsync(Up, slug);
 
         var site = await DeliveredSiteAsync(slug);
         Delivered(site, "Name").Should().Be("The club", "what the entry already held is untouched");
@@ -167,11 +163,11 @@ public class TenantProfileMigrationTests
         await StoreSiteTypeAsync(slug);
         await PublishedEntryAsync(slug, new Dictionary<string, object> { ["Name"] = "Twice" });
 
-        await RunAsync(Up);
+        await RunAsync(Up, slug);
         var first = (await DeliveredSiteAsync(slug)).GetRawText();
         var fieldsAfterFirst = await SiteFieldNamesAsync(slug);
 
-        await RunAsync(Up);
+        await RunAsync(Up, slug);
 
         (await DeliveredSiteAsync(slug)).GetRawText().Should().Be(first);
         fieldsAfterFirst.Should().Equal("Name", "Logo", "About");
@@ -187,6 +183,29 @@ public class TenantProfileMigrationTests
         return site.Fields.Select(f => f.Name).ToList();
     }
 
+    /// <summary>
+    /// The files look at one tenant when told to. The tests above lean on that to leave other
+    /// classes' rows alone, so it is shown here and not assumed: a second tenant in the same state
+    /// is not moved by a run for the first.
+    /// </summary>
+    [Fact]
+    public async Task A_run_for_one_tenant_leaves_another_tenant_as_it_was()
+    {
+        var moved = await TenantProfileSeed.TenantAsync(_fixture, Ct, t => t.About = "Moves");
+        var bystander = await TenantProfileSeed.TenantAsync(_fixture, Ct, t => t.About = "Stays");
+        foreach (var slug in new[] { moved, bystander })
+        {
+            await StoreSiteTypeAsync(slug);
+            await PublishedEntryAsync(slug, new Dictionary<string, object> { ["Name"] = slug });
+        }
+
+        await RunAsync(Up, moved);
+
+        (await TenantProfileSeed.StoredAsync(_fixture, moved, Ct)).About.Should().BeNull();
+        (await TenantProfileSeed.StoredAsync(_fixture, bystander, Ct)).About.Should().Be("Stays");
+        (await SiteFieldNamesAsync(bystander)).Should().Equal("Name", "Logo");
+    }
+
     [Fact]
     public async Task A_tenant_with_no_published_site_entry_is_left_alone_and_named()
     {
@@ -196,10 +215,10 @@ public class TenantProfileMigrationTests
         var admin = await TenantProfileSeed.AdminInAsync(_fixture, draftOnly, Ct);
         await TenantProfileSeed.CreateSiteEntryAsync(admin, new Dictionary<string, object> { ["Name"] = "Draft" }, Ct);
 
-        var notices = await RunAsync(Up);
-
         foreach (var slug in new[] { noSite, draftOnly })
         {
+            var notices = await RunAsync(Up, slug);
+
             var tenant = await TenantProfileSeed.StoredAsync(_fixture, slug, Ct);
             tenant.About.Should().Be("A club in Koronadal", "{0} has nowhere published to move to", slug);
             tenant.ContactUrl.Should().Be("https://club.example/contact");
@@ -221,7 +240,7 @@ public class TenantProfileMigrationTests
             ["Logo"] = "https://club.example/new-logo.png",
         });
 
-        var notices = await RunAsync(Up);
+        var notices = await RunAsync(Up, slug);
 
         Delivered(await DeliveredSiteAsync(slug), "Logo").Should().Be("https://club.example/new-logo.png");
         var tenant = await TenantProfileSeed.StoredAsync(_fixture, slug, Ct);
@@ -230,6 +249,35 @@ public class TenantProfileMigrationTests
         notices.Should().Contain(n => n.Contains(slug) && n.Contains("LogoUrl") && n.Contains("different"));
         var profile = await TenantProfileSeed.PublicProfileAsync(_fixture, slug, Ct);
         TenantProfileSeed.Field(profile, "logoUrl").Should().Be("https://club.example/new-logo.png");
+    }
+
+    /// <summary>
+    /// An editor who blanks a field the type declares has removed it. A later run must not put the
+    /// tenant record's old value into the entry, where delivery would serve it again.
+    /// </summary>
+    [Fact]
+    public async Task A_field_the_editor_blanked_in_the_site_entry_is_not_filled_from_the_tenant_record()
+    {
+        var slug = await TenantProfileSeed.TenantAsync(_fixture, Ct, t =>
+        {
+            t.About = "Removed by the editor";
+            t.Location = "Koronadal";
+        });
+        await StoreSiteTypeAsync(slug, TenantProfileSeed.Declared("About", "text"));
+        var entryId = await PublishedEntryAsync(slug, new Dictionary<string, object> { ["Name"] = "Cleared", ["About"] = "" });
+
+        var notices = await RunAsync(Up, slug);
+
+        var entry = await TenantProfileSeed.StoredEntryAsync(_fixture, slug, entryId, Ct);
+        entry.Data.Should().ContainKey("About");
+        (entry.Data["About"]?.ToString() ?? "").Should().BeEmpty("the blank the editor left stands");
+        entry.Data.Should().ContainKey("Location", "a field nobody had set is still moved");
+        var tenant = await TenantProfileSeed.StoredAsync(_fixture, slug, Ct);
+        tenant.About.Should().Be("Removed by the editor", "nothing is dropped: the platform clears it with an empty string");
+        tenant.Location.Should().BeNull();
+        notices.Should().Contain(n => n.Contains(slug) && n.Contains("About") && n.Contains("blank"));
+        var profile = await TenantProfileSeed.PublicProfileAsync(_fixture, slug, Ct);
+        TenantProfileSeed.Field(profile, "about").Should().BeNull("the site decides a field it declares and holds");
     }
 
     [Fact]
@@ -241,23 +289,22 @@ public class TenantProfileMigrationTests
             t.ContactUrl = "club.example/contact";
             t.About = "Still moves";
         });
-        await StoreSiteTypeAsync(slug, new FieldDefinition
-        {
-            Name = "Email", DisplayName = "Email", Type = "string", Sensitivity = SensitivityLevel.Sensitive,
-        });
-        await PublishedEntryAsync(slug, new Dictionary<string, object> { ["Name"] = "Careful" });
+        await StoreSiteTypeAsync(slug, TenantProfileSeed.Declared("Email", "string", SensitivityLevel.Sensitive));
+        var entryId = await PublishedEntryAsync(slug, new Dictionary<string, object> { ["Name"] = "Careful" });
 
-        var notices = await RunAsync(Up);
+        var notices = await RunAsync(Up, slug);
 
         var tenant = await TenantProfileSeed.StoredAsync(_fixture, slug, Ct);
-        tenant.Email.Should().Be("hello@club.example", "moving it into a Sensitive field would take it off the public route");
+        tenant.Email.Should().Be("hello@club.example", "it is not copied into a field the tenant marked Sensitive");
         tenant.ContactUrl.Should().Be("club.example/contact", "a url field would refuse it on the next save");
         tenant.About.Should().BeNull();
         notices.Should().Contain(n => n.Contains(slug) && n.Contains("Email") && n.Contains("not Public"));
         notices.Should().Contain(n => n.Contains(slug) && n.Contains("ContactUrl") && n.Contains("not an http"));
-        var site = await DeliveredSiteAsync(slug);
-        Delivered(site, "About").Should().Be("Still moves");
-        site.TryGetProperty("ContactUrl", out _).Should().BeFalse();
+        var entry = await TenantProfileSeed.StoredEntryAsync(_fixture, slug, entryId, Ct);
+        entry.Data.Keys.Should().BeEquivalentTo(new[] { "Name", "About" }, "neither kept value was written into the entry");
+        (entry.Data["About"]?.ToString()).Should().Be("Still moves");
+        (await SiteFieldNamesAsync(slug)).Should().Equal(
+            new[] { "Name", "Logo", "Email", "About" }, "no ContactUrl field was added for a value that stayed");
     }
 
     [Fact]
@@ -280,14 +327,12 @@ public class TenantProfileMigrationTests
             await session.SaveChangesAsync(Ct);
         }
 
-        var notices = await RunAsync(Up);
+        var notices = await RunAsync(Up, slug);
 
         (await TenantProfileSeed.StoredAsync(_fixture, slug, Ct)).About.Should().Be("Stream is the record");
         notices.Should().Contain(n => n.Contains(slug) && n.Contains("event sourced"));
-        await using var query = store.QuerySession(slug);
-        var entry = await query.LoadAsync<Content>(entryId, Ct);
-        entry.Should().NotBeNull();
-        entry!.Data.Keys.Should().Equal("Name");
+        var entry = await TenantProfileSeed.StoredEntryAsync(_fixture, slug, entryId, Ct);
+        entry.Data.Keys.Should().Equal("Name");
     }
 
     [Fact]
@@ -296,11 +341,11 @@ public class TenantProfileMigrationTests
         var slug = await TenantProfileSeed.TenantAsync(_fixture, Ct, Profile);
         await StoreSiteTypeAsync(slug);
         await PublishedEntryAsync(slug, new Dictionary<string, object> { ["Name"] = "There and back" });
-        await RunAsync(Up);
+        await RunAsync(Up, slug);
         (await TenantProfileSeed.StoredAsync(_fixture, slug, Ct)).About.Should().BeNull("the move happened");
 
-        await RunAsync(Down);
-        await RunAsync(Down);
+        await RunAsync(Down, slug);
+        await RunAsync(Down, slug);
 
         var tenant = await TenantProfileSeed.StoredAsync(_fixture, slug, Ct);
         tenant.LogoUrl.Should().Be("https://club.example/logo.png");
@@ -311,5 +356,29 @@ public class TenantProfileMigrationTests
         tenant.Email.Should().Be("hello@club.example");
         tenant.ContactUrl.Should().Be("https://club.example/contact");
         Delivered(await DeliveredSiteAsync(slug), "About").Should().Be("A club in Koronadal", "the rollback takes nothing off the entry");
+    }
+
+    /// <summary>
+    /// The rollback fills blanks only. Where the record still holds a value, as it does for a tenant
+    /// the forward file was never run for, that value stays even though the site entry holds a
+    /// newer one.
+    /// </summary>
+    [Fact]
+    public async Task The_rollback_does_not_overwrite_a_value_still_on_the_tenant_record()
+    {
+        var slug = await TenantProfileSeed.TenantAsync(_fixture, Ct, t => t.About = "Never moved");
+        await StoreSiteTypeAsync(slug, TenantProfileSeed.Declared("About", "text"), TenantProfileSeed.Declared("Email", "string"));
+        await PublishedEntryAsync(slug, new Dictionary<string, object>
+        {
+            ["Name"] = "Edited on the new release",
+            ["About"] = "Edited in the site entry",
+            ["Email"] = "set@site.example",
+        });
+
+        await RunAsync(Down, slug);
+
+        var tenant = await TenantProfileSeed.StoredAsync(_fixture, slug, Ct);
+        tenant.About.Should().Be("Never moved");
+        tenant.Email.Should().Be("set@site.example", "a blank is filled from the entry");
     }
 }

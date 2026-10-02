@@ -7,8 +7,8 @@ namespace barakoCMS.Models;
 /// <remarks>
 /// The public profile a tenant used to carry here lives in the tenant's <c>site</c> entry, where it
 /// grows by adding a field instead of a property. The obsolete members below are still read from a
-/// document stored before <c>migrations/4.6.0/tenant-profile-to-site.sql</c> moved its values, and
-/// nothing writes them any more.
+/// document stored before <c>migrations/4.6.0/tenant-profile-to-site.sql</c> moved its values. The
+/// core no longer sets them, and blanks one only when a tenant update asks it to.
 /// </remarks>
 public class Tenant
 {
@@ -29,7 +29,10 @@ public class Tenant
     [Obsolete("Moved to the Location field of the tenant's site entry. Removal planned for barakoCMS 6.0.")]
     public string? Location { get; set; }
 
-    /// <summary>Optional absolute URL that opens the location in a maps app.</summary>
+    /// <summary>
+    /// Optional absolute URL that opens the location in a maps app. Validated as http or https on
+    /// write by releases before 4.6.0, which is the only time it was written.
+    /// </summary>
     [Obsolete("Moved to the LocationUrl field of the tenant's site entry. Removal planned for barakoCMS 6.0.")]
     public string? LocationUrl { get; set; }
 
@@ -40,7 +43,10 @@ public class Tenant
     [Obsolete("Moved to the Email field of the tenant's site entry. Removal planned for barakoCMS 6.0.")]
     public string? Email { get; set; }
 
-    /// <summary>Absolute contact URL.</summary>
+    /// <summary>
+    /// Absolute contact URL. Validated as http or https on write by releases before 4.6.0, which is
+    /// the only time it was written.
+    /// </summary>
     [Obsolete("Moved to the ContactUrl field of the tenant's site entry. Removal planned for barakoCMS 6.0.")]
     public string? ContactUrl { get; set; }
 

@@ -60,6 +60,14 @@ public class TenantProfileReadTests
         return admin;
     }
 
+    /// <summary>Publishes an entry of a site type the test stored by hand.</summary>
+    private async Task PublishedEntryAsync(string slug, Dictionary<string, object> data)
+    {
+        var admin = await TenantProfileSeed.AdminInAsync(_fixture, slug, Ct);
+        var id = await TenantProfileSeed.CreateSiteEntryAsync(admin, data, Ct);
+        await TenantProfileSeed.PublishAsync(admin, id, Ct);
+    }
+
     [Fact]
     public async Task The_public_profile_answers_from_the_published_site_entry()
     {
@@ -79,18 +87,130 @@ public class TenantProfileReadTests
         TenantProfileSeed.Field(profile, "contactUrl").Should().Be("https://new.example/contact");
     }
 
+    /// <summary>
+    /// A key the entry never had is a field nobody set, which is every site made before the move:
+    /// its <c>Logo</c> is declared and absent, and the tenant's own logo has to keep answering.
+    /// </summary>
     [Fact]
-    public async Task A_field_the_site_entry_leaves_out_answers_from_the_tenant_record()
+    public async Task A_field_the_site_entry_has_no_key_for_answers_from_the_tenant_record()
     {
         var slug = await TenantProfileSeed.TenantAsync(_fixture, Ct, OldProfile);
-        await PublishedSiteAsync(slug, new Dictionary<string, object> { ["Name"] = "Site name", ["About"] = "New about", ["Email"] = "  " });
+        await PublishedSiteAsync(slug, new Dictionary<string, object> { ["Name"] = "Site name", ["About"] = "New about" });
 
         var profile = await TenantProfileSeed.PublicProfileAsync(_fixture, slug, Ct);
 
         TenantProfileSeed.Field(profile, "about").Should().Be("New about");
         TenantProfileSeed.Field(profile, "location").Should().Be("Old town");
-        TenantProfileSeed.Field(profile, "email").Should().Be("old@old.example", "a blank in the entry is not a value");
         TenantProfileSeed.Field(profile, "logoUrl").Should().Be("https://old.example/logo.png");
+    }
+
+    [Fact]
+    public async Task A_field_the_site_type_does_not_declare_answers_from_the_tenant_record()
+    {
+        var slug = await TenantProfileSeed.TenantAsync(_fixture, Ct, OldProfile);
+        await TenantProfileSeed.StoreSiteTypeAsync(_fixture, slug, Ct, TenantProfileSeed.Declared("Logo", "url"));
+        await PublishedEntryAsync(slug, new Dictionary<string, object>
+        {
+            ["Name"] = "Made before the move",
+            ["Logo"] = "https://new.example/logo.png",
+        });
+
+        var profile = await TenantProfileSeed.PublicProfileAsync(_fixture, slug, Ct);
+
+        TenantProfileSeed.Field(profile, "logoUrl").Should().Be("https://new.example/logo.png", "the entry is being read");
+        TenantProfileSeed.Field(profile, "about").Should().Be("Old about", "this is a tenant the migration has not reached");
+        TenantProfileSeed.Field(profile, "contactUrl").Should().Be("https://old.example/contact");
+    }
+
+    [Fact]
+    public async Task A_declared_field_the_editor_blanked_answers_empty_and_not_the_tenant_record()
+    {
+        var slug = await TenantProfileSeed.TenantAsync(_fixture, Ct, OldProfile);
+        await PublishedSiteAsync(slug, new Dictionary<string, object>
+        {
+            ["Name"] = "Site name",
+            ["About"] = "New about",
+            ["Email"] = "",
+            ["SocialHandle"] = "   ",
+        });
+
+        var profile = await TenantProfileSeed.PublicProfileAsync(_fixture, slug, Ct);
+
+        TenantProfileSeed.Field(profile, "about").Should().Be("New about", "the entry is being read");
+        TenantProfileSeed.Field(profile, "email").Should().BeNull("blanking a field in the site entry removes it, whatever the record still holds");
+        TenantProfileSeed.Field(profile, "socialHandle").Should().BeNull();
+    }
+
+    /// <summary>
+    /// The tenant API refused anything but http and https for its two links. A site field can be
+    /// declared as plain text by the tenant's own administrator, so the route applies the rule.
+    /// </summary>
+    [Theory]
+    [InlineData("javascript:alert(1)")]
+    [InlineData("data:text/html,alert(1)")]
+    [InlineData("//evil.example/path")]
+    [InlineData("evil.example")]
+    public async Task A_link_in_the_site_entry_that_is_not_http_or_https_is_not_served(string value)
+    {
+        var slug = await TenantProfileSeed.TenantAsync(_fixture, Ct, OldProfile);
+        await TenantProfileSeed.StoreSiteTypeAsync(
+            _fixture, slug, Ct,
+            TenantProfileSeed.Declared("Logo", "string"),
+            TenantProfileSeed.Declared("LocationUrl", "string"),
+            TenantProfileSeed.Declared("ContactUrl", "text"),
+            TenantProfileSeed.Declared("About", "text"));
+        await PublishedEntryAsync(slug, new Dictionary<string, object>
+        {
+            ["Name"] = "Plain text links",
+            ["Logo"] = value,
+            ["LocationUrl"] = value,
+            ["ContactUrl"] = value,
+            ["About"] = value,
+        });
+
+        var profile = await TenantProfileSeed.PublicProfileAsync(_fixture, slug, Ct);
+
+        TenantProfileSeed.Field(profile, "about").Should().Be(value, "the entry is being read, and plain text is plain text");
+        TenantProfileSeed.Field(profile, "logoUrl").Should().BeNull();
+        TenantProfileSeed.Field(profile, "locationUrl").Should().BeNull();
+        TenantProfileSeed.Field(profile, "contactUrl").Should().BeNull();
+    }
+
+    [Fact]
+    public async Task An_https_link_in_a_site_field_declared_as_text_is_served()
+    {
+        var slug = await TenantProfileSeed.TenantAsync(_fixture, Ct);
+        await TenantProfileSeed.StoreSiteTypeAsync(_fixture, slug, Ct, TenantProfileSeed.Declared("ContactUrl", "string"));
+        await PublishedEntryAsync(slug, new Dictionary<string, object>
+        {
+            ["Name"] = "Plain text link",
+            ["ContactUrl"] = "https://new.example/contact",
+        });
+
+        var profile = await TenantProfileSeed.PublicProfileAsync(_fixture, slug, Ct);
+
+        TenantProfileSeed.Field(profile, "contactUrl").Should().Be("https://new.example/contact");
+    }
+
+    /// <summary>
+    /// In Multi the route answers on the default slug with no tenant named, and still has to reach
+    /// the named tenant's own partition for its site entry.
+    /// </summary>
+    [Fact]
+    public async Task The_public_profile_answers_from_the_site_entry_in_Multi_with_no_tenant_named()
+    {
+        var slug = await MultiTenancyHost.RegisterTenantAsync(_fixture);
+        await PublishedSiteAsync(slug, NewProfile());
+        var multi = MultiTenancyHost.For(_fixture).CreateClient();
+        multi.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, MultiTenancyHost.NextIp());
+
+        var response = await multi.GetAsync($"/api/tenants/{slug}/public", Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
+        var profile = await response.Content.ReadFromJsonAsync<JsonElement>(Ct);
+        TenantProfileSeed.Field(profile, "handle").Should().Be(slug);
+        TenantProfileSeed.Field(profile, "about").Should().Be("New about");
+        TenantProfileSeed.Field(profile, "contactUrl").Should().Be("https://new.example/contact");
     }
 
     [Fact]
@@ -119,10 +239,14 @@ public class TenantProfileReadTests
         TenantProfileSeed.Field(profile, "email").Should().Be("old@old.example");
     }
 
+    /// <summary>
+    /// Marking a field Sensitive is how a tenant takes it off the public route. A value left on the
+    /// tenant record must not put it back.
+    /// </summary>
     [Fact]
-    public async Task A_site_field_that_is_not_public_is_not_served()
+    public async Task A_site_field_marked_sensitive_answers_empty_even_when_the_tenant_record_holds_a_value()
     {
-        var slug = await TenantProfileSeed.TenantAsync(_fixture, Ct);
+        var slug = await TenantProfileSeed.TenantAsync(_fixture, Ct, OldProfile);
         await PublishedSiteAsync(slug, NewProfile());
 
         var store = _fixture.Services.GetRequiredService<IDocumentStore>();
@@ -137,7 +261,7 @@ public class TenantProfileReadTests
         var profile = await TenantProfileSeed.PublicProfileAsync(_fixture, slug, Ct);
 
         TenantProfileSeed.Field(profile, "about").Should().Be("New about", "the entry is being read");
-        TenantProfileSeed.Field(profile, "email").Should().BeNull("delivery does not serve a field the type marks Sensitive");
+        TenantProfileSeed.Field(profile, "email").Should().BeNull("neither the Sensitive site value nor the record's old one is served");
     }
 
     [Fact]

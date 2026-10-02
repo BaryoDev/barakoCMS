@@ -82,6 +82,46 @@ internal static class TenantProfileSeed
         return client;
     }
 
+    /// <summary>
+    /// Stores a <c>site</c> type with a required <c>Name</c> and the fields given, which is how a
+    /// test gets a type the blueprint would not make: one from before the profile fields were in
+    /// it, or one whose administrator declared a field with another type or sensitivity.
+    /// </summary>
+    public static async Task StoreSiteTypeAsync(
+        IntegrationTestFixture fixture, string slug, CancellationToken ct, params FieldDefinition[] fields)
+    {
+        var store = fixture.Services.GetRequiredService<IDocumentStore>();
+        await using var session = store.LightweightSession(slug);
+        session.Store(new ContentTypeDefinition
+        {
+            Id = Guid.NewGuid(),
+            Name = "site",
+            DisplayName = "Site",
+            IsPubliclyDeliverable = true,
+            IsSingleton = true,
+            Fields =
+            [
+                new FieldDefinition { Name = "Name", DisplayName = "Site name", Type = "string", IsRequired = true },
+                .. fields,
+            ],
+        });
+        await session.SaveChangesAsync(ct);
+    }
+
+    public static FieldDefinition Declared(string name, string type, SensitivityLevel sensitivity = SensitivityLevel.Public) =>
+        new() { Name = name, DisplayName = name, Type = type, Sensitivity = sensitivity };
+
+    /// <summary>The tenant's site entry as it is stored, whatever delivery would show of it.</summary>
+    public static async Task<Content> StoredEntryAsync(
+        IntegrationTestFixture fixture, string slug, Guid id, CancellationToken ct)
+    {
+        var store = fixture.Services.GetRequiredService<IDocumentStore>();
+        await using var session = store.QuerySession(slug);
+        var entry = await session.LoadAsync<Content>(id, ct);
+        entry.Should().NotBeNull();
+        return entry!;
+    }
+
     public static async Task ApplySiteBlueprintAsync(HttpClient admin, CancellationToken ct)
     {
         var applied = await admin.PostAsync("/api/content-types/blueprints/site", null, ct);

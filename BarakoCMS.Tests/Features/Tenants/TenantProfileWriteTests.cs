@@ -123,13 +123,63 @@ public class TenantProfileWriteTests
         });
         var client = await SuperAdminAsync();
 
-        var updated = await client.PutAsJsonAsync($"/api/tenants/{slug}", new { name = "Renamed", isActive = true }, Ct);
+        // About is absent and ContactUrl is null. The console sends null for every one of them.
+        var updated = await client.PutAsJsonAsync(
+            $"/api/tenants/{slug}", new { name = "Renamed", isActive = true, contactUrl = (string?)null }, Ct);
 
         updated.StatusCode.Should().Be(HttpStatusCode.OK, await updated.Content.ReadAsStringAsync(Ct));
         var stored = await FindAsync(slug);
         stored!.Name.Should().Be("Renamed");
         stored.About.Should().Be("Kept about", "a value not yet moved is still what the profile route falls back to");
         stored.ContactUrl.Should().Be("https://kept.example/contact");
+    }
+
+    /// <summary>
+    /// The one way to remove a value still on the record through the API: nothing else writes
+    /// these, and a value is refused.
+    /// </summary>
+    [Fact]
+    public async Task An_update_that_sends_a_profile_field_as_an_empty_string_clears_it_and_no_other()
+    {
+        var slug = await TenantProfileSeed.TenantAsync(_fixture, Ct, t =>
+        {
+            t.About = "To be cleared";
+            t.Email = "cleared@old.example";
+            t.ContactUrl = "https://kept.example/contact";
+            t.Location = "Kept town";
+        });
+        var client = await SuperAdminAsync();
+
+        var updated = await client.PutAsJsonAsync(
+            $"/api/tenants/{slug}", new { name = "Renamed", isActive = true, about = "", email = "  " }, Ct);
+
+        updated.StatusCode.Should().Be(HttpStatusCode.OK, await updated.Content.ReadAsStringAsync(Ct));
+        var stored = await FindAsync(slug);
+        stored!.About.Should().BeNull("an empty string asks for the stored value to go");
+        stored.Email.Should().BeNull("a blank string is an empty one");
+        stored.ContactUrl.Should().Be("https://kept.example/contact", "a field the request left out is left alone");
+        stored.Location.Should().Be("Kept town");
+        var profile = await TenantProfileSeed.PublicProfileAsync(_fixture, slug, Ct);
+        TenantProfileSeed.Field(profile, "about").Should().BeNull("the route has nothing left to fall back to");
+        TenantProfileSeed.Field(profile, "location").Should().Be("Kept town");
+    }
+
+    /// <summary>
+    /// The refusal is a validator, which runs before the handler looks the handle up. An unknown
+    /// handle with no profile value is still a 404.
+    /// </summary>
+    [Fact]
+    public async Task A_profile_value_on_an_unknown_handle_is_a_400_and_without_one_a_404()
+    {
+        var client = await SuperAdminAsync();
+        var missing = Handle();
+
+        var withValue = await client.PutAsJsonAsync(
+            $"/api/tenants/{missing}", new { name = "Nobody", isActive = true, about = "We make everything." }, Ct);
+        var without = await client.PutAsJsonAsync($"/api/tenants/{missing}", new { name = "Nobody", isActive = true }, Ct);
+
+        withValue.StatusCode.Should().Be(HttpStatusCode.BadRequest, await withValue.Content.ReadAsStringAsync(Ct));
+        without.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [Fact]

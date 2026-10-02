@@ -9,16 +9,18 @@
 -- the tenant document. Branding is not moved: it has no fixed shape to map onto a site field.
 --
 -- Data only. No table, column or index changes, so db-assert answers the same before and after,
--- and the API reads a tenant correctly whether or not this has run: it reads the site entry first
--- and falls back to the tenant document, field by field.
+-- and the API reads a tenant correctly whether or not this has run. Field by field it answers from
+-- the published site entry where the site type declares the field, and from the tenant document
+-- where there is no published entry, the type does not declare the field, or the entry has no key
+-- for it. docs/multi-tenancy.md has the whole rule.
 --
 -- WHICH TENANTS ARE MOVED. A tenant is moved only when what the API reads is unambiguous:
 --   - it has a content type named site, publicly deliverable and not event sourced
 --   - that type has exactly one entry that is Published with Public sensitivity
 -- Every other tenant is left exactly as it is and named in a NOTICE with the reason: no site type,
 -- no published entry, more than one, or an event sourced site type (its stream is the record, and a
--- value written here would be discarded by the next write). Such a tenant keeps answering from the
--- tenant document. Publish its site entry and run this file again to move it.
+-- value written here would be discarded by the next write). Publish its site entry and run this
+-- file again to move it.
 -- A tenant with no profile values is not touched. The default partition is treated like any other:
 -- it is moved if a tenant document with the slug "default" holds values, and no such document
 -- exists unless someone stored one by hand.
@@ -27,10 +29,21 @@
 -- entry keeps it, the tenant document keeps its own, and a NOTICE names the tenant and the field.
 -- Nothing is overwritten and nothing is dropped. From 4.6.0 the API answers with the entry's value
 -- for that field, so GET /api/tenants/{handle}/public can answer differently from 4.5 for such a
--- tenant. To settle one, clear the side you do not want and run the file again.
+-- tenant.
+-- The same goes for a field the site type declares and the entry holds blank: someone cleared it
+-- there, so the blank stands, the value is not copied in, and the API answers empty.
 -- A value is also left on the tenant document, with a NOTICE, when moving it would hide or break it:
 --   - the site type already has that field and it is not Public, or not a text or url field
 --   - the field is a url field and the value is not an http or https address
+-- A value left behind is not served where the site type declares its field, and is served where
+-- it does not. To be rid of one, send that field as an empty string in PUT /api/tenants/{handle},
+-- which blanks it on the tenant document. To change the site side, edit the site entry and publish
+-- it. What the file cannot tell: an entry that has no key at all for a declared field reads as
+-- never set, and the value is moved into it. An editor whose client removes the key instead of
+-- blanking it is not seen as having cleared it.
+--
+-- ONE TENANT. Set barako.only_tenant to a handle and only that tenant is looked at:
+--   PGOPTIONS='-c barako.only_tenant=acme' psql "$DATABASE_URL" ... -f this file
 --
 -- WHAT ELSE CHANGES. A site type that lacks one of the fields gains it, optional and Public, but
 -- only for a value that is moved, so a tenant with no About gets no About field. The entry's
@@ -89,6 +102,7 @@ DECLARE
     moved_tenants   integer := 0;
     left_tenants    integer := 0;
     left_values     integer := 0;
+    only_tenant     constant text := nullif(btrim(coalesce(current_setting('barako.only_tenant', true), '')), '');
 BEGIN
     IF to_regclass('public.mt_doc_tenants') IS NULL
         OR to_regclass('public.mt_doc_contents') IS NULL
@@ -101,13 +115,14 @@ BEGIN
     FOR tenant IN
         SELECT t.id, t.data
         FROM public.mt_doc_tenants t
-        WHERE btrim(coalesce(t.data ->> 'LogoUrl', '')) <> ''
-           OR btrim(coalesce(t.data ->> 'About', '')) <> ''
-           OR btrim(coalesce(t.data ->> 'Location', '')) <> ''
-           OR btrim(coalesce(t.data ->> 'LocationUrl', '')) <> ''
-           OR btrim(coalesce(t.data ->> 'SocialHandle', '')) <> ''
-           OR btrim(coalesce(t.data ->> 'Email', '')) <> ''
-           OR btrim(coalesce(t.data ->> 'ContactUrl', '')) <> ''
+        WHERE (only_tenant IS NULL OR t.data ->> 'Slug' = only_tenant)
+          AND (btrim(coalesce(t.data ->> 'LogoUrl', '')) <> ''
+            OR btrim(coalesce(t.data ->> 'About', '')) <> ''
+            OR btrim(coalesce(t.data ->> 'Location', '')) <> ''
+            OR btrim(coalesce(t.data ->> 'LocationUrl', '')) <> ''
+            OR btrim(coalesce(t.data ->> 'SocialHandle', '')) <> ''
+            OR btrim(coalesce(t.data ->> 'Email', '')) <> ''
+            OR btrim(coalesce(t.data ->> 'ContactUrl', '')) <> '')
         ORDER BY t.data ->> 'Slug'
         FOR UPDATE
     LOOP
@@ -234,6 +249,12 @@ BEGIN
                 ORDER BY e.key
                 LIMIT 1;
 
+                IF FOUND AND NOT add_field THEN
+                    RAISE NOTICE 'tenant profile: % keeps % on the tenant document, the site entry holds % blank, so it was cleared there', slug, tenant_key, existing_key;
+                    left_values := left_values + 1;
+                    CONTINUE;
+                END IF;
+
                 site_data := jsonb_set(site_data, ARRAY[coalesce(existing_key, site_key)], to_jsonb(val), true);
             END IF;
 
@@ -281,7 +302,8 @@ BEGIN
         END IF;
     END LOOP;
 
-    RAISE NOTICE 'tenant profile: moved % value(s) for % tenant(s). % tenant(s) and % more value(s) stay on the tenant document, each named above',
-        moved, moved_tenants, left_tenants, left_values;
+    RAISE NOTICE 'tenant profile: moved % value(s) for % tenant(s). % tenant(s) and % more value(s) stay on the tenant document, each named above%',
+        moved, moved_tenants, left_tenants, left_values,
+        CASE WHEN only_tenant IS NULL THEN '' ELSE '. Only ' || only_tenant || ' was looked at' END;
 END
 $migration$;

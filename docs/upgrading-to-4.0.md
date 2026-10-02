@@ -98,10 +98,11 @@ the policy as outstanding. Add it with `db-apply`, described under
 The tenant profile file changes data and no schema, so `db-assert` passes with or without it. It
 moves each tenant's logo, about text, location, social handle, email and contact link from the
 tenant document into that tenant's published `site` entry, and prints a `NOTICE` for every tenant
-and value it leaves where it was, with the reason. The API reads the site entry first and the tenant
-document second, so a tenant it left alone still answers. [multi-tenancy.md](multi-tenancy.md#the-tenant-profile)
-has the rules, and the query that lists what is still on tenant documents. It is safe to run twice,
-and worth running again after a tenant it left alone publishes its site entry.
+and value it leaves where it was, with the reason. The API answers from the site entry where the
+site type declares the field and from the tenant document where it does not, so a tenant the file
+left alone still answers. [multi-tenancy.md](multi-tenancy.md#the-tenant-profile) has the rules,
+how to remove a value left behind, and the query that lists what is still on tenant documents. It is
+safe to run twice, and worth running again after a tenant it left alone publishes its site entry.
 
 Run every file with the API stopped. A running API keeps a transaction open for as long as it
 runs, and an index built `CONCURRENTLY` waits for every transaction older than itself, so against
@@ -224,8 +225,12 @@ boots 4.1.0 beside it.
 
 The tenant profile file copies each tenant's profile from its published site entry back onto the
 tenant document, where a release before 4.6.0 reads it. It fills blanks only and removes nothing
-from the site entry, so nothing is lost, and an edit made to the site entry on 4.6.0 is what the
-earlier release then serves.
+from the site entry, so nothing is lost. For a value the forward file moved, the earlier release
+then serves what the site entry holds now, an edit made on 4.6.0 included. A value still on the
+tenant document is not overwritten: for a tenant the forward file left alone or was never run for,
+and for a field where the two sides differed, the earlier release serves the tenant document's
+value, as it did before the upgrade, even where 4.6.0 was answering with a different one from the
+site entry.
 
 The collection syncs file drops `mt_doc_collection_syncs`. That loses the sync schedules and field
 mappings, which nothing else records; the entries those syncs wrote are ordinary content and are
