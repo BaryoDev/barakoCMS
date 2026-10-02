@@ -163,6 +163,15 @@ internal class Endpoint(
         def.UpdatedAt = DateTimeOffset.UtcNow;
         session.Store(def);
 
+        // The entry holds role names as they are now. The field stores ids, and an id says nothing
+        // to a reader once its role is renamed or deleted.
+        var named = new[]
+        {
+            new FieldDefinition { VisibleToRoles = rolesBefore },
+            new FieldDefinition { VisibleToRoles = [.. field.VisibleToRoles] },
+        };
+        await barakoCMS.Core.RoleReferences.ToNamesAsync(session, named, ct);
+
         // Lowering is a disclosure, so it gets an action of its own. Alerting on it should not mean
         // reading the metadata of every sensitivity change.
         await AuditLog.RecordAsync(
@@ -179,8 +188,8 @@ internal class Endpoint(
                 ["field"] = field.Name,
                 ["from"] = from.ToString(),
                 ["to"] = to.ToString(),
-                ["visibleToRolesFrom"] = rolesBefore,
-                ["visibleToRolesTo"] = field.VisibleToRoles.ToList(),
+                ["visibleToRolesFrom"] = named[0].VisibleToRoles,
+                ["visibleToRolesTo"] = named[1].VisibleToRoles,
                 ["maskFrom"] = maskBefore.ToString(),
                 ["maskTo"] = field.Mask.ToString(),
                 ["publiclyDeliverable"] = def.IsPubliclyDeliverable,

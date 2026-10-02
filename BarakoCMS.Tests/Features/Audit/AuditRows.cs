@@ -68,22 +68,29 @@ internal static class AuditTenants
     public static async Task<HttpClient> HolderOfAsync(
         IntegrationTestFixture factory, string slug, params string[] capabilities)
     {
+        var role = await RoleAsync(factory, capabilities);
+        var userId = await MemberAsync(factory, slug, MembershipStatus.Active, role.Id);
+        return ClientFor(factory, slug, userId, role.Name);
+    }
+
+    /// <summary>
+    /// A stored role of this test's own, under a name nothing else uses. The seeder creates no HR
+    /// role without demo content, so a test that needs a second role makes one.
+    /// </summary>
+    public static async Task<Role> RoleAsync(IntegrationTestFixture factory, params string[] capabilities)
+    {
         var role = new Role
         {
             Id = Guid.NewGuid(),
-            Name = $"Audit caller {Guid.NewGuid():N}",
+            Name = $"Audit role {Guid.NewGuid():N}",
             SystemCapabilities = capabilities.ToList(),
         };
 
-        using (var scope = factory.Services.CreateScope())
-        {
-            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-            session.Store(role);
-            await session.SaveChangesAsync();
-        }
-
-        var userId = await MemberAsync(factory, slug, MembershipStatus.Active, role.Id);
-        return ClientFor(factory, slug, userId, role.Name);
+        using var scope = factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        session.Store(role);
+        await session.SaveChangesAsync();
+        return role;
     }
 
     private static HttpClient ClientFor(IntegrationTestFixture factory, string slug, Guid userId, string roleName)

@@ -820,6 +820,28 @@ display prefix.
 | Field added | `contenttype.field_added` | `field`, `type`, `required`, `sensitivity`, `visibleToRoles` |
 | Field's level, role list or mask changed | `contenttype.field.sensitivity.changed` or `.lowered` | `from`, `to`, `visibleToRolesFrom`, `visibleToRolesTo`, `maskFrom`, `maskTo` |
 
+The three member rows also carry `profileAdded`, `profileRemoved` and `profileChanged` when a
+profile changed: the attribute names, never their values.
+
+### Where a membership is written
+
+A membership has three writers, `Members.AddAsync`, `ChangeAsync` and `RemoveAsync`, and each stages
+its row beside the write. The member routes and tenant creation all go through them, and
+`MembershipWriterTests` fails if any other source file writes a membership.
+
+### Ids and names
+
+A role is referred to by id wherever a row had one already: `roleId` on the `user.role.*` rows,
+`roleIds` and `previousRoleIds` on the member rows. The id is the reference, since it survives a
+rename. Beside it is the name the role had when the change was made (`roleName`, `roleNames`,
+`previousRoleNames`, in the same order as the ids), read in the same request. A row is never
+rewritten, so the two cannot come apart inside it; after a rename the row still says what the role
+was called at the time. A role that no longer exists has an empty name beside its id.
+
+The field rows hold names only (`visibleToRoles`, `visibleToRolesFrom`, `visibleToRolesTo`). A field
+stores its role list as ids, and the row resolves them through `RoleReferences.ToNamesAsync` when the
+change is made, the same way the API answers. An entry that resolves to no role is kept as stored.
+
 ### The shape of a role row
 
 A list on a role row is an object: `items` holds the first 50 entries, `count` the full number and
@@ -871,8 +893,9 @@ as it did before these rows existed.
 
 ### Grants that write no row
 
-- The seeder creating the four system roles and the first users, and giving a seeded role the
-  default capabilities it is missing, at startup.
+- The seeder, at startup: creating the system roles and the first users, giving a seeded role the
+  default capabilities it is missing, and, with demo content on, creating the HR role and giving it
+  `view_sensitive`.
 - A module's seeder: `ModuleCapabilities.GrantAsync` adding the module's capabilities to seeded
   roles, and `AccountingModule.SeedAsync` creating the `Accountant` role.
 - Self-registration giving a new account the `User` role.

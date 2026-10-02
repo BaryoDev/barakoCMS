@@ -87,10 +87,14 @@ internal class AuditEventDto
 /// <summary>GET /api/audit — browse the audit trail, newest first.</summary>
 internal class Endpoint(
     IQuerySession session,
-    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
-    barakoCMS.Infrastructure.Services.IPermissionResolver permissions,
-    IConfiguration configuration) : Endpoint<ListRequest, PaginatedResponse<AuditEventDto>>
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<ListRequest, PaginatedResponse<AuditEventDto>>
 {
+    /// <summary>The gate on <c>GET /api/roles</c>, which is where a role's capabilities are read.</summary>
+    private static readonly RequiredCapability RolesGate = new(SystemCapabilities.ManageRoles, ["SuperAdmin"]);
+
+    /// <summary>The gate on <c>GET /api/api-keys</c>, which is where a key's scopes are read.</summary>
+    private static readonly RequiredCapability KeysGate = new(SystemCapabilities.ManageApiKeys, ["SuperAdmin", "Admin"]);
+
     public override void Configure()
     {
         Get("/api/audit");
@@ -132,12 +136,12 @@ internal class Endpoint(
             .Skip(req.Skip).Take(req.Take)
             .ToListAsync(ct);
 
-        // Asked the way the routes that own the data ask, GET /api/roles and GET /api/api-keys, and
-        // only when the page holds a row the answer changes.
+        // Asked by the rule the gate itself uses, and only when the page holds a row the answer
+        // changes.
         var mayListRoles = items.Any(e => e.Action.StartsWith("role.", StringComparison.Ordinal))
-            && await HoldsAsync(callerId, SystemCapabilities.ManageRoles, ["SuperAdmin"], ct);
+            && await CapabilityGateProcessor.HoldsAsync(HttpContext, RolesGate, ct);
         var mayListKeys = items.Any(e => e.Action.StartsWith("apikey.", StringComparison.Ordinal))
-            && await HoldsAsync(callerId, SystemCapabilities.ManageApiKeys, ["SuperAdmin", "Admin"], ct);
+            && await CapabilityGateProcessor.HoldsAsync(HttpContext, KeysGate, ct);
 
         await Send.ResponseAsync(new PaginatedResponse<AuditEventDto>
         {
@@ -147,11 +151,6 @@ internal class Endpoint(
             TotalItems = total,
         }, cancellation: ct);
     }
-
-    /// <summary>What <c>CapabilityGateProcessor</c> decides for a gate on this capability.</summary>
-    private async Task<bool> HoldsAsync(Guid callerId, string capability, string[] legacyRoles, CancellationToken ct) =>
-        (configuration.GetValue(CapabilityGateProcessor.LegacyRoleFallbackKey, false) && legacyRoles.Any(User.IsInRole))
-        || await permissions.HasCapabilityAsync(callerId, capability, ct);
 
     /// <summary>
     /// A query-string timestamp with an offset binds as local time, and CreatedAt is UTC, so on any

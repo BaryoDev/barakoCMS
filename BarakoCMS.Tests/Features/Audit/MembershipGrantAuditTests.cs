@@ -121,7 +121,8 @@ public class MembershipGrantAuditTests
     {
         var slug = await AuditTenants.CreateAsync(_factory);
         var (client, _) = await AuditTenants.AdminAsync(_factory, slug);
-        var memberId = await AuditTenants.MemberAsync(_factory, slug, status, SystemRoles.HRRoleId);
+        var held = await AuditTenants.RoleAsync(_factory);
+        var memberId = await AuditTenants.MemberAsync(_factory, slug, status, held.Id);
 
         var added = await client.PostAsJsonAsync("/api/tenants/members",
             new { email = $"aud-{memberId:N}@example.com", roleIds = new[] { SystemRoles.UserRoleId } });
@@ -132,8 +133,8 @@ public class MembershipGrantAuditTests
         rows.Should().HaveCount(1);
         var row = rows[0];
         row.Text("previousStatus").Should().Be(status.ToString());
-        row.Strings("previousRoleIds").Should().Equal(SystemRoles.HRRoleId.ToString());
-        row.Strings("previousRoleNames").Should().Equal(await RoleNameAsync(SystemRoles.HRRoleId));
+        row.Strings("previousRoleIds").Should().Equal(held.Id.ToString());
+        row.Strings("previousRoleNames").Should().Equal(held.Name);
         row.Strings("roleIds").Should().Equal(SystemRoles.UserRoleId.ToString());
         row.Strings("roleNames").Should().Equal(await RoleNameAsync(SystemRoles.UserRoleId));
     }
@@ -162,7 +163,8 @@ public class MembershipGrantAuditTests
     {
         var slug = await AuditTenants.CreateAsync(_factory);
         var (client, adminId) = await AuditTenants.AdminAsync(_factory, slug);
-        var memberId = await AuditTenants.MemberAsync(_factory, slug, MembershipStatus.Active, SystemRoles.HRRoleId);
+        var held = await AuditTenants.RoleAsync(_factory);
+        var memberId = await AuditTenants.MemberAsync(_factory, slug, MembershipStatus.Active, held.Id);
 
         var updated = await client.PutAsJsonAsync($"/api/tenants/members/{memberId}",
             new { roleIds = new[] { SystemRoles.UserRoleId }, status = "Suspended" });
@@ -175,8 +177,8 @@ public class MembershipGrantAuditTests
         row.TenantSlug.Should().Be(slug);
         row.ActorUserId.Should().Be(adminId);
         row.Text("previousStatus").Should().Be("Active");
-        row.Strings("previousRoleIds").Should().Equal(SystemRoles.HRRoleId.ToString());
-        row.Strings("previousRoleNames").Should().Equal(await RoleNameAsync(SystemRoles.HRRoleId));
+        row.Strings("previousRoleIds").Should().Equal(held.Id.ToString());
+        row.Strings("previousRoleNames").Should().Equal(held.Name);
         row.Text("status").Should().Be("Suspended");
         row.Strings("roleIds").Should().Equal(SystemRoles.UserRoleId.ToString());
         row.Strings("roleNames").Should().Equal(await RoleNameAsync(SystemRoles.UserRoleId));
@@ -225,7 +227,8 @@ public class MembershipGrantAuditTests
         var assigned = await client.PostAsJsonAsync($"/api/users/{userId}/roles", new { roleId = SystemRoles.UserRoleId });
         assigned.StatusCode.Should().Be(HttpStatusCode.OK, await assigned.Content.ReadAsStringAsync());
 
-        var never = await client.DeleteAsync($"/api/users/{userId}/roles/{SystemRoles.HRRoleId}");
+        var other = await AuditTenants.RoleAsync(_factory);
+        var never = await client.DeleteAsync($"/api/users/{userId}/roles/{other.Id}");
         never.StatusCode.Should().Be(HttpStatusCode.OK, await never.Content.ReadAsStringAsync());
 
         (await AuditRows.ForTargetAsync(_factory, "user.role.assigned", userId.ToString()))
