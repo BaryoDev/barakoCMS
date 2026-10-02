@@ -320,7 +320,7 @@ public class WorkflowRunTests
         var action = doc.RootElement.GetProperty("actions")[0];
 
         action.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(
-            ["ordinal", "actionType", "status", "attempts", "nextAttemptAt", "responseStatus", "error", "retryable", "completedAt", "durationMs"],
+            ["ordinal", "actionType", "status", "attempts", "nextAttemptAt", "responseStatus", "error", "retryable", "completedAt", "durationMs", "onFailure", "haltedBy"],
             "anything else here is a place a credential could arrive in");
     }
 

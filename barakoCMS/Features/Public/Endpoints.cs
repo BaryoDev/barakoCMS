@@ -291,20 +291,6 @@ internal class ListPublishedEndpoint(
     IQuerySession session,
     IConfiguration config) : Endpoint<PublicListRequest, PaginatedResponse<PublicContentResponse>>
 {
-    /// <summary>
-    /// <c>Delivery:MaxRadiusKm</c>, the widest near filter a caller may ask for. Defaults to
-    /// <see cref="DeliveryQuery.DefaultMaxRadiusKm"/>; a value that is not a positive number is
-    /// treated as unset rather than as no limit.
-    /// </summary>
-    private double MaxRadiusKm()
-    {
-        var raw = config["Delivery:MaxRadiusKm"];
-        return double.TryParse(raw, System.Globalization.NumberStyles.Float,
-                   System.Globalization.CultureInfo.InvariantCulture, out var v) && v > 0
-            ? v
-            : DeliveryQuery.DefaultMaxRadiusKm;
-    }
-
     public override void Configure()
     {
         Get("/api/public/{type}");
@@ -330,7 +316,7 @@ internal class ListPublishedEndpoint(
             HttpContext.Request.Query.SelectMany(kv =>
                 kv.Value.Select(v => new KeyValuePair<string, string?>(kv.Key, v))),
             def,
-            MaxRadiusKm());
+            DeliveryQuery.MaxRadiusKm(config));
 
         if (!query.IsValid)
         {
@@ -359,19 +345,7 @@ internal class ListPublishedEndpoint(
          * widen what is visible. The integration test asserts that directly: a Draft matching the
          * filter must still not come back.
          */
-        foreach (var f in query.Filters)
-        {
-            var (sql, parameters) = DeliveryQuery.ToSql(f);
-            baseQuery = baseQuery.Where(c => c.MatchesSql(sql, parameters));
-        }
-
-        // Same chain, same rule: the proximity test narrows the published and public set and can
-        // never replace it.
-        if (query.Near is { } near)
-        {
-            var (sql, parameters) = DeliveryQuery.NearSql(near);
-            baseQuery = baseQuery.Where(c => c.MatchesSql(sql, parameters));
-        }
+        baseQuery = query.ApplyTo(baseQuery);
 
         var total = await baseQuery.CountAsync(ct);
 
@@ -439,9 +413,10 @@ internal sealed record PublicSearchResponse(IReadOnlyList<PublicContentResponse>
 /// segment wins over the {slug} route. Matching runs ONLY over allowlisted public fields (the entry is
 /// projected to its public shape first), so a draft, a document-Sensitive entry, or a non-Public field
 /// can never surface a result. A title/name hit outranks a body hit. Scans a bounded, recent window;
-/// swap in Postgres full-text search for larger corpora.
+/// swap in Postgres full-text search for larger corpora. Takes the list route's
+/// <c>filter[field][op]=value</c> parameters, applied in the query before the scan cap and the limit.
 /// </summary>
-internal class PublicSearchEndpoint(IQuerySession session) : EndpointWithoutRequest<PublicSearchResponse>
+internal class PublicSearchEndpoint(IQuerySession session, IConfiguration config) : EndpointWithoutRequest<PublicSearchResponse>
 {
     private const int MaxResults = 50;
     private const int ScanCap = 1000;
@@ -465,6 +440,20 @@ internal class PublicSearchEndpoint(IQuerySession session) : EndpointWithoutRequ
         if (!PublicDelivery.IsDeliverable(def)) { await Send.NotFoundAsync(ct); return; }
         var slugField = PublicDelivery.SlugField(def!);
 
+        // Checked before the short-query answer, so a refused filter is a 400 whatever q holds.
+        // sort is not read here: results are ranked, and the route has always ignored it. With no
+        // filter key nothing is parsed, so a request without one answers as it did before filters.
+        var filterPairs = DeliveryQuery.FilterPairs(HttpContext.Request.Query);
+        var filters = filterPairs.Count == 0
+            ? new DeliveryQuery()
+            : DeliveryQuery.Parse(filterPairs, def, DeliveryQuery.MaxRadiusKm(config));
+        if (!filters.IsValid)
+        {
+            AddError(filters.Error!);
+            await Send.ErrorsAsync(400, ct);
+            return;
+        }
+
         if (q.Length < 2)
         {
             // Otherwise this 200 went out with no cache header at all, the same gap #546 closed
@@ -473,12 +462,18 @@ internal class PublicSearchEndpoint(IQuerySession session) : EndpointWithoutRequ
             await Send.OkAsync(new PublicSearchResponse(Array.Empty<PublicContentResponse>(), 0, q), ct);
             return;
         }
-        var candidates = await session.Query<ContentDoc>()
+        var matches = session.Query<ContentDoc>()
                     .Where(c => c.ContentType == type
                                 && c.Status == ContentStatus.Published
                                 && c.Sensitivity == SensitivityLevel.Public
                                 && c.SearchText != null
-                                && c.SearchText.NgramSearch(q))
+                                && c.SearchText.NgramSearch(q));
+
+        // In the query, ahead of the scan cap and the limit. Filtering the ranked page instead
+        // would return fewer than limit, or nothing, while matches sit past the cut.
+        matches = filters.ApplyTo(matches);
+
+        var candidates = await matches
                     .OrderByNgramRank(c => c.SearchText!, q)
                     .Take(ScanCap)
                     .ToListAsync(ct);
