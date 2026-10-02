@@ -110,11 +110,45 @@ Section `Modules:Forms`:
 | --- | --- | --- |
 | `PermitLimit` | `5` | submissions per client IP per window, across every form |
 | `WindowSeconds` | `600` | the window |
+| `PerForm:{slug}:PermitLimit` | the shared `PermitLimit` | submissions per client IP per window to that one form |
+| `PerForm:{slug}:WindowSeconds` | the shared `WindowSeconds` | the window for that form |
 | `MaxFieldLength` | `10000` | the longest string a field may hold |
 | `Turnstile:Enabled` | `false` | require a Cloudflare Turnstile token |
 | `Turnstile:SecretKey` | none | the Turnstile secret; set it through the environment |
 
 With Turnstile enabled and no secret set, every submission is refused and an error is logged.
+
+### A limit for one form
+
+No form has its own limit unless `PerForm` names it. A busy form can be given one:
+
+```yaml
+- Modules__Forms__PerForm__registration__PermitLimit=20
+- Modules__Forms__PerForm__registration__WindowSeconds=60
+```
+
+Submissions to `registration` are then counted per client IP against those numbers, and no longer
+against the shared limit. Every other form stays on the shared one. The limit applies to the submit
+route only; the definition route is under the API's global limit, as before.
+
+A value left out takes the shared one as configured. A value that is not a whole number above zero
+stops the host at startup with the setting named. A slug with a dash cannot be exported as an
+environment variable from a POSIX shell; set it in `appsettings.json` or in the compose file.
+
+The slug is matched in any case, and a request for another spelling of it is counted in the same
+bucket. The tenant is not part of the bucket, because a caller chooses `X-Tenant` and the host: two
+tenants with a form of the same slug share the numbers, and one client IP has one count across both.
+`FormRateLimitTests` covers this.
+
+### A limit for another route of this module
+
+A new route gets its own policy the way submit does: register it in `FormsModule.ConfigureServices`
+with `services.Configure<RateLimiterOptions>(o => o.AddPolicy("forms-<purpose>", ...))`, read its
+numbers from `FormsOptions`, and name it on the endpoint with `RequireRateLimiting`. Key it on
+something the caller cannot vary per request, such as the client IP or a configured slug. The
+limiter runs before the body is read, so a value from the body (an email address, say) cannot be a
+key there; count that inside the endpoint. Do not take a name the core reserves (`auth`,
+`telemetry`, `registration`, `site-share`, `logout`, `delivery`).
 
 ## Notification
 
