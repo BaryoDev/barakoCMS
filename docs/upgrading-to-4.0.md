@@ -66,11 +66,19 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.3.0
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.3.0/marten-9-37-event-store-columns.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.4.0/marten-9-38-quick-append-events.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.5.0/refresh-token-hash-index.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/event-correlation-metadata.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/sensitivity-by-capability.sql
 ```
 
 The two Marten files bring the event store up to the Marten version the release you are deploying
 runs. Each explains itself in its header. Skip a file whose directory is newer than that release.
+
+The event correlation file (4.6.0) adds two nullable columns to `mt_events` and replaces the
+function that appends events, so each event can record the request that wrote it
+([tracing.md](tracing.md)). It runs after the `4.4.0` file, which replaces the same function.
+Unlike the other schema files it cannot be applied ahead of the deploy: once it has run, a 4.5 or
+earlier build that is still serving fails every content write, because it calls the function with
+the old argument list. Stop every instance of the old build, run it, then start 4.6.0.
 
 The user file moves the unique indexes on username and email to their lowercased, trimmed forms,
 which is what sign-in compares. If two existing accounts differ only by case, such as
@@ -190,6 +198,7 @@ Stop 4.0, then:
 
 ```bash
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/rollback-sensitivity-by-capability.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/rollback-event-correlation-metadata.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.5.0/rollback-email-sent-emails.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.5.0/rollback-refresh-token-hash-index.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.4.0/rollback-marten-9-38-quick-append-events.sql

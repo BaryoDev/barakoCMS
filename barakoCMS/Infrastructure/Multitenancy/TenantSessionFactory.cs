@@ -35,9 +35,20 @@ public sealed class TenantSessionFactory : ISessionFactory
         _batch?.Transaction is { } tx ? _store.QuerySession(Enlisted(tx))
         : _tenant.IsDefault ? _store.QuerySession() : _store.QuerySession(_tenant.Slug);
 
-    public IDocumentSession OpenSession() =>
+    public IDocumentSession OpenSession() => Stamped(
         _batch?.Transaction is { } tx ? _store.LightweightSession(Enlisted(tx))
-        : _tenant.IsDefault ? _store.LightweightSession() : _store.LightweightSession(_tenant.Slug);
+        : _tenant.IsDefault ? _store.LightweightSession() : _store.LightweightSession(_tenant.Slug));
+
+    /// <summary>
+    /// Every event the session appends records the request that caused it. Null for both outside a
+    /// request and outside a workflow action, see <see cref="Tracing.Correlation"/>.
+    /// </summary>
+    private static IDocumentSession Stamped(IDocumentSession session)
+    {
+        session.CorrelationId = Tracing.Correlation.Id;
+        session.CausationId = Tracing.Correlation.Cause;
+        return session;
+    }
 
     private Marten.Services.SessionOptions Enlisted(Npgsql.NpgsqlTransaction tx)
     {

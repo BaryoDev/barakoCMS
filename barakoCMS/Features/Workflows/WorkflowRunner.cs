@@ -795,7 +795,27 @@ internal sealed class WorkflowRunner(
         return null;
     }
 
+    /// <summary>Runs one attempt as the continuation of the request that caused its run.</summary>
+    /// <remarks>
+    /// The runner has no request, so the run supplies both halves. Its correlation id goes on the
+    /// log lines of the attempt and on every event the action writes, and its traceparent is the
+    /// parent of the attempt's span, so the action's outbound calls carry that trace onward. Begun
+    /// before the scope is built, because the scope's session is stamped when it is opened.
+    /// </remarks>
     private async Task<Outcome> ExecuteAsync(
+        IDocumentStore store, WorkflowRun run, WorkflowActionAttempt attempt, string tenantId, CancellationToken ct)
+    {
+        using var span = barakoCMS.Infrastructure.Tracing.BarakoTracing.StartWorkflowAction(
+            run, attempt, TenantScopes.SlugFor(tenantId));
+        using var correlation = barakoCMS.Infrastructure.Tracing.Correlation.BeginFrom(
+            run.CorrelationId, barakoCMS.Infrastructure.Tracing.Correlation.TraceParentOf(span) ?? run.TraceParent);
+
+        var outcome = await ExecuteAttemptAsync(store, run, attempt, tenantId, ct);
+        barakoCMS.Infrastructure.Tracing.BarakoTracing.RecordOutcome(span, outcome.Status);
+        return outcome;
+    }
+
+    private async Task<Outcome> ExecuteAttemptAsync(
         IDocumentStore store, WorkflowRun run, WorkflowActionAttempt attempt, string tenantId, CancellationToken ct)
     {
         using var scope = services.CreateScopeForTenant(tenantId);
