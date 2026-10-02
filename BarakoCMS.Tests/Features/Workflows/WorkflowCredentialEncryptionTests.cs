@@ -98,7 +98,8 @@ public class WorkflowCredentialEncryptionTests
         (await StoredJsonAsync(id)).Should().Contain(apiKey, "the document has to start out in clear for this to be an upgrade");
 
         var migration = new WorkflowCredentialMigrationService(
-            store, Protector(), _fixture.Services.GetRequiredService<ILogger<WorkflowCredentialMigrationService>>());
+            store, Protector(), _fixture.Services.GetRequiredService<IConfiguration>(),
+            _fixture.Services.GetRequiredService<ILogger<WorkflowCredentialMigrationService>>());
         await migration.ProtectAllTenantsAsync(TestContext.Current.CancellationToken);
 
         var afterFirst = await StoredJsonAsync(id);
@@ -315,7 +316,8 @@ public class WorkflowCredentialEncryptionTests
         }
 
         var logger = new CapturingLogger();
-        var migration = new WorkflowCredentialMigrationService(store, Protector(), logger);
+        var migration = new WorkflowCredentialMigrationService(
+            store, Protector(), _fixture.Services.GetRequiredService<IConfiguration>(), logger);
         await migration.ProtectAllTenantsAsync(TestContext.Current.CancellationToken);
 
         await using (var check = store.QuerySession())
@@ -344,6 +346,66 @@ public class WorkflowCredentialEncryptionTests
         var afterFirst = await StoredJsonAsync(id);
         await migration.ProtectAllTenantsAsync(TestContext.Current.CancellationToken);
         (await StoredJsonAsync(id)).Should().Be(afterFirst, "a second pass changes nothing");
+    }
+
+    [Fact]
+    public async Task Two_instances_migrating_the_same_workflow_at_once_leave_one_envelope_of_the_same_credential()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var apiKey = NewPlaintext();
+        var id = Guid.NewGuid();
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+
+        await using (var session = store.LightweightSession())
+        {
+            session.Store(new WorkflowDefinition
+            {
+                Id = id,
+                Name = "raced-" + id.ToString("N"),
+                TriggerContentType = "article",
+                TriggerEvent = "Published",
+                Actions =
+                [
+                    new WorkflowAction { Type = "CredentialEcho", Parameters = new Dictionary<string, string> { ["ApiKey"] = apiKey } },
+                ],
+            });
+            await session.SaveChangesAsync(ct);
+        }
+
+        // The overlap two starting instances can have: both read the row in clear before either
+        // writes, then both write.
+        await using var first = store.LightweightSession();
+        await using var second = store.LightweightSession();
+        var readByFirst = await first.LoadAsync<WorkflowDefinition>(id, ct);
+        var readBySecond = await second.LoadAsync<WorkflowDefinition>(id, ct);
+
+        WebhookSigning.MigrateStoredCredentials(readByFirst!, Protector()).Should().BeTrue();
+        WebhookSigning.MigrateStoredCredentials(readBySecond!, Protector()).Should().BeTrue();
+
+        first.Store(readByFirst!);
+        await first.SaveChangesAsync(ct);
+        second.Store(readBySecond!);
+        await second.SaveChangesAsync(ct);
+
+        var afterRace = await StoredJsonAsync(id);
+        afterRace.Should().NotContain(apiKey);
+
+        await using (var check = store.QuerySession())
+        {
+            var stored = await check.LoadAsync<WorkflowDefinition>(id, ct);
+            var value = stored!.Actions.Should().ContainSingle().Which.Parameters["ApiKey"];
+
+            value.Should().Be(readBySecond!.Actions[0].Parameters["ApiKey"], "the later write is the one kept");
+            value.Should().StartWith(AesGcmEnvelope.VersionPrefix);
+            Protector().Unprotect(value).Should().Be(apiKey, "the envelope holds the credential, not another envelope");
+        }
+
+        var migration = new WorkflowCredentialMigrationService(
+            store, Protector(), _fixture.Services.GetRequiredService<IConfiguration>(),
+            _fixture.Services.GetRequiredService<ILogger<WorkflowCredentialMigrationService>>());
+        await migration.ProtectAllTenantsAsync(ct);
+
+        (await StoredJsonAsync(id)).Should().Be(afterRace, "a later start leaves the envelope alone");
     }
 
     private sealed class CapturingLogger : ILogger<WorkflowCredentialMigrationService>

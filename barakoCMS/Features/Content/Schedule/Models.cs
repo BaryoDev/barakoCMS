@@ -13,14 +13,30 @@ internal class Request
     public DateTime? ScheduledUnpublishAt { get; set; }
 
     /// <summary>
-    /// The sensitivity the entry takes at <see cref="ScheduledSensitivityAt"/>. Both or neither;
-    /// both null clears an armed change. The entry stays Published: this is "still published, but
-    /// only these roles may read it from that moment", where an unpublish time is "gone" (#824).
+    /// The sensitivity the entry takes at <see cref="ScheduledSensitivityAt"/>. Both or neither.
+    /// Sending both as null clears an armed change, and leaving both out keeps it. The entry stays
+    /// Published: this is "still published, but only these roles may read it from that moment",
+    /// where an unpublish time is "gone" (#824).
     /// </summary>
-    public barakoCMS.Models.SensitivityLevel? ScheduledSensitivity { get; set; }
+    public barakoCMS.Models.SensitivityLevel? ScheduledSensitivity
+    {
+        get;
+        set { field = value; MentionsSensitivity = true; }
+    }
 
     /// <summary>When (UTC) the sensitivity changes. Has to be in the future.</summary>
-    public DateTime? ScheduledSensitivityAt { get; set; }
+    public DateTime? ScheduledSensitivityAt
+    {
+        get;
+        set { field = value; MentionsSensitivity = true; }
+    }
+
+    /// <summary>
+    /// Whether the request named either sensitivity field, null included. The serializer calls a
+    /// setter only for a property the body carries, which is the one place "sent as null" and
+    /// "left out" still differ. Not public, so it is never bound from a request or written to one.
+    /// </summary>
+    internal bool MentionsSensitivity { get; private set; }
 
     /// <summary>The stream version this schedule was decided against.</summary>
     /// <remarks>
@@ -44,7 +60,7 @@ internal class RequestValidator : FastEndpoints.Validator<Request>
             .WithMessage("ScheduledUnpublishAt must be after ScheduledPublishAt.");
         RuleFor(x => x.ScheduledSensitivityAt)
             .Must((req, at) => (req.ScheduledSensitivity is null) == (at is null))
-            .WithMessage("ScheduledSensitivity and ScheduledSensitivityAt go together: send both, or neither to clear.");
+            .WithMessage("ScheduledSensitivity and ScheduledSensitivityAt go together: send both, or both as null to clear.");
         // A publish time in the past is swept immediately and that is useful. A sensitivity time in
         // the past is a change the caller could have made directly, and arming it to fire within
         // the minute hides who decided it behind the system actor.

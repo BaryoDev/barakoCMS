@@ -50,14 +50,7 @@ public class ResourceContractTests
                 var args = b.GetGenericArguments();
                 if (args.Length == 0) continue;
 
-                var response = args[^1];
-
-                // A paginated envelope is a wrapper; what matters is what it wraps.
-                if (response.IsGenericType
-                    && response.GetGenericTypeDefinition() == typeof(barakoCMS.Models.PaginatedResponse<>))
-                {
-                    response = response.GetGenericArguments()[0];
-                }
+                var response = Unwrapped(args[^1]);
 
                 if (StoredDocuments.Contains(response))
                     offenders.Add($"{type.FullName} returns {response.Name}");
@@ -67,6 +60,45 @@ public class ResourceContractTests
         offenders.Should().BeEmpty(
             "an endpoint that returns the stored document has no shape of its own, so renaming a "
           + "stored property is a silent wire break and adding one publishes it to every client");
+    }
+
+    /// <summary>A paginated envelope is a wrapper; what matters is what it wraps.</summary>
+    /// <remarks>
+    /// Walks the base types, because an envelope that adds a field of its own is a subclass of
+    /// <c>PaginatedResponse</c> and still publishes the item type it pages.
+    /// </remarks>
+    private static Type Unwrapped(Type response)
+    {
+        for (var b = response; b is not null; b = b.BaseType)
+        {
+            if (b.IsGenericType && b.GetGenericTypeDefinition() == typeof(barakoCMS.Models.PaginatedResponse<>))
+            {
+                return b.GetGenericArguments()[0];
+            }
+        }
+
+        return response;
+    }
+
+    private sealed class RolePage : barakoCMS.Models.PaginatedResponse<barakoCMS.Models.Role>
+    {
+        public int Extra { get; init; }
+    }
+
+    private sealed class NamePage : barakoCMS.Models.PaginatedResponse<string>;
+
+    [Fact]
+    public void An_envelope_subclass_is_unwrapped_to_the_item_it_pages()
+    {
+        Unwrapped(typeof(barakoCMS.Models.PaginatedResponse<barakoCMS.Models.Role>))
+            .Should().Be(typeof(barakoCMS.Models.Role), "the control: the envelope itself");
+        Unwrapped(typeof(NamePage)).Should().Be(typeof(string));
+        Unwrapped(typeof(string)).Should().Be(typeof(string), "a response that is no envelope is itself");
+
+        Unwrapped(typeof(RolePage)).Should().Be(typeof(barakoCMS.Models.Role),
+            "an envelope with a field of its own still publishes the item type it pages");
+        StoredDocuments.Should().Contain(Unwrapped(typeof(RolePage)),
+            "so an endpoint returning a subclass around a stored document is an offender");
     }
 
     // The control. A structural check that walks nothing passes on an empty set, and this project

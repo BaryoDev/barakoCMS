@@ -65,6 +65,9 @@ half-filled theme renders rather than breaks.
 | `HeaderActions` | json | Call to action links after the header links. See [MenuLinks and HeaderActions](#menulinks-and-headeractions) |
 | `Plugins` | json | The plugins this tenant renders. See [Plugins](#plugins) |
 | `Presets` | json | Saved blocks a designer builds in barakoBrew, which barakoPress renders |
+| `HomePath` | string | The site path of the page served at `/`, such as `/home`. Unset, `/` is what the renderer serves by default |
+| `Labels` | json | The words the renderer's screens print for a visitor. See [Labels](#labels) |
+| `OptionStyles` | json | A tone, icon and word per option of a choice field. See [OptionStyles](#optionstyles) |
 
 ### Colors
 
@@ -151,6 +154,31 @@ colours its `EntryType` choice field this way:
 ```json
 { "project.AreaOfFocus": { "Providing clean water": "sky", "Supporting education": "gold" }, "event.EntryType": { "Fundraiser": "gold", "Outreach": "sky" } }
 ```
+
+### OptionStyles
+
+Keyed like `OptionColors`, by `type.field` and then by option, each option an object with an optional
+`tone`, `icon` and `label`:
+
+```json
+{ "project.AreaOfFocus": { "Providing clean water": { "tone": "sky", "icon": "location", "label": "Water" } } }
+```
+
+`tone` names a colour as `OptionColors` does, `icon` is one of the renderer's icon names, and `label`
+is the word a visitor reads in place of the option's value. A style for an option wins over its
+`OptionColors` entry, field by field. See
+[Collections](https://github.com/BaryoDev/barakoPress/blob/master/docs/collections.md).
+
+### Labels
+
+An object of label key to the words printed, for the copy the renderer's own screens carry:
+
+```json
+{ "minRead": "minutong pagbasa", "by": "ni", "related": "Kaugnay" }
+```
+
+A key left out keeps the renderer's English. The keys are the renderer's, listed in
+[Sites](https://github.com/BaryoDev/barakoPress/blob/master/docs/sites.md).
 
 ### Variants
 
@@ -272,7 +300,7 @@ and out of the `Referer` header. The frontend's `/_share` page reads the fragmen
 | Route | Who | Answers |
 | :--- | :--- | :--- |
 | `POST /api/site/share-links` | may update `site` | 201 `{ id, label, expiresAt, createdAt, key }` |
-| `GET /api/site/share-links` | may update `site` | a page of `{ id, label, createdAt, createdBy, expiresAt, revokedAt, lastUsedAt }` |
+| `GET /api/site/share-links` | may update `site` | a page of `{ id, label, createdAt, createdBy, expiresAt, revokedAt, lastUsedAt }`, with `maxExpiryDays` beside `items` |
 | `DELETE /api/site/share-links/{id}` | may update `site` | 204, or 404 for an unknown id |
 | `POST /api/public/site/share-links/redeem` | anyone | 200 `{ expiresAt }`, or 404 |
 
@@ -280,11 +308,22 @@ Managing links needs update permission on the `site` type (SuperAdmin always has
 too, since the list names who shared the site with whom.
 
 **Creating.** The body is `{ "label": "...", "expiresAt": "..." }`. The label is required, at most
-100 characters. `expiresAt` is optional: unset means 30 days from now, and more than 90 days away is
-a 400. The key is 32 random bytes, base64url encoded, and appears in this response and nowhere else.
-Only its SHA-256 is stored, on a tenant scoped document that is not part of site settings, public
-delivery or a portability export. Creating is audited as `site.share_link.created` with the label
-and expiry, never the key. A tenant holds at most 100 active links; revoke one to make another.
+100 characters. `expiresAt` is optional: unset means 30 days from now, and more than the maximum
+(90 days) away is a 400. The key is 32 random bytes, base64url encoded, and appears in this response
+and nowhere else. Only its SHA-256 is stored, on a tenant scoped document that is not part of site
+settings, public delivery or a portability export. Creating is audited as `site.share_link.created`
+with the label and expiry, never the key. A tenant holds at most 100 active links; revoke one to
+make another.
+
+**The maximum expiry.** The list response carries `maxExpiryDays` on the page itself, next to
+`items` and `totalItems`, so it is there when the tenant has no links yet. It is the longest expiry
+create accepts, in whole days, read from the same constant the create validator checks. A client
+should build its expiry choices from it rather than keep its own number. An API older than this
+field sends none, and 90 is what those enforce. An `expiresAt` of now plus `maxExpiryDays` days is
+accepted: the time the request takes only moves the comparison later, and the validator allows one
+minute past the maximum for a client whose clock runs ahead of the server's. A client whose clock is
+more than a minute ahead is refused at the maximum, so one that cannot trust its clock should leave
+a margin.
 
 **Redeeming.** The frontend posts `{ "key": "..." }` with the tenant resolved the same way as
 `GET /api/public/site`. A live link answers 200 with its `expiresAt` and records `lastUsedAt`. A

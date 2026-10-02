@@ -21,6 +21,12 @@ internal static class ShareLinkKeys
     public static readonly TimeSpan MaxLifetime = TimeSpan.FromDays(90);
 
     /// <summary>
+    /// <see cref="MaxLifetime"/> in whole days, rounded down, which is what the list reports. Rounded
+    /// down so the reported number is never past what the create validator allows.
+    /// </summary>
+    public static int MaxExpiryDays => (int)Math.Floor(MaxLifetime.TotalDays);
+
+    /// <summary>
     /// Active links per tenant, so the list an editor manages stays short. Redemption looks a key up by
     /// its hash, so it does not depend on this: two concurrent creates can pass it, and every link
     /// still redeems.
@@ -109,6 +115,16 @@ internal sealed class ShareLinkResponse
     };
 }
 
+/// <summary>A page of share links, with the rule a console needs before it offers an expiry.</summary>
+internal sealed class ShareLinkListResponse : PaginatedResponse<ShareLinkResponse>
+{
+    /// <summary>
+    /// The longest expiry create accepts, in whole days from now. On the page rather than on each
+    /// link, so it is there when the tenant has no links yet.
+    /// </summary>
+    public int MaxExpiryDays { get; init; }
+}
+
 internal sealed class CreateShareLinkRequest
 {
     public string Label { get; set; } = string.Empty;
@@ -121,13 +137,14 @@ internal sealed class CreateShareLinkValidator : Validator<CreateShareLinkReques
     {
         RuleFor(x => x.Label).NotEmpty().MaximumLength(100);
 
-        // A minute of slack past the maximum, so a client that computes "90 days from now" before
-        // sending is not refused for the time the request took.
+        // A minute of slack past the maximum, so a client that asks for the reported maximum from now
+        // is not refused because its clock runs a little ahead of this one. The time the request takes
+        // only helps: the comparison moves later with it.
         RuleFor(x => x.ExpiresAt!.Value)
             .Must(e => e > DateTimeOffset.UtcNow)
             .WithMessage("expiresAt must be in the future.")
             .Must(e => e <= DateTimeOffset.UtcNow.Add(ShareLinkKeys.MaxLifetime).AddMinutes(1))
-            .WithMessage("expiresAt can be at most 90 days away.")
+            .WithMessage($"expiresAt can be at most {ShareLinkKeys.MaxExpiryDays} days away.")
             .OverridePropertyName(nameof(CreateShareLinkRequest.ExpiresAt))
             .When(x => x.ExpiresAt.HasValue);
     }
@@ -212,7 +229,7 @@ internal sealed class CreateShareLinkEndpoint(
 /// <summary>GET /api/site/share-links: the tenant's links, newest first, without keys or hashes.</summary>
 internal sealed class ListShareLinksEndpoint(
     IQuerySession session,
-    IPermissionResolver permissions) : Endpoint<PaginatedRequest, PaginatedResponse<ShareLinkResponse>>
+    IPermissionResolver permissions) : Endpoint<PaginatedRequest, ShareLinkListResponse>
 {
     public override void Configure()
     {
@@ -235,12 +252,13 @@ internal sealed class ListShareLinksEndpoint(
             .Take(req.Take)
             .ToListAsync(ct);
 
-        await Send.OkAsync(new PaginatedResponse<ShareLinkResponse>
+        await Send.OkAsync(new ShareLinkListResponse
         {
             Items = page.Select(ShareLinkResponse.From).ToList(),
             Page = req.Page,
             PageSize = req.PageSize,
             TotalItems = total,
+            MaxExpiryDays = ShareLinkKeys.MaxExpiryDays,
         }, ct);
     }
 }

@@ -1,0 +1,152 @@
+name: CI on a branch push
+
+# ci.yml used to listen to push and pull_request both, so a branch with an open pull request ran
+# every job twice on each commit (#982). The push run is still worth having, because it is what
+# gives a branch feedback before a pull request exists. So the push trigger lives here, behind one
+# question: is a pull_request run already covering this commit?
+#
+# Calling ci.yml rather than adding a condition to each of its jobs means two things. A job added
+# to ci.yml is covered without anyone remembering a rule. And a push run reports its checks as
+# "Branch / <job name>", which branch protection does not require, so a push run can never stand
+# in for a required check on a pull request, whether it ran, failed or was skipped.
+#
+# Not a concurrency group with cancel-in-progress. Which twin wins is not deterministic, and a
+# cancelled pull_request run leaves the required checks cancelled and the pull request blocked.
+#
+# One duplicate is left on purpose. The first push of a new branch happens before its pull request
+# exists, so it runs, and opening the pull request then runs the same commit again.
+
+on:
+  push:
+    branches-ignore:
+      - master
+      # The merge queue pushes a branch for each group it builds, and merge_group in ci.yml already
+      # runs everything on that commit. Matching it here ran every queue build twice.
+      - "gh-readonly-queue/**"
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+
+permissions: {}
+
+jobs:
+  # Says "false" only when it has seen two things: an open pull request from this branch of this
+  # repository into master, whose head is this commit and which GitHub can merge, and a
+  # pull_request run of ci.yml already started for this commit. The second is the fact the first
+  # only predicts. Anything else runs everything: the API failing, a token that may not read pull
+  # requests or runs, a pull request against another base, one from a fork that shares the branch
+  # name, one whose head has moved on, one with a merge conflict, since GitHub starts no
+  # pull_request run for a pull request it cannot merge, and one whose run never appeared or is
+  # waiting for a person to approve it. In each of those this run may be the only CI the commit
+  # gets.
+  gate:
+    name: Is a pull request already running this commit
+    runs-on: ubuntu-latest
+    # A backstop only. The step below carries the timeout that matters.
+    timeout-minutes: 10
+    permissions:
+      pull-requests: read
+      actions: read
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+    steps:
+      - name: Look for an open pull request at this commit
+        id: decide
+        # On the step, not only the job: a step past its timeout fails, and a failed gate runs
+        # everything. The script's own worst case is under three minutes, each call being capped.
+        timeout-minutes: 4
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          OWNER: ${{ github.repository_owner }}
+          BRANCH: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -uo pipefail
+          run=true
+          why="no open pull request from this branch into master"
+
+          # head=owner:branch keeps out a fork's pull request that shares the branch name, and the
+          # repository comparison keeps out a fork owned by the same organisation.
+          if ! number=$(timeout 10 gh api -X GET "repos/$REPO/pulls" \
+                          -f state=open -f base=master -f head="$OWNER:$BRANCH" \
+                          --jq '[.[] | select(.head.repo.full_name == env.REPO)][0].number // empty'); then
+            why="could not list pull requests"
+            number=""
+          fi
+
+          case "$number" in
+            '') ;;
+            *[!0-9]*)
+              why="could not read the pull request list" ;;
+            *)
+              # GitHub moves the pull request's head, works out whether it can be merged and
+              # starts the pull_request run after the push, not during it, so the first answer is
+              # often an older head, a null or no run yet. Asking is what starts the calculation.
+              # Six tries is about half a minute, and an answer that never arrives means run.
+              for attempt in 1 2 3 4 5 6; do
+                if ! answer=$(timeout 10 gh api "repos/$REPO/pulls/$number" \
+                                --jq '"\(.state) \(.head.sha) \(.mergeable)"'); then
+                  why="could not read pull request $number"
+                  break
+                fi
+                case "$answer" in
+                  "open $SHA true")
+                    # CodeQL also runs on pull_request, so the run has to be one of ci.yml. A run
+                    # held for approval has no jobs, so it does not count.
+                    if ! started=$(timeout 10 gh api -X GET "repos/$REPO/actions/runs" \
+                                     -f head_sha="$SHA" -f event=pull_request \
+                                     --jq '[.workflow_runs[]
+                                            | select(.path == ".github/workflows/ci.yml")
+                                            | select(.conclusion != "action_required")] | length'); then
+                      why="could not list the runs for this commit"
+                      break
+                    fi
+                    case "$started" in
+                      ''|*[!0-9]*)
+                        why="could not read the runs for this commit"
+                        break ;;
+                      0)
+                        why="pull request $number is open at this commit, but no pull_request run of ci.yml has started for it"
+                        sleep 5 ;;
+                      *)
+                        run=false
+                        why="pull request $number is open at this commit and its pull_request run has started, so that run is the one that counts"
+                        break ;;
+                    esac ;;
+                  "open $SHA false")
+                    why="pull request $number has a merge conflict, so no pull_request run will start for it"
+                    break ;;
+                  "open $SHA "*)
+                    why="GitHub has not said whether pull request $number can be merged"
+                    sleep 5 ;;
+                  *)
+                    why="pull request $number is not open at this commit"
+                    sleep 5 ;;
+                esac
+              done ;;
+          esac
+
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          if [ "$run" = true ]; then
+            echo "Running everything: $why." | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Skipping CI on this push: $why." | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+
+  # Skips on the word "false" and nothing else, so the gate failing, its step timing out or it
+  # writing no output runs everything.
+  #
+  # A called workflow gets at most what the caller grants, and a job in ci.yml that asks for more
+  # stops the run before it starts. These two are what the repository's read-only default gave the
+  # same jobs when ci.yml ran on push directly, and no job in ci.yml declares more than
+  # contents: read.
+  branch:
+    name: Branch
+    needs: gate
+    if: ${{ !cancelled() && needs.gate.outputs.run != 'false' }}
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/ci.yml
+    secrets: inherit

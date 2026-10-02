@@ -10,6 +10,24 @@ public interface IContentTypeValidatorService
 {
     (bool IsValid, List<string> Errors) Validate(string name, string displayName, List<FieldDefinition> fields);
 
+    /// <summary>
+    /// Checks a type some of whose fields are already stored and are not being changed.
+    /// </summary>
+    /// <remarks>
+    /// Validation rules are checked only on fields outside <paramref name="storedFields"/>. Any
+    /// rule name was accepted before rules were enforced and no endpoint edits a stored field's
+    /// rules, so refusing a request over a field it does not touch would leave the type with no way
+    /// to change. Every other check still covers the whole list. Fields are matched by instance.
+    ///
+    /// The default checks every field, which is what an implementor written before this member does.
+    /// </remarks>
+    (bool IsValid, List<string> Errors) Validate(
+        string name,
+        string displayName,
+        List<FieldDefinition> fields,
+        IReadOnlyCollection<FieldDefinition> storedFields)
+        => Validate(name, displayName, fields);
+
     /// <summary>Checks a lifecycle declaration on its own. Null is valid and means the default three states.</summary>
     (bool IsValid, List<string> Errors) ValidateLifecycle(LifecycleDefinition? lifecycle);
 }
@@ -28,8 +46,17 @@ public class ContentTypeValidatorService : IContentTypeValidatorService
     }
 
     public (bool IsValid, List<string> Errors) Validate(string name, string displayName, List<FieldDefinition> fields)
+        => Validate(name, displayName, fields, storedFields: []);
+
+    /// <inheritdoc />
+    public (bool IsValid, List<string> Errors) Validate(
+        string name,
+        string displayName,
+        List<FieldDefinition> fields,
+        IReadOnlyCollection<FieldDefinition> storedFields)
     {
         var errors = new List<string>();
+        var stored = new HashSet<FieldDefinition>(storedFields, ReferenceEqualityComparer.Instance);
 
         // Validate ContentType name
         if (string.IsNullOrWhiteSpace(name))
@@ -105,6 +132,9 @@ public class ContentTypeValidatorService : IContentTypeValidatorService
                 {
                     errors.Add($"Field '{field.Name}' declares options but is of type '{field.Type}', not choice.");
                 }
+
+                if (!stored.Contains(field))
+                    errors.AddRange(FieldRules.DefinitionErrors(field));
             }
         }
 

@@ -1,12 +1,9 @@
 name: CI
 
 on:
-  push:
-    branches-ignore:
-      - master
-    paths-ignore:
-      - "**/*.md"
-      - "docs/**"
+  # A branch push no longer starts this workflow directly. ci-branch.yml calls it, after checking
+  # that no pull request already runs the same commit (#982).
+  workflow_call:
   pull_request:
     branches: ["master"]
   # The merge queue tests a batch of PRs against master together, then merges them in order. Without
@@ -168,6 +165,15 @@ jobs:
       # unchecked (#661).
       - name: Prove the 3.x database can be upgraded and rolled back
         run: bash scripts/upgrade-check.sh
+
+      # The same sequence from a database 4.1.0 created, without the two 4.0.0 files. A 3.x start
+      # cannot see a table that a later release folded into the 4.0.0 file and gave no file of its
+      # own, because it runs the 4.0.0 file as it is today. An install that upgraded when 4.0 came
+      # out ran it as it was then. mt_doc_site_share_links went missing that way (#1007).
+      - name: Prove a 4.1.0 database can be upgraded and rolled back
+        run: bash scripts/upgrade-check.sh
+        env:
+          FROM_VERSION: 4.1.0
 
       # upgrade-check.sh only runs db-assert. The published image runs BarakoCMS.Suite.dll, which
       # used to ignore its arguments and start a server instead (#662). This runs db-assert,
