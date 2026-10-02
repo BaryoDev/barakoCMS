@@ -11,6 +11,12 @@ namespace barakoCMS.Core.Interfaces;
 /// transition rule, the lifecycle's own from-state, the fields the transition requires, and the
 /// same events and audit row.
 ///
+/// No freshness is assumed of the entry the caller passes. The entry is read again before
+/// anything is written, the move is refused as a <see cref="ContentTransitionOutcome.Conflict"/>
+/// when its lifecycle state is no longer the one the caller's copy holds, and the write is bound
+/// to the version that second read saw. A copy loaded before a call to somewhere else is safe to
+/// pass.
+///
 /// Unlike <see cref="IContentWriter"/> this commits. A stale write is only known at the commit, and
 /// the answer to it is part of the result. Anything the caller staged in the scope's session before
 /// the call is committed with the move, and after a <see cref="ContentTransitionOutcome.Conflict"/>
@@ -20,7 +26,7 @@ public interface IContentTransitioner
 {
     /// <summary>Performs a named transition on an entry, as the given actor.</summary>
     /// <param name="content">
-    /// The entry, loaded by the caller from this scope's session, in the tenant of the scope.
+    /// The entry, in the tenant of the scope. It may be stale: see the remarks.
     /// </param>
     /// <param name="transition">The transition's name, as the type declares it, ignoring case.</param>
     /// <param name="actor">Who is making the move. Recorded on the events and the audit row.</param>
@@ -38,8 +44,17 @@ public interface IContentTransitioner
 /// Who is making a transition: a user, or code acting under its own name.
 /// </summary>
 /// <remarks>
-/// A user actor is checked through the permission resolver exactly as a caller of the endpoint is.
-/// An API key acts as the user who owns it, so it is a user actor too.
+/// A user actor is checked through the permission resolver the endpoint uses, against the roles
+/// the user holds in the tenant of the scope. An API key acts as the user who owns it, so it is a
+/// user actor too.
+///
+/// That is not everything a request goes through. A request also carries a token, and a token is
+/// only issued to a user who is not locked out and whose session has not been revoked. Neither is
+/// read here: a user actor named outside their own request is a statement by the calling code that
+/// this user is acting, and the code is trusted to have established that. One rule of the token
+/// issuer is applied: in a registered tenant the user needs an active membership and the tenant
+/// has to be active, so global roles alone do not let a user act in a tenant they could hold no
+/// token for.
 ///
 /// A system actor is not a user and holds no permissions, so on its own it is refused. The caller
 /// has to set <see cref="ContentTransitionOptions.SkipPermissionChecks"/> to make the move on its
@@ -68,7 +83,7 @@ public sealed class ContentTransitionActor
     /// The id the events record: the user's, or <see cref="Guid.Empty"/> for a system actor, which
     /// is what the scheduler and collection syncs already record for a write no user made.
     /// </summary>
-    public Guid RecordedId => UserId ?? Guid.Empty;
+    internal Guid RecordedId => UserId ?? Guid.Empty;
 
     /// <summary>A user, by id. The user has to exist when the move is made.</summary>
     public static ContentTransitionActor ForUser(Guid userId)
@@ -114,38 +129,53 @@ public sealed class ContentTransitionOptions
     /// Off by default.
     /// </summary>
     /// <remarks>
-    /// Skips the three answers that depend on what the actor may do: read on the content type, the
-    /// permission on the transition, and field sensitivity on the values in <see cref="Data"/>.
-    /// Everything else still applies: a user actor has to exist and may not move on an entry they
-    /// created unless configuration allows it, the transition has to be declared and start from
-    /// the entry's state, required fields have to be sent, and the values are validated and run
-    /// through the before-save hooks. The audit row records that the checks were skipped.
+    /// Skips the answers that depend on what the actor may do: membership of the tenant, read on
+    /// the content type, the permission on the transition, and field sensitivity on the values in
+    /// <see cref="Data"/>. Everything else still applies: a user actor has to exist and may not
+    /// move on an entry they created unless configuration allows it, the transition has to be
+    /// declared and start from the entry's state, required fields have to be sent, and the values
+    /// are validated and run through the before-save hooks.
+    ///
+    /// Only the audit row records that the checks were skipped. The events carry the actor's id
+    /// and nothing else, so the entry's history shows a user making a move without saying that
+    /// their permissions were not consulted, and shows a system actor as an empty id with no
+    /// name. The audit row is the record of who or what made the move and on whose authority.
     /// </remarks>
     public bool SkipPermissionChecks { get; init; }
 }
 
 public enum ContentTransitionOutcome
 {
+    /// <summary>
+    /// Never returned. It is the zero value, so a result nobody filled in does not read as a move
+    /// that was made.
+    /// </summary>
+    Unknown = 0,
+
     /// <summary>The entry moved, and the move is committed.</summary>
-    Transitioned,
+    Transitioned = 1,
 
     /// <summary>The actor may not make this move. Nothing was written.</summary>
-    Forbidden,
+    Forbidden = 2,
 
     /// <summary>
     /// The request is wrong: no such transition, a required field not sent, or a value the type
     /// refuses. Nothing was written.
     /// </summary>
-    Invalid,
+    Invalid = 3,
 
     /// <summary>
     /// The entry is not in the state the transition starts from, or another writer changed it
     /// first. Nothing was written.
     /// </summary>
-    Conflict,
+    Conflict = 4,
 }
 
 /// <summary>What became of a transition.</summary>
+/// <remarks>
+/// Built by the core only. A module reads one and has no way to make one, which keeps the ways a
+/// result can be constructed off the package surface until something needs them.
+/// </remarks>
 public sealed class ContentTransitionResult
 {
     private ContentTransitionResult(
@@ -183,15 +213,21 @@ public sealed class ContentTransitionResult
     /// <summary>The state the entry is in now. Set when the move was made.</summary>
     public string? ToState { get; }
 
-    public static ContentTransitionResult Transitioned(string transition, string fromState, string toState) =>
+    internal static ContentTransitionResult Transitioned(string transition, string fromState, string toState) =>
         new(ContentTransitionOutcome.Transitioned, [], transition, fromState, toState);
 
-    public static ContentTransitionResult Forbidden(string reason) =>
+    internal static ContentTransitionResult Forbidden(string reason) =>
         new(ContentTransitionOutcome.Forbidden, [reason]);
 
-    public static ContentTransitionResult Invalid(IReadOnlyList<string> errors) =>
-        new(ContentTransitionOutcome.Invalid, [.. errors]);
+    /// <summary>A refusal with at least one error. A caller answering it has to have something to say.</summary>
+    internal static ContentTransitionResult Invalid(IReadOnlyList<string> errors)
+    {
+        if (errors.Count == 0)
+            throw new ArgumentException("An invalid result names at least one error.", nameof(errors));
 
-    public static ContentTransitionResult Conflict(string reason) =>
+        return new(ContentTransitionOutcome.Invalid, [.. errors]);
+    }
+
+    internal static ContentTransitionResult Conflict(string reason) =>
         new(ContentTransitionOutcome.Conflict, [reason]);
 }

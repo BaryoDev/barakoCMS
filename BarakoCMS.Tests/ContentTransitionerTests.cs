@@ -1,11 +1,15 @@
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Json;
+using System.Reflection;
+using System.Security.Claims;
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Events;
+using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Infrastructure.Services;
 using FluentAssertions;
 using Marten;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -560,11 +564,303 @@ public class ContentTransitionerTests
         allowed.Outcome.Should().Be(ContentTransitionOutcome.Transitioned, string.Join(" ", allowed.Errors));
     }
 
+    // ---- a copy of the entry that is no longer true ------------------------------------------
+
+    /// <summary>
+    /// A copy loaded before the entry moved on is refused, and nothing is written.
+    /// </summary>
+    /// <remarks>
+    /// The copy says Draft and the entry is Approved. Checked against the copy, Submit is a valid
+    /// move, and the writer would rebuild the document on what is stored and set it to Submitted:
+    /// a success that takes an approved entry back, with an event saying it came from Draft.
+    /// </remarks>
+    [Fact]
+    public async Task A_stale_copy_of_the_entry_is_refused_and_nothing_is_written()
+    {
+        var type = await TypeAsync(Review());
+        var (id, _) = await EntryAsync(type);
+        var system = ContentTransitionActor.ForSystem("nightly-close");
+
+        using var early = _factory.Services.CreateScope();
+        var draft = await early.ServiceProvider.GetRequiredService<IDocumentSession>().LoadAsync<Content>(id);
+        draft.Should().NotBeNull();
+        draft!.LifecycleState.Should().Be("Draft");
+
+        (await MoveAsync(id, "Submit", system, Trusted)).Outcome.Should().Be(ContentTransitionOutcome.Transitioned);
+        (await MoveAsync(id, "Approve", system, Trusted)).Outcome.Should().Be(ContentTransitionOutcome.Transitioned);
+
+        var refused = await early.ServiceProvider.GetRequiredService<IContentTransitioner>()
+            .TransitionAsync(draft, "Submit", system, Trusted);
+
+        refused.Outcome.Should().Be(ContentTransitionOutcome.Conflict, "the entry is Approved, whatever the copy says");
+        refused.Errors.Should().HaveCount(1);
+        (await LoadAsync(id)).LifecycleState.Should().Be("Approved");
+        var transitions = await TransitionsAsync(id);
+        transitions.Should().HaveCount(2);
+        transitions.Select(t => t.Transition).Should().Equal("Submit", "Approve");
+        (await AuditAsync(id)).Should().HaveCount(2);
+    }
+
+    // ---- whose principal answers field sensitivity -------------------------------------------
+
+    /// <summary>
+    /// The move made from inside a request: the context accessor holds a request by the actor,
+    /// carrying the role names given, resolved to the tenant given.
+    /// </summary>
+    private async Task<ContentTransitionResult> MoveInsideRequestAsync(
+        Guid id, string transition, User actor, string[] tokenRoles, string requestTenant, ContentTransitionOptions options)
+    {
+        using var requestScope = _factory.Services.CreateScope();
+        requestScope.ServiceProvider.GetRequiredService<TenantContext>().Slug = requestTenant;
+
+        var claims = new List<Claim> { new("UserId", actor.Id.ToString()), new("Username", actor.Username) };
+        claims.AddRange(tokenRoles.Select(role => new Claim(ClaimTypes.Role, role)));
+        var request = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity(claims, "Test", "Username", ClaimTypes.Role)),
+            RequestServices = requestScope.ServiceProvider,
+        };
+
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var transitioner = scope.ServiceProvider.GetRequiredService<IContentTransitioner>();
+        var content = await session.LoadAsync<Content>(id);
+        content.Should().NotBeNull();
+
+        var accessor = _factory.Services.GetRequiredService<IHttpContextAccessor>();
+        accessor.HttpContext = request;
+        try
+        {
+            return await transitioner.TransitionAsync(content!, transition, ContentTransitionActor.ForUser(actor.Id), options);
+        }
+        finally
+        {
+            accessor.HttpContext = null;
+        }
+    }
+
+    /// <summary>A type whose RejectionReason only the named role may see, an entry in Submitted, and a reviewer who does not hold that role.</summary>
+    private async Task<(Guid Id, User Reviewer, string Payroll)> SensitiveReviewAsync()
+    {
+        var payroll = $"Payroll_{Guid.NewGuid():n}";
+        var fields = Fields();
+        var reason = fields.Single(f => f.Name == "RejectionReason");
+        reason.Sensitivity = SensitivityLevel.Sensitive;
+        reason.VisibleToRoles = [payroll];
+        var type = await TypeAsync(Review(), fields);
+        var (id, _) = await SubmittedAsync(type);
+        return (id, await UserAsync(Reviewer(type)), payroll);
+    }
+
+    private static ContentTransitionOptions WithReason() => new()
+    {
+        Data = new Dictionary<string, object> { ["RejectionReason"] = "No receipt attached" },
+    };
+
+    /// <summary>
+    /// Inside the actor's own request for this tenant, the request's principal is the one read.
+    /// </summary>
+    /// <remarks>
+    /// The token names a role the stored user does not hold, which is the only way to tell the two
+    /// principals apart: one built from the stored roles would put the value back and refuse.
+    /// It is what the endpoint has always passed, so this pins that the service still does.
+    /// </remarks>
+    [Fact]
+    public async Task Inside_the_actors_own_request_the_request_principal_answers_field_sensitivity()
+    {
+        var (id, reviewer, payroll) = await SensitiveReviewAsync();
+
+        var result = await MoveInsideRequestAsync(id, "Reject", reviewer, [payroll], Tenant.DefaultSlug, WithReason());
+
+        result.Outcome.Should().Be(ContentTransitionOutcome.Transitioned, string.Join(" ", result.Errors));
+        Value(await LoadAsync(id), "RejectionReason").Should().Be("No receipt attached");
+    }
+
+    /// <summary>
+    /// The same request, resolved to another tenant, lends nothing: its role names were issued for
+    /// that tenant, so the principal is built from the roles the user holds in this one.
+    /// </summary>
+    [Fact]
+    public async Task A_request_by_the_actor_for_another_tenant_does_not_lend_its_role_names()
+    {
+        var (id, reviewer, payroll) = await SensitiveReviewAsync();
+
+        var refused = await MoveInsideRequestAsync(id, "Reject", reviewer, [payroll], "elsewhere", WithReason());
+
+        refused.Outcome.Should().Be(ContentTransitionOutcome.Invalid, "the stored roles may not see the field, so the value was put back");
+        refused.Errors.Should().HaveCount(1);
+        refused.Errors[0].Should().Contain("RejectionReason");
+        var after = await LoadAsync(id);
+        after.LifecycleState.Should().Be("Submitted");
+        Value(after, "RejectionReason").Should().BeNull();
+    }
+
+    /// <summary>
+    /// A request made by somebody else says nothing about the actor either.
+    /// </summary>
+    [Fact]
+    public async Task A_request_by_somebody_else_does_not_lend_its_role_names()
+    {
+        var (id, reviewer, payroll) = await SensitiveReviewAsync();
+        var somebodyElse = await UserAsync(permission: null);
+
+        using var requestScope = _factory.Services.CreateScope();
+        var request = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity(
+                new List<Claim> { new("UserId", somebodyElse.Id.ToString()), new(ClaimTypes.Role, payroll) },
+                "Test", "Username", ClaimTypes.Role)),
+            RequestServices = requestScope.ServiceProvider,
+        };
+
+        var accessor = _factory.Services.GetRequiredService<IHttpContextAccessor>();
+        accessor.HttpContext = request;
+        ContentTransitionResult refused;
+        try
+        {
+            refused = await MoveAsync(id, "Reject", ContentTransitionActor.ForUser(reviewer.Id), WithReason());
+        }
+        finally
+        {
+            accessor.HttpContext = null;
+        }
+
+        refused.Outcome.Should().Be(ContentTransitionOutcome.Invalid);
+        refused.Errors.Should().HaveCount(1);
+        (await LoadAsync(id)).LifecycleState.Should().Be("Submitted");
+    }
+
+    // ---- a registered tenant -------------------------------------------------------------------
+
+    /// <summary>
+    /// Global roles do not let a user act in a registered tenant they are not a member of.
+    /// </summary>
+    /// <remarks>
+    /// The role lookup falls back to a user's global roles when there is no membership, so the
+    /// permission check alone would pass a user who could hold no token for the tenant. The clerk
+    /// here holds a global role granting Submit. Refused with no membership, allowed with one.
+    /// </remarks>
+    [Fact]
+    public async Task Outside_their_own_request_a_user_actor_needs_an_active_membership_in_a_registered_tenant()
+    {
+        var slug = "ctr-" + Guid.NewGuid().ToString("n")[..8];
+        var type = "ctr" + Guid.NewGuid().ToString("n")[..8];
+        var id = Guid.NewGuid();
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug, IsActive = true });
+            await session.SaveChangesAsync();
+        }
+
+        using (var scope = _factory.Services.CreateScopeForTenant(slug))
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(),
+                Name = type,
+                DisplayName = "Claim",
+                Fields = Fields(),
+                Lifecycle = Review(),
+            });
+            await scope.ServiceProvider.GetRequiredService<IContentWriter>().CreateAsync(
+                new ContentCreated(
+                    id, type, new Dictionary<string, object> { ["Title"] = "a claim" },
+                    ContentStatus.Draft, Guid.NewGuid(), "a claim", SensitivityLevel.Public, DateTime.UtcNow),
+                default);
+            await session.SaveChangesAsync();
+        }
+
+        var clerk = await UserAsync(Clerk(type));
+
+        async Task<ContentTransitionResult> SubmitAsync(ContentTransitionOptions? options = null)
+        {
+            using var scope = _factory.Services.CreateScopeForTenant(slug);
+            var content = await scope.ServiceProvider.GetRequiredService<IDocumentSession>().LoadAsync<Content>(id);
+            content.Should().NotBeNull("the entry was written in this tenant");
+            return await scope.ServiceProvider.GetRequiredService<IContentTransitioner>()
+                .TransitionAsync(content!, "Submit", ContentTransitionActor.ForUser(clerk.Id), options);
+        }
+
+        var refused = await SubmitAsync();
+
+        refused.Outcome.Should().Be(ContentTransitionOutcome.Forbidden);
+        refused.Errors.Should().HaveCount(1);
+        refused.Errors[0].Should().Contain("membership");
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new Membership { Id = Guid.NewGuid(), UserId = clerk.Id, TenantSlug = slug, Status = MembershipStatus.Active });
+            await session.SaveChangesAsync();
+        }
+
+        var allowed = await SubmitAsync();
+
+        allowed.Outcome.Should().Be(ContentTransitionOutcome.Transitioned, string.Join(" ", allowed.Errors));
+        allowed.ToState.Should().Be("Submitted");
+    }
+
+    // ---- an answer that is not one -----------------------------------------------------------
+
+    [Fact]
+    public void A_result_nobody_filled_in_is_not_a_success_and_a_refusal_names_an_error()
+    {
+        default(ContentTransitionOutcome).Should().Be(ContentTransitionOutcome.Unknown);
+        ((int)ContentTransitionOutcome.Transitioned).Should().NotBe(0);
+        Unbuildable(ContentTransitionOutcome.Unknown).Succeeded.Should().BeFalse();
+
+        var empty = () => ContentTransitionResult.Invalid(Array.Empty<string>());
+        empty.Should().Throw<ArgumentException>();
+        ContentTransitionResult.Invalid(["one"]).Errors.Should().Equal("one");
+    }
+
+    /// <summary>
+    /// The endpoint answers 200 for the one outcome that is a move, and fails for anything it has
+    /// no answer to. Both planted results used to fall out of the switch and be answered as a move.
+    /// </summary>
+    [Theory]
+    [InlineData(ContentTransitionOutcome.Unknown)]
+    [InlineData(ContentTransitionOutcome.Invalid)]
+    public async Task The_endpoint_fails_on_an_outcome_it_has_no_answer_for(ContentTransitionOutcome outcome)
+    {
+        var type = await TypeAsync(Review());
+        var (id, _) = await SubmittedAsync(type);
+        var (reviewer, _) = await AdminAsync(RecordingHost());
+        Planted[id] = Unbuildable(outcome);
+
+        var res = await reviewer.PutAsJsonAsync($"/api/contents/{id}/status", new { id, transition = "Approve" });
+
+        res.StatusCode.Should().Be(HttpStatusCode.InternalServerError, await res.Content.ReadAsStringAsync());
+        (await LoadAsync(id)).LifecycleState.Should().Be("Submitted");
+
+        // Nothing planted now, so the same request goes to the real transitioner.
+        var moved = await reviewer.PutAsJsonAsync($"/api/contents/{id}/status", new { id, transition = "Approve" });
+        moved.StatusCode.Should().Be(HttpStatusCode.OK, await moved.Content.ReadAsStringAsync());
+    }
+
     // ---- the endpoint is one caller ---------------------------------------------------------
 
     private sealed record Call(string Transition, ContentTransitionActor Actor, ContentTransitionOptions? Options);
 
     private static readonly ConcurrentDictionary<Guid, Call> Calls = new();
+
+    /// <summary>A result the wrapped transitioner hands back for one entry instead of making the move.</summary>
+    private static readonly ConcurrentDictionary<Guid, ContentTransitionResult> Planted = new();
+
+    /// <summary>
+    /// A result no factory makes, which is what a replaced transitioner or a later outcome looks
+    /// like to the endpoint.
+    /// </summary>
+    private static ContentTransitionResult Unbuildable(ContentTransitionOutcome outcome) =>
+        (ContentTransitionResult)Activator.CreateInstance(
+            typeof(ContentTransitionResult),
+            BindingFlags.Instance | BindingFlags.NonPublic,
+            binder: null,
+            args: new object?[] { outcome, Array.Empty<string>(), null, null, null },
+            culture: null)!;
 
     private sealed class RecordingTransitioner(IContentTransitioner inner) : IContentTransitioner
     {
@@ -576,7 +872,9 @@ public class ContentTransitionerTests
             CancellationToken cancellationToken = default)
         {
             Calls[content.Id] = new Call(transition, actor, options);
-            return inner.TransitionAsync(content, transition, actor, options, cancellationToken);
+            return Planted.TryRemove(content.Id, out var planted)
+                ? Task.FromResult(planted)
+                : inner.TransitionAsync(content, transition, actor, options, cancellationToken);
         }
     }
 

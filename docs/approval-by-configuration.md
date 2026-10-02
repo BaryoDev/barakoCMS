@@ -468,9 +468,9 @@ and the rest of what it requires still applies.
 ## Making a transition from code
 
 A webhook, a job or a module moves an entry through `IContentTransitioner`
-(`barakoCMS.Core.Interfaces`, in `BarakoCMS.Abstractions`), resolved from the scope whose session
-loaded the entry. It applies the rules this page walked through, appends the same events, writes
-the same `content.transitioned` audit row and commits. `ContentTransitionerTests` is the proof.
+(`barakoCMS.Core.Interfaces`, in `BarakoCMS.Abstractions`), resolved from a scope for the entry's
+tenant. It applies the rules this page walked through, appends the same events, writes the same
+`content.transitioned` audit row and commits. `ContentTransitionerTests` is the proof.
 
 ```csharp
 var result = await transitioner.TransitionAsync(
@@ -487,26 +487,53 @@ if (!result.Succeeded)
 The actor is stated, and it is one of two kinds:
 
 - `ForUser(id)` is a stored user. Read on the type and the transition permission are checked
-  through the permission resolver, in the tenant of the scope, as they are for a request. A value
-  in `Data` for a field the user's roles may not see is put back, so a required one counts as not
-  sent. An id that is no user is refused.
+  through the permission resolver the endpoint uses, against the roles the user holds in the tenant
+  of the scope. A value in `Data` for a field the user's roles may not see is put back, so a
+  required one counts as not sent. An id that is no user is refused.
 - `ForSystem("name")` is code under a fixed name. It holds no permissions, so on its own it is
   refused. `SkipPermissionChecks = true` is the caller saying it authorised the move itself.
 
-`SkipPermissionChecks` is off unless set, works for either kind of actor, and skips three things:
-read on the type, the transition permission, and field sensitivity on the values sent. It does not
-skip the lifecycle (a move from the wrong state is `Conflict`), the required fields, validation,
-the before-save hooks, or the self transition rule for a user actor. A system actor is not subject
-to the self transition rule, which is about the person who raised the entry.
-
-What is recorded: the events carry the user's id, or `Guid.Empty` for a system actor, which is what
-scheduled publishing and collection syncs already record. The audit row carries the user's id and
-username, or neither for a system actor, with `"actor": "system:<name>"` in its metadata. A move
-made with the checks skipped has `"permissionChecks": "skipped"` in the metadata.
+`SkipPermissionChecks` is off unless set, works for either kind of actor, and skips four things:
+tenant membership (below), read on the type, the transition permission, and field sensitivity on
+the values sent. It does not skip the lifecycle (a move from the wrong state is `Conflict`), the
+required fields, validation, the before-save hooks, or the self transition rule for a user actor.
+A system actor is not subject to the self transition rule, which is about the person who raised
+the entry.
 
 The result's `Outcome` is `Transitioned`, `Forbidden`, `Invalid` or `Conflict`, which the endpoint
-answers as `200`, `403`, `400` and `409`. The call commits the scope's session, so anything staged
-in it beforehand commits with the move.
+answers as `200`, `403`, `400` and `409`. Check it for `Transitioned`, or read `Succeeded`: the
+zero value, `Unknown`, is never returned and is not a success.
+
+### What a module author has to know
+
+**A user actor is not a request by that user.** A request carries a token, and a token is only
+issued to a user who is not locked out and whose sessions have not been revoked. Neither is read
+for a user actor named from code: naming the user is the calling code saying this user is acting,
+and the code is trusted to have established that. One rule of the token issuer is applied. In a
+registered tenant, the tenant has to be active and the user has to hold an active membership in
+it, so a user's global roles alone do not let them act in a tenant they could hold no token for.
+The default tenant and a slug nobody registered have no membership to check. Inside the user's own
+request for the same tenant none of this is asked again, since the token already answered it.
+
+**The entry you pass may be stale.** The service reads the entry again before it writes. If its
+lifecycle state is no longer the one your copy holds, the answer is `Conflict` and nothing is
+written. The write is bound to the version that second read saw, so a write that lands after it
+is a `Conflict` too. Load the entry again and decide again.
+
+**History does not say the checks were skipped.** The events carry the user's id, or `Guid.Empty`
+for a system actor, which is what scheduled publishing and collection syncs already record, and
+nothing else. So `GET /api/contents/{id}/history` shows a move made with `SkipPermissionChecks` as
+an ordinary move by that user, and shows every system actor as the same empty id with no name. The
+`content.transitioned` audit row is the record of who or what made the move and on whose authority:
+the user's id and username, or neither for a system actor with `"actor": "system:<name>"` in its
+metadata, and `"permissionChecks": "skipped"` when the checks were skipped.
+
+**A system name is not reserved.** Nothing stops two modules using the same name, and the audit row
+cannot tell them apart if they do. Prefix it with the module's own name.
+
+**The call commits.** It saves the scope's session, so anything staged in that session beforehand
+commits with the move. After a `Conflict` that came from the commit, the session still holds what
+was staged; do not reuse it.
 
 ## What this page does not cover
 

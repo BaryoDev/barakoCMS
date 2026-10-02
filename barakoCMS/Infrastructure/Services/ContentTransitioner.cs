@@ -82,6 +82,20 @@ internal sealed class ContentTransitioner(
                 "A system actor holds no permissions. Set SkipPermissionChecks to make the move on the caller's own authority.");
         }
 
+        // Inside the actor's own request for this tenant, the token is what says the user may act
+        // here, and nothing more is asked. Anywhere else no token was presented, so the rule a
+        // token is issued under is applied: global roles do not let a user act in a registered
+        // tenant they hold no active membership in.
+        var ownRequest = user is null ? null : OwnRequest(user);
+
+        if (user is not null
+            && ownRequest is null
+            && !skipPermissionChecks
+            && await TenantAccessDenialAsync(user, ct) is { } denial)
+        {
+            return ContentTransitionResult.Forbidden(denial);
+        }
+
         var definition = await session.Query<ContentTypeDefinition>()
             .FirstOrDefaultAsync(d => d.Name == content.ContentType, ct);
 
@@ -189,39 +203,46 @@ internal sealed class ContentTransitioner(
         var errors = new List<string>();
         Dictionary<string, object>? data = null;
         var sentValues = new Dictionary<FieldDefinition, object?>();
-        IReadOnlyDictionary<string, object> stored = content.Data;
         long? streamVersion = null;
         Guid? documentVersion = null;
 
+        // The version first, the entry second, for every move and not only one that sends data.
+        //
+        // The checks above read the caller's copy, which is as old as the caller made it: loaded at
+        // the top of a request, or by a module before it called somewhere else. The writer rebuilds
+        // the document on what is stored and the transition event sets the state whatever it was,
+        // so a move checked against a stale Draft would be applied to an entry that has since
+        // become Approved, and answered as a success. Reading the entry again and comparing its
+        // state is what refuses that.
+        //
+        // Sent values are laid over a copy of the whole bag for the same reason: a bag read before
+        // another writer's write would put that writer's fields back as they were.
+        //
+        // Reading the version before the entry means a write before this point is in the copy, and
+        // a write after it fails this one. An event-sourced type is guarded by its stream version,
+        // which the writer binds to the append. Every other type is guarded by the document's own
+        // version, bound below.
+        if (await sourcing.IsEventSourcedAsync(content.ContentType, ct))
+        {
+            streamVersion = (await session.Events.FetchStreamStateAsync(content.Id, ct))?.Version ?? 0;
+        }
+        else
+        {
+            documentVersion = (await session.MetadataForAsync(content, ct))?.CurrentVersion;
+        }
+
+        var current = await session.LoadAsync<Content>(content.Id, ct);
+
+        if (current is null
+            || !string.Equals(current.LifecycleState, content.LifecycleState, StringComparison.Ordinal))
+        {
+            return ContentTransitionResult.Conflict(ChangedByAnotherWriter);
+        }
+
+        IReadOnlyDictionary<string, object> stored = current.Data;
+
         if (takes.TakesFields && options?.Data is { Count: > 0 } sent)
         {
-            // The version first, the entry second. The sent values are laid over a copy of the
-            // whole bag, and a bag read before another writer's commit would put that writer's
-            // fields back as they were. Reading the version and then the entry again means a write
-            // before this point is in the copy, and a write after it fails the commit.
-            //
-            // An event-sourced type is guarded by its stream version, which the writer binds to the
-            // append. Every other type is guarded by the document's own version, bound below.
-            if (await sourcing.IsEventSourcedAsync(content.ContentType, ct))
-            {
-                streamVersion = (await session.Events.FetchStreamStateAsync(content.Id, ct))?.Version ?? 0;
-            }
-            else
-            {
-                documentVersion = (await session.MetadataForAsync(content, ct))?.CurrentVersion;
-            }
-
-            var current = await session.LoadAsync<Content>(content.Id, ct);
-
-            // The checks above read the first copy. If the entry moved state since, they answered
-            // for a state it is no longer in.
-            if (current is null
-                || !string.Equals(current.LifecycleState, content.LifecycleState, StringComparison.Ordinal))
-            {
-                return ContentTransitionResult.Conflict(ChangedByAnotherWriter);
-            }
-
-            stored = current.Data;
             data = new Dictionary<string, object>(current.Data, current.Data.Comparer);
 
             var notTaken = 0;
@@ -263,7 +284,7 @@ internal sealed class ContentTransitioner(
             if (!skipPermissionChecks)
             {
                 await services.GetRequiredService<ISensitivityService>().ApplyWriteAsync(
-                    content.ContentType, data, stored, await PrincipalContextAsync(user!, ct), ct);
+                    content.ContentType, data, stored, ownRequest ?? await BuiltRequestAsync(user!, ct), ct);
             }
         }
 
@@ -334,20 +355,13 @@ internal sealed class ContentTransitioner(
 
         try
         {
-            if (data is null)
-            {
-                await contentWriter.AppendOptimisticAsync(content, events, ct);
-            }
-            else
-            {
-                await contentWriter.AppendAsync(content, events, streamVersion, ct);
+            await contentWriter.AppendAsync(content, events, streamVersion, ct);
 
-                // After the append and before the commit: the writer loads the document again to
-                // store it, and a version bound before that load is discarded.
-                if (documentVersion is { } expected)
-                {
-                    session.UpdateExpectedVersion(content, expected);
-                }
+            // After the append and before the commit: the writer loads the document again to
+            // store it, and a version bound before that load is discarded.
+            if (documentVersion is { } expected)
+            {
+                session.UpdateExpectedVersion(content, expected);
             }
 
             await AuditLog.RecordAsync(session, tenant.Slug, "content.transitioned", actor.UserId, user?.Username,
@@ -372,48 +386,103 @@ internal sealed class ContentTransitioner(
     }
 
     /// <summary>
-    /// The principal field sensitivity is answered for.
+    /// The current request, when the actor is its caller and it was resolved to this scope's tenant.
     /// </summary>
     /// <remarks>
-    /// The sensitivity service reads the caller from an HttpContext. When the actor is the caller
-    /// of the current request, that request is the answer, which is what the endpoint has always
-    /// passed. Anywhere else (a job, a webhook, a request made by somebody else) there is no
-    /// request of the actor's to read, so one is built from the roles the user holds in this
-    /// tenant, the same claims a token or an API key for that user would carry.
+    /// Both halves matter. A request made by somebody else says nothing about the actor. A request
+    /// by the actor for another tenant carries a token issued for that tenant, with that tenant's
+    /// role names on it, and code that opens a scope for this tenant from inside it must not have
+    /// those names read as roles held here.
     /// </remarks>
-    private async Task<HttpContext> PrincipalContextAsync(User user, CancellationToken ct)
+    private HttpContext? OwnRequest(User user)
     {
         var request = httpContextAccessor.HttpContext;
-        if (request is not null
-            && Guid.TryParse(request.User.FindFirst("UserId")?.Value, out var caller)
-            && caller == user.Id)
+        if (request is null
+            || !Guid.TryParse(request.User.FindFirst("UserId")?.Value, out var caller)
+            || caller != user.Id)
         {
-            return request;
+            return null;
         }
 
-        var roleIds = await MembershipRoles.EffectiveRoleIdsAsync(session, user, tenant.Slug, ct);
-        var roleNames = await session.Query<Role>()
-            .Where(r => roleIds.Contains(r.Id))
-            .Select(r => r.Name)
-            .ToListAsync(ct);
+        var requestTenant = request.RequestServices?.GetService<TenantContext>();
+        return requestTenant is not null && string.Equals(requestTenant.Slug, tenant.Slug, StringComparison.Ordinal)
+            ? request
+            : null;
+    }
 
+    /// <summary>
+    /// Null when the user could hold a token for this scope's tenant, otherwise why not.
+    /// </summary>
+    /// <remarks>
+    /// The rule a token is issued under: the default tenant and a slug nobody registered have no
+    /// membership model, and a registered tenant has to be active and the user an active member.
+    /// </remarks>
+    private async Task<string?> TenantAccessDenialAsync(User user, CancellationToken ct)
+    {
+        if (tenant.IsDefault)
+        {
+            return null;
+        }
+
+        var slug = tenant.Slug;
+        var userId = user.Id;
+
+        var registered = await session.Query<Tenant>().FirstOrDefaultAsync(t => t.Slug == slug, ct);
+        if (registered is null)
+        {
+            return null;
+        }
+
+        if (!registered.IsActive)
+        {
+            return "The tenant is inactive.";
+        }
+
+        var isMember = await session.Query<Membership>()
+            .AnyAsync(m => m.UserId == userId && m.TenantSlug == slug && m.Status == MembershipStatus.Active, ct);
+
+        return isMember ? null : "The actor has no active membership in this tenant.";
+    }
+
+    /// <summary>
+    /// A request to answer field sensitivity for, when the actor has none of their own here.
+    /// </summary>
+    /// <remarks>
+    /// The sensitivity service reads the caller from an HttpContext, so one is made that names the
+    /// user. The UserId claim is the part that identifies them. The role claims are there because
+    /// the service reads role names off the principal today, and they are the names of the roles
+    /// the user holds in this tenant, which is what a token for the user would carry.
+    /// </remarks>
+    private async Task<HttpContext> BuiltRequestAsync(User user, CancellationToken ct)
+    {
         var claims = new List<Claim>
         {
             new("UserId", user.Id.ToString()),
             new("Username", user.Username),
             new("tenant", tenant.Slug),
         };
-        foreach (var role in roleNames)
-        {
-            claims.Add(new Claim(ClaimTypes.Role, role));
-        }
 
-        if (roleNames.Count == 0)
-        {
-            claims.Add(new Claim(ClaimTypes.Role, "User"));
-        }
+        claims.AddRange(await RoleClaimsAsync(user, ct));
 
         var identity = new ClaimsIdentity(claims, nameof(ContentTransitioner), "Username", ClaimTypes.Role);
         return new DefaultHttpContext { User = new ClaimsPrincipal(identity), RequestServices = services };
+    }
+
+    // Needed only while the sensitivity service reads role names off the principal. Once it
+    // resolves the caller's stored roles from the UserId claim, this method and its one call go.
+    private async Task<List<Claim>> RoleClaimsAsync(User user, CancellationToken ct)
+    {
+        var roleIds = await MembershipRoles.EffectiveRoleIdsAsync(session, user, tenant.Slug, ct);
+        var roleNames = await session.Query<Role>()
+            .Where(r => roleIds.Contains(r.Id))
+            .Select(r => r.Name)
+            .ToListAsync(ct);
+
+        if (roleNames.Count == 0)
+        {
+            roleNames.Add("User");
+        }
+
+        return roleNames.Select(name => new Claim(ClaimTypes.Role, name)).ToList();
     }
 }

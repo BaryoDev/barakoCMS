@@ -168,6 +168,13 @@ internal class Endpoint(
 
         switch (result.Outcome)
         {
+            case ContentTransitionOutcome.Transitioned:
+                await Send.ResponseAsync(new Response
+                {
+                    Message = $"{result.Transition} moved this entry to {result.ToState}",
+                });
+                return;
+
             case ContentTransitionOutcome.Forbidden:
                 await Send.ForbiddenAsync(ct);
                 return;
@@ -183,12 +190,14 @@ internal class Endpoint(
                 }
 
                 ThrowIfAnyErrors();
-                return;
+                break;
         }
 
-        await Send.ResponseAsync(new Response
-        {
-            Message = $"{result.Transition} moved this entry to {result.ToState}",
-        });
+        // Success is one named outcome and nothing else. An outcome this endpoint does not know,
+        // or a refusal that came with no error to give, is a fault and answers 500: the transitioner
+        // is replaceable, and treating whatever is left over as a move that was made would answer
+        // 200 for one that was not.
+        throw new InvalidOperationException(
+            $"The transitioner answered {result.Outcome} with {result.Errors.Count} error(s), which this endpoint cannot turn into a response.");
     }
 }
