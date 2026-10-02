@@ -289,7 +289,9 @@ share one global bucket. Give it a key instead:
 
 A request with the header `X-Barako-Renderer-Key` equal to the key is counted in one renderer bucket
 instead of its IP's bucket. A missing or wrong key is an ordinary request, counted against its IP. The
-key only affects the global limit: `Auth`, `Batch` and `Registration` stay per IP with or without it.
+key moves a request to the renderer bucket of the global limit, and such a request is not counted by
+the delivery limit below when one is set. `Auth`, `Batch` and `Registration` stay per IP with or
+without it.
 The key is compared in constant time and never logged. Keep it in `.env` like the JWT key, and set the
 same value in barakoPress (`CMS_RENDERER_KEY`).
 
@@ -342,21 +344,28 @@ quota. One number applies to every key; a key cannot be given its own.
 A policy is a name, numbers and what it counts against:
 
 ```yaml
-- RateLimiting__Policies__booking-lookup__PermitLimit=20
-- RateLimiting__Policies__booking-lookup__WindowSeconds=60
-- RateLimiting__Policies__booking-lookup__Partition=Ip
+- RateLimiting__Policies__lookup__PermitLimit=20
+- RateLimiting__Policies__lookup__WindowSeconds=60
+- RateLimiting__Policies__lookup__Partition=Ip
 ```
 
-A route in a module or in the host names it in code, `RequireRateLimiting("booking-lookup")`, so
+A route in a module or in the host names it in code, `RequireRateLimiting("lookup")`, so
 its numbers can change without a build. `Partition` is `Ip` (the default), `User` or `ApiKey`. With
 `User` or `ApiKey` a caller who has no such id, an anonymous one for instance, is counted in one
 bucket shared by every such caller.
 
 A name is up to 64 letters, digits, dashes, underscores and dots, and must be spelled on the route
-exactly as in configuration, case included. The built-in names (`auth`, `telemetry`,
-`registration`, `site-share`, `logout`, `delivery`) cannot be defined here; the sections above set
-those. A route of core, the host or a registered module that names a policy nobody defined stops the
-host at startup with the route and the policy named.
+exactly as in configuration, case included. A name with a dash or a dot cannot be exported as an
+environment variable from a POSIX shell, so keep to letters, digits and underscores if that is how
+you set it.
+
+The core's own names are reserved: `auth`, `telemetry`, `registration`, `site-share`, `logout` and,
+new in this release, `delivery`. They cannot be defined under `Policies`; the sections above set
+them. A host or a module that registers its own policy named `delivery` in code stops at startup
+with a message saying to rename it. A name under `Policies` that a module already registers in code
+(`forms`, with the Forms module on) stops the host the same way, naming the setting. A route of
+core, the host or a registered module that names a policy nobody defined stops the host at startup
+with the route and the policy named.
 
 #### What these counters are
 
@@ -366,8 +375,9 @@ is dropped about ten seconds after its window has passed with no request, so the
 is the number of distinct clients, users or keys seen in the last window, not all that were ever
 seen. There is no fixed cap on that number.
 
-`NamedRateLimitPolicyTests` covers the defaults, the startup failures, a configured policy, a forged
-`X-Forwarded-For`, the delivery limit and the key quota.
+`NamedRateLimitPolicyTests` covers the defaults, the settings that stop the host, a configured
+policy, a forged `X-Forwarded-For`, the delivery limit and the key quota. `RateLimitStartupCheckTests`
+covers a route naming a missing policy and the reserved names, on a real host.
 
 ## Content type field limit
 

@@ -59,9 +59,9 @@ internal sealed record RateLimitSettings(
 /// <para>
 /// The renderer partition exists because one barakoPress container renders every site it serves
 /// from one IP, so all of those sites shared one global bucket. A request carrying the configured
-/// key in <see cref="RendererHeader"/> is counted in its own bucket instead. Only the global limiter
-/// honours it. The auth, telemetry and registration policies stay per IP, since a leaked renderer
-/// key must not buy extra password guesses.
+/// key in <see cref="RendererHeader"/> is counted in its own bucket instead. The global limiter
+/// honours it, and the delivery limit leaves such a request to that bucket. The auth, telemetry and
+/// registration policies stay per IP, since a leaked renderer key must not buy extra password guesses.
 /// </para>
 /// <para>
 /// The site share policy is per tenant and per visitor. barakoPress redeems share links server side,
@@ -239,9 +239,19 @@ internal static class RateLimitSetup
     /// </remarks>
     public static void RequireRegisteredPolicies(IApplicationBuilder app)
     {
-        if (app is not IEndpointRouteBuilder routes)
+        // The same cast UseFastEndpoints makes earlier in UseBarakoCMS, so it holds by now.
+        var routes = (IEndpointRouteBuilder)app;
+
+        // The options are built here for the first time, which is where two registrations of one
+        // policy name surface.
+        RateLimiterOptions options;
+        try
         {
-            return;
+            options = app.ApplicationServices.GetRequiredService<Microsoft.Extensions.Options.IOptions<RateLimiterOptions>>().Value;
+        }
+        catch (ArgumentException duplicate) when (duplicate is not ArgumentNullException && duplicate.ParamName == "policyName")
+        {
+            throw DuplicatePolicy(duplicate, Read(app.ApplicationServices.GetRequiredService<IConfiguration>()));
         }
 
         var owned = new HashSet<System.Reflection.Assembly> { typeof(RateLimitSetup).Assembly };
@@ -260,7 +270,41 @@ internal static class RateLimitSetup
                 .SelectMany(source => source.Endpoints)
                 .Where(endpoint => endpoint.Metadata.GetMetadata<FastEndpoints.EndpointDefinition>() is not { } definition
                     || owned.Contains(definition.EndpointType.Assembly)),
-            app.ApplicationServices.GetRequiredService<Microsoft.Extensions.Options.IOptions<RateLimiterOptions>>().Value);
+            options);
+    }
+
+    /// <summary>
+    /// Says which setting or registration to rename when two of them add a policy of one name.
+    /// </summary>
+    /// <remarks>
+    /// The core, a module and the host all add policies to the same options, in registration order,
+    /// and the framework refuses the second with a message that names no setting. Whichever came
+    /// second, the name is in that message, so it is matched here against the names the core adds.
+    /// <c>delivery</c> gets its own wording because a host that registered that name itself started
+    /// before the core took it.
+    /// </remarks>
+    internal static InvalidOperationException DuplicatePolicy(ArgumentException duplicate, RateLimitSettings settings)
+    {
+        bool Names(string name) => duplicate.Message.Contains($"the name {name}. (", StringComparison.Ordinal);
+
+        if (settings.Policies.FirstOrDefault(policy => Names(policy.Name)) is { } configured)
+        {
+            return new InvalidOperationException(
+                $"{Section}:Policies:{configured.Name} has the name of a rate limit policy that a module or the host "
+              + "registers in code. Give the setting another name.", duplicate);
+        }
+
+        if (Names(DeliveryPolicy))
+        {
+            return new InvalidOperationException(
+                $"A module or the host registers its own rate limit policy named '{DeliveryPolicy}'. The core now "
+              + $"registers that name for the public delivery routes ({Section}:Delivery), so it is reserved from this "
+              + "release on. Rename the policy registered in code, and the routes that name it.", duplicate);
+        }
+
+        return new InvalidOperationException(
+            $"Two registrations add a rate limit policy of the same name. {duplicate.Message} The core registers "
+          + $"{string.Join(", ", BuiltInPolicies.Keys)} and every name under {Section}:Policies.", duplicate);
     }
 
     internal static void RequireRegisteredPolicies(IEnumerable<Endpoint> endpoints, RateLimiterOptions options)

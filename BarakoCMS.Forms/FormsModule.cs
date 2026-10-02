@@ -23,6 +23,7 @@ public sealed class FormsModule : IBarakoModule
     public void ConfigureServices(IServiceCollection services, IConfiguration configuration)
     {
         // `configuration` is this module's own section, Modules:Forms.
+        FormsOptions.RequireValidPerForm(configuration);
         services.Configure<FormsOptions>(configuration);
         services.AddHttpClient<ITurnstileVerifier, TurnstileVerifier>();
 
@@ -46,17 +47,10 @@ public sealed class FormsModule : IBarakoModule
     internal static RateLimitPartition<string> Partition(HttpContext context, FormsOptions limits)
     {
         var ip = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-        var slug = context.Request.RouteValues["slug"] as string;
 
-        foreach (var (form, own) in limits.PerForm)
-        {
-            if (own is not null && string.Equals(form, slug, StringComparison.OrdinalIgnoreCase))
-            {
-                return Window($"forms-form|{form}|{ip}", own.PermitLimit, own.WindowSeconds);
-            }
-        }
-
-        return Window($"forms-{ip}", limits.PermitLimit, limits.WindowSeconds);
+        return limits.OwnLimit(context.Request.RouteValues["slug"] as string) is { } own
+            ? Window($"forms-form|{own.Form}|{ip}", own.PermitLimit, own.WindowSeconds)
+            : Window($"forms-{ip}", limits.PermitLimit, limits.WindowSeconds);
     }
 
     private static RateLimitPartition<string> Window(string key, int permitLimit, int windowSeconds) =>

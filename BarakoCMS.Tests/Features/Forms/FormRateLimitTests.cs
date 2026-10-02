@@ -6,6 +6,7 @@ using BarakoCMS.Forms;
 using FluentAssertions;
 using Marten;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -34,6 +35,65 @@ public class FormRateLimitTests
         options.PermitLimit.Should().Be(5);
         options.WindowSeconds.Should().Be(600);
         options.PerForm.Should().BeEmpty();
+    }
+
+    private static IConfigurationSection FormsSection(params (string Key, string Value)[] settings) =>
+        new ConfigurationBuilder()
+            .AddInMemoryCollection(settings.Select(s => new KeyValuePair<string, string?>($"Modules:Forms:{s.Key}", s.Value)))
+            .Build()
+            .GetSection("Modules:Forms");
+
+    [Theory]
+    [InlineData("PermitLimit", "0")]
+    [InlineData("PermitLimit", "-3")]
+    [InlineData("PermitLimit", "lots")]
+    [InlineData("WindowSeconds", "0")]
+    [InlineData("WindowSeconds", "1.5")]
+    public void A_per_form_value_that_is_not_a_whole_number_above_zero_stops_the_module_naming_the_setting(string key, string value)
+    {
+        var section = FormsSection(($"PerForm:registration:{key}", value));
+
+        Action configure = () => new FormsModule().ConfigureServices(new ServiceCollection(), section);
+
+        configure.Should().Throw<InvalidOperationException>(
+                "clamped to one it would run as close to no limit, and left to the binder it would fail on the first submission")
+            .WithMessage($"*Modules:Forms:PerForm:registration:{key}*");
+    }
+
+    [Fact]
+    public void Valid_per_form_values_register_and_the_shared_values_are_not_checked()
+    {
+        var section = FormsSection(
+            ("PermitLimit", "0"),
+            ("PerForm:registration:PermitLimit", "20"),
+            ("PerForm:registration:WindowSeconds", "60"));
+
+        Action configure = () => new FormsModule().ConfigureServices(new ServiceCollection(), section);
+
+        configure.Should().NotThrow("a shared limit of zero has always been raised to one, and a host that sets it starts today");
+    }
+
+    [Fact]
+    public void A_per_form_entry_with_only_a_permit_limit_takes_the_configured_shared_window()
+    {
+        var options = FormsSection(
+            ("WindowSeconds", "120"),
+            ("PerForm:registration:PermitLimit", "20"),
+            ("PerForm:lookup:WindowSeconds", "30")).Get<FormsOptions>()!;
+
+        var registration = options.OwnLimit("REGISTRATION");
+        registration.HasValue.Should().BeTrue("the slug is matched in any case");
+        registration!.Value.Form.Should().Be("registration", "the bucket is keyed on the configured spelling");
+        registration.Value.PermitLimit.Should().Be(20);
+        registration.Value.WindowSeconds.Should().Be(120, "the shared window as configured, not the built-in 600");
+
+        var lookup = options.OwnLimit("lookup");
+        lookup.HasValue.Should().BeTrue();
+        lookup!.Value.PermitLimit.Should().Be(5, "the shared limit, which nothing here changed");
+        lookup.Value.WindowSeconds.Should().Be(30);
+
+        options.OwnLimit("contact").HasValue.Should().BeFalse("a form nobody configured has no limit of its own");
+        options.OwnLimit(null).HasValue.Should().BeFalse();
     }
 
     [Fact]

@@ -59,17 +59,14 @@ internal sealed class RateLimitAfterAuthentication
         lifetime.ApplicationStopped.Register(limiter.Dispose);
     }
 
-    public async Task InvokeAsync(HttpContext context)
-    {
-        if (_limiter is null)
-        {
-            await _next(context);
-            return;
-        }
+    public Task InvokeAsync(HttpContext context) =>
+        _limiter is null ? _next(context) : Limited(context, _limiter);
 
+    private async Task Limited(HttpContext context, PartitionedRateLimiter<Bucket> limiter)
+    {
         if (_apiKeyQuota is { } quota
             && VerifiedClaim(context.User, ApiKeyClaim) is { } keyId
-            && !await Acquire(_limiter, context, new Bucket($"apikey|{keyId}", quota)))
+            && !await Acquire(limiter, context, new Bucket($"apikey|{keyId}", quota)))
         {
             return;
         }
@@ -77,7 +74,7 @@ internal sealed class RateLimitAfterAuthentication
         var named = context.GetEndpoint()?.Metadata.GetMetadata<EnableRateLimitingAttribute>()?.PolicyName;
         if (named is not null
             && _policies.TryGetValue(named, out var policy)
-            && !await Acquire(_limiter, context, new Bucket(PolicyKey(policy, context.User), policy.Window)))
+            && !await Acquire(limiter, context, new Bucket(PolicyKey(policy, context.User), policy.Window)))
         {
             return;
         }
