@@ -31,7 +31,14 @@ internal sealed class ConnectorDeliveryResponse
     public string? Method { get; init; }
     public string Url { get; init; } = string.Empty;
     public string Event { get; init; } = string.Empty;
-    public Dictionary<string, string> RequestHeaders { get; init; } = new();
+
+    /// <summary>
+    /// Null for a caller without <c>view_webhook_response_bodies</c>. A header an operator wrote
+    /// under a name that does not read as a credential is stored with its value, and reading a
+    /// request definition, where that value lives, needs a capability this list does not ask for.
+    /// </summary>
+    public Dictionary<string, string>? RequestHeaders { get; init; }
+
     public int RequestsSent { get; init; }
     public int? ResponseStatus { get; init; }
     public string? ResponseBody { get; init; }
@@ -43,7 +50,7 @@ internal sealed class ConnectorDeliveryResponse
 
     /// <summary>
     /// <paramref name="canReadResponseBody"/> is resolved once for the request, the way the webhook
-    /// delivery list does it.
+    /// delivery list does it, and decides the request headers as well as the response body.
     /// </summary>
     public static ConnectorDeliveryResponse From(WebhookDelivery d, bool canReadResponseBody) => new()
     {
@@ -56,7 +63,7 @@ internal sealed class ConnectorDeliveryResponse
         Method = d.Method,
         Url = d.Url,
         Event = d.Event,
-        RequestHeaders = d.RequestHeaders,
+        RequestHeaders = canReadResponseBody ? d.RequestHeaders : null,
         RequestsSent = d.RequestsSent ?? 0,
         ResponseStatus = d.ResponseStatus,
         ResponseBody = canReadResponseBody ? d.ResponseBody : null,

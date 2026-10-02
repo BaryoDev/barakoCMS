@@ -9,8 +9,8 @@ namespace barakoCMS.Models;
 /// the application log was the only place that could answer it. One row per attempt, so a retry is
 /// a second row rather than an overwrite of the first.
 ///
-/// The URL is stored redacted (scheme, host, port, path) the way the run error is, because a webhook
-/// URL routinely carries a token in its query and this row is served over the API. The signature
+/// The URL is stored redacted (scheme, host and port) the way the run error is, because a webhook
+/// URL routinely carries a token in its path or query and this row is served over the API. The signature
 /// header is deliberately absent from <see cref="RequestHeaders"/>: a signature over a known body is
 /// a hash of the secret, and a table of them is an offline guessing target.
 ///
@@ -34,7 +34,7 @@ public class WebhookDelivery
     /// <summary>The run this delivery was part of, when the runner made it.</summary>
     public Guid? RunId { get; set; }
 
-    /// <summary>Scheme, host, port and path. Never the userinfo or the query.</summary>
+    /// <summary>Scheme, host and port. Never the userinfo, the path or the query.</summary>
     public string Url { get; set; } = string.Empty;
 
     /// <summary>The trigger event of the workflow that fired, for example <c>Published</c>.</summary>
@@ -72,10 +72,11 @@ public class WebhookDelivery
     /// </summary>
     /// <remarks>
     /// A connector row follows the rules above with three differences. <see cref="RequestHeaders"/>
-    /// keeps the name of a header that carries a credential and replaces its value. The values that
-    /// went on the request as credentials are cut out of <see cref="ResponseBody"/> before it is
-    /// stored. <see cref="Error"/> also says when a response arrived and the request's success rule
-    /// was not met.
+    /// keeps the name of a header that carries a credential and replaces its value, and is read
+    /// with the capability that reads <see cref="ResponseBody"/>. The values that went on the
+    /// request as credentials are cut out of <see cref="ResponseBody"/> before it is stored.
+    /// <see cref="Error"/> also says when a response arrived and the request's success rule was not
+    /// met.
     /// </remarks>
     public Guid? ConnectorId { get; set; }
 

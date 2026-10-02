@@ -468,7 +468,7 @@ says.
 | `Features/Workflows/*` | `manage_workflows` | `/api/workflows`, `/api/workflows/actions`, `/variables`, `/validate`, `/dry-run`, `PUT /api/workflows/{id}/enabled`, `DELETE /api/workflows/{id}`, `POST /api/workflow-runs/{id}/cancel` | SuperAdmin, Admin |
 | `Features/WorkflowRuns/*` | `view_workflow_runs` | `GET /api/workflow-runs`, `GET /api/workflow-runs/{id}`, `GET /api/workflows/{id}/debug`, `GET /api/webhook-deliveries`, `GET /api/connector-deliveries` | SuperAdmin, Admin |
 | `Features/WorkflowRuns/*` | `retry_workflow_actions` | `POST /api/workflow-runs/{id}/actions/{ordinal}/retry` | SuperAdmin, Admin |
-| `Features/WebhookDeliveries/*`, `Features/ConnectorDeliveries/*` | `view_webhook_response_bodies` | The `responseBody` field on `GET /api/webhook-deliveries` and `GET /api/connector-deliveries`, nothing else on the row | SuperAdmin |
+| `Features/WebhookDeliveries/*`, `Features/ConnectorDeliveries/*` | `view_webhook_response_bodies` | The `responseBody` field on `GET /api/webhook-deliveries`, and the `responseBody` and `requestHeaders` fields on `GET /api/connector-deliveries`, nothing else on the row | SuperAdmin |
 | `Features/Content/History/*` | `rollback_content` | `POST /api/contents/{id}/rollback/{versionId}` | SuperAdmin, Admin |
 | `Features/Content/Erase/*` | `erase_content` | `DELETE /api/contents/{id}/erase` | SuperAdmin |
 | `Features/Jobs/*` | `view_jobs` | `GET /api/jobs` | SuperAdmin, Admin |

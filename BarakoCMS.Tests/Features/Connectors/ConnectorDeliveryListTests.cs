@@ -93,7 +93,7 @@ public class ConnectorDeliveryListTests
     }
 
     [Fact]
-    public async Task A_role_holding_view_workflow_runs_reads_the_row_and_not_the_response_body()
+    public async Task A_role_holding_view_workflow_runs_reads_the_row_and_not_the_response_body_or_the_request_headers()
     {
         var workflowId = Guid.NewGuid();
         await StoreAsync(ConnectorRow(workflowId, responseBody: "what the provider said"));
@@ -107,6 +107,8 @@ public class ConnectorDeliveryListTests
         items[0].GetProperty("responseStatus").GetInt32().Should().Be(200);
         items[0].GetProperty("responseBody").ValueKind.Should().Be(JsonValueKind.Null,
             "a provider's answer can carry a credential in a form the redaction did not know to look for");
+        items[0].GetProperty("requestHeaders").ValueKind.Should().Be(JsonValueKind.Null,
+            "a header an operator wrote is read where it is configured, which this capability does not reach");
     }
 
     [Fact]
@@ -122,6 +124,7 @@ public class ConnectorDeliveryListTests
         var items = json.RootElement.GetProperty("items");
         items.GetArrayLength().Should().Be(1);
         items[0].GetProperty("responseBody").GetString().Should().Be("what the provider said");
+        items[0].GetProperty("requestHeaders").GetProperty("X-Trace").GetString().Should().Be("trace-1");
     }
 
     [Fact]
@@ -246,6 +249,7 @@ public class ConnectorDeliveryListTests
         Method = "POST",
         Url = "https://api.example.com",
         Event = "Published",
+        RequestHeaders = new() { ["X-Trace"] = "trace-1" },
         RequestsSent = 2,
         ResponseStatus = status,
         ResponseBody = responseBody,

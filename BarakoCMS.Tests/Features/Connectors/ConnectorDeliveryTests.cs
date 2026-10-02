@@ -231,6 +231,101 @@ public class ConnectorDeliveryTests : IAsyncLifetime
         }
     }
 
+    /// <summary>
+    /// Red without the query parameters in the secret set: the stored URL was already clean, and
+    /// the key came back in through the answer.
+    /// </summary>
+    [Fact]
+    public async Task A_credential_in_the_query_is_not_stored_when_the_provider_quotes_the_url()
+    {
+        var tenant = NewTenant();
+        var key = "query-key-" + Guid.NewGuid().ToString("n");
+
+        var host = Api(call => OAuthProviderStub.Json(
+            HttpStatusCode.NotFound,
+            $"{{\"error\":\"no such route\",\"url\":\"{call.Path}?api_key={key}&page=2\"}}"));
+        var connector = await SeedAsync(tenant, host, ConnectorAuth.None);
+
+        await using var session = Store.QuerySession(tenant);
+        var result = await Sender(session).SendAsync(
+            connector, new ComposedRequest("GET", $"https://{host}/things?api_key={key}&page=2", new(), null, null),
+            SuccessRule.TwoHundredRange, null,
+            new ConnectorDeliveryContext("read-it", Guid.NewGuid(), null, "Published", 1), Ct);
+
+        result.StatusCode.Should().Be(404, "got: {0}", result.Error);
+
+        var rows = await RowsAsync(tenant, connector.Id);
+        rows.Should().HaveCount(1);
+        rows[0].Url.Should().Be($"https://{host}");
+        rows[0].ResponseBody.Should().NotBeNull();
+        rows[0].ResponseBody.Should().Contain("no such route");
+        rows[0].ResponseBody.Should().Contain("/things?api_key=" + ConnectorDeliveryRedaction.Marker + "&page=2",
+            "the rest of what the provider said about the URL is kept");
+        JsonSerializer.Serialize(rows[0]).Should().NotContain(key);
+    }
+
+    /// <summary>
+    /// The one path where the answer is read twice, once for the row and once for the rule. Red
+    /// without the change, and red if the read for the row left nothing for the rule to read.
+    /// </summary>
+    [Fact]
+    public async Task A_send_judged_by_a_json_path_rule_keeps_the_answer_it_was_judged_on()
+    {
+        var tenant = NewTenant();
+        var host = Api(_ => OAuthProviderStub.Json(HttpStatusCode.OK, "{\"error\":\"quota exceeded\"}"));
+        var connector = await SeedAsync(tenant, host, ConnectorAuth.None);
+
+        await using var session = Store.QuerySession(tenant);
+        var result = await Sender(session).SendAsync(
+            connector, new ComposedRequest("POST", $"https://{host}/things", new(), "{}", "application/json"),
+            SuccessRule.TwoHundredAndJsonPathAbsent, "error",
+            new ConnectorDeliveryContext("post-it", Guid.NewGuid(), null, "Published", 1), Ct);
+
+        result.Succeeded.Should().BeFalse("the rule read the body and found the path it must not find");
+        result.StatusCode.Should().Be(200);
+
+        var rows = await RowsAsync(tenant, connector.Id);
+        rows.Should().HaveCount(1);
+        rows[0].ResponseStatus.Should().Be(200);
+        rows[0].ResponseBody.Should().Be("{\"error\":\"quota exceeded\"}");
+        rows[0].Error.Should().Be(result.Error);
+        rows[0].Error.Should().Contain("success rule");
+    }
+
+    /// <summary>
+    /// What the sender does not turn into a result still reaches the caller as an exception, and
+    /// still leaves a row. Red without the catch in the recording overload.
+    /// </summary>
+    [Fact]
+    public async Task A_send_that_throws_before_a_request_goes_out_leaves_a_row_and_still_throws()
+    {
+        var tenant = NewTenant();
+        var calls = 0;
+        var host = Api(_ =>
+        {
+            calls++;
+            return OAuthProviderStub.Json(HttpStatusCode.OK, "{}");
+        });
+        var connector = await SeedAsync(tenant, host, ConnectorAuth.None);
+
+        await using var session = Store.QuerySession(tenant);
+        var sender = Sender(session);
+
+        var act = () => sender.SendAsync(
+            connector, new ComposedRequest("NOT A METHOD", $"https://{host}/things", new(), null, null),
+            SuccessRule.TwoHundredRange, null,
+            new ConnectorDeliveryContext("post-it", Guid.NewGuid(), null, "Published", 1), Ct);
+
+        await act.Should().ThrowAsync<FormatException>();
+        calls.Should().Be(0);
+
+        var rows = await RowsAsync(tenant, connector.Id);
+        rows.Should().HaveCount(1);
+        rows[0].RequestsSent.Should().Be(0);
+        rows[0].ResponseStatus.Should().BeNull();
+        rows[0].Error.Should().Contain(nameof(FormatException));
+    }
+
     [Fact]
     public async Task A_send_repeated_after_a_401_is_one_row_that_counts_two_requests()
     {

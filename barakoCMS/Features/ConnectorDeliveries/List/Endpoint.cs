@@ -16,6 +16,10 @@ namespace barakoCMS.Features.ConnectorDeliveries.List;
 /// <see cref="SystemCapabilities.ViewWebhookResponseBodies"/> reads the response body on it. Not the
 /// connector capabilities: nothing here is a connector's configuration, and the person asking "did
 /// it fire" is the one reading runs.
+///
+/// The request headers answer to the narrower capability too, which a webhook row's do not need.
+/// A webhook's headers are all written by this application. A request's are written by an
+/// operator, and reading them where they are configured needs <c>manage_requests</c>.
 /// </remarks>
 internal sealed class Endpoint(
     IQuerySession session,

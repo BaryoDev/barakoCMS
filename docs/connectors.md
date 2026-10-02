@@ -129,23 +129,57 @@ runner made the call, the connector's id and slug, the request's slug, the metho
 scheme, host and port, the request headers, the response status, the response body, the duration
 and `error`, which also says when a response arrived and the request's success rule was not met.
 
-**What a row never holds.** The request body is not stored. A request header keeps its name and
-has `[redacted]` for a value unless its value is exactly what the request definition composed, its
-name does not read as a credential, and it quotes none of the values that were redacted. So the
-header the connector's credential went out in is redacted whatever it is called. The response body
-is the first 4096 bytes, with every redacted header value taken out of it, along with the token
-without its scheme, both halves of a Basic pair, and the value of any field of the request body
-whose name reads as a credential. Only an exact copy is found: a provider that answers with a
-credential encoded some other way is why reading `responseBody` needs
-`view_webhook_response_bodies` on top of `view_workflow_runs`, as it does for a webhook delivery.
+**What a row never holds.** The request body is not stored, and the URL is cut to scheme, host
+and port. A request header keeps its name and has `[redacted]` for a value unless its value is what
+the request definition composed, its name does not read as a credential, and it quotes none of the
+values that were redacted. So the header the connector's credential went out in is redacted
+whatever it is called. A name reads as a credential when the workflow parameter classifier says so
+(with or without its `-` and `_`), when it contains `auth`, `cookie` or `signature`, or when `key`
+stands in it as a whole word, as in `X-Functions-Key` or `Ocp-Apim-Subscription-Key`. An
+idempotency key is not one.
+
+The response body is the first 4096 bytes, with these taken out of it wherever they appear:
+
+- every redacted header value, the token without its scheme, and both halves of a Basic pair;
+- the value of every query parameter of the URL whose name reads as a credential, as written and
+  decoded, and the URL's user info;
+- the value of every field of the request body whose name reads as a credential. A value that is
+  only inside an object with such a name, under a field of its own with an ordinary name, needs six
+  characters to count.
+
+Only an exact copy is found, and a credential written into the path of the URL has no name to be
+found by, so a provider that quotes the path puts it in the stored body. That is why reading
+`responseBody` needs `view_webhook_response_bodies` on top of `view_workflow_runs`, as it does for
+a webhook delivery.
+
+`requestHeaders` needs `view_webhook_response_bodies` too, and is `null` without it. A header an
+operator wrote under an ordinary name is stored with its value, and reading it where it is
+configured needs `manage_requests`, which this list does not ask for.
 
 **Retention** is the webhook delivery sweep in [webhooks.md](webhooks.md): the rows are the same
 document, so `Webhooks:DeliveryLogRetentionDays` removes them and
 `Webhooks:ResponseBodyRetentionHours` clears their response bodies.
 
+The rows are bounded by that sweep and by nothing else: `Webhooks:DeliveryLogRetentionDays` of
+zero or less keeps them forever. There is no setting that stops response bodies being stored, as
+there is none for webhooks.
+
 **If the row cannot be written**, the send's result stands and a warning is logged with the
-connector and request slugs. The write gets five seconds and a database session of its own.
+connector and request slugs. The write gets five seconds and a database session of its own. A send
+the caller cancelled leaves no row. A send that throws before a request goes out (the database
+failing while the credential is read, say) leaves a row naming the exception's type, and still
+throws.
 
 **Not recorded.** A connector test and a collection sync's fetch leave no row: a test's result is
 on the connector and in the audit log, and a sync keeps its own last result. A host that registers
 its own `IConnectorSender` gets no rows either.
+
+**Inside a Conditional.** A `Request` or `Webhook` action that is a child of a `Conditional` is
+handed the trigger and not the run, so its row has no `runId`, an all-zero `workflowId` and
+attempt 1, and the `workflowId` and `runId` filters do not find it. `connector` and `requestSlug`
+do.
+
+**Rolling back.** A release before this one does not know the connector fields. If it runs the
+retention sweep over these rows (after a rollback, or beside this release during a rolling
+deploy), clearing a response body stores the row again without them, and the row then reads as a
+webhook delivery in `GET /api/webhook-deliveries`.

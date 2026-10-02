@@ -74,7 +74,7 @@ internal sealed class ConnectorDeliveryLog(IDocumentStore store) : IConnectorDel
 /// <summary>What one send has shown so far of the row it will leave behind.</summary>
 internal sealed class ConnectorDeliveryDraft(ComposedRequest composed)
 {
-    private readonly HashSet<string> _secrets = ConnectorDeliveryRedaction.BodySecrets(composed);
+    private readonly HashSet<string> _secrets = ConnectorDeliveryRedaction.RequestSecrets(composed);
 
     public Dictionary<string, string> RequestHeaders { get; private set; } = new();
 
@@ -139,16 +139,17 @@ internal sealed class ConnectorDeliveryDraft(ComposedRequest composed)
 /// <remarks>
 /// The sender attaches credentials to the finished request, so the request as sent holds them and
 /// the request as composed does not. That difference is the rule: a header value is kept only when
-/// it is exactly what was composed, its name does not read as a credential, and it holds none of
-/// the values that were replaced. Everything else keeps its name and loses its value.
+/// it is what was composed, its name does not read as a credential, and it holds none of the values
+/// that were replaced. Everything else keeps its name and loses its value.
 ///
 /// The request body is not stored at all, as a webhook row does not store one.
 ///
 /// The response body is cut to <see cref="WebhookDelivery.ResponseBodyLimit"/> the way a webhook
-/// row's is, with one more step: every value replaced in the headers, and the value of every field
-/// of the request body whose name reads as a credential, is also taken out of the response body,
-/// because a provider answering 401 or 400 often quotes what it was sent. Only an exact copy is
-/// found. A provider that echoes a credential encoded some other way is why the body still needs
+/// row's is, with one more step: every value replaced in the headers, the value of every query
+/// parameter of the URL and every field of the request body whose name reads as a credential, and
+/// the URL's user info are also taken out of the response body, because a provider answering 401
+/// or 400 often quotes what it was sent. Only an exact copy is found, and a credential written
+/// into the path of the URL has no name to be found by. That is why the body still needs
 /// <c>view_webhook_response_bodies</c> to read and is cleared by the retention sweep.
 /// </remarks>
 internal static class ConnectorDeliveryRedaction
@@ -157,19 +158,98 @@ internal static class ConnectorDeliveryRedaction
 
     private static readonly string[] CredentialHeaderParts = ["auth", "cookie", "signature"];
 
-    /// <summary>Whether a header an operator wrote reads as carrying a credential.</summary>
+    /// <summary>
+    /// The shortest value that becomes a secret only because a field above it has a credential's
+    /// name. <c>"credentials": { "type": "basic" }</c> should not have every "basic" cut out of the
+    /// answer.
+    /// </summary>
+    internal const int MinimumInheritedSecretLength = 6;
+
+    private static readonly char[] NameSeparators = ['-', '_', '.'];
+
+    /// <summary>
+    /// Whether a header, or a query parameter of the URL, that an operator wrote reads as carrying
+    /// a credential.
+    /// </summary>
     /// <remarks>
     /// The parameter classifier, asked twice: once with the name as written and once with the
     /// separators removed, since it knows <c>apikey</c> and <c>api_key</c> and a header is spelled
-    /// <c>X-Api-Key</c>. The three words added here are header names that classifier has no reason
-    /// to know.
+    /// <c>X-Api-Key</c>. Then two rules about how these names are shaped, not more credential words:
+    /// the three words a header carries a credential under that a workflow parameter never does,
+    /// and <c>key</c> standing as a whole word, which is how <c>X-Functions-Key</c>,
+    /// <c>Ocp-Apim-Subscription-Key</c> and a bare <c>?key=</c> are spelled. An idempotency key is
+    /// the one such name that is not a credential, and it is what a receiver joins on.
     /// </remarks>
     internal static bool IsCredentialHeader(string name)
     {
         if (string.IsNullOrEmpty(name)) return false;
 
         return IsCredentialField(name)
-            || CredentialHeaderParts.Any(part => Compact(name).Contains(part, StringComparison.OrdinalIgnoreCase));
+            || CredentialHeaderParts.Any(part => Compact(name).Contains(part, StringComparison.OrdinalIgnoreCase))
+            || HasKeyAsAWord(name);
+    }
+
+    private static bool HasKeyAsAWord(string name)
+    {
+        var words = name.Split(NameSeparators, StringSplitOptions.RemoveEmptyEntries);
+
+        for (var i = 0; i < words.Length; i++)
+        {
+            if (!string.Equals(words[i], "key", StringComparison.OrdinalIgnoreCase)) continue;
+            if (i > 0 && string.Equals(words[i - 1], "idempotency", StringComparison.OrdinalIgnoreCase)) continue;
+
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>Everything about a composed request that an answer must not be stored quoting.</summary>
+    internal static HashSet<string> RequestSecrets(ComposedRequest composed)
+    {
+        var secrets = BodySecrets(composed);
+        secrets.UnionWith(UrlSecrets(composed));
+        return secrets;
+    }
+
+    /// <summary>
+    /// The value of every query parameter of the URL whose name reads as a credential, as written
+    /// and decoded, and the URL's user info. A request's path template is where an operator writes
+    /// <c>?api_key=</c>, and a provider's error often names the URL it was asked for.
+    /// </summary>
+    internal static HashSet<string> UrlSecrets(ComposedRequest composed)
+    {
+        var secrets = new HashSet<string>(StringComparer.Ordinal);
+        if (!Uri.TryCreate(composed.Url, UriKind.Absolute, out var url)) return secrets;
+
+        AddCredentialPairs(url.Query.TrimStart('?'), IsCredentialHeader, secrets);
+
+        if (url.UserInfo.Length > 0)
+        {
+            AddSecret(secrets, url.UserInfo);
+            AddSecret(secrets, Uri.UnescapeDataString(url.UserInfo));
+
+            var colon = url.UserInfo.IndexOf(':');
+            if (colon >= 0)
+            {
+                AddSecret(secrets, url.UserInfo[(colon + 1)..]);
+                AddSecret(secrets, Uri.UnescapeDataString(url.UserInfo[(colon + 1)..]));
+            }
+        }
+
+        return secrets;
+    }
+
+    private static void AddCredentialPairs(string pairs, Func<string, bool> isCredential, ISet<string> secrets)
+    {
+        foreach (var pair in pairs.Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var split = pair.IndexOf('=');
+            if (split <= 0 || !isCredential(FormDecode(pair[..split]))) continue;
+
+            AddSecret(secrets, pair[(split + 1)..]);
+            AddSecret(secrets, FormDecode(pair[(split + 1)..]));
+        }
     }
 
     /// <summary>
@@ -188,7 +268,7 @@ internal static class ConnectorDeliveryRedaction
             try
             {
                 using var json = JsonDocument.Parse(composed.Body);
-                AddCredentialFields(json.RootElement, false, secrets);
+                AddCredentialFields(json.RootElement, Named.No, secrets);
             }
             catch (JsonException)
             {
@@ -197,14 +277,7 @@ internal static class ConnectorDeliveryRedaction
         }
         else if (contentType.Contains("x-www-form-urlencoded", StringComparison.OrdinalIgnoreCase))
         {
-            foreach (var pair in composed.Body.Split('&', StringSplitOptions.RemoveEmptyEntries))
-            {
-                var split = pair.IndexOf('=');
-                if (split <= 0 || !IsCredentialField(FormDecode(pair[..split]))) continue;
-
-                AddSecret(secrets, pair[(split + 1)..]);
-                AddSecret(secrets, FormDecode(pair[(split + 1)..]));
-            }
+            AddCredentialPairs(composed.Body, IsCredentialField, secrets);
         }
 
         return secrets;
@@ -223,14 +296,30 @@ internal static class ConnectorDeliveryRedaction
 
     private static string FormDecode(string value) => Uri.UnescapeDataString(value.Replace('+', ' '));
 
-    private static void AddCredentialFields(JsonElement element, bool underCredential, ISet<string> secrets)
+    /// <summary>Whether a JSON value is under a credential's name, and how directly.</summary>
+    private enum Named
+    {
+        No,
+
+        /// <summary>A field somewhere above it has a credential's name, and its own does not.</summary>
+        Above,
+
+        /// <summary>Its own field, or the array it is an item of, has a credential's name.</summary>
+        Itself,
+    }
+
+    private static void AddCredentialFields(JsonElement element, Named named, ISet<string> secrets)
     {
         switch (element.ValueKind)
         {
             case JsonValueKind.Object:
                 foreach (var property in element.EnumerateObject())
                 {
-                    AddCredentialFields(property.Value, underCredential || IsCredentialField(property.Name), secrets);
+                    var child = IsCredentialField(property.Name) ? Named.Itself
+                        : named == Named.No ? Named.No
+                        : Named.Above;
+
+                    AddCredentialFields(property.Value, child, secrets);
                 }
 
                 break;
@@ -238,15 +327,19 @@ internal static class ConnectorDeliveryRedaction
             case JsonValueKind.Array:
                 foreach (var item in element.EnumerateArray())
                 {
-                    AddCredentialFields(item, underCredential, secrets);
+                    AddCredentialFields(item, named, secrets);
                 }
 
                 break;
 
-            case JsonValueKind.String when underCredential:
+            case JsonValueKind.String when named != Named.No:
+                var value = element.GetString();
+                if (value is null || value is "true" or "false" or "null") break;
+                if (named == Named.Above && value.Trim().Length < MinimumInheritedSecretLength) break;
+
                 // As a provider would quote it back from the parsed value, and as it stood in the
                 // body, escapes and all.
-                AddSecret(secrets, element.GetString());
+                AddSecret(secrets, value);
                 AddSecret(secrets, element.GetRawText().Trim('"'));
                 break;
         }
@@ -256,31 +349,50 @@ internal static class ConnectorDeliveryRedaction
     /// The headers of a request as a row may hold them, adding every value left out to
     /// <paramref name="secrets"/>.
     /// </summary>
+    /// <remarks>
+    /// Read through <c>NonValidated</c>, which hands back what was put on the request. The
+    /// validating enumerator parses as it goes, so <c>Accept: application/json, text/plain</c> comes
+    /// back as two values and a quality factor comes back respaced, and neither would look like
+    /// what was composed.
+    /// </remarks>
     internal static Dictionary<string, string> Headers(
         HttpRequestMessage request, ComposedRequest composed, ISet<string> secrets)
     {
-        var written = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (name, value) in composed.Headers) written[name] = value;
+        var written = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (name, value) in composed.Headers)
+        {
+            if (!written.TryGetValue(name, out var values)) written[name] = values = [];
+            values.Add(value);
+        }
 
         var kept = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var plain = new List<(string Name, string Value)>();
 
-        foreach (var (name, values) in request.Headers)
+        foreach (var (name, raw) in request.Headers.NonValidated)
         {
-            var all = values.ToList();
+            var values = raw.ToList();
+            var sent = string.Join(", ", values);
+            var composedValues = written.GetValueOrDefault(name) ?? [];
+            var credentialName = IsCredentialHeader(name);
 
-            var asComposed = all.Count == 1
-                && written.TryGetValue(name, out var composedValue)
-                && string.Equals(composedValue, all[0], StringComparison.Ordinal);
-
-            if (asComposed && !IsCredentialHeader(name))
+            if (!credentialName && composedValues.Count > 0 && SameHeaderValue(string.Join(", ", composedValues), sent))
             {
-                plain.Add((name, all[0]));
+                plain.Add((name, sent));
                 continue;
             }
 
-            foreach (var value in all) AddCredentialValue(secrets, value);
             kept[name] = Marker;
+
+            foreach (var value in values)
+            {
+                // Under an ordinary name, what makes a value a credential is that the sender put it
+                // there. A value that is what was composed is not that, and making it a secret
+                // would cut an ordinary word out of the answer.
+                if (credentialName || !composedValues.Any(composedValue => SameHeaderValue(composedValue, value)))
+                {
+                    AddCredentialValue(secrets, value);
+                }
+            }
         }
 
         foreach (var (name, value) in plain)
@@ -298,6 +410,13 @@ internal static class ConnectorDeliveryRedaction
 
         return kept;
     }
+
+    /// <summary>The same header value, whatever optional white space either side has.</summary>
+    private static bool SameHeaderValue(string left, string right) =>
+        string.Equals(WithoutSpace(left), WithoutSpace(right), StringComparison.Ordinal);
+
+    private static string WithoutSpace(string value) =>
+        string.Concat(value.Where(character => character is not (' ' or '\t')));
 
     /// <summary>
     /// A header's value, and when it is a scheme and a token, the token alone and both halves of a

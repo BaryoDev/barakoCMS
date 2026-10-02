@@ -161,8 +161,8 @@ through a connector is stored as the same document and listed by `GET /api/conne
   response at all (connection refused, timeout, a URL the outbound guard refused). An unknown value
   is a 400, not an empty list.
 
-Each row holds the workflow id, the run id when the runner made the delivery, the URL with its
-userinfo and query removed, the trigger event, the request headers minus the signature, the response
+Each row holds the workflow id, the run id when the runner made the delivery, the URL cut to
+scheme, host and port, the trigger event, the request headers minus the signature, the response
 status, the response body, when that body was cleared by retention, the duration, the error text
 when nothing answered, the attempt number and when it happened.
 

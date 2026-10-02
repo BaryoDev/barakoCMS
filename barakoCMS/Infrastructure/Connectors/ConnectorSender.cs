@@ -190,7 +190,28 @@ internal sealed class ConnectorSender(
         ConnectorDeliveryContext delivery, CancellationToken ct)
     {
         var draft = new ConnectorDeliveryDraft(composed);
-        var result = await SendCoreAsync(connector, composed, rule, successJsonPath, draft, ct);
+        ConnectorCallResult result;
+
+        try
+        {
+            result = await SendCoreAsync(connector, composed, rule, successJsonPath, draft, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // A cancelled send has no outcome to write down, as a cancelled webhook has none.
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // What the core does not turn into a result: a method that is not one, or the database
+            // failing while the credential is read. The caller still gets the exception. The type
+            // and not the message, which can name what was being sent.
+            await RecordAsync(
+                connector, delivery, draft,
+                new ConnectorCallResult(false, null, 0, $"The send failed before an answer came back ({ex.GetType().Name})."),
+                ct);
+            throw;
+        }
 
         await RecordAsync(connector, delivery, draft, result, ct);
 
