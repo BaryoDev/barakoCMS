@@ -47,11 +47,12 @@ updates:
       # Marten and have no version of their own for a version update to move.
       #
       # Held by update-type, for the same reason as the entries above: a security update still
-      # comes through.
+      # comes through. Majors are held too, as they are for FastEndpoints: the next Marten and
+      # JasperFx majors are the 5.0 move itself, done by hand in #1000, not by a batched update.
       - dependency-name: "Marten"
-        update-types: ["version-update:semver-minor", "version-update:semver-patch"]
+        update-types: ["version-update:semver-major", "version-update:semver-minor", "version-update:semver-patch"]
       - dependency-name: "JasperFx"
-        update-types: ["version-update:semver-minor", "version-update:semver-patch"]
+        update-types: ["version-update:semver-major", "version-update:semver-minor", "version-update:semver-patch"]
 
       # xunit.v3.extensibility.core carries no version of its own here: it must equal xunit.v3,
       # which depends on it, and those two pin each other exactly. Directory.Packages.props says so
