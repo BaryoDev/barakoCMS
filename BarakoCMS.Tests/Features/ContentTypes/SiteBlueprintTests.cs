@@ -528,4 +528,72 @@ public class SiteBlueprintTests
         tree.GetProperty("products").GetArrayLength().Should().Be(1);
         tree.GetProperty("products")[0].GetProperty("note").GetString().Should().Be("on GitHub");
     }
+
+    /// <summary>
+    /// barakoPress reads these three from the site entry: the page served at <c>/</c>, the words its
+    /// screens print, and a tone, icon and word per option for <c>colorBy</c>.
+    /// </summary>
+    [Fact]
+    public async Task Applying_site_creates_optional_home_path_labels_and_option_styles_fields()
+    {
+        var client = await AdminInAsync(await TenantAsync());
+
+        (await client.PostAsync("/api/content-types/blueprints/site", null, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var types = await client.GetAsync("/api/content-types?pageSize=100", Ct);
+        using var doc = JsonDocument.Parse(await types.Content.ReadAsStringAsync(Ct));
+        var site = doc.RootElement.GetProperty("items").EnumerateArray().Single(i => i.GetProperty("name").GetString() == "site");
+        var fields = site.GetProperty("fields").EnumerateArray()
+            .ToDictionary(f => f.GetProperty("name").GetString()!, f => f);
+        var added = new Dictionary<string, string> { ["HomePath"] = "string", ["Labels"] = "json", ["OptionStyles"] = "json" };
+        fields.Should().ContainKeys(added.Keys);
+        foreach (var (name, type) in added)
+        {
+            fields[name].GetProperty("type").GetString().Should().Be(type, name);
+            fields[name].GetProperty("isRequired").GetBoolean().Should().BeFalse("unset renders the site as it did before ({0})", name);
+        }
+    }
+
+    [Fact]
+    public async Task A_published_sites_home_path_labels_and_option_styles_are_delivered()
+    {
+        var tenant = await TenantAsync();
+        var admin = await AdminInAsync(tenant);
+        (await admin.PostAsync("/api/content-types/blueprints/site", null, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var data = (Dictionary<string, object>)SiteData("Labels club");
+        data["HomePath"] = "/home";
+        data["Labels"] = new Dictionary<string, object> { ["minRead"] = "minutong pagbasa", ["related"] = "Kaugnay" };
+        data["OptionStyles"] = new Dictionary<string, object>
+        {
+            ["release.Kind"] = new Dictionary<string, object>
+            {
+                ["Fixed"] = new Dictionary<string, object> { ["tone"] = "sky", ["icon"] = "check", ["label"] = "Fix" },
+            },
+        };
+        var created = await admin.PostAsJsonAsync("/api/contents", new { contentType = "site", data }, Ct);
+        created.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", created.StatusCode, await created.Content.ReadAsStringAsync(Ct));
+        using (var createdBody = JsonDocument.Parse(await created.Content.ReadAsStringAsync(Ct)))
+        {
+            await PublishAsync(admin, createdBody.RootElement.GetProperty("id").GetGuid());
+        }
+
+        var live = await AnonymousIn(tenant).GetAsync("/api/public/site", Ct);
+
+        live.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var body = JsonDocument.Parse(await live.Content.ReadAsStringAsync(Ct));
+        var items = body.RootElement.GetProperty("items");
+        items.GetArrayLength().Should().Be(1);
+        var delivered = items[0].GetProperty("data");
+        delivered.TryGetProperty("HomePath", out var homePath).Should().BeTrue("public delivery sends only declared fields");
+        homePath.GetString().Should().Be("/home");
+        delivered.TryGetProperty("Labels", out var labels).Should().BeTrue("public delivery sends only declared fields");
+        labels.GetProperty("minRead").GetString().Should().Be("minutong pagbasa");
+        labels.GetProperty("related").GetString().Should().Be("Kaugnay");
+        delivered.TryGetProperty("OptionStyles", out var styles).Should().BeTrue("public delivery sends only declared fields");
+        var fix = styles.GetProperty("release.Kind").GetProperty("Fixed");
+        fix.GetProperty("tone").GetString().Should().Be("sky");
+        fix.GetProperty("icon").GetString().Should().Be("check");
+        fix.GetProperty("label").GetString().Should().Be("Fix");
+    }
 }
