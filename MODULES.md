@@ -470,10 +470,44 @@ the same module order, at the position described under [Middleware](#middleware)
 Default services (e.g. the mock `IEmailService`) are registered with `TryAdd`, so a module can
 substitute a real implementation.
 
-`IFileStore` is how the core, or a module that must not reference BarakoCMS.Files, reads a public
-file by id in the scope's tenant. BarakoCMS.Files implements it. It hands out public files only: a
-private file reads as absent, and a read of any file would be a separate member with its own access
-rule. With no such module the default throws on every call, naming the module to enable.
+`IFileStore` is how the core, or a module that must not reference BarakoCMS.Files, stores, reads
+and deletes a file in the scope's tenant. BarakoCMS.Files implements it. No member takes a tenant:
+the scope decides it.
+
+- `FindPublicAsync`, `OpenPublicAsync` and `PublicUrlAsync` take no caller and hand out public
+  files only. A private file reads as absent. These are the members for work with no user, such as
+  a workflow.
+- `FindAsync` and `OpenAsync` take the signed-in user as a `ClaimsPrincipal` and give that user
+  what the two download routes would: any public file, and a private one only to the user it
+  belongs to or to an account holding Admin or SuperAdmin. A principal that is not signed in,
+  comes from an API key, or carries a `tenant` claim for another tenant gets public files only.
+  Pass the principal of the current request. The store does not check again that its token is
+  still valid, that its tenant is still active, or device trust; the request pipeline did.
+- `SaveAsync` stores a file after the checks an upload gets (allowed type, content matching the
+  type, 10 MB, and the virus scan when one is configured) and answers with the file or the reason
+  it was refused. It checks nobody's right to store: the module calling it gates its own route.
+  `Owner` is the user the file belongs to, and may be left empty. `SuppliedBy` is the user who
+  sent the file, named as the actor in the audit entry a scanner refusal leaves; leave it null
+  for a file a job produced.
+- `DeleteAsync` deletes for a caller who could delete through `DELETE /api/files/{id}`: one
+  holding `upload_files` who is the file's owner or an administrator. It answers `InUse` while an
+  entry names the file, unless forced.
+
+`SaveAsync` and `DeleteAsync` commit through the scope's session, which the storage shares. Call
+them before staging anything else on that session: with work already staged they throw
+`InvalidOperationException` and do nothing, so a refused or failed save never commits a caller's
+rows. A save stores the bytes and then the record, in two commits, so a crash between them leaves
+bytes no record names, as on upload.
+
+Inside a content batch (`IContentBatchRunner`) the session writes into the batch's transaction and
+does not commit it. With the Postgres storage a file saved or deleted there is committed or rolled
+back with the batch. With an object store the bytes are written or removed at once: a batch that
+rolls back after a save leaves bytes no record names, and one that rolls back after a delete
+leaves a record whose bytes are gone. Do not delete through the seam inside a batch on an object
+store.
+
+With no module that stores files the default throws on every call, naming the module to enable. Every member except `FindPublicAsync` and `OpenPublicAsync` has a
+default that throws `NotSupportedException`, so a store written against those two still compiles.
 
 ### Durable work
 

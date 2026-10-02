@@ -94,39 +94,17 @@ public class Endpoint(
             }
         }
 
-        // The resizes go with their original: they are reachable only through it, so a variant
-        // outliving its parent would be bytes nothing can ever serve again.
-        var variants = await session.Query<StoredFile>()
-            .Where(v => v.ParentFileId == file.Id)
-            .ToListAsync(ct);
-
-        foreach (var variant in variants)
-        {
-            await storage.DeleteAsync(variant.StorageKey, ct);
-            session.Delete(variant);
-        }
-
-        await storage.DeleteAsync(file.StorageKey, ct);
-        session.Delete(file);
-
-        await barakoCMS.Infrastructure.Audit.AuditLog.RecordAsync(
+        await FileRemoval.RemoveAsync(
             session,
+            storage,
             tenant.Slug,
-            "file.deleted",
+            file,
             userId,
             User.FindFirst("Username")?.Value ?? string.Empty,
-            targetType: "file",
-            targetId: file.Id.ToString(),
-            metadata: new Dictionary<string, object>
-            {
-                ["fileName"] = file.FileName,
-                ["forced"] = req.Force,
-                ["variants"] = variants.Count,
-            },
-            ipAddress: HttpContext.Connection.RemoteIpAddress?.ToString(),
-            ct: ct);
+            req.Force,
+            HttpContext.Connection.RemoteIpAddress?.ToString(),
+            ct);
 
-        await session.SaveChangesAsync(ct);
         await Send.NoContentAsync(ct);
     }
 }
