@@ -15,6 +15,7 @@ internal class Request
     public string TriggerContentType { get; set; } = string.Empty;
     public List<string> TriggerContentTypes { get; set; } = new();
     public string TriggerEvent { get; set; } = string.Empty;
+    public List<string> TriggerEvents { get; set; } = new();
     public Dictionary<string, string> Conditions { get; set; } = new();
     public List<WorkflowAction> Actions { get; set; } = new();
 }
@@ -43,6 +44,7 @@ internal class Endpoint(
                 TriggerContentType = req.TriggerContentType,
                 TriggerContentTypes = req.TriggerContentTypes,
                 TriggerEvent = req.TriggerEvent,
+                TriggerEvents = req.TriggerEvents,
                 Conditions = req.Conditions,
                 Actions = req.Actions
             };

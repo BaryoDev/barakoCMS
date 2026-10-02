@@ -8,6 +8,29 @@ Retry is not here. Delivery is retried by the workflow runner today (up to five 
 backoff, see `docs/workflow-runs.md`), and a proper retry with dead-lettering arrives with the job
 queue in #106.
 
+## The body
+
+```json
+{
+  "event": "Published",
+  "contentId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "contentType": "post",
+  "status": "Published",
+  "data": { "Title": "Hello" },
+  "createdAt": "2026-10-01T08:00:00Z",
+  "updatedAt": "2026-10-02T09:30:00Z"
+}
+```
+
+`event` is the trigger that fired the workflow (`Created`, `Updated`, `Published`, `Unpublished`,
+`Deleted` or `transition:<Name>`), so one URL behind several events can tell them apart. A webhook
+inside a `Conditional` action carries the same `event` as the run it belongs to. `data`
+holds the fields the content type marks Public, and is empty for an entry that is itself Sensitive
+or Hidden.
+
+A `Deleted` delivery is about an entry that no longer exists, so its body is `event`, `contentId`
+and `contentType` only. There is no `status`, `data`, `createdAt` or `updatedAt` to send.
+
 ## The secret
 
 Add a `Secret` parameter to the action:

@@ -34,6 +34,28 @@ internal static class ActionParameters
             || parameter.Equals("ThenActions", StringComparison.OrdinalIgnoreCase)
             || parameter.Equals("ElseActions", StringComparison.OrdinalIgnoreCase));
 
+    /// <summary>The parameter the runner and the engine use to tell an action which trigger fired.</summary>
+    public const string TriggerEventParameter = "TriggerEvent";
+
+    /// <summary>
+    /// Hands the parent's trigger down to a child action's parameters.
+    /// </summary>
+    /// <remarks>
+    /// The name is reserved: a child that declares its own gets the parent's instead, the same way
+    /// the runner overwrites one declared on a top-level action. A child cannot claim an event that
+    /// did not fire.
+    /// </remarks>
+    public static Dictionary<string, string> WithTriggerOf(
+        IReadOnlyDictionary<string, string> parent, Dictionary<string, string> child)
+    {
+        if (parent.TryGetValue(TriggerEventParameter, out var trigger))
+        {
+            child[TriggerEventParameter] = trigger;
+        }
+
+        return child;
+    }
+
     public static Dictionary<string, string> Resolve(
         ITemplateVariableExtractor extractor, string actionType, IReadOnlyDictionary<string, string> parameters, Models.Content content) =>
         Resolve(actionType, parameters, (template, encoding) => extractor.ResolveVariables(template, content, encoding));

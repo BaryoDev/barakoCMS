@@ -26,6 +26,12 @@ public class WorkflowValidationResult
     /// this whole check exists to prevent, arrived at by a different road.
     /// </remarks>
     public string? NormalisedTriggerEvent { get; set; }
+
+    /// <summary>
+    /// Every trigger event of the workflow, <c>TriggerEvent</c> first, with each lifecycle transition
+    /// spelled the way the content type declares it. Null when no trigger names a transition.
+    /// </summary>
+    public List<string>? NormalisedTriggerEvents { get; set; }
 }
 
 /// <summary>

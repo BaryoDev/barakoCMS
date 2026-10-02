@@ -291,6 +291,29 @@ holding the first. A blank entry is refused. With a transition trigger, every li
 exist and declare that transition with the same spelling, and each one that does not is named in
 the `400`.
 
+Events work the same way. Send `"triggerEvents": ["Published", "Unpublished"]` alongside or instead
+of `triggerEvent`; the response carries the list with every event and `triggerEvent` holding the
+first. An event fires a workflow once, however many list entries it matches.
+
+`Unpublished` fires when a Published entry changes to any other status. The status before the
+change is read from the entry's event stream. An entry with no status on record there (seeded, or
+stored without events) fires no `Unpublished` on its first status change; the API logs that at
+Information with the entry's id and type. Later changes are on record and fire as usual.
+
+`Deleted` fires when an entry is erased. Its run carries the entry's id and content type only:
+
+- A `Deleted` workflow with conditions is saved but never fires, because its conditions read data
+  that is gone.
+- `{{id}}` and `{{contentType}}` resolve as usual. `{{status}}`, `{{createdAt}}` and
+  `{{updatedAt}}` resolve to nothing, and a `{{data.X}}` token is left as written.
+- A `Conditional` action whose condition reads `{{status}}` or `{{data.X}}` fails, and is not
+  retried. A condition on `{{contentType}}` works.
+- A `Webhook` body holds `event`, `contentId` and `contentType` and nothing else (see
+  [webhooks.md](webhooks.md)).
+- A custom `IWorkflowAction` is told by its `TriggerEvent` parameter, which is `Deleted`. The
+  `Content` it is handed has the entry's `Id` and `ContentType`; every other member is a default
+  and not a stored value, so the action should not send or store them.
+
 ## 9. The sender, from settings
 
 ```bash

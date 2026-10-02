@@ -154,6 +154,13 @@ public class TemplateVariableExtractor(IDocumentSession session) : ITemplateVari
     /// <summary>The value a token stands for, or null when the token is not a known variable.</summary>
     private static string? ValueFor(string key, Content content)
     {
+        // An erased entry has no status or timestamps to report. Empty, not the defaults of a new
+        // Content, which would read as Draft and the time the action ran.
+        if (content is barakoCMS.Features.Workflows.ErasedContent && key is "status" or "createdAt" or "updatedAt")
+        {
+            return string.Empty;
+        }
+
         switch (key)
         {
             case "id": return content.Id.ToString();

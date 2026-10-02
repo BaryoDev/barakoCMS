@@ -39,7 +39,86 @@ internal partial class WorkflowProjection : EventProjection
         if (e.Data.NewStatus == barakoCMS.Models.ContentStatus.Published)
         {
             await ProcessEventAsync(barakoCMS.Models.WorkflowEvents.Published, e.Data.Id, e.TenantId, e.Sequence, ops);
+            return;
         }
+
+        await ProcessUnpublishedAsync(e, ops, ct);
+    }
+
+    /// <remarks>
+    /// The event carries only the new status, and the document already holds it by the time the
+    /// daemon gets here, so the status before comes from folding the stream up to the event before
+    /// this one. That read is only made when a workflow listens for Unpublished on the type. A draft
+    /// moved to Archived was never Published and is not an unpublish.
+    ///
+    /// Nothing but a shutdown may escape, for the reason given in ProcessEventAsync. A cancelled
+    /// read is let through so the daemon takes the event again when it restarts.
+    /// </remarks>
+    private async Task ProcessUnpublishedAsync(
+        IEvent<barakoCMS.Events.ContentStatusChanged> e, IDocumentOperations ops, CancellationToken ct)
+    {
+        try
+        {
+            using var scope = _serviceProvider.CreateScopeForTenant(e.TenantId);
+            var queue = scope.ServiceProvider.GetRequiredService<IWorkflowRunQueue>();
+
+            var content = await ops.LoadAsync<barakoCMS.Models.Content>(e.Data.Id, ct);
+            if (content is null
+                || !await queue.ListensAsync(content.ContentType, barakoCMS.Models.WorkflowEvents.Unpublished, ct))
+            {
+                return;
+            }
+
+            var wasPublished = await WasPublishedBeforeAsync(e, ops, ct);
+            if (wasPublished is null)
+            {
+                // Not guessed. Answering yes would fire Unpublished for a draft moved to Archived.
+                var logger = _serviceProvider.GetService<ILogger<WorkflowProjection>>();
+                logger?.LogInformation(
+                    "The status of content {ContentId} of type {ContentType} before event {Sequence} is unknown, because its stream does not record one, so no Unpublished workflow was fired",
+                    content.Id, barakoCMS.Infrastructure.Logging.LogSafe.Value(content.ContentType), e.Sequence);
+                return;
+            }
+
+            if (wasPublished.Value)
+            {
+                await queue.EnqueueAsync(content, barakoCMS.Models.WorkflowEvents.Unpublished, e.Sequence, CancellationToken.None);
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            var logger = _serviceProvider.GetService<ILogger<WorkflowProjection>>();
+            logger?.LogError(ex, "WorkflowProjection failed to process {EventType} for content {ContentId} in tenant {TenantId}", barakoCMS.Models.WorkflowEvents.Unpublished, e.Data.Id, e.TenantId);
+        }
+    }
+
+    /// <summary>
+    /// Whether the entry was Published before this event, or null when the stream does not say.
+    /// </summary>
+    /// <remarks>
+    /// An entry stored straight through a session, or seeded, has no ContentCreated in its stream,
+    /// so its first status change has nothing before it that records a status.
+    /// </remarks>
+    private static async Task<bool?> WasPublishedBeforeAsync(
+        IEvent<barakoCMS.Events.ContentStatusChanged> e, IQuerySession query, CancellationToken ct)
+    {
+        if (e.Version <= 1)
+        {
+            return null;
+        }
+
+        var before = await query.Events.FetchStreamAsync(e.Data.Id, version: e.Version - 1, token: ct);
+        if (!before.Any(x => x.Data is barakoCMS.Events.ContentCreated or barakoCMS.Events.ContentStatusChanged))
+        {
+            return null;
+        }
+
+        var prior = barakoCMS.Infrastructure.Services.ContentProjection.Fold(before);
+        return prior is { Status: barakoCMS.Models.ContentStatus.Published };
     }
 
     /// <remarks>
