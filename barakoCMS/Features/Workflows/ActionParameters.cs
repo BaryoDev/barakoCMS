@@ -28,11 +28,18 @@ internal static class ActionParameters
     /// Its condition is left as written too: the conditional reads the token's value from the entry
     /// itself, and a value substituted first would be parsed as part of the comparison.
     /// </summary>
+    /// <remarks>
+    /// An email's attachments are left as written as well. The action reads the field its
+    /// placeholder names from the entry itself, so a field holding a list of files is read as a
+    /// list and not as the text a list renders to.
+    /// </remarks>
     public static bool IsResolvedByTheAction(string actionType, string parameter) =>
-        actionType == "Conditional"
-        && (parameter.Equals("Condition", StringComparison.OrdinalIgnoreCase)
-            || parameter.Equals("ThenActions", StringComparison.OrdinalIgnoreCase)
-            || parameter.Equals("ElseActions", StringComparison.OrdinalIgnoreCase));
+        (actionType == "Conditional"
+         && (parameter.Equals("Condition", StringComparison.OrdinalIgnoreCase)
+             || parameter.Equals("ThenActions", StringComparison.OrdinalIgnoreCase)
+             || parameter.Equals("ElseActions", StringComparison.OrdinalIgnoreCase)))
+        || (actionType == "Email"
+            && parameter.Equals(Actions.EmailAction.AttachmentsParameter, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>The parameter the runner and the engine use to tell an action which trigger fired.</summary>
     public const string TriggerEventParameter = "TriggerEvent";

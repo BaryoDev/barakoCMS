@@ -12,6 +12,9 @@ hitting the built-in mock.
 If you self-host, you very likely already have SMTP credentials from your host, from Google
 Workspace, from Amazon SES or from a corporate relay. This is the provider that uses them.
 
+A workflow email that names attachments is sent with them as parts of the message; see
+`docs/configuring-email.md` in the repository.
+
 Sending is [MailKit](https://github.com/jstedfast/MailKit), not `System.Net.Mail.SmtpClient`, which
 Microsoft's own documentation tells you not to use in new code.
 

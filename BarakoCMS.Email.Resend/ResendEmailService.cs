@@ -54,18 +54,25 @@ public class ResendEmailService : IEmailService
     /// <summary>Resend's shared testing sender, which works without a verified domain.</summary>
     private const string DefaultFrom = "BarakoCMS <onboarding@resend.dev>";
 
-    public async Task SendEmailAsync(string to, string subject, string body, CancellationToken cancellationToken = default)
+    public Task SendEmailAsync(string to, string subject, string body, CancellationToken cancellationToken = default) =>
+        SendEmailAsync(to, subject, body, Array.Empty<EmailAttachment>(), cancellationToken);
+
+    public Task SendForTenantAsync(string tenant, string to, string subject, string body, CancellationToken cancellationToken = default) =>
+        SendForTenantAsync(tenant, to, subject, body, Array.Empty<EmailAttachment>(), cancellationToken);
+
+    public async Task SendEmailAsync(string to, string subject, string body, IReadOnlyList<EmailAttachment> attachments, CancellationToken cancellationToken = default)
     {
-        using var response = await SendAsync(to, subject, body, cancellationToken);
+        using var response = await SendAsync(to, subject, body, attachments, cancellationToken);
     }
 
-    public async Task SendForTenantAsync(string tenant, string to, string subject, string body, CancellationToken cancellationToken = default)
+    public async Task SendForTenantAsync(string tenant, string to, string subject, string body, IReadOnlyList<EmailAttachment> attachments, CancellationToken cancellationToken = default)
     {
-        using var response = await SendAsync(to, subject, body, cancellationToken);
+        using var response = await SendAsync(to, subject, body, attachments, cancellationToken);
         await RecordSenderAsync(tenant, response, cancellationToken);
     }
 
-    private async Task<HttpResponseMessage> SendAsync(string to, string subject, string body, CancellationToken cancellationToken)
+    private async Task<HttpResponseMessage> SendAsync(
+        string to, string subject, string body, IReadOnlyList<EmailAttachment> attachments, CancellationToken cancellationToken)
     {
         var resolved = await settings.GetAsync(cancellationToken);
 
@@ -78,13 +85,29 @@ public class ResendEmailService : IEmailService
 
         using var request = new HttpRequestMessage(HttpMethod.Post, Endpoint);
         request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
-        request.Content = JsonContent.Create(new
-        {
-            from,
-            to = new[] { to },
-            subject,
-            html = body,
-        });
+
+        // Two shapes, so a message with no attachment is the request it always was.
+        request.Content = attachments.Count == 0
+            ? JsonContent.Create(new
+            {
+                from,
+                to = new[] { to },
+                subject,
+                html = body,
+            })
+            : JsonContent.Create(new
+            {
+                from,
+                to = new[] { to },
+                subject,
+                html = body,
+                attachments = attachments.Select(a => new
+                {
+                    filename = a.FileName,
+                    content = Convert.ToBase64String(a.Content),
+                    content_type = a.ContentType,
+                }).ToArray(),
+            });
 
         var response = await http.SendAsync(request, cancellationToken);
         if (!response.IsSuccessStatusCode)

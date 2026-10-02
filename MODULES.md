@@ -442,6 +442,11 @@ the same module order, at the position described under [Middleware](#middleware)
 Default services (e.g. the mock `IEmailService`) are registered with `TryAdd`, so a module can
 substitute a real implementation.
 
+`IFileStore` is how the core, or a module that must not reference BarakoCMS.Files, reads a public
+file by id in the scope's tenant. BarakoCMS.Files implements it. It hands out public files only: a
+private file reads as absent, and a read of any file would be a separate member with its own access
+rule. With no such module the default throws on every call, naming the module to enable.
+
 ### Durable work
 
 **No host implements this yet.** The interfaces below are in `BarakoCMS.Abstractions` so they can be

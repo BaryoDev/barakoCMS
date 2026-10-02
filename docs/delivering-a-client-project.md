@@ -324,8 +324,8 @@ caller's *current* tenant rather than one named in the path, and all gated on
 | Method | Route | What it does |
 | --- | --- | --- |
 | GET | `/api/tenants/members` | the roster, newest first, paginated |
-| POST | `/api/tenants/members` | add a person by email, with roles |
-| PUT | `/api/tenants/members/{userId}` | change their roles or status |
+| POST | `/api/tenants/members` | add a person by email, with roles and an optional profile |
+| PUT | `/api/tenants/members/{userId}` | change their roles, status or profile |
 | DELETE | `/api/tenants/members/{userId}` | mark them removed |
 | GET | `/api/tenants/members/roles` | the roles you may assign in a tenant |
 

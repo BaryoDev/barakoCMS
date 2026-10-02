@@ -55,6 +55,14 @@ with or without `?w=`, and an object store's public URL. A usage row always carr
 and status; its title is there only when the caller holds read on the type and the sensitivity
 scrub leaves it, the same two checks as `GET /api/contents`.
 
+## Reading a file from another module
+
+The module implements `IFileStore` from `BarakoCMS.Abstractions`, so the core and other modules can
+read a public file without referencing this package. It is asked for a file id, in the scope's
+tenant, and hands the file over only when it is public, the same files `GET /api/public/files/{id}`
+serves. A private file reads as absent. The workflow `Email` action uses it for attachments; see
+`docs/configuring-email.md`.
+
 ## Notes
 
 Files live in the `stored_files` Marten document (bytes in Postgres). This suits low-to-moderate

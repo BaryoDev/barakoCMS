@@ -49,8 +49,15 @@ public static class SecurityHeaders
     /// unpublished entry. These are sent <c>Cache-Control: no-store</c> so neither a browser nor a
     /// proxy keeps them (#654), whatever the status, a 429 from the rate limiter included.
     /// </summary>
+    /// <remarks>
+    /// <c>/api/meta/describe</c> is here for the last of those reasons: its body differs by what the
+    /// caller holds, and a grant can be taken away. <c>/api/meta</c> itself is not matched by it.
+    /// </remarks>
     private static readonly string[] NoStorePrefixes =
-        ["/api/auth", "/api/me", "/api/api-keys", "/api/preview", "/api/public/site/share-links"];
+    [
+        "/api/auth", "/api/me", "/api/api-keys", "/api/preview", "/api/meta/describe",
+        "/api/public/site/share-links",
+    ];
 
     public static bool IsNoStorePath(string? path) =>
         path is not null && NoStorePrefixes.Any(prefix =>
