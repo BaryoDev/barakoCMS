@@ -79,11 +79,16 @@ internal sealed class FileStore(
     {
         ArgumentNullException.ThrowIfNull(caller);
 
-        var signedIn = IsSignedInHere(caller);
-        var files = await LoadManyAsync(ids, cancellationToken);
-        return files
-            .Where(f => f.IsPublic || (signedIn && FileOwnership.CanAccess(caller, f)))
-            .ToDictionary(f => f.Id, Info);
+        var found = new Dictionary<Guid, StoredFileInfo>();
+        foreach (var file in await LoadManyAsync(ids, cancellationToken))
+        {
+            if (await MayReadAsync(file, caller, cancellationToken))
+            {
+                found[file.Id] = Info(file);
+            }
+        }
+
+        return found;
     }
 
     /// <summary>The records among these ids in one read, without the cached resizes.</summary>
@@ -285,8 +290,15 @@ internal sealed class FileStore(
             return null;
         }
 
-        return file.IsPublic || (IsSignedInHere(caller) && FileOwnership.CanAccess(caller, file)) ? file : null;
+        return await MayReadAsync(file, caller, ct) ? file : null;
     }
+
+    /// <summary>
+    /// Whether <paramref name="caller"/> may download this file, which is not a cached resize. The
+    /// one rule for reading a file for a caller, one id or many.
+    /// </summary>
+    private Task<bool> MayReadAsync(StoredFile file, ClaimsPrincipal caller, CancellationToken ct) =>
+        Task.FromResult(file.IsPublic || (IsSignedInHere(caller) && FileOwnership.CanAccess(caller, file)));
 
     /// <summary>
     /// Whether <paramref name="caller"/> is a principal the authenticated routes of this module

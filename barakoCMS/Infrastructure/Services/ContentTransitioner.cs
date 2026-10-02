@@ -304,7 +304,14 @@ internal sealed class ContentTransitioner(
         if (data is not null)
         {
             var validation = await services.GetRequiredService<IContentValidatorService>()
-                .ValidateAsync(content.ContentType, data, existing: content);
+                .ValidateAsync(
+                    content.ContentType,
+                    data,
+                    // The entry as stored now, which the data was built from, not the caller's copy.
+                    existing: current,
+                    // A file is checked for the actor, never for whoever made the request; a system
+                    // actor names nobody and takes public files only.
+                    caller: user is null ? null : (ownRequest ?? RequestNaming(user)).User);
             if (!validation.IsValid && validation.Errors.Count > 0)
             {
                 return ContentTransitionResult.Invalid(validation.Errors);

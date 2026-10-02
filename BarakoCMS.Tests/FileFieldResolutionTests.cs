@@ -284,4 +284,59 @@ public class FileFieldResolutionTests
         inner.CallerBatches.Should().BeEmpty();
         inner.SingleReads.Should().HaveCount(6, "three distinct ids are asked once each, for each of the two calls");
     }
+
+    private static Content Published(ContentTypeDefinition definition, Dictionary<string, object> data) => new()
+    {
+        Id = Guid.NewGuid(),
+        ContentType = definition.Name,
+        Status = ContentStatus.Published,
+        Sensitivity = SensitivityLevel.Public,
+        Data = data,
+    };
+
+    [Fact]
+    public async Task The_module_projector_leaves_file_fields_out_and_its_async_member_answers_them_as_delivery_does()
+    {
+        var files = new FakeFileStore();
+        var open = files.Add(isPublic: true, fileName: "open.png");
+        var locked = files.Add(isPublic: false, owner: Guid.NewGuid());
+        var definition = TypeWith("Cover", "Thumb");
+        var entry = Published(definition, new() { ["Title"] = "t", ["Cover"] = open.ToString(), ["Thumb"] = locked.ToString() });
+
+        IPublicContentProjector projector = new PublicContentProjector(files);
+
+        var plain = projector.Project(entry, definition);
+        plain.Should().NotBeNull();
+        plain!.Data.Should().ContainKey("Title");
+        plain.Data.Should().NotContainKey("Cover", "the synchronous member reads no file store");
+        plain.Data.Should().NotContainKey("Thumb");
+        files.PublicBatches.Should().BeEmpty();
+
+        var resolved = await projector.ProjectAsync(entry, definition, Ct);
+        resolved.Should().NotBeNull();
+        resolved!.Data["Cover"].Should().BeOfType<ResolvedFile>().Which.FileName.Should().Be("open.png");
+        resolved.Data.Should().NotContainKey("Thumb");
+        files.PublicBatches.Should().Equal(2);
+    }
+
+    [Fact]
+    public void A_payload_that_reads_no_file_store_leaves_every_file_value_out()
+    {
+        var definition = TypeWith("Cover", SeoFields.SocialImage);
+        var id = Guid.NewGuid().ToString();
+        var item = Entry(
+            new() { ["Title"] = "t", ["Cover"] = id, [SeoFields.SocialImage] = id, ["Empty"] = null! },
+            new SeoMetadata("t", null, null, id, false));
+
+        var left = PublicFileFields.LeaveOut(item, definition);
+
+        left.Data.Should().ContainKey("Title");
+        left.Data.Should().NotContainKey("Cover");
+        left.Data.Should().NotContainKey(SeoFields.SocialImage);
+        left.Seo!.ImageUrl.Should().BeNull();
+
+        var webhook = PublicFileFields.LeaveOut(
+            new Dictionary<string, object> { ["Title"] = "t", ["Cover"] = id, ["cover"] = id }, definition);
+        webhook.Keys.Should().BeEquivalentTo(new[] { "Title" });
+    }
 }

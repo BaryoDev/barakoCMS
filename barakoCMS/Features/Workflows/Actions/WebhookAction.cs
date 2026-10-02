@@ -412,7 +412,10 @@ internal class WebhookAction : IWorkflowAction
         var definition = await _session.Query<ContentTypeDefinition>()
             .FirstOrDefaultAsync(d => d.Name == content.ContentType, ct);
 
-        return PublicDelivery.PublicData(content, definition);
+        // A file field holds the id of a file the receiver may not be allowed to read, and a
+        // workflow has no caller to ask the file store as, so it is left out as delivery leaves out
+        // a file it may not show.
+        return PublicFileFields.LeaveOut(PublicDelivery.PublicData(content, definition), definition);
     }
 
     private async Task<bool> IsUrlSafeAsync(string url, CancellationToken ct)

@@ -3,7 +3,6 @@ using barakoCMS.Core.Interfaces;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using FluentAssertions;
-using Microsoft.AspNetCore.Http;
 
 namespace BarakoCMS.Tests;
 
@@ -32,23 +31,20 @@ public class FileFieldWriteTests
         ],
     };
 
-    private sealed class Request(HttpContext? context) : IHttpContextAccessor
-    {
-        public HttpContext? HttpContext { get; set; } = context;
-    }
+    /// <summary>The user a write is made for.</summary>
+    private static ClaimsPrincipal? From(ClaimsPrincipal user) => user;
 
-    private static Request From(ClaimsPrincipal user) => new(new DefaultHttpContext { User = user });
-
-    private static Request NoRequest() => new(null);
+    /// <summary>A write no user makes, such as a job or a system actor.</summary>
+    private static ClaimsPrincipal? NoRequest() => null;
 
     private static Task<(bool IsValid, List<string> Errors)> WriteAsync(
-        IFileStore? files, Request request, object? cover, Content? existing = null)
+        IFileStore? files, ClaimsPrincipal? caller, object? cover, Content? existing = null)
     {
         var data = new Dictionary<string, object> { ["Title"] = "a" };
         if (cover is not null) data["Cover"] = cover;
 
-        return new ContentValidatorService(null!, files, request)
-            .ValidateFieldsAsync(Schema, Type, data, existing);
+        return new ContentValidatorService(null!, files)
+            .ValidateFieldsAsync(Schema, Type, data, existing, caller);
     }
 
     private static Content Holding(object cover) => new()
@@ -192,10 +188,54 @@ public class FileFieldWriteTests
             Fields = [new FieldDefinition { Name = "Cover", DisplayName = "Cover", Type = "file", IsRequired = true }],
         };
 
-        var (isValid, errors) = await new ContentValidatorService(null!, new FakeFileStore(), NoRequest())
+        var (isValid, errors) = await new ContentValidatorService(null!, new FakeFileStore())
             .ValidateFieldsAsync(schema, Type, new Dictionary<string, object>(), existing: null);
 
         isValid.Should().BeFalse();
         errors.Should().ContainSingle().Which.Should().Contain("Cover").And.Contain("required");
+    }
+
+    [Fact]
+    public async Task The_overloads_that_name_no_caller_take_a_public_file_only_whatever_request_is_running()
+    {
+        var files = new FakeFileStore();
+        var owner = Guid.NewGuid();
+        var mine = files.Add(isPublic: false, owner: owner).ToString();
+        var open = files.Add(isPublic: true, owner: owner).ToString();
+        var validator = new ContentValidatorService(null!, files);
+
+        Dictionary<string, object> Data(string cover) => new() { ["Title"] = "a", ["Cover"] = cover };
+
+        (await validator.ValidateFieldsAsync(Schema, Type, Data(mine), existing: null)).IsValid.Should().BeFalse(
+            "a write that names no user is not the owner's");
+        (await validator.ValidateFieldsAsync(Schema, Type, Data(open), existing: null)).IsValid.Should().BeTrue();
+
+        // The control: the same file, for the user it belongs to.
+        (await validator.ValidateFieldsAsync(Schema, Type, Data(mine), existing: null, FakeFileStore.User(owner)))
+            .IsValid.Should().BeTrue();
+
+        files.SingleReads.Should().Equal("public", "public", "caller");
+    }
+
+    [Fact]
+    public async Task A_file_field_sent_twice_in_different_case_is_refused()
+    {
+        var files = new FakeFileStore();
+        var caller = FakeFileStore.User(Guid.NewGuid());
+        var open = files.Add(isPublic: true).ToString();
+        var theirs = files.Add(isPublic: false, owner: Guid.NewGuid()).ToString();
+        var validator = new ContentValidatorService(null!, files);
+
+        var (isValid, errors) = await validator.ValidateFieldsAsync(
+            Schema, Type, new Dictionary<string, object> { ["Title"] = "a", ["Cover"] = open, ["cover"] = theirs }, null, caller);
+
+        isValid.Should().BeFalse("only the first spelling would be checked, and delivery reads both");
+        errors.Should().ContainSingle().Which.Should().Contain("Cover").And.Contain("more than once");
+        errors[0].Should().NotContain(theirs);
+
+        // The control: the first spelling alone is accepted.
+        (await validator.ValidateFieldsAsync(
+            Schema, Type, new Dictionary<string, object> { ["Title"] = "a", ["Cover"] = open }, null, caller))
+            .IsValid.Should().BeTrue();
     }
 }

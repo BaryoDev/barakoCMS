@@ -50,6 +50,32 @@ internal static class PublicFileFields
         return items.Select(pair => Resolve(pair.Item, fieldsOf[pair.Definition], found)).ToList();
     }
 
+    private static readonly IReadOnlyDictionary<Guid, StoredFileInfo> NoFiles = new Dictionary<Guid, StoredFileInfo>();
+
+    /// <summary>
+    /// The entry with every file field left out, and the SEO image of a file field cleared, for a
+    /// payload that does not read the file store: the event stream and the module projector's
+    /// synchronous member.
+    /// </summary>
+    /// <remarks>
+    /// What delivery answers for a file it may not show, so these payloads never hold an id the
+    /// routes that resolve files would have left out.
+    /// </remarks>
+    public static PublicContentResponse LeaveOut(PublicContentResponse item, ContentTypeDefinition definition) =>
+        Resolve(item, FileFields.Names(definition), NoFiles);
+
+    /// <summary>The data with every file field holding a value left out, for a webhook payload.</summary>
+    public static Dictionary<string, object> LeaveOut(Dictionary<string, object> data, ContentTypeDefinition? definition)
+    {
+        var fields = FileFields.Names(definition);
+        if (fields.Count == 0)
+            return data;
+
+        return data
+            .Where(kv => kv.Value is null || !fields.Contains(kv.Key))
+            .ToDictionary(kv => kv.Key, kv => kv.Value);
+    }
+
     private static PublicContentResponse Resolve(
         PublicContentResponse item, HashSet<string> fields, IReadOnlyDictionary<Guid, StoredFileInfo> found)
     {

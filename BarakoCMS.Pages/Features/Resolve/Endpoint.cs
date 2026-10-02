@@ -99,8 +99,14 @@ internal sealed class Endpoint : EndpointWithoutRequest<ResolveResponse>
                 .Select((n, i) => new Breadcrumb(n.Id, n.Title, n.Slug!, tree.PathOf(chain.Take(i + 1).ToList())))
                 .ToList();
 
+            // The walk projects without reading files, which leaves file fields out. The page served
+            // is projected again with its files answered as the core delivery routes answer them.
+            var served = await _session.LoadAsync<barakoCMS.Models.Content>(entry.Id, ct) is { } doc
+                ? await _projector.ProjectAsync(doc, definition, ct) ?? entry
+                : entry;
+
             PublishedPages.SetCache(HttpContext);
-            await Send.OkAsync(new ResolveResponse(PagesContract.Version, path, entry, breadcrumbs), ct);
+            await Send.OkAsync(new ResolveResponse(PagesContract.Version, path, served, breadcrumbs), ct);
             return;
         }
 

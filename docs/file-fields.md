@@ -49,15 +49,22 @@ The value the entry already holds in the field is not checked again. A colleague
 entry but not download its file can still save the entry, and an entry whose file was deleted can
 still be edited. Changing the field to another file is a new attachment and is checked.
 
+A write that sends the field under two keys differing only in case, such as `Cover` and `cover`,
+is refused: only one of them would be checked, and a read answers both.
+
 | Writer | Caller asked about | What it may attach |
 | --- | --- | --- |
-| `POST /api/contents`, `PUT /api/contents/{id}`, a batch, a rollback, a transition carrying the field, a collection push, a spreadsheet import, a bundle import | the signed-in user of the request | a public file, or a private one that user may download |
+| `POST /api/contents`, `PUT /api/contents/{id}`, a batch, a rollback, a collection push, a spreadsheet import, a bundle import | the signed-in user of the request | a public file, or a private one that user may download |
+| A transition carrying the field (`IContentTransitioner`) | the actor the move is made for, not the user whose request is running | for a user actor, a public file or one that user uploaded; for a system actor, a public file only |
+| A module calling `IContentValidatorService` itself | the `caller` it passes; none passed means no user | with no caller, a public file only |
 | A form submission (`BarakoCMS.Forms`) | nobody: a form does not offer a file field | nothing |
 | The `UpdateField` workflow action | nobody: a workflow runs for no user | a public file only; anything else fails the action for good |
 | A collection sync | nobody | nothing: a sync that maps a source value onto a file field is refused when it is saved |
 
-A bundle import from another deployment names files this tenant does not have, so an entry naming
-one is refused as any other write naming a missing file is. Copy the files first.
+A bundle carries entries and not files. Importing one where the files it names are missing (into
+another deployment, or a tenant rebuilt from nothing) refuses every entry naming a missing file,
+and an import commits all of its entries or none, so the whole import is refused. Restore the files
+first, with their ids, then import the bundle.
 
 ## What a read answers
 
@@ -93,11 +100,21 @@ and nothing else.
 
 A file field the type does not mark Public is not delivered at all, as for any field. When the
 SEO field `SocialImage` is a file field, the SEO block's `imageUrl` is that file's `url`, or null.
+The delivery OpenAPI document describes a file field as this object and never lists it as
+required, since it can be absent from any entry.
 
-Not resolved, and still carrying the stored id: the server-sent event stream
-(`/api/public/events`), webhook payloads, and `IPublicContentProjector` for modules. Each of these
-builds its payload without a request scope to read files in. An id names nothing an anonymous
-reader can fetch: the public download route refuses a private file.
+The Pages module's `GET /api/public/pages/resolve` answers a page's file fields the same way,
+through `IPublicContentProjector.ProjectAsync`. A module serving entries of its own does the same.
+
+Three payloads leave every file field out, public files included, because they do not read the
+file store: the server-sent event stream (`/api/public/events`, built inside the commit),
+webhook payloads (a workflow has no caller to read as), and `IPublicContentProjector.Project`, the
+projector's synchronous member. A `SocialImage` file field gives them no SEO image.
+
+The id itself is not secret: it names nothing an anonymous reader can fetch, since the public
+download and metadata routes refuse a private file. It is still in the entry's search text when the
+field is Public, so `search?q=` or `filter[Cover][eq]=` with a known id answers which published
+entries hold it, without answering the field.
 
 ### Authoring reads
 

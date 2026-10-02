@@ -183,7 +183,8 @@ internal static class DeliveryDocument
                 continue;
 
             properties[field.Name] = FieldSchema(field);
-            if (field.IsRequired)
+            // A file field is left out of an entry whose file is private or gone, required or not.
+            if (field.IsRequired && !barakoCMS.Core.Validation.FileFields.IsFileField(field))
                 required.Add(field.Name);
         }
 

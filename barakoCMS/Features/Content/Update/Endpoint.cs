@@ -59,7 +59,7 @@ internal class Endpoint(
 
         // DYNAMIC VALIDATION - Validate data against ContentType schema
         var validationResult = await validator.ValidateAsync(
-            existingContent.ContentType, req.Data, existing: existingContent);
+            existingContent.ContentType, req.Data, existing: existingContent, caller: User);
         if (!validationResult.IsValid)
         {
             foreach (var error in validationResult.Errors)

@@ -61,23 +61,63 @@ public interface IContentValidatorService
         Models.Content? existing)
         => throw new NotSupportedException(
             $"{GetType().Name} does not implement {nameof(ValidateFieldsAsync)}.");
+
+    /// <summary>Checks a data bag against its content type's schema, for the user the write is made for.</summary>
+    /// <param name="contentType">The type name as the caller spelled it.</param>
+    /// <param name="data">The field values being written.</param>
+    /// <param name="existing">The stored entry being changed, or null when one is being created.</param>
+    /// <param name="caller">
+    /// The user the write is made for: the principal of their request, or one naming them. A
+    /// <c>file</c> field takes a file this user may download. Null is a write no user makes, and a
+    /// file field then takes a public file only, which is also what the overloads without a caller
+    /// check.
+    /// </param>
+    /// <remarks>
+    /// The default ignores the caller, which is what an implementor written before this member does.
+    /// </remarks>
+    Task<(bool IsValid, List<string> Errors)> ValidateAsync(
+        string contentType,
+        Dictionary<string, object> data,
+        Models.Content? existing,
+        System.Security.Claims.ClaimsPrincipal? caller)
+        => ValidateAsync(contentType, data, existing);
+
+    /// <summary>
+    /// Checks a data bag against a schema the caller supplies, for the user the write is made for,
+    /// as the overload of <c>ValidateAsync</c> taking a caller does.
+    /// </summary>
+    /// <remarks>The default ignores the caller.</remarks>
+    Task<(bool IsValid, List<string> Errors)> ValidateFieldsAsync(
+        ContentTypeDefinition schema,
+        string contentType,
+        Dictionary<string, object> data,
+        Models.Content? existing,
+        System.Security.Claims.ClaimsPrincipal? caller)
+        => ValidateFieldsAsync(schema, contentType, data, existing);
 }
 
 public class ContentValidatorService(
     IQuerySession session,
-    barakoCMS.Core.Interfaces.IFileStore? files,
-    Microsoft.AspNetCore.Http.IHttpContextAccessor? http) : IContentValidatorService
+    barakoCMS.Core.Interfaces.IFileStore? files) : IContentValidatorService
 {
     /// <summary>A validator with no file store, which refuses a new value in a <c>file</c> field.</summary>
     public ContentValidatorService(IQuerySession session)
-        : this(session, null, null)
+        : this(session, null)
     {
     }
 
-    public async Task<(bool IsValid, List<string> Errors)> ValidateAsync(
+    public Task<(bool IsValid, List<string> Errors)> ValidateAsync(
         string contentType,
         Dictionary<string, object> data,
         Models.Content? existing = null)
+        => ValidateAsync(contentType, data, existing, caller: null);
+
+    /// <inheritdoc />
+    public async Task<(bool IsValid, List<string> Errors)> ValidateAsync(
+        string contentType,
+        Dictionary<string, object> data,
+        Models.Content? existing,
+        System.Security.Claims.ClaimsPrincipal? caller)
     {
         var errors = new List<string>();
         
@@ -134,15 +174,24 @@ public class ContentValidatorService(
             return (true, errors);
         }
 
-        return await ValidateFieldsAsync(schema, contentType, data, existing);
+        return await ValidateFieldsAsync(schema, contentType, data, existing, caller);
     }
+
+    /// <inheritdoc />
+    public Task<(bool IsValid, List<string> Errors)> ValidateFieldsAsync(
+        ContentTypeDefinition schema,
+        string contentType,
+        Dictionary<string, object> data,
+        Models.Content? existing)
+        => ValidateFieldsAsync(schema, contentType, data, existing, caller: null);
 
     /// <inheritdoc />
     public async Task<(bool IsValid, List<string> Errors)> ValidateFieldsAsync(
         ContentTypeDefinition schema,
         string contentType,
         Dictionary<string, object> data,
-        Models.Content? existing)
+        Models.Content? existing,
+        System.Security.Claims.ClaimsPrincipal? caller)
     {
         var errors = new List<string>();
 
@@ -175,7 +224,7 @@ public class ContentValidatorService(
                 {
                     // Ahead of the shape check, so text that is not an id is answered in the same
                     // words as an id the caller may not use.
-                    var error = await ValidateFileAsync(field, value, existing);
+                    var error = await ValidateFileAsync(field, data, value, existing, caller);
                     if (error is not null)
                         errors.Add(error);
                 }
@@ -318,16 +367,28 @@ public class ContentValidatorService(
     /// Checks that a file field names a file the caller of this request may use.
     /// </summary>
     /// <remarks>
-    /// Asked of the file store as the caller, so the answer is the one the download routes give:
-    /// any public file, or a private one that is the caller's own or that the caller administers.
-    /// A write with no request behind it, such as a job, has no caller and takes a public file only.
+    /// Asked of the file store as the user the write is made for, so the answer is the one the
+    /// download routes give: any public file, or a private one that is the caller's own or that the
+    /// caller administers. A write with no caller, such as a job or a system actor, takes a public
+    /// file only.
+    ///
+    /// The data may hold the field under more than one key that differ only in case, and only the
+    /// first is read above. Delivery resolves every one of them, so such a write is refused.
     ///
     /// The value the entry already holds in this field is not asked about again. It was checked for
     /// whoever attached it, and asking for it as this caller would refuse every later edit of the
     /// entry by anyone else, and every edit after the file was deleted.
     /// </remarks>
-    private async Task<string?> ValidateFileAsync(FieldDefinition field, object value, Models.Content? existing)
+    private async Task<string?> ValidateFileAsync(
+        FieldDefinition field,
+        Dictionary<string, object> data,
+        object value,
+        Models.Content? existing,
+        System.Security.Claims.ClaimsPrincipal? caller)
     {
+        if (data.Keys.Count(k => k.Equals(field.Name, StringComparison.OrdinalIgnoreCase)) > 1)
+            return $"Field '{field.DisplayName}' ({field.Name}) was sent more than once, ignoring case.";
+
         if (existing is not null && FileFields.Holds(existing.Data, field.Name, value))
             return null;
 
@@ -337,7 +398,6 @@ public class ContentValidatorService(
         if (!FileFields.TryReadId(value, out var id))
             return FileFields.Refused(field);
 
-        var caller = http?.HttpContext?.User;
         var file = caller is null
             ? await files.FindPublicAsync(id)
             : await files.FindAsync(id, caller);

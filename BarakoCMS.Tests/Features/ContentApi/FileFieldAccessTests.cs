@@ -268,10 +268,44 @@ public class FileFieldAccessTests
         swapped.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await swapped.Content.ReadAsStringAsync(Ct)).Should().Contain(Refusal);
 
-        using var scope = _factory.Services.CreateScope();
-        var stored = await scope.ServiceProvider.GetRequiredService<IQuerySession>().LoadAsync<Content>(entry, Ct);
-        stored!.Data["Title"].ToString().Should().Be("retitled");
-        stored.Data["Cover"].ToString().Should().Be(attached.ToString());
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var stored = await scope.ServiceProvider.GetRequiredService<IQuerySession>().LoadAsync<Content>(entry, Ct);
+            stored!.Data["Title"].ToString().Should().Be("retitled");
+            stored.Data["Cover"].ToString().Should().Be(attached.ToString());
+        }
+
+        // The control: the same swap by the owner, whose file it is.
+        var swappedByOwner = await owner.Client.PutAsJsonAsync($"/api/contents/{entry}", new
+        {
+            data = new Dictionary<string, object> { ["Title"] = "retitled", ["Cover"] = another.ToString() },
+        }, Ct);
+        swappedByOwner.IsSuccessStatusCode.Should().BeTrue(
+            "the file is checked for the user making the edit: got {0}: {1}",
+            swappedByOwner.StatusCode, await swappedByOwner.Content.ReadAsStringAsync(Ct));
+    }
+
+    [Fact]
+    public async Task A_file_field_sent_twice_in_different_case_is_refused()
+    {
+        var type = await StoreTypeAsync();
+        var (owner, stranger) = await EditorsAsync(type);
+
+        var open = await FileAsync(isPublic: true, owner: stranger.Id);
+        var theirs = await FileAsync(isPublic: false, owner: owner.Id);
+
+        var response = await stranger.Client.PostAsJsonAsync("/api/contents", new
+        {
+            contentType = type,
+            data = new Dictionary<string, object> { ["Title"] = "a", ["Cover"] = open.ToString(), ["cover"] = theirs.ToString() },
+        }, Ct);
+        var body = await response.Content.ReadAsStringAsync(Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, body);
+        body.Should().Contain("more than once").And.NotContain(theirs.ToString());
+
+        // The control: the first spelling alone.
+        await CreatedIdAsync(await CreateAsync(stranger.Client, type, open.ToString()));
     }
 
     [Fact]
