@@ -9,13 +9,16 @@
 #   git clone https://github.com/BaryoDev/barakoCMS.wiki.git /tmp/wiki
 #   scripts/wiki-publish.sh /tmp/wiki
 #
+# Run it by hand only from an up to date master. It publishes whatever commit is checked out and
+# cannot tell an old one from the newest, so it prints the commit and branch before it writes.
+#
 # The caller owns the clone and its credentials. This script holds no token and never clones.
 #
 # Exit codes
 #   0  the wiki was pushed, or it already matched docs/ and nothing was committed. The last line
 #      says which.
 #   1  anything else: the sync failed, the commit failed, the push was refused, or the wiki's
-#      branch did not end at the new commit. Nothing is retried.
+#      branch does not contain the new commit afterwards. Nothing is retried.
 #
 # What it refuses before writing anything
 #   A wiki clone with uncommitted changes, because "git add -A" would publish them under the sync's
@@ -79,6 +82,11 @@ if [ -n "${WIKI_COMMIT_NAME:-}" ] || [ -n "${WIKI_COMMIT_EMAIL:-}" ]; then
   IDENTITY=(-c "user.name=$WIKI_COMMIT_NAME" -c "user.email=$WIKI_COMMIT_EMAIL")
 fi
 
+# Said before anything is written, so a run by hand from a feature branch or an old master is
+# visible in the output. Nothing here can tell whether this commit is the newest one.
+SOURCE_BRANCH=$(git -C "$REPO_ROOT" symbolic-ref --quiet --short HEAD) || SOURCE_BRANCH="a detached HEAD"
+say "publishing docs/ at $SOURCE_SLUG@$SOURCE_SHA, checked out on $SOURCE_BRANCH"
+
 bash "$HERE/wiki-sync.sh" "$WIKI" || die "wiki-sync.sh failed, nothing was committed or pushed"
 
 git -C "$WIKI" add -A
@@ -109,8 +117,15 @@ fi
 # The exit code of the push is not taken on trust: read the branch back.
 remote=$(git -C "$WIKI" ls-remote origin "refs/heads/$BRANCH" | cut -f1) \
   || die "pushed $NEW, but could not read $BRANCH back from the wiki to confirm it"
-[ "$remote" = "$NEW" ] \
-  || die "push reported success but $BRANCH on the wiki is at ${remote:-nothing}, not $NEW"
+if [ "$remote" != "$NEW" ]; then
+  # Someone saving a page on the web between the push and this read moves the branch past the new
+  # commit. That is still a publish, so what is asked is whether the branch contains the commit.
+  [ -n "$remote" ] \
+    && git -C "$WIKI" fetch --quiet origin "refs/heads/$BRANCH" 2>/dev/null \
+    && git -C "$WIKI" merge-base --is-ancestor "$NEW" FETCH_HEAD 2>/dev/null \
+    || die "push reported success but $BRANCH on the wiki is at ${remote:-nothing}, which does not contain $NEW"
+  say "$BRANCH on the wiki moved on to $remote after the push, and it contains $NEW"
+fi
 
 say "published $NEW to $BRANCH, from $SOURCE_SLUG@$SOURCE_SHA"
 summary "Wiki published" "Wiki commit \`$NEW\`, from \`$SOURCE_SLUG@$SOURCE_SHA\`."
