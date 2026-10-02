@@ -235,8 +235,14 @@ public class TenancyModeResolutionTests
         var ct = TestContext.Current.CancellationToken;
         var tenant = await MultiTenancyHost.RegisterTenantAsync(_fixture);
 
+        // Not asserted to be 200. Liveness is one check, the process's private memory against a
+        // ceiling, and a full run holds every derived host in this one process, so the probe can
+        // honestly answer 503 here. What this test is about is that the probe ran at all: it wrote
+        // its own report, where a request refused for want of a tenant gets the 404 text.
         var live = await _multi.SendAsync(Get("/health/live"), ct);
-        live.StatusCode.Should().Be(HttpStatusCode.OK, "a probe names no tenant");
+        live.StatusCode.Should().NotBe(HttpStatusCode.NotFound, "a probe names no tenant");
+        (await live.Content.ReadAsStringAsync(ct)).Should().StartWith("{\"status\":",
+            "the health middleware answered, healthy or not, so resolution let the probe through");
 
         var meta = await _multi.SendAsync(Get("/api/meta"), ct);
         await ShouldHaveReachedTheEndpointAsync(meta, "the contract version is read before a tenant is known");
