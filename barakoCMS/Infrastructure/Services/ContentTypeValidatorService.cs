@@ -105,6 +105,8 @@ public class ContentTypeValidatorService : IContentTypeValidatorService
                 {
                     errors.Add($"Field '{field.Name}' declares options but is of type '{field.Type}', not choice.");
                 }
+
+                errors.AddRange(FieldRules.DefinitionErrors(field));
             }
         }
 
