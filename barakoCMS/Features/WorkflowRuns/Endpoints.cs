@@ -14,6 +14,12 @@ internal sealed class RunResponse
     public Guid ContentId { get; init; }
     public string ContentType { get; init; } = string.Empty;
     public string TriggerEvent { get; init; } = string.Empty;
+    /// <summary>The name of a <see cref="RunStatus"/>.</summary>
+    /// <remarks>
+    /// A string on the wire. The attribute tells the OpenAPI document which names it can be, which
+    /// a string alone does not say, and changes nothing that is serialised.
+    /// </remarks>
+    [NJsonSchema.Annotations.JsonSchemaType(typeof(RunStatus))]
     public string Status { get; init; } = nameof(RunStatus.Pending);
     public DateTimeOffset CreatedAt { get; init; }
     public DateTimeOffset? CompletedAt { get; init; }
@@ -51,6 +57,8 @@ internal sealed class AttemptResponse
 {
     public int Ordinal { get; init; }
     public string ActionType { get; init; } = string.Empty;
+    /// <summary>The name of an <see cref="AttemptStatus"/>.</summary>
+    [NJsonSchema.Annotations.JsonSchemaType(typeof(AttemptStatus))]
     public string Status { get; init; } = nameof(AttemptStatus.Pending);
     public int Attempts { get; init; }
     public DateTimeOffset? NextAttemptAt { get; init; }
@@ -77,6 +85,12 @@ internal sealed class AttemptResponse
 
 internal sealed class ListRunsRequest : ListRequest
 {
+    /// <summary>The name of a <see cref="RunStatus"/>, in any case. Left out, every status is listed.</summary>
+    /// <remarks>
+    /// Bound as a string so the handler keeps its own refusal for a name it does not know. Nullable
+    /// is said on the attribute because without it the document marks the filter as required.
+    /// </remarks>
+    [NJsonSchema.Annotations.JsonSchemaType(typeof(RunStatus), IsNullable = true)]
     public string? Status { get; set; }
     public Guid? ContentId { get; set; }
 }
