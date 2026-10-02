@@ -1,5 +1,8 @@
+using System.Threading.RateLimiting;
 using barakoCMS.Modules;
 using Marten;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -15,6 +18,10 @@ namespace BarakoCMS.ExternalAuth;
 /// flows. Profile details (photo, birthday, location) are captured per provider into a global
 /// <see cref="SocialProfile"/> (exposed at <c>GET /api/me/profile</c>). <c>GET /api/auth/providers</c>
 /// reports which providers are configured. A provider is active only when its client id/secret are set.
+///
+/// Any OpenID Connect provider can be added by configuration under <c>Oidc:Providers:{name}</c>
+/// (<c>GET /api/auth/oidc/{name}/start</c> and <c>/callback</c>). Those are matched to a user by
+/// issuer and subject, kept in <see cref="ExternalIdentity"/>, and by verified email only the first time.
 /// </summary>
 public sealed class ExternalAuthModule : IBarakoModule
 {
@@ -24,6 +31,29 @@ public sealed class ExternalAuthModule : IBarakoModule
     {
         // Outbound HTTP for the OAuth token exchange + userinfo lookups.
         services.AddHttpClient();
+
+        // One per process: they hold the discovery and key cache and the spent states.
+        services.AddSingleton<OidcBackchannel>();
+        services.AddSingleton<OidcConsumedStates>();
+        services.AddHostedService<OidcConfigurationReport>();
+
+        // Start and callback are anonymous and each can cost an outbound call, so they get their own
+        // bucket per client address instead of only the global one. Read from the root configuration
+        // when a partition is created, like the provider sections themselves.
+        services.Configure<RateLimiterOptions>(options =>
+            options.AddPolicy(OidcSupport.RateLimitPolicy, context =>
+            {
+                var limits = context.RequestServices.GetRequiredService<IConfiguration>();
+                var ip = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+                return RateLimitPartition.GetFixedWindowLimiter($"oidc-{ip}", _ =>
+                    new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = OidcSupport.Positive(limits, "PermitLimit", OidcSupport.DefaultPermitLimit),
+                        Window = TimeSpan.FromSeconds(
+                            OidcSupport.Positive(limits, "WindowSeconds", OidcSupport.DefaultWindowSeconds)),
+                    });
+            }));
     }
 
     public void ConfigureSchema(IModuleSchema schema)
@@ -33,5 +63,11 @@ public sealed class ExternalAuthModule : IBarakoModule
             .SingleTenanted()
             .DocumentAlias("social_profiles")
             .Index(x => x.UserId, i => i.IsUnique = true);
+
+        // Global for the same reason. The id is derived from issuer and subject, so the primary key
+        // is what stops one provider account being linked twice.
+        schema.For<ExternalIdentity>()
+            .SingleTenanted()
+            .DocumentAlias("external_identities");
     }
 }
