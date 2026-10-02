@@ -112,6 +112,61 @@ What a rule author needs to know:
 - A user whose roles come only from `User.RoleIds`, with no membership row in the tenant, has no
   profile. Add them as a member of the tenant to give them one.
 
+### Something about the entry a row points at
+
+An enrollment names a class, and only the class names its instructor. A condition key written
+`Reference.Field` follows the row's reference field to the entry it points at and compares a field
+of that entry, so an instructor reads the enrollments of the classes they teach without the
+instructor's id being copied onto every enrollment:
+
+```json
+{ "Read": { "Enabled": true, "Conditions": { "Class.InstructorUser": { "_eq": "$CURRENT_USER" } } } }
+```
+
+`Class` is a field of the enrollment type declared as `reference`, and `InstructorUser` is a field
+of the type it points at. The same key works on a Read, an Update and a transition rule, with
+`_eq`, `_ne`, `_in` and `_nin`, and beside conditions on the row itself.
+
+It denies unless all of this holds, whatever the operator is:
+
+- The first name is a field the row's type declares as a `reference`, spelled as declared. If the
+  field's type is changed later, the condition stops granting.
+- The row holds an id there, as text in the hyphenated form. Upper or lower case both read.
+- The id is an entry in this tenant, of the type the reference declares, whose document sensitivity
+  is Public. An erased entry and one in another tenant are both not there.
+- The caller may read that entry under their own Read rules for its type. The instructor's role
+  needs a Read rule on classes that covers the class.
+- The second name is a field the referenced type declares with Public sensitivity, and the entry
+  holds it.
+
+One reference is followed, not two. `Class.Teacher.Email` is refused when the role is saved, and
+if the Read rule on classes itself follows a reference, that rule grants nothing to a condition
+arriving through an enrollment (the class can still be read directly under it).
+
+A key holding a dot is never looked up in the row's own data. An entry write keeps keys its type
+does not declare, so before this a rule naming `Class.InstructorUser` matched a row carrying a key
+spelled exactly that. It no longer does.
+
+`POST /api/roles` and `PUT /api/roles/{id}` check such a condition and answer 400 for a key that is
+not two names around one dot, a first name that is not a reference field of the rule's content type,
+a second name that is not a Public field of the referenced type, an operator outside the four, a
+content type the tenant does not define, and a condition on a Create rule (Create has no stored
+entry and does not evaluate conditions). The check is against the content types of the tenant the
+request is made in. Roles are stored once for all tenants, so in another tenant the same condition
+resolves against that tenant's types and denies where they do not declare it. A role stored with
+a key the check would refuse still reads back, and the condition denies.
+
+What it costs, and where it stops:
+
+- `GET /api/contents` with a `contentType` asks one query per such condition for the ids of the
+  referenced entries that match and that the caller may read, then pages and counts in the
+  database with those ids. A condition may match at most 1,000 referenced entries. Past that it
+  matches nothing in that list, and a warning is logged.
+- A check on one entry (get, update, status change, transition, and every entry of a list the
+  database cannot page) loads the referenced entry, once per request for each distinct one. A
+  request loads at most 200. A reference past that denies, and a warning is logged.
+- A refusal by id is still 403, as it is for every other condition.
+
 ## Layer 3: Field + document sensitivity
 
 This is the "Employee has SIN + birthday sensitive, rest viewable" ask, plus the

@@ -28,6 +28,10 @@ internal class Endpoint(
             foreach (var name in unknown)
                 AddError(r => r.SystemCapabilities, CapabilityVocabulary.UnknownMessage(name));
         }
+
+        foreach (var error in await ReferenceConditionRules.CheckAsync(session, req.Permissions, ct))
+            AddError(r => r.Permissions, error);
+
         ThrowIfAnyErrors();
 
         var role = new Role

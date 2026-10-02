@@ -61,10 +61,16 @@ internal static class PermissionPredicateCompiler
     /// Where <c>$CURRENT_USER.&lt;name&gt;</c> is read from. Null is a caller with no membership in
     /// the tenant, for whom every such variable is unresolved.
     /// </param>
+    /// <param name="references">
+    /// For each rule, the predicate that stands in for each of its conditions that follow a
+    /// reference, keyed by the condition's key. <see cref="PermissionResolver"/> builds them, since
+    /// they take a query. A rule with such a condition and no predicate for it does not compile.
+    /// </param>
     public static ReadPredicate Compile(
         IReadOnlyList<Models.PermissionRule> rules,
         Guid userId,
-        IReadOnlyDictionary<string, string>? callerProfile = null)
+        IReadOnlyDictionary<string, string>? callerProfile = null,
+        IReadOnlyDictionary<Models.PermissionRule, IReadOnlyDictionary<string, ReadPredicate>>? references = null)
     {
         // Additive union: any rule granting is enough, so this is an OR and an empty set is FALSE.
         // Same shape as the loop in PermissionResolver, deliberately.
@@ -84,7 +90,9 @@ internal static class PermissionPredicateCompiler
                 return ReadPredicate.All;
             }
 
-            if (!TryCompileRule(rule.Conditions, userId, callerProfile, out var sql, out var ruleParameters))
+            if (!TryCompileRule(
+                    rule.Conditions, userId, callerProfile, references?.GetValueOrDefault(rule),
+                    out var sql, out var ruleParameters))
             {
                 return ReadPredicate.None;
             }
@@ -103,6 +111,7 @@ internal static class PermissionPredicateCompiler
         Dictionary<string, object> conditions,
         Guid userId,
         IReadOnlyDictionary<string, string>? callerProfile,
+        IReadOnlyDictionary<string, ReadPredicate>? references,
         out string sql,
         out List<object> parameters)
     {
@@ -119,6 +128,23 @@ internal static class PermissionPredicateCompiler
 
         foreach (var (field, rawOperators) in conditions)
         {
+            if (ReferenceConditions.IsPath(field))
+            {
+                // Never compiled as a key of the row's own data: the evaluator does not read it
+                // there either. The placeholder count is the same check the comparisons get below.
+                if (references is null
+                    || !references.TryGetValue(field, out var clause)
+                    || clause.Sql is null
+                    || clause.Sql.Count(ch => ch == '?') != clause.Parameters.Length)
+                {
+                    return false;
+                }
+
+                parts.Add($"({clause.Sql})");
+                parameters.AddRange(clause.Parameters);
+                continue;
+            }
+
             if (Normalize(rawOperators) is not Dictionary<string, object> operators)
             {
                 return false;
