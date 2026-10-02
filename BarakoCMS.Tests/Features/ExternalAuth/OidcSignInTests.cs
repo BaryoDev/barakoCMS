@@ -143,6 +143,13 @@ public class OidcSignInTests
         return await CallbackAsync(code, started.State, started.Cookie, provider, club);
     }
 
+    private static bool IsProviderUrl(string url) =>
+        url.StartsWith("https://idp.test.example/", StringComparison.Ordinal)
+        || url.StartsWith("https://broken.test.example/", StringComparison.Ordinal);
+
+    /// <summary>Requests the sign-in flow sent out so far, whatever else on the host made calls.</summary>
+    private static int ProviderRequests() => _clients!.Requests.Count(r => IsProviderUrl(r.Url));
+
     private static string NewCode() => "code-" + Guid.NewGuid().ToString("N");
 
     private static string NewSubject() => "sub-" + Guid.NewGuid().ToString("N");
@@ -284,14 +291,14 @@ public class OidcSignInTests
     [InlineData("bad%20name")]
     public async Task A_provider_that_is_not_on_cannot_be_started_or_called_back(string provider)
     {
-        var before = Stub.RequestedUrls.Count;
+        var before = ProviderRequests();
 
         (await _client.GetAsync($"/api/auth/oidc/{provider}/start", TestContext.Current.CancellationToken))
             .StatusCode.Should().Be(HttpStatusCode.NotFound);
         (await _client.GetAsync($"/api/auth/oidc/{provider}/callback?code=c&state=s", TestContext.Current.CancellationToken))
             .StatusCode.Should().Be(HttpStatusCode.NotFound);
 
-        Stub.RequestedUrls.Count.Should().Be(before,
+        ProviderRequests().Should().Be(before,
             "an http authority, a disabled provider and an unknown name make no outbound call at all");
     }
 
@@ -400,14 +407,24 @@ public class OidcSignInTests
     {
         ShouldBeSignedIn(await SignInAsync(started => Token(started, NewSubject(), NewEmail())));
 
-        var names = _clients!.Names.ToList();
-        names.Should().NotBeEmpty();
-        names.Should().OnlyContain(name => name == "ExternalApi",
+        // The factory belongs to the whole host, and other services create clients of their own
+        // while this runs. What is asserted is who sent the requests that reached a provider.
+        var requests = _clients!.Requests.ToList();
+        var toAProvider = requests.Where(r => IsProviderUrl(r.Url)).ToList();
+        toAProvider.Should().NotBeEmpty();
+        toAProvider.Should().Contain(r => r.Url == OidcStubProvider.Authority + "/token", "the sign-in above exchanged a code");
+        toAProvider.Should().OnlyContain(r => r.Client == "ExternalApi",
             "that client's handler is the one that refuses internal addresses and follows no redirect");
-        Stub.RequestedUrls.Should().NotBeEmpty();
-        Stub.RequestedUrls.Should().OnlyContain(url =>
-            url.StartsWith("https://idp.test.example/", StringComparison.Ordinal)
-            || url.StartsWith("https://broken.test.example/", StringComparison.Ordinal));
+
+        // Matched by path and not by client name, since another service on the host may also use
+        // the guarded client for calls of its own.
+        var oidcShaped = requests.Where(r =>
+            r.Url.EndsWith("/.well-known/openid-configuration", StringComparison.Ordinal)
+            || r.Url.EndsWith("/keys", StringComparison.Ordinal)
+            || r.Url.EndsWith("/token", StringComparison.Ordinal)).ToList();
+        oidcShaped.Should().NotBeEmpty();
+        oidcShaped.Should().OnlyContain(r => IsProviderUrl(r.Url),
+            "discovery, keys and the exchange go to the configured provider over https and nowhere else");
     }
 
     // ---- state ----

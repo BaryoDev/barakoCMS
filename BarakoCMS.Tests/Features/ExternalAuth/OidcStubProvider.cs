@@ -163,15 +163,35 @@ internal sealed class OidcStubProvider : HttpMessageHandler
     }
 }
 
-/// <summary>Hands every caller a client over one handler, and remembers which named client was asked for.</summary>
+/// <summary>
+/// Hands every caller a client over one handler, and remembers which named client was asked for and
+/// which named client sent each request.
+/// </summary>
+/// <remarks>
+/// On a whole host the factory is shared with every other service, and some of them create a
+/// client of their own while a test runs. So what a test about one feature can assert is which
+/// client sent that feature's requests, not which clients were ever created.
+/// </remarks>
 internal sealed class RecordingClientFactory(HttpMessageHandler handler) : IHttpClientFactory
 {
     public ConcurrentQueue<string> Names { get; } = new();
 
+    public ConcurrentQueue<(string Client, string Url)> Requests { get; } = new();
+
     public HttpClient CreateClient(string name)
     {
         Names.Enqueue(name);
-        return new HttpClient(handler, disposeHandler: false);
+        return new HttpClient(new Tagging(name, Requests, handler), disposeHandler: false);
+    }
+
+    private sealed class Tagging(string client, ConcurrentQueue<(string Client, string Url)> requests, HttpMessageHandler inner)
+        : DelegatingHandler(inner)
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            requests.Enqueue((client, request.RequestUri?.ToString() ?? string.Empty));
+            return base.SendAsync(request, ct);
+        }
     }
 }
 
