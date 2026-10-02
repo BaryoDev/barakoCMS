@@ -156,9 +156,20 @@ public class Endpoint(
                     continue;
                 }
 
-                await creator.StageAsync(request, userId, batch, token);
-                await batchSession.SaveChangesAsync(token);
-                written++;
+                try
+                {
+                    await creator.StageAsync(request, userId, batch, token);
+                    await batchSession.SaveChangesAsync(token);
+                    written++;
+                }
+                catch (ContentUniquenessException ex)
+                {
+                    // Another entry, stored or an earlier row, holds this row's values under a
+                    // uniqueness rule of the type. A row error like any other, so continueOnError
+                    // still writes the rows that pass.
+                    rowErrors.Add(new Response.RowError { Row = i, Messages = [ex.Message] });
+                    batchSession.EjectAllPendingChanges();
+                }
             }
 
             var commit = rowErrors.Count == 0 || req.ContinueOnError;

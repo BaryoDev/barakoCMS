@@ -212,6 +212,37 @@ public class MetaDescribeTests
         }
     }
 
+    /// <summary>
+    /// The field types a uniqueness rule may name are the ones a content type save accepts in a
+    /// rule, asked of the validator itself, and each is a described field type.
+    /// </summary>
+    [Fact]
+    public async Task The_uniqueness_part_lists_the_field_types_a_type_save_accepts_in_a_rule()
+    {
+        var document = await DescribeAsync(await CallerHolding());
+        var uniqueness = document.GetProperty("uniqueness");
+
+        var listed = Strings(uniqueness, "fieldTypes");
+        listed.Should().NotBeEmpty();
+        listed.Should().BeSubsetOf(FieldTypeRegistry.Types.Select(t => t.Name));
+        uniqueness.GetProperty("creatorField").GetString().Should().Be(UniquenessRule.CreatedByField);
+        uniqueness.GetProperty("maxRules").GetInt32().Should().BeGreaterThan(0);
+        uniqueness.GetProperty("maxFields").GetInt32().Should().BeGreaterThan(0);
+
+        var validator = new ContentTypeValidatorService();
+
+        foreach (var type in FieldTypeRegistry.Types.Select(t => t.Name))
+        {
+            var field = new FieldDefinition { Name = "Field", DisplayName = "Field", Type = type };
+            var rules = new List<UniquenessRule> { new() { Name = "Probe", Fields = ["Field"] } };
+
+            var refused = ((IContentTypeValidatorService)validator).ValidateUniqueness(rules, [field], null).Errors
+                .Any(error => error.Contains("a rule compares a field holding one text"));
+
+            refused.Should().Be(!listed.Contains(type), "a rule on a field of type '{0}'", type);
+        }
+    }
+
     [Fact]
     public async Task A_caller_holding_no_capability_gets_the_field_types_and_rules_and_nothing_else()
     {
@@ -351,9 +382,12 @@ public class MetaDescribeTests
 
         document.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(
         [
-            "apiContractVersion", "fieldTypes", "rules", "fieldEditors", "fieldRoles",
+            "apiContractVersion", "fieldTypes", "rules", "fieldEditors", "fieldRoles", "uniqueness",
             "capabilities", "workflowActions", "modules",
         ]);
+
+        document.GetProperty("uniqueness").EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(
+            ["fieldTypes", "creatorField", "maxRules", "maxFields"]);
 
         var fieldTypes = document.GetProperty("fieldTypes").EnumerateArray().ToList();
         fieldTypes.Should().NotBeEmpty();

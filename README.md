@@ -416,6 +416,8 @@ renderer reads its identity and theme from), [choice fields](docs/choice-fields.
 [money fields](docs/money-fields.md) (a currency on the field, and amounts held to its decimal places),
 [field hints, sections and roles](docs/field-hints-and-roles.md) (which editor a field wants, which
 field is the title, and where a type's entries live on the site),
+[uniqueness rules](docs/uniqueness-rules.md) (values only one entry may hold at a time, such as one
+open time entry per teacher),
 [scheduling](docs/scheduling.md) (publish, unpublish and sensitivity at a set time),
 [deploying on a managed platform](docs/deploy-on-a-managed-platform.md) (App Service, Fargate,
 Cloud Run), [approval by configuration](docs/approval-by-configuration.md) (an invoice through Submit and

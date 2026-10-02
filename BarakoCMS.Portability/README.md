@@ -62,6 +62,12 @@ the repository.
   before these members existed leaves them as stored. A bundle cannot clear one;
   `PUT /api/content-types/{name}/fields/{field}/presentation` and
   `PUT /api/content-types/{name}/route-template` do.
+- A type's `uniqueness` rules travel in the bundle. A type the import creates takes them, checked
+  the way `POST /api/content-types` checks them. A stored type keeps its own: a bundle carrying none
+  leaves them, and one carrying different rules, or leaving out a field a stored rule compares, is
+  refused; `PUT /api/content-types/{name}/uniqueness` is the way to change them. An entry holding
+  values a stored entry or an earlier entry of the bundle holds under a rule is refused by its
+  index, unlike the singleton cap.
 - Each entry goes through the same write path as `POST /api/contents`: a field the caller may not
   see is dropped, the entry is validated against its type as the bundle leaves it, the type's
   lifecycle hooks run, and the entry starts in the type's initial lifecycle state. The singleton cap

@@ -1001,7 +1001,8 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<IDocumentSession>(),
                 sp.GetRequiredService<barakoCMS.Core.Interfaces.IContentSourcingPolicy>(),
                 sp.GetRequiredService<IConfiguration>(),
-                sp.GetRequiredService<barakoCMS.Infrastructure.Multitenancy.BatchTransaction>()));
+                sp.GetRequiredService<barakoCMS.Infrastructure.Multitenancy.BatchTransaction>(),
+                sp.GetRequiredService<ILogger<barakoCMS.Infrastructure.Services.ContentWriter>>()));
         services.AddScoped<barakoCMS.Infrastructure.Services.IContentRebuilder, barakoCMS.Infrastructure.Services.ContentRebuilder>();
         // Runs any per-content-type domain rules a module registered (IContentLifecycleHook), so a
         // domain with real invariants can still be modelled as ordinary content.
@@ -1484,6 +1485,19 @@ public static class ServiceCollectionExtensions
                 context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
                 context.Response.ContentType = "text/plain; charset=utf-8";
                 await context.Response.WriteAsync(barakoCMS.Infrastructure.Security.CanonicalHost.NotConfiguredResponse);
+            }
+            catch (barakoCMS.Core.Interfaces.ContentUniquenessException ex) when (!context.Response.HasStarted)
+            {
+                // The content writer refuses the write wherever it was made from, so every route
+                // that writes an entry answers the same 409 without a catch of its own. The message
+                // names the rule and the type, which the type's definition holds, and no value.
+                context.Response.Clear();
+                await new FastEndpoints.ProblemDetails(
+                        [new FluentValidation.Results.ValidationFailure(string.Empty, ex.Message)],
+                        context.Request.Path,
+                        context.TraceIdentifier,
+                        StatusCodes.Status409Conflict)
+                    .ExecuteAsync(context);
             }
         });
     }

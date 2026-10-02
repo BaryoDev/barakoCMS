@@ -75,6 +75,47 @@ public class ContentTypeDefinition
     /// without one has to behave exactly as it did before this existed.
     /// </remarks>
     public LifecycleDefinition? Lifecycle { get; set; }
+
+    /// <summary>Values only one entry of this type may hold at a time, or null for none.</summary>
+    /// <remarks>
+    /// Null is every type stored before this existed, and a type with none is written exactly as it
+    /// was. Each rule is checked inside the entry write, under a lock on the values, so two writes
+    /// at once cannot both pass. See <see cref="UniquenessRule"/>.
+    /// </remarks>
+    public List<UniquenessRule>? Uniqueness { get; set; }
+}
+
+/// <summary>
+/// One set of fields whose values, taken together, only one entry of a type may hold.
+/// </summary>
+/// <remarks>
+/// Values are compared the way PostgreSQL compares <c>jsonb</c>: text exactly, with case and
+/// spaces counting, numbers by value so 1 and 1.0 are the same, and text never equal to a number.
+/// An entry with no value in one of the fields (missing, null or the empty string) is outside the
+/// rule, as a row holding NULL is outside a unique index.
+/// </remarks>
+public class UniquenessRule
+{
+    /// <summary>What the rule is called, for example "OneOpenEntryPerTeacher". Unique within a type.</summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The fields compared, each a field of the type or <see cref="CreatedByField"/>.
+    /// </summary>
+    public List<string> Fields { get; set; } = new();
+
+    /// <summary>
+    /// The lifecycle state an entry has to be in for the rule to count it, or null to count every
+    /// entry.
+    /// </summary>
+    /// <remarks>
+    /// An entry that leaves the state frees its values. An entry with no state yet is read as being
+    /// in the type's initial state, which is how a transition reads it.
+    /// </remarks>
+    public string? WhenState { get; set; }
+
+    /// <summary>The name that stands for <see cref="Content.CreatedBy"/> in <see cref="Fields"/>.</summary>
+    public const string CreatedByField = "$createdBy";
 }
 
 /// <summary>

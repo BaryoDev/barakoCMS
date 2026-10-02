@@ -58,15 +58,38 @@ public sealed class ContentWriter : IContentWriter
     {
     }
 
-    private ContentWriter(IDocumentSession session, IContentSourcingPolicy policy, bool documentTypesAppend, Multitenancy.BatchTransaction? batch = null)
+    /// <summary>The same, with somewhere to log a stored uniqueness rule that is not applied.</summary>
+    public ContentWriter(
+        IDocumentSession session,
+        IContentSourcingPolicy policy,
+        IConfiguration configuration,
+        Multitenancy.BatchTransaction? batch,
+        ILogger<ContentWriter> logger)
+        : this(session, policy, configuration.GetValue(DocumentTypesAppendKey, true), batch, logger)
+    {
+    }
+
+    private ContentWriter(
+        IDocumentSession session,
+        IContentSourcingPolicy policy,
+        bool documentTypesAppend,
+        Multitenancy.BatchTransaction? batch = null,
+        ILogger? logger = null)
     {
         _session = session;
         _policy = policy;
         _documentTypesAppend = documentTypesAppend;
         _batch = batch;
+        _uniqueness = new ContentUniqueness(session, logger);
     }
 
     private readonly Multitenancy.BatchTransaction? _batch;
+
+    /// <summary>
+    /// The type's uniqueness rules, applied by every writer however it was built, so a module or a
+    /// sweep that constructs its own cannot write past them.
+    /// </summary>
+    private readonly ContentUniqueness _uniqueness;
 
     /// <inheritdoc />
     [Obsolete("Use CreateAsync. Removal planned for barakoCMS 5.0.")]
@@ -83,6 +106,13 @@ public sealed class ContentWriter : IContentWriter
         // Whether a stream is started at all is branched on, because that is what the flag decides.
         var append = _documentTypesAppend
             || await _policy.IsEventSourcedAsync(@event.ContentType, cancellationToken);
+
+        // Checked on a copy before anything is staged, so a refused create leaves the session as
+        // it was. The lifecycle state is not on the entry yet; the check reads an entry without
+        // one as being in the type's initial state, as a transition does.
+        var entry = new Content();
+        ApplyToDocument(entry, @event);
+        await _uniqueness.EnforceAsync(entry, cancellationToken);
 
         return CreateCore(@event, append);
     }
@@ -157,6 +187,8 @@ public sealed class ContentWriter : IContentWriter
         }
 
         ApplyToDocument(content, @event);
+
+        await EnforceUniquenessAsync(content, cancellationToken);
 
         _session.Store(content);
         _staged.Add(content.Id);
@@ -244,6 +276,8 @@ public sealed class ContentWriter : IContentWriter
         {
             ApplyToDocument(content, @event);
         }
+
+        await EnforceUniquenessAsync(content, cancellationToken);
 
         _session.Store(content);
     }
@@ -345,6 +379,30 @@ public sealed class ContentWriter : IContentWriter
         foreach (var property in ContentState)
         {
             property.SetValue(target, property.GetValue(source));
+        }
+    }
+
+    /// <summary>
+    /// Checks a stored entry, as this write leaves it, against its type's uniqueness rules.
+    /// </summary>
+    /// <remarks>
+    /// After the refresh from committed state and not before, so the entry checked is the one
+    /// stored. By then the events are staged, and a caller that caught the refusal and saved would
+    /// write them with no matching document. So a refusal ejects the session's pending changes,
+    /// every one of them, before it is thrown.
+    /// </remarks>
+    private async Task EnforceUniquenessAsync(Content content, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _uniqueness.EnforceAsync(content, cancellationToken);
+        }
+        catch (ContentUniquenessException)
+        {
+            _session.EjectAllPendingChanges();
+            _staged.Clear();
+            _uniqueness.Reset();
+            throw;
         }
     }
 

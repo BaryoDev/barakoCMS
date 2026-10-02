@@ -375,6 +375,13 @@ internal sealed class ContentTransitioner(
         {
             return ContentTransitionResult.Conflict(ChangedByAnotherWriter);
         }
+        catch (ContentUniquenessException ex)
+        {
+            // The move would put this entry where a uniqueness rule of the type allows one entry
+            // per value, and another entry holds this one's. The writer has ejected what was
+            // staged. The message names the rule and the type, and neither the value nor the entry.
+            return ContentTransitionResult.Conflict(ex.Message);
+        }
         catch (Exception ex) when (ex is JasperFx.ConcurrencyException
             || ex.GetType().Name.Contains("Concurrency")
             || ex.GetType().Name.Contains("UnexpectedMaxEventId"))

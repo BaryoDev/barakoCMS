@@ -68,6 +68,8 @@ public class RoleGateTests
         new("PUT", "/api/content-types/{name}/fields/{field}/currency", "/api/content-types/no-such-type/fields/no-such-field/currency"),
         new("PUT", "/api/content-types/{name}/fields/{field}/presentation", "/api/content-types/no-such-type/fields/no-such-field/presentation"),
         new("PUT", "/api/content-types/{name}/route-template", "/api/content-types/no-such-type/route-template"),
+        new("PUT", "/api/content-types/{name}/uniqueness", "/api/content-types/no-such-type/uniqueness"),
+        new("GET", "/api/content-types/{name}/uniqueness/{rule}/duplicates", "/api/content-types/no-such-type/uniqueness/NoSuchRule/duplicates?page=not-a-number"),
         new("POST", "/api/content-types/{name}/fields", "/api/content-types/no-such-type/fields"),
         new("POST", "/api/content-types/{name}/rebuild", "/api/content-types/no-such-type/rebuild"),
         new("GET", "/api/content-types/blueprints", "/api/content-types/blueprints"),
