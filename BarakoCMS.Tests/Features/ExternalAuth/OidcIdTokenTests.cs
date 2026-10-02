@@ -351,8 +351,15 @@ public class OidcIdTokenTests : IDisposable
 
         await ShouldBeRefusedAsync(OidcTestTokens.Rs256(_key, Claims(c => c["aud"] = several)), OidcRefusal.Audience);
         await ShouldBeRefusedAsync(
-            OidcTestTokens.Rs256(_key, Claims(c => { c["aud"] = several; c["azp"] = 5; })), OidcRefusal.Audience);
-        await ShouldBeRefusedAsync(OidcTestTokens.Rs256(_key, Claims(c => c["azp"] = 5)), OidcRefusal.Audience);
+            OidcTestTokens.Rs256(_key, Claims(c => { c["aud"] = several; c["azp"] = "another-client"; })), OidcRefusal.Audience);
+        await ShouldBeRefusedAsync(
+            OidcTestTokens.Rs256(_key, Claims(c => c["azp"] = "another-client")), OidcRefusal.Audience);
+
+        // An azp that is not text never reaches the audience rule: the token does not parse, since
+        // the reader takes azp as a string. Refused either way, and this is the reason it gives.
+        await ShouldBeRefusedAsync(
+            OidcTestTokens.Rs256(_key, Claims(c => { c["aud"] = several; c["azp"] = 5; })), OidcRefusal.Malformed);
+        await ShouldBeRefusedAsync(OidcTestTokens.Rs256(_key, Claims(c => c["azp"] = 5)), OidcRefusal.Malformed);
 
         (await ValidateAsync(OidcTestTokens.Rs256(_key, Claims(c => { c["aud"] = several; c["azp"] = OidcStubProvider.ClientId; }))))
             .Refusal.Should().Be(OidcRefusal.None);
