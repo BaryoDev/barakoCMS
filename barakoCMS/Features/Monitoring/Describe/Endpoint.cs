@@ -7,8 +7,9 @@ using FastEndpoints;
 namespace barakoCMS.Features.Monitoring.Describe;
 
 /// <summary>
-/// GET /api/meta/describe, what this instance accepts: field types and the rules each takes, and
-/// for a caller who may read them the capabilities, workflow actions and running modules.
+/// GET /api/meta/describe, what this instance accepts: field types and the rules each takes, the
+/// editor hints and roles a field may declare, and for a caller who may read them the
+/// capabilities, workflow actions and running modules.
 /// </summary>
 /// <remarks>
 /// Signed-in callers only, like <c>GET /api/meta</c> beside it, and not role-restricted: anyone
@@ -45,6 +46,8 @@ internal sealed class Endpoint(
             ApiContractVersion = barakoCMS.Features.Monitoring.Meta.ApiContract.Version,
             FieldTypes = DescribeDocument.FieldTypes(FieldTypeRegistry.Types, FieldRules.Names),
             Rules = DescribeDocument.Rules(FieldRules.Names),
+            FieldEditors = DescribeDocument.FieldHints(FieldPresentation.Editors),
+            FieldRoles = DescribeDocument.FieldHints(FieldPresentation.Roles),
         };
 
         if (await CapabilityGateProcessor.HoldsAsync(HttpContext, DescribeDocument.CapabilitiesGate, ct))

@@ -70,6 +70,87 @@ public static class SocialSignIn
             session.Store(user);
         }
 
+        return await IssueForUserAsync(session, config, deviceGate, tokenIssuer, mfa, http, user, club, ct, profile);
+    }
+
+    /// <summary>
+    /// Sign-in for a provider that names the account by issuer and subject. A known pair signs its
+    /// linked user in whatever the token says about email. An unknown pair is linked by email, and
+    /// only when the provider vouches for the address: to the local user holding it, or to a new
+    /// one. Without that the sign-in is refused and nothing is stored.
+    /// </summary>
+    /// <returns>
+    /// The tokens, and whether the refusal was the unverified address rather than the tenant check.
+    /// </returns>
+    internal static async Task<(Tokens Tokens, bool EmailNotVerified)> IssueForIdentityAsync(
+        IDocumentSession session,
+        IConfiguration config,
+        barakoCMS.Core.Interfaces.IDeviceGate deviceGate,
+        barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer,
+        barakoCMS.Infrastructure.Auth.Mfa.IMfaService mfa,
+        HttpContext http,
+        OidcIdentity identity,
+        string provider,
+        string club,
+        CancellationToken ct)
+    {
+        var key = ExternalIdentity.KeyOf(identity.Issuer, identity.Subject);
+        var link = await session.LoadAsync<ExternalIdentity>(key, ct);
+
+        // A link whose user has been deleted is treated as no link. Otherwise removing an account
+        // would lock its provider identity out for good, with nothing an administrator could undo.
+        var user = link is null ? null : await session.LoadAsync<User>(link.UserId, ct);
+
+        if (user is null)
+        {
+            var email = identity.Email;
+            if (email is null || !identity.EmailVerified)
+            {
+                return (Tokens.Denied(), true);
+            }
+
+            user = await session.Query<User>().FirstOrDefaultAsync(u => u.NormalizedEmail == email, ct);
+            if (user is null)
+            {
+                // NormalizedUsername is unique, and somebody may already use this address as a name.
+                var username = await session.Query<User>().AnyAsync(u => u.NormalizedUsername == email, ct)
+                    ? $"{email}+{Guid.NewGuid():N}"[..(email.Length + 9)]
+                    : email;
+                user = new User { Id = Guid.NewGuid(), Email = email, Username = username, PasswordHash = "" };
+                session.Store(user);
+            }
+
+            session.Store(new ExternalIdentity
+            {
+                Id = key,
+                Issuer = identity.Issuer,
+                Subject = identity.Subject,
+                UserId = user.Id,
+                Provider = provider,
+                LinkedAt = DateTime.UtcNow,
+            });
+        }
+
+        var profile = new ProfileData(identity.Name, identity.Picture, null, null, provider);
+        return (await IssueForUserAsync(session, config, deviceGate, tokenIssuer, mfa, http, user, club, ct, profile), false);
+    }
+
+    /// <summary>
+    /// Everything after the provider has said who this is: the profile merge, the second factor, the
+    /// device, and the token from core's issuer, which is where tenant membership is decided.
+    /// </summary>
+    private static async Task<Tokens> IssueForUserAsync(
+        IDocumentSession session,
+        IConfiguration config,
+        barakoCMS.Core.Interfaces.IDeviceGate deviceGate,
+        barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer,
+        barakoCMS.Infrastructure.Auth.Mfa.IMfaService mfa,
+        HttpContext http,
+        User user,
+        string club,
+        CancellationToken ct,
+        ProfileData? profile)
+    {
         if (profile is not null)
         {
             var sp = await session.Query<SocialProfile>().FirstOrDefaultAsync(p => p.UserId == user.Id, ct)

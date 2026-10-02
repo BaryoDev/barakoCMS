@@ -5,8 +5,8 @@
 
     <IsPackable>true</IsPackable>
     <PackageId>BarakoCMS.ExternalAuth</PackageId>
-    <Version>4.3.2</Version>
-    <Description>External / social sign-in module for barakoCMS: "Continue with Facebook / Google / LinkedIn / GitHub" via OAuth, matched to a global user by verified email, issuing the same tenant-scoped, device-bound token as the built-in flows. Captures profile details (photo, birthday, location) per provider.</Description>
+    <Version>4.4.0</Version>
+    <Description>External / social sign-in module for barakoCMS: "Continue with Facebook / Google / LinkedIn / GitHub" via OAuth, matched to a global user by verified email, plus any OpenID Connect provider configured by issuer URL, issuing the same tenant-scoped, device-bound token as the built-in flows. Captures profile details (photo, birthday, location) per provider.</Description>
   </PropertyGroup>
 
   <ItemGroup>
@@ -17,6 +17,10 @@
     <Using Include="Microsoft.Extensions.Configuration" />
     <Using Include="Microsoft.Extensions.DependencyInjection" />
     <Using Include="System.Net.Http.Json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="BarakoCMS.Tests" />
   </ItemGroup>
 
   <ItemGroup>

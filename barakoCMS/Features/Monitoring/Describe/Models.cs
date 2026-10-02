@@ -13,6 +13,12 @@ internal sealed class DescribeResponse
 
     public IReadOnlyList<DescribedRule> Rules { get; set; } = [];
 
+    /// <summary>Every value a field's <c>editor</c> may hold, and the field types each is for.</summary>
+    public IReadOnlyList<DescribedFieldHint> FieldEditors { get; set; } = [];
+
+    /// <summary>Every value a field's <c>role</c> may hold, and the field types each is for.</summary>
+    public IReadOnlyList<DescribedFieldHint> FieldRoles { get; set; } = [];
+
     // Each of the three below is null for a caller who would be refused by the endpoint that
     // already lists it, and a list, possibly empty, for one who would not. Null is "not yours to
     // see" (or, for workflowActions, that the registry could not be read), empty is "none", and a
@@ -44,6 +50,13 @@ internal sealed record DescribedFieldType(
 /// <param name="Name">The key under a field's <c>validationRules</c>.</param>
 /// <param name="Aliases">Other keys read as the same rule.</param>
 internal sealed record DescribedRule(string Name, IReadOnlyList<string> Aliases);
+
+/// <param name="Name">The value, as a field definition carries it.</param>
+/// <param name="FieldTypes">
+/// The field types it may be declared on, each the <c>name</c> of an entry in the document's
+/// <c>fieldTypes</c>.
+/// </param>
+internal sealed record DescribedFieldHint(string Name, IReadOnlyList<string> FieldTypes);
 
 /// <param name="Name"><see cref="barakoCMS.Modules.IBarakoModule.Name"/>, verbatim.</param>
 /// <param name="HttpContractVersion">

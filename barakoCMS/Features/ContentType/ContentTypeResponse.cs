@@ -38,6 +38,12 @@ internal sealed class ContentTypeResponse
     public bool IsSingleton { get; init; }
 
     /// <summary>
+    /// Where an entry of this type lives on the site, such as <c>/blog/{slug}</c>, or null when the
+    /// type declares none.
+    /// </summary>
+    public string? RouteTemplate { get; init; }
+
+    /// <summary>
     /// Whether the stream is the source of truth for entries of this type, and permanent either way.
     /// </summary>
     /// <remarks>
@@ -60,6 +66,7 @@ internal sealed class ContentTypeResponse
         Lifecycle = d.Lifecycle,
         IsPubliclyDeliverable = d.IsPubliclyDeliverable,
         IsSingleton = d.IsSingleton,
+        RouteTemplate = d.RouteTemplate,
         EventSourced = eventSourced,
         CreatedAt = d.CreatedAt,
         UpdatedAt = d.UpdatedAt,
