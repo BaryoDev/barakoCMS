@@ -1050,6 +1050,7 @@ public static class ServiceCollectionExtensions
     private static void AddConnectorServices(IServiceCollection services)
     {
         services.AddSingleton<barakoCMS.Infrastructure.Connectors.IConnectorSecretProtector, barakoCMS.Infrastructure.Connectors.ConnectorSecretProtector>();
+        services.AddSingleton(new barakoCMS.Infrastructure.Connectors.ConnectorTokenCache(TimeProvider.System));
         services.AddScoped<barakoCMS.Infrastructure.Connectors.IConnectorSender, barakoCMS.Infrastructure.Connectors.ConnectorSender>();
         services.AddScoped<barakoCMS.Infrastructure.Connectors.IRequestComposer, barakoCMS.Infrastructure.Connectors.RequestComposer>();
         services.AddScoped<barakoCMS.Infrastructure.Connectors.IQueryRunner, barakoCMS.Infrastructure.Connectors.QueryRunner>();

@@ -37,7 +37,7 @@ public class ConnectorTests
         var client = await AdminClient();
         var slug = await CreateAsync(client, secrets: new() { ["Token"] = Token });
 
-        var raw = await RawSecretJsonAsync();
+        var raw = await RawSecretJsonAsync(slug);
 
         raw.Should().NotBeNull("the connector was created with a secret, so there is a row to read");
         raw.Should().NotContain(Token, "a database dump must not hand over a working credential");
@@ -391,16 +391,19 @@ public class ConnectorTests
             .ToList();
     }
 
-    /// <summary>The secret row as Postgres holds it, not as Marten hands it back.</summary>
-    private async Task<string?> RawSecretJsonAsync()
+    /// <summary>This connector's secret row as Postgres holds it, not as Marten hands it back.</summary>
+    private async Task<string?> RawSecretJsonAsync(string slug)
     {
         using var scope = _factory.Services.CreateScope();
         var store = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
+        var connector = await scope.ServiceProvider.GetRequiredService<IQuerySession>().Query<Connector>()
+            .FirstAsync(c => c.Slug == slug, TestContext.Current.CancellationToken);
         await using var conn = store.Storage.Database.CreateConnection();
         await conn.OpenAsync(TestContext.Current.CancellationToken);
 
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = "select data::text from public.mt_doc_connector_secrets limit 1";
+        cmd.CommandText =
+            $"select data::text from public.mt_doc_connector_secrets where data ->> 'ConnectorId' = '{connector.Id}' limit 1";
         return (await cmd.ExecuteScalarAsync(TestContext.Current.CancellationToken)) as string;
     }
 }
