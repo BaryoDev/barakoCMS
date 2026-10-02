@@ -254,6 +254,24 @@ internal sealed class UpdateConnectorEndpoint(
             ThrowIfAnyErrors();
         }
 
+        // The client secret goes to the token URL and nowhere else, so the same reasoning applies to
+        // it when that URL moves: an edit must not send a secret its editor cannot read to a host
+        // nobody entered it for.
+        var tokenUrl = req.Settings?.GetValueOrDefault(ConnectorSettingKeys.TokenUrl);
+
+        if (!string.IsNullOrWhiteSpace(tokenUrl)
+            && !ConnectorOrigin.Same(connector.Settings?.GetValueOrDefault(ConnectorSettingKeys.TokenUrl), tokenUrl)
+            && req.Secrets?.ContainsKey(ConnectorSecretKeys.ClientSecret) != true
+            && await session.Query<ConnectorSecret>()
+                .AnyAsync(s => s.ConnectorId == connector.Id && s.Key == ConnectorSecretKeys.ClientSecret, ct))
+        {
+            AddError(new FluentValidation.Results.ValidationFailure($"secrets.{ConnectorSecretKeys.ClientSecret}",
+                "The token URL now points at a different scheme, host or port, so the stored "
+                + $"{ConnectorSecretKeys.ClientSecret} has to be entered again, or cleared, before the connector can be saved."));
+
+            ThrowIfAnyErrors();
+        }
+
         connector.Name = req.Name.Trim();
         connector.BaseUrl = req.BaseUrl.Trim();
         connector.Auth = Enum.Parse<ConnectorAuth>(req.Auth, ignoreCase: true);
