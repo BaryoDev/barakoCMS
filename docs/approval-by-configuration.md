@@ -495,14 +495,25 @@ as UTC. An end before its start gives a duration with a minus sign in front.
 
 The `transition.` placeholders are filled only when the trigger is a transition. Where no user is
 behind a change (a scheduled publish, an import, an account since deleted), the name and the
-address are empty.
+address are empty. In a registered tenant they are also empty for a user who is not an active
+member of it: a platform administrator working in the tenant, a member since removed or suspended,
+the owner of an API key who has no membership there. The default tenant and a tenant nobody
+registered have no memberships, and every user of the deployment is named there.
 
 What the engine cannot fill is sent as written: an unknown name or format, a `date` on a value that
 is not a date, a `money` on one that is not a number, a time zone the server does not know (the
 site's included), a format .NET refuses. Saving a workflow lists what can be told from the template
 alone in `warnings`, each with the parameter it is in, on the `POST /api/workflows` response and
 on `POST /api/workflows/validate`. A warning never refuses the save. A `data.` field is not
-checked, since whether an entry has it is only known when one arrives.
+checked, since whether an entry has it is only known when one arrives. A warning quotes the
+placeholder it is about, except in a credential parameter (the ones the responses leave out), where
+it gives a count. Other workflow responses (the list, switching one on or off) do not check and
+carry no `warnings` field, so an empty array always means checked and clean.
+
+An `UpdateField` or `CreateTask` parameter that names `{{createdBy.email}}` or
+`{{transition.by.email}}` gets a warning of its own: those actions write into an entry, and a
+public field of a deliverable type is served by delivery, address included. The save is not
+refused, because the field and the entry such an action writes can themselves be placeholders.
 
 A formatted value, a name and an address are encoded like any other value: HTML-encoded in an
 `Email` body, stripped of line breaks in its `Subject` and `To`.

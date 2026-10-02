@@ -28,10 +28,14 @@ internal sealed class WorkflowResponse
     public bool Enabled { get; init; } = true;
 
     /// <summary>
-    /// The placeholders the engine will send as written, on the response to a save. Empty on every
-    /// other response, which does not look.
+    /// The placeholder warnings, on the response to a save: an array, empty when there are none.
     /// </summary>
-    public List<ValidationError> Warnings { get; set; } = new();
+    /// <remarks>
+    /// Left out of every response that did not look (the list, and switching a workflow on or off),
+    /// so an empty array always means the templates were checked and are clean.
+    /// </remarks>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public List<ValidationError>? Warnings { get; set; }
 
     /// <summary>The response to a save, carrying what the validation warned about.</summary>
     public static WorkflowResponse Saved(WorkflowDefinition w, List<ValidationError> warnings)

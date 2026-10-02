@@ -19,7 +19,9 @@ namespace BarakoCMS.Tests.Features.Workflows;
 ///
 /// The entry was created at 00:30 UTC and clocked out at 09:00 UTC, which in Manila is 8:30 in the
 /// morning and 5:00 in the afternoon. The stored entry says it was last changed three hours after
-/// that by somebody else, so a transition read from the entry and not from its event shows.
+/// that by somebody else, so a transition read from the entry and not from its event shows. The
+/// stream holds a second ClockOut two hours after the first, by a third person, so a run that
+/// names the latest transition and not the one at its own sequence shows too.
 /// </remarks>
 [Collection("Sequential")]
 public class WorkflowPlaceholderRunTests
@@ -36,6 +38,7 @@ public class WorkflowPlaceholderRunTests
     private readonly IntegrationTestFixture _factory;
     private readonly User _teacher = NewUser("teacher");
     private readonly User _head = NewUser("head");
+    private readonly User _later = NewUser("later");
     private readonly string _type = $"time{Guid.NewGuid():N}"[..16];
 
     public WorkflowPlaceholderRunTests(IntegrationTestFixture factory) => _factory = factory;
@@ -99,6 +102,7 @@ public class WorkflowPlaceholderRunTests
         {
             session.Store(_teacher);
             session.Store(_head);
+            session.Store(_later);
             session.Store(new Content
             {
                 Id = Guid.NewGuid(),
@@ -111,7 +115,8 @@ public class WorkflowPlaceholderRunTests
                 contentId,
                 new ContentCreated(contentId, _type, new Dictionary<string, object>(), ContentStatus.Draft,
                     _teacher.Id, null, SensitivityLevel.Public, ClockedInAt),
-                new ContentTransitioned(contentId, "ClockOut", "In", "Out", _head.Id, ClockedOutAt));
+                new ContentTransitioned(contentId, "ClockOut", "In", "Out", _head.Id, ClockedOutAt),
+                new ContentTransitioned(contentId, "ClockOut", "In", "Out", _later.Id, ClockedOutAt.AddHours(2)));
 
             session.Store(new Content
             {
@@ -126,7 +131,7 @@ public class WorkflowPlaceholderRunTests
             await session.SaveChangesAsync(Ct);
 
             var stream = await session.Events.FetchStreamAsync(contentId, token: Ct);
-            stream.Should().HaveCount(2);
+            stream.Should().HaveCount(3);
 
             var run = new WorkflowRun
             {
@@ -138,7 +143,7 @@ public class WorkflowPlaceholderRunTests
                 ContentId = contentId,
                 ContentType = _type,
                 TriggerEvent = WorkflowEvents.ForTransition("ClockOut"),
-                TriggeringEventSequence = stream.Single(e => e.Data is ContentTransitioned).Sequence,
+                TriggeringEventSequence = stream.First(e => e.Data is ContentTransitioned).Sequence,
                 Actions =
                 [
                     new WorkflowActionAttempt

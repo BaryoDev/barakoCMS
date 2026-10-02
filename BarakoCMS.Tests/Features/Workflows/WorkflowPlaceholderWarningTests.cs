@@ -132,8 +132,71 @@ public class WorkflowPlaceholderWarningTests : IAsyncLifetime
 
         result.Warnings.Should().HaveCount(51, "fifty placeholders and the entry that says there are more");
         result.Warnings[^1].Field.Should().Be("actions");
-        result.Warnings[^1].Message.Should().StartWith("More than 50 placeholders");
+        result.Warnings[^1].Message.Should().StartWith("More than 50 placeholder warnings");
         result.Warnings[49].Message.Should().StartWith("'{{nope49}}'");
+    }
+
+    /// <summary>
+    /// Red when a warning quotes every parameter. The responses leave a credential parameter out, so
+    /// a warning about one counts its placeholders and shows none of its text. The Url beside them
+    /// is the control: a parameter that is not a credential is still quoted.
+    /// </summary>
+    [Fact]
+    public void A_warning_about_a_credential_parameter_does_not_quote_it()
+    {
+        var result = _validator.Validate(Workflow("Created", new WorkflowAction
+        {
+            Type = "Webhook",
+            Parameters = new()
+            {
+                ["Url"] = "https://example.com/{{nope}}",
+                ["Secret"] = "s3cr3t-{{creatdAt}}-tail {{alsoNope}}",
+                ["ApiToken"] = "Bearer abc123 {{createdAt | dat}}",
+            },
+        }));
+
+        result.IsValid.Should().BeTrue();
+        result.Warnings.Should().HaveCount(3);
+        result.Warnings.Select(w => w.Field).Should().Equal(
+            "actions[0].parameters.Url", "actions[0].parameters.Secret", "actions[0].parameters.ApiToken");
+
+        result.Warnings[0].Message.Should().StartWith("'{{nope}}'");
+        result.Warnings[1].Message.Should().StartWith("This parameter holds 2 placeholder(s)");
+        result.Warnings[2].Message.Should().StartWith("This parameter holds 1 placeholder(s)");
+
+        foreach (var credential in result.Warnings.Skip(1))
+        {
+            credential.Message.Should().NotContainAny("s3cr3t", "creatdAt", "alsoNope", "abc123", "dat}}", "{{");
+        }
+    }
+
+    /// <summary>
+    /// Red without its change. An action that writes into an entry is told when a value names a
+    /// user's address, since delivery serves a public field. The Email beside it is the control:
+    /// an address in a recipient is what the placeholder is for, and gets no warning.
+    /// </summary>
+    [Fact]
+    public void Writing_a_users_address_into_an_entry_is_warned_about_and_mailing_it_is_not()
+    {
+        var result = _validator.Validate(Workflow(
+            "transition:ClockOut",
+            Email("{{createdBy.email}}", "s", "{{transition.by.email}}"),
+            new WorkflowAction
+            {
+                Type = "UpdateField",
+                Parameters = new() { ["Field"] = "Contact", ["Value"] = "{{createdBy.email}}" },
+            },
+            new WorkflowAction
+            {
+                Type = "CreateTask",
+                Parameters = new() { ["Title"] = "For {{createdBy.name}}", ["Data.By"] = "{{ transition.by.email | lower }}" },
+            }));
+
+        result.IsValid.Should().BeTrue();
+        result.Warnings.Should().HaveCount(2);
+        result.Warnings.Select(w => w.Field).Should().Equal(
+            "actions[1].parameters.Value", "actions[2].parameters.Data.By");
+        result.Warnings.Should().OnlyContain(w => w.Message.StartsWith("This writes a user's email address into an entry."));
     }
 
     /// <summary>
@@ -179,9 +242,22 @@ public class WorkflowPlaceholderWarningTests : IAsyncLifetime
         }, Ct);
 
         clean.StatusCode.Should().Be(HttpStatusCode.OK, "got {0}", await clean.Content.ReadAsStringAsync(Ct));
+        Guid cleanId;
         using (var doc = JsonDocument.Parse(await clean.Content.ReadAsStringAsync(Ct)))
         {
+            doc.RootElement.GetProperty("warnings").ValueKind.Should().Be(JsonValueKind.Array);
             doc.RootElement.GetProperty("warnings").GetArrayLength().Should().Be(0);
+            cleanId = doc.RootElement.GetProperty("id").GetGuid();
+        }
+
+        // A response that did not check the templates carries no warnings field at all, so an
+        // empty array is never read as "clean" for a workflow nobody looked at.
+        var switched = await _client.PutAsJsonAsync($"/api/workflows/{cleanId}/enabled", new { enabled = false }, Ct);
+        switched.StatusCode.Should().Be(HttpStatusCode.OK, "got {0}", await switched.Content.ReadAsStringAsync(Ct));
+        using (var doc = JsonDocument.Parse(await switched.Content.ReadAsStringAsync(Ct)))
+        {
+            doc.RootElement.GetProperty("enabled").GetBoolean().Should().BeFalse();
+            doc.RootElement.TryGetProperty("warnings", out _).Should().BeFalse();
         }
     }
 

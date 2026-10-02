@@ -208,20 +208,56 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
                 continue;
             }
 
-            foreach (var problem in TemplateExpression.Problems(template, onTransition))
+            foreach (var message in PlaceholderWarnings(action.Type, name, template, onTransition))
             {
                 if (result.Warnings.Count == MaxPlaceholderWarnings)
                 {
                     result.Warnings.Add(new ValidationError
                     {
                         Field = "actions",
-                        Message = $"More than {MaxPlaceholderWarnings} placeholders will be sent as written. Only the first {MaxPlaceholderWarnings} are listed"
+                        Message = $"More than {MaxPlaceholderWarnings} placeholder warnings. Only the first {MaxPlaceholderWarnings} are listed"
                     });
                     return;
                 }
 
-                result.Warnings.Add(new ValidationError { Field = $"{field}.parameters.{name}", Message = problem });
+                result.Warnings.Add(new ValidationError { Field = $"{field}.parameters.{name}", Message = message });
             }
+        }
+    }
+
+    /// <summary>The warnings for one parameter of one action.</summary>
+    /// <remarks>
+    /// A warning quotes the placeholder it is about, so a parameter the responses leave out as a
+    /// credential (<see cref="WebhookSigning.IsSensitiveParameterName"/>) is counted and not quoted.
+    ///
+    /// UpdateField and CreateTask write their parameters into an entry. A user's address written
+    /// there is served by delivery when the field is public on a deliverable type, so it is said at
+    /// save. Said and not refused: which entry and field the action writes can itself be a
+    /// placeholder, so the save cannot tell a public field from a private one.
+    /// </remarks>
+    private static IEnumerable<string> PlaceholderWarnings(string? actionType, string name, string? template, bool onTransition)
+    {
+        if (WebhookSigning.IsSensitiveParameterName(name))
+        {
+            var count = TemplateExpression.Problems(template, onTransition).Count();
+            if (count > 0)
+            {
+                yield return $"This parameter holds {count} placeholder(s) that will be sent as written. "
+                           + "It is a credential, so its text is not shown here.";
+            }
+
+            yield break;
+        }
+
+        foreach (var problem in TemplateExpression.Problems(template, onTransition))
+        {
+            yield return problem;
+        }
+
+        if (actionType is "UpdateField" or "CreateTask" && TemplateExpression.NamesAddress(template))
+        {
+            yield return "This writes a user's email address into an entry. "
+                       + "If the field it lands in is public on a deliverable content type, delivery serves the address.";
         }
     }
 

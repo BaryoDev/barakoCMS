@@ -79,6 +79,9 @@ internal static class TemplateExpression
     private static readonly Regex ZoneId = new(
         @"\A[A-Za-z][A-Za-z0-9_+\-]*(?:/[A-Za-z0-9_+\-]+){0,2}\z", RegexOptions.Compiled);
 
+    private static readonly Regex SiteFormat = new(
+        @"(?:\||\\u007[cC])(?:\s|\\+[ntr])*(?:date|money)\b", RegexOptions.Compiled);
+
     private static readonly string[] DateFormats =
     [
         "yyyy-MM-dd",
@@ -156,11 +159,21 @@ internal static class TemplateExpression
         }
     }
 
+    /// <summary>Whether a template holds a placeholder that resolves to a user's email address.</summary>
+    public static bool NamesAddress(string? template) =>
+        !string.IsNullOrEmpty(template)
+        && Token.Matches(template).Any(match =>
+            Parse(match.Groups[1].Value) is { } hole && (IsAddress(hole.Name) || IsAddress(hole.Second)));
+
+    private static bool IsAddress(string name) => name is "createdBy.email" or "transition.by.email";
+
     /// <summary>Which reads a set of templates needs before it can be resolved.</summary>
     /// <remarks>
-    /// By word and not by parsing, so the children a Conditional carries as JSON in one of its
-    /// parameters are counted too, however that JSON escaped its braces, bars and quotes. A read too
-    /// many is one query. A read too few would format a date in UTC for a site that is not in UTC.
+    /// By pattern and not by parsing, so the children a Conditional carries as JSON in one of its
+    /// parameters are counted too. The site is read for a bar followed by <c>date</c> or
+    /// <c>money</c>, with the bar and the white space after it also accepted as JSON wrote them
+    /// (<c>|</c>, <c>\n</c>). A read too few would format a date in UTC for a site that is
+    /// not in UTC, and the words alone would read the site for every "updated" and "candidate".
     /// </remarks>
     public static (bool Site, bool Author, bool Transition) Needs(IEnumerable<string?> templates)
     {
@@ -172,7 +185,7 @@ internal static class TemplateExpression
         {
             if (string.IsNullOrEmpty(template)) continue;
 
-            site |= template.Contains("date", StringComparison.Ordinal) || template.Contains("money", StringComparison.Ordinal);
+            site |= SiteFormat.IsMatch(template);
             author |= template.Contains("createdBy.", StringComparison.Ordinal);
             transition |= template.Contains("transition.", StringComparison.Ordinal);
         }

@@ -3,6 +3,8 @@ using System.Text.Json;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using FluentAssertions;
+using Marten;
+using Moq;
 using Xunit;
 
 namespace BarakoCMS.Tests.Features.Workflows;
@@ -344,6 +346,68 @@ public class TemplateExpressionTests
 
         Resolve("{{createdAt | date \"h:mm tt\"}} {{createdAt | date \"h:mm tt\" \"UTC\"}}", context: context)
             .Should().Be("{{createdAt | date \"h:mm tt\"}} 12:30 AM");
+    }
+
+    /// <summary>
+    /// Red when the site is read for the words alone. Only a bar followed by <c>date</c> or
+    /// <c>money</c> reads it, also as JSON writes that bar inside a Conditional's branch.
+    /// </summary>
+    [Theory]
+    [InlineData("The candidate was updated on a date to validate, money aside. {{status}}", false)]
+    [InlineData("{{data.Mandate}} {{updatedAt}} | candidate | dated | moneyed", false)]
+    [InlineData("{{createdAt | date \"h:mm\"}}", true)]
+    [InlineData("{{data.Amount|money}}", true)]
+    [InlineData("{{createdAt |\n\t date}}", true)]
+    [InlineData("[{\"Body\":\"{{createdAt \\u007c date}}\"}]", true)]
+    [InlineData("[{\"Body\":\"{{createdAt \\u007C\\n money}}\"}]", true)]
+    public void The_site_is_read_only_for_a_date_or_money_format(string template, bool site)
+    {
+        var needs = TemplateExpression.Needs([template]);
+
+        needs.Site.Should().Be(site);
+        needs.Author.Should().BeFalse();
+        needs.Transition.Should().BeFalse();
+    }
+
+    /// <summary>
+    /// Red when the site is read for the words alone. The branch is serialised by the same
+    /// serialiser a caller would use, so the test does not assume how it writes a bar or a quote.
+    /// </summary>
+    [Fact]
+    public void A_format_inside_a_conditionals_branch_is_seen_however_the_json_wrote_it()
+    {
+        var branch = JsonSerializer.Serialize(new[]
+        {
+            new { Type = "Email", Parameters = new Dictionary<string, string> { ["Body"] = "{{createdAt | date \"h:mm tt\"}} {{createdBy.name}}" } },
+        });
+
+        var nested = JsonSerializer.Serialize(new[]
+        {
+            new { Type = "Conditional", Parameters = new Dictionary<string, string> { ["ThenActions"] = branch } },
+        });
+
+        TemplateExpression.Needs([branch]).Should().Be((true, true, false));
+        TemplateExpression.Needs([nested]).Should().Be((true, true, false));
+    }
+
+    /// <summary>
+    /// Red when the site is read for the words alone: the session refuses every call, so a prepare
+    /// that reads anything throws. A workflow using none of the new placeholders makes no query.
+    /// </summary>
+    [Fact]
+    public async Task Preparing_a_template_that_names_nothing_new_reads_nothing()
+    {
+        var session = new Mock<IDocumentSession>(MockBehavior.Strict);
+        ITemplateVariableExtractor extractor = new TemplateVariableExtractor(session.Object);
+        var entry = Entry();
+
+        await extractor.PrepareAsync(
+            entry, "Updated", 12,
+            ["The candidate was updated on a date to validate, money aside. {{status}} {{data.Name}}", "https://example.com/update"],
+            TestContext.Current.CancellationToken);
+
+        session.Invocations.Should().BeEmpty();
+        extractor.ResolveVariables("{{status}} {{data.Name}}", entry).Should().Be("Published Maria Santos");
     }
 
     /// <summary>What a template alone says the engine will leave as written. New with the change.</summary>

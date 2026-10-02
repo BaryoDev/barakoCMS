@@ -385,6 +385,77 @@ public class TemplatePlaceholderContextTests
         shown.Should().NotContain(maria.Email);
     }
 
+    /// <summary>
+    /// The second and third assertions are red without the membership check, which named any user
+    /// whose id was on the entry. The first is the control: an active member is still named.
+    /// </summary>
+    [Fact]
+    public async Task In_a_registered_tenant_only_an_active_member_is_named()
+    {
+        await using var session = _store.LightweightSession(_tenant);
+        session.Store(new Tenant { Id = Guid.NewGuid(), Slug = _tenant, Name = _tenant, IsActive = true });
+
+        var member = await StoreUserAsync(session, "member", MembershipStatus.Active);
+        var removed = await StoreUserAsync(session, "removed", MembershipStatus.Removed);
+        var suspended = await StoreUserAsync(session, "suspended", MembershipStatus.Suspended);
+
+        const string template = "[{{createdBy.name}}][{{createdBy.email}}][{{transition.by.name}}][{{transition.by.email}}]";
+        ITemplateVariableExtractor extractor = new TemplateVariableExtractor(session);
+
+        var (byMember, memberSequence) = await ClockedOutEntryAsync(session, member.Id, removed.Id);
+        await extractor.PrepareAsync(byMember, ClockOut, memberSequence, [template], Ct);
+        extractor.ResolveVariables(template, byMember).Should().Be($"[{member.Username}][{member.Email}][][]");
+
+        var (bySuspended, suspendedSequence) = await ClockedOutEntryAsync(session, suspended.Id, member.Id);
+        await extractor.PrepareAsync(bySuspended, ClockOut, suspendedSequence, [template], Ct);
+        extractor.ResolveVariables(template, bySuspended).Should().Be($"[][][{member.Username}][{member.Email}]");
+    }
+
+    /// <summary>
+    /// Red without the membership check. A user with no membership in a registered tenant is what
+    /// the owner of an API key can be, and a platform administrator working under a tenant header:
+    /// their id is on the entry, and their name and address are not handed to the tenant's workflows.
+    /// </summary>
+    [Fact]
+    public async Task A_creator_who_is_not_a_member_of_a_registered_tenant_resolves_to_nothing()
+    {
+        await using var session = _store.LightweightSession(_tenant);
+        session.Store(new Tenant { Id = Guid.NewGuid(), Slug = _tenant, Name = _tenant, IsActive = true });
+
+        var keyOwner = await StoreUserAsync(session, "keyowner");
+        session.Store(new Membership
+        {
+            Id = Guid.NewGuid(),
+            UserId = keyOwner.Id,
+            TenantSlug = $"other-{Guid.NewGuid():N}"[..20],
+            Status = MembershipStatus.Active,
+        });
+        await session.SaveChangesAsync(Ct);
+
+        var (entry, sequence) = await ClockedOutEntryAsync(session, keyOwner.Id, keyOwner.Id);
+        ITemplateVariableExtractor extractor = new TemplateVariableExtractor(session);
+
+        var resolved = await ActionParameters.ResolveAsync(extractor, "Email", new Dictionary<string, string>
+        {
+            ["To"] = "{{createdBy.email}}",
+            ["Subject"] = "[{{createdBy.name}}][{{transition.by.name}}][{{transition.by.email}}] {{transition.name}}",
+        }, entry, ClockOut, sequence, Ct);
+
+        resolved.Should().HaveCount(2);
+        resolved["To"].Should().BeEmpty();
+        resolved["Subject"].Should().Be("[][][] ClockOut");
+        resolved.Values.Should().NotContain(value => value.Contains(keyOwner.Username) || value.Contains(keyOwner.Email));
+    }
+
+    /// <summary>Stores a user and, when a status is given, their membership of this test's tenant.</summary>
+    private async Task<User> StoreUserAsync(IDocumentSession session, string name, MembershipStatus status)
+    {
+        var user = await StoreUserAsync(session, name);
+        session.Store(new Membership { Id = Guid.NewGuid(), UserId = user.Id, TenantSlug = _tenant, Status = status });
+        await session.SaveChangesAsync(Ct);
+        return user;
+    }
+
     private static async Task<User> StoreUserAsync(IDocumentSession session, string name)
     {
         var id = Guid.NewGuid();

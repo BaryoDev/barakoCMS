@@ -225,21 +225,53 @@ public class TemplateVariableExtractor(IDocumentSession session) : ITemplateVari
         return null;
     }
 
+    private bool? _tenantIsRegistered;
+
+    /// <summary>The user as a template may name them, or nobody.</summary>
+    /// <remarks>
+    /// A user is global and a workflow belongs to one tenant, so the id on an entry is not enough to
+    /// hand out a name and an address: a platform administrator working under a tenant header, a
+    /// member since removed and the owner of an API key all leave their id on what they touch. In a
+    /// registered tenant only an active member is named. Anyone else is nobody, like a deleted account.
+    /// </remarks>
     private async Task<TemplatePerson> PersonAsync(Guid userId, CancellationToken ct)
     {
-        if (userId == Guid.Empty) return TemplatePerson.Nobody;
+        if (userId == Guid.Empty || !await IsNameableAsync(userId, ct)) return TemplatePerson.Nobody;
 
         var user = await session.LoadAsync<User>(userId, ct);
         return user is null ? TemplatePerson.Nobody : new TemplatePerson(user.Username, user.Email);
     }
 
+    /// <summary>
+    /// The rule sign-in applies in <c>TokenIssuer</c>: the default tenant and a slug nobody
+    /// registered have no memberships to ask, and every user of the deployment works there. A
+    /// registered tenant asks for an active membership.
+    /// </summary>
+    private async Task<bool> IsNameableAsync(Guid userId, CancellationToken ct)
+    {
+        var slug = barakoCMS.Infrastructure.Multitenancy.TenantScopes.SlugFor(session.TenantId);
+        if (slug == Tenant.DefaultSlug) return true;
+
+        _tenantIsRegistered ??= await session.Query<Tenant>().AnyAsync(t => t.Slug == slug, ct);
+        if (_tenantIsRegistered == false) return true;
+
+        return await session.Query<Membership>()
+            .AnyAsync(m => m.UserId == userId && m.TenantSlug == slug && m.Status == MembershipStatus.Active, ct);
+    }
+
     /// <summary>The transition event that fired the workflow, or null when there is none to name.</summary>
     /// <remarks>
-    /// Read from the entry's stream and not from the entry. By the time an action runs the entry may
-    /// have been edited again, and its last editor and time are then somebody else's.
+    /// Read from the event and not from the entry. By the time an action runs the entry may have
+    /// been edited again, and its last editor and time are then somebody else's.
     ///
-    /// With a sequence it is that event and no other. Without one, which is the engine called
-    /// directly, it is the last event of that transition on the entry.
+    /// With a sequence it is that one event, read by its sequence and checked to be on this entry's
+    /// stream. Not the stream itself: every edit on it carries the entry's whole data, and an entry
+    /// edited thousands of times would be read in full to find one event.
+    ///
+    /// Without a sequence, which is the engine called directly by a host or a test, it is the
+    /// latest event of that transition on the entry. Two transitions of one name before the first
+    /// is handled would both name the later one. An event stored before events carried their own
+    /// time gives the entry's last change as the time.
     /// </remarks>
     private async Task<TemplateTransition?> TransitionAsync(
         Content content, string? triggerEvent, long eventSequence, CancellationToken ct)
@@ -249,20 +281,36 @@ public class TemplateVariableExtractor(IDocumentSession session) : ITemplateVari
             return null;
         }
 
-        var stream = await session.Events.FetchStreamAsync(content.Id, token: ct);
+        if (eventSequence > 0)
+        {
+            var fired = await session.Events.QueryAllRawEvents()
+                .Where(e => e.Sequence == eventSequence)
+                .FirstOrDefaultAsync(ct);
 
-        var fired = eventSequence > 0
-            ? stream.FirstOrDefault(e => e.Sequence == eventSequence)
-            : stream.LastOrDefault(e => e.Data is barakoCMS.Events.ContentTransitioned transitioned
-                                        && string.Equals(transitioned.Transition, name, StringComparison.Ordinal));
+            if (fired is null || fired.StreamId != content.Id || fired.Data is not barakoCMS.Events.ContentTransitioned at)
+            {
+                return null;
+            }
 
-        if (fired?.Data is not barakoCMS.Events.ContentTransitioned data)
+            return new TemplateTransition(
+                at.Transition, ContentProjection.OccurredAt(fired), await PersonAsync(at.UpdatedBy, ct));
+        }
+
+        var contentId = content.Id;
+        var latest = await session.Events.QueryRawEventDataOnly<barakoCMS.Events.ContentTransitioned>()
+            .Where(e => e.Id == contentId && e.Transition == name)
+            .OrderByDescending(e => e.OccurredAt)
+            .FirstOrDefaultAsync(ct);
+
+        if (latest is null)
         {
             return null;
         }
 
         return new TemplateTransition(
-            data.Transition, ContentProjection.OccurredAt(fired), await PersonAsync(data.UpdatedBy, ct));
+            latest.Transition,
+            latest.OccurredAt == default ? content.UpdatedAt : latest.OccurredAt,
+            await PersonAsync(latest.UpdatedBy, ct));
     }
 
     /// <summary>
