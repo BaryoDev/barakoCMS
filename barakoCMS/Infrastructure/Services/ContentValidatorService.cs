@@ -140,6 +140,11 @@ public class ContentValidatorService(IQuerySession session) : IContentValidatorS
         // 3. Validate Fields
         foreach (var field in schema.Fields)
         {
+            // The server owns a token's value. Whatever is in the data here is not what is stored:
+            // the writer puts the stored token back, or generates one, after this has run.
+            if (TokenFields.IsToken(field.Type))
+                continue;
+
             var keyDetails = data.FirstOrDefault(k => k.Key.Equals(field.Name, StringComparison.OrdinalIgnoreCase));
 
             // Check Required

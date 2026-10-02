@@ -64,7 +64,10 @@ public sealed class ContentWriter : IContentWriter
         _policy = policy;
         _documentTypesAppend = documentTypesAppend;
         _batch = batch;
+        _tokens = new ContentTokenIssuer(session);
     }
+
+    private readonly ContentTokenIssuer _tokens;
 
     private readonly Multitenancy.BatchTransaction? _batch;
 
@@ -75,6 +78,9 @@ public sealed class ContentWriter : IContentWriter
     /// <inheritdoc />
     public async Task<Content> CreateAsync(ContentCreated @event, CancellationToken cancellationToken)
     {
+        // Before anything reads the event: the stream and the document both take its data.
+        await _tokens.IssueAsync(@event, cancellationToken);
+
         // The fold is not branched on, and that is not an omission. A brand new stream holds exactly
         // one event, so folding it and applying it to a blank document are the same operation and
         // produce the same bytes. The two modes diverge from the second event onwards, which is
@@ -156,6 +162,8 @@ public sealed class ContentWriter : IContentWriter
             }
         }
 
+        // After the refresh, so the token put back is the committed one.
+        await _tokens.KeepAsync(content, @event, cancellationToken);
         ApplyToDocument(content, @event);
 
         _session.Store(content);
@@ -242,6 +250,8 @@ public sealed class ContentWriter : IContentWriter
 
         foreach (var @event in events)
         {
+            // After the refresh, so the token put back is the committed one.
+            await _tokens.KeepAsync(content, @event, cancellationToken);
             ApplyToDocument(content, @event);
         }
 

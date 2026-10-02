@@ -143,9 +143,8 @@ public class SensitivityService : ISensitivityService
 
     public async ValueTask ApplyWriteAsync(string contentType, IDictionary<string, object> incoming, IReadOnlyDictionary<string, object>? existing, HttpContext httpContext, CancellationToken ct = default)
     {
-        if (_mode == SensitivityMode.Off)
-            return;
-
+        // Read with the mode off as well. Nothing is masked then, but a token is still not a
+        // caller's to write, and only the definition says which fields are tokens.
         var definition = await LoadDefinitionAsync(contentType, ct);
         if (definition == null)
             return;
@@ -155,9 +154,6 @@ public class SensitivityService : ISensitivityService
 
     public async ValueTask ApplyWriteAsync(ContentTypeDefinition definition, IDictionary<string, object> incoming, IReadOnlyDictionary<string, object>? existing, HttpContext httpContext, CancellationToken ct = default)
     {
-        if (_mode == SensitivityMode.Off)
-            return;
-
         await DropUnwritableAsync(definition, incoming, existing, httpContext.User, ct);
     }
 
@@ -207,7 +203,11 @@ public class SensitivityService : ISensitivityService
     {
         foreach (var field in definition.Fields)
         {
-            if (await MaySeeFieldAsync(field, user, ct))
+            // A token is written by the server alone, so it is treated here as a field no caller
+            // may see, whoever they are and whatever the mode: what they sent is dropped and the
+            // stored value put back. With the mode off MaySeeFieldAsync answers yes for every
+            // other field, so nothing else is touched.
+            if (!barakoCMS.Core.Validation.TokenFields.IsToken(field.Type) && await MaySeeFieldAsync(field, user, ct))
                 continue;
 
             // The caller cannot see this field, so they cannot set it. Revert to the stored value

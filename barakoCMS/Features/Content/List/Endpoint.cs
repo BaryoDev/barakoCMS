@@ -117,7 +117,14 @@ internal class Endpoint(
             // The term is a bound parameter. The escaping below is not about injection, it is about
             // meaning: an unescaped % or _ is a wildcard, so searching for "50%" would match every
             // entry containing "50" and searching for "a_b" would match "axb".
-            query = query.Where(c => c.MatchesSql(SearchSql, EscapeLike(term)));
+            //
+            // A token is the one value never matched, for the reason TokenSearch gives. A tenant
+            // with no token field runs the predicate it always ran.
+            var tokenKeys = await TokenSearch.KeysAsync(session, ct);
+            object[] skippingTokens = [EscapeLike(term), tokenKeys];
+            query = tokenKeys.Length == 0
+                ? query.Where(c => c.MatchesSql(SearchSql, EscapeLike(term)))
+                : query.Where(c => c.MatchesSql(TokenSearch.Sql, skippingTokens));
         }
 
         // filter[field][op]=value, the delivery API's syntax. Read off the query string, since the

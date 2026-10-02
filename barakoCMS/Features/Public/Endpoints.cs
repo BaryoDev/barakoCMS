@@ -228,7 +228,7 @@ internal static class PublicDelivery
             return new();
 
         var publicNames = def.Fields
-            .Where(f => f.Sensitivity == SensitivityLevel.Public)
+            .Where(f => f.Sensitivity == SensitivityLevel.Public && !IsToken(f))
             .Select(f => f.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
@@ -236,6 +236,14 @@ internal static class PublicDelivery
             .Where(kv => publicNames.Contains(kv.Key))
             .ToDictionary(kv => kv.Key, kv => kv.Value);
     }
+
+    /// <summary>A token is never delivered, even from a definition stored with the field Public.</summary>
+    /// <remarks>
+    /// No endpoint stores one that way. A definition written past them would, and this is the last
+    /// place that can still leave the value out.
+    /// </remarks>
+    private static bool IsToken(FieldDefinition field) =>
+        barakoCMS.Core.Validation.TokenFields.IsToken(field.Type);
 
     /// <summary>
     /// Projects a Published, document-Public entry for anonymous delivery, exposing ONLY the fields the
@@ -262,7 +270,7 @@ internal static class PublicDelivery
          * would leak it. Case-insensitive comparison closes the casing gap too.
          */
         var publicNames = def.Fields
-            .Where(f => f.Sensitivity == SensitivityLevel.Public)
+            .Where(f => f.Sensitivity == SensitivityLevel.Public && !IsToken(f))
             .Select(f => f.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 

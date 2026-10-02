@@ -100,6 +100,11 @@ public static class FieldTypeRegistry
         // each value is a declared option, and whether the field takes one or several, needs the
         // definition, so ContentValidatorService checks it.
         new("choice", "choice", v => TryReadChoice(v, out _, out _)),
+
+        // A random string the server generates when the entry is created. A caller never supplies
+        // one, so no write path asks whether a sent value is valid: the value is dropped and the
+        // stored or generated one is used. See TokenFields.
+        new("token", "token", IsString),
     };
 
     // Alias -> canonical spec. Aliases are the historical synonyms both live
@@ -188,6 +193,26 @@ public static class FieldTypeRegistry
     /// </summary>
     public static bool TryGetCurrency(barakoCMS.Models.FieldDefinition field, out string currency, out int scale) =>
         MoneyFields.TryResolve(field, out currency, out scale);
+
+    /// <summary>
+    /// Whether the server generates this field's value, so a write never takes one from a caller
+    /// and an export has nothing an import could use. True for a <c>token</c> field.
+    /// </summary>
+    public static bool IsServerGenerated(barakoCMS.Models.FieldDefinition field) =>
+        TokenFields.IsToken(field.Type);
+
+    /// <summary>
+    /// Sets what a field's type decides when a definition leaves it out, before the definition is
+    /// checked and stored. A <c>token</c> field declared Public, which is what a definition that
+    /// states no sensitivity holds, becomes Hidden. Nothing else is changed.
+    /// </summary>
+    /// <remarks>
+    /// For a module that stores definitions, as the create, add field and blueprint routes do.
+    /// The type validator refuses a Public token, so a route that skips this refuses the
+    /// definition instead of storing it.
+    /// </remarks>
+    public static void ApplyTypeDefaults(IEnumerable<barakoCMS.Models.FieldDefinition?>? fields) =>
+        TokenFields.ApplyDefaults(fields);
 
     /// <summary>The admin editor hint for a type, or <c>text</c> if unknown.</summary>
     public static string EditorHintFor(string type) =>

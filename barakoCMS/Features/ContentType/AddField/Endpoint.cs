@@ -42,6 +42,9 @@ internal sealed class Request
     /// <summary>What the field is to the entry: one of <c>fieldRoles</c> in <c>GET /api/meta/describe</c>.</summary>
     public string? Role { get; set; }
 
+    /// <summary>For a token field, how many characters a generated token has, from 16 to 128. Defaults to 32.</summary>
+    public int? TokenLength { get; set; }
+
     public bool IsRequired { get; set; }
     public object? DefaultValue { get; set; }
     public Dictionary<string, object>? ValidationRules { get; set; }
@@ -144,6 +147,14 @@ internal sealed class Endpoint(
             ThrowIfAnyErrors(StatusCodes.Status409Conflict);
         }
 
+        // A token is never Public, and Public is what a request that leaves sensitivity out
+        // carries, so Hidden is the default of the type. Before the event-sourced check, which
+        // then refuses a token on such a type like any other field that is not Public.
+        if (barakoCMS.Core.Validation.TokenFields.IsToken(req.Type) && req.Sensitivity == SensitivityLevel.Public)
+        {
+            req.Sensitivity = SensitivityLevel.Hidden;
+        }
+
         if (req.Sensitivity != SensitivityLevel.Public && await sourcing.IsEventSourcedAsync(definition.Name, ct))
         {
             AddError(
@@ -166,6 +177,7 @@ internal sealed class Endpoint(
             Editor = req.Editor,
             Section = req.Section,
             Role = req.Role,
+            TokenLength = req.TokenLength,
             IsRequired = req.IsRequired,
             DefaultValue = req.DefaultValue,
             ValidationRules = req.ValidationRules ?? new Dictionary<string, object>(),

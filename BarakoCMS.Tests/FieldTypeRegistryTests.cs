@@ -39,6 +39,9 @@ public class FieldTypeRegistryTests
                 definition.ReferenceType = "sometype";
             if (string.Equals(type, "choice", StringComparison.OrdinalIgnoreCase))
                 definition.Options = [new FieldOption { Value = "A", Label = "A" }];
+            // A token is never Public, and Public is the default a bare definition holds.
+            if (string.Equals(type, "token", StringComparison.OrdinalIgnoreCase))
+                definition.Sensitivity = SensitivityLevel.Hidden;
 
             var (isValid, errors) = _typeValidator.Validate(
                 "sample", "Sample",

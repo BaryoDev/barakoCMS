@@ -66,6 +66,11 @@ the repository.
   see is dropped, the entry is validated against its type as the bundle leaves it, the type's
   lifecycle hooks run, and the entry starts in the type's initial lifecycle state. The singleton cap
   is the one exception, since an import is a restore and lands what the bundle holds.
+- A `token` field does not travel. An export leaves its value out of every entry, for every caller,
+  and an import gives each entry it creates a new token, discarding one a bundle carries. So moving
+  a site through a bundle changes every token: move the database to keep tokens that are already
+  printed or sent. A bundle that turns a stored field into a token, or a stored token into another
+  type, is refused. See `docs/token-fields.md`.
 - The import is one database transaction, and each entry is written before the next is checked, so
   lifecycle hooks see the entries before it: journal entries are numbered in sequence, an account's
   parent and a page's parent from the same bundle resolve.

@@ -76,6 +76,13 @@ internal static class TransitionFields
                     continue;
                 }
 
+                if (fields.Any(f => f is not null && Matches(f.Name, name) && TokenFields.IsToken(f.Type)))
+                {
+                    errors.Add($"Transition '{label}' names the field '{Shorten(name)}' in {list}, "
+                        + "which is a token. The server generates it, so a move cannot take it.");
+                    continue;
+                }
+
                 if (!seen.Add(name))
                     errors.Add($"Transition '{label}' names the field '{Shorten(name)}' more than once "
                         + "across requiredFields and optionalFields, ignoring case.");

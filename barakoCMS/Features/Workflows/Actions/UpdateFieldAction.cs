@@ -191,7 +191,7 @@ internal class UpdateFieldAction : IWorkflowAction
             dataChanged = true;
         }
 
-        if (dataChanged && value is not null)
+        if (dataChanged)
         {
             // A parameter is text, and a money field that declares a currency takes a number. Text
             // stored there would make every later save of the entry fail, so it is read as an
@@ -213,7 +213,17 @@ internal class UpdateFieldAction : IWorkflowAction
                 return WorkflowActionResult.Failure($"Could not read the content type of content {targetContent.Id} ({ex.GetType().Name}).");
             }
 
-            if (declared is not null
+            // Permanent: the field is a token on every retry. Checked whatever the value, a missing
+            // one included, since an entry with no stream is written below without the writer that
+            // would put the stored token back.
+            if (declared is not null && barakoCMS.Core.Validation.TokenFields.IsToken(declared.Type))
+            {
+                return WorkflowActionResult.PermanentFailure(
+                    $"Field '{declared.Name}' is a token, which the server generates, so a workflow cannot write it.");
+            }
+
+            if (value is not null
+                && declared is not null
                 && barakoCMS.Core.Validation.MoneyFields.TryResolve(declared, out var currency, out var scale))
             {
                 // Permanent, and the value is not named: it parses the same way on every retry, and

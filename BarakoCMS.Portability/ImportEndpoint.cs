@@ -114,6 +114,11 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
                 field.ValidationRules ??= new Dictionary<string, object>();
             }
 
+            // A token field that states no sensitivity is Hidden, as on create. Before the bundle
+            // is compared with the stored type, so a bundle that leaves it out is not read as
+            // lowering a stored field.
+            barakoCMS.Core.Validation.FieldTypeRegistry.ApplyTypeDefaults(type.Fields);
+
             var match = StoredMatch(existing, type.Name);
 
             // A bundle names roles and a definition is stored with their ids. Both sides are
@@ -495,6 +500,21 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
             errors.Add($"field '{current.Name}' has a different currency or scale in the bundle. An import "
                        + "does not change a stored field's currency; use "
                        + $"PUT /api/content-types/{stored.Name}/fields/{current.Name}/currency.");
+        }
+
+        // A bundle may not turn a stored field into a token or a token into something else. The
+        // first would freeze values callers wrote as if the server had generated them, and the
+        // second would make every stored token writable by whoever may edit the entry.
+        foreach (var current in stored.Fields)
+        {
+            var incoming = type.Fields.FirstOrDefault(f => f.Name.Equals(current.Name, StringComparison.OrdinalIgnoreCase));
+            if (incoming is not null
+                && barakoCMS.Core.Validation.FieldTypeRegistry.IsServerGenerated(incoming)
+                    != barakoCMS.Core.Validation.FieldTypeRegistry.IsServerGenerated(current))
+            {
+                errors.Add($"field '{current.Name}' changes to or from the token type in the bundle. An "
+                           + "import does not change whether the server generates a stored field's value.");
+            }
         }
 
         var entries = await EntryCountAsync(stored, ct);

@@ -67,6 +67,18 @@ public class ExportEndpoint(
                 continue;
             }
 
+            // A token is generated where an entry is created, and an import creates entries, so a
+            // token in a bundle is discarded on the way in. It is left out here for every caller,
+            // those who may read it included: a bundle is a file, and a file gets passed on.
+            var definition = types.FirstOrDefault(
+                t => string.Equals(t.Name, c.ContentType, StringComparison.OrdinalIgnoreCase));
+            foreach (var field in (definition?.Fields ?? [])
+                         .Where(f => f is not null && barakoCMS.Core.Validation.FieldTypeRegistry.IsServerGenerated(f)))
+            {
+                foreach (var key in data.Keys.Where(k => string.Equals(k, field.Name, StringComparison.OrdinalIgnoreCase)).ToList())
+                    data.Remove(key);
+            }
+
             records.Add(new ContentRecord
             {
                 Id = c.Id,

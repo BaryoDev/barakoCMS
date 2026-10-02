@@ -78,6 +78,10 @@ internal class Endpoint(
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
+        // A token field sent as Public, which is what leaving sensitivity out sends, is stored
+        // Hidden. First, so the checks below see the field as it will be stored.
+        barakoCMS.Core.Validation.TokenFields.ApplyDefaults(req.Fields);
+
         // 1. Validate ContentType
         var (isValid, errors) = validator.Validate(req.Name, req.DisplayName, req.Fields);
 
