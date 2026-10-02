@@ -107,6 +107,8 @@ internal sealed class WorkflowRunQueue(IDocumentSession session, ILogger<Workflo
 
         if (queued > 0) await session.SaveChangesAsync(ct);
 
+        WorkflowMetrics.Default.Queued(eventType, queued);
+
         return queued;
     }
 

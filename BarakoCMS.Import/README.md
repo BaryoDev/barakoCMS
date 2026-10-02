@@ -63,6 +63,11 @@ No services or schema to configure — the module only contributes endpoints.
    needs the same row, such as the journal entry number sequence, waits and may need a retry. One request creates
    at most 5,000 records (`Import:MaxRecords`); past that it answers 400 and writes nothing.
 
+   A cell arrives as text. For a `money` field that declares a currency, plain decimal text (an
+   optional sign, digits, at most one point) is stored as a number. Anything else in that column,
+   such as `1,250.00`, or an amount with more decimal places than the currency has, is refused for
+   that row naming the field. A money field with no currency stores the cell as it always did.
+
 ## Why split analyze from create
 
 The mapping and any cleanup (skipping title/section rows, formatting numbers, choosing which columns

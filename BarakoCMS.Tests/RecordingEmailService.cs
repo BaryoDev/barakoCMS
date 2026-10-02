@@ -15,7 +15,10 @@ namespace BarakoCMS.Tests;
 /// </remarks>
 public sealed class RecordingEmailService : IEmailService
 {
-    public sealed record Sent(string To, string Subject, string Body);
+    public sealed record Sent(string To, string Subject, string Body)
+    {
+        public IReadOnlyList<EmailAttachment> Attachments { get; init; } = [];
+    }
 
     private readonly ConcurrentQueue<Sent> _sent = new();
 
@@ -24,6 +27,12 @@ public sealed class RecordingEmailService : IEmailService
     public Task SendEmailAsync(string to, string subject, string body, CancellationToken cancellationToken = default)
     {
         _sent.Enqueue(new Sent(to.Trim().ToLowerInvariant(), subject, body));
+        return Task.CompletedTask;
+    }
+
+    public Task SendEmailAsync(string to, string subject, string body, IReadOnlyList<EmailAttachment> attachments, CancellationToken cancellationToken = default)
+    {
+        _sent.Enqueue(new Sent(to.Trim().ToLowerInvariant(), subject, body) { Attachments = attachments.ToArray() });
         return Task.CompletedTask;
     }
 

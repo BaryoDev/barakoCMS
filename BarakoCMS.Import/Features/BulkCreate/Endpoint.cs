@@ -119,10 +119,30 @@ public class Endpoint(
 
             for (var i = 0; i < req.Records.Count; i++)
             {
+                var record = req.Records[i] ?? new Dictionary<string, object>();
+
+                // A spreadsheet cell arrives as text, and a money field that declares a currency
+                // takes a number. Plain decimal text is read as one here, so the entry stores a
+                // number; anything else stays text and the validator refuses it naming the field.
+                if (definition is not null)
+                {
+                    foreach (var key in record.Keys.ToList())
+                    {
+                        var field = definition.Fields.FirstOrDefault(
+                            f => f is not null && string.Equals(f.Name, key, StringComparison.OrdinalIgnoreCase));
+
+                        if (field is not null
+                            && barakoCMS.Core.Validation.FieldTypeRegistry.TryReadAmountText(field, record[key], out var amount))
+                        {
+                            record[key] = amount;
+                        }
+                    }
+                }
+
                 var request = new ContentCreateRequest
                 {
                     ContentType = req.ContentType,
-                    Data = req.Records[i] ?? new Dictionary<string, object>(),
+                    Data = record,
                     Status = req.Status,
                 };
 

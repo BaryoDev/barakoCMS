@@ -86,6 +86,42 @@ internal sealed class WorkflowRunner(
     /// <summary>How many times this runner has listed the partitions.</summary>
     internal int PartitionScans { get; private set; }
 
+    /// <summary>Where this runner counts what it does. A test gives it a registry of its own.</summary>
+    internal WorkflowMetrics Metrics { get; init; } = WorkflowMetrics.Default;
+
+    public const string BacklogIntervalKey = "Workflows:BacklogIntervalSeconds";
+
+    public const int DefaultBacklogIntervalSeconds = 30;
+
+    public const int MaxBacklogIntervalSeconds = 3600;
+
+    /// <summary>How long one count of the due runs may take before it is given up.</summary>
+    internal static readonly TimeSpan BacklogBudget = TimeSpan.FromSeconds(10);
+
+    /// <summary>The least time between two warnings while the count keeps failing.</summary>
+    internal static readonly TimeSpan BacklogWarnEvery = TimeSpan.FromMinutes(5);
+
+    private readonly TimeSpan? _backlogEvery = ReadBacklogInterval(config);
+    private long? _backlogMeasuredAt;
+    private int _backlogFailures;
+    private long _backlogWarnedAt;
+
+    /// <summary>The least time between two counts of the due runs. Null when the count is switched off.</summary>
+    /// <remarks>Refused out of range, for the reason <see cref="ReadConcurrency"/> gives.</remarks>
+    internal static TimeSpan? ReadBacklogInterval(IConfiguration config)
+    {
+        var seconds = config.GetValue(BacklogIntervalKey, DefaultBacklogIntervalSeconds);
+
+        if (seconds is < 0 or > MaxBacklogIntervalSeconds)
+        {
+            throw new InvalidOperationException(
+                $"{BacklogIntervalKey} must be between 0 and {MaxBacklogIntervalSeconds}, and is {seconds}. "
+              + "It is how many seconds pass between two counts of the due workflow runs, and 0 switches the count off.");
+        }
+
+        return seconds == 0 ? null : TimeSpan.FromSeconds(seconds);
+    }
+
     /// <summary>How many actions of different runs this node may have in flight at once.</summary>
     /// <remarks>
     /// Refused out of range, not clamped. Every action is a call to a third party, so the number is
@@ -124,6 +160,7 @@ internal sealed class WorkflowRunner(
             try
             {
                 did = await RunOnceAsync(stoppingToken);
+                Metrics.PassCompleted(DateTimeOffset.UtcNow);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -133,6 +170,8 @@ internal sealed class WorkflowRunner(
             {
                 logger.LogError(ex, "The workflow runner failed a pass and will try again");
             }
+
+            await MeasureBacklogWhenDueAsync(stoppingToken);
 
             if (!did)
             {
@@ -309,6 +348,11 @@ internal sealed class WorkflowRunner(
                 var run = claim.Run;
                 pass.Running.Add(Task.Run(
                     () => RunClaimedAsync(store, run, attempt, tenantId, ct), CancellationToken.None));
+                Metrics.Claimed();
+            }
+            else
+            {
+                Metrics.Finished(claim.Run.Status);
             }
 
             return true;
@@ -332,12 +376,121 @@ internal sealed class WorkflowRunner(
         // matches one. The null arm has to stay while an older node can still write a run without
         // the value, so an index on the comparison alone would be maintained and never read.
         return await query.Query<WorkflowRun>()
-            .Where(r => (r.Status == RunStatus.Pending || r.Status == RunStatus.Running)
-                && (r.NextDueAt == null || r.NextDueAt <= now))
+            .Where(DueAt(now))
             .OrderBy(r => r.CreatedAt)
             .Take(CandidatesPerPass)
             .Select(r => r.Id)
             .ToListAsync(ct);
+    }
+
+    /// <summary>The runs a pass would be offered at this moment.</summary>
+    /// <remarks>One expression for the claim and for the count, so the count is of what the claim reads.</remarks>
+    private static System.Linq.Expressions.Expression<Func<WorkflowRun, bool>> DueAt(DateTimeOffset now) =>
+        r => (r.Status == RunStatus.Pending || r.Status == RunStatus.Running)
+            && (r.NextDueAt == null || r.NextDueAt <= now);
+
+    private async Task MeasureBacklogWhenDueAsync(CancellationToken ct)
+    {
+        if (_backlogEvery is not { } every) return;
+        if (_backlogMeasuredAt is { } last && Stopwatch.GetElapsedTime(last) < every) return;
+
+        _backlogMeasuredAt = Stopwatch.GetTimestamp();
+        await MeasureBacklogAsync(ct);
+    }
+
+    /// <summary>
+    /// Counts the runs that are due, and finds the oldest, in every partition the last scan listed.
+    /// Never throws.
+    /// </summary>
+    /// <remarks>
+    /// Called from the loop between passes, at most once every <see cref="BacklogIntervalKey"/>
+    /// seconds, and never from a scrape. A scrape reads the last numbers.
+    ///
+    /// One count per partition, which reads what the due query of a pass reads, and one more read
+    /// of one timestamp in a partition that has something due. It stops at
+    /// <see cref="BacklogBudget"/>, so a slow database costs the passes that long and no longer.
+    ///
+    /// When it fails or runs out of time nothing is published: the gauges keep the last numbers and
+    /// the time they were measured, which is how a reader tells they are old. Part of a count would
+    /// read as a backlog that shrank. On a node where it has never succeeded the gauges are not
+    /// published at all.
+    /// </remarks>
+    /// <returns>Whether new numbers were published.</returns>
+    internal async Task<bool> MeasureBacklogAsync(CancellationToken ct)
+    {
+        if (_partitions is not { } partitions) return false;
+
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        budget.CancelAfter(BacklogBudget);
+
+        try
+        {
+            using var scope = services.CreateScope();
+            var store = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
+
+            var now = DateTimeOffset.UtcNow;
+            var due = 0;
+            DateTimeOffset? oldest = null;
+
+            foreach (var tenantId in partitions)
+            {
+                await using var query = store.QuerySession(tenantId);
+
+                var waiting = await query.Query<WorkflowRun>().Where(DueAt(now)).CountAsync(budget.Token);
+                if (waiting == 0) continue;
+
+                due += waiting;
+
+                var first = await query.Query<WorkflowRun>()
+                    .Where(DueAt(now))
+                    .OrderBy(r => r.CreatedAt)
+                    .Take(1)
+                    .Select(r => r.CreatedAt)
+                    .ToListAsync(budget.Token);
+
+                if (first.Count > 0 && (oldest is null || first[0] < oldest))
+                {
+                    oldest = first[0];
+                }
+            }
+
+            Metrics.Backlog(due, oldest is { } queuedAt ? now - queuedAt : TimeSpan.Zero, now);
+            _backlogFailures = 0;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            if (!ct.IsCancellationRequested)
+            {
+                NoteBacklogFailure(budget.IsCancellationRequested
+                    ? $"it took longer than {BacklogBudget.TotalSeconds:0} seconds"
+                    : ex.GetType().Name);
+            }
+
+            return false;
+        }
+    }
+
+    /// <summary>Warns that the count failed: on the first failure in a row, then at most every <see cref="BacklogWarnEvery"/>.</summary>
+    /// <remarks>
+    /// The count is tried again every interval, so a database that stays slow would otherwise write
+    /// the same line for as long as it does. No exception is logged: the type says which kind of
+    /// failure it is, and a message can quote what the database was asked.
+    /// </remarks>
+    /// <returns>Whether a line was written.</returns>
+    internal bool NoteBacklogFailure(string reason)
+    {
+        _backlogFailures++;
+
+        if (_backlogFailures > 1 && Stopwatch.GetElapsedTime(_backlogWarnedAt) < BacklogWarnEvery) return false;
+
+        _backlogWarnedAt = Stopwatch.GetTimestamp();
+        logger.LogWarning(
+            "The workflow runner could not count the due runs ({Reason}), {Failures} time(s) in a row. "
+          + "The backlog gauges are not updated until a count succeeds",
+            reason, _backlogFailures);
+
+        return true;
     }
 
     /// <summary>
@@ -516,6 +669,11 @@ internal sealed class WorkflowRunner(
             {
                 return false;
             }
+
+            Metrics.Recorded(attempt.ActionType, outcome.Registered, attempt.Status, outcome.ElapsedMs);
+            Metrics.Finished(latest.Status);
+
+            if (WorkflowMetrics.HaltedTheRun(latest, attempt)) Metrics.Halted();
         }
 
         return true;
@@ -647,7 +805,7 @@ internal sealed class WorkflowRunner(
         if (handler is null)
         {
             // Permanent: no amount of waiting registers a handler that the host was not built with.
-            return new Outcome(AttemptStatus.Failed, $"No handler is registered for action type '{attempt.ActionType}'.", 0, Retryable: false);
+            return new Outcome(AttemptStatus.Failed, $"No handler is registered for action type '{attempt.ActionType}'.", 0, Retryable: false, Registered: false);
         }
 
         // Resolved from the scope, not a separately opened store.LightweightSession(tenantId), and
@@ -764,5 +922,7 @@ internal sealed class WorkflowRunner(
     private static string Truncate(string value) =>
         value.Length <= 500 ? value : value[..500] + "...";
 
-    private readonly record struct Outcome(AttemptStatus Status, string? Error, long ElapsedMs, bool Retryable = true);
+    /// <param name="Registered">Whether a handler was found for the action type. Only then is the type used as a metric label.</param>
+    private readonly record struct Outcome(
+        AttemptStatus Status, string? Error, long ElapsedMs, bool Retryable = true, bool Registered = true);
 }

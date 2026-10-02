@@ -413,6 +413,7 @@ credentials, including OAuth 2.0 client credentials), [idempotency on the author
 [blueprints](docs/blueprints.md) (content types for a blog, events, a portfolio, docs, a product
 site and site settings in one call), [site settings](docs/site-settings.md) (the `site` entry a
 renderer reads its identity and theme from), [choice fields](docs/choice-fields.md),
+[money fields](docs/money-fields.md) (a currency on the field, and amounts held to its decimal places),
 [scheduling](docs/scheduling.md) (publish, unpublish and sensitivity at a set time),
 [deploying on a managed platform](docs/deploy-on-a-managed-platform.md) (App Service, Fargate,
 Cloud Run), [approval by configuration](docs/approval-by-configuration.md) (an invoice through Submit and
