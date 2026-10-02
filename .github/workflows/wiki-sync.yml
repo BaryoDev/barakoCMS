@@ -1,0 +1,75 @@
+# Publish docs/ to the GitHub wiki whenever master changes it.
+#
+# The wiki is generated from docs/ by scripts/wiki-sync.sh. That used to be run by hand, so the wiki
+# was as current as the last time somebody remembered: on 24 September every synced page differed
+# from docs/ (#995).
+#
+# Red means the wiki is stale. The sync failing (a broken link, a stale name in docs/.wikiignore) and
+# the push failing (the wiki moved under the run, the token was refused) both exit non-zero, and
+# nothing is retried. A run with nothing to change is green and its summary says so.
+#
+# Not a required check. It runs after the merge, so there is nothing left for it to block.
+
+name: wiki sync
+
+on:
+  push:
+    branches: [master]
+    paths:
+      # What the sync reads from this repository, and the two scripts and the workflow that run it.
+      # A doc may link to any file here and the sync fails if the target is gone, so removing a
+      # linked file outside these paths shows up on the next run rather than on its own push.
+      - "docs/**"
+      - "scripts/wiki-sync.sh"
+      - "scripts/wiki-publish.sh"
+      - ".github/workflows/wiki-sync.yml"
+  workflow_dispatch:
+
+permissions: {}
+
+# One run at a time, in order. A run in progress is left to finish: it is a few seconds long and
+# its only write is one push, so cancelling it would save nothing. GitHub keeps a single waiting
+# run per group, so when three pushes land together the middle one is dropped and the last one
+# runs after the first. Every run publishes the tip of master, not the commit that started it, so
+# whichever run is last leaves the wiki matching master.
+concurrency:
+  group: wiki-sync
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish docs to the wiki
+    # A fork has its own wiki or none, and the generated pages link to this repository.
+    if: github.repository == 'BaryoDev/barakoCMS'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # Pushing to <repository>.wiki.git with GITHUB_TOKEN needs contents: write, and there is no
+      # narrower scope that covers only the wiki.
+      contents: write
+    steps:
+      # The tip of master rather than the commit that started the run, so a rerun of an old run
+      # cannot put older docs back over newer ones. This checkout keeps no token: nothing below
+      # writes to the repository itself.
+      - name: Check out master
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: master
+          path: source
+          persist-credentials: false
+
+      # This is the checkout that keeps the token, because the push below goes to it. It fails here
+      # if the wiki is switched off or has no first page, since the wiki repository does not exist
+      # until one is created.
+      - name: Check out the wiki
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ github.repository }}.wiki
+          path: wiki
+          persist-credentials: true
+
+      - name: Sync, commit and push
+        env:
+          WIKI_COMMIT_NAME: "github-actions[bot]"
+          WIKI_COMMIT_EMAIL: "41898282+github-actions[bot]@users.noreply.github.com"
+        run: bash source/scripts/wiki-publish.sh wiki

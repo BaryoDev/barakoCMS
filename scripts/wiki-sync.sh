@@ -4,13 +4,15 @@
 #
 #   scripts/wiki-sync.sh <wiki-working-copy>
 #
-# The caller owns the wiki clone and the git history:
+# This script never commits and never pushes. It edits the working copy only, so the result can
+# be read before it goes anywhere:
 #
 #   git clone https://github.com/BaryoDev/barakoCMS.wiki.git /tmp/wiki
 #   scripts/wiki-sync.sh /tmp/wiki
-#   git -C /tmp/wiki add -A && git -C /tmp/wiki commit -m "sync docs" && git -C /tmp/wiki push
+#   git -C /tmp/wiki status --short
 #
-# This script never commits and never pushes. It edits the working copy only.
+# scripts/wiki-publish.sh runs this, then commits and pushes. .github/workflows/wiki-sync.yml runs
+# that on every push to master that touches docs/, so publishing by hand is the exception.
 #
 # Page naming rule
 #   The page name is the doc's file name, unchanged: docs/access-control.md becomes
@@ -461,4 +463,4 @@ done
 } >"$WIKI/$MANIFEST_NAME"
 
 note "wiki-sync: synced into $WIKI"
-note "wiki-sync: review with 'git -C $WIKI status --short', then add, commit and push yourself"
+note "wiki-sync: nothing is committed or pushed here. Review with 'git -C $WIKI status --short'; scripts/wiki-publish.sh commits and pushes."

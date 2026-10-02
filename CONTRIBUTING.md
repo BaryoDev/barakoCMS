@@ -104,6 +104,27 @@ Design and documentation contributions go through the same pull request process 
 the test requirements below, for obvious reasons, but the packaging guardrails still apply, so an
 icon has to be a real PNG under 1MB, and `dotnet test` will tell you if it isn't.
 
+## The wiki is generated from `docs/`
+
+Edit the doc in `docs/`, never the wiki page. `.github/workflows/wiki-sync.yml` runs on every push
+to master that touches `docs/`, regenerates the pages with `scripts/wiki-sync.sh` and pushes them to
+the wiki as one commit naming the source commit. A hand edit to a generated page is overwritten by
+the next run. `Home` and the release pages are written by hand and the sync leaves them alone.
+
+A doc that must not be public goes in `docs/.wikiignore`. A broken link in a doc fails the run, and
+a failed run leaves the wiki as it was, so a red `wiki sync` on master means the wiki is stale.
+
+To run it without waiting for a push, start the workflow from the Actions tab (`wiki sync`, Run
+workflow). To run it from a checkout of an up to date master, with your own push access:
+
+```bash
+git clone https://github.com/BaryoDev/barakoCMS.wiki.git /tmp/wiki
+bash scripts/wiki-publish.sh /tmp/wiki
+```
+
+`bash scripts/wiki-sync.sh /tmp/wiki` on its own writes the pages into the clone and stops, which is
+the way to read the result before anything is pushed.
+
 ## Writing a module
 
 Modules are how barakoCMS grows without the core growing. A module is an ordinary class library that
