@@ -27,12 +27,14 @@ internal class Endpoint(
                 AddError(r => r.SystemCapabilities, CapabilityVocabulary.UnknownMessage(name));
         }
 
-        foreach (var error in await ReferenceConditionRules.CheckAsync(session, req.Permissions, ct))
+        var role = await session.LoadAsync<Role>(req.Id, ct);
+
+        // Here and not in a validator: a condition the stored role already holds is passed over,
+        // and that takes the stored role.
+        foreach (var error in await ReferenceConditionRules.CheckAsync(session, req.Permissions, role?.Permissions, ct))
             AddError(r => r.Permissions, error);
 
         ThrowIfAnyErrors();
-
-        var role = await session.LoadAsync<Role>(req.Id, ct);
 
         if (role == null)
         {

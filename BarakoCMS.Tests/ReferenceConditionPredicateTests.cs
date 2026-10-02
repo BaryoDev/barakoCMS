@@ -102,7 +102,8 @@ public class ReferenceConditionPredicateTests
     private async Task<List<Guid>> StoreAsync(
         string type,
         IEnumerable<Dictionary<string, object>> entries,
-        SensitivityLevel sensitivity = SensitivityLevel.Public)
+        SensitivityLevel sensitivity = SensitivityLevel.Public,
+        ContentStatus status = ContentStatus.Published)
     {
         using var scope = _fixture.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
@@ -114,7 +115,7 @@ public class ReferenceConditionPredicateTests
             {
                 Id = Guid.NewGuid(),
                 ContentType = type,
-                Status = ContentStatus.Published,
+                Status = status,
                 Sensitivity = sensitivity,
                 Data = data,
             };
@@ -141,40 +142,72 @@ public class ReferenceConditionPredicateTests
     }
 
     /// <summary>
-    /// What the predicate selects of a type and what the per-entry check allows of it, both asked
-    /// of one resolver, which is how one request asks them.
+    /// The three ways one question is answered: what the predicate selects of a type, what a pass
+    /// over every entry of it allows, and what a check on each entry alone allows.
     /// </summary>
+    /// <remarks>
+    /// <c>Allowed</c> is the last of them, each entry asked of a resolver of its own, the way a get
+    /// by id asks: the referenced entry is loaded and nothing is resolved to a set. The pass is one
+    /// resolver over all of them, the way a list the database cannot page asks, and it is held equal
+    /// to <c>Allowed</c> here, for every caller of this method.
+    /// </remarks>
     private async Task<(ReadPredicate Predicate, List<Guid> Selected, List<Guid> Allowed, int Stored)> AskAsync(
         Guid userId, string type)
     {
-        using var scope = _fixture.Services.CreateScope();
-        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-        var resolver = scope.ServiceProvider.GetRequiredService<PermissionResolver>();
+        ReadPredicate predicate;
+        List<Guid> selected = [];
+        IReadOnlyList<Content> stored;
 
-        var user = await session.LoadAsync<User>(userId);
-        user.Should().NotBeNull();
-
-        var predicate = await resolver.ReadPredicateAsync(user!, type);
-
-        var selected = new List<Guid>();
-        if (predicate.Compiled)
+        using (var scope = _fixture.Services.CreateScope())
         {
-            selected = (await session.Query<Content>()
-                    .Where(c => c.ContentType == type && c.MatchesSql(predicate.Sql!, predicate.Parameters))
-                    .ToListAsync())
-                .Select(c => c.Id)
-                .ToList();
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var resolver = scope.ServiceProvider.GetRequiredService<PermissionResolver>();
+            var user = await session.LoadAsync<User>(userId);
+            user.Should().NotBeNull();
+
+            predicate = await resolver.ReadPredicateAsync(user!, type);
+
+            if (predicate.Compiled)
+            {
+                selected = (await session.Query<Content>()
+                        .Where(c => c.ContentType == type && c.MatchesSql(predicate.Sql!, predicate.Parameters))
+                        .ToListAsync())
+                    .Select(c => c.Id)
+                    .ToList();
+            }
+
+            // Read back, so the per-entry checks see the shapes a request sees.
+            stored = await session.Query<Content>().Where(c => c.ContentType == type).ToListAsync();
         }
 
-        // Read back, so the per-entry check sees the shapes a request sees.
-        var stored = await session.Query<Content>().Where(c => c.ContentType == type).ToListAsync();
+        var passed = new List<Guid>();
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var resolver = scope.ServiceProvider.GetRequiredService<PermissionResolver>();
+            var user = await session.LoadAsync<User>(userId);
+
+            foreach (var entry in stored)
+            {
+                if (await resolver.CanPerformActionAsync(user!, type, "read", entry))
+                    passed.Add(entry.Id);
+            }
+        }
 
         var allowed = new List<Guid>();
         foreach (var entry in stored)
         {
+            using var scope = _fixture.Services.CreateScope();
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var resolver = scope.ServiceProvider.GetRequiredService<PermissionResolver>();
+            var user = await session.LoadAsync<User>(userId);
+
             if (await resolver.CanPerformActionAsync(user!, type, "read", entry))
                 allowed.Add(entry.Id);
         }
+
+        passed.Should().HaveCount(allowed.Count, "a pass over every entry and a check on each alone are one question");
+        passed.Should().BeEquivalentTo(allowed);
 
         return (predicate, selected, allowed, stored.Count);
     }
@@ -335,24 +368,164 @@ public class ReferenceConditionPredicateTests
     }
 
     [Fact]
-    public async Task A_comparison_the_compiler_declines_leaves_the_rule_to_the_per_entry_check()
+    public async Task A_comparison_that_is_not_text_denies_on_every_path()
     {
         var (classes, enrollments) = await TypesAsync();
 
-        // A number is one of the expected values the compiler declines, on a row or through a
-        // reference. The evaluator compares it as text, so the per-entry check still answers.
+        // A number is an expected value the compiler declines and the evaluator would compare as
+        // text. Through a reference that would be a row a caller can open and not list, so it
+        // denies, as does a list with nothing in it. Every class here holds 30 seats.
+        foreach (var rule in new[]
+                 {
+                     Where("Class.Seats", "_eq", 30L),
+                     Where("Class.Seats", "_ne", 31L),
+                     Where("Class.Seats", "_in", new List<object> { 30L }),
+                     Where("Class.Title", "_nin", new List<object>()),
+                 })
+        {
+            var caller = await CallerAsync(
+                new ContentTypePermission { ContentTypeSlug = classes, Read = new PermissionRule { Enabled = true } },
+                new ContentTypePermission { ContentTypeSlug = enrollments, Read = rule });
+
+            var full = await StoreAsync(classes, [Class(Guid.NewGuid())]);
+            var seeded = await StoreAsync(enrollments, [Enrollment(full[0].ToString()), Enrollment(full[0].ToString())]);
+            seeded.Should().HaveCount(2);
+
+            var (predicate, selected, allowed, _) = await AskAsync(caller.Id, enrollments);
+
+            predicate.Compiled.Should().BeTrue("the rule denies every row, and that needs no per-entry pass");
+            selected.Should().BeEmpty();
+            allowed.Should().BeEmpty();
+        }
+    }
+
+    [Fact]
+    public async Task An_entry_of_another_type_holding_the_same_field_is_not_a_referenced_entry()
+    {
+        var (classes, enrollments) = await TypesAsync();
+        var (lookalikes, _) = await TypesAsync();
+
+        // Read rules on both types, so nothing but the type of the entry tells the two apart.
+        var caller = await CallerAsync(
+            new ContentTypePermission { ContentTypeSlug = classes, Read = Where("InstructorUser", "_eq", "$CURRENT_USER") },
+            new ContentTypePermission { ContentTypeSlug = lookalikes, Read = Where("InstructorUser", "_eq", "$CURRENT_USER") },
+            new ContentTypePermission { ContentTypeSlug = enrollments, Read = Where(Follows, "_eq", "$CURRENT_USER") });
+
+        var real = await StoreAsync(classes, [Class(caller.Id)]);
+        var lookalike = await StoreAsync(lookalikes, [Class(caller.Id)]);
+
+        var expected = await StoreAsync(enrollments, [Enrollment(real[0].ToString())]);
+        await StoreAsync(enrollments, [Enrollment(lookalike[0].ToString()), Enrollment(lookalike[0].ToString())]);
+
+        var (predicate, selected, allowed, stored) = await AskAsync(caller.Id, enrollments);
+
+        stored.Should().Be(3);
+        predicate.Compiled.Should().BeTrue();
+
+        selected.Should().HaveCount(1, "the lookalike satisfies the comparison and the caller's rule for classes, and is not a class");
+        selected.Should().Equal(expected[0]);
+        allowed.Should().HaveCount(1);
+        allowed.Should().Equal(expected[0]);
+    }
+
+    [Fact]
+    public async Task A_condition_with_no_operator_selects_nothing()
+    {
+        var (classes, enrollments) = await TypesAsync();
+
         var caller = await CallerAsync(
             new ContentTypePermission { ContentTypeSlug = classes, Read = new PermissionRule { Enabled = true } },
-            new ContentTypePermission { ContentTypeSlug = enrollments, Read = Where("Class.Seats", "_eq", 30L) });
+            new ContentTypePermission
+            {
+                ContentTypeSlug = enrollments,
+                Read = new PermissionRule
+                {
+                    Enabled = true,
+                    Conditions = new Dictionary<string, object> { [Follows] = new Dictionary<string, object>() },
+                },
+            });
 
-        var full = await StoreAsync(classes, [Class(Guid.NewGuid())]);
-        var seeded = await StoreAsync(enrollments, [Enrollment(full[0].ToString()), Enrollment(null)]);
+        // A class the caller may read, holding the field: everything an empty comparison would match.
+        var open = await StoreAsync(classes, [Class(caller.Id)]);
+        var seeded = await StoreAsync(enrollments, [Enrollment(open[0].ToString()), Enrollment(open[0].ToString())]);
+        seeded.Should().HaveCount(2);
 
-        var (predicate, _, allowed, _) = await AskAsync(caller.Id, enrollments);
+        var (predicate, selected, allowed, _) = await AskAsync(caller.Id, enrollments);
 
-        predicate.Compiled.Should().BeFalse();
-        allowed.Should().HaveCount(1);
-        allowed.Should().Equal(seeded[0]);
+        predicate.Compiled.Should().BeTrue();
+        selected.Should().BeEmpty("no operator is no comparison, and it must not read as one that always holds");
+        allowed.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Two_conditions_on_one_rule_select_what_the_per_entry_check_allows()
+    {
+        var (classes, enrollments) = await TypesAsync();
+
+        var caller = await CallerAsync(
+            new ContentTypePermission { ContentTypeSlug = classes, Read = new PermissionRule { Enabled = true } },
+            new ContentTypePermission
+            {
+                ContentTypeSlug = enrollments,
+                Read = new PermissionRule
+                {
+                    Enabled = true,
+                    Conditions = new Dictionary<string, object>
+                    {
+                        [Follows] = new Dictionary<string, object> { ["_eq"] = "$CURRENT_USER" },
+                        ["Class.Title"] = new Dictionary<string, object> { ["_eq"] = "algebra" },
+                    },
+                },
+            });
+
+        var myAlgebra = await StoreAsync(classes, [Class(caller.Id, "algebra")]);
+        var myBiology = await StoreAsync(classes, [Class(caller.Id, "biology")]);
+        var theirAlgebra = await StoreAsync(classes, [Class(Guid.NewGuid(), "algebra")]);
+
+        var expected = await StoreAsync(enrollments,
+            [Enrollment(myAlgebra[0].ToString()), Enrollment(myAlgebra[0].ToString())]);
+        await StoreAsync(enrollments,
+            [Enrollment(myBiology[0].ToString()), Enrollment(theirAlgebra[0].ToString()), Enrollment(null)]);
+
+        var (predicate, selected, allowed, stored) = await AskAsync(caller.Id, enrollments);
+
+        stored.Should().Be(5);
+        predicate.Compiled.Should().BeTrue();
+        predicate.Sql!.Count(ch => ch == '?').Should().Be(predicate.Parameters.Length);
+
+        allowed.Should().HaveCount(2);
+        allowed.Should().BeEquivalentTo(expected);
+        selected.Should().HaveCount(2);
+        selected.Should().BeEquivalentTo(expected);
+    }
+
+    [Fact]
+    public async Task A_read_rule_on_the_referenced_type_that_the_database_cannot_answer_still_gives_a_predicate()
+    {
+        var (classes, enrollments) = await TypesAsync();
+
+        // $status is a condition the compiler declines. The caller reads published classes only.
+        var caller = await CallerAsync(
+            new ContentTypePermission { ContentTypeSlug = classes, Read = Where("$status", "_eq", "Published") },
+            new ContentTypePermission { ContentTypeSlug = enrollments, Read = Where(Follows, "_eq", "$CURRENT_USER") });
+
+        var published = await StoreAsync(classes, [Class(caller.Id)]);
+        var draft = await StoreAsync(classes, [Class(caller.Id)], status: ContentStatus.Draft);
+        var theirs = await StoreAsync(classes, [Class(Guid.NewGuid())]);
+
+        var expected = await StoreAsync(enrollments,
+            [Enrollment(published[0].ToString()), Enrollment(published[0].ToString())]);
+        await StoreAsync(enrollments, [Enrollment(draft[0].ToString()), Enrollment(theirs[0].ToString())]);
+
+        var (predicate, selected, allowed, stored) = await AskAsync(caller.Id, enrollments);
+
+        stored.Should().Be(4);
+        predicate.Compiled.Should().BeTrue("the list still pages in the database, from ids the read rule was asked about in memory");
+
+        allowed.Should().HaveCount(2);
+        allowed.Should().BeEquivalentTo(expected);
+        selected.Should().HaveCount(2);
+        selected.Should().BeEquivalentTo(expected);
     }
 
     [Fact]
@@ -383,6 +556,44 @@ public class ReferenceConditionPredicateTests
             selected.Should().BeEmpty("the rule is {0}", key);
             allowed.Should().BeEmpty("the rule is {0}", key);
         }
+    }
+
+    [Fact]
+    public async Task A_scope_that_writes_a_referenced_entry_reads_it_again()
+    {
+        var (classes, enrollments) = await TypesAsync();
+        var caller = await CallerAsync(
+            new ContentTypePermission { ContentTypeSlug = classes, Read = new PermissionRule { Enabled = true } },
+            new ContentTypePermission { ContentTypeSlug = enrollments, Read = Where(Follows, "_eq", "$CURRENT_USER") });
+
+        var taught = await StoreAsync(classes, [Class(caller.Id), Class(caller.Id)]);
+        var seeded = await StoreAsync(enrollments,
+            [Enrollment(taught[0].ToString()), Enrollment(taught[1].ToString())]);
+
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var resolver = scope.ServiceProvider.GetRequiredService<PermissionResolver>();
+        var user = await session.LoadAsync<User>(caller.Id);
+
+        var entries = await session.Query<Content>().Where(c => c.ContentType == enrollments).ToListAsync();
+        entries.Should().HaveCount(2);
+        var first = entries.Single(e => e.Id == seeded[0]);
+        var second = entries.Single(e => e.Id == seeded[1]);
+
+        // The first check loads the class. The second points elsewhere, which resolves the
+        // condition to a set, so both ways of keeping an answer are in play.
+        (await resolver.CanPerformActionAsync(user!, enrollments, "read", first)).Should().BeTrue();
+        (await resolver.CanPerformActionAsync(user!, enrollments, "read", second)).Should().BeTrue();
+
+        // The first class changes hands, written through this scope's own session.
+        var changed = await session.LoadAsync<Content>(taught[0]);
+        changed!.Data["InstructorUser"] = Guid.NewGuid().ToString();
+        session.Store(changed);
+        await session.SaveChangesAsync();
+
+        (await resolver.CanPerformActionAsync(user!, enrollments, "read", first)).Should().BeFalse(
+            "what the scope wrote is read again, not answered from before the write");
+        (await resolver.CanPerformActionAsync(user!, enrollments, "read", second)).Should().BeTrue();
     }
 
     [Fact]

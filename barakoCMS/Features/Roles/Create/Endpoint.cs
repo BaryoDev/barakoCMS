@@ -29,7 +29,7 @@ internal class Endpoint(
                 AddError(r => r.SystemCapabilities, CapabilityVocabulary.UnknownMessage(name));
         }
 
-        foreach (var error in await ReferenceConditionRules.CheckAsync(session, req.Permissions, ct))
+        foreach (var error in await ReferenceConditionRules.CheckAsync(session, req.Permissions, stored: null, ct))
             AddError(r => r.Permissions, error);
 
         ThrowIfAnyErrors();

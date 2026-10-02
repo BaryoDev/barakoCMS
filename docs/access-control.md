@@ -138,6 +138,10 @@ It denies unless all of this holds, whatever the operator is:
   needs a Read rule on classes that covers the class.
 - The second name is a field the referenced type declares with Public sensitivity, and the entry
   holds it.
+- The comparison is on text: `_eq` and `_ne` against a text value (`$CURRENT_USER` and
+  `$CURRENT_USER.<name>` included), `_in` and `_nin` against a list of text holding at least one.
+  A number or a true/false written into the rule denies here, where on a field of the row itself
+  it is compared as text.
 
 One reference is followed, not two. `Class.Teacher.Email` is refused when the role is saved, and
 if the Read rule on classes itself follows a reference, that rule grants nothing to a condition
@@ -150,21 +154,38 @@ spelled exactly that. It no longer does.
 `POST /api/roles` and `PUT /api/roles/{id}` check such a condition and answer 400 for a key that is
 not two names around one dot, a first name that is not a reference field of the rule's content type,
 a second name that is not a Public field of the referenced type, an operator outside the four, a
-content type the tenant does not define, and a condition on a Create rule (Create has no stored
-entry and does not evaluate conditions). The check is against the content types of the tenant the
-request is made in. Roles are stored once for all tenants, so in another tenant the same condition
-resolves against that tenant's types and denies where they do not declare it. A role stored with
-a key the check would refuse still reads back, and the condition denies.
+comparison that is not on text, a content type the tenant does not define, and a condition on a
+Create rule (Create has no stored entry and does not evaluate conditions). One write checks such
+conditions on at most 50 content types.
+
+The check is against the content types of the tenant the request is made in. Roles are stored once
+for all tenants, so in another tenant the same condition resolves against that tenant's types and
+denies where they do not declare it. An update passes over a condition the stored role already
+holds unchanged (same content type, same rule, same key, same operators and values), so a role
+holding a condition written for another tenant's types, or one stored before this check existed,
+can still be renamed or given another permission from here. A condition the update adds, edits or
+moves is checked.
+
+A role stored with a key the check would refuse still reads back, and the condition denies. At
+start the API logs one warning naming the roles, by name and id, that hold a dotted condition
+following a reference in no tenant, so the roles an upgrade changed can be found.
 
 What it costs, and where it stops:
 
-- `GET /api/contents` with a `contentType` asks one query per such condition for the ids of the
-  referenced entries that match and that the caller may read, then pages and counts in the
-  database with those ids. A condition may match at most 1,000 referenced entries. Past that it
-  matches nothing in that list, and a warning is logged.
-- A check on one entry (get, update, status change, transition, and every entry of a list the
-  database cannot page) loads the referenced entry, once per request for each distinct one. A
-  request loads at most 200. A reference past that denies, and a warning is logged.
+- A check on one entry (get, update, status change, transition) loads the entry it points at: one
+  read.
+- A pass over many entries resolves the condition once, to the ids of the referenced entries that
+  satisfy it and that the caller may read, and tests each row's reference against that set. That
+  is one query per condition, whoever else's rows the pass walks over. `GET /api/contents` with a
+  `contentType` builds its query from the same ids, so it filters, pages and counts in the
+  database.
+- The set holds at most 1,000 ids. A condition that matches more has none: a warning is logged,
+  the list is not paged in the database, and each row's referenced entry is loaded, up to 200
+  distinct entries in a request. A request that needs more fails with a 500 and returns no rows.
+  It does not return the rows it reached and leave the rest out, because nothing in such a list
+  would say it was short. Narrow the condition, or the request.
+- What a request has read this way is dropped when its session commits, so a write followed by a
+  check in the same request reads again.
 - A refusal by id is still 403, as it is for every other condition.
 
 ## Layer 3: Field + document sensitivity

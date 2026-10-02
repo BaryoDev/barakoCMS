@@ -338,6 +338,143 @@ public class ReferenceConditionRoleValidationTests
     }
 
     [Fact]
+    public async Task A_comparison_that_is_not_text_is_refused()
+    {
+        var admin = await AdminAsync();
+        var (_, enrollments) = await TypesAsync();
+
+        foreach (var operators in new object[]
+                 {
+                     Operators("_eq", 42),
+                     Operators("_ne", true),
+                     Operators("_in", new object[] { 1, 2 }),
+                     Operators("_in", Array.Empty<string>()),
+                     Operators("_nin", "not a list"),
+                 })
+        {
+            ShouldBeRefused(
+                await SaveAsync(admin, () => Body(enrollments, "Class.InstructorUser", operators)),
+                "compares text");
+        }
+    }
+
+    [Fact]
+    public async Task More_content_types_than_one_write_checks_is_refused_before_any_is_read()
+    {
+        var admin = await AdminAsync();
+        var tag = Guid.NewGuid().ToString("n")[..8];
+
+        object Wide(int types) => new
+        {
+            name = $"Wide_{Guid.NewGuid():n}",
+            description = "a role under test",
+            permissions = Enumerable.Range(0, types).Select(i => Permission($"wide{i}x{tag}", "Class.InstructorUser", Operators())),
+        };
+
+        ShouldBeRefused(await SaveAsync(admin, () => Wide(51)), "at most 50 content types");
+
+        // At the cap the types are looked up, and these are not defined.
+        var atTheCap = await SaveAsync(admin, () => Wide(50));
+        ShouldBeRefused(atTheCap, "a content type this tenant does not define");
+        foreach (var (route, _, text) in atTheCap)
+            text.Should().NotContain("at most 50 content types", "{0} is within the cap", route);
+    }
+
+    private static object Permission(string slug, string key, object operators, string rule = "read")
+    {
+        var held = new { enabled = true, conditions = new Dictionary<string, object> { [key] = operators } };
+        var none = new { enabled = false, conditions = new Dictionary<string, object>() };
+
+        return new
+        {
+            contentTypeSlug = slug,
+            read = rule == "read" ? held : none,
+            update = rule == "update" ? held : none,
+        };
+    }
+
+    [Fact]
+    public async Task An_update_passes_over_a_stored_condition_it_leaves_as_it_is_and_checks_one_it_adds_or_edits()
+    {
+        var admin = await AdminAsync();
+        var (_, enrollments) = await TypesAsync();
+        var elsewhere = $"elsewhere{Guid.NewGuid():n}"[..24];
+        var id = Guid.NewGuid();
+
+        PermissionRule Stored(string key, string expected) => new()
+        {
+            Enabled = true,
+            Conditions = new Dictionary<string, object> { [key] = new Dictionary<string, object> { ["_eq"] = expected } },
+        };
+
+        // Stored straight into the database: a key no write accepts, and a well-formed condition on
+        // a content type this tenant does not define, as a role written from another tenant holds.
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new Role
+            {
+                Id = id,
+                Name = $"Stored_{Guid.NewGuid():n}",
+                Permissions =
+                [
+                    new ContentTypePermission { ContentTypeSlug = enrollments, Read = Stored("a.b.c", "x") },
+                    new ContentTypePermission { ContentTypeSlug = elsewhere, Read = Stored("Class.InstructorUser", "$CURRENT_USER") },
+                ],
+            });
+            await session.SaveChangesAsync();
+        }
+
+        object legacy = Permission(enrollments, "a.b.c", Operators("_eq", "x"));
+        object foreign = Permission(elsewhere, "Class.InstructorUser", Operators());
+
+        async Task<(HttpStatusCode Status, string Text)> PutAsync(string name, params object[] permissions)
+        {
+            var res = await admin.PutAsJsonAsync($"/api/roles/{id}", new { name, description = "renamed", permissions });
+            return (res.StatusCode, Words(await res.Content.ReadAsStringAsync()));
+        }
+
+        async Task<Role> ReadAsync()
+        {
+            using var scope = _fixture.Services.CreateScope();
+            return (await scope.ServiceProvider.GetRequiredService<IQuerySession>().LoadAsync<Role>(id))!;
+        }
+
+        // Untouched: the role can be renamed.
+        var renamed = $"Renamed_{Guid.NewGuid():n}";
+        var untouched = await PutAsync(renamed, legacy, foreign);
+        untouched.Status.Should().Be(HttpStatusCode.OK, untouched.Text);
+        (await ReadAsync()).Name.Should().Be(renamed);
+
+        // Untouched, with a new condition that resolves beside them.
+        var added = await PutAsync(renamed, legacy, foreign, Permission(enrollments, "Class.InstructorUser", Operators(), "update"));
+        added.Status.Should().Be(HttpStatusCode.OK, added.Text);
+        (await ReadAsync()).Permissions.Should().HaveCount(3);
+
+        // Edited: the same key with another value is a condition this write makes.
+        var edited = await PutAsync(renamed, Permission(enrollments, "a.b.c", Operators("_eq", "y")), foreign);
+        edited.Status.Should().Be(HttpStatusCode.BadRequest, edited.Text);
+        edited.Text.Should().Contain("written Reference.Field");
+
+        // Moved to another rule of the same permission.
+        var moved = await PutAsync(renamed, Permission(enrollments, "a.b.c", Operators("_eq", "x"), "update"), foreign);
+        moved.Status.Should().Be(HttpStatusCode.BadRequest, moved.Text);
+
+        // Added: a new condition that does not resolve, beside the untouched ones.
+        var unresolved = await PutAsync(renamed, legacy, foreign, Permission(enrollments, "Student.InstructorUser", Operators(), "update"));
+        unresolved.Status.Should().Be(HttpStatusCode.BadRequest, unresolved.Text);
+        unresolved.Text.Should().Contain("is not a reference field");
+
+        // The same foreign condition on a role that does not hold it is checked.
+        var other = await ExistingRoleAsync(admin);
+        var onAnother = await admin.PutAsJsonAsync($"/api/roles/{other}", new { name = $"Other_{Guid.NewGuid():n}", permissions = new[] { foreign } });
+        onAnother.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        var kept = await ReadAsync();
+        kept.Permissions.Should().HaveCount(3, "the three refused writes stored nothing");
+    }
+
+    [Fact]
     public async Task A_refused_role_is_not_saved()
     {
         var admin = await AdminAsync();

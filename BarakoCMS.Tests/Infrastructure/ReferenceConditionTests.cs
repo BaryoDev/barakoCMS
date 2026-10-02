@@ -221,6 +221,47 @@ public class ReferenceConditionTests
     }
 
     [Fact]
+    public void A_comparison_is_text_or_a_list_of_text_holding_at_least_one()
+    {
+        static Dictionary<string, object> With(string op, object expected) => new() { [op] = expected };
+
+        foreach (var operators in new object[]
+                 {
+                     With("_eq", "$CURRENT_USER"),
+                     With("_ne", "north"),
+                     With("_eq", "$CURRENT_USER.branch"),
+                     With("_in", new List<object> { "north", "south" }),
+                     With("_nin", new List<object> { "north" }),
+                     JsonDocument.Parse("{\"_eq\":\"north\",\"_nin\":[\"south\"]}").RootElement,
+                 })
+        {
+            ReferenceConditions.ComparesText(operators).Should().BeTrue("{0} compares text", JsonSerializer.Serialize(operators));
+        }
+
+        foreach (var operators in new object?[]
+                 {
+                     With("_eq", 42L),
+                     With("_ne", true),
+                     With("_in", new List<object>()),
+                     With("_in", new List<object> { "north", 42L }),
+                     With("_nin", "north"),
+                     With("_gt", "north"),
+                     "north",
+                     null,
+                 })
+        {
+            ReferenceConditions.ComparesText(operators).Should().BeFalse("{0} does not", JsonSerializer.Serialize(operators));
+        }
+    }
+
+    [Fact]
+    public void A_reference_type_is_looked_up_as_written_and_then_as_a_type_name_is_stored()
+    {
+        ReferenceConditions.TargetNames("class").Should().Equal("class");
+        ReferenceConditions.TargetNames("Blog Post").Should().Equal("Blog Post", "blog-post");
+    }
+
+    [Fact]
     public void A_field_is_followed_only_when_the_type_declares_it_as_a_reference()
     {
         var definition = new ContentTypeDefinition

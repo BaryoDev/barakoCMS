@@ -257,6 +257,21 @@ public class ReferenceConditionAccessTests
         return (ids, total);
     }
 
+    /// <summary>
+    /// The total as well as the rows. The per-entry check over a page drops a row the query let
+    /// through, so an empty page alone does not show the query selected nothing.
+    /// </summary>
+    private static async Task ShouldListNothingAsync(HttpClient client, string type) =>
+        await ShouldListCountAsync(client, type, 0);
+
+    private static async Task ShouldListCountAsync(HttpClient client, string type, int count)
+    {
+        var listed = await ListedAsync(client, type);
+
+        listed.Ids.Should().HaveCount(count);
+        listed.Total.Should().Be(count, "the total is counted by the query, before the per-entry check");
+    }
+
     private static async Task<HttpStatusCode> GetAsync(HttpClient client, Guid id) =>
         (await client.GetAsync($"/api/contents/{id}")).StatusCode;
 
@@ -436,7 +451,7 @@ public class ReferenceConditionAccessTests
 
         (await GetAsync(unread, inUnread)).Should().Be(HttpStatusCode.Forbidden,
             "they teach the class, and their role does not read classes");
-        (await ListedAsync(unread, enrollments)).Ids.Should().BeEmpty();
+        await ShouldListNothingAsync(unread, enrollments);
 
         (await GetAsync(partial, inClosed)).Should().Be(HttpStatusCode.Forbidden,
             "they teach the class, and their own rule for classes leaves it out");
@@ -444,8 +459,8 @@ public class ReferenceConditionAccessTests
 
         var listed = await ListedAsync(partial, enrollments);
         listed.Ids.Should().HaveCount(1);
-        listed.Ids.Should().Equal(inOpen);
         listed.Total.Should().Be(1);
+        listed.Ids.Should().Equal(inOpen);
     }
 
     [Fact]
@@ -456,7 +471,7 @@ public class ReferenceConditionAccessTests
         var orphan = (await EnrollAsync(scene.Enrollments, doomedClass.ToString())).Single();
 
         (await GetAsync(scene.Client, orphan)).Should().Be(HttpStatusCode.OK, "the class is still there");
-        (await ListedAsync(scene.Client, scene.Enrollments)).Ids.Should().HaveCount(3);
+        await ShouldListCountAsync(scene.Client, scene.Enrollments, 3);
 
         await EraseAsync(doomedClass);
 
@@ -464,8 +479,8 @@ public class ReferenceConditionAccessTests
 
         var listed = await ListedAsync(scene.Client, scene.Enrollments);
         listed.Ids.Should().HaveCount(2);
-        listed.Ids.Should().BeEquivalentTo(scene.Mine);
         listed.Total.Should().Be(2);
+        listed.Ids.Should().BeEquivalentTo(scene.Mine);
     }
 
     [Fact]
@@ -486,6 +501,7 @@ public class ReferenceConditionAccessTests
 
         var listed = await ListedAsync(scene.Client, scene.Enrollments);
         listed.Ids.Should().HaveCount(2);
+        listed.Total.Should().Be(2);
         listed.Ids.Should().BeEquivalentTo(scene.Mine);
 
         var everyType = await ListedAsync(scene.Client, null);
@@ -518,8 +534,8 @@ public class ReferenceConditionAccessTests
 
         var listed = await ListedAsync(scene.Client, scene.Enrollments);
         listed.Ids.Should().HaveCount(3);
-        listed.Ids.Should().BeEquivalentTo(scene.Mine.Append(upper));
         listed.Total.Should().Be(3);
+        listed.Ids.Should().BeEquivalentTo(scene.Mine.Append(upper));
     }
 
     [Fact]
@@ -538,7 +554,7 @@ public class ReferenceConditionAccessTests
         });
 
         (await GetAsync(scene.Client, scene.Mine[0])).Should().Be(HttpStatusCode.Forbidden);
-        (await ListedAsync(scene.Client, scene.Enrollments)).Ids.Should().BeEmpty();
+        await ShouldListNothingAsync(scene.Client, scene.Enrollments);
 
         // A reference again, to a type the stored ids are not entries of.
         var (otherClasses, _) = await TypesAsync();
@@ -550,14 +566,14 @@ public class ReferenceConditionAccessTests
         });
 
         (await GetAsync(scene.Client, scene.Mine[0])).Should().Be(HttpStatusCode.Forbidden);
-        (await ListedAsync(scene.Client, scene.Enrollments)).Ids.Should().BeEmpty();
+        await ShouldListNothingAsync(scene.Client, scene.Enrollments);
 
         // Back to what it was, which is the control for both changes.
         await ChangeTypeAsync(scene.Enrollments, definition =>
             definition.Fields.Single(f => f.Name == "Class").ReferenceType = scene.Classes);
 
         (await GetAsync(scene.Client, scene.Mine[0])).Should().Be(HttpStatusCode.OK);
-        (await ListedAsync(scene.Client, scene.Enrollments)).Ids.Should().HaveCount(2);
+        await ShouldListCountAsync(scene.Client, scene.Enrollments, 2);
     }
 
     [Fact]
@@ -587,6 +603,7 @@ public class ReferenceConditionAccessTests
 
         var listed = await ListedAsync(client, enrollments);
         listed.Ids.Should().HaveCount(1);
+        listed.Total.Should().Be(1);
         listed.Ids.Should().Equal(inStaffed);
     }
 
@@ -601,7 +618,7 @@ public class ReferenceConditionAccessTests
             definition.Fields.Single(f => f.Name == "InstructorUser").Sensitivity = SensitivityLevel.Sensitive);
 
         (await GetAsync(scene.Client, scene.Mine[0])).Should().Be(HttpStatusCode.Forbidden);
-        (await ListedAsync(scene.Client, scene.Enrollments)).Ids.Should().BeEmpty();
+        await ShouldListNothingAsync(scene.Client, scene.Enrollments);
 
         // The class's own rule reads the same field off the row itself, and is as it was.
         (await GetAsync(scene.Client, scene.MyClass)).Should().Be(HttpStatusCode.OK);
@@ -611,7 +628,7 @@ public class ReferenceConditionAccessTests
 
         (await GetAsync(scene.Client, scene.Mine[0])).Should().Be(HttpStatusCode.Forbidden,
             "the class type no longer declares the field, whatever its entries still hold");
-        (await ListedAsync(scene.Client, scene.Enrollments)).Ids.Should().BeEmpty();
+        await ShouldListNothingAsync(scene.Client, scene.Enrollments);
     }
 
     [Fact]
@@ -630,6 +647,7 @@ public class ReferenceConditionAccessTests
 
         var listed = await ListedAsync(scene.Client, scene.Enrollments);
         listed.Ids.Should().HaveCount(2);
+        listed.Total.Should().Be(2);
         listed.Ids.Should().BeEquivalentTo(scene.Mine);
     }
 
@@ -653,6 +671,7 @@ public class ReferenceConditionAccessTests
 
         var listed = await ListedAsync(scene.Client, scene.Enrollments);
         listed.Ids.Should().HaveCount(2);
+        listed.Total.Should().Be(2);
         listed.Ids.Should().NotContain(forged);
 
         (await ListedAsync(scene.Client, null)).Ids.Should().NotContain(forged);
@@ -724,8 +743,11 @@ public class ReferenceConditionAccessTests
 
         (await GetAsync(head, taught)).Should().Be(HttpStatusCode.OK, "one reference is followed, and this is one");
         (await GetAsync(head, enrollment)).Should().Be(HttpStatusCode.Forbidden, "this would be two");
-        (await ListedAsync(head, enrollments)).Ids.Should().BeEmpty();
-        (await ListedAsync(head, classes)).Ids.Should().Equal(taught);
+        await ShouldListNothingAsync(head, enrollments);
+
+        var classesListed = await ListedAsync(head, classes);
+        classesListed.Ids.Should().Equal(taught);
+        classesListed.Total.Should().Be(1);
 
         // The control: the same entries, read by a caller whose rule for classes follows nothing.
         var (instructor, instructorId) = await CallerAsync(Classes(classes), Enrollments(enrollments));
@@ -736,7 +758,10 @@ public class ReferenceConditionAccessTests
         var theirEnrollment = (await EnrollAsync(enrollments, theirClass.ToString())).Single();
 
         (await GetAsync(instructor, theirEnrollment)).Should().Be(HttpStatusCode.OK);
-        (await ListedAsync(instructor, enrollments)).Ids.Should().Equal(theirEnrollment);
+
+        var theirs = await ListedAsync(instructor, enrollments);
+        theirs.Ids.Should().Equal(theirEnrollment);
+        theirs.Total.Should().Be(1);
     }
 
     [Fact]
@@ -801,7 +826,7 @@ public class ReferenceConditionAccessTests
         {
             (await GetAsync(client, first)).Should().Be(HttpStatusCode.Forbidden);
             (await GetAsync(client, second)).Should().Be(HttpStatusCode.Forbidden);
-            (await ListedAsync(client, enrollments)).Ids.Should().BeEmpty();
+            await ShouldListNothingAsync(client, enrollments);
         }
 
         // The control: the entries are readable under a rule that does resolve.
@@ -820,64 +845,85 @@ public class ReferenceConditionAccessTests
 
         var listed = await ListedAsync(scene.Client, scene.Classes);
         listed.Ids.Should().HaveCount(1);
-        listed.Ids.Should().Equal(scene.MyClass);
         listed.Total.Should().Be(1);
+        listed.Ids.Should().Equal(scene.MyClass);
     }
 
     [Fact]
-    public async Task Past_the_bound_a_list_answered_in_the_database_follows_nothing()
+    public async Task Two_conditions_that_follow_a_reference_hold_together()
+    {
+        var (classes, enrollments) = await TypesAsync();
+
+        var rule = Teaches();
+        rule.Conditions!["Class.Title"] = new Dictionary<string, object> { ["_eq"] = "algebra" };
+
+        var (client, userId) = await CallerAsync(
+            Classes(classes), new ContentTypePermission { ContentTypeSlug = enrollments, Read = rule });
+
+        var myAlgebra = await ClassAsync(classes, userId, "algebra");
+        var myBiology = await ClassAsync(classes, userId, "biology");
+        var theirAlgebra = await ClassAsync(classes, Guid.NewGuid(), "algebra");
+
+        var granted = await EnrollAsync(enrollments, myAlgebra.ToString(), 2);
+        var wrongTitle = (await EnrollAsync(enrollments, myBiology.ToString())).Single();
+        var wrongTeacher = (await EnrollAsync(enrollments, theirAlgebra.ToString())).Single();
+
+        (await GetAsync(client, granted[0])).Should().Be(HttpStatusCode.OK);
+        (await GetAsync(client, wrongTitle)).Should().Be(HttpStatusCode.Forbidden);
+        (await GetAsync(client, wrongTeacher)).Should().Be(HttpStatusCode.Forbidden);
+
+        var listed = await ListedAsync(client, enrollments);
+        listed.Ids.Should().HaveCount(2);
+        listed.Total.Should().Be(2);
+        listed.Ids.Should().BeEquivalentTo(granted);
+
+        // The list of every type is the per-entry pass, where each condition is asked of each row.
+        var everyType = await ListedAsync(client, null);
+        everyType.Ids.Should().HaveCount(4);
+        everyType.Ids.Should().BeEquivalentTo(granted.Append(myAlgebra).Append(myBiology));
+    }
+
+    [Fact]
+    public async Task Other_peoples_rows_do_not_use_up_what_a_pass_over_every_type_may_read()
     {
         var (classes, enrollments) = await TypesAsync();
         var (client, userId) = await CallerAsync(Classes(classes), Enrollments(enrollments));
 
         try
         {
-            // One more class than a condition may match.
-            var taught = await StoreAsync(classes, Enumerable.Range(0, ReferenceConditions.MaxEntriesPerCondition + 1)
-                .Select(i => new Dictionary<string, object> { ["Title"] = $"class {i}", ["InstructorUser"] = userId.ToString() }));
-            taught.Should().HaveCount(ReferenceConditions.MaxEntriesPerCondition + 1);
+            // The caller's one enrollment is the oldest row, so a pass in creation order meets
+            // every other instructor's row first.
+            var myClass = await ClassAsync(classes, userId);
+            var mine = (await EnrollAsync(enrollments, myClass.ToString())).Single();
 
-            var enrollment = (await EnrollAsync(enrollments, taught[0].ToString())).Single();
+            var stranger = Guid.NewGuid();
+            var theirClasses = await StoreAsync(classes, Enumerable.Range(0, ReferenceConditions.MaxEntriesPerRequest)
+                .Select(i => new Dictionary<string, object> { ["Title"] = $"class {i}", ["InstructorUser"] = stranger.ToString() }));
+            var theirs = await StoreAsync(enrollments, theirClasses
+                .Select(id => new Dictionary<string, object> { ["Student"] = "somebody else", ["Class"] = id.ToString() }));
+            theirs.Should().HaveCount(ReferenceConditions.MaxEntriesPerRequest);
 
-            var past = await ListedAsync(client, enrollments);
-            past.Ids.Should().BeEmpty("the condition matches more classes than a list follows, and it does not guess which");
-            past.Total.Should().Be(0);
+            // No contentType, so every entry goes through the per-entry check. The caller reads
+            // two rows in the whole database: their class and their enrollment.
+            var listed = await ListedAsync(client, null);
 
-            (await GetAsync(client, enrollment)).Should().Be(HttpStatusCode.OK, "a single read follows one reference");
-
-            // At the bound exactly, the list answers.
-            await EraseAsync(taught[^1]);
-
-            var at = await ListedAsync(client, enrollments);
-            at.Ids.Should().HaveCount(1);
-            at.Ids.Should().Equal(enrollment);
-            at.Total.Should().Be(1);
+            listed.Ids.Should().HaveCount(2);
+            listed.Ids.Should().BeEquivalentTo(new[] { myClass, mine });
+            listed.Total.Should().Be(2);
         }
         finally
         {
-            // A thousand entries nothing else reads, in a database every other class lists.
             await PurgeAsync(classes, enrollments);
         }
     }
 
-    private async Task PurgeAsync(params string[] types)
-    {
-        using var scope = _factory.Services.CreateScope();
-        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-
-        foreach (var type in types)
-            session.DeleteWhere<Content>(c => c.ContentType == type);
-
-        await session.SaveChangesAsync();
-    }
-
     [Fact]
-    public async Task Past_the_bound_a_list_answered_per_entry_denies_the_rest()
+    public async Task A_list_answered_per_entry_over_more_classes_than_a_request_loads_one_by_one_holds_them_all()
     {
         var (classes, enrollments) = await TypesAsync();
 
-        // The number in a list keeps the rule out of the database, so each enrollment's class is
-        // loaded, and each enrollment here points at a class of its own.
+        // The number in a list keeps the rule out of the database, so the list is the per-entry
+        // pass, and each enrollment here points at a class of its own.
         var rule = Teaches();
         rule.Conditions!["Student"] = new Dictionary<string, object> { ["_nin"] = new List<object> { 42L } };
 
@@ -897,17 +943,70 @@ public class ReferenceConditionAccessTests
 
             var listed = await ListedAsync(client, enrollments);
 
-            listed.Total.Should().Be(ReferenceConditions.MaxEntriesPerRequest,
-                "one request loads that many referenced entries, and the reference past them denies");
-            listed.Ids.Should().HaveCount(ReferenceConditions.MaxEntriesPerRequest);
-            listed.Ids.Should().OnlyContain(id => enrolled.Contains(id));
-
-            foreach (var id in new[] { enrolled[0], enrolled[^1] })
-                (await GetAsync(client, id)).Should().Be(HttpStatusCode.OK, "a request of its own reads it");
+            listed.Total.Should().Be(count);
+            listed.Ids.Should().HaveCount(count);
+            listed.Ids.Should().BeEquivalentTo(enrolled);
         }
         finally
         {
             await PurgeAsync(classes, enrollments);
         }
+    }
+
+    [Fact]
+    public async Task A_condition_matching_more_entries_than_a_set_holds_is_answered_per_entry_or_fails_and_never_runs_short()
+    {
+        var (classes, enrollments) = await TypesAsync();
+        var (client, userId) = await CallerAsync(Classes(classes), Enrollments(enrollments));
+
+        try
+        {
+            // One more class than a condition resolves to as a set.
+            var taught = await StoreAsync(classes, Enumerable.Range(0, ReferenceConditions.MaxEntriesPerCondition + 1)
+                .Select(i => new Dictionary<string, object> { ["Title"] = $"class {i}", ["InstructorUser"] = userId.ToString() }));
+            taught.Should().HaveCount(ReferenceConditions.MaxEntriesPerCondition + 1);
+
+            // As many enrollments, in distinct classes, as a request loads one by one.
+            var enrolled = await StoreAsync(enrollments, taught.Take(ReferenceConditions.MaxEntriesPerRequest)
+                .Select(id => new Dictionary<string, object> { ["Student"] = "a student", ["Class"] = id.ToString() }));
+
+            var within = await ListedAsync(client, enrollments);
+            within.Total.Should().Be(ReferenceConditions.MaxEntriesPerRequest, "no set, so each row's class is loaded, and all of them fit");
+            within.Ids.Should().HaveCount(ReferenceConditions.MaxEntriesPerRequest);
+            within.Ids.Should().BeEquivalentTo(enrolled);
+
+            // One more distinct class than that.
+            var extra = (await EnrollAsync(enrollments, taught[^2].ToString())).Single();
+
+            var past = await client.GetAsync($"/api/contents?contentType={enrollments}&pageSize=100");
+            past.StatusCode.Should().Be(HttpStatusCode.InternalServerError,
+                "the list cannot be answered whole, and a list with rows left out would not say so");
+
+            (await GetAsync(client, extra)).Should().Be(HttpStatusCode.OK, "a single read follows one reference");
+
+            // At a thousand classes the condition has a set again, and the list is the database's.
+            await EraseAsync(taught[^1]);
+
+            var at = await ListedAsync(client, enrollments);
+            at.Total.Should().Be(ReferenceConditions.MaxEntriesPerRequest + 1);
+            at.Ids.Should().HaveCount(ReferenceConditions.MaxEntriesPerRequest + 1);
+            at.Ids.Should().BeEquivalentTo(enrolled.Append(extra));
+        }
+        finally
+        {
+            // A thousand entries nothing else reads, in a database every other class lists.
+            await PurgeAsync(classes, enrollments);
+        }
+    }
+
+    private async Task PurgeAsync(params string[] types)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+
+        foreach (var type in types)
+            session.DeleteWhere<Content>(c => c.ContentType == type);
+
+        await session.SaveChangesAsync();
     }
 }

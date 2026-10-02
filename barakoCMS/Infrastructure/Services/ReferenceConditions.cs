@@ -24,16 +24,18 @@ namespace barakoCMS.Infrastructure.Services;
 internal static class ReferenceConditions
 {
     /// <summary>
-    /// The most referenced entries one request loads to answer per-entry checks. Past it a
-    /// reference that was not already loaded denies, and a warning is logged.
-    /// </summary>
-    public const int MaxEntriesPerRequest = 200;
-
-    /// <summary>
-    /// The most referenced entries one condition may match when a list is answered in the
-    /// database. Past it the condition matches nothing in that list, and a warning is logged.
+    /// The most referenced entries one condition resolves to as a set of ids. A condition that
+    /// matches more has no set: a list is not paged in the database for it and each row loads the
+    /// entry it points at.
     /// </summary>
     public const int MaxEntriesPerCondition = 1000;
+
+    /// <summary>
+    /// The most referenced entries a request loads one by one. Each condition loads one before it
+    /// resolves to a set, so only a condition with no set gets near this. Past it the check throws
+    /// <see cref="ReferenceConditionBoundException"/>.
+    /// </summary>
+    public const int MaxEntriesPerRequest = 200;
 
     public const int MaxNameLength = 64;
 
@@ -128,22 +130,36 @@ internal static class ReferenceConditions
         session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == name, cancellationToken);
 
     /// <summary>
-    /// The definition a <c>referenceType</c> names: as written, then in its stored form, since a
-    /// field may spell the type the way its author typed it.
+    /// The names a <c>referenceType</c> may be stored under, in the order to try them: as written,
+    /// then in its stored form, since a field may spell the type the way its author typed it.
     /// </summary>
-    public static async Task<ContentTypeDefinition?> TargetDefinitionAsync(
-        Func<string, Task<ContentTypeDefinition?>> definition, string referenceType)
+    public static IReadOnlyList<string> TargetNames(string referenceType)
     {
-        var found = await definition(referenceType);
-        if (found is not null)
-            return found;
-
         var normalized = barakoCMS.Core.ContentTypeName.Normalize(referenceType);
-        return normalized == referenceType ? null : await definition(normalized);
+        return normalized == referenceType ? new[] { referenceType } : new[] { referenceType, normalized };
     }
 
+    /// <summary>
+    /// The comparison a condition makes on the referenced entry's field, as the predicate compiler
+    /// writes it. Not compiled for a comparison the compiler declines.
+    /// </summary>
+    public static ReadPredicate Comparison(
+        string field, object operators, Guid userId, IReadOnlyDictionary<string, string>? callerProfile) =>
+        PermissionPredicateCompiler.Compile(
+            [new PermissionRule { Enabled = true, Conditions = new Dictionary<string, object> { [field] = operators } }],
+            userId,
+            callerProfile);
+
+    /// <summary>
+    /// Whether the operators compare text the way a list can be answered in the database: text for
+    /// <c>_eq</c> and <c>_ne</c>, a list of text holding at least one for <c>_in</c> and
+    /// <c>_nin</c>. Asked of the compiler itself, so a role write and a check cannot disagree.
+    /// </summary>
+    public static bool ComparesText(object? operators) =>
+        operators is not null && Comparison("Field", operators, Guid.Empty, null).Compiled;
+
     /// <summary>The rows whose reference field holds one of these ids, as a predicate.</summary>
-    public static ReadPredicate In(string referenceField, IReadOnlyList<Guid> ids)
+    public static ReadPredicate In(string referenceField, IReadOnlyCollection<Guid> ids)
     {
         if (ids.Count == 0)
             return ReadPredicate.Nothing;
@@ -156,3 +172,13 @@ internal static class ReferenceConditions
         return new ReadPredicate($"lower(d.data -> 'Data' ->> ?) IN ({placeholders})", parameters.ToArray());
     }
 }
+
+/// <summary>
+/// A pass over many rows could not be answered within the bounds on following references.
+/// </summary>
+/// <remarks>
+/// Thrown rather than answered with a denial. A denial for the rows past the bound would return a
+/// list that is short and says nothing about being short, to a caller who can open the missing
+/// rows one at a time.
+/// </remarks>
+internal sealed class ReferenceConditionBoundException(string message) : InvalidOperationException(message);
