@@ -76,8 +76,49 @@ public class ApiKeyAuditTests
     }
 
     /// <summary>
-    /// The list endpoint does not filter by action, so the new rows reach it with no change there.
-    /// What has to hold is the tenant boundary it already draws.
+    /// Reading the audit log and managing keys are separate capabilities, so a caller with only the
+    /// first learns that a key was made, by whom and what it is called, and not what it can do.
+    /// </summary>
+    [Fact]
+    public async Task A_caller_who_cannot_manage_keys_is_shown_the_key_row_without_its_scopes()
+    {
+        var slug = await AuditTenants.CreateAsync(_factory);
+        var (admin, adminId) = await AuditTenants.AdminAsync(_factory, slug);
+        var key = await CreateKeyAsync(admin, "reporting");
+
+        var viewer = await AuditTenants.HolderOfAsync(_factory, slug, SystemCapabilities.ViewAuditLog);
+        var listed = await AuditRows.ListedAsync(viewer, "apikey.created", key.Id.ToString());
+
+        listed.Should().HaveCount(1);
+        listed[0].ActorUserId.Should().Be(adminId);
+        listed[0].TargetType.Should().Be("ApiKey");
+        listed[0].Metadata.Should().NotBeNull();
+        listed[0].Metadata!.Keys.Should().Equal("name");
+        listed[0].Metadata!["name"].ToString().Should().Be("reporting");
+
+        var stored = await AuditRows.ForTargetAsync(_factory, "apikey.created", key.Id.ToString());
+        stored.Should().HaveCount(1);
+        stored[0].Strings("scopes").Should().Equal(new[] { ApiKeyScopes.ContentRead }, "the stored row is complete");
+    }
+
+    [Fact]
+    public async Task A_caller_who_can_manage_keys_is_shown_the_key_row_in_full()
+    {
+        var slug = await AuditTenants.CreateAsync(_factory);
+        var (admin, adminId) = await AuditTenants.AdminAsync(_factory, slug);
+        var key = await CreateKeyAsync(admin, "reporting");
+
+        var listed = await AuditRows.ListedAsync(admin, "apikey.created", key.Id.ToString());
+
+        listed.Should().HaveCount(1);
+        listed[0].Metadata.Should().NotBeNull();
+        listed[0].Metadata!.Keys.Should().Contain(new[] { "name", "scopes", "contentTypes", "actsAsUserId" });
+        listed[0].Metadata!["actsAsUserId"].ToString().Should().Be(adminId.ToString());
+    }
+
+    /// <summary>
+    /// The list endpoint does not filter by action, so the new rows reach it with no filter to
+    /// extend. What has to hold is the tenant boundary it already draws.
     /// </summary>
     [Fact]
     public async Task A_tenant_admin_lists_their_own_tenants_key_rows_and_not_another_tenants()

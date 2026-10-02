@@ -46,13 +46,7 @@ internal class Endpoint(
         Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
         await AuditLog.RecordAsync(session, tenant.Slug, "role.created", actorId, User.FindFirst("Username")?.Value,
             targetType: "Role", targetId: role.Id.ToString(),
-            metadata: new()
-            {
-                ["name"] = role.Name,
-                ["capabilities"] = RoleAudit.Capabilities(role),
-                ["permissions"] = RoleAudit.Permissions(role.Permissions),
-            },
-            ct: ct);
+            metadata: RoleAudit.Describe(RoleAudit.Of(role)), ct: ct);
         await session.SaveChangesAsync(ct);
 
         if (unknown.Count > 0)

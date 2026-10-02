@@ -36,6 +36,39 @@ internal class AuditEventDto
     public string? IpAddress { get; set; }
     public DateTime CreatedAt { get; set; }
 
+    /// <summary>The metadata keys of a role row shown to a caller who cannot list roles.</summary>
+    private static readonly string[] RoleSummary = ["name", "nameBefore"];
+
+    /// <summary>The metadata keys of an API key row shown to a caller who cannot list keys.</summary>
+    private static readonly string[] KeySummary = ["name"];
+
+    /// <summary>
+    /// The stored row is complete. What is returned is no more than the caller could read from the
+    /// route that owns the data.
+    /// </summary>
+    /// <remarks>
+    /// <c>view_audit_log</c> is held by people who hold neither <c>manage_roles</c> nor
+    /// <c>manage_api_keys</c>, and a role is a global document. A role row written while a platform
+    /// administrator was resolved to one tenant would otherwise show that tenant's administrator
+    /// the capabilities of platform roles and the content types of other tenants named in the
+    /// role's permissions. Such a caller still sees that the change happened, who made it and the
+    /// name of what it was made to.
+    /// </remarks>
+    internal static AuditEventDto VisibleTo(AuditEvent e, bool mayListRoles, bool mayListKeys)
+    {
+        var dto = From(e);
+
+        if (!mayListRoles && e.Action.StartsWith("role.", StringComparison.Ordinal))
+            dto.Metadata = Only(e.Metadata, RoleSummary);
+        else if (!mayListKeys && e.Action.StartsWith("apikey.", StringComparison.Ordinal))
+            dto.Metadata = Only(e.Metadata, KeySummary);
+
+        return dto;
+    }
+
+    private static Dictionary<string, object>? Only(Dictionary<string, object>? metadata, string[] keys) =>
+        metadata?.Where(kv => keys.Contains(kv.Key)).ToDictionary(kv => kv.Key, kv => kv.Value);
+
     internal static AuditEventDto From(AuditEvent e) => new()
     {
         Id = e.Id,
@@ -54,7 +87,9 @@ internal class AuditEventDto
 /// <summary>GET /api/audit — browse the audit trail, newest first.</summary>
 internal class Endpoint(
     IQuerySession session,
-    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<ListRequest, PaginatedResponse<AuditEventDto>>
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
+    barakoCMS.Infrastructure.Services.IPermissionResolver permissions,
+    IConfiguration configuration) : Endpoint<ListRequest, PaginatedResponse<AuditEventDto>>
 {
     public override void Configure()
     {
@@ -97,14 +132,26 @@ internal class Endpoint(
             .Skip(req.Skip).Take(req.Take)
             .ToListAsync(ct);
 
+        // Asked the way the routes that own the data ask, GET /api/roles and GET /api/api-keys, and
+        // only when the page holds a row the answer changes.
+        var mayListRoles = items.Any(e => e.Action.StartsWith("role.", StringComparison.Ordinal))
+            && await HoldsAsync(callerId, SystemCapabilities.ManageRoles, ["SuperAdmin"], ct);
+        var mayListKeys = items.Any(e => e.Action.StartsWith("apikey.", StringComparison.Ordinal))
+            && await HoldsAsync(callerId, SystemCapabilities.ManageApiKeys, ["SuperAdmin", "Admin"], ct);
+
         await Send.ResponseAsync(new PaginatedResponse<AuditEventDto>
         {
-            Items = items.Select(AuditEventDto.From).ToList(),
+            Items = items.Select(e => AuditEventDto.VisibleTo(e, mayListRoles, mayListKeys)).ToList(),
             Page = req.Page,
             PageSize = req.PageSize,
             TotalItems = total,
         }, cancellation: ct);
     }
+
+    /// <summary>What <c>CapabilityGateProcessor</c> decides for a gate on this capability.</summary>
+    private async Task<bool> HoldsAsync(Guid callerId, string capability, string[] legacyRoles, CancellationToken ct) =>
+        (configuration.GetValue(CapabilityGateProcessor.LegacyRoleFallbackKey, false) && legacyRoles.Any(User.IsInRole))
+        || await permissions.HasCapabilityAsync(callerId, capability, ct);
 
     /// <summary>
     /// A query-string timestamp with an offset binds as local time, and CreatedAt is UTC, so on any

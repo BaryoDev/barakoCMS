@@ -185,16 +185,13 @@ internal class CreateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
             });
 
             // Written to the new tenant's own log, which is the one its administrators read.
+            var metadata = await barakoCMS.Features.Tenants.Members.Members.AuditMetadataAsync(
+                _session, new[] { barakoCMS.Data.DataSeeder.AdminRoleId }, before: null, ct);
+            metadata["invited"] = false;
+            metadata["tenantCreated"] = true;
             await barakoCMS.Infrastructure.Audit.AuditLog.RecordAsync(
                 _session, handle, "tenant.member.added", creatorId, User.FindFirst("Username")?.Value,
-                targetType: "User", targetId: creatorId.ToString(),
-                metadata: new()
-                {
-                    ["invited"] = false,
-                    ["tenantCreated"] = true,
-                    ["roleIds"] = new List<string> { barakoCMS.Data.DataSeeder.AdminRoleId.ToString() },
-                },
-                ct: ct);
+                targetType: "User", targetId: creatorId.ToString(), metadata: metadata, ct: ct);
         }
 
         await _session.SaveChangesAsync(ct);
@@ -252,6 +249,16 @@ internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
         tenant.SocialHandle = req.SocialHandle;
         tenant.Email = req.Email;
         tenant.ContactUrl = req.ContactUrl;
+        // Switching a tenant off stops tokens being issued for it and refuses its API keys, and
+        // switching it on restores both, so either is recorded in that tenant's log.
+        if (tenant.IsActive != req.IsActive)
+        {
+            Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
+            await barakoCMS.Infrastructure.Audit.AuditLog.RecordAsync(
+                _session, tenant.Slug, req.IsActive ? "tenant.activated" : "tenant.deactivated", actorId,
+                User.FindFirst("Username")?.Value, targetType: "Tenant", targetId: tenant.Slug, ct: ct);
+        }
+
         tenant.IsActive = req.IsActive;
         if (domains is not null)
             tenant.Domains = domains.ToList();

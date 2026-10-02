@@ -1,6 +1,10 @@
+using System.Net;
+using System.Net.Http.Json;
 using System.Text.Json;
+using FluentAssertions;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
+using barakoCMS.Features.Audit.List;
 using barakoCMS.Models;
 
 namespace BarakoCMS.Tests.Features.Audit;
@@ -53,22 +57,53 @@ internal static class AuditTenants
     public static async Task<(HttpClient Client, Guid UserId)> AdminAsync(IntegrationTestFixture factory, string slug)
     {
         var userId = await MemberAsync(factory, slug, MembershipStatus.Active, SystemRoles.AdminRoleId);
+        return (ClientFor(factory, slug, userId, "Admin"), userId);
+    }
 
+    /// <summary>
+    /// A member of the tenant holding exactly <paramref name="capabilities"/>, through a role made
+    /// for this caller. The role name is not one any gate honours, so the capabilities are all the
+    /// caller has.
+    /// </summary>
+    public static async Task<HttpClient> HolderOfAsync(
+        IntegrationTestFixture factory, string slug, params string[] capabilities)
+    {
+        var role = new Role
+        {
+            Id = Guid.NewGuid(),
+            Name = $"Audit caller {Guid.NewGuid():N}",
+            SystemCapabilities = capabilities.ToList(),
+        };
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(role);
+            await session.SaveChangesAsync();
+        }
+
+        var userId = await MemberAsync(factory, slug, MembershipStatus.Active, role.Id);
+        return ClientFor(factory, slug, userId, role.Name);
+    }
+
+    private static HttpClient ClientFor(IntegrationTestFixture factory, string slug, Guid userId, string roleName)
+    {
         var client = factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
             "Bearer", factory.CreateToken(
-                roles: ["Admin"],
+                roles: [roleName],
                 userId: userId.ToString(),
                 additionalClaims: new Dictionary<string, string> { ["tenant"] = slug }));
         client.DefaultRequestHeaders.Add("X-Tenant", slug);
         client.DefaultRequestHeaders.Add(
             TestRemoteIpFilter.Header, $"198.51.100.{Interlocked.Increment(ref _ipCounter) % 250 + 1}");
-        return (client, userId);
+        return client;
     }
 }
 
 /// <summary>
-/// Reads audit rows as they were stored, for the tests that assert what a grant change recorded.
+/// Reads audit rows, as stored and as <c>GET /api/audit</c> returns them, for the tests that assert
+/// what a grant change recorded and who may read it.
 /// </summary>
 internal static class AuditRows
 {
@@ -83,12 +118,35 @@ internal static class AuditRows
         return rows.ToList();
     }
 
+    /// <summary>The rows the list endpoint gives this caller for one action and one target.</summary>
+    public static async Task<List<AuditEventDto>> ListedAsync(HttpClient client, string action, string targetId)
+    {
+        var response = await client.GetAsync($"/api/audit?action={action}&pageSize=100");
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        var page = (await response.Content.ReadFromJsonAsync<PaginatedResponse<AuditEventDto>>())!;
+        return page.Items.Where(i => i.TargetId == targetId).ToList();
+    }
+
     /// <summary>
-    /// A metadata list as strings. Metadata is <c>Dictionary&lt;string, object&gt;</c>, so a stored
-    /// list comes back as a JSON element, not as the list that was written.
+    /// One metadata value as JSON. Metadata is <c>Dictionary&lt;string, object&gt;</c>, so what comes
+    /// back from the store is not the type that was written.
     /// </summary>
+    public static JsonElement Element(this AuditEvent row, string key) =>
+        JsonSerializer.SerializeToElement(row.Metadata![key]);
+
+    /// <summary>A metadata list of strings.</summary>
     public static List<string> Strings(this AuditEvent row, string key) =>
-        JsonSerializer.Deserialize<List<string>>(JsonSerializer.Serialize(row.Metadata![key]))!;
+        row.Element(key).EnumerateArray().Select(e => e.GetString()!).ToList();
+
+    /// <summary>The items of a capped list of strings, after asserting it was not truncated.</summary>
+    public static List<string> Items(this AuditEvent row, string key)
+    {
+        var capped = row.Element(key);
+        capped.GetProperty("truncated").GetBoolean().Should().BeFalse();
+        var items = capped.GetProperty("items").EnumerateArray().Select(e => e.GetString()!).ToList();
+        capped.GetProperty("count").GetInt32().Should().Be(items.Count);
+        return items;
+    }
 
     public static string Text(this AuditEvent row, string key) => row.Metadata![key].ToString()!;
 

@@ -72,6 +72,89 @@ public class MembershipGrantAuditTests
         row.ActorUserId.Should().NotBeNull();
         row.TargetId.Should().Be(row.ActorUserId.ToString(), "the creator is the member being added");
         row.Strings("roleIds").Should().Equal(SystemRoles.AdminRoleId.ToString());
+        row.Strings("roleNames").Should().Equal(await RoleNameAsync(SystemRoles.AdminRoleId));
+    }
+
+    /// <summary>
+    /// A tenant switched off issues no tokens and refuses its keys, which takes access from every
+    /// member at once without touching a membership.
+    /// </summary>
+    [Fact]
+    public async Task Switching_a_tenant_off_and_on_writes_a_row_each_way_and_an_unrelated_edit_writes_none()
+    {
+        var client = await SuperAdminAsync();
+        var handle = $"aud-{Guid.NewGuid():N}"[..16];
+        var created = await client.PostAsJsonAsync("/api/tenants", new { handle, name = handle, isActive = true });
+        created.StatusCode.Should().Be(HttpStatusCode.OK, await created.Content.ReadAsStringAsync());
+
+        async Task PutAsync(string name, bool isActive)
+        {
+            var response = await client.PutAsJsonAsync($"/api/tenants/{handle}", new { name, isActive });
+            response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        }
+
+        await PutAsync("renamed, still on", true);
+        (await TenantRowsAsync(handle, "tenant.member.added")).Should().HaveCount(1, "this tenant's rows are reachable");
+        (await TenantRowsAsync(handle, "tenant.deactivated")).Should().BeEmpty();
+        (await TenantRowsAsync(handle, "tenant.activated")).Should().BeEmpty();
+
+        await PutAsync("off", false);
+        var off = await TenantRowsAsync(handle, "tenant.deactivated");
+        off.Should().HaveCount(1);
+        off[0].TargetType.Should().Be("Tenant");
+        off[0].TargetId.Should().Be(handle);
+        off[0].ActorUserId.Should().NotBeNull();
+
+        await PutAsync("on", true);
+        (await TenantRowsAsync(handle, "tenant.activated")).Should().HaveCount(1);
+        (await TenantRowsAsync(handle, "tenant.deactivated")).Should().HaveCount(1);
+    }
+
+    /// <summary>
+    /// Adding somebody who is already a member replaces their roles and lifts a suspension. The row
+    /// said "added" with nothing held before, which reads as a first grant.
+    /// </summary>
+    [Theory]
+    [InlineData(MembershipStatus.Active)]
+    [InlineData(MembershipStatus.Suspended)]
+    public async Task Adding_somebody_who_is_already_a_member_records_what_they_held_before(MembershipStatus status)
+    {
+        var slug = await AuditTenants.CreateAsync(_factory);
+        var (client, _) = await AuditTenants.AdminAsync(_factory, slug);
+        var memberId = await AuditTenants.MemberAsync(_factory, slug, status, SystemRoles.HRRoleId);
+
+        var added = await client.PostAsJsonAsync("/api/tenants/members",
+            new { email = $"aud-{memberId:N}@example.com", roleIds = new[] { SystemRoles.UserRoleId } });
+        added.StatusCode.Should().Be(HttpStatusCode.OK, await added.Content.ReadAsStringAsync());
+
+        var rows = await AuditRows.ForTargetAsync(_factory, "tenant.member.added", memberId.ToString());
+
+        rows.Should().HaveCount(1);
+        var row = rows[0];
+        row.Text("previousStatus").Should().Be(status.ToString());
+        row.Strings("previousRoleIds").Should().Equal(SystemRoles.HRRoleId.ToString());
+        row.Strings("previousRoleNames").Should().Equal(await RoleNameAsync(SystemRoles.HRRoleId));
+        row.Strings("roleIds").Should().Equal(SystemRoles.UserRoleId.ToString());
+        row.Strings("roleNames").Should().Equal(await RoleNameAsync(SystemRoles.UserRoleId));
+    }
+
+    [Fact]
+    public async Task Adding_a_new_member_names_the_roles_and_records_nothing_held_before()
+    {
+        var slug = await AuditTenants.CreateAsync(_factory);
+        var (client, _) = await AuditTenants.AdminAsync(_factory, slug);
+        var email = $"new-{Guid.NewGuid():N}@example.com";
+
+        var added = await client.PostAsJsonAsync("/api/tenants/members",
+            new { email, roleIds = new[] { SystemRoles.UserRoleId } });
+        added.StatusCode.Should().Be(HttpStatusCode.OK, await added.Content.ReadAsStringAsync());
+
+        var rows = await TenantRowsAsync(slug, "tenant.member.added");
+
+        rows.Should().HaveCount(1);
+        rows[0].Strings("roleNames").Should().Equal(await RoleNameAsync(SystemRoles.UserRoleId));
+        rows[0].Metadata.Should().NotContainKey("previousStatus");
+        rows[0].Metadata.Should().NotContainKey("previousRoleIds");
     }
 
     [Fact]
@@ -93,8 +176,10 @@ public class MembershipGrantAuditTests
         row.ActorUserId.Should().Be(adminId);
         row.Text("previousStatus").Should().Be("Active");
         row.Strings("previousRoleIds").Should().Equal(SystemRoles.HRRoleId.ToString());
+        row.Strings("previousRoleNames").Should().Equal(await RoleNameAsync(SystemRoles.HRRoleId));
         row.Text("status").Should().Be("Suspended");
         row.Strings("roleIds").Should().Equal(SystemRoles.UserRoleId.ToString());
+        row.Strings("roleNames").Should().Equal(await RoleNameAsync(SystemRoles.UserRoleId));
     }
 
     [Fact]
@@ -112,6 +197,7 @@ public class MembershipGrantAuditTests
         rows.Should().HaveCount(1);
         rows[0].Text("previousStatus").Should().Be("Suspended");
         rows[0].Strings("previousRoleIds").Should().Equal(SystemRoles.UserRoleId.ToString());
+        rows[0].Strings("previousRoleNames").Should().Equal(await RoleNameAsync(SystemRoles.UserRoleId));
     }
 
     [Fact]

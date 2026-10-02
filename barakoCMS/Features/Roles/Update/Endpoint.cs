@@ -46,9 +46,7 @@ internal class Endpoint(
             ThrowIfAnyErrors();
         }
 
-        var nameBefore = role.Name;
-        var capabilitiesBefore = RoleAudit.Capabilities(role);
-        var permissionsBefore = RoleAudit.Permissions(role.Permissions);
+        var before = RoleAudit.Of(role);
 
         role.Name = req.Name;
         role.Description = req.Description;
@@ -57,22 +55,10 @@ internal class Endpoint(
 
         session.Store(role);
 
-        var capabilitiesAfter = RoleAudit.Capabilities(role);
         Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
         await AuditLog.RecordAsync(session, tenant.Slug, "role.updated", actorId, User.FindFirst("Username")?.Value,
             targetType: "Role", targetId: role.Id.ToString(),
-            metadata: new()
-            {
-                ["name"] = role.Name,
-                ["nameBefore"] = nameBefore,
-                ["capabilitiesBefore"] = capabilitiesBefore,
-                ["capabilitiesAfter"] = capabilitiesAfter,
-                ["capabilitiesAdded"] = RoleAudit.Added(capabilitiesBefore, capabilitiesAfter),
-                ["capabilitiesRemoved"] = RoleAudit.Added(capabilitiesAfter, capabilitiesBefore),
-                ["permissionsBefore"] = permissionsBefore,
-                ["permissionsAfter"] = RoleAudit.Permissions(role.Permissions),
-            },
-            ct: ct);
+            metadata: RoleAudit.Changed(before, RoleAudit.Of(role)), ct: ct);
         await session.SaveChangesAsync(ct);
 
         // Permissions changed, so evict cached decisions and the new rules take effect immediately.

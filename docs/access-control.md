@@ -643,34 +643,89 @@ Third-party modules calling `Roles(...)` are unaffected and compile unchanged.
 
 ## What the audit log records about grants
 
-A change to what somebody can do writes one row to `GET /api/audit`, staged on the same session as
-the change and committed by the same save, so neither exists without the other. A row holds who did
-it, what it was done to and names or ids for before and after. It never holds a field value, an API
-key, a key's hash or its display prefix, and a permission rule's conditions are recorded only as
-`(conditional)`.
+The requests in the table below each write one row to `GET /api/audit`. For those requests the row is
+staged on the same session as the change and the endpoint saves once, so a failed save leaves
+neither. That holds for the routes listed and for nothing else: the paths under "Grants that write no
+row" change what somebody can do and record nothing. A row holds who did it, what it was done to and
+names or ids for before and after. It never holds a field value, an API key, a key's hash or its
+display prefix.
 
 | Change | Action | Metadata |
 |---|---|---|
 | Role created | `role.created` | `name`, `capabilities`, `permissions` |
-| Role changed | `role.updated` | `name`, `nameBefore`, `capabilitiesBefore`, `capabilitiesAfter`, `capabilitiesAdded`, `capabilitiesRemoved`, `permissionsBefore`, `permissionsAfter` |
+| Role changed | `role.updated` | `name`, `nameBefore`, `capabilitiesBefore`, `capabilitiesAfter`, `permissionsBefore`, `permissionsAfter`, `conditionsChanged`; `capabilitiesAdded` and `capabilitiesRemoved` when the lists differ; `conditionsChangedIn` when a condition changed |
 | Role deleted | `role.deleted` | `name`, `capabilities`, `permissions` |
 | Global role given to a user | `user.role.assigned` | `roleId`, `roleName` |
 | Global role taken from a user | `user.role.removed` | `roleId`, `roleName` |
-| Tenant created | `tenant.member.added` in the new tenant's log | `roleIds`, `tenantCreated` |
-| Member added | `tenant.member.added` | `invited`, `roleIds` |
-| Member's roles or status changed (suspending is this) | `tenant.member.updated` | `status`, `roleIds`, `previousStatus`, `previousRoleIds` |
-| Member removed | `tenant.member.removed` | `previousStatus`, `previousRoleIds` |
+| Tenant created | `tenant.member.added` in the new tenant's log | `roleIds`, `roleNames`, `tenantCreated` |
+| Tenant switched off or on | `tenant.deactivated`, `tenant.activated` in that tenant's log | none |
+| Member added, or added again | `tenant.member.added` | `invited`, `roleIds`, `roleNames`; `previousStatus`, `previousRoleIds`, `previousRoleNames` when the membership already existed |
+| Member's roles or status changed (suspending is this) | `tenant.member.updated` | `status`, `roleIds`, `roleNames`, `previousStatus`, `previousRoleIds`, `previousRoleNames` |
+| Member removed | `tenant.member.removed` | `previousStatus`, `previousRoleIds`, `previousRoleNames` |
 | API key created | `apikey.created` | `name`, `scopes`, `contentTypes`, `actsAsUserId`, `expiresAt` when set |
 | API key revoked | `apikey.revoked` | `name`, `actsAsUserId` |
 | Field added | `contenttype.field_added` | `field`, `type`, `required`, `sensitivity`, `visibleToRoles` |
 | Field's level, role list or mask changed | `contenttype.field.sensitivity.changed` or `.lowered` | `from`, `to`, `visibleToRolesFrom`, `visibleToRolesTo`, `maskFrom`, `maskTo` |
 
-`permissions` is one line per content type, such as `article: create, read, update (conditional)`.
+### The shape of a role row
 
-Roles are global documents, so a role row goes to the log of the tenant the request resolved to. A
-tenant admin reads their own tenant's rows; a SuperAdmin reads across tenants with `?tenant=`.
+A list on a role row is an object: `items` holds the first 50 entries, `count` the full number and
+`truncated` whether any were left out. A name longer than 200 characters is cut to 200. A role
+document has no limit of its own, so this is what bounds the row.
 
-Three things write a grant and no row, because there is no request and no actor: the seeder giving a
-seeded role its default capabilities at startup, a module granting its capabilities to seeded roles
-at startup, and self-registration giving a new account the `User` role. Reads of Sensitive and Hidden
-fields are not recorded.
+Each entry of `permissions` is an object, so nothing a request sent is joined into a sentence:
+
+```json
+{
+  "contentType": "invoice",
+  "actions": ["read", "update"],
+  "transitions": { "items": ["approve"], "count": 1, "truncated": false },
+  "conditions": {
+    "items": [{ "rule": "update", "field": "department", "operators": ["_in"] }],
+    "count": 1,
+    "truncated": false
+  }
+}
+```
+
+A condition is recorded as the field it tests and the operators it uses, never the value it compares
+against. A value can change with the field and operators staying the same, so `conditionsChanged`
+says whether any stored condition differs from the one it replaced, values included, and
+`conditionsChangedIn` names the content types where it does.
+
+### Who reads what
+
+The stored row is complete. `GET /api/audit` returns no more of it than the caller could read from
+the route that owns the data:
+
+- A `role.*` row is returned with only `name` and `nameBefore` in its metadata unless the caller
+  passes the gate on `GET /api/roles` (`manage_roles`).
+- An `apikey.*` row is returned with only `name` unless the caller passes the gate on
+  `GET /api/api-keys` (`manage_api_keys`).
+
+The action, actor, target and time are always returned. This matters because roles are global
+documents and a role row goes to the log of the tenant the request resolved to: without it, a
+platform administrator editing a role while resolved to one tenant would show that tenant's
+administrators the capabilities of platform roles and the content types other tenants' permissions
+name. A tenant admin reads their own tenant's rows; a SuperAdmin reads across tenants with `?tenant=`.
+
+### Before values are a read, not a lock
+
+The "before" in a row is what the endpoint loaded at the start of the request. Two edits of the same
+role, membership or user arriving together can both load the same state and both record it as their
+"before", and two revocations of one key can both write a row. The last save wins on the document,
+as it did before these rows existed.
+
+### Grants that write no row
+
+- The seeder creating the four system roles and the first users, and giving a seeded role the
+  default capabilities it is missing, at startup.
+- A module's seeder: `ModuleCapabilities.GrantAsync` adding the module's capabilities to seeded
+  roles, and `AccountingModule.SeedAsync` creating the `Accountant` role.
+- Self-registration giving a new account the `User` role.
+- A content type created with Sensitive or Hidden fields, by `POST /api/content-types` or by applying
+  a blueprint. The blueprint row names the types only.
+- A portability import adding a new Sensitive or Hidden field to an existing type. Its row holds
+  counts only. An import cannot change the level, role list or mask of a field that already exists.
+- An entry's own sensitivity level changing. That is on the entry's event stream.
+- Reads of Sensitive and Hidden fields.

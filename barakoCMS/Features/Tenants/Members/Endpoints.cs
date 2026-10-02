@@ -59,9 +59,40 @@ internal static class Members
                && !await barakoCMS.Features.Users.PlatformRoles.IsSuperAdminAsync(session, caller, ct);
     }
 
-    /// <summary>What a member held before a change, as the audit row records it.</summary>
-    public static (string Status, List<string> RoleIds) AuditState(Membership membership) =>
-        (membership.Status.ToString(), membership.RoleIds.Select(r => r.ToString()).ToList());
+    /// <summary>What a member holds at one moment, read before a change so the row can say what it replaced.</summary>
+    public sealed record Held(MembershipStatus Status, List<Guid> RoleIds)
+    {
+        public static Held By(Membership membership) => new(membership.Status, membership.RoleIds.ToList());
+    }
+
+    /// <summary>
+    /// The role part of a member row: ids with names beside them, for the roles being given and,
+    /// when the membership already existed, for the status and roles it held before.
+    /// </summary>
+    public static async Task<Dictionary<string, object>> AuditMetadataAsync(
+        IQuerySession session, IReadOnlyCollection<Guid>? roleIds, Held? before, CancellationToken ct)
+    {
+        var ids = (roleIds ?? []).Concat(before?.RoleIds ?? []).Distinct().ToList();
+        var names = ids.Count == 0
+            ? new Dictionary<Guid, string>()
+            : (await session.Query<Role>().Where(r => ids.Contains(r.Id)).ToListAsync(ct)).ToDictionary(r => r.Id, r => r.Name);
+
+        var metadata = new Dictionary<string, object>();
+        if (roleIds is not null)
+        {
+            metadata["roleIds"] = roleIds.Select(id => id.ToString()).ToList();
+            metadata["roleNames"] = roleIds.Select(id => names.GetValueOrDefault(id, string.Empty)).ToList();
+        }
+
+        if (before is not null)
+        {
+            metadata["previousStatus"] = before.Status.ToString();
+            metadata["previousRoleIds"] = before.RoleIds.Select(id => id.ToString()).ToList();
+            metadata["previousRoleNames"] = before.RoleIds.Select(id => names.GetValueOrDefault(id, string.Empty)).ToList();
+        }
+
+        return metadata;
+    }
 
     public static DateTimeOffset Instant(DateTime value) =>
         new(DateTime.SpecifyKind(value, DateTimeKind.Utc));
@@ -182,6 +213,7 @@ internal sealed class AddMemberEndpoint(
         if (await Members.RefusesPlatformRolesAsync(session, User, roleIds, membership, ct))
             ThrowError(barakoCMS.Features.Users.PlatformRoles.PlatformRoleRefusedMessage, 403);
 
+        var before = membership is null ? null : Members.Held.By(membership);
         if (membership is null)
         {
             membership = new Membership
@@ -205,12 +237,12 @@ internal sealed class AddMemberEndpoint(
 
         session.Store(membership);
 
+        var metadata = await Members.AuditMetadataAsync(session, roleIds, before, ct);
+        metadata["invited"] = invited;
         Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
         await AuditLog.RecordAsync(session, slug, "tenant.member.added", actorId,
             User.FindFirst("Username")?.Value,
-            targetType: "User", targetId: user.Id.ToString(),
-            metadata: new() { ["invited"] = invited, ["roleIds"] = roleIds.Select(r => r.ToString()).ToList() },
-            ct: ct);
+            targetType: "User", targetId: user.Id.ToString(), metadata: metadata, ct: ct);
 
         await session.SaveChangesAsync(ct);
         permissions.InvalidateUserPermissions(user.Id);
@@ -288,23 +320,17 @@ internal sealed class UpdateMemberEndpoint(
         if (await Members.RefusesPlatformRolesAsync(session, User, roleIds, membership, ct))
             ThrowError(barakoCMS.Features.Users.PlatformRoles.PlatformRoleRefusedMessage, 403);
 
-        var before = Members.AuditState(membership);
+        var before = Members.Held.By(membership);
         membership.RoleIds = roleIds;
         membership.Status = req.Status;
         session.Store(membership);
 
+        var metadata = await Members.AuditMetadataAsync(session, roleIds, before, ct);
+        metadata["status"] = req.Status.ToString();
         Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
         await AuditLog.RecordAsync(session, slug, "tenant.member.updated", actorId,
             User.FindFirst("Username")?.Value,
-            targetType: "User", targetId: req.UserId.ToString(),
-            metadata: new()
-            {
-                ["status"] = req.Status.ToString(),
-                ["roleIds"] = roleIds.Select(r => r.ToString()).ToList(),
-                ["previousStatus"] = before.Status,
-                ["previousRoleIds"] = before.RoleIds,
-            },
-            ct: ct);
+            targetType: "User", targetId: req.UserId.ToString(), metadata: metadata, ct: ct);
 
         await session.SaveChangesAsync(ct);
         permissions.InvalidateUserPermissions(req.UserId);
@@ -354,7 +380,7 @@ internal sealed class RemoveMemberEndpoint(
 
         // Marked, never deleted. The row is what the audit trail and a later re-add both read, and
         // deleting it would silently start somebody's history over.
-        var before = Members.AuditState(membership);
+        var before = Members.Held.By(membership);
         membership.Status = MembershipStatus.Removed;
         session.Store(membership);
 
@@ -362,8 +388,7 @@ internal sealed class RemoveMemberEndpoint(
         await AuditLog.RecordAsync(session, slug, "tenant.member.removed", actorId,
             User.FindFirst("Username")?.Value,
             targetType: "User", targetId: req.UserId.ToString(),
-            metadata: new() { ["previousStatus"] = before.Status, ["previousRoleIds"] = before.RoleIds },
-            ct: ct);
+            metadata: await Members.AuditMetadataAsync(session, null, before, ct), ct: ct);
 
         await session.SaveChangesAsync(ct);
         permissions.InvalidateUserPermissions(req.UserId);
