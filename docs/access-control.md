@@ -640,3 +640,37 @@ asks for `manage_content_types`, since adding fields to a content type is exactl
 is. Admin holds both by default, matching what it reached before.
 
 Third-party modules calling `Roles(...)` are unaffected and compile unchanged.
+
+## What the audit log records about grants
+
+A change to what somebody can do writes one row to `GET /api/audit`, staged on the same session as
+the change and committed by the same save, so neither exists without the other. A row holds who did
+it, what it was done to and names or ids for before and after. It never holds a field value, an API
+key, a key's hash or its display prefix, and a permission rule's conditions are recorded only as
+`(conditional)`.
+
+| Change | Action | Metadata |
+|---|---|---|
+| Role created | `role.created` | `name`, `capabilities`, `permissions` |
+| Role changed | `role.updated` | `name`, `nameBefore`, `capabilitiesBefore`, `capabilitiesAfter`, `capabilitiesAdded`, `capabilitiesRemoved`, `permissionsBefore`, `permissionsAfter` |
+| Role deleted | `role.deleted` | `name`, `capabilities`, `permissions` |
+| Global role given to a user | `user.role.assigned` | `roleId`, `roleName` |
+| Global role taken from a user | `user.role.removed` | `roleId`, `roleName` |
+| Tenant created | `tenant.member.added` in the new tenant's log | `roleIds`, `tenantCreated` |
+| Member added | `tenant.member.added` | `invited`, `roleIds` |
+| Member's roles or status changed (suspending is this) | `tenant.member.updated` | `status`, `roleIds`, `previousStatus`, `previousRoleIds` |
+| Member removed | `tenant.member.removed` | `previousStatus`, `previousRoleIds` |
+| API key created | `apikey.created` | `name`, `scopes`, `contentTypes`, `actsAsUserId`, `expiresAt` when set |
+| API key revoked | `apikey.revoked` | `name`, `actsAsUserId` |
+| Field added | `contenttype.field_added` | `field`, `type`, `required`, `sensitivity`, `visibleToRoles` |
+| Field's level, role list or mask changed | `contenttype.field.sensitivity.changed` or `.lowered` | `from`, `to`, `visibleToRolesFrom`, `visibleToRolesTo`, `maskFrom`, `maskTo` |
+
+`permissions` is one line per content type, such as `article: create, read, update (conditional)`.
+
+Roles are global documents, so a role row goes to the log of the tenant the request resolved to. A
+tenant admin reads their own tenant's rows; a SuperAdmin reads across tenants with `?tenant=`.
+
+Three things write a grant and no row, because there is no request and no actor: the seeder giving a
+seeded role its default capabilities at startup, a module granting its capabilities to seeded roles
+at startup, and self-registration giving a new account the `User` role. Reads of Sensitive and Hidden
+fields are not recorded.

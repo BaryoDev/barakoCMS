@@ -183,6 +183,18 @@ internal class CreateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
                 Status = MembershipStatus.Active,
                 JoinedAt = DateTime.UtcNow,
             });
+
+            // Written to the new tenant's own log, which is the one its administrators read.
+            await barakoCMS.Infrastructure.Audit.AuditLog.RecordAsync(
+                _session, handle, "tenant.member.added", creatorId, User.FindFirst("Username")?.Value,
+                targetType: "User", targetId: creatorId.ToString(),
+                metadata: new()
+                {
+                    ["invited"] = false,
+                    ["tenantCreated"] = true,
+                    ["roleIds"] = new List<string> { barakoCMS.Data.DataSeeder.AdminRoleId.ToString() },
+                },
+                ct: ct);
         }
 
         await _session.SaveChangesAsync(ct);

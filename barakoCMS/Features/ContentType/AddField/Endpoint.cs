@@ -192,6 +192,8 @@ internal sealed class Endpoint(
                 ["field"] = field.Name,
                 ["type"] = field.Type,
                 ["required"] = field.IsRequired,
+                ["sensitivity"] = field.Sensitivity.ToString(),
+                ["visibleToRoles"] = field.VisibleToRoles.ToList(),
             }, ct: ct);
 
         await session.SaveChangesAsync(ct);

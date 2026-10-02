@@ -151,6 +151,9 @@ internal class Endpoint(
         if (!lowering)
             reindexed = await RebuildSearchTextAsync(def.Name, field.Name, from, to, publicFields, actorId, ct);
 
+        var rolesBefore = field.VisibleToRoles is null ? new List<string>() : field.VisibleToRoles.ToList();
+        var maskBefore = field.Mask;
+
         field.Sensitivity = to;
         field.VisibleToRoles = to == SensitivityLevel.Public
             ? new List<string>()
@@ -175,6 +178,10 @@ internal class Endpoint(
                 ["field"] = field.Name,
                 ["from"] = from.ToString(),
                 ["to"] = to.ToString(),
+                ["visibleToRolesFrom"] = rolesBefore,
+                ["visibleToRolesTo"] = field.VisibleToRoles.ToList(),
+                ["maskFrom"] = maskBefore.ToString(),
+                ["maskTo"] = field.Mask.ToString(),
                 ["publiclyDeliverable"] = def.IsPubliclyDeliverable,
             },
             ct: ct);

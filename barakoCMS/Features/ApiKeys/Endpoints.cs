@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Models;
 using FastEndpoints;
@@ -85,6 +86,22 @@ internal class CreateApiKeyEndpoint(
             CreatedAt = DateTime.UtcNow,
         };
         session.Store(apiKey);
+
+        // Names and ids only. The secret, its hash and its display prefix stay out of the row: the
+        // prefix is the first characters of the secret, and the key's id already identifies it.
+        var metadata = new Dictionary<string, object>
+        {
+            ["name"] = apiKey.Name,
+            ["scopes"] = apiKey.Scopes,
+            ["contentTypes"] = apiKey.ContentTypes,
+            ["actsAsUserId"] = apiKey.UserId.ToString(),
+        };
+        if (apiKey.ExpiresAt is { } expiresAt)
+            metadata["expiresAt"] = expiresAt;
+
+        await AuditLog.RecordAsync(session, tenant, "apikey.created",
+            creatorId == Guid.Empty ? null : creatorId, User.FindFirst("Username")?.Value,
+            targetType: "ApiKey", targetId: apiKey.Id.ToString(), metadata: metadata, ct: ct);
         await session.SaveChangesAsync(ct);
 
         // The one and only time the plaintext secret leaves the server.
@@ -147,9 +164,20 @@ internal class RevokeApiKeyEndpoint(IDocumentSession session) : EndpointWithoutR
         var key = await session.Query<ApiKey>().FirstOrDefaultAsync(k => k.Id == id && k.TenantSlug == tenant, ct);
         if (key is null) { await Send.NotFoundAsync(ct); return; }
 
-        key.Revoked = true;
-        session.Store(key);
-        await session.SaveChangesAsync(ct);
+        // A key that is already revoked is answered the same way and writes nothing, so the trail
+        // holds one row per revocation, not one per request.
+        if (!key.Revoked)
+        {
+            key.Revoked = true;
+            session.Store(key);
+            Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
+            await AuditLog.RecordAsync(session, tenant, "apikey.revoked", actorId, User.FindFirst("Username")?.Value,
+                targetType: "ApiKey", targetId: key.Id.ToString(),
+                metadata: new() { ["name"] = key.Name, ["actsAsUserId"] = key.UserId.ToString() },
+                ct: ct);
+            await session.SaveChangesAsync(ct);
+        }
+
         await Send.NoContentAsync(ct);
     }
 }
