@@ -2,8 +2,8 @@
 
 How barakoCMS is built and shipped. The code is written with an AI pair (Claude Code), but the
 process around it is deliberately engineered: nothing reaches users because a model felt confident.
-Every change is proven locally, gated by CI, deployed to a breakable tier, and verified running
-before it is promoted.
+Every change is proven locally and gated by CI, and a release is deployed to playground and verified
+running before its packages are published.
 
 This doc is the **playbook**. If you (person or agent) are about to build the next feature, follow
 the checklist in "Shipping a feature, step by step" and use the rest as reference.
@@ -15,8 +15,8 @@ An agent produces plausible code quickly. Plausible is not correct. The lifecycl
 - **Tests gate every promotion.** Not "the model says it's fine", the suite runs, red stops the line.
 - **Prove it locally first.** Unit and integration tests run on your machine before the branch is
   pushed. CI is the backstop, not the first discovery.
-- **A breakable tier absorbs mistakes.** New builds land on dev-playground first, on an empty
-  database, where breaking things is the point. Only then do they touch anything users see.
+- **A breakable tier absorbs mistakes.** dev-playground is where breaking things is the point. A
+  build goes there when someone starts the deploy by hand, not as a step every change passes through.
 - **Deploys are verified, not assumed.** After every deploy a smoke test logs in, creates content,
   and checks validation still rejects bad input. "It deployed" means the app worked, not that a job
   went green.
@@ -105,7 +105,7 @@ until this is green.
 dotnet test BarakoCMS.Tests/BarakoCMS.Tests.csproj -c Release
 ```
 
-Rule of thumb: **whatever you'll later verify by hand on dev-playground, pin it in a test first.**
+Rule of thumb: **whatever you would verify by hand on a running instance, pin it in a test first.**
 
 #### Security-sensitive changes get an extra gate
 
@@ -157,7 +157,7 @@ already passed locally, CI confirms, it does not discover.
 `deploy-dev-playground.yml` runs on a push to `dev` or when started by hand. Nothing merges to `dev`
 any more (see Branch model), so it runs only when someone starts it:
 
-1. Run the test suite again (a merge is not a PR).
+1. Run the test suite again.
 2. Build the `:dev` suite image natively on an arm64 runner (the Ampere VM is arm64; no QEMU).
 3. Deploy over SSH with a **forced-command key**. The key in `authorized_keys` can only run
    `/home/opc/deploy-dev-playground.sh`, nothing else, so a leaked key can't open a shell. The script
@@ -167,7 +167,7 @@ any more (see Branch model), so it runs only when someone starts it:
    smoke means "actually works."
 5. If any of this fails, Discord gets pinged.
 
-Then break it by hand on dev-playground. This is the tier where a broken build is fine.
+After a run, break it by hand on dev-playground. This is the tier where a broken build is fine.
 
 ### 3. Verify on the live tier
 
@@ -298,7 +298,7 @@ The pipeline is automated; the judgment is not. A person, not the agent, decides
 
 - **When to cut a release** by bumping the version. Publishing to NuGet is irreversible and
   outward-facing, so it is deliberate, never a side effect of merging.
-- **What "stable enough" means** on dev-playground before promotion.
+- **What "stable enough" means** before a release.
 - **Anything touching the club.**
 
 The agent's job is to make each of those cheap and safe to act on: fast local feedback, honest

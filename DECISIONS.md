@@ -48,7 +48,7 @@ by id with a mutable display name, this moves to that id.
 
 ## D2. An event-sourced type may not hold non-Public fields
 
-**Decided:** 22 Aug 2026. **Issue:** #230. **Status:** implemented.
+**Decided:** 22 Aug 2026. **Issue:** #230. **Status:** accepted, not yet implemented.
 
 Enforced at type creation and at field-add, using the `FieldDefinition.Sensitivity` that already
 exists.
@@ -140,7 +140,10 @@ nothing and passes, which is a failure this project has shipped before.
 
 ## D5. Events carry when they happened
 
-**Decided:** 22 Aug 2026. **Issue:** #228. **Status:** implemented.
+**Decided:** 22 Aug 2026. **Issue:** #228. **Status:** implemented, in a different shape from the
+one described here. Every content event carries `OccurredAt`, stamped by the code that creates the
+event. The writer and a rebuild both read it from the event and pass it to
+`Content.Apply(@event, occurredAt)`, which still takes the time as a parameter.
 
 Every content event carries `OccurredAt`, set once by `IContentWriter`. `Content.Apply` reads it
 from the event rather than taking it as a parameter or reading the clock.
@@ -170,6 +173,9 @@ multi-instance deployment, where application clocks can skew and the database cl
 had to break three public `Apply` signatures and add obsolete overloads. With the time on the event,
 `Apply(@event)` keeps its original shape and the break never happens. Shipping a breaking signature
 change and reversing it later is worse than not shipping it.
+
+That paragraph is the plan as decided. What shipped keeps `Apply(@event, DateTime occurredAt)`, and
+the one-argument overloads stay as obsolete forms that read the clock.
 
 ---
 
@@ -410,9 +416,10 @@ None is payable for a rule that C# already enforces correctly.
 **What is worth taking from the other design, and is taken.** Two things, both additive:
 
 - **Predicates, not enforcement (#445).** Compiling conditions to a jsonb `WHERE` fragment is the
-  valuable half of "policies as data" and needs none of the boundary move. Today `Features/Content/List`
-  loads the whole collection and filters per item; a predicate makes the rules usable as a query
-  filter, so the cost tracks the page rather than the table.
+  valuable half of "policies as data" and needs none of the boundary move. `Features/Content/List`
+  used to load the whole collection and filter per item. It now takes the page in SQL when the
+  caller's rules compile to a predicate, so the cost tracks the page rather than the table, and
+  falls back to filtering per item when they do not.
 - **Tenancy at the database (#446).** `tenant_id` is a column Marten already manages. A policy on it
   bounds every request-path session opened without a tenant. It would **not** have caught #287. The
   workflow daemon runs as table owner and legitimately crosses tenants, and that fix was its own. And

@@ -71,8 +71,7 @@ validated content — it does not hard-code any particular spreadsheet's shape.
 
 ## Authorization
 
-`analyze` requires the `analyze_spreadsheets` capability, which the seeded `Admin` role holds.
-`content` is gated by the **target content type's own
+`analyze` requires the `analyze_spreadsheets` capability. `content` is gated by the **target content type's own
 `create` permission** (via the CMS permission resolver) — so a role that can create `member` content
 can import members, and nothing else.
 
