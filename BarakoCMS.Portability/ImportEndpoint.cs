@@ -373,10 +373,16 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
         // The cap was settled above, including its one exception: a type already stored over it may
         // be imported again at its size. The validator only knows the cap and checks no field of a
         // list over it, so an oversized list is checked a cap's worth of fields at a time.
+        //
+        // A field the stored type already holds with the same rules is passed as stored, so its rule
+        // definitions are not checked: a bundle exported from this tenant has to import back into it,
+        // including a rule saved before rules were checked.
+        var carried = FieldsWithStoredRules(type, stored);
+
         var errors = type.Fields.Count <= maxFields
-            ? validator.Validate(type.Name, type.DisplayName, type.Fields).Errors
+            ? validator.Validate(type.Name, type.DisplayName, type.Fields, carried).Errors
             : type.Fields.Chunk(maxFields)
-                .SelectMany(chunk => validator.Validate(type.Name, type.DisplayName, chunk.ToList()).Errors)
+                .SelectMany(chunk => validator.Validate(type.Name, type.DisplayName, chunk.ToList(), carried).Errors)
                 .Distinct()
                 .ToList();
 
@@ -508,6 +514,52 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
     {
         var normalized = barakoCMS.Core.ContentTypeName.Normalize(name);
         return existing.FirstOrDefault(t => barakoCMS.Core.ContentTypeName.Normalize(t.Name) == normalized);
+    }
+
+    /// <summary>
+    /// The bundle's own field instances whose validation rules are the ones the stored type holds
+    /// for a field of that name.
+    /// </summary>
+    private static List<FieldDefinition> FieldsWithStoredRules(ContentTypeDefinition type, ContentTypeDefinition? stored)
+    {
+        var storedFields = stored?.Fields;
+        if (storedFields is null)
+            return [];
+
+        return type.Fields
+            .Where(field => storedFields.FirstOrDefault(
+                    f => f is not null && string.Equals(f.Name, field.Name, StringComparison.OrdinalIgnoreCase))
+                is { } held && SameRules(field.ValidationRules, held.ValidationRules))
+            .ToList();
+    }
+
+    /// <summary>Same rule names, in the same case, each with the same JSON value.</summary>
+    /// <remarks>
+    /// Compared as JSON because the two sides are not the same CLR shape: a stored value comes back
+    /// from the database and a bundle value from the request body, and one may be a
+    /// <c>JsonElement</c> where the other is a number or a dictionary.
+    /// </remarks>
+    private static bool SameRules(Dictionary<string, object>? a, Dictionary<string, object>? b)
+    {
+        a ??= new Dictionary<string, object>();
+        b ??= new Dictionary<string, object>();
+
+        if (a.Count != b.Count)
+            return false;
+
+        foreach (var (name, value) in a)
+        {
+            if (!b.TryGetValue(name, out var other))
+                return false;
+
+            var left = System.Text.Json.JsonSerializer.SerializeToElement<object?>(value);
+            var right = System.Text.Json.JsonSerializer.SerializeToElement<object?>(other);
+
+            if (!System.Text.Json.JsonElement.DeepEquals(left, right))
+                return false;
+        }
+
+        return true;
     }
 
     private static bool SameRoles(List<string>? a, List<string>? b) =>
