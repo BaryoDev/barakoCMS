@@ -161,19 +161,24 @@ internal sealed class CollectionSyncService(
     }
 
     /// <summary>Runs up to <paramref name="budget"/> due syncs in one partition.</summary>
-    /// <returns>How many were run.</returns>
+    /// <returns>
+    /// How many were run. A sync that was left for a later tick is not one of them, so it takes
+    /// nothing from what the caller has left for the tenants after this one.
+    /// </returns>
     public async Task<int> SweepTenantAsync(string? martenTenantId, DateTime nowUtc, int budget, CancellationToken ct)
     {
         using var scope = services.CreateScopeForTenant(martenTenantId);
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
 
+        // Every due sync the tenant's bound lets in, not the first <budget> of them. A sync that is
+        // left for later (its collection is locked, or it turns out not to be due any more) must
+        // not take the place of one behind it, so the budget is spent in the loop, on runs.
         var due = (await session.Query<CollectionSync>()
                 .Where(s => s.Enabled)
                 .OrderBy(s => s.Slug)
                 .Take(MaxSyncsPerTenant)
                 .ToListAsync(ct))
             .Where(s => s.IsDue(nowUtc))
-            .Take(budget)
             .ToList();
 
         if (due.Count == 0) return 0;
@@ -183,11 +188,43 @@ internal sealed class CollectionSyncService(
 
         foreach (var sync in due)
         {
+            if (run >= budget) break;
+
             ct.ThrowIfCancellationRequested();
 
             try
             {
-                var outcome = await runner.RunAsync(sync, ct);
+                // Inside the try with the run: a lock that cannot be taken, a pool with no
+                // connection to give for instance, must not stop the other syncs either.
+                //
+                // A run started from the API holds this while it works. The sync is left for a
+                // later tick and not counted against the budget, since nothing was fetched or
+                // written. Tried once, never waited for: a tick holds the sweep lock.
+                await using var held = await CollectionSyncLock.TryAcquireAsync(
+                    () => store.Storage.Database.CreateConnection(),
+                    session.TenantId, sync.ContentType, TimeSpan.Zero, logger, ct);
+
+                if (held is null)
+                {
+                    logger.LogInformation(
+                        "Collection sync {Slug} for tenant {Tenant} left for a later tick: another run is filling '{ContentType}'",
+                        sync.Slug, martenTenantId ?? "(default)", sync.ContentType);
+                    continue;
+                }
+
+                // The due list was read once, before the first sync of this tenant ran, so this
+                // copy can be minutes old. A run from the API may have finished since, or the sync
+                // may have been edited, disabled or deleted, and the runner saves the whole document.
+                var current = await session.LoadAsync<CollectionSync>(sync.Id, ct);
+
+                if (current is null
+                    || !current.IsDue(nowUtc)
+                    || !string.Equals(current.ContentType, sync.ContentType, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var outcome = await runner.RunAsync(current, ct);
                 run++;
 
                 logger.LogInformation(

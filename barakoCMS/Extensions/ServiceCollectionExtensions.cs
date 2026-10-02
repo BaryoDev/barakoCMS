@@ -1178,6 +1178,10 @@ public static class ServiceCollectionExtensions
         // Background service that refills collections from their outside sources across all tenants.
         // On unless a deployment says otherwise: a staging copy of a production database would
         // otherwise call every one of production's providers on production's interval.
+        // Read here, not at the first run request, so a value that is not a number stops the
+        // deployment starting instead of failing every run.
+        services.AddSingleton(barakoCMS.Infrastructure.Sync.CollectionSyncRunOptions.FromConfiguration(configuration));
+
         if (barakoCMS.Infrastructure.Sync.CollectionSyncService.IsEnabled(configuration))
         {
             services.AddHostedService<barakoCMS.Infrastructure.Sync.CollectionSyncService>();
