@@ -27,6 +27,7 @@ internal class FeedEndpoint(IQuerySession session, IConfiguration config) : Endp
     {
         Get("/api/public/{type}/feed.xml");
         AllowAnonymous();
+        Options(x => x.RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.DeliveryPolicy));
     }
 
     public override async Task HandleAsync(CancellationToken ct)
