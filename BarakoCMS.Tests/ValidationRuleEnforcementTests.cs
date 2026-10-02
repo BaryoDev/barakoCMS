@@ -213,17 +213,70 @@ public class ValidationRuleEnforcementTests
     }
 
     [Fact]
-    public async Task A_cleared_optional_text_field_is_not_checked_against_its_rules()
+    public async Task A_cleared_optional_string_text_richtext_or_markdown_field_is_not_checked_against_its_rules()
     {
-        (await WriteAsync(new() { ["Code"] = "" }, Field("Code", "string", ("minLength", 3))))
-            .IsValid.Should().BeTrue();
-        (await WriteAsync(new() { ["Code"] = "   " }, Field("Code", "string", ("pattern", "^[0-9]+$"))))
-            .IsValid.Should().BeTrue();
+        foreach (var type in new[] { "string", "text", "richtext", "markdown" })
+        {
+            (await WriteAsync(new() { ["Code"] = "" }, Field("Code", type, ("minLength", 3))))
+                .IsValid.Should().BeTrue("a cleared {0} field is not a value", type);
+            (await WriteAsync(new() { ["Code"] = "   " }, Field("Code", type, ("pattern", "^[0-9]+$"))))
+                .IsValid.Should().BeTrue("a cleared {0} field is not a value", type);
+        }
+
         (await WriteAsync(new() { ["Code"] = Json("") }, Field("Code", "string", ("minLength", 3))))
             .IsValid.Should().BeTrue();
 
         (await WriteAsync(new() { ["Code"] = "ab" }, Field("Code", "string", ("minLength", 3))))
             .IsValid.Should().BeFalse("a value that is there is still checked");
+    }
+
+    [Fact]
+    public async Task A_blank_email_url_slug_uuid_or_time_is_still_refused_by_its_type_check()
+    {
+        foreach (var type in new[] { "email", "url", "slug", "uuid", "time" })
+        {
+            var (isValid, errors) = await WriteAsync(new() { ["Code"] = "" }, Field("Code", type, ("minLength", 3)));
+
+            isValid.Should().BeFalse("a blank {0} was refused before rules were applied and still is", type);
+            errors.Should().HaveCount(1);
+            errors[0].Should().Contain("expects type").And.NotContain("'minLength'");
+        }
+    }
+
+    [Fact]
+    public async Task A_stored_membership_condition_whose_bound_is_not_a_list_is_skipped()
+    {
+        var entryType = Field("EntryType", "string");
+
+        (await WriteAsync(new() { ["EntryType"] = "C" }, entryType, RequiredWhen("ShirtSize", "EntryType", "_in", "COMPETE")))
+            .IsValid.Should().BeTrue("a string is not a list of its characters");
+        (await WriteAsync(new() { ["EntryType"] = "X" }, entryType, RequiredWhen("ShirtSize", "EntryType", "_nin", "COMPETE")))
+            .IsValid.Should().BeTrue();
+
+        var (isValid, errors) = await WriteAsync(
+            new() { ["EntryType"] = "COMPETE" },
+            entryType,
+            RequiredWhen("ShirtSize", "EntryType", "_in", new List<object> { "COMPETE", "ELITE" }));
+
+        isValid.Should().BeFalse("a list is still membership");
+        errors.Should().HaveCount(1);
+        errors[0].Should().Contain("ShirtSize");
+    }
+
+    [Fact]
+    public async Task A_stored_rule_under_two_spellings_is_skipped_whatever_order_they_were_stored_in()
+    {
+        (await WriteAsync(new() { ["Grade"] = 10 }, Field("Grade", "int", ("min", 50), ("MIN", 0))))
+            .IsValid.Should().BeTrue();
+        (await WriteAsync(new() { ["Grade"] = 10 }, Field("Grade", "int", ("MIN", 0), ("min", 50))))
+            .IsValid.Should().BeTrue();
+
+        var (isValid, errors) = await WriteAsync(
+            new() { ["Grade"] = 200 }, Field("Grade", "int", ("min", 50), ("MIN", 0), ("max", 100)));
+
+        isValid.Should().BeFalse("the rule stored once still applies");
+        errors.Should().HaveCount(1);
+        errors[0].Should().Contain("'max'");
     }
 
     [Fact]

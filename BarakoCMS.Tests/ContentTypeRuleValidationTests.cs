@@ -144,6 +144,51 @@ public class ContentTypeRuleValidationTests
     }
 
     [Fact]
+    public void A_membership_condition_whose_bound_is_not_a_list_is_refused()
+    {
+        var (isValid, errors) = Save("string", ("requiredWhen", Condition("_in", "COMPETE")));
+
+        isValid.Should().BeFalse();
+        errors.Should().HaveCount(1);
+        errors[0].Should().Contain("Subject").And.Contain("'_in'").And.Contain("not a list");
+
+        Save("string", ("requiredWhen", Condition("_nin", "COMPETE"))).IsValid.Should().BeFalse();
+        Save("string", ("requiredWhen", Condition("_in", new List<object> { "COMPETE" }))).IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void A_stored_rule_a_save_would_refuse_is_classified_as_skipped()
+    {
+        var twice = new FieldDefinition
+        {
+            Name = "Grade",
+            Type = "int",
+            ValidationRules = new() { ["min"] = 50, ["MIN"] = 0, ["max"] = 100 },
+        };
+
+        var (applied, skipped) = barakoCMS.Core.Validation.FieldRules.Classify(twice);
+
+        applied.Should().HaveCount(1);
+        applied.Should().BeEquivalentTo(new[] { "max" });
+        skipped.Should().HaveCount(2);
+        skipped.Should().BeEquivalentTo(new[] { "min", "MIN" });
+
+        var scalar = new FieldDefinition
+        {
+            Name = "ShirtSize",
+            Type = "string",
+            ValidationRules = new() { ["requiredWhen"] = Condition("_in", "COMPETE"), ["maxLength"] = 4 },
+        };
+
+        var (scalarApplied, scalarSkipped) = barakoCMS.Core.Validation.FieldRules.Classify(scalar);
+
+        scalarApplied.Should().HaveCount(1);
+        scalarApplied.Should().BeEquivalentTo(new[] { "maxLength" });
+        scalarSkipped.Should().HaveCount(1);
+        scalarSkipped.Should().BeEquivalentTo(new[] { "requiredWhen" });
+    }
+
+    [Fact]
     public void A_rule_on_a_field_type_it_does_not_apply_to_is_refused()
     {
         var (isValid, errors) = Save("bool", ("max", 1));

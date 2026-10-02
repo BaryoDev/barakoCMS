@@ -235,6 +235,8 @@ internal static class FieldRules
         // A required field left blank never gets here, the required check refuses it first. So this
         // is an optional field that was cleared, which a console sends as an empty string, and
         // clearing an optional field has to stay possible whatever its rules say about a value.
+        // Only string, text, richtext and markdown get this far blank: the type check before this
+        // refuses a blank email, url, slug, uuid or time, as it did before rules were applied.
         if (string.IsNullOrWhiteSpace(s))
             return errors;
 
@@ -354,7 +356,7 @@ internal static class FieldRules
                 MinLength => text && LengthBounds(rules).Min is not null,
                 MaxLength => text && LengthBounds(rules).Max is not null,
                 Pattern => text && UsablePattern(rules) is not null,
-                RequiredWhen => ConditionError(raw) is null,
+                RequiredWhen => TryGet(rules, RequiredWhen, out _) && ConditionError(raw) is null,
                 _ => false,
             };
 
@@ -457,6 +459,11 @@ internal static class FieldRules
                 if (Mentions(bound, CurrentUser))
                     return $"compares against {CurrentUser}, which only a permission condition can fill in";
 
+                // The evaluator walks whatever it is given, and a string walks as its characters:
+                // "_in": "COMPETE" would match "C" and not "COMPETE".
+                if ((op is "_in" or "_nin") && !IsList(bound))
+                    return $"uses '{op}' with a value that is not a list";
+
                 if (Comparisons.Contains(op) && AsDecimal(bound) is null && AsDate(bound) is null)
                     return $"compares with '{op}' against a value that is not a number or a date";
             }
@@ -464,6 +471,15 @@ internal static class FieldRules
 
         return null;
     }
+
+    private static bool IsList(object? bound) => bound switch
+    {
+        string => false,
+        JsonElement je => je.ValueKind == JsonValueKind.Array,
+        System.Collections.IDictionary => false,
+        System.Collections.IEnumerable => true,
+        _ => false,
+    };
 
     private static bool Mentions(object? bound, string text) => bound switch
     {
@@ -579,16 +595,24 @@ internal static class FieldRules
         return named != aliased;
     }
 
+    // A stored bag holding one rule under two spellings, min beside MIN, is one a save refuses.
+    // Neither is read, so which bound applies does not come down to the order the keys were stored.
     private static bool TryGet(Dictionary<string, object> rules, string rule, out object? value)
     {
+        value = null;
+        var found = 0;
+
         foreach (var (key, candidate) in rules)
         {
-            if (key.Equals(rule, StringComparison.OrdinalIgnoreCase))
-            {
-                value = candidate;
-                return true;
-            }
+            if (!key.Equals(rule, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            value = candidate;
+            found++;
         }
+
+        if (found == 1)
+            return true;
 
         value = null;
         return false;
