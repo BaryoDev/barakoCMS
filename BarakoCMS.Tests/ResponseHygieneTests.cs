@@ -149,6 +149,8 @@ public class ResponseHygieneTests
     [InlineData("/api/auth/refresh", true)]
     [InlineData("/api/auth/mfa/setup", true)]
     [InlineData("/api/auth/github/callback", true)]
+    [InlineData("/api/auth/oidc/keycloak/start", true)]
+    [InlineData("/api/auth/oidc/keycloak/callback", true)]
     [InlineData("/api/me/profile", true)]
     [InlineData("/api/me/switch", true)]
     [InlineData("/api/api-keys", true)]
