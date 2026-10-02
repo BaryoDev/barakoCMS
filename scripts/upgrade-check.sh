@@ -11,8 +11,8 @@
 #   1. stand up a database with the released FROM_VERSION and put real content in it
 #   2. db-assert must FAIL on both hosts, because 4.0's schema does not match a 3.x database
 #   3. apply the reviewed core migrations, migrations/4.0.0/3.x-to-4.0.sql,
-#      migrations/4.2.0/user-normalized-identity.sql, migrations/4.3.0/collection-syncs.sql,
-#      migrations/4.3.0/marten-9-37-event-store-columns.sql,
+#      migrations/4.2.0/user-normalized-identity.sql, migrations/4.2.0/site-share-links.sql,
+#      migrations/4.3.0/collection-syncs.sql, migrations/4.3.0/marten-9-37-event-store-columns.sql,
 #      migrations/4.4.0/marten-9-38-quick-append-events.sql and
 #      migrations/4.5.0/refresh-token-hash-index.sql
 #   4. db-assert must PASS on the core host, so those files are exactly what core needs
@@ -28,6 +28,7 @@
 #      migrations/4.4.0/rollback-marten-9-38-quick-append-events.sql,
 #      migrations/4.3.0/rollback-collection-syncs.sql,
 #      migrations/4.3.0/rollback-marten-9-37-event-store-columns.sql,
+#      migrations/4.2.0/rollback-site-share-links.sql,
 #      migrations/4.2.0/rollback-user-normalized-identity.sql and
 #      migrations/4.0.0/rollback-to-3.x.sql
 #  10. FROM_VERSION boots again against the rolled-back database and still serves the record 4.0
@@ -45,7 +46,15 @@
 # parse. Running it here means a future edit that breaks it fails this job instead of an operator
 # mid-incident.
 #
-# Usage: scripts/upgrade-check.sh          (FROM_VERSION defaults to the last 3.x release)
+# A 4.1 start (FROM_VERSION=4.1.0) runs the same sequence without the two 4.0.0 files. A database
+# that 4.1 created has already had the 4.0.0 file as it stood then, and nobody runs it a second time,
+# so anything a later release folded into that file reaches such a database only through a file of
+# its own. That is how mt_doc_site_share_links went missing from every upgraded 4.0 and 4.1 install
+# while this job, starting from 3.x, stayed green (#1007). Its rollback stops at 4.1 and boots that
+# image again.
+#
+# Usage: scripts/upgrade-check.sh                       (FROM_VERSION defaults to the last 3.x release)
+#        FROM_VERSION=4.1.0 scripts/upgrade-check.sh    (a database 4.1 created)
 
 set -euo pipefail
 
@@ -72,6 +81,15 @@ trap cleanup EXIT
 
 step() { printf '\n=== %s\n' "$1"; }
 fail() { printf '\nFAILED: %s\n' "$1" >&2; exit 1; }
+
+# Which files a database still needs depends on what created it. Anything other than the two starts
+# below stops here rather than guessing: a 4.0 start lacks tables the 4.0.0 file gained before 4.1
+# and has no file for them, and a 4.2 or later start would have to leave out its own release's files.
+case "$FROM_VERSION" in
+    3.*) FROM_3X=1 ;;
+    4.1.*) FROM_3X=0 ;;
+    *) fail "FROM_VERSION=${FROM_VERSION} is not a start this script knows. Use a 3.x release or 4.1.x." ;;
+esac
 
 # $1 is the host dll, core or Suite; the rest are its arguments.
 run_host() {
@@ -206,13 +224,27 @@ if run_suite db-assert >"$WORK/assert-before-suite.log" 2>&1; then
 fi
 echo "refused, as it must"
 
-step "applying migrations/4.0.0/3.x-to-4.0.sql"
-docker cp migrations/4.0.0/3.x-to-4.0.sql "$PG:/tmp/up.sql"
-docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/up.sql >/dev/null
+if [ "$FROM_3X" = 1 ]; then
+    step "applying migrations/4.0.0/3.x-to-4.0.sql"
+    docker cp migrations/4.0.0/3.x-to-4.0.sql "$PG:/tmp/up.sql"
+    docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/up.sql >/dev/null
+fi
 
 step "applying migrations/4.2.0/user-normalized-identity.sql"
 docker cp migrations/4.2.0/user-normalized-identity.sql "$PG:/tmp/users.sql"
 docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/users.sql >/dev/null
+
+# The share links table (#841, #1007). The 4.0.0 file creates it too, so on a 3.x start this is the
+# second run of the same statements and shows the file is harmless there. On a 4.1 start it is the
+# only thing that creates the table, and the check says so: a 4.1 database that already has it means
+# this file has stopped doing anything and someone should find out.
+if [ "$FROM_3X" = 0 ]; then
+    [ "$(psql_q "select to_regclass('public.mt_doc_site_share_links') is null;")" = "t" ] \
+        || fail "a ${FROM_VERSION} database already has mt_doc_site_share_links, so migrations/4.2.0/site-share-links.sql proves nothing on this start"
+fi
+step "applying migrations/4.2.0/site-share-links.sql"
+docker cp migrations/4.2.0/site-share-links.sql "$PG:/tmp/share-links.sql"
+docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/share-links.sql >/dev/null
 
 # The collection sync table (#794). Core, not a module, so it has to land before core's assert
 # below. CreateOnly would create it on first boot; the file exists so the deploy gate passes
@@ -349,13 +381,19 @@ step "applying migrations/4.3.0/rollback-marten-9-37-event-store-columns.sql"
 docker cp migrations/4.3.0/rollback-marten-9-37-event-store-columns.sql "$PG:/tmp/marten937-down.sql"
 docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/marten937-down.sql >/dev/null
 
+step "applying migrations/4.2.0/rollback-site-share-links.sql"
+docker cp migrations/4.2.0/rollback-site-share-links.sql "$PG:/tmp/share-links-down.sql"
+docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/share-links-down.sql >/dev/null
+
 step "applying migrations/4.2.0/rollback-user-normalized-identity.sql"
 docker cp migrations/4.2.0/rollback-user-normalized-identity.sql "$PG:/tmp/users-down.sql"
 docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/users-down.sql >/dev/null
 
-step "applying migrations/4.0.0/rollback-to-3.x.sql"
-docker cp migrations/4.0.0/rollback-to-3.x.sql "$PG:/tmp/down.sql"
-docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/down.sql >/dev/null
+if [ "$FROM_3X" = 1 ]; then
+    step "applying migrations/4.0.0/rollback-to-3.x.sql"
+    docker cp migrations/4.0.0/rollback-to-3.x.sql "$PG:/tmp/down.sql"
+    docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/down.sql >/dev/null
+fi
 
 step "booting ${FROM_VERSION} again against the rolled-back database"
 docker start "$OLD" >/dev/null
@@ -394,4 +432,12 @@ EVENTS_ROLLED_BACK=$(psql_q "select count(*) from mt_events where stream_id = '$
     || fail "expected $EVENTS_AFTER events on stream $CONTENT_ID after rollback, found $EVENTS_ROLLED_BACK. A rollback must not lose events."
 echo "${FROM_VERSION} reads it back: FirstName $ROLLBACK_FIRST_NAME, Status $ROLLBACK_STATUS, $EVENTS_ROLLED_BACK events on the stream"
 
-printf '\nThe %s to 4.0 upgrade works on the Suite host, with migrations/4.0.0/3.x-to-4.0.sql, migrations/4.2.0/user-normalized-identity.sql, migrations/4.3.0/collection-syncs.sql, migrations/4.3.0/marten-9-37-event-store-columns.sql, migrations/4.4.0/marten-9-38-quick-append-events.sql, migrations/4.5.0/refresh-token-hash-index.sql, migrations/4.2.0/stored-files-parent-index.sql, migrations/4.2.0/forms-public-forms.sql and migrations/4.5.0/email-sent-emails.sql applied first, and rolls back cleanly with migrations/4.5.0/rollback-email-sent-emails.sql, migrations/4.5.0/rollback-refresh-token-hash-index.sql, migrations/4.4.0/rollback-marten-9-38-quick-append-events.sql, migrations/4.3.0/rollback-collection-syncs.sql, migrations/4.3.0/rollback-marten-9-37-event-store-columns.sql, migrations/4.2.0/rollback-user-normalized-identity.sql and migrations/4.0.0/rollback-to-3.x.sql.\n' "$FROM_VERSION"
+if [ "$FROM_3X" = 1 ]; then
+    UP_FIRST="migrations/4.0.0/3.x-to-4.0.sql, "
+    DOWN_LAST="migrations/4.2.0/rollback-site-share-links.sql, migrations/4.2.0/rollback-user-normalized-identity.sql and migrations/4.0.0/rollback-to-3.x.sql"
+else
+    UP_FIRST=""
+    DOWN_LAST="migrations/4.2.0/rollback-site-share-links.sql and migrations/4.2.0/rollback-user-normalized-identity.sql"
+fi
+
+printf '\nThe %s to 4.0 upgrade works on the Suite host, with %smigrations/4.2.0/user-normalized-identity.sql, migrations/4.2.0/site-share-links.sql, migrations/4.3.0/collection-syncs.sql, migrations/4.3.0/marten-9-37-event-store-columns.sql, migrations/4.4.0/marten-9-38-quick-append-events.sql, migrations/4.5.0/refresh-token-hash-index.sql, migrations/4.2.0/stored-files-parent-index.sql, migrations/4.2.0/forms-public-forms.sql and migrations/4.5.0/email-sent-emails.sql applied first, and rolls back cleanly with migrations/4.5.0/rollback-email-sent-emails.sql, migrations/4.5.0/rollback-refresh-token-hash-index.sql, migrations/4.4.0/rollback-marten-9-38-quick-append-events.sql, migrations/4.3.0/rollback-collection-syncs.sql, migrations/4.3.0/rollback-marten-9-37-event-store-columns.sql, %s.\n' "$FROM_VERSION" "$UP_FIRST" "$DOWN_LAST"

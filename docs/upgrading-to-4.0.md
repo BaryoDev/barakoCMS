@@ -7,7 +7,8 @@ The whole sequence, including the rollback below, is proved in CI by `scripts/up
 which stands up a real 3.21.0 database through the released image, upgrades it, then rolls it back
 and boots 3.21.0 again against the result. It checks the schema with both the core host and the
 Suite, and boots the Suite, which is what the published image runs. If a step here stops being
-true, that job goes red.
+true, that job goes red. The job then runs again from a database 4.1.0 created, leaving out the two
+`4.0.0` files, and rolls that one back to 4.1.0.
 
 ## Why there is a migration at all
 
@@ -57,6 +58,7 @@ Stop the 4.0 deploy from starting yet, and with 3.x stopped:
 ```bash
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.0.0/3.x-to-4.0.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.2.0/user-normalized-identity.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.2.0/site-share-links.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/4.2.0/stored-files-parent-index.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.2.0/forms-public-forms.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.5.0/email-sent-emails.sql
@@ -74,6 +76,13 @@ which is what sign-in compares. If two existing accounts differ only by case, su
 `Admin@example.com` and `admin@example.com`, it refuses, changes nothing, and lists both accounts by
 id. Rename or remove one of each pair and run it again. It does not pick one for you. A 4.0 or 4.1
 database needs this file too.
+
+The share links file creates `mt_doc_site_share_links`, empty. The `4.0.0` file creates the same
+table, but only since 4.2.0, so coming from 3.x today this file changes nothing. A database that was
+already on 4.0 or 4.1 ran the `4.0.0` file before the table was in it, and this file is the only
+thing that gives it one: without it `db-assert` reports the table as outstanding. Coming from 4.1,
+leave the `4.0.0` file out and run the rest, which is the sequence CI runs from 4.1.0. It is safe
+to run twice.
 
 Run every file with the API stopped. A running API keeps a transaction open for as long as it
 runs, and an index built `CONCURRENTLY` waits for every transaction older than itself, so against
@@ -165,6 +174,7 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.5.0
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.4.0/rollback-marten-9-38-quick-append-events.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.3.0/rollback-collection-syncs.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.3.0/rollback-marten-9-37-event-store-columns.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.2.0/rollback-site-share-links.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.2.0/rollback-user-normalized-identity.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.0.0/rollback-to-3.x.sql
 ```
@@ -177,6 +187,12 @@ ordinary content and are untouched.
 The refresh token file drops the index on the token hash. A release before 4.5.0 looks refresh
 tokens up by their plain value, which 4.5.0 no longer stores, so anyone who signed in or refreshed on
 4.5.0 has to sign in again after a rollback.
+
+The share links file drops `mt_doc_site_share_links`, and every share link with it. Only the hash
+of each key is stored, so the links cannot be saved first and put back: after upgrading again,
+create new ones and send them out. Going back to 4.1, stop after the two `4.2.0` files and leave
+`rollback-to-3.x.sql` out, which is the rollback CI runs from 4.1.0. Going back to 3.x, that last
+file drops the same table, and running both is harmless.
 
 The user file puts the username and email unique indexes back on the stored values, which is where
 3.x declares them.
