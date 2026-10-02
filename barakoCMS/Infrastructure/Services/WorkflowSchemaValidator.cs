@@ -333,6 +333,18 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
             return;
         }
 
+        // A number is accepted wherever a name is, so a value that names no policy can arrive. It
+        // would be stored and then read as neither, which here means the chain is not stopped.
+        if (!Enum.IsDefined(action.OnFailure))
+        {
+            result.Errors.Add(new ValidationError
+            {
+                Field = $"{fieldPrefix}.onFailure",
+                Message = $"onFailure must be one of: {string.Join(", ", Enum.GetNames<WorkflowFailurePolicy>())}"
+            });
+            result.IsValid = false;
+        }
+
         // Validate required parameters
         var metadata = _pluginRegistry.GetActionMetadata(action.Type);
         if (metadata != null && metadata.RequiredParameters.Any())

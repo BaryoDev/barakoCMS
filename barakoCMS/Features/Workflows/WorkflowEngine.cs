@@ -89,14 +89,28 @@ internal class WorkflowEngine(
         var run = debugger.StartExecution(workflow.Id, content.Id);
         var overallTimer = Stopwatch.StartNew();
 
+        // Nothing is retried on this path, so any failure of an action set to halt is final and
+        // the actions after it are recorded as not run.
+        var halted = false;
+
         foreach (var action in workflow.Actions)
         {
+            if (halted)
+            {
+                debugger.LogActionFailure(run, action.Type, Stopwatch.StartNew(),
+                    WorkflowRun.SkippedAfterHalt, action.Parameters);
+                continue;
+            }
+
+            var halts = action.OnFailure == WorkflowFailurePolicy.Halt;
+
             var handler = actions.FirstOrDefault(a => a.Type == action.Type);
             if (handler == null)
             {
                 logger.LogWarning("Unknown workflow action type '{ActionType}' in workflow '{WorkflowName}'. Skipping.", action.Type, workflow.Name);
                 debugger.LogActionFailure(run, action.Type, Stopwatch.StartNew(),
                     $"No handler is registered for action type '{action.Type}'.", action.Parameters);
+                halted = halts;
                 continue;
             }
 
@@ -111,6 +125,7 @@ internal class WorkflowEngine(
                 if (credentialError is not null)
                 {
                     debugger.LogActionFailure(run, action.Type, timer, credentialError, action.Parameters);
+                    halted = halts;
                     continue;
                 }
 
@@ -132,15 +147,17 @@ internal class WorkflowEngine(
                 else
                 {
                     debugger.LogActionFailure(run, action.Type, timer, result.Error ?? "The action reported failure without a reason.", resolvedParams);
+                    halted = halts;
                 }
             }
             catch (Exception ex)
             {
                 // Isolate per-action failures: a bad webhook/email must not prevent the remaining
-                // actions in this workflow from running. An action that throws is a failed action,
-                // which is what the run record has to say.
+                // actions in this workflow from running, unless the action is set to halt. An action
+                // that throws is a failed action, which is what the run record has to say.
                 debugger.LogActionFailure(run, action.Type, timer, ex, resolvedParams);
                 logger.LogError(ex, "Workflow action '{ActionType}' in workflow '{WorkflowName}' failed", action.Type, workflow.Name);
+                halted = halts;
             }
         }
 

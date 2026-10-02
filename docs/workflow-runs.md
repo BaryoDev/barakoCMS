@@ -95,6 +95,53 @@ When a node stops, the actions it has in flight are cancelled and the node waits
 the same as with one. An attempt whose outcome was not recorded stays `Running` under its lease and
 is taken again, by any node, when the lease ends five minutes after it was claimed.
 
+## Stopping a chain at a failure
+
+By default a failed action does not stop the ones after it. "Post, then email, then tweet" is three
+independent things, the tweet still goes out when the mail server is down, and the run reads
+`PartiallyFailed`.
+
+A chain is different: if the journal entry fails, filing the document and adjusting stock should not
+go ahead as though it had worked. Each action of a workflow takes `onFailure`, `Continue` or `Halt`.
+Left out it is `Continue`, and so is every action saved before the setting existed.
+
+```json
+{
+  "actions": [
+    { "type": "Webhook", "parameters": { "Url": "https://ledger.example.com/entries" }, "onFailure": "Halt" },
+    { "type": "Webhook", "parameters": { "Url": "https://stock.example.com/adjust" } }
+  ]
+}
+```
+
+What `Halt` does:
+
+- **Nothing after the action runs until it has succeeded.** While it waits on a retry, the actions
+  after it wait too. A `Continue` action in the same position lets them run in the meantime.
+- **Once it fails for good, the actions after it that have not run become `Skipped`.** That is a
+  failure that is not retried, or the fifth failed attempt. Each skipped action carries `haltedBy`,
+  the ordinal of the action that stopped it, and the run is finished: `Failed` if nothing of it
+  succeeded, `PartiallyFailed` otherwise.
+- **`Unknown` halts as well.** A timeout does not say whether the step happened, and the steps after
+  it would run as though it had.
+- **An action skipped because the content was deleted does not halt.** It did not fail.
+- **Actions before the halting one are not touched.** One of them still waiting on its own retry
+  keeps it.
+
+`POST /api/workflow-runs/{id}/actions/{ordinal}/retry` on the action that halted the run is the
+resume: fix the cause, retry it, and the actions it skipped are queued again behind it. They run
+once it succeeds, and are skipped again if it fails again. The audit entry of that retry carries
+`resumedActions`, the number it queued again. Retrying one of the skipped actions on its own answers
+409, because that would run it past the failure.
+
+The policy is copied onto a run when the workflow fires, like the action's parameters, so a run
+already queued keeps the policy it was queued with. It applies to a workflow's own actions. The
+children of a `Conditional` have no policy of their own: the `Conditional` succeeds or fails as one
+action, and its own `onFailure` decides what follows.
+
+During a rolling upgrade a node still on the older version does not know the policy and runs past a
+failed action. Finish the rollout before saving a workflow that uses `Halt`.
+
 ## Stopping a workflow or a run
 
 Three requests, all behind `manage_workflows`, each written to the audit log.

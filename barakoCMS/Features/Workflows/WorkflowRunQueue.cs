@@ -170,6 +170,7 @@ internal sealed class WorkflowRunQueue(IDocumentSession session, ILogger<Workflo
                 // running would otherwise change what a queued run sends, and the operator who
                 // edited it is not expecting to have rewritten yesterday's outbox.
                 Parameters = new Dictionary<string, string>(workflow.Actions[i].Parameters),
+                OnFailure = workflow.Actions[i].OnFailure,
                 IdempotencyKey = $"{run.Id:N}-{i}",
             });
         }

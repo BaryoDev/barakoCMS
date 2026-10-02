@@ -63,6 +63,9 @@ internal sealed class WorkflowActionResponse
     public Dictionary<string, string> Parameters { get; init; } = new();
     public bool SecretSet { get; init; }
 
+    /// <summary>Continue or Halt. Continue for an action saved before the setting existed.</summary>
+    public WorkflowFailurePolicy OnFailure { get; init; }
+
     /// <summary>
     /// The branches of a Conditional left out of <see cref="Parameters"/> because they are not a
     /// JSON array of actions the Conditional can run (see
@@ -79,6 +82,7 @@ internal sealed class WorkflowActionResponse
             Type = a.Type,
             Parameters = parameters,
             SecretSet = WebhookSigning.HasSecret(a.Parameters),
+            OnFailure = a.OnFailure,
             UnreadableBranches = unreadableBranches,
         };
     }
