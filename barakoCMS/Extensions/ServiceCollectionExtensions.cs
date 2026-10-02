@@ -1016,6 +1016,11 @@ public static class ServiceCollectionExtensions
         // served inert, because the operator who sets it is the one who needs it.
         barakoCMS.Infrastructure.Services.SensitivityService.ValidateMode(configuration);
 
+        // Tenancy mode, validated for the same reason: an operator who set Multi and mistyped it
+        // would otherwise run a deployment that serves unregistered slugs while believing it
+        // refuses them. Read here only to refuse; the instance in use is registered further down.
+        barakoCMS.Infrastructure.Multitenancy.TenancyOptions.FromConfiguration(configuration);
+
         // Connectors hold live third-party credentials, so a key that is present and wrong is
         // refused before the host is built rather than at the first send. An absent key is not an
         // error: it means the feature is off, and the endpoints say so with the setting named.
@@ -1103,6 +1108,12 @@ public static class ServiceCollectionExtensions
                               barakoCMS.Infrastructure.Multitenancy.TenantDomainSource>();
         services.Configure<barakoCMS.Infrastructure.Multitenancy.MultitenancyOptions>(
             configuration.GetSection(barakoCMS.Infrastructure.Multitenancy.MultitenancyOptions.SectionName));
+
+        // Built once, from the host's final configuration. AddErasureAndPolicyChecks has already
+        // refused a value that is not a mode.
+        services.AddSingleton(sp => barakoCMS.Infrastructure.Multitenancy.TenancyOptions.FromConfiguration(
+            sp.GetRequiredService<IConfiguration>()));
+
         services.AddScoped<barakoCMS.Infrastructure.Services.IConfigurationService, barakoCMS.Infrastructure.Services.ConfigurationService>();
     }
 

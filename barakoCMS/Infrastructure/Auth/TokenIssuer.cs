@@ -12,7 +12,8 @@ namespace barakoCMS.Infrastructure.Auth;
 public sealed class TokenIssuer(
     IQuerySession session,
     IConfiguration config,
-    ILogger<TokenIssuer> logger) : ITokenIssuer
+    ILogger<TokenIssuer> logger,
+    TenancyOptions tenancy) : ITokenIssuer
 {
     public Task<TokenIssueResult> IssueAccessTokenAsync(
         User user,
@@ -99,6 +100,11 @@ public sealed class TokenIssuer(
     /// </summary>
     private async Task<string?> CheckTenantAccessAsync(User user, string slug, CancellationToken ct)
     {
+        // First, because the two exemptions below are what Single means. In Multi neither holds:
+        // the default partition and a slug with no active tenant get no token on any path.
+        if (await tenancy.RefusesAsync(session, slug, ct))
+            return "not a registered, active tenant, and Tenancy:Mode is Multi";
+
         // The default tenant is the single-tenant/global context. There are no Membership rows for
         // it by design, so requiring one would lock out every non-multi-tenant deployment.
         if (slug == Tenant.DefaultSlug)

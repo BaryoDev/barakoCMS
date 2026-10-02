@@ -19,6 +19,10 @@ public readonly record struct TenantResolution(string? Slug, bool Unrecognised);
 /// was minted for the resolved tenant, so the header only ever selects a tenant the caller is
 /// already authorized for (or public data).
 ///
+/// With <see cref="TenancyOptions.ModeKey"/> set to Multi, a request that resolves to the default
+/// tenant, or to a slug with no active <see cref="Models.Tenant"/> document, ends here with a 404
+/// unless its route is one of <see cref="TenantlessRoutes"/>.
+///
 /// The host is read here even though it is the caller's own <c>Host</c> header, and #147 asked
 /// whether that is an escalation. It is not: <c>X-Tenant</c> above already lets any anonymous caller
 /// name any tenant, by design, because that is how path-based routing works. Forging the host
@@ -40,6 +44,9 @@ public class TenantResolutionMiddleware(RequestDelegate next)
         if (!string.IsNullOrWhiteSpace(header))
         {
             tenant.Slug = header.Trim().ToLowerInvariant();
+            if (await RefusedInMultiAsync(context, tenant, domains))
+                return;
+
             await next(context);
             return;
         }
@@ -58,6 +65,9 @@ public class TenantResolutionMiddleware(RequestDelegate next)
             context.Response.StatusCode = StatusCodes.Status404NotFound;
             return;
         }
+
+        if (await RefusedInMultiAsync(context, tenant, domains))
+            return;
 
         await next(context);
     }
@@ -115,4 +125,51 @@ public class TenantResolutionMiddleware(RequestDelegate next)
         var value = TenantDomainMap.Normalise(host);
         return value is not null && value.Contains('.');
     }
+
+    /// <summary>
+    /// The whole body of the 404 a request gets in <see cref="TenancyMode.Multi"/> when it names no
+    /// registered, active tenant. One text for no tenant, an unregistered slug and an inactive
+    /// tenant, so the answer does not say which slugs were ever registered.
+    /// </summary>
+    public const string NoTenantMessage = "This deployment serves registered tenants only.";
+
+    /// <summary>
+    /// In Multi, ends a request that names no registered, active tenant, unless its route is one of
+    /// <see cref="TenantlessRoutes"/> or it is a CORS preflight. Does nothing in Single.
+    /// </summary>
+    /// <remarks>
+    /// A request let through without a tenant is put on the default slug, whatever it named. A
+    /// slug nobody registered then never reaches a session, an audit row or a cache key.
+    ///
+    /// A preflight is let through because a browser sends it without <c>X-Tenant</c>, so refusing
+    /// it would stop every cross-origin call that names its tenant in that header. The CORS
+    /// middleware, which is next, answers it and no endpoint runs.
+    /// </remarks>
+    /// <returns>True when the response has been written and the pipeline must stop.</returns>
+    private static async Task<bool> RefusedInMultiAsync(
+        HttpContext context, TenantContext tenant, ITenantDomainSource domains)
+    {
+        if (!context.RequestServices.GetRequiredService<TenancyOptions>().IsMulti)
+            return false;
+
+        var map = await domains.GetAsync(context.RequestAborted);
+        if (!tenant.IsDefault && map.IsActiveTenant(tenant.Slug))
+            return false;
+
+        if (TenantlessRoutes.Allows(context.Request.Path) || IsCorsPreflight(context.Request))
+        {
+            tenant.Slug = Models.Tenant.DefaultSlug;
+            return false;
+        }
+
+        context.Response.StatusCode = StatusCodes.Status404NotFound;
+        context.Response.ContentType = "text/plain; charset=utf-8";
+        await context.Response.WriteAsync(NoTenantMessage, context.RequestAborted);
+        return true;
+    }
+
+    private static bool IsCorsPreflight(HttpRequest request) =>
+        HttpMethods.IsOptions(request.Method)
+        && request.Headers.ContainsKey("Origin")
+        && request.Headers.ContainsKey("Access-Control-Request-Method");
 }

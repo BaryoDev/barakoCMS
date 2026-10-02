@@ -82,10 +82,12 @@ public sealed class TenantDomainSource : ITenantDomainSource
             .Where(t => t.Domains.Count > 0)
             .SelectMany(t => t.Domains.Select(d => (Domain: d, t.Slug)));
 
+        var slugs = tenants.Select(t => t.Slug).ToList();
+
         TenantDomainMap map;
         try
         {
-            map = new TenantDomainMap(entries);
+            map = new TenantDomainMap(entries, slugs);
         }
         catch (InvalidOperationException ex)
         {
@@ -93,7 +95,7 @@ public sealed class TenantDomainSource : ITenantDomainSource
             // every request down with it, including the admin request needed to correct it, so the
             // map degrades to empty and the conflict is logged loudly instead.
             _logger.LogError(ex, "Tenant domains conflict; custom domain resolution is disabled until it is resolved");
-            map = TenantDomainMap.Empty;
+            map = new TenantDomainMap([], slugs);
         }
 
         // Size is mandatory, not optional: the shared IMemoryCache is configured with a SizeLimit,

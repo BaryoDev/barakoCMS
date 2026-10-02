@@ -19,6 +19,7 @@ public class ScheduledContentService : BackgroundService
 {
     private readonly IDocumentStore _store;
     private readonly ILogger<ScheduledContentService> _logger;
+    private readonly IConfiguration? _configuration;
 
     // A minute is fine granularity for editorial scheduling and keeps the query load trivial (a couple
     // of indexed lookups per tenant per minute).
@@ -27,10 +28,12 @@ public class ScheduledContentService : BackgroundService
     // Transitions the scheduler makes are attributed to the system, not a user.
     public static readonly Guid SystemActor = Guid.Empty;
 
-    public ScheduledContentService(IDocumentStore store, ILogger<ScheduledContentService> logger)
+    public ScheduledContentService(
+        IDocumentStore store, ILogger<ScheduledContentService> logger, IConfiguration? configuration = null)
     {
         _store = store;
         _logger = logger;
+        _configuration = configuration;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -134,8 +137,12 @@ public class ScheduledContentService : BackgroundService
     private async Task SweepHeldAsync(DateTime nowUtc, CancellationToken ct)
     {
         // null slug => the default (no-explicit-tenant) partition, where single-deployment sites like
-        // baryo.dev keep their content; named slugs are the path-based tenants.
-        var partitions = new List<string?> { null };
+        // baryo.dev keep their content; named slugs are the path-based tenants. In Multi the default
+        // partition belongs to no tenant and is left as it is.
+        var partitions = new List<string?>();
+        if (Multitenancy.TenantPartitions.ServesDefaultPartition(_configuration))
+            partitions.Add(null);
+
         await using (var query = _store.QuerySession())
         {
             var tenants = await query.Query<Tenant>().Where(t => t.IsActive).ToListAsync(ct);
