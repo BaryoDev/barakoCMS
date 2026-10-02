@@ -27,6 +27,12 @@ internal sealed class Request
     /// <summary>For a choice, whether an entry holds a list of options rather than one.</summary>
     public bool Multiple { get; set; }
 
+    /// <summary>For a money field, the ISO 4217 code its amounts are in. Refused on any other type.</summary>
+    public string? Currency { get; set; }
+
+    /// <summary>For a money field with a currency, the decimal places an amount may carry. Defaults to the currency's own.</summary>
+    public int? Scale { get; set; }
+
     public bool IsRequired { get; set; }
     public object? DefaultValue { get; set; }
     public Dictionary<string, object>? ValidationRules { get; set; }
@@ -146,6 +152,8 @@ internal sealed class Endpoint(
             ReferenceType = req.ReferenceType,
             Options = req.Options,
             Multiple = req.Multiple,
+            Currency = req.Currency,
+            Scale = req.Scale,
             IsRequired = req.IsRequired,
             DefaultValue = req.DefaultValue,
             ValidationRules = req.ValidationRules ?? new Dictionary<string, object>(),
