@@ -22,7 +22,7 @@
 #   7. the Suite boots in Production mode, module schema preflight included, and serves
 #   8. an event appends to a stream that already existed, and the projection daemon resumes from
 #      its stored progression rather than restarting from zero
-#   9. 4.0 stops, and the rollback files are applied newest first:
+#   9. the new build stops, and the rollback files are applied newest first:
 #      migrations/4.5.0/rollback-email-sent-emails.sql,
 #      migrations/4.5.0/rollback-refresh-token-hash-index.sql,
 #      migrations/4.4.0/rollback-marten-9-38-quick-append-events.sql,
@@ -31,8 +31,8 @@
 #      migrations/4.2.0/rollback-site-share-links.sql,
 #      migrations/4.2.0/rollback-user-normalized-identity.sql and
 #      migrations/4.0.0/rollback-to-3.x.sql
-#  10. FROM_VERSION boots again against the rolled-back database and still serves the record 4.0
-#      wrote to, with every event still on its stream
+#  10. FROM_VERSION boots again against the rolled-back database and still serves the record the
+#      new build wrote to, with every event still on its stream
 #
 # Step 2 is asserted rather than skipped on purpose. If a future change makes the migration
 # unnecessary, this fails and someone finds out deliberately instead of shipping a stale file.
@@ -99,7 +99,7 @@ run_host() {
     # host somewhere other than the database under test and every check below would pass wrongly.
     #
     # HOST_EXEC=exec is for the backgrounded boot. `run_suite &` forks a subshell and $! names it,
-    # not dotnet, so killing $! left the 4.0 host running through the rollback and after the script.
+    # not dotnet, so killing $! left the new host running through the rollback and after the script.
     ${HOST_EXEC:-} env -i PATH="$PATH" HOME="$HOME" DOTNET_ROOT="${DOTNET_ROOT:-}" \
         ASPNETCORE_ENVIRONMENT=Production \
         ASPNETCORE_URLS="http://127.0.0.1:${NEW_PORT}" \
@@ -136,7 +136,7 @@ for port in "$PG_PORT" "$NEW_PORT" "$OLD_PORT"; do
     fi
 done
 
-step "building 4.0 from the working tree, the Suite and the core host"
+step "building the working tree, the Suite and the core host"
 dotnet publish BarakoCMS.Suite/BarakoCMS.Suite.csproj -c Release -o "$WORK/suite" --nologo -v q -clp:ErrorsOnly -p:RestoreLockedMode=true -nodeReuse:false
 dotnet publish barakoCMS/barakoCMS.csproj -c Release -o "$WORK/core" --nologo -v q -clp:ErrorsOnly -p:RestoreLockedMode=true -nodeReuse:false
 
@@ -270,7 +270,7 @@ docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-tra
 step "the migration left the daemon's progression alone"
 PROGRESSION_MIGRATED=$(psql_q "select coalesce(max(last_seq_id), 0) from mt_event_progression where name like '%WorkflowProjection%';")
 [ "$PROGRESSION_MIGRATED" = "$PROGRESSION_BEFORE" ] \
-    || fail "the migration moved the workflow projection from $PROGRESSION_BEFORE to $PROGRESSION_MIGRATED. A reset here means 4.0 replays every event on first boot, re-firing every workflow email, webhook and task."
+    || fail "the migration moved the workflow projection from $PROGRESSION_BEFORE to $PROGRESSION_MIGRATED. A reset here means the new build replays every event on first boot, re-firing every workflow email, webhook and task."
 echo "still $PROGRESSION_MIGRATED"
 
 step "core db-assert must now pass"
@@ -300,17 +300,17 @@ run_suite db-assert >"$WORK/assert-after-suite.log" 2>&1 || {
 }
 echo "Suite schema matches"
 
-step "booting the 4.0 Suite in Production against the migrated database"
+step "booting the working tree's Suite in Production against the migrated database"
 HOST_EXEC=exec run_suite >"$WORK/boot.log" 2>&1 &
 HOST_PID=$!
 NEW_URL="http://127.0.0.1:${NEW_PORT}"
 for _ in $(seq 1 60); do
     [ "$(curl -s -o /dev/null -w '%{http_code}' "$NEW_URL/health" || true)" = "200" ] && break
-    kill -0 "$HOST_PID" 2>/dev/null || { cat "$WORK/boot.log" >&2; fail "4.0 exited during startup"; }
+    kill -0 "$HOST_PID" 2>/dev/null || { cat "$WORK/boot.log" >&2; fail "the working tree's Suite exited during startup"; }
     sleep 2
 done
 [ "$(curl -s -o /dev/null -w '%{http_code}' "$NEW_URL/health")" = "200" ] || {
-    cat "$WORK/boot.log" >&2; fail "4.0 never became healthy"
+    cat "$WORK/boot.log" >&2; fail "the working tree's Suite never became healthy"
 }
 kill -0 "$HOST_PID" 2>/dev/null || {
     cat "$WORK/boot.log" >&2
@@ -353,15 +353,17 @@ echo "$PROGRESSION_BEFORE then $PROGRESSION_AFTER"
 # already has the admin user and the InitialAdmin env it was created with, so a second `docker run`
 # would either collide on the name or seed a second admin, and neither proves anything a restart of
 # the same container does not.
-step "stopping 4.0 before the rollback"
+step "stopping the working tree's Suite before the rollback"
 kill "$HOST_PID" 2>/dev/null || true
 wait "$HOST_PID" 2>/dev/null || true
 HOST_PID=""
 
 # Newest first, the reverse of the order the forward files ran in. FROM_VERSION asserts its own
-# schema and refuses to boot while anything it does not declare is still there, whether that is a
-# table or a column. The two 4.3.0 files touch different objects, so their order between
-# themselves does not matter; both have to run before the older rollbacks.
+# schema and refuses to boot over an index or column it does not declare on a table it does. A whole
+# table it does not declare does not stop it: a 4.x start boots again below with
+# mt_doc_public_forms still there, since only rollback-to-3.x.sql drops that one. The two 4.3.0
+# files touch different objects, so their order between themselves does not matter; both have to
+# run before the older rollbacks.
 step "applying migrations/4.5.0/rollback-email-sent-emails.sql"
 docker cp migrations/4.5.0/rollback-email-sent-emails.sql "$PG:/tmp/sent-emails-down.sql"
 docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/sent-emails-down.sql >/dev/null
@@ -408,7 +410,7 @@ done
 }
 echo "${FROM_VERSION} is healthy again"
 
-step "${FROM_VERSION} still serves the record 4.0 wrote to, after the rollback"
+step "${FROM_VERSION} still serves the record the working tree's build wrote to, after the rollback"
 ROLLBACK_TOKEN=$(curl -s -X POST "$OLD_URL/api/auth/login" -H 'Content-Type: application/json' \
     -d "{\"username\":\"admin\",\"password\":\"${ADMIN_PASSWORD}\"}" \
     | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('accessToken') or d.get('token') or '')")
@@ -419,13 +421,13 @@ ROLLBACK_FIRST_NAME=$(curl -s "$OLD_URL/api/contents/$CONTENT_ID" -H "Authorizat
 [ "$ROLLBACK_FIRST_NAME" = "Upgrade" ] \
     || fail "expected content $CONTENT_ID to still read back FirstName 'Upgrade' through ${FROM_VERSION} after rollback, got '$ROLLBACK_FIRST_NAME'"
 
-# The status change was made under 4.0 (newStatus 2, Archived). It lives on the document itself, not
+# The status change was made under the new build (newStatus 2, Archived). It lives on the document itself, not
 # only in the event stream, and rollback does not touch mt_doc_contents rows, so it must still be 2.
-# Read straight from the column rather than through the API: the JSON enum name is a 4.0-side detail
+# Read straight from the column rather than through the API: the JSON enum name is a detail of the new build
 # this test has no need to depend on.
 ROLLBACK_STATUS=$(psql_q "select data ->> 'Status' from mt_doc_contents where id = '$CONTENT_ID';")
 [ "$ROLLBACK_STATUS" = "2" ] \
-    || fail "expected content $CONTENT_ID to still have Status 2 (set by 4.0) after rollback, got '$ROLLBACK_STATUS'"
+    || fail "expected content $CONTENT_ID to still have Status 2 (set by the working tree's build) after rollback, got '$ROLLBACK_STATUS'"
 
 EVENTS_ROLLED_BACK=$(psql_q "select count(*) from mt_events where stream_id = '$CONTENT_ID';")
 [ "$EVENTS_ROLLED_BACK" = "$EVENTS_AFTER" ] \

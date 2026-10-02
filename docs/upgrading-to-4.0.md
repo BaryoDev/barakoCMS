@@ -188,10 +188,17 @@ Stop before the files of the release you are going back to. The list above goes 
 3.x. Going back to 4.2 or later, leave both `4.2.0` files out: 4.2 declares the share links table,
 and running that rollback there drops every link for nothing.
 
-Newest first. An earlier release asserts its own schema and reports a table it does not declare as
-outstanding, so it refuses to boot while `mt_doc_collection_syncs` is still there. Dropping it loses
-the sync schedules and field mappings, which nothing else records; the entries those syncs wrote are
-ordinary content and are untouched.
+Newest first. An earlier release asserts its own schema at startup. What it reports, and refuses
+to boot over, is an index or column it does not declare on a table it does declare, which is why
+the index and column rollbacks have to run. A whole table it does not declare is left alone and does
+not stop it booting: the rollback files drop those tables so the database is back to what that
+release built, not because the release needs it. One is left behind on a rollback to 4.0 or 4.1:
+`mt_doc_public_forms`, whose only drop is in `rollback-to-3.x.sql`. It is harmless there, and CI
+boots 4.1.0 beside it.
+
+The collection syncs file drops `mt_doc_collection_syncs`. That loses the sync schedules and field
+mappings, which nothing else records; the entries those syncs wrote are ordinary content and are
+untouched.
 
 The refresh token file drops the index on the token hash. A release before 4.5.0 looks refresh
 tokens up by their plain value, which 4.5.0 no longer stores, so anyone who signed in or refreshed on
@@ -206,8 +213,8 @@ file drops the same table, and running both is harmless.
 The user file puts the username and email unique indexes back on the stored values, which is where
 3.x declares them.
 
-The Email file drops `mt_doc_sent_emails`, which an earlier release also refuses to boot alongside.
-It loses only which tenant sent each email; a bounce reported after the rollback is recorded
+The Email file drops `mt_doc_sent_emails`, which an earlier release does not declare. It loses only
+which tenant sent each email; a bounce reported after the rollback is recorded
 without a tenant, as it was before.
 
 That restores the two `mt_streams` columns as NULL, which is what they were, and removes `bdata`.
