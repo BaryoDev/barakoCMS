@@ -2,8 +2,8 @@
 
 How barakoCMS is built and shipped. The code is written with an AI pair (Claude Code), but the
 process around it is deliberately engineered: nothing reaches users because a model felt confident.
-Every change is proven locally, gated by CI, deployed to a breakable tier, and verified running
-before it is promoted.
+Every change is proven locally and gated by CI, and a release is deployed to playground and verified
+running before its packages are published.
 
 This doc is the **playbook**. If you (person or agent) are about to build the next feature, follow
 the checklist in "Shipping a feature, step by step" and use the rest as reference.
@@ -15,8 +15,8 @@ An agent produces plausible code quickly. Plausible is not correct. The lifecycl
 - **Tests gate every promotion.** Not "the model says it's fine", the suite runs, red stops the line.
 - **Prove it locally first.** Unit and integration tests run on your machine before the branch is
   pushed. CI is the backstop, not the first discovery.
-- **A breakable tier absorbs mistakes.** New builds land on dev-playground first, on an empty
-  database, where breaking things is the point. Only then do they touch anything users see.
+- **A breakable tier absorbs mistakes.** dev-playground is where breaking things is the point. A
+  build goes there when someone starts the deploy by hand, not as a step every change passes through.
 - **Deploys are verified, not assumed.** After every deploy a smoke test logs in, creates content,
   and checks validation still rejects bad input. "It deployed" means the app worked, not that a job
   went green.
@@ -58,7 +58,7 @@ Two rules hold the checklist together:
 
 | Tier | URL | Purpose | Deploy trigger |
 |---|---|---|---|
-| **dev-playground** | dev-playground.baryo.dev | Breakable staging. Break it freely. | Push to a branch |
+| **dev-playground** | dev-playground.baryo.dev | Breakable staging. Break it freely. | Push to `dev`, or started by hand |
 | **playground** | playground.baryo.dev | Public demo. Released versions only. | Version-gated `master` release |
 | **production** | (private) | Real user data. | By hand, on purpose |
 
@@ -73,18 +73,16 @@ flowchart TD
     Z -- green --> B[Open PR]
     B --> C{CI: backend tests · upgrade and restore checks<br/>· compose and k8s checks · security scan}
     C -- red --> A
-    C -- green --> D[Merge to dev]
-    D --> E[deploy-dev-playground.yml:<br/>test → arm64 images → forced-command<br/>deploy → verify 200 → smoke test]
-    E -- red --> P[Discord ping]
-    E -- green --> F[Break it by hand on dev-playground<br/>+ capture screenshots]
-    F -- problem --> A
-    F -- holds up --> G[Bump &lt;Version&gt; in barakoCMS.csproj]
-    G --> H[PR dev → master, merge]
+    C -- green --> G[To release, bump &lt;Version&gt; in barakoCMS.csproj]
+    G --> H[Merge to master through the merge queue]
     H --> I{release.yml gate:<br/>version already on NuGet?}
     I -- yes --> J[No-op. Nothing ships.]
-    I -- no --> K[Publish NuGet + GH Packages<br/>Docker amd64 + arm64 :playground<br/>Promote playground → smoke test<br/>Announce w/ screenshots]
-    K -- red --> P
+    I -- no --> K[Publish NuGet + GH Packages<br/>Docker amd64 + arm64 :playground<br/>Promote playground, then smoke test<br/>Announce w/ screenshots]
+    K -- red --> P[Discord ping]
 ```
+
+dev-playground is not a step in this loop. `deploy-dev-playground.yml` runs on a push to `dev`, which
+nothing pushes to any more (see Branch model), or when someone starts it by hand.
 
 ## Shipping a feature, step by step
 
@@ -107,7 +105,7 @@ until this is green.
 dotnet test BarakoCMS.Tests/BarakoCMS.Tests.csproj -c Release
 ```
 
-Rule of thumb: **whatever you'll later verify by hand on dev-playground, pin it in a test first.**
+Rule of thumb: **whatever you would verify by hand on a running instance, pin it in a test first.**
 
 #### Security-sensitive changes get an extra gate
 
@@ -144,7 +142,7 @@ ship it.
 
 ### 1. Branch, PR, CI
 
-Work on a branch off `dev`. Push it and open a PR. CI (`ci.yml`) runs on every PR, and
+Work on a branch off `master`. Push it and open a PR against `master`. CI (`ci.yml`) runs on every PR, and
 `ci-branch.yml` runs it on a branch push that no open PR already covers:
 
 - **Backend.** Build plus the full `dotnet test` run, with Testcontainers Postgres.
@@ -154,11 +152,12 @@ Work on a branch off `dev`. Push it and open a PR. CI (`ci.yml`) runs on every P
 Red blocks the merge (the security job is informational until its backlogs are cleared). It is the same gate for a person or an agent. These are the same tests that
 already passed locally, CI confirms, it does not discover.
 
-### 2. Merge to `dev` → dev-playground
+### 2. dev-playground, when you want it
 
-Merging to `dev` triggers `deploy-dev-playground.yml`:
+`deploy-dev-playground.yml` runs on a push to `dev` or when started by hand. Nothing merges to `dev`
+any more (see Branch model), so it runs only when someone starts it:
 
-1. Run the test suite again (a merge is not a PR).
+1. Run the test suite again.
 2. Build the `:dev` suite image natively on an arm64 runner (the Ampere VM is arm64; no QEMU).
 3. Deploy over SSH with a **forced-command key**. The key in `authorized_keys` can only run
    `/home/opc/deploy-dev-playground.sh`, nothing else, so a leaked key can't open a shell. The script
@@ -168,7 +167,7 @@ Merging to `dev` triggers `deploy-dev-playground.yml`:
    smoke means "actually works."
 5. If any of this fails, Discord gets pinged.
 
-Then break it by hand on dev-playground. This is the tier where a broken build is fine.
+After a run, break it by hand on dev-playground. This is the tier where a broken build is fine.
 
 ### 3. Verify on the live tier
 
@@ -186,8 +185,8 @@ The single source of truth for a release is `<Version>` in `barakoCMS/barakoCMS.
 No auto-bumping. A merge never publishes by surprise, and a published version's Docker tags are never
 overwritten with different bits. **To ship, bump the version.** Update `CHANGELOG.md` in the same PR.
 
-Open the PR from `dev` to `master` and merge it with a **merge commit** (not squash, `dev` is
-long-lived; see Branch model). When the version is new, `release.yml`:
+The PR merges into `master` through the merge queue (see Branch model). When the version is new,
+`release.yml`:
 
 1. **Gate.** Read the version, check NuGet, decide if there's anything to release.
 2. **Test.** Run the suite once more.
@@ -299,7 +298,7 @@ The pipeline is automated; the judgment is not. A person, not the agent, decides
 
 - **When to cut a release** by bumping the version. Publishing to NuGet is irreversible and
   outward-facing, so it is deliberate, never a side effect of merging.
-- **What "stable enough" means** on dev-playground before promotion.
+- **What "stable enough" means** before a release.
 - **Anything touching the club.**
 
 The agent's job is to make each of those cheap and safe to act on: fast local feedback, honest

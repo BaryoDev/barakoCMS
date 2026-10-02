@@ -62,7 +62,8 @@ volumes of small files; for large-scale blob storage, use an object store instea
 
 ## Requires
 
-barakoCMS ≥ 4.0.0. Targets .NET 10.
+barakoCMS and BarakoCMS.Abstractions, at the versions NuGet lists as this package's dependencies.
+Neither is older than 4.3.0, the release that added BarakoCMS.Abstractions. Targets .NET 10.
 
 ## License
 
