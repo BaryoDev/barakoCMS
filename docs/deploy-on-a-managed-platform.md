@@ -211,10 +211,22 @@ rather than attempting a live migration, and a module that wants such a change i
 by the module schema preflight.
 
 When a release needs a SQL step, it ships under `migrations/<version>/` and inside the image. From
-4.6.0, run the image with `db-migrate` as a one-off job before rolling out, in the same form as
-`db-assert` below. It applies the files this database has not had and records each in a ledger
-table; [migrations.md](migrations.md) describes it. The job form on each platform is not tested
-here.
+4.6.0 the image applies it: `db-migrate`, run as a one-off job in the same form as `db-assert`
+below, runs the files this database has not had and records each in a ledger table.
+[migrations.md](migrations.md) describes it. The job form on each platform is not tested here.
+
+The order is the same as on a VM. Run `db-migrate --status` as a job first; it only reads, so the
+service can stay up. If it exits 0 there is nothing to apply. If it exits 1, stop the service (stop
+the app, or set the instance or task count to zero), run `db-migrate`, run `db-assert`, then roll
+out the new image. `db-migrate` must not run while the old revision serves: a file waits on the
+locks the API holds, and an index built `CONCURRENTLY` does not finish while the API has a
+transaction open, so the job would sit there until the platform kills it. A platform that will not
+let you stop the service without deleting it leaves two choices: take the service out of rotation
+some other way and stop its instances, or apply the pending files yourself in a window you control.
+There is no supported way to run a pending file under a serving API.
+
+A job the platform kills is not cancelled cleanly. See "A run that was killed" in
+[migrations.md](migrations.md) for what the database is left doing and how to find it.
 
 With an older image, or to apply one file by hand, run it from anywhere with `psql` and network
 access (Cloud Shell, a bastion, a one-off task):

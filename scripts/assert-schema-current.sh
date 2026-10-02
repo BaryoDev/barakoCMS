@@ -44,8 +44,10 @@ The deploy was stopped BEFORE the running container was replaced, so the site is
 previous build and the database is untouched.
 
 AutoCreate.CreateOnly will not apply these. Run the migrations for the version being deployed. From
-4.6.0 the image does it, in order, and records each one (docs/migrations.md):
+4.6.0 the image does it, in order, and records each one (docs/migrations.md). Stop the service
+first: a migration must not run under a serving API.
 
+    docker compose stop <service>
     docker compose run --rm --no-deps <service> db-migrate
 
 With an older image, apply each file by hand:

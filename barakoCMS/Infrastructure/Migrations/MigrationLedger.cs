@@ -20,7 +20,10 @@ internal static class MigrationState
     /// <summary>Status only: no row, and the next run records it as baselined without running it.</summary>
     public const string NotNeeded = "not-needed";
 
-    /// <summary>Status only: the row's checksum is not the shipped file's.</summary>
+    /// <summary>
+    /// Status only: the file was run or recorded here, and the row's checksum is not the shipped
+    /// file's. A baselined row whose file changed keeps its own state: see <see cref="MigrationStatusLine.FileChanged"/>.
+    /// </summary>
     public const string Changed = "changed";
 }
 
@@ -29,7 +32,11 @@ internal sealed record LedgerRow(string Owner, string Id, string Checksum, strin
     public string Key => $"{Owner}/{Id}";
 }
 
-internal sealed record MigrationStatusLine(ShippedMigration Migration, string State, LedgerRow? Row);
+internal sealed record MigrationStatusLine(ShippedMigration Migration, string State, LedgerRow? Row)
+{
+    /// <summary>The row was written for a file with different content than this build ships.</summary>
+    public bool FileChanged => Row is not null && Row.Checksum != Migration.Checksum;
+}
 
 /// <param name="Lines">One line per shipped migration, in run order.</param>
 /// <param name="NotShipped">Rows whose file this build does not ship: a module that is off, or a newer build's file.</param>
@@ -49,12 +56,13 @@ internal enum MigrationRunOutcome
     LockBusy,
     ChecksumMismatch,
     Failed,
+    Cancelled,
 }
 
 /// <param name="Applied">Keys of the files this run executed and recorded.</param>
 /// <param name="Baselined">Keys this run recorded without executing.</param>
 /// <param name="Changed">Rows whose checksum differs from the shipped file. Not empty means nothing ran.</param>
-/// <param name="FailedKey">The migration the run stopped at.</param>
+/// <param name="FailedKey">The migration the run stopped at, when it failed or was cancelled inside one.</param>
 /// <param name="Error">What the database said about it.</param>
 internal sealed record MigrationRunResult(
     MigrationRunOutcome Outcome,
@@ -87,9 +95,27 @@ internal sealed record MigrationRunResult(
 /// A run holds a session advisory lock on its own connection from before it reads the ledger until it
 /// ends. A second run does not wait: it is told the lock is held and changes nothing.
 /// </para>
+/// <para>
+/// A file that carries a skip query has to make it true. The query is asked again after the file
+/// has run, and a false answer fails the file with no row. That is what catches an index build that
+/// was interrupted: the invalid index it leaves makes <c>CREATE INDEX IF NOT EXISTS</c> a no-op.
+/// </para>
 /// </remarks>
-internal sealed class MigrationLedger(Func<NpgsqlConnection> connect, string recordedBy)
+internal sealed class MigrationLedger(
+    Func<NpgsqlConnection> connect, string recordedBy, string schemaName = MigrationLedger.SupportedSchema)
 {
+    /// <summary>The schema the ledger table and every shipped file name.</summary>
+    public const string SupportedSchema = "public";
+
+    /// <summary>
+    /// False for a store that keeps its tables somewhere other than <c>public</c>. Every check here
+    /// looks in <c>public</c>, so on such a store an empty answer would mean nothing, and the command
+    /// and the start both refuse to read anything into it.
+    /// </summary>
+    public bool SchemaSupported => string.Equals(schemaName, SupportedSchema, StringComparison.Ordinal);
+
+    public string SchemaName => schemaName;
+
     /// <summary>Same family as <c>SchemaApplyLock.Key</c> and the sweep keys.</summary>
     public const long LockKey = 8_242_026_901L;
 
@@ -132,6 +158,11 @@ internal sealed class MigrationLedger(Func<NpgsqlConnection> connect, string rec
 
     private const string DeleteSql = "delete from public.barako_migrations where owner = @owner and id = @id";
 
+    // Sessions of the application's own role are visible to this one, which connects as it does.
+    private const string OpenTransactionsSql =
+        "select count(*) from pg_stat_activity where datname = current_database() and pid <> pg_backend_pid() "
+        + "and backend_type = 'client backend' and xact_start is not null";
+
     /// <summary>
     /// Runs every shipped migration the ledger lacks, in order, and stops at the first failure.
     /// </summary>
@@ -141,7 +172,13 @@ internal sealed class MigrationLedger(Func<NpgsqlConnection> connect, string rec
     /// <c>no-transaction</c> is executed first and recorded after: a crash between the two leaves the
     /// change without its row, so such a file has to be safe to run again.
     ///
-    /// Nothing runs when a recorded migration differs from the file this build ships.
+    /// Nothing runs when a migration that was run or recorded here differs from the file this build
+    /// ships. A baselined row whose file changed is reported and does not stop the run: that file
+    /// never ran on this database and never will, so the edit cannot have split what ran from what
+    /// is recorded.
+    ///
+    /// Cancelling <paramref name="ct"/> sends a cancel request to the server for the statement in
+    /// flight, and the run ends as <see cref="MigrationRunOutcome.Cancelled"/>.
     /// </remarks>
     public async Task<MigrationRunResult> ApplyAsync(
         IReadOnlyList<ShippedMigration> shipped, Action<string> report, CancellationToken ct = default)
@@ -149,8 +186,16 @@ internal sealed class MigrationLedger(Func<NpgsqlConnection> connect, string rec
         ArgumentNullException.ThrowIfNull(shipped);
         ArgumentNullException.ThrowIfNull(report);
 
-        var (locked, result) = await UnderLockAsync(connection => ApplyLockedAsync(connection, shipped, report, ct), ct);
-        return locked ? result! : new MigrationRunResult(MigrationRunOutcome.LockBusy, [], [], []);
+        try
+        {
+            var (locked, result) = await UnderLockAsync(connection => ApplyLockedAsync(connection, shipped, report, ct), ct);
+            return locked ? result! : new MigrationRunResult(MigrationRunOutcome.LockBusy, [], [], []);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Between files. A cancellation inside one is reported with its key, below.
+            return new MigrationRunResult(MigrationRunOutcome.Cancelled, [], [], []);
+        }
     }
 
     private async Task<MigrationRunResult> ApplyLockedAsync(
@@ -161,14 +206,23 @@ internal sealed class MigrationLedger(Func<NpgsqlConnection> connect, string rec
 
         var changed = shipped
             .Where(m => rows.TryGetValue((m.Owner, m.Id), out var row) && row.Checksum != m.Checksum)
-            .Select(m => new MigrationStatusLine(m, MigrationState.Changed, rows[(m.Owner, m.Id)]))
+            .Select(m => new MigrationStatusLine(m, StateOf(rows[(m.Owner, m.Id)], m), rows[(m.Owner, m.Id)]))
             .ToList();
-        if (changed.Count > 0)
-            return new MigrationRunResult(MigrationRunOutcome.ChecksumMismatch, [], [], changed);
+        var blocking = changed.Where(l => l.State == MigrationState.Changed).ToList();
+        if (blocking.Count > 0)
+            return new MigrationRunResult(MigrationRunOutcome.ChecksumMismatch, [], [], blocking);
+
+        foreach (var line in changed)
+        {
+            report($"warning    {line.Migration.Key}  was baselined here and never run, and its file has changed since: "
+                + $"recorded {line.Row!.Checksum}, this build ships {line.Migration.Checksum}. Nothing was done about it. "
+                + $"db-migrate --record {line.Migration.Key} accepts the file as shipped.");
+        }
 
         var fresh = await IsFreshAsync(connection, ct);
         var applied = new List<string>();
         var baselined = new List<string>();
+        var lookedForOpenTransactions = false;
 
         foreach (var migration in shipped)
         {
@@ -185,6 +239,18 @@ internal sealed class MigrationLedger(Func<NpgsqlConnection> connect, string rec
                         + (fresh ? "this database has not been started yet" : "its skip-when query found the change already in place")
                         + ")");
                     continue;
+                }
+
+                if (!lookedForOpenTransactions)
+                {
+                    lookedForOpenTransactions = true;
+                    var open = await OpenTransactionsAsync(connection, ct);
+                    if (open > 0)
+                    {
+                        report($"warning    {open} other session(s) have a transaction open on this database. Stop the API "
+                            + "before migrating: a file waits on the locks they hold, and an index built CONCURRENTLY "
+                            + "waits for every transaction older than itself, so it does not finish while one stays open.");
+                    }
                 }
 
                 // psql prints what a file raises, and some files tell the operator something only that
@@ -205,10 +271,16 @@ internal sealed class MigrationLedger(Func<NpgsqlConnection> connect, string rec
                 applied.Add(migration.Key);
                 report($"applied    {migration.Key}");
             }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                return new MigrationRunResult(MigrationRunOutcome.Cancelled, applied, baselined, [], migration.Key);
+            }
             catch (Exception ex) when (ex is NpgsqlException or InvalidOperationException)
             {
-                return new MigrationRunResult(
-                    MigrationRunOutcome.Failed, applied, baselined, [], migration.Key, Describe(ex));
+                // A cancel request can also come back as the server's own "canceling statement" error.
+                return ct.IsCancellationRequested
+                    ? new MigrationRunResult(MigrationRunOutcome.Cancelled, applied, baselined, [], migration.Key)
+                    : new MigrationRunResult(MigrationRunOutcome.Failed, applied, baselined, [], migration.Key, Describe(ex));
             }
         }
 
@@ -236,8 +308,7 @@ internal sealed class MigrationLedger(Func<NpgsqlConnection> connect, string rec
         {
             if (rows.TryGetValue((migration.Owner, migration.Id), out var row))
             {
-                lines.Add(new MigrationStatusLine(
-                    migration, row.Checksum == migration.Checksum ? row.State : MigrationState.Changed, row));
+                lines.Add(new MigrationStatusLine(migration, StateOf(row, migration), row));
                 continue;
             }
 
@@ -273,6 +344,9 @@ internal sealed class MigrationLedger(Func<NpgsqlConnection> connect, string rec
         IReadOnlyList<ShippedMigration> shipped, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(shipped);
+
+        if (!SchemaSupported)
+            return [];
 
         await using (var probe = connect())
         {
@@ -363,9 +437,10 @@ internal sealed class MigrationLedger(Func<NpgsqlConnection> connect, string rec
                 release.Parameters.AddWithValue("key", LockKey);
                 await release.ExecuteScalarAsync(CancellationToken.None);
             }
-            catch (NpgsqlException)
+            catch (Exception ex) when (ex is NpgsqlException or InvalidOperationException)
             {
-                // The connection is gone, and the lock went with it.
+                // The connection is gone, and the lock went with it. Npgsql says so with either type,
+                // and letting it out of this finally would replace the result that names the file.
             }
         }
     }
@@ -375,6 +450,7 @@ internal sealed class MigrationLedger(Func<NpgsqlConnection> connect, string rec
         if (!migration.Transactional)
         {
             await ExecuteFileAsync(connection, null, migration.Sql, ct);
+            await RequireInPlaceAsync(connection, null, migration, ct);
             await WriteRowAsync(connection, null, InsertSql, migration, MigrationState.Applied, ct);
             return;
         }
@@ -382,8 +458,37 @@ internal sealed class MigrationLedger(Func<NpgsqlConnection> connect, string rec
         // Disposed without a commit, the transaction rolls back, which is what an exception does here.
         await using var transaction = await connection.BeginTransactionAsync(ct);
         await ExecuteFileAsync(connection, transaction, migration.Sql, ct);
+        await RequireInPlaceAsync(connection, transaction, migration, ct);
         await WriteRowAsync(connection, transaction, InsertSql, migration, MigrationState.Applied, ct);
         await transaction.CommitAsync(ct);
+    }
+
+    private static async Task RequireInPlaceAsync(
+        NpgsqlConnection connection, NpgsqlTransaction? transaction, ShippedMigration migration, CancellationToken ct)
+    {
+        if (migration.SkipWhen is null)
+            return;
+
+        await using var command = new NpgsqlCommand(migration.SkipWhen, connection, transaction);
+        if (await command.ExecuteScalarAsync(ct) is true)
+            return;
+
+        throw new InvalidOperationException(
+            "the file ran and its skip-when query still answers false, so its change is not in place and nothing "
+            + "was recorded. If the file builds an index CONCURRENTLY, an earlier build that was interrupted has "
+            + "left an invalid index under that name, which IF NOT EXISTS then skips: drop that index and run "
+            + "db-migrate again. See docs/migrations.md.");
+    }
+
+    private static string StateOf(LedgerRow row, ShippedMigration migration) =>
+        row.Checksum == migration.Checksum || row.State == MigrationState.Baselined
+            ? row.State
+            : MigrationState.Changed;
+
+    private static async Task<long> OpenTransactionsAsync(NpgsqlConnection connection, CancellationToken ct)
+    {
+        await using var command = new NpgsqlCommand(OpenTransactionsSql, connection);
+        return Convert.ToInt64(await command.ExecuteScalarAsync(ct));
     }
 
     private static async Task<bool> NotNeededAsync(NpgsqlConnection connection, ShippedMigration migration, CancellationToken ct)
@@ -410,7 +515,8 @@ internal sealed class MigrationLedger(Func<NpgsqlConnection> connect, string rec
     {
         await using var command = new NpgsqlCommand(sql, connection, transaction);
         // An index build or a backfill has no fixed length, and Npgsql's 30 second default would cut
-        // one off part way. The operator's cancellation is the bound.
+        // one off part way. The bound is the caller's token: cancelling it makes Npgsql send the
+        // server a cancel request for this statement.
         command.CommandTimeout = 0;
         await command.ExecuteNonQueryAsync(ct);
     }

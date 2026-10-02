@@ -196,6 +196,10 @@ public class MigrationHostTests
         start.Environment["DOTNET_ROOT"] = Environment.GetEnvironmentVariable("DOTNET_ROOT") ?? string.Empty;
         start.Environment["ASPNETCORE_ENVIRONMENT"] = "Production";
         start.Environment["ASPNETCORE_URLS"] = "http://127.0.0.1:0";
+        // Each child would otherwise take an inotify instance to watch its configuration files, and
+        // a full run on a small box sits close to the per-user limit already.
+        start.Environment["DOTNET_USE_POLLING_FILE_WATCHER"] = "1";
+        start.Environment["DOTNET_hostBuilder__reloadConfigOnChange"] = "false";
         start.Environment["SKIP_SEEDER"] = "true";
         start.Environment["Kubernetes__Enabled"] = "false";
         start.Environment["JWT__Key"] = IntegrationTestFixture.JwtKey;

@@ -115,6 +115,31 @@ public class MigrationCommandTests
         (await database.RunsAsync()).Should().BeEmpty();
     }
 
+    /// <summary>
+    /// The shipped files and the ledger name <c>public</c>. On a store that keeps its tables elsewhere
+    /// the "new database" check would find no users table and record everything as done.
+    /// </summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData("--status")]
+    [InlineData("--record core/4.6.0/first")]
+    public async Task A_store_outside_the_public_schema_is_refused_and_nothing_is_recorded(string arguments)
+    {
+        await using var database = await MigrationScratchDatabase.CreateAsync(_factory, started: false);
+        var output = new StringWriter();
+
+        var exit = await MigrationCommand.RunAsync(
+            database.Ledger("tenant_a"),
+            [Insert("first")],
+            arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries),
+            output,
+            TestContext.Current.CancellationToken);
+
+        exit.Should().Be(1);
+        output.ToString().Should().Contain("schema other than public").And.Contain("Nothing was read, run or recorded");
+        (await database.LedgerAsync()).Should().BeEmpty();
+    }
+
     [Theory]
     [InlineData("--baseline 4.5.0")]
     [InlineData("--record")]

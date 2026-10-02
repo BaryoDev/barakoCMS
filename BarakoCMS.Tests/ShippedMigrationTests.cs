@@ -21,6 +21,32 @@ public class ShippedMigrationTests
         "4.5.0/email-sent-emails",
     ];
 
+    /// <summary>
+    /// The checksum of every migration file in a released version, as the ledgers out there hold it.
+    /// </summary>
+    /// <remarks>
+    /// Add a line when a version is released. Never change one: a database that ran the file refuses
+    /// to migrate while its recorded checksum differs from the shipped file's, so an edit here is an
+    /// edit to every deployment's next upgrade. A further change is a new file.
+    /// </remarks>
+    private static readonly Dictionary<string, string> Released = new(StringComparer.Ordinal)
+    {
+        ["core/4.0.0/3.x-to-4.0"] = "d6beb5e32bb999d3cc080bcaba824bb1ce9b46ecc87d06232dd49564a69d232d",
+        ["Forms/4.2.0/forms-public-forms"] = "e009a277501a3651668df63a6e0ccb23b4e904f04e115ab0bd53324fbc7e92de",
+        ["core/4.2.0/site-share-links"] = "9974c4ec184040c620a38d7a17836ee7dade898d3be612a9cabce36a58d18d54",
+        ["Files/4.2.0/stored-files-parent-index"] = "b57a23197cbd344020625fae8df4c268d2c449639209e1d73b71ef37d2ff96be",
+        ["core/4.2.0/user-normalized-identity"] = "9aa6abcce493754bff4c36277f391adb95b32c8892a848f5db47e53d9aaa923c",
+        ["core/4.3.0/collection-syncs"] = "5e6bfbb5045bb318be0febd8722406d5b6aaf2f81319fbd4eabcdf19e0cdab95",
+        ["core/4.3.0/marten-9-37-event-store-columns"] = "5d6df1963b0b8a32852f05dc53c9c3efdf6b992bb378fbb35403be51b66a9f24",
+        ["core/4.4.0/marten-9-38-quick-append-events"] = "4ad71cedf652c705f6603a0f7de7fb6a7b4d8660b6e55a50d3b5c8156f20dae9",
+        ["Email.Resend/4.5.0/email-sent-emails"] = "c0e606da0fefdde0bc1b9bd644e8e63fb55deba306b547399063946762cdf996",
+        ["core/4.5.0/refresh-token-hash-index"] = "3ee5a9d53d0cdc0a85907dcb10a546a467deb3718f48376d07f5aa7040b40c3e",
+    };
+
+    private static IReadOnlyList<ShippedMigration> FirstParty() =>
+        ShippedMigrations.Discover(
+            [new BarakoCMS.Forms.FormsModule(), new BarakoCMS.Files.FilesModule(), new BarakoCMS.Email.Resend.ResendEmailModule()]);
+
     private sealed class SecondOwnerOfTheFilesAssembly : IBarakoModule
     {
         public string Name => "Second Owner";
@@ -75,6 +101,7 @@ public class ShippedMigrationTests
             "Email.Resend/4.5.0/email-sent-emails",
             "Files/4.2.0/stored-files-parent-index",
             "Forms/4.2.0/forms-public-forms");
+        coreOnly.Count.Should().BeGreaterThanOrEqualTo(7, "seven core files were released before the ledger");
         coreOnly.Should().HaveCount(all.Count - 3, "a module that is not enabled contributes nothing");
         coreOnly.Should().OnlyContain(m => m.Owner == ShippedMigrations.CoreOwner);
         coreOnly.Select(m => m.Id).Should().NotIntersectWith(ModuleOwned, "core must not also ship a module's file");
@@ -121,6 +148,80 @@ public class ShippedMigrationTests
             "that file builds its index CONCURRENTLY, and no other pre-ledger file does");
     }
 
+    /// <summary>
+    /// The gate for "a released migration is never edited". Released means the version folder is not
+    /// above core's own version, which the release commit sets: so the release that ships a new
+    /// folder fails here until its files are pinned, and from then on an edit to one fails here
+    /// instead of at somebody's deploy.
+    /// </summary>
+    [Fact]
+    public void A_released_migration_file_has_not_been_edited()
+    {
+        var core = Core.GetName().Version!;
+        var releasedThrough = new Version(core.Major, core.Minor, core.Build);
+        var shipped = FirstParty();
+        var released = shipped.Where(m => Version.Parse(m.Version) <= releasedThrough).ToList();
+
+        var problems = new List<string>();
+        foreach (var migration in released)
+        {
+            if (!Released.TryGetValue(migration.Key, out var pinned))
+            {
+                problems.Add($"{migration.Key} is in a released version and is not pinned. Add to Released: "
+                    + $"[\"{migration.Key}\"] = \"{migration.Checksum}\",");
+            }
+            else if (pinned != migration.Checksum)
+            {
+                problems.Add($"{migration.Key} was edited after it was released (pinned {pinned}, now {migration.Checksum}). "
+                    + "Put the file back and add a new migration file for the change.");
+            }
+        }
+
+        problems.AddRange(Released.Keys
+            .Except(shipped.Select(m => m.Key))
+            .Select(key => $"{key} is pinned as released and is no longer shipped. A released migration is not removed, renamed or moved to another owner."));
+
+        releasedThrough.Should().BeGreaterThanOrEqualTo(new Version(4, 5, 0), "core's assembly version is what marks a folder as released");
+        released.Count.Should().BeGreaterThanOrEqualTo(10, "ten files were released before the ledger");
+        problems.Should().BeEmpty(
+            "a released migration file is never edited, comments included: every database that ran it would refuse "
+            + "to migrate until someone ran db-migrate --record by hand");
+    }
+
+    /// <summary>
+    /// A database migrated by hand has no ledger, so its first run executes every file that has no
+    /// skip query. A file added from 4.6.0 on therefore has to carry one, or say in so many words that
+    /// a second run is harmless.
+    /// </summary>
+    [Fact]
+    public void Every_file_added_since_the_ledger_says_what_happens_where_its_change_is_already_in_place()
+    {
+        var silent = FirstParty()
+            .Where(m => Version.Parse(m.Version) >= new Version(4, 6, 0))
+            .Where(m => !m.SafeWhereAlreadyApplied)
+            .Select(m => m.Key)
+            .ToList();
+
+        silent.Should().BeEmpty(
+            "each of these needs a `-- barako:skip-when: <query>` line, or `-- barako:rerunnable` if running it twice "
+            + "changes nothing (docs/migrations.md, \"Writing a migration file\")");
+    }
+
+    // The control for the test above: without it, a rule that flags nothing passes on an empty list.
+    [Fact]
+    public void A_file_with_neither_a_skip_query_nor_a_rerunnable_line_is_the_one_that_rule_flags()
+    {
+        var bare = ShippedMigrations.Parse("core", "4.6.0/bare.sql", "update public.things set n = n + 1;");
+        var vouched = ShippedMigrations.Parse("core", "4.6.0/vouched.sql", "-- barako:rerunnable\ncreate table if not exists public.things (n int);");
+        var guarded = ShippedMigrations.Parse("core", "4.6.0/guarded.sql", "-- barako:skip-when: select true\nselect 1;");
+
+        bare.SafeWhereAlreadyApplied.Should().BeFalse();
+        bare.Rerunnable.Should().BeFalse();
+        vouched.SafeWhereAlreadyApplied.Should().BeTrue();
+        vouched.Rerunnable.Should().BeTrue();
+        guarded.SafeWhereAlreadyApplied.Should().BeTrue();
+    }
+
     [Fact]
     public void Two_enabled_modules_cannot_both_own_one_assemblys_migrations()
     {
@@ -162,6 +263,7 @@ public class ShippedMigrationTests
     [InlineData("core", "4.6.0/a.sql", "-- barako:skip-wen: select true\nselect 1;", "does not know")]
     [InlineData("core", "4.6.0/a.sql", "-- barako:skip-when: select true\n-- barako:skip-when: select false\nselect 1;", "more than one")]
     [InlineData("core", "4.6.0/a.sql", "-- barako:skip-when:\nselect 1;", "empty")]
+    [InlineData("core", "4.6.0/a.sql", "-- barako:no-transaction\ncreate index concurrently i on t (c);", "neither a skip-when query nor")]
     [InlineData("core", "tenancy/001-app-role.sql", "select 1;", "is not named")]
     [InlineData("core", "4.6/a.sql", "select 1;", "is not named")]
     [InlineData("core", "4.6.0/nested/a.sql", "select 1;", "is not named")]

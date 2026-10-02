@@ -4,6 +4,7 @@ using Marten;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Serilog;
+using System.Runtime.InteropServices;
 
 namespace barakoCMS.Extensions;
 
@@ -35,7 +36,43 @@ public static class BarakoCommandExtensions
 
         var store = host.Services.GetRequiredService<IDocumentStore>();
         var shipped = ShippedMigrations.Discover(EnabledModules(host.Services));
-        return await MigrationCommand.RunAsync(LedgerFor(store), shipped, args[1..], Console.Out);
+
+        // The host is never started for a command, so nothing else is listening for these. Without
+        // a token, Ctrl+C or `docker stop` ends this process and leaves the server working through
+        // the file it was already sent, holding its locks and the migration lock.
+        using var stop = new CancellationTokenSource();
+        void Stop()
+        {
+            try
+            {
+                stop.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // The command had already finished.
+            }
+        }
+
+        ConsoleCancelEventHandler onInterrupt = (_, e) =>
+        {
+            e.Cancel = true;
+            Stop();
+        };
+        Console.CancelKeyPress += onInterrupt;
+        using var onTerminate = PosixSignalRegistration.Create(PosixSignal.SIGTERM, context =>
+        {
+            context.Cancel = true;
+            Stop();
+        });
+
+        try
+        {
+            return await MigrationCommand.RunAsync(LedgerFor(store), shipped, args[1..], Console.Out, stop.Token);
+        }
+        finally
+        {
+            Console.CancelKeyPress -= onInterrupt;
+        }
     }
 
     /// <summary>
@@ -60,6 +97,13 @@ public static class BarakoCommandExtensions
                 return none;
 
             var ledger = LedgerFor(store);
+            if (!ledger.SchemaSupported)
+            {
+                Log.Warning(
+                    "This store keeps its tables in schema {Schema}. The migration ledger and the shipped migrations name public, so this start neither reads nor writes the ledger.",
+                    ledger.SchemaName);
+                return none;
+            }
             var baselined = await ledger.BaselineIfFreshAsync(shipped, ct);
             if (baselined is null)
             {
@@ -108,5 +152,6 @@ public static class BarakoCommandExtensions
     // password out of that string unless Persist Security Info is set.
     private static MigrationLedger LedgerFor(IDocumentStore store) =>
         new(() => store.Storage.Database.CreateConnection(),
-            $"barakoCMS {typeof(MigrationLedger).Assembly.GetName().Version}");
+            $"barakoCMS {typeof(MigrationLedger).Assembly.GetName().Version}",
+            store.Options.DatabaseSchemaName);
 }

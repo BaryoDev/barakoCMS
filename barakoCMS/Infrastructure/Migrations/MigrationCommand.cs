@@ -15,12 +15,19 @@ internal static class MigrationCommand
         db-migrate --forget <key>        remove a migration's row, after rolling it back by hand
 
         A key is owner/version/name as --status prints it, such as core/4.2.0/site-share-links.
+        Stop the API before a run that has files to execute. --status only reads.
         Exit code 0 means the ledger matches this build. Anything else is 1.
         """;
 
     private const string LockBusy =
         "Another db-migrate run holds the migration lock on this database. Nothing was changed. "
-        + "Run this again when it has finished.";
+        + "Run this again when it has finished. If no run is alive, a session left by one that was killed "
+        + "is still working at the database: docs/migrations.md, \"A run that was killed\", has the query that finds it.";
+
+    private const string SchemaNotPublic =
+        "This store keeps its tables in a schema other than public. The ledger and every shipped migration "
+        + "name public, so nothing here can tell what this database has had. Nothing was read, run or recorded. "
+        + "Apply the files under migrations/ by hand against your schema.";
 
     public static bool IsNamed(string[] args) => args.Length > 0 && args[0] == Name;
 
@@ -32,6 +39,12 @@ internal static class MigrationCommand
         TextWriter output,
         CancellationToken ct = default)
     {
+        if (!ledger.SchemaSupported)
+        {
+            output.WriteLine(SchemaNotPublic);
+            return 1;
+        }
+
         switch (args)
         {
             case []:
@@ -67,6 +80,14 @@ internal static class MigrationCommand
                     + "already has its change, run db-migrate --record <key> to record it again.");
                 return 1;
 
+            case MigrationRunOutcome.Cancelled:
+                output.WriteLine(result.FailedKey is null
+                    ? "cancelled  between files. Every migration listed above stays in place with its row."
+                    : $"cancelled  {result.FailedKey}  The statement in flight was cancelled at the database. A file that "
+                      + "runs in a transaction was rolled back; it has no row and runs from the top next time. A "
+                      + "no-transaction file may have left an index half built: the next run says so and names the fix.");
+                return 1;
+
             case MigrationRunOutcome.Failed:
                 output.WriteLine($"failed     {result.FailedKey}  {result.Error}");
                 output.WriteLine(
@@ -91,7 +112,10 @@ internal static class MigrationCommand
         {
             output.WriteLine(line.Row is null
                 ? $"{line.State,-10} {line.Migration.Key}"
-                : $"{line.State,-10} {line.Migration.Key}  {line.Row.RecordedAt} UTC");
+                : $"{line.State,-10} {line.Migration.Key}  {line.Row.RecordedAt} UTC"
+                  + (line.State != MigrationState.Changed && line.FileChanged
+                      ? "  (never run here, and the file has changed since it was baselined)"
+                      : string.Empty));
         }
 
         foreach (var row in status.NotShipped)

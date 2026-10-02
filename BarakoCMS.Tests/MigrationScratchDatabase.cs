@@ -48,7 +48,21 @@ internal sealed class MigrationScratchDatabase : IAsyncDisposable
         return database;
     }
 
-    public MigrationLedger Ledger() => new(() => new NpgsqlConnection(ConnectionString), "tests");
+    public MigrationLedger Ledger(string schema = MigrationLedger.SupportedSchema) =>
+        new(() => new NpgsqlConnection(ConnectionString), "tests", schema);
+
+    /// <summary>Polls until the query answers true, and fails the test if it never does.</summary>
+    public async Task WaitForAsync(string sql, string what)
+    {
+        for (var attempt = 0; attempt < 300; attempt++)
+        {
+            if (await IsTrueAsync(sql))
+                return;
+            await Task.Delay(TimeSpan.FromMilliseconds(100));
+        }
+
+        throw new Xunit.Sdk.XunitException($"Waited 30 seconds and never saw {what}.");
+    }
 
     public async Task ExecuteAsync(string sql)
     {

@@ -98,8 +98,26 @@ ask_nuget() { # $1 = csproj, $2 = module, $3 = version
 # self-trigger. packages.lock.json is excluded for the same reason: it follows
 # Directory.Packages.props, which already sits outside every module directory, so a dependency bump
 # keeps not forcing a version bump on every module at once.
+#
+# A module's SQL migrations are part of its package and do not live in its directory: the .csproj
+# embeds them from migrations/ at the repository root (docs/migrations.md). So the files it links
+# there count as the module's own. Without that, a new or changed module migration is one line in a
+# .csproj and a file this function never looked at, the release skips the unbumped package, and the
+# migration ships in nothing: core's own embed leaves a module's files out.
+linked_migrations() { # $1 = module; prints the paths under migrations/ its .csproj embeds
+  local csproj
+  for csproj in "$1"/*.csproj; do
+    [ -f "$csproj" ] || continue
+    sed -n 's/.*Include="\.\.[\\/]\(migrations[\\/][^"*]*\.sql\)".*/\1/p' "$csproj" | tr '\\' '/'
+  done
+}
+
 module_commits() { # $1 = range, $2 = module
-  git log --no-color --oneline "$1" -- "$2" ':!*.csproj' ':!*/packages.lock.json'
+  local links=() link
+  while IFS= read -r link; do
+    [ -n "$link" ] && links+=("$link")
+  done < <(linked_migrations "$2")
+  git log --no-color --oneline "$1" -- "$2" ${links[@]+"${links[@]}"} ':!*.csproj' ':!*/packages.lock.json'
 }
 
 if [ -n "${CHECK_MODULE_VERSIONS_NUGET_DIR:-}" ]; then

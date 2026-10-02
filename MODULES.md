@@ -334,8 +334,11 @@ Rules the host holds you to:
 - A file that has been released is not edited. The ledger stores its checksum, and a run refuses to
   do anything while a recorded file differs from the shipped one.
 - A file runs in a transaction with its ledger row. Write plain SQL, with no `BEGIN` or `COMMIT`.
+- Say what happens where the change is already in place: either the skip query below, or a
+  `-- barako:rerunnable` line if running the file twice changes nothing.
 - Add `-- barako:skip-when: <query returning one boolean>` when the file must not run where its
-  change is already in place. Your table does not exist yet on a database your module is new to,
+  change is already in place. The query is asked again after the file has run and has to answer
+  true then, or the file is failed and not recorded. Your table does not exist yet on a database your module is new to,
   and the first start creates it current, so a file that alters the table should skip when the
   table is missing as well:
 
@@ -344,7 +347,7 @@ Rules the host holds you to:
   ```
 
 - Add `-- barako:no-transaction` to a file that builds an index `CONCURRENTLY`. Keep it to one
-  statement and make it safe to run twice.
+  statement. It needs a skip query or a `rerunnable` line too, and is refused without one.
 - Do not put a rollback in that folder. `db-migrate` runs every embedded file as a forward
   migration. Ship rollbacks outside the embedded set.
 

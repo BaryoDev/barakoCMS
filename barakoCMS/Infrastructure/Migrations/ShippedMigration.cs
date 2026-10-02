@@ -17,6 +17,10 @@ namespace barakoCMS.Infrastructure.Migrations;
 /// recorded without being run.
 /// </param>
 /// <param name="Transactional">False when the file says it cannot run inside a transaction.</param>
+/// <param name="Rerunnable">
+/// The file says running it again changes nothing. It is a statement by the author, for a file that
+/// has no skip query: on a database migrated by hand before it had a ledger, such a file is run.
+/// </param>
 internal sealed record ShippedMigration(
     string Owner,
     string Version,
@@ -24,8 +28,15 @@ internal sealed record ShippedMigration(
     string Sql,
     string Checksum,
     string? SkipWhen,
-    bool Transactional)
+    bool Transactional,
+    bool Rerunnable = false)
 {
+    /// <summary>
+    /// The file has said what happens when it meets a database that already has its change: a skip
+    /// query leaves it alone, or the author vouches that a second run is harmless.
+    /// </summary>
+    public bool SafeWhereAlreadyApplied => SkipWhen is not null || Rerunnable;
+
     public string Id => $"{Version}/{Name}";
 
     /// <summary>What the operator reads and types: <c>owner/version/name</c>.</summary>
@@ -46,6 +57,7 @@ internal static class ShippedMigrations
     private const string DirectivePrefix = "-- barako:";
     private const string SkipWhenDirective = "skip-when:";
     private const string NoTransactionDirective = "no-transaction";
+    private const string RerunnableDirective = "rerunnable";
 
     private static readonly Regex PathPattern = new(
         @"^(?<version>[0-9]+\.[0-9]+\.[0-9]+)/(?<name>[A-Za-z0-9][A-Za-z0-9._-]*)\.sql$",
@@ -146,6 +158,7 @@ internal static class ShippedMigrations
         var text = sql.Replace("\r\n", "\n").Replace('\r', '\n');
         string? skipWhen = null;
         var transactional = true;
+        var rerunnable = false;
 
         foreach (var raw in text.Split('\n'))
         {
@@ -157,6 +170,10 @@ internal static class ShippedMigrations
             if (directive == NoTransactionDirective)
             {
                 transactional = false;
+            }
+            else if (directive == RerunnableDirective)
+            {
+                rerunnable = true;
             }
             else if (directive.StartsWith(SkipWhenDirective, StringComparison.Ordinal))
             {
@@ -175,6 +192,15 @@ internal static class ShippedMigrations
             }
         }
 
+        // A file outside a transaction is recorded after it has run, so a run that dies in between
+        // executes it again. It has to have said that is safe.
+        if (!transactional && skipWhen is null && !rerunnable)
+        {
+            throw new InvalidOperationException(
+                $"Migration {owner}/{normalised} is marked no-transaction and has neither a skip-when query nor "
+                + "a rerunnable line. A run that stops between the file and its ledger row runs the file again.");
+        }
+
         return new ShippedMigration(
             owner,
             match.Groups["version"].Value,
@@ -182,7 +208,8 @@ internal static class ShippedMigrations
             text,
             Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text))),
             skipWhen,
-            transactional);
+            transactional,
+            rerunnable);
     }
 
     /// <summary>

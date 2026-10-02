@@ -415,18 +415,36 @@ more fields than the limit keeps working, and only adding fields to it is refuse
 
 ```bash
 docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml run --rm --no-deps app db-migrate --status
+```
+
+Change `BARAKO_TAG` first. `--status` only reads, so it is safe while the old container serves. It
+exits 0 when this database has had every SQL file the new build ships, and then the upgrade is:
+
+```bash
+docker compose -f docker-compose.prod.yml run --rm --no-deps app db-assert
+docker compose -f docker-compose.prod.yml up -d
+```
+
+When `--status` lists a migration as `pending` or `not-needed` and exits 1, stop the API before
+migrating:
+
+```bash
+docker compose -f docker-compose.prod.yml stop app
 docker compose -f docker-compose.prod.yml run --rm --no-deps app db-migrate
 docker compose -f docker-compose.prod.yml run --rm --no-deps app db-assert
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-Change `BARAKO_TAG` first, then run `db-migrate` and `db-assert` between the pull and the `up`.
 `db-migrate` (4.6.0 and later) applies the SQL files the release ships that this database has not
-had, and records each one; [migrations.md](migrations.md) covers what its first run does on a
-database that was migrated by hand. `db-assert` exits 0 when the database already holds every
-object the new build declares, and non-zero listing what is outstanding.
+had, and records each one. Do not run it against a serving API: a file waits on the locks the API
+holds, and an index built `CONCURRENTLY` does not finish while the API has a transaction open.
+[migrations.md](migrations.md) covers that, what the first run does on a database that was migrated
+by hand, and how to stop a run. `db-assert` exits 0 when the database already holds every object
+the new build declares, and non-zero listing what is outstanding. The API is down from the `stop`
+to the `up`, so read what `--status` listed before you begin.
 
-That middle step is not optional on an existing database. A new table is created on start, but an
+Those steps are not optional on an existing database. A new table is created on start, but an
 existing table is never altered: production runs `AutoCreate.CreateOnly`. So a release carrying a
 change to a table you already have does not migrate it and does not skip it either, it throws on
 start and the container restarts forever, with the previous one already gone. Releases that need
