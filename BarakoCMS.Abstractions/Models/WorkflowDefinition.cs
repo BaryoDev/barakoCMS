@@ -19,6 +19,17 @@ public class WorkflowDefinition
     public List<string> TriggerContentTypes { get; set; } = new();
 
     public string TriggerEvent { get; set; } = string.Empty; // e.g., "Created", "Updated"
+
+    /// <summary>
+    /// More events this workflow fires on, alongside <see cref="TriggerEvent"/>.
+    /// </summary>
+    /// <remarks>
+    /// Read the same way as <see cref="TriggerContentTypes"/>: the workflow fires on
+    /// <see cref="TriggerEvent"/> and on every entry here, a workflow saved before this existed has
+    /// no list and fires on its single event, and saving through the API stores every event in the
+    /// list and the first in <see cref="TriggerEvent"/>.
+    /// </remarks>
+    public List<string> TriggerEvents { get; set; } = new();
     public Dictionary<string, string> Conditions { get; set; } = new(); // e.g., "Status" == "Approved"
     public List<WorkflowAction> Actions { get; set; } = new();
 }

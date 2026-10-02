@@ -64,6 +64,12 @@ internal class ConditionalAction : IWorkflowAction
             return WorkflowActionResult.PermanentFailure("Conditional action is missing its 'Condition' parameter.");
         }
 
+        if (content is ErasedContent && (condition.Contains("{{data.") || condition.Contains("{{status}}")))
+        {
+            return WorkflowActionResult.PermanentFailure(
+                "The entry was erased, so a condition on its status or data cannot be evaluated.");
+        }
+
         var conditionResult = EvaluateCondition(condition, content);
         var actionsToExecute = conditionResult ? thenActionsJson : elseActionsJson;
 

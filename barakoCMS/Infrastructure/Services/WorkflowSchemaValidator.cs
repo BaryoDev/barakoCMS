@@ -97,7 +97,32 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
             result.IsValid = false;
         }
 
-        if (string.IsNullOrWhiteSpace(workflow.TriggerEvent))
+        // The same reading as the content types: TriggerEvent and TriggerEvents together name the
+        // events, either one is enough, and a blank or unknown entry in the list is refused.
+        var listedEvents = workflow.TriggerEvents ?? [];
+        for (var i = 0; i < listedEvents.Count; i++)
+        {
+            if (string.IsNullOrWhiteSpace(listedEvents[i]))
+            {
+                result.Errors.Add(new ValidationError
+                {
+                    Field = $"triggerEvents[{i}]",
+                    Message = "A trigger event cannot be blank"
+                });
+                result.IsValid = false;
+            }
+            else if (!WorkflowEvents.IsValid(listedEvents[i]))
+            {
+                result.Errors.Add(new ValidationError
+                {
+                    Field = $"triggerEvents[{i}]",
+                    Message = $"Trigger event must be one of: {string.Join(", ", WorkflowEvents.All)}"
+                });
+                result.IsValid = false;
+            }
+        }
+
+        if (WorkflowTriggers.Events(workflow).Count == 0 && !listedEvents.Any(string.IsNullOrWhiteSpace))
         {
             result.Errors.Add(new ValidationError
             {
@@ -158,12 +183,58 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
     {
         var result = Validate(workflow, ct);
 
-        var transition = WorkflowEvents.TransitionName(workflow.TriggerEvent);
-        if (transition is null or { Length: 0 })
+        var events = WorkflowTriggers.Events(workflow);
+        if (!events.Any(e => WorkflowEvents.TransitionName(e) is { Length: > 0 }))
         {
             return result;
         }
 
+        // In the order Events gives them, so the first is TriggerEvent whenever that field is set.
+        var normalised = new List<string>(events.Count);
+        var transitionsValid = true;
+
+        foreach (var triggerEvent in events)
+        {
+            var transition = WorkflowEvents.TransitionName(triggerEvent);
+            if (transition is null or { Length: 0 })
+            {
+                normalised.Add(triggerEvent);
+                continue;
+            }
+
+            var (valid, spelling) = await DeclaredSpellingAsync(workflow, transition, result, ct);
+            transitionsValid &= valid;
+            normalised.Add(spelling is null ? triggerEvent : WorkflowEvents.ForTransition(spelling));
+        }
+
+        if (!transitionsValid)
+        {
+            result.IsValid = false;
+            return result;
+        }
+
+        result.NormalisedTriggerEvents = normalised.Distinct(StringComparer.Ordinal).ToList();
+
+        if (WorkflowEvents.TransitionName(workflow.TriggerEvent) is { Length: > 0 }
+            && WorkflowEvents.IsTransition(normalised[0]))
+        {
+            result.NormalisedTriggerEvent = normalised[0];
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Checks one transition against every content type the workflow names, adding an error for each
+    /// type that does not declare it.
+    /// </summary>
+    /// <returns>
+    /// Whether every type declares it, and the declared spelling. The spelling is null when the
+    /// workflow names no type, which <see cref="Validate"/> has already refused.
+    /// </returns>
+    private async Task<(bool Valid, string? Spelling)> DeclaredSpellingAsync(
+        WorkflowDefinition workflow, string transition, WorkflowValidationResult result, CancellationToken ct)
+    {
         // Every named type is checked, and every failure reported, so a list with two mistakes is
         // not fixed one save at a time.
         string? spelling = null;
@@ -207,7 +278,7 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
                 continue;
             }
 
-            // One TriggerEvent is stored and matched by equality, so the types have to agree on how
+            // A trigger is stored once and matched by equality, so the types have to agree on how
             // the transition is spelled, or the workflow would fire for some of them and not others.
             if (spelling is null)
             {
@@ -226,18 +297,7 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
             }
         }
 
-        if (!transitionValid)
-        {
-            result.IsValid = false;
-            return result;
-        }
-
-        if (spelling is not null)
-        {
-            result.NormalisedTriggerEvent = WorkflowEvents.ForTransition(spelling);
-        }
-
-        return result;
+        return (transitionValid, spelling);
     }
 
     private void ValidateAction(WorkflowAction action, int index, WorkflowValidationResult result)

@@ -36,9 +36,14 @@ internal class CreateWorkflowEndpoint(
         // Stored as the content type declares it. The engine matches this with an equality query, so
         // a workflow saved as "transition:approve" against a transition named "Approve" would be
         // accepted here and then never fire.
-        if (validation.NormalisedTriggerEvent is { Length: > 0 } declared)
+        if (validation.NormalisedTriggerEvents is { Count: > 0 } declared)
         {
-            req.TriggerEvent = declared;
+            req.TriggerEvent = declared[0];
+            req.TriggerEvents = declared;
+        }
+        else if (validation.NormalisedTriggerEvent is { Length: > 0 } single)
+        {
+            req.TriggerEvent = single;
         }
 
         WorkflowTriggers.Normalise(req);
