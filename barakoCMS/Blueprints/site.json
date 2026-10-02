@@ -45,7 +45,10 @@
         { "name": "MenuLinks", "displayName": "Phone menu links", "type": "json" },
         { "name": "HeaderActions", "displayName": "Header actions", "type": "json" },
         { "name": "Plugins", "displayName": "Enabled plugins", "type": "json" },
-        { "name": "Presets", "displayName": "Saved blocks", "type": "json" }
+        { "name": "Presets", "displayName": "Saved blocks", "type": "json" },
+        { "name": "HomePath", "displayName": "Home page path", "type": "string" },
+        { "name": "Labels", "displayName": "Visitor-facing words", "type": "json" },
+        { "name": "OptionStyles", "displayName": "Styles per option", "type": "json" }
       ]
     }
   ]

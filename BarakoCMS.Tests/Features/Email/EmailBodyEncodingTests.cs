@@ -123,8 +123,7 @@ public class EmailBodyEncodingTests
     /// the action list the branch was configured with.
     /// </summary>
     /// <remarks>
-    /// The branch runs on the else side because the engine resolves the condition before the
-    /// conditional sees it, which is a separate problem this test does not depend on.
+    /// The branch runs on the else side because the entry is a draft, so its status is not "Nope".
     /// </remarks>
     [Fact]
     public async Task A_form_value_in_a_conditional_email_is_escaped_and_cannot_change_the_branch()

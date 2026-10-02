@@ -11,8 +11,8 @@
 #   1. stand up a database with the released FROM_VERSION and put real content in it
 #   2. db-assert must FAIL on both hosts, because 4.0's schema does not match a 3.x database
 #   3. apply the reviewed core migrations, migrations/4.0.0/3.x-to-4.0.sql,
-#      migrations/4.2.0/user-normalized-identity.sql, migrations/4.3.0/collection-syncs.sql,
-#      migrations/4.3.0/marten-9-37-event-store-columns.sql,
+#      migrations/4.2.0/user-normalized-identity.sql, migrations/4.2.0/site-share-links.sql,
+#      migrations/4.3.0/collection-syncs.sql, migrations/4.3.0/marten-9-37-event-store-columns.sql,
 #      migrations/4.4.0/marten-9-38-quick-append-events.sql and
 #      migrations/4.5.0/refresh-token-hash-index.sql
 #   4. db-assert must PASS on the core host, so those files are exactly what core needs
@@ -22,16 +22,17 @@
 #   7. the Suite boots in Production mode, module schema preflight included, and serves
 #   8. an event appends to a stream that already existed, and the projection daemon resumes from
 #      its stored progression rather than restarting from zero
-#   9. 4.0 stops, and the rollback files are applied newest first:
+#   9. the new build stops, and the rollback files are applied newest first:
 #      migrations/4.5.0/rollback-email-sent-emails.sql,
 #      migrations/4.5.0/rollback-refresh-token-hash-index.sql,
 #      migrations/4.4.0/rollback-marten-9-38-quick-append-events.sql,
 #      migrations/4.3.0/rollback-collection-syncs.sql,
 #      migrations/4.3.0/rollback-marten-9-37-event-store-columns.sql,
+#      migrations/4.2.0/rollback-site-share-links.sql,
 #      migrations/4.2.0/rollback-user-normalized-identity.sql and
 #      migrations/4.0.0/rollback-to-3.x.sql
-#  10. FROM_VERSION boots again against the rolled-back database and still serves the record 4.0
-#      wrote to, with every event still on its stream
+#  10. FROM_VERSION boots again against the rolled-back database and still serves the record the
+#      new build wrote to, with every event still on its stream
 #
 # Step 2 is asserted rather than skipped on purpose. If a future change makes the migration
 # unnecessary, this fails and someone finds out deliberately instead of shipping a stale file.
@@ -45,7 +46,15 @@
 # parse. Running it here means a future edit that breaks it fails this job instead of an operator
 # mid-incident.
 #
-# Usage: scripts/upgrade-check.sh          (FROM_VERSION defaults to the last 3.x release)
+# A 4.0 or 4.1 start (FROM_VERSION=4.1.0) runs the same sequence without the two 4.0.0 files. Such
+# a database is already past the 4.0.0 file and nobody runs it a second time, so anything a later
+# release folded into that file reaches it only through a file of its own. That is how
+# mt_doc_site_share_links went missing from every upgraded 4.0 and 4.1 install while this job,
+# starting from 3.x, stayed green (#1007). Its rollback stops at FROM_VERSION and boots that image
+# again.
+#
+# Usage: scripts/upgrade-check.sh                       (FROM_VERSION defaults to the last 3.x release)
+#        FROM_VERSION=4.1.0 scripts/upgrade-check.sh    (a database 4.0 or 4.1 created)
 
 set -euo pipefail
 
@@ -79,6 +88,15 @@ trap cleanup EXIT
 step() { printf '\n=== %s\n' "$1"; }
 fail() { printf '\nFAILED: %s\n' "$1" >&2; exit 1; }
 
+# Which files a database still needs depends on what created it. 4.0 and 4.1 declare the same
+# objects, so a database either one booted takes the same files. Anything else stops here rather
+# than guessing: a 4.2 or later start would have to leave out its own release's files.
+case "$FROM_VERSION" in
+    3.*) FROM_3X=1 ;;
+    4.0.*|4.1.*) FROM_3X=0 ;;
+    *) fail "FROM_VERSION=${FROM_VERSION} is not a start this script knows. Use a 3.x, 4.0.x or 4.1.x release." ;;
+esac
+
 # $1 is the host dll, core or Suite; the rest are its arguments.
 run_host() {
     local dll="$1"
@@ -87,7 +105,7 @@ run_host() {
     # host somewhere other than the database under test and every check below would pass wrongly.
     #
     # HOST_EXEC=exec is for the backgrounded boot. `run_suite &` forks a subshell and $! names it,
-    # not dotnet, so killing $! left the 4.0 host running through the rollback and after the script.
+    # not dotnet, so killing $! left the new host running through the rollback and after the script.
     ${HOST_EXEC:-} env -i PATH="$PATH" HOME="$HOME" DOTNET_ROOT="${DOTNET_ROOT:-}" \
         ASPNETCORE_ENVIRONMENT=Production \
         ASPNETCORE_URLS="http://127.0.0.1:${NEW_BIND}" \
@@ -146,7 +164,7 @@ old_is_running() {
         || fail "something answered /health on port $OLD_PORT but the ${FROM_VERSION} container this run started is not running, so every check below would describe another process"
 }
 
-step "building 4.0 from the working tree, the Suite and the core host"
+step "building the working tree, the Suite and the core host"
 dotnet publish BarakoCMS.Suite/BarakoCMS.Suite.csproj -c Release -o "$WORK/suite" --nologo -v q -clp:ErrorsOnly -p:RestoreLockedMode=true -nodeReuse:false
 dotnet publish barakoCMS/barakoCMS.csproj -c Release -o "$WORK/core" --nologo -v q -clp:ErrorsOnly -p:RestoreLockedMode=true -nodeReuse:false
 
@@ -232,20 +250,34 @@ echo "workflow projection progression is $PROGRESSION_BEFORE"
 
 step "db-assert must refuse the un-migrated database, on both hosts"
 if run_core db-assert >"$WORK/assert-before-core.log" 2>&1; then
-    fail "core db-assert passed against a ${FROM_VERSION} database. The committed migration is stale: regenerate it with db-patch, or delete it if 4.0 no longer needs one."
+    fail "core db-assert passed against a ${FROM_VERSION} database. The committed migration is stale: regenerate it with db-patch, or delete it if the working tree no longer needs one."
 fi
 if run_suite db-assert >"$WORK/assert-before-suite.log" 2>&1; then
     fail "Suite db-assert passed against a ${FROM_VERSION} database, where core alone refuses it"
 fi
 echo "refused, as it must"
 
-step "applying migrations/4.0.0/3.x-to-4.0.sql"
-docker cp migrations/4.0.0/3.x-to-4.0.sql "$PG:/tmp/up.sql"
-docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/up.sql >/dev/null
+if [ "$FROM_3X" = 1 ]; then
+    step "applying migrations/4.0.0/3.x-to-4.0.sql"
+    docker cp migrations/4.0.0/3.x-to-4.0.sql "$PG:/tmp/up.sql"
+    docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/up.sql >/dev/null
+fi
 
 step "applying migrations/4.2.0/user-normalized-identity.sql"
 docker cp migrations/4.2.0/user-normalized-identity.sql "$PG:/tmp/users.sql"
 docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/users.sql >/dev/null
+
+# The share links table (#841, #1007). The 4.0.0 file creates it too, so on a 3.x start this is the
+# second run of the same statements and shows the file is harmless there. On a 4.x start it is the
+# only thing that creates the table, and the check says so: a 4.x database that already has it means
+# this file has stopped doing anything and someone should find out.
+if [ "$FROM_3X" = 0 ]; then
+    [ "$(psql_q "select to_regclass('public.mt_doc_site_share_links') is null;")" = "t" ] \
+        || fail "a ${FROM_VERSION} database already has mt_doc_site_share_links, so migrations/4.2.0/site-share-links.sql proves nothing on this start"
+fi
+step "applying migrations/4.2.0/site-share-links.sql"
+docker cp migrations/4.2.0/site-share-links.sql "$PG:/tmp/share-links.sql"
+docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/share-links.sql >/dev/null
 
 # The collection sync table (#794). Core, not a module, so it has to land before core's assert
 # below. CreateOnly would create it on first boot; the file exists so the deploy gate passes
@@ -271,7 +303,7 @@ docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-tra
 step "the migration left the daemon's progression alone"
 PROGRESSION_MIGRATED=$(psql_q "select coalesce(max(last_seq_id), 0) from mt_event_progression where name like '%WorkflowProjection%';")
 [ "$PROGRESSION_MIGRATED" = "$PROGRESSION_BEFORE" ] \
-    || fail "the migration moved the workflow projection from $PROGRESSION_BEFORE to $PROGRESSION_MIGRATED. A reset here means 4.0 replays every event on first boot, re-firing every workflow email, webhook and task."
+    || fail "the migration moved the workflow projection from $PROGRESSION_BEFORE to $PROGRESSION_MIGRATED. A reset here means the new build replays every event on first boot, re-firing every workflow email, webhook and task."
 echo "still $PROGRESSION_MIGRATED"
 
 step "core db-assert must now pass"
@@ -301,29 +333,29 @@ run_suite db-assert >"$WORK/assert-after-suite.log" 2>&1 || {
 }
 echo "Suite schema matches"
 
-step "booting the 4.0 Suite in Production against the migrated database"
+step "booting the working tree's Suite in Production against the migrated database"
 HOST_EXEC=exec run_suite >"$WORK/boot.log" 2>&1 &
 HOST_PID=$!
 NEW_PORT=$(listen_port "$WORK/boot.log" "$HOST_PID") || { cat "$WORK/boot.log" >&2; fail "the 4.0 host this run started is not listening"; }
 NEW_URL="http://127.0.0.1:${NEW_PORT}"
 for _ in $(seq 1 60); do
     [ "$(curl -s -o /dev/null -w '%{http_code}' "$NEW_URL/health" || true)" = "200" ] && break
-    kill -0 "$HOST_PID" 2>/dev/null || { cat "$WORK/boot.log" >&2; fail "4.0 exited during startup"; }
+    kill -0 "$HOST_PID" 2>/dev/null || { cat "$WORK/boot.log" >&2; fail "the working tree's Suite exited during startup"; }
     sleep 2
 done
 [ "$(curl -s -o /dev/null -w '%{http_code}' "$NEW_URL/health")" = "200" ] || {
-    cat "$WORK/boot.log" >&2; fail "4.0 never became healthy"
+    cat "$WORK/boot.log" >&2; fail "the working tree's Suite never became healthy"
 }
 kill -0 "$HOST_PID" 2>/dev/null || {
     cat "$WORK/boot.log" >&2
     fail "something answered /health but the host we started is gone, so every check below would describe another process"
 }
 
-step "the 3.x admin can still sign in"
+step "the ${FROM_VERSION} admin can still sign in"
 NEW_TOKEN=$(curl -s -X POST "$NEW_URL/api/auth/login" -H 'Content-Type: application/json' \
     -d "{\"username\":\"admin\",\"password\":\"${ADMIN_PASSWORD}\"}" \
     | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('accessToken') or d.get('token') or '')")
-[ -n "$NEW_TOKEN" ] || fail "the ${FROM_VERSION} admin cannot sign in to 4.0"
+[ -n "$NEW_TOKEN" ] || fail "the ${FROM_VERSION} admin cannot sign in to the working tree's build"
 
 step "an event appends to the stream that already existed"
 curl -s -X PUT "$NEW_URL/api/contents/$CONTENT_ID/status" -H "Authorization: Bearer $NEW_TOKEN" \
@@ -355,15 +387,17 @@ echo "$PROGRESSION_BEFORE then $PROGRESSION_AFTER"
 # already has the admin user and the InitialAdmin env it was created with, so a second `docker run`
 # would either collide on the name or seed a second admin, and neither proves anything a restart of
 # the same container does not.
-step "stopping 4.0 before the rollback"
+step "stopping the working tree's Suite before the rollback"
 kill "$HOST_PID" 2>/dev/null || true
 wait "$HOST_PID" 2>/dev/null || true
 HOST_PID=""
 
 # Newest first, the reverse of the order the forward files ran in. FROM_VERSION asserts its own
-# schema and refuses to boot while anything it does not declare is still there, whether that is a
-# table or a column. The two 4.3.0 files touch different objects, so their order between
-# themselves does not matter; both have to run before the older rollbacks.
+# schema and refuses to boot over an index or column it does not declare on a table it does. A whole
+# table it does not declare does not stop it: a 4.x start boots again below with
+# mt_doc_public_forms still there, since only rollback-to-3.x.sql drops that one. The two 4.3.0
+# files touch different objects, so their order between themselves does not matter; both have to
+# run before the older rollbacks.
 step "applying migrations/4.5.0/rollback-email-sent-emails.sql"
 docker cp migrations/4.5.0/rollback-email-sent-emails.sql "$PG:/tmp/sent-emails-down.sql"
 docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/sent-emails-down.sql >/dev/null
@@ -383,13 +417,19 @@ step "applying migrations/4.3.0/rollback-marten-9-37-event-store-columns.sql"
 docker cp migrations/4.3.0/rollback-marten-9-37-event-store-columns.sql "$PG:/tmp/marten937-down.sql"
 docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/marten937-down.sql >/dev/null
 
+step "applying migrations/4.2.0/rollback-site-share-links.sql"
+docker cp migrations/4.2.0/rollback-site-share-links.sql "$PG:/tmp/share-links-down.sql"
+docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/share-links-down.sql >/dev/null
+
 step "applying migrations/4.2.0/rollback-user-normalized-identity.sql"
 docker cp migrations/4.2.0/rollback-user-normalized-identity.sql "$PG:/tmp/users-down.sql"
 docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/users-down.sql >/dev/null
 
-step "applying migrations/4.0.0/rollback-to-3.x.sql"
-docker cp migrations/4.0.0/rollback-to-3.x.sql "$PG:/tmp/down.sql"
-docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/down.sql >/dev/null
+if [ "$FROM_3X" = 1 ]; then
+    step "applying migrations/4.0.0/rollback-to-3.x.sql"
+    docker cp migrations/4.0.0/rollback-to-3.x.sql "$PG:/tmp/down.sql"
+    docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/down.sql >/dev/null
+fi
 
 step "booting ${FROM_VERSION} again against the rolled-back database"
 docker start "$OLD" >/dev/null
@@ -406,7 +446,7 @@ done
 old_is_running
 echo "${FROM_VERSION} is healthy again"
 
-step "${FROM_VERSION} still serves the record 4.0 wrote to, after the rollback"
+step "${FROM_VERSION} still serves the record the working tree's build wrote to, after the rollback"
 ROLLBACK_TOKEN=$(curl -s -X POST "$OLD_URL/api/auth/login" -H 'Content-Type: application/json' \
     -d "{\"username\":\"admin\",\"password\":\"${ADMIN_PASSWORD}\"}" \
     | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('accessToken') or d.get('token') or '')")
@@ -417,17 +457,25 @@ ROLLBACK_FIRST_NAME=$(curl -s "$OLD_URL/api/contents/$CONTENT_ID" -H "Authorizat
 [ "$ROLLBACK_FIRST_NAME" = "Upgrade" ] \
     || fail "expected content $CONTENT_ID to still read back FirstName 'Upgrade' through ${FROM_VERSION} after rollback, got '$ROLLBACK_FIRST_NAME'"
 
-# The status change was made under 4.0 (newStatus 2, Archived). It lives on the document itself, not
+# The status change was made under the new build (newStatus 2, Archived). It lives on the document itself, not
 # only in the event stream, and rollback does not touch mt_doc_contents rows, so it must still be 2.
-# Read straight from the column rather than through the API: the JSON enum name is a 4.0-side detail
+# Read straight from the column rather than through the API: the JSON enum name is a detail of the new build
 # this test has no need to depend on.
 ROLLBACK_STATUS=$(psql_q "select data ->> 'Status' from mt_doc_contents where id = '$CONTENT_ID';")
 [ "$ROLLBACK_STATUS" = "2" ] \
-    || fail "expected content $CONTENT_ID to still have Status 2 (set by 4.0) after rollback, got '$ROLLBACK_STATUS'"
+    || fail "expected content $CONTENT_ID to still have Status 2 (set by the working tree's build) after rollback, got '$ROLLBACK_STATUS'"
 
 EVENTS_ROLLED_BACK=$(psql_q "select count(*) from mt_events where stream_id = '$CONTENT_ID';")
 [ "$EVENTS_ROLLED_BACK" = "$EVENTS_AFTER" ] \
     || fail "expected $EVENTS_AFTER events on stream $CONTENT_ID after rollback, found $EVENTS_ROLLED_BACK. A rollback must not lose events."
 echo "${FROM_VERSION} reads it back: FirstName $ROLLBACK_FIRST_NAME, Status $ROLLBACK_STATUS, $EVENTS_ROLLED_BACK events on the stream"
 
-printf '\nThe %s to 4.0 upgrade works on the Suite host, with migrations/4.0.0/3.x-to-4.0.sql, migrations/4.2.0/user-normalized-identity.sql, migrations/4.3.0/collection-syncs.sql, migrations/4.3.0/marten-9-37-event-store-columns.sql, migrations/4.4.0/marten-9-38-quick-append-events.sql, migrations/4.5.0/refresh-token-hash-index.sql, migrations/4.2.0/stored-files-parent-index.sql, migrations/4.2.0/forms-public-forms.sql and migrations/4.5.0/email-sent-emails.sql applied first, and rolls back cleanly with migrations/4.5.0/rollback-email-sent-emails.sql, migrations/4.5.0/rollback-refresh-token-hash-index.sql, migrations/4.4.0/rollback-marten-9-38-quick-append-events.sql, migrations/4.3.0/rollback-collection-syncs.sql, migrations/4.3.0/rollback-marten-9-37-event-store-columns.sql, migrations/4.2.0/rollback-user-normalized-identity.sql and migrations/4.0.0/rollback-to-3.x.sql.\n' "$FROM_VERSION"
+if [ "$FROM_3X" = 1 ]; then
+    UP_FIRST="migrations/4.0.0/3.x-to-4.0.sql, "
+    DOWN_LAST="migrations/4.2.0/rollback-site-share-links.sql, migrations/4.2.0/rollback-user-normalized-identity.sql and migrations/4.0.0/rollback-to-3.x.sql"
+else
+    UP_FIRST=""
+    DOWN_LAST="migrations/4.2.0/rollback-site-share-links.sql and migrations/4.2.0/rollback-user-normalized-identity.sql"
+fi
+
+printf '\nThe upgrade from %s to the working tree works on the Suite host, with %smigrations/4.2.0/user-normalized-identity.sql, migrations/4.2.0/site-share-links.sql, migrations/4.3.0/collection-syncs.sql, migrations/4.3.0/marten-9-37-event-store-columns.sql, migrations/4.4.0/marten-9-38-quick-append-events.sql, migrations/4.5.0/refresh-token-hash-index.sql, migrations/4.2.0/stored-files-parent-index.sql, migrations/4.2.0/forms-public-forms.sql and migrations/4.5.0/email-sent-emails.sql applied first, and rolls back cleanly with migrations/4.5.0/rollback-email-sent-emails.sql, migrations/4.5.0/rollback-refresh-token-hash-index.sql, migrations/4.4.0/rollback-marten-9-38-quick-append-events.sql, migrations/4.3.0/rollback-collection-syncs.sql, migrations/4.3.0/rollback-marten-9-37-event-store-columns.sql, %s.\n' "$FROM_VERSION" "$UP_FIRST" "$DOWN_LAST"

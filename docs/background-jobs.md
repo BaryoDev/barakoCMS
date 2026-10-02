@@ -47,6 +47,8 @@ construction. A command carries what its handler needs, including the tenant.
 
 Those are the defaults. A handler that throws counts one attempt. The next attempt waits the base,
 then twice that, then four times, capped at the max: 30 seconds, 1 minute, 2, 4, 8, up to an hour.
+Each wait is then shortened by a random share of up to a quarter, so jobs that failed together do not
+all retry at the same moment. A wait is never longer than `BackoffMaxSeconds`.
 After `MaxAttempts` failures the job is dead-lettered and nothing picks it up again. `MaxAttempts` is
 copied onto the record when the job is queued, so changing it does not move the goalposts on a job
 already in flight. A retry the queue planned pushes the job's expiry past the next attempt, so a
