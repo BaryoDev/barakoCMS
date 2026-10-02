@@ -22,7 +22,9 @@ public sealed class FilesModule : IBarakoModule
 {
     public string Name => "Files";
 
-    public int HttpContractVersion => 1;
+    // 2: a private file somebody else uploaded opens to manage_all_files, not to the role names
+    // Admin and SuperAdmin, so a caller that only had the name now gets 404 or 403 (#886).
+    public int HttpContractVersion => 2;
 
     public void ConfigureServices(IServiceCollection services, IConfiguration configuration)
     {

@@ -582,7 +582,14 @@ Two things keep an existing deployment working:
   The cost of that, plainly: a default you have deliberately removed from a seeded system
   role comes back on the next restart, because nothing records that the removal was
   deliberate. If you need one gone for good, do not run the seeder. A role you created is
-  untouched, since the defaults are keyed on the names the seeder creates.
+  untouched, since the defaults are keyed on the roles the seeder creates.
+
+  The seeder finds each system role by its fixed id, and by its name only where no role holds
+  the id. A seeded role you renamed keeps its new name, its permissions and its defaults. Before
+  4.6.0 the seeder looked by name, found nothing after a rename, and stored a new role under the
+  same id on the next start, which put the old name back and emptied the role's permissions. A
+  renamed role's holders reach what its capabilities open; a gate's legacy role fallback and any
+  check of the role name in a token see the new name.
 - The gate can also honour the role names it replaced, which is what makes access survive
   on a host that never calls the seeder. From 4.0 that is off unless you ask for it.
 
@@ -783,8 +790,11 @@ delete what they did before. A role of any name can be given it: a Site Manager 
 `manage_all_files` downloads another user's private file, and with `upload_files` as well deletes
 one. Like every capability it is answered from the caller's stored roles in the current tenant on
 each request, not from the role names in the token, so an account whose token says Admin and
-whose roles do not carry the capability is refused. The names open it again only where
-`Auth:LegacyRoleFallback` is on. The check also refuses an API key, a caller who is not signed in
+whose roles do not carry the capability is refused. Admin holds it only once the Files module's
+seed has run: a host that never calls `RunBarakoModuleSeedersAsync`, the Suite started with
+`SKIP_SEEDER=true`, and a Suite start where the Files seeder threw (logged, and the host carries
+on) all leave Admin without it. The names open it again only where
+`Auth:LegacyRoleFallback` is on. The Files module's `HttpContractVersion` is 2 from this change. The check also refuses an API key, a caller who is not signed in
 and a token issued for another tenant, before it looks at the file. Proven by
 `FileOwnershipCapabilityTests` and `FileStoreSeamTests`.
 

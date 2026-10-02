@@ -285,6 +285,80 @@ public class ModuleCapabilityDefaultsTests
         }
     }
 
+    /// <summary>
+    /// A role stored on the session and not saved yet is granted there. The host's sessions read the
+    /// database, so without looking at the pending changes the role was skipped.
+    /// </summary>
+    [Fact]
+    public async Task A_role_stored_on_the_same_session_is_granted_before_it_is_saved()
+    {
+        var role = new Role { Id = Guid.NewGuid(), Name = NewName("Staged") };
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(role);
+
+            var changed = await CapabilityDefaults.For("cap_one")
+                .GrantedTo(new SeededRole(role.Id, role.Name))
+                .GrantAsync(session, Ct);
+            await session.SaveChangesAsync(Ct);
+
+            changed.Should().Be(1);
+        }
+
+        (await LoadAsync(role.Id))!.SystemCapabilities.Should().Equal("cap_one");
+    }
+
+    /// <summary>
+    /// The Accounting module creates its Accountant role and grants to it in one seed. On a database
+    /// without the role, one start leaves it holding its defaults.
+    /// </summary>
+    [Fact]
+    public async Task The_accounting_seed_grants_its_own_role_on_the_first_start()
+    {
+        var id = BarakoCMS.Accounting.AccountingModule.AccountantRoleId;
+        var original = await LoadAsync(id);
+        original.Should().NotBeNull("the fixture seeds the Accounting module, which creates the role");
+
+        try
+        {
+            using (var scope = _factory.Services.CreateScope())
+            {
+                var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+                session.Delete<Role>(id);
+                await session.SaveChangesAsync(Ct);
+            }
+
+            (await LoadAsync(id)).Should().BeNull("the test starts from a database without the role");
+
+            using (var scope = _factory.Services.CreateScope())
+            {
+                var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+                await new BarakoCMS.Accounting.AccountingModule().SeedAsync(session, scope.ServiceProvider, Ct);
+                await session.SaveChangesAsync(Ct);
+            }
+
+            var created = await LoadAsync(id);
+            created.Should().NotBeNull();
+            created!.Name.Should().Be("Accountant");
+            created.SystemCapabilities.Should().HaveCount(2);
+            created.SystemCapabilities.Should().BeEquivalentTo(
+                new[]
+                {
+                    BarakoCMS.Accounting.AccountingCapabilities.ViewLedger,
+                    BarakoCMS.Accounting.AccountingCapabilities.PostEntries,
+                });
+        }
+        finally
+        {
+            using var scope = _factory.Services.CreateScope();
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(original!);
+            await session.SaveChangesAsync(CancellationToken.None);
+        }
+    }
+
     private static List<string> Constants(Type type) =>
         type.GetFields(BindingFlags.Static | BindingFlags.Public)
             .Where(f => f.IsLiteral && f.FieldType == typeof(string))

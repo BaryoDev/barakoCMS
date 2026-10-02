@@ -80,6 +80,9 @@ public sealed class CapabilityDefaults
     /// inventing an "Admin" on a deployment that deliberately has none would be a module granting
     /// itself access to a role nobody made.
     ///
+    /// A role stored on this session and not saved yet counts, found among the session's pending
+    /// changes, so a module can create its own role and grant to it in the same seed.
+    ///
     /// Additive and idempotent. Nothing is ever taken off a role, a role the declaration does not
     /// name is not touched, and a role that already holds the capabilities is not rewritten, so a
     /// restart is not a write. It runs on every start, so a default taken off a seeded role comes
@@ -100,10 +103,17 @@ public sealed class CapabilityDefaults
         var changed = 0;
         var seen = new HashSet<Guid>();
 
+        // A role the same seed stored a moment ago is not in the database yet, and a lightweight
+        // session reads the database. Without this, a module that creates a role and grants to it
+        // in one seed left the role empty until the next start.
+        var staged = session.PendingChanges.AllChangedFor<Role>().ToList();
+
         foreach (var seeded in Roles)
         {
             var name = seeded.Name;
-            var role = await session.LoadAsync<Role>(seeded.Id, ct)
+            var role = staged.FirstOrDefault(r => r.Id == seeded.Id)
+                       ?? await session.LoadAsync<Role>(seeded.Id, ct)
+                       ?? staged.FirstOrDefault(r => r.Name == name)
                        ?? await session.Query<Role>().FirstOrDefaultAsync(r => r.Name == name, ct);
 
             if (role is null || !seen.Add(role.Id))

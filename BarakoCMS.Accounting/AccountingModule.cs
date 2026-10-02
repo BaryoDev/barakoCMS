@@ -70,7 +70,7 @@ public sealed class AccountingModule : IBarakoModule
             session.Store(new Role
             {
                 Id = AccountantRoleId,
-                Name = accountant,
+                Name = "Accountant",
                 Description = "Can post journal entries and view the ledger."
             });
         }
