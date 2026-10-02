@@ -91,6 +91,10 @@ public class ExportEndpoint(
             }, ct: ct);
         await documentSession.SaveChangesAsync(ct);
 
+        // A stored field lists roles by id, and an id means nothing to the instance a bundle is
+        // imported into. The bundle carries names, which the import matches against its own roles.
+        await barakoCMS.Core.RoleReferences.ToNamesAsync(session, types.SelectMany(t => t.Fields ?? []), ct);
+
         await Send.ResponseAsync(new PortabilityBundle
         {
             ContentTypes = types,

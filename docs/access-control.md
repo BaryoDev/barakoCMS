@@ -232,6 +232,59 @@ anonymously, with nothing to tell the caller when it stopped being.
 
 Still no admin UI for it: the endpoint is called directly.
 
+## Update (2026-10-02): who may see a value is a capability and a role id
+
+Until 4.6.0 two role names decided it, read back from the token: `HR` saw a
+Sensitive field that listed no roles of its own, `SuperAdmin` saw everything,
+and a field's `visibleToRoles` held role names. A clinic's Nurse role could be
+granted nothing that opened a Sensitive field, and renaming a role changed who
+could read the fields that listed it (#883).
+
+What decides it now, in order:
+
+1. The holder of the seeded SuperAdmin role, by its id, sees everything.
+2. A field with a `visibleToRoles` list is seen by the holders of those roles and
+   nobody else. The list replaces the default, it does not add to it.
+3. A field with no list is seen by a role holding `view_sensitive` when the field
+   is Sensitive, and `view_hidden` when it is Hidden. The two are separate:
+   holding one does not give the other. `*` satisfies both.
+4. An entry whose own level is Sensitive or Hidden follows rule 3.
+
+The same rules decide who may set a field: a caller who may not see it may not
+write it.
+
+The caller's roles are read from the store on each request, the roles they hold
+in the current tenant, not from the token's role claims. Taking a capability off
+a role, or a role off a user, applies on the next request rather than when the
+token expires. A read costs up to three small queries when the entry or its type
+is restricted, and none for a Public entry of a type with no restricted field. A
+write always reads them.
+
+`visibleToRoles` is stored as role ids and is still names on the wire. The
+content type endpoints and the import accept names and store the id of the role
+that carries each one. `GET /api/content-types`, the sensitivity endpoint's
+answer and an export give the names back, as the roles are called now, so a
+client reads and sends what it always did and a rename shows up without changing
+who can read the field. A name no role carries is stored as it is and matches a
+role of exactly that name on read, which is also how a definition stored before
+4.6.0 keeps working until it is migrated.
+
+**Upgrading.** `migrations/4.6.0/sensitivity-by-capability.sql` gives every role
+named exactly `HR` the `view_sensitive` capability and rewrites the names in
+every stored `visibleToRoles` to ids. The seeder also grants `view_sensitive` to
+the HR role it seeded (id `00000000-0000-0000-0000-000000000003`, while it is
+still named `HR`) on every start, so a host that runs the seeder keeps that
+role's access even where the file was skipped. Nobody else gains anything: Admin
+never read a Sensitive value and does not start to.
+
+Only SuperAdmin, Admin and User are seeded now. HR comes with the demo content
+(`Seed:DemoContent`), and `HR` is no longer a reserved role name (#884). A
+database that already holds the HR role keeps it, and it still cannot be deleted.
+
+Proven by `SensitivityByCapabilityTests`, `SensitivityIntegrationTests`,
+`RoleReferencePortabilityTests`, `SeededRolesTests` and
+`SensitivityByCapabilityMigrationTests`.
+
 ## Tested (2026-07-16): the bug this replaced
 
 Ran as real HTTP integration tests (Testcontainers Postgres, role tokens,
@@ -271,9 +324,10 @@ real and testable, and these red tests go green.
 
 ## How to verify what works today
 
-The seeder creates an `AttendanceRecord` content type (fields incl. `SSN`,
-`BirthDay`), three records marked `Sensitivity = Sensitive`, and roles
-`SuperAdmin` + `HR`. Sign in as each and `GET /api/contents/{id}`:
+With `Seed:DemoContent` on, the seeder creates an `AttendanceRecord` content type
+(fields incl. `SSN`, `BirthDay`), three records marked `Sensitivity = Sensitive`,
+and an `HR` role holding `view_sensitive` beside `SuperAdmin`. Sign in as each
+and `GET /api/contents/{id}`:
 
 - **SuperAdmin** sees `SSN` and `BirthDay`.
 - **HR** sees `BirthDay`, not `SSN`.
@@ -470,6 +524,8 @@ says.
 | `Features/Content/Erase/*` | `erase_content` | `DELETE /api/contents/{id}/erase` | SuperAdmin |
 | `Features/Jobs/*` | `view_jobs` | `GET /api/jobs` | SuperAdmin, Admin |
 | `Features/Collections/Endpoints.cs` | `manage_collection_syncs` | `/api/collection-syncs`, `/api/collection-syncs/{slug}`, `POST /api/collection-syncs/{slug}/run` | SuperAdmin, Admin |
+| `Infrastructure/Services/SensitivityService.cs` | `view_sensitive` | No route. Sensitive fields that list no roles, and Sensitive entries, wherever content is read or written | SuperAdmin, and HR where it is seeded |
+| `Infrastructure/Services/SensitivityService.cs` | `view_hidden` | No route. Hidden fields that list no roles, and Hidden entries, wherever content is read or written | SuperAdmin |
 
 Users is two capabilities because its old gates were two: listing accounts and resetting
 someone's password were `Roles("SuperAdmin")`, while changing a user's roles and groups

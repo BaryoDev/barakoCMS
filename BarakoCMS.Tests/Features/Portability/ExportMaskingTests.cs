@@ -271,7 +271,7 @@ public class ExportMaskingTests
         bundle.ContentsWithheld.Should().Be(0);
     }
 
-    /// <summary>A SuperAdmin: the seeded role by id for content rules, and the role claim for masking.</summary>
+    /// <summary>A SuperAdmin: the seeded role by id, which is the key for content rules and for masking.</summary>
     private async Task<HttpClient> SuperAdminAsync()
     {
         using var scope = _fixture.Services.CreateScope();

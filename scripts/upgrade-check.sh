@@ -13,8 +13,10 @@
 #   3. apply the reviewed core migrations, migrations/4.0.0/3.x-to-4.0.sql,
 #      migrations/4.2.0/user-normalized-identity.sql, migrations/4.2.0/site-share-links.sql,
 #      migrations/4.3.0/collection-syncs.sql, migrations/4.3.0/marten-9-37-event-store-columns.sql,
-#      migrations/4.4.0/marten-9-38-quick-append-events.sql and
-#      migrations/4.5.0/refresh-token-hash-index.sql
+#      migrations/4.4.0/marten-9-38-quick-append-events.sql,
+#      migrations/4.5.0/refresh-token-hash-index.sql and
+#      migrations/4.6.0/sensitivity-by-capability.sql, after which the HR role FROM_VERSION seeded
+#      holds view_sensitive
 #   4. db-assert must PASS on the core host, so those files are exactly what core needs
 #   5. apply the module migrations, migrations/4.2.0/stored-files-parent-index.sql,
 #      migrations/4.2.0/forms-public-forms.sql and migrations/4.5.0/email-sent-emails.sql
@@ -23,6 +25,7 @@
 #   8. an event appends to a stream that already existed, and the projection daemon resumes from
 #      its stored progression rather than restarting from zero
 #   9. the new build stops, and the rollback files are applied newest first:
+#      migrations/4.6.0/rollback-sensitivity-by-capability.sql,
 #      migrations/4.5.0/rollback-email-sent-emails.sql,
 #      migrations/4.5.0/rollback-refresh-token-hash-index.sql,
 #      migrations/4.4.0/rollback-marten-9-38-quick-append-events.sql,
@@ -300,6 +303,19 @@ step "applying migrations/4.5.0/refresh-token-hash-index.sql"
 docker cp migrations/4.5.0/refresh-token-hash-index.sql "$PG:/tmp/refresh-hash.sql"
 docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/refresh-hash.sql >/dev/null
 
+# Data, not schema (#883). FROM_VERSION seeded a role named HR whose holders read Sensitive fields by
+# that name, and the working tree decides the same thing by capability. The count is checked before
+# the new build boots, because its seeder grants the same capability and would hide a file that
+# does nothing.
+step "applying migrations/4.6.0/sensitivity-by-capability.sql"
+[ "$(psql_q "select count(*) from mt_doc_roles where data ->> 'Name' = 'HR';")" = "1" ] \
+    || fail "the ${FROM_VERSION} database has no role named HR, so migrations/4.6.0/sensitivity-by-capability.sql proves nothing on this start"
+docker cp migrations/4.6.0/sensitivity-by-capability.sql "$PG:/tmp/sensitivity.sql"
+docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/sensitivity.sql >/dev/null
+[ "$(psql_q "select count(*) from mt_doc_roles where data ->> 'Name' = 'HR' and data -> 'SystemCapabilities' ? 'view_sensitive';")" = "1" ] \
+    || fail "migrations/4.6.0/sensitivity-by-capability.sql did not give the HR role view_sensitive, so its holders would stop reading Sensitive fields on upgrade"
+echo "HR holds view_sensitive"
+
 step "the migration left the daemon's progression alone"
 PROGRESSION_MIGRATED=$(psql_q "select coalesce(max(last_seq_id), 0) from mt_event_progression where name like '%WorkflowProjection%';")
 [ "$PROGRESSION_MIGRATED" = "$PROGRESSION_BEFORE" ] \
@@ -398,6 +414,11 @@ HOST_PID=""
 # mt_doc_public_forms still there, since only rollback-to-3.x.sql drops that one. The two 4.3.0
 # files touch different objects, so their order between themselves does not matter; both have to
 # run before the older rollbacks.
+step "applying migrations/4.6.0/rollback-sensitivity-by-capability.sql"
+docker cp migrations/4.6.0/rollback-sensitivity-by-capability.sql "$PG:/tmp/sensitivity-down.sql"
+docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/sensitivity-down.sql >/dev/null
+[ "$(psql_q "select count(*) from mt_doc_roles where data -> 'SystemCapabilities' ?| array['view_sensitive', 'view_hidden'];")" = "0" ] \
+    || fail "migrations/4.6.0/rollback-sensitivity-by-capability.sql left a capability ${FROM_VERSION} does not know on a role"
 step "applying migrations/4.5.0/rollback-email-sent-emails.sql"
 docker cp migrations/4.5.0/rollback-email-sent-emails.sql "$PG:/tmp/sent-emails-down.sql"
 docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/sent-emails-down.sql >/dev/null
@@ -478,4 +499,4 @@ else
     DOWN_LAST="migrations/4.2.0/rollback-site-share-links.sql and migrations/4.2.0/rollback-user-normalized-identity.sql"
 fi
 
-printf '\nThe upgrade from %s to the working tree works on the Suite host, with %smigrations/4.2.0/user-normalized-identity.sql, migrations/4.2.0/site-share-links.sql, migrations/4.3.0/collection-syncs.sql, migrations/4.3.0/marten-9-37-event-store-columns.sql, migrations/4.4.0/marten-9-38-quick-append-events.sql, migrations/4.5.0/refresh-token-hash-index.sql, migrations/4.2.0/stored-files-parent-index.sql, migrations/4.2.0/forms-public-forms.sql and migrations/4.5.0/email-sent-emails.sql applied first, and rolls back cleanly with migrations/4.5.0/rollback-email-sent-emails.sql, migrations/4.5.0/rollback-refresh-token-hash-index.sql, migrations/4.4.0/rollback-marten-9-38-quick-append-events.sql, migrations/4.3.0/rollback-collection-syncs.sql, migrations/4.3.0/rollback-marten-9-37-event-store-columns.sql, %s.\n' "$FROM_VERSION" "$UP_FIRST" "$DOWN_LAST"
+printf '\nThe upgrade from %s to the working tree works on the Suite host, with %smigrations/4.2.0/user-normalized-identity.sql, migrations/4.2.0/site-share-links.sql, migrations/4.3.0/collection-syncs.sql, migrations/4.3.0/marten-9-37-event-store-columns.sql, migrations/4.4.0/marten-9-38-quick-append-events.sql, migrations/4.5.0/refresh-token-hash-index.sql, migrations/4.6.0/sensitivity-by-capability.sql, migrations/4.2.0/stored-files-parent-index.sql, migrations/4.2.0/forms-public-forms.sql and migrations/4.5.0/email-sent-emails.sql applied first, and rolls back cleanly with migrations/4.6.0/rollback-sensitivity-by-capability.sql, migrations/4.5.0/rollback-email-sent-emails.sql, migrations/4.5.0/rollback-refresh-token-hash-index.sql, migrations/4.4.0/rollback-marten-9-38-quick-append-events.sql, migrations/4.3.0/rollback-collection-syncs.sql, migrations/4.3.0/rollback-marten-9-37-event-store-columns.sql, %s.\n' "$FROM_VERSION" "$UP_FIRST" "$DOWN_LAST"

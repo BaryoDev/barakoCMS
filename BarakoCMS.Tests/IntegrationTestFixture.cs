@@ -364,7 +364,8 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
                  {
                      new barakoCMS.Models.Role { Id = barakoCMS.Data.DataSeeder.SuperAdminRoleId, Name = "SuperAdmin", Description = "Full system access" },
                      new barakoCMS.Models.Role { Id = barakoCMS.Data.DataSeeder.AdminRoleId, Name = "Admin", Description = "Administrator with full access" },
-                     new barakoCMS.Models.Role { Id = barakoCMS.Data.DataSeeder.HRRoleId, Name = "HR", Description = "Human Resources - manage attendance" },
+                     // What a database seeded before HR moved behind the demo content still holds.
+                     new barakoCMS.Models.Role { Id = barakoCMS.Data.DataSeeder.DemoHrRoleId, Name = "HR", Description = "Human Resources - manage attendance" },
                      new barakoCMS.Models.Role { Id = barakoCMS.Data.DataSeeder.UserRoleId, Name = "User", Description = "Standard user" },
                  })
         {
@@ -380,9 +381,11 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             if (existing is null)
             {
                 barakoCMS.Data.DataSeeder.ApplyCapabilityDefaults(role);
+                barakoCMS.Data.DataSeeder.GrantSensitiveToSeededHr(role);
                 session.Store(role);
             }
-            else if (barakoCMS.Data.DataSeeder.ApplyCapabilityDefaults(existing))
+            else if (barakoCMS.Data.DataSeeder.ApplyCapabilityDefaults(existing)
+                     | barakoCMS.Data.DataSeeder.GrantSensitiveToSeededHr(existing))
             {
                 session.Store(existing);
             }

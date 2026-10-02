@@ -88,7 +88,9 @@ a client's production deployment.
 
 ## 2. Decide who the platform admin is
 
-The seeder creates four global roles on first boot: `SuperAdmin`, `Admin`, `HR`, `User`. It creates
+The seeder creates three global roles on first boot: `SuperAdmin`, `Admin`, `User`. A fourth, `HR`,
+comes only with the demo content (`Seed:DemoContent`), and a database seeded before 4.6.0 keeps the
+one it has. It creates
 the initial account from the `InitialAdmin` section (`ADMIN_USERNAME` / `ADMIN_PASSWORD` in the
 quickstart, `ADMIN_USER` / `ADMIN_PASSWORD` in production).
 
@@ -112,8 +114,8 @@ Two more naming rules that are not cosmetic:
   `Auth:LegacyRoleFallback=true` (env `Auth__LegacyRoleFallback`) to get the 3.x behaviour back
   while it migrates, then turns it off again. [access-control.md](access-control.md) has the
   migration table.
-- You cannot create a second role with a seeded name. `SuperAdmin`, `Admin`, `HR` and `User` are
-  reserved and both role create and role update refuse them.
+- You cannot create a second role with a seeded name. `SuperAdmin`, `Admin` and `User` are
+  reserved and both role create and role update refuse them. `HR` is not reserved from 4.6.0.
 
 ## 3. Create the tenant
 

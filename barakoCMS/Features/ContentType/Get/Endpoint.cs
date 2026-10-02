@@ -38,6 +38,11 @@ internal class Endpoint(
             .Select(p => p.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
+        // A field's role list is stored as role ids and answered as role names, which is what a
+        // client shows and sends back. The definitions come from a query session, so rewriting
+        // them here stores nothing.
+        await barakoCMS.Core.RoleReferences.ToNamesAsync(session, page.Items.SelectMany(d => d.Fields ?? []), ct);
+
         await Send.OkAsync(new PaginatedResponse<barakoCMS.Features.ContentType.ContentTypeResponse>
         {
             Items = page.Items

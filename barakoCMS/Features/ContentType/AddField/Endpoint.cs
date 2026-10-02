@@ -152,6 +152,7 @@ internal sealed class Endpoint(
             Sensitivity = req.Sensitivity,
             VisibleToRoles = req.VisibleToRoles ?? new List<string>(),
         };
+        await barakoCMS.Core.RoleReferences.ToIdsAsync(session, [field], ct);
 
         // Validate the type as it would be, not the field on its own, so every rule create applies
         // applies here too.

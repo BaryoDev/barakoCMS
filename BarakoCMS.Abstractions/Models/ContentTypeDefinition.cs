@@ -143,9 +143,18 @@ public class FieldDefinition
     public Dictionary<string, object> ValidationRules { get; set; } = new(); // min, max, regex, etc.
 
     // Field-level sensitivity. When not Public, the field is masked for callers who are not
-    // SuperAdmin and not in VisibleToRoles (falling back to a default role policy when that list
-    // is empty). See SensitivityService.
+    // SuperAdmin and hold none of the roles in VisibleToRoles. When that list is empty the field
+    // is open to a role holding view_sensitive or view_hidden, whichever its level asks for.
+    // See SensitivityService.
     public SensitivityLevel Sensitivity { get; set; } = SensitivityLevel.Public;
+
+    /// <summary>
+    /// The roles that may see the field while it is not Public, as role ids written as text.
+    /// </summary>
+    /// <remarks>
+    /// An entry that is not an id is a role name: what a definition stored before ids were holds,
+    /// and what a write keeps for a name no role carries. It matches a role of exactly that name.
+    /// </remarks>
     public List<string> VisibleToRoles { get; set; } = new();
     public FieldMask Mask { get; set; } = FieldMask.Default;
 }
