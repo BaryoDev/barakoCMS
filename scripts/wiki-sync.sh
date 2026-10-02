@@ -96,7 +96,7 @@ group_of() {
       printf 'Security and access' ;;
     multi-tenancy.md|tenancy-at-the-database.md)
       printf 'Tenancy' ;;
-    backup-and-restore.md|background-jobs.md|workflow-runs.md|module-inventory.md|idempotency.md|webhooks.md)
+    backup-and-restore.md|background-jobs.md|workflow-runs.md|module-inventory.md|idempotency.md|webhooks.md|connectors.md)
       printf 'Operations' ;;
     *)
       printf 'Other' ;;

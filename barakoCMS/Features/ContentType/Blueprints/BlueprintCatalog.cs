@@ -237,7 +237,7 @@ internal sealed class BlueprintCatalog(
                 errors.AddRange(typeErrors.Select(e => $"Type '{label}': {e}"));
             }
 
-            var (lifecycleValid, lifecycleErrors) = validator.ValidateLifecycle(type.Lifecycle);
+            var (lifecycleValid, lifecycleErrors) = validator.ValidateLifecycle(type.Lifecycle, type.Fields);
             if (!lifecycleValid)
             {
                 errors.AddRange(lifecycleErrors.Select(e => $"Type '{label}': {e}"));

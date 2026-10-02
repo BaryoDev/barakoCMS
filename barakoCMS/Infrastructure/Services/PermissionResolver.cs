@@ -27,6 +27,16 @@ public class PermissionResolver(
     private IReadOnlyList<Models.Role>? _roles;
     private Guid _rolesFor;
 
+    /// <summary>
+    /// The caller's member profile in this tenant, from the same membership row the roles came
+    /// from, so it costs no query of its own. Null when the user has no active membership here.
+    /// </summary>
+    /// <remarks>
+    /// Read from the database on every request and never from the token, so a changed attribute
+    /// applies to the next request and a removed one stops granting then.
+    /// </remarks>
+    private IReadOnlyDictionary<string, string>? _profile;
+
     private async Task<IReadOnlyList<Models.Role>> RolesForAsync(Models.User user, CancellationToken cancellationToken)
     {
         if (_roles is not null && _rolesFor == user.Id)
@@ -36,8 +46,8 @@ public class PermissionResolver(
 
         // Roles come from the user's membership in the current tenant (falling back to the user's
         // legacy roles when there's no membership).
-        var roleIds = await barakoCMS.Infrastructure.Multitenancy.MembershipRoles
-            .EffectiveRoleIdsAsync(session, user, tenant.Slug, cancellationToken);
+        var (roleIds, membership) = await barakoCMS.Infrastructure.Multitenancy.MembershipRoles
+            .ResolveAsync(session, user, tenant.Slug, cancellationToken);
 
         IReadOnlyList<Models.Role> roles = roleIds.Count == 0
             ? Array.Empty<Models.Role>()
@@ -47,6 +57,7 @@ public class PermissionResolver(
 
         _rolesFor = user.Id;
         _roles = roles;
+        _profile = membership?.Profile;
 
         return roles;
     }
@@ -102,7 +113,7 @@ public class PermissionResolver(
                 // would resolve to "field not present" and deny every record including the caller's
                 // own, which reads as a broken rule rather than as a missing capability.
                 if (content == null || rule.Conditions == null || rule.Conditions.Count == 0 ||
-                    conditionEvaluator.Evaluate(rule.Conditions, content, user))
+                    conditionEvaluator.Evaluate(rule.Conditions, content, user, _profile))
                 {
                     return true; // Granted by at least one role
                 }
@@ -139,7 +150,7 @@ public class PermissionResolver(
             if (rule is not null) rules.Add(rule);
         }
 
-        return PermissionPredicateCompiler.Compile(rules, user.Id);
+        return PermissionPredicateCompiler.Compile(rules, user.Id, _profile);
     }
 
     /// <summary>

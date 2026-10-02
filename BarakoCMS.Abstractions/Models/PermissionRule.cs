@@ -14,6 +14,7 @@ public class PermissionRule
     /// Optional conditions that must be met for permission to apply
     /// Format: Directus/Strapi style - { "field": { "operator": "value" } }
     /// Example: { "author": { "_eq": "$CURRENT_USER" } }
+    /// A value from the caller's member profile: { "Branch": { "_eq": "$CURRENT_USER.branch" } }
     /// </summary>
     public Dictionary<string, object>? Conditions { get; set; }
 }

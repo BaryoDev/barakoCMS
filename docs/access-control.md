@@ -60,7 +60,10 @@ with both Treasurer and Secretary gets the union.
 
 `ContentTypePermission.Transitions` sits alongside the four CRUD rules, keyed by
 transition name, for a content type that declares its own lifecycle. Update
-does not imply a transition and a transition does not imply update.
+does not imply a transition and a transition does not imply update, with one
+stated exception: a transition that declares `requiredFields` or
+`optionalFields` lets whoever may perform it write those fields, and no
+others, with the move.
 [Approval by configuration](approval-by-configuration.md) walks an invoice
 through Submit and Approve against the API, with every request as a curl and the
 status code each one answers.
@@ -73,6 +76,41 @@ status code each one answers.
 ```json
 { "Read": { "Enabled": true, "Conditions": { "memberId": { "_eq": "$CURRENT_USER" } } } }
 ```
+
+### Something about the caller other than their id
+
+`$CURRENT_USER` is the caller's user id. `$CURRENT_USER.<name>` is a value from the caller's member
+profile in the current tenant, so a branch manager reads their branch's orders without having
+created them:
+
+```json
+{ "Read": { "Enabled": true, "Conditions": { "Branch": { "_eq": "$CURRENT_USER.branch" } } } }
+```
+
+The profile is `Membership.Profile`, a map of text values. It is written with the member, by
+`POST /api/tenants/members` and `PUT /api/tenants/members/{userId}` (`profile`), both behind
+`manage_tenant_members`, and by nothing else. A member holding that capability can set their own
+profile, which is within what they can already do by assigning themselves a role. A member without
+it cannot. Both routes replace the whole profile when the request sends one and keep the stored one
+when it does not, except that a member who had been removed and is added again starts with what the
+request carries, or none. A profile holds at most 32 attributes; a name starts with a letter, holds
+letters, digits and underscores, and is at most 64 characters; a value is at most 256 and holds no
+control character. The audit entry for a member write records the names added, removed and
+changed, never the values.
+
+What a rule author needs to know:
+
+- The variable is the whole of the value of `_eq` or `_ne`. Under `_in` or `_nin` the rule denies,
+  and inside a list it is plain text, as `$CURRENT_USER` is.
+- Names are case sensitive. `$CURRENT_USER.branch` does not read `Branch`.
+- A caller with no value matches nothing, whatever the operator: no active membership in this
+  tenant, no attribute of that name, or an empty value. `_ne` does not grant in that case.
+- The value is compared as text, the way a value written into the rule is, so a profile value of
+  `42` matches a number field holding 42. A field that holds a list or an object matches nothing.
+- It is read from the membership on every request and is not in the token. A change applies to the
+  member's next request.
+- A user whose roles come only from `User.RoleIds`, with no membership row in the tenant, has no
+  profile. Add them as a member of the tenant to give them one.
 
 ## Layer 3: Field + document sensitivity
 
@@ -387,6 +425,48 @@ metadata `CapabilityGateProcessor` enforces, so a name is listed exactly when so
 it. A module you have not installed contributes nothing, and a module needs no new contract member to
 be listed. `source` is `core` or the registered module's `Name`; a module whose endpoints are served
 without the module itself being registered is named by its assembly instead.
+
+### The describe document
+
+`GET /api/meta/describe` answers any signed-in caller with what this instance accepts, read from the
+same registries the API checks requests against, so a client does not keep its own copy:
+
+```json
+{
+  "apiContractVersion": 6,
+  "fieldTypes": [
+    { "name": "int", "aliases": ["integer", "number"], "editorHint": "number", "ruleNames": ["min", "max", "requiredWhen"] }
+  ],
+  "rules": [ { "name": "pattern", "aliases": ["regex"] } ],
+  "capabilities": [ { "name": "manage_roles", "source": "core", "note": null } ],
+  "workflowActions": [ { "type": "Webhook", "requiredParameters": ["Url"], "optionalParameters": ["Secret"], "secretParameters": ["Secret"] } ],
+  "modules": [ { "name": "Accounting" } ]
+}
+```
+
+`fieldTypes` and `rules` go to every signed-in caller. The other three repeat what an endpoint with
+a gate of its own already lists, so each is `null` for a caller that endpoint would refuse, and a
+list, possibly empty, for one it would serve. So `null` means withheld, and an empty list means none:
+
+| Part | Same as | Needs |
+|---|---|---|
+| `capabilities` | `GET /api/capabilities` | `manage_roles` |
+| `workflowActions` | `GET /api/workflows/actions` | `manage_workflows` |
+| `modules` | the enabled entries of `GET /api/modules`, name only | `view_modules` |
+
+A workflow action carries the fields `GET /api/workflows/actions` returns for it. A module the
+enabled list left off is not in `modules`, and since it serves no endpoint and registers no action
+it adds nothing to the other two either.
+
+`workflowActions` is also `null` when the action registry cannot be read, which is what happens when
+a registered action fails to construct. The rest of the document still answers 200, and the server
+logs the type of the exception. So for that one part `null` means withheld or unavailable.
+
+Under a field type, `ruleNames` holds the `name` of entries in the top-level `rules`.
+
+Every response on this route, a refusal included, is sent `Cache-Control: no-store` and
+`Pragma: no-cache`, because the body differs by what the caller holds. An API key cannot read it:
+keys are confined to the content API and get 403.
 
 ### Unknown names on a role write
 

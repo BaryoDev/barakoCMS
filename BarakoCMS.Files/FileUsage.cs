@@ -40,7 +40,8 @@ internal static class FileUsage
         var id = EscapeLike(file.Id.ToString());
 
         // A key with no stem would make the second pattern '%%', which matches every entry. The
-        // upload always writes {guid:N}{ext}, so this is belt and braces rather than a live case.
+        // upload always writes a random name with an extension, under a prefix this drops, so this
+        // is belt and braces rather than a live case.
         var stem = Path.GetFileNameWithoutExtension(file.StorageKey);
         var key = string.IsNullOrEmpty(stem) ? id : EscapeLike(stem);
 

@@ -30,6 +30,23 @@ public interface IContentTypeValidatorService
 
     /// <summary>Checks a lifecycle declaration on its own. Null is valid and means the default three states.</summary>
     (bool IsValid, List<string> Errors) ValidateLifecycle(LifecycleDefinition? lifecycle);
+
+    /// <summary>
+    /// Checks a lifecycle declaration together with the fields of the type it is saved on, so a
+    /// transition naming a field the type does not declare is refused.
+    /// </summary>
+    /// <remarks>
+    /// For a lifecycle the request adds. A stored one is not checked again: a transition already
+    /// naming a missing field is skipped when the move is made, and a save that touches something
+    /// else is not refused over it.
+    ///
+    /// The default checks the lifecycle alone, which is what an implementor written before this
+    /// member does.
+    /// </remarks>
+    (bool IsValid, List<string> Errors) ValidateLifecycle(
+        LifecycleDefinition? lifecycle,
+        IReadOnlyCollection<FieldDefinition> fields)
+        => ValidateLifecycle(lifecycle);
 }
 
 public class ContentTypeValidatorService : IContentTypeValidatorService
@@ -205,6 +222,22 @@ public class ContentTypeValidatorService : IContentTypeValidatorService
             if (string.Equals(transition.From, transition.To, StringComparison.OrdinalIgnoreCase))
                 errors.Add($"Transition '{transition.Name}' moves '{transition.From}' to itself, which changes nothing.");
         }
+
+        return (errors.Count == 0, errors);
+    }
+
+    /// <inheritdoc />
+    public (bool IsValid, List<string> Errors) ValidateLifecycle(
+        LifecycleDefinition? lifecycle,
+        IReadOnlyCollection<FieldDefinition> fields)
+    {
+        var (_, errors) = ValidateLifecycle(lifecycle);
+        if (lifecycle is null)
+            return (true, errors);
+
+        var declared = fields ?? [];
+        foreach (var transition in lifecycle.Transitions)
+            errors.AddRange(TransitionFields.DefinitionErrors(transition, declared));
 
         return (errors.Count == 0, errors);
     }

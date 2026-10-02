@@ -57,7 +57,14 @@ internal static class PermissionPredicateCompiler
     /// </summary>
     /// <param name="rules">The enabled rules for this type and action, one per granting role.</param>
     /// <param name="userId">Substituted for <c>$CURRENT_USER</c>.</param>
-    public static ReadPredicate Compile(IReadOnlyList<Models.PermissionRule> rules, Guid userId)
+    /// <param name="callerProfile">
+    /// Where <c>$CURRENT_USER.&lt;name&gt;</c> is read from. Null is a caller with no membership in
+    /// the tenant, for whom every such variable is unresolved.
+    /// </param>
+    public static ReadPredicate Compile(
+        IReadOnlyList<Models.PermissionRule> rules,
+        Guid userId,
+        IReadOnlyDictionary<string, string>? callerProfile = null)
     {
         // Additive union: any rule granting is enough, so this is an OR and an empty set is FALSE.
         // Same shape as the loop in PermissionResolver, deliberately.
@@ -77,7 +84,7 @@ internal static class PermissionPredicateCompiler
                 return ReadPredicate.All;
             }
 
-            if (!TryCompileRule(rule.Conditions, userId, out var sql, out var ruleParameters))
+            if (!TryCompileRule(rule.Conditions, userId, callerProfile, out var sql, out var ruleParameters))
             {
                 return ReadPredicate.None;
             }
@@ -93,10 +100,20 @@ internal static class PermissionPredicateCompiler
 
     /// <summary>All the conditions of one rule, ANDed, or false when any of them cannot compile.</summary>
     private static bool TryCompileRule(
-        Dictionary<string, object> conditions, Guid userId, out string sql, out List<object> parameters)
+        Dictionary<string, object> conditions,
+        Guid userId,
+        IReadOnlyDictionary<string, string>? callerProfile,
+        out string sql,
+        out List<object> parameters)
     {
         sql = string.Empty;
         parameters = [];
+
+        if (DeniedByCallerVariable(conditions, callerProfile))
+        {
+            sql = "FALSE";
+            return true;
+        }
 
         var parts = new List<string>(conditions.Count);
 
@@ -114,9 +131,21 @@ internal static class PermissionPredicateCompiler
 
             foreach (var (op, rawExpected) in operators)
             {
-                if (!TryCompileOperator(op, value, Normalize(rawExpected), userId, out var comparison, out var opParameters))
+                var expected = Normalize(rawExpected);
+
+                if (!TryCompileOperator(op, value, expected, userId, callerProfile, out var comparison, out var opParameters))
                 {
                     return false;
+                }
+
+                // A caller attribute is compared with a scalar or with nothing: see
+                // CallerAttributes.IsComparable, which is what the evaluator asks. Only a data field
+                // can hold a list or an object, and only a data field has a presence check. The
+                // guard names the field once more, after the comparison, so its parameter is last.
+                if (presence is not null && CallerAttributes.IsReference(expected))
+                {
+                    comparison = $"{comparison} AND {CallerAttributes.ComparableSql("d.data -> 'Data' -> ?")}";
+                    opParameters.Add(field);
                 }
 
                 // The check that stops the whole class of bug this file is exposed to. Parameters
@@ -144,6 +173,36 @@ internal static class PermissionPredicateCompiler
         // evaluator's inner loop does with it too.
         sql = parts.Count == 0 ? "TRUE" : string.Join(" AND ", parts);
         return true;
+    }
+
+    /// <summary>
+    /// Whether the rule compares against a <c>$CURRENT_USER.&lt;name&gt;</c> the caller has no value
+    /// for, or does so with an operator other than <c>_eq</c> and <c>_ne</c>.
+    /// </summary>
+    /// <remarks>
+    /// The evaluator denies the rule in both cases whatever its other conditions say, since they are
+    /// ANDed, so the rule is the constant FALSE and nothing else in it needs compiling. This is not
+    /// the fallback an unknown operator takes: a member with no value for an attribute is an
+    /// ordinary state, and falling back would load every row of the type to deny each one.
+    /// </remarks>
+    private static bool DeniedByCallerVariable(
+        Dictionary<string, object> conditions, IReadOnlyDictionary<string, string>? callerProfile)
+    {
+        foreach (var rawOperators in conditions.Values)
+        {
+            if (Normalize(rawOperators) is not Dictionary<string, object> operators) continue;
+
+            foreach (var (op, rawExpected) in operators)
+            {
+                if (Normalize(rawExpected) is not string reference || !CallerAttributes.IsReference(reference)) continue;
+
+                if (op is not ("_eq" or "_ne")) return true;
+
+                if (!CallerAttributes.TryResolve(reference, callerProfile, out _)) return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -242,7 +301,13 @@ internal static class PermissionPredicateCompiler
       + $"FROM (SELECT {extraction} AS v) t)";
 
     private static bool TryCompileOperator(
-        string op, string value, object? expected, Guid userId, out string sql, out List<object> parameters)
+        string op,
+        string value,
+        object? expected,
+        Guid userId,
+        IReadOnlyDictionary<string, string>? callerProfile,
+        out string sql,
+        out List<object> parameters)
     {
         sql = string.Empty;
         parameters = [];
@@ -252,7 +317,7 @@ internal static class PermissionPredicateCompiler
             case "_eq":
             case "_ne":
             {
-                if (!TryScalar(expected, userId, substitute: true, out var text)) return false;
+                if (!TryScalar(expected, userId, callerProfile, substitute: true, out var text)) return false;
 
                 // IS DISTINCT FROM, not <>. A null-valued field is "different from alpha" in the
                 // evaluator (!Equals(null, "alpha") is true) while plain <> gives unknown, which
@@ -277,7 +342,7 @@ internal static class PermissionPredicateCompiler
                     // the predicate match rows the evaluator does not, which is the direction that
                     // leaks. The agreement test found this, having generated documents whose field
                     // literally held that string.
-                    if (!TryScalar(item, userId, substitute: false, out var text)) return false;
+                    if (!TryScalar(item, userId, callerProfile, substitute: false, out var text)) return false;
                     texts.Add(text);
                 }
 
@@ -316,14 +381,31 @@ internal static class PermissionPredicateCompiler
 
     /// <summary>The text the evaluator would compare against, for the values worth compiling.</summary>
     /// <param name="substitute">
-    /// Whether <c>$CURRENT_USER</c> means the caller here. True for a scalar expected value, false
-    /// for one inside a list, because that is where the evaluator draws the line.
+    /// Whether <c>$CURRENT_USER</c> and <c>$CURRENT_USER.&lt;name&gt;</c> mean the caller here. True
+    /// for a scalar expected value, false for one inside a list, because that is where the evaluator
+    /// draws the line.
     /// </param>
-    private static bool TryScalar(object? expected, Guid userId, bool substitute, out string text)
+    private static bool TryScalar(
+        object? expected,
+        Guid userId,
+        IReadOnlyDictionary<string, string>? callerProfile,
+        bool substitute,
+        out string text)
     {
         text = string.Empty;
 
         if (expected is not string s) return false;
+
+        if (substitute && CallerAttributes.IsReference(s))
+        {
+            // DeniedByCallerVariable has already answered for an unresolved one. Declining here is
+            // the answer if that ever stops being true: the evaluator decides, and it denies.
+            if (!CallerAttributes.TryResolve(s, callerProfile, out var attribute)) return false;
+
+            // Bound as a parameter like any other expected value, and not read as a variable again.
+            text = attribute;
+            return true;
+        }
 
         text = substitute && s == "$CURRENT_USER" ? userId.ToString() : s;
         return true;
