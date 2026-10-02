@@ -17,9 +17,24 @@ public sealed class TenantDomainMap
     public static readonly TenantDomainMap Empty = new(Array.Empty<(string, string)>());
 
     private readonly Dictionary<string, string> _bySlug;
+    private readonly HashSet<string> _activeSlugs;
 
     public TenantDomainMap(IEnumerable<(string Domain, string Slug)> entries)
+        : this(entries, [])
     {
+    }
+
+    /// <param name="entries">Each registered domain and the tenant it belongs to.</param>
+    /// <param name="activeSlugs">
+    /// The slug of every active tenant, with or without a domain, exactly as stored. It rides in the
+    /// same cached object so that whether a slug is a tenant and which domain names it are read
+    /// from one snapshot and dropped together.
+    /// </param>
+    public TenantDomainMap(IEnumerable<(string Domain, string Slug)> entries, IEnumerable<string> activeSlugs)
+    {
+        // Ordinal, and nothing lowercased here: the token issuer matches the stored slug exactly
+        // against the lowercased one it is asked for, and the two answers have to agree.
+        _activeSlugs = new HashSet<string>(activeSlugs, StringComparer.Ordinal);
         _bySlug = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var (domain, slug) in entries)
@@ -38,6 +53,9 @@ public sealed class TenantDomainMap
     }
 
     public int Count => _bySlug.Count;
+
+    /// <summary>Whether <paramref name="slug"/>, trimmed and lowercased, is an active tenant's.</summary>
+    public bool IsActiveTenant(string? slug) => slug is not null && _activeSlugs.Contains(slug);
 
     /// <summary>The tenant slug for a host, or null if the host is not a registered domain.</summary>
     public string? Find(string? host)

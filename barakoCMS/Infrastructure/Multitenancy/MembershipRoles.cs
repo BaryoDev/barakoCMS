@@ -13,6 +13,18 @@ namespace barakoCMS.Infrastructure.Multitenancy;
 public static class MembershipRoles
 {
     public static async Task<List<Guid>> EffectiveRoleIdsAsync(
+        IQuerySession session, User user, string tenantSlug, CancellationToken ct) =>
+        (await ResolveAsync(session, user, tenantSlug, ct)).RoleIds;
+
+    /// <summary>
+    /// The one body behind <see cref="EffectiveRoleIdsAsync"/>: the effective role ids, and the
+    /// active membership they were read from so its profile costs no second query.
+    /// </summary>
+    /// <remarks>
+    /// Anything that changes which roles a user holds in a tenant goes here, so the permission
+    /// resolver (which needs the row) and every caller of the wrapper cannot come to differ.
+    /// </remarks>
+    internal static async Task<(List<Guid> RoleIds, Membership? Membership)> ResolveAsync(
         IQuerySession session, User user, string tenantSlug, CancellationToken ct)
     {
         var global = user.RoleIds ?? new List<Guid>();
@@ -22,8 +34,8 @@ public static class MembershipRoles
             .FirstOrDefaultAsync(ct);
 
         if (membership is null)
-            return global;
+            return (global, null);
 
-        return membership.RoleIds.Union(global).ToList();
+        return (membership.RoleIds.Union(global).ToList(), membership);
     }
 }
