@@ -20,6 +20,8 @@ public sealed class FormsModule : IBarakoModule
 {
     public string Name => "Forms";
 
+    public int HttpContractVersion => 1;
+
     public void ConfigureServices(IServiceCollection services, IConfiguration configuration)
     {
         // `configuration` is this module's own section, Modules:Forms.

@@ -24,6 +24,7 @@ internal class Endpoint(IConfiguration configuration) : EndpointWithoutRequest<M
             {
                 Version = ReadVersion(),
                 ApiContractVersion = ApiContract.Version,
+                DeliveryContractVersion = ApiContract.DeliveryVersion,
                 SwaggerEnabled = configuration.GetValue(
                     "Swagger:Enabled",
                     Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development"),

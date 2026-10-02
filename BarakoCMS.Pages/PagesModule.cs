@@ -19,6 +19,8 @@ public sealed class PagesModule : IBarakoModule
 
     public int ContractVersion => ModuleContract.Version;
 
+    public int HttpContractVersion => PagesContract.Version;
+
     public void ConfigureServices(IServiceCollection services, IConfiguration configuration)
     {
         services.AddOptions<PagesOptions>()

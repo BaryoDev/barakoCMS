@@ -440,7 +440,7 @@ same registries the API checks requests against, so a client does not keep its o
   "rules": [ { "name": "pattern", "aliases": ["regex"] } ],
   "capabilities": [ { "name": "manage_roles", "source": "core", "note": null } ],
   "workflowActions": [ { "type": "Webhook", "requiredParameters": ["Url"], "optionalParameters": ["Secret"], "secretParameters": ["Secret"] } ],
-  "modules": [ { "name": "Accounting" } ]
+  "modules": [ { "name": "Pages", "httpContractVersion": 1 } ]
 }
 ```
 
@@ -452,11 +452,15 @@ list, possibly empty, for one it would serve. So `null` means withheld, and an e
 |---|---|---|
 | `capabilities` | `GET /api/capabilities` | `manage_roles` |
 | `workflowActions` | `GET /api/workflows/actions` | `manage_workflows` |
-| `modules` | the enabled entries of `GET /api/modules`, name only | `view_modules` |
+| `modules` | the enabled entries of `GET /api/modules`, by name, each with its `httpContractVersion` | `view_modules` |
 
 A workflow action carries the fields `GET /api/workflows/actions` returns for it. A module the
 enabled list left off is not in `modules`, and since it serves no endpoint and registers no action
 it adds nothing to the other two either.
+
+A module's `httpContractVersion` is the version of that module's own endpoints, wherever they are
+mounted, and `0` means the module states none. It is not the `contractVersion` in
+`GET /api/modules`, which is the module contract the module was compiled against.
 
 `workflowActions` is also `null` when the action registry cannot be read, which is what happens when
 a registered action fails to construct. The rest of the document still answers 200, and the server
