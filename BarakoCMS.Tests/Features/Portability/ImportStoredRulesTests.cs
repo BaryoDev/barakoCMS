@@ -186,6 +186,22 @@ public class ImportStoredRulesTests
     }
 
     [Fact]
+    public async Task A_stored_field_whose_type_the_bundle_changes_is_checked()
+    {
+        var tenant = await TenantAsync();
+        var type = await StoredTypeWithAnUnknownRuleAsync(tenant);
+        var admin = await AdminOfAsync(tenant);
+
+        var bundle = await ExportAsync(admin, type);
+        bundle.ContentTypes[0].Fields[0].Type = "text";
+
+        var imported = await ImportAsync(admin, bundle);
+
+        imported.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await imported.Content.ReadAsStringAsync(Ct)).Should().Contain("Code").And.Contain(UnknownRule);
+    }
+
+    [Fact]
     public async Task A_type_storing_an_unknown_rule_is_refused_by_a_tenant_that_does_not_have_it()
     {
         var source = await TenantAsync();

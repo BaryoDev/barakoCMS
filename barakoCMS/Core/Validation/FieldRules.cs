@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -15,9 +16,11 @@ namespace barakoCMS.Core.Validation;
 /// stored document, and a <c>long</c>, <c>decimal</c> or <c>string</c> after
 /// <c>ObjectJsonConverter</c> has read a body. Every reader here takes both.
 ///
-/// A stored rule that would be refused today (an unknown name, a bound that is not a number) is
-/// skipped on an entry write instead of failing it. The type was accepted before rules were
-/// checked, and refusing every write to it would turn an ignored typo into an outage.
+/// A stored rule that would be refused today (an unknown name, a bound that is not a number, a min
+/// above its max) is skipped on an entry write instead of failing it. The type was accepted before
+/// rules were checked and no endpoint edits a stored rule, so refusing every write to it would turn
+/// an ignored typo into an outage. <see cref="Classify"/> and the write path read a rule through
+/// the same helpers, so what the startup notice calls applied is what a write applies.
 /// </remarks>
 internal static class FieldRules
 {
@@ -41,10 +44,23 @@ internal static class FieldRules
     /// <summary>How long one pattern match may run before the write is refused.</summary>
     public static readonly TimeSpan PatternTimeout = TimeSpan.FromMilliseconds(250);
 
-    private const RegexOptions PatternOptions = RegexOptions.CultureInvariant;
+    // Matched without backtracking, so the time a match takes grows with the length of the value
+    // and not with the shape of the pattern. One write can check many patterns and an import checks
+    // thousands of entries, so a per-match timeout alone would still add up to minutes of a core.
+    private const RegexOptions PatternOptions = RegexOptions.CultureInvariant | RegexOptions.NonBacktracking;
 
     public const string PatternTimedOut =
         "took too long to check against its pattern (rule 'pattern'), so it was refused.";
+
+    private const int MaxCachedPatterns = 1000;
+
+    // The built-in cache holds fifteen, and a type with more patterns than that would rebuild one
+    // on every write. Null is a pattern that cannot be built.
+    private static readonly ConcurrentDictionary<string, Regex?> Patterns = new(StringComparer.Ordinal);
+
+    private const string CurrentUser = "$CURRENT_USER";
+
+    private const double DecimalRange = 7.9e28;
 
     private static readonly HashSet<string> TextTypes = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -66,7 +82,7 @@ internal static class FieldRules
 
     private static readonly ConditionEvaluator Conditions = new();
 
-    // The evaluator only reads the user for the $CURRENT_USER placeholder.
+    // Never read: a condition naming $CURRENT_USER is refused on save and skipped on a write.
     private static readonly User NoUser = new();
 
     /// <summary>What is wrong with the rules a field declares, for the type validator.</summary>
@@ -155,11 +171,10 @@ internal static class FieldRules
         if (errors.Count > 0)
             return errors;
 
-        if (Bound(field, Min) is { } min && Bound(field, Max) is { } max && min.CompareTo(max) > 0)
+        if (Contradicts(RawBound(field, Min), RawBound(field, Max)))
             errors.Add($"Field '{field.Name}' has a 'min' above its 'max', so no value could pass.");
 
-        if (Length(rules, MinLength) is { } minLength && Length(rules, MaxLength) is { } maxLength
-            && minLength > maxLength)
+        if (Contradicts(RawLength(rules, MinLength), RawLength(rules, MaxLength)))
             errors.Add($"Field '{field.Name}' has a 'minLength' above its 'maxLength', so no value could pass.");
 
         return errors;
@@ -177,12 +192,23 @@ internal static class FieldRules
 
         if (FieldTypeRegistry.IsNumericType(field.Type))
         {
+            var (min, max) = NumberBounds(rules);
+
             if (AsDecimal(value) is { } number)
             {
-                if (TryGet(rules, Min, out var rawMin) && AsDecimal(rawMin) is { } min && number < min)
-                    errors.Add($"{label} must be at least {Text(min)} (rule 'min').");
-                if (TryGet(rules, Max, out var rawMax) && AsDecimal(rawMax) is { } max && number > max)
-                    errors.Add($"{label} must be at most {Text(max)} (rule 'max').");
+                if (min is { } least && number < least)
+                    errors.Add($"{label} must be at least {Text(least)} (rule 'min').");
+                if (max is { } most && number > most)
+                    errors.Add($"{label} must be at most {Text(most)} (rule 'max').");
+            }
+            else if (BeyondDecimal(value) is { } sign)
+            {
+                // The request converter hands over a double for a number past decimal's range. It
+                // cannot be compared as a decimal, and its sign says which bound it is past.
+                if (sign < 0 && min is { } low)
+                    errors.Add($"{label} must be at least {Text(low)} (rule 'min').");
+                if (sign > 0 && max is { } high)
+                    errors.Add($"{label} must be at most {Text(high)} (rule 'max').");
             }
 
             return errors;
@@ -190,12 +216,14 @@ internal static class FieldRules
 
         if (IsDateType(field.Type))
         {
+            var (earliest, latest) = DateBounds(rules);
+
             if (AsDate(value) is { } moment)
             {
-                if (TryGet(rules, Min, out var rawMin) && AsDate(rawMin) is { } min && moment < min)
-                    errors.Add($"{label} must be on or after {Text(min)} (rule 'min').");
-                if (TryGet(rules, Max, out var rawMax) && AsDate(rawMax) is { } max && moment > max)
-                    errors.Add($"{label} must be on or before {Text(max)} (rule 'max').");
+                if (earliest is { } start && moment < start)
+                    errors.Add($"{label} must be on or after {Text(start)} (rule 'min').");
+                if (latest is { } end && moment > end)
+                    errors.Add($"{label} must be on or before {Text(end)} (rule 'max').");
             }
 
             return errors;
@@ -204,29 +232,39 @@ internal static class FieldRules
         if (!IsTextType(field.Type) || AsString(value) is not { } s)
             return errors;
 
-        if (Length(rules, MinLength) is { } minLength && s.Length < minLength)
-            errors.Add($"{label} must be at least {minLength} characters long (rule 'minLength').");
+        // A required field left blank never gets here, the required check refuses it first. So this
+        // is an optional field that was cleared, which a console sends as an empty string, and
+        // clearing an optional field has to stay possible whatever its rules say about a value.
+        if (string.IsNullOrWhiteSpace(s))
+            return errors;
 
-        if (Length(rules, MaxLength) is { } maxLength && s.Length > maxLength)
-            errors.Add($"{label} must be at most {maxLength} characters long (rule 'maxLength').");
+        var (shortest, longest) = LengthBounds(rules);
 
-        if (TryGetPattern(rules, out var rawPattern) && AsString(rawPattern) is { Length: > 0 } pattern
-            && pattern.Length <= MaxPatternLength)
+        if (shortest is { } fewest && s.Length < fewest)
+            errors.Add($"{label} must be at least {fewest} characters long (rule 'minLength').");
+
+        if (longest is { } widest && s.Length > widest)
+            errors.Add($"{label} must be at most {widest} characters long (rule 'maxLength').");
+
+        if (UsablePattern(rules) is not { } pattern)
+            return errors;
+
+        // In .NET "$" also matches before a final line break, and a check of the same pattern in a
+        // browser does not, so "123\n" would pass here and fail there.
+        if (s.EndsWith('\n'))
         {
-            try
-            {
-                if (!Regex.IsMatch(s, pattern, PatternOptions, PatternTimeout))
-                    errors.Add($"{label} does not match the format this field requires (rule 'pattern').");
-            }
-            catch (RegexMatchTimeoutException)
-            {
-                errors.Add($"{label} {PatternTimedOut}");
-            }
-            catch (ArgumentException)
-            {
-                // A stored pattern that does not compile. Skipped, like any other stored rule a save
-                // would refuse today.
-            }
+            errors.Add($"{label} must not end with a line break (rule 'pattern').");
+            return errors;
+        }
+
+        try
+        {
+            if (!pattern.IsMatch(s))
+                errors.Add($"{label} does not match the format this field requires (rule 'pattern').");
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            errors.Add($"{label} {PatternTimedOut}");
         }
 
         return errors;
@@ -239,19 +277,23 @@ internal static class FieldRules
         if (rules is null || !TryGet(rules, RequiredWhen, out var raw))
             return false;
 
-        if (ReadObject(raw) is not { Count: > 0 } condition)
+        if (ConditionError(raw) is not null || ReadObject(raw) is not { Count: > 0 } condition)
             return false;
 
         // The validator matches data keys ignoring case and the evaluator matches them exactly, so
-        // without this a caller could send "kind" for Kind and walk past the condition.
+        // without this a caller could send "kind" for Kind and walk past the condition. First key
+        // wins, as it does where the validator reads a field's value, so a bag holding both Kind
+        // and kind is read the same way in both places.
         var bag = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
         foreach (var (key, value) in data)
-            bag[key] = value;
+            bag.TryAdd(key, value);
 
         foreach (var (name, comparison) in condition)
         {
             if (ReadObject(comparison) is not { Count: > 0 } operators)
                 return false;
+
+            var present = bag.ContainsKey(name);
 
             var plain = new Dictionary<string, object>();
             foreach (var (op, bound) in operators)
@@ -262,29 +304,93 @@ internal static class FieldRules
                     continue;
                 }
 
-                if (!bag.TryGetValue(name, out var actual) || !Compares(op, actual, bound))
+                if (!present || !Compares(op, bag[name], bound))
                     return false;
             }
 
-            if (plain.Count > 0
-                && !Conditions.Evaluate(new Dictionary<string, object> { [name] = plain }, bag, NoUser))
+            if (plain.Count == 0)
+                continue;
+
+            // A field that was left out is not equal to anything and is not in any list. For "not
+            // equal" and "not in" it is read as null, the same as a field sent as null: otherwise
+            // leaving the controlling field out would walk past the rule.
+            if (!present && plain.Keys.Any(o => o is "_eq" or "_in"))
+                return false;
+
+            var subject = present
+                ? bag
+                : new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase) { [name] = null! };
+
+            if (!Conditions.Evaluate(new Dictionary<string, object> { [name] = plain }, subject, NoUser))
                 return false;
         }
 
         return true;
     }
 
-    // Numbers as numbers, dates as dates. A value that is missing, or is neither, does not compare,
-    // and the condition does not hold.
+    /// <summary>
+    /// The rule names a field stores, split into the ones an entry write applies and the ones it
+    /// skips.
+    /// </summary>
+    public static (List<string> Applied, List<string> Skipped) Classify(FieldDefinition field)
+    {
+        var applied = new List<string>();
+        var skipped = new List<string>();
+
+        var rules = field.ValidationRules;
+        if (rules is null)
+            return (applied, skipped);
+
+        var numeric = FieldTypeRegistry.IsNumericType(field.Type);
+        var date = IsDateType(field.Type);
+        var text = IsTextType(field.Type);
+
+        foreach (var (name, raw) in rules)
+        {
+            var works = Canonical(name) switch
+            {
+                Min => numeric ? NumberBounds(rules).Min is not null : date && DateBounds(rules).Min is not null,
+                Max => numeric ? NumberBounds(rules).Max is not null : date && DateBounds(rules).Max is not null,
+                MinLength => text && LengthBounds(rules).Min is not null,
+                MaxLength => text && LengthBounds(rules).Max is not null,
+                Pattern => text && UsablePattern(rules) is not null,
+                RequiredWhen => ConditionError(raw) is null,
+                _ => false,
+            };
+
+            (works ? applied : skipped).Add(name);
+        }
+
+        return (applied, skipped);
+    }
+
+    /// <summary>Whether any field of the type stores a rule.</summary>
+    public static bool HasRules(ContentTypeDefinition definition) =>
+        definition.Fields is not null
+        && definition.Fields.Any(f => f?.ValidationRules is { Count: > 0 });
+
+    // Numbers as numbers, dates as dates. A value that is neither does not compare, and the
+    // condition does not hold.
     private static bool Compares(string op, object? actual, object? bound)
     {
         int order;
-        if (AsDecimal(actual) is { } number && AsDecimal(bound) is { } numberBound)
-            order = number.CompareTo(numberBound);
+        if (AsDecimal(bound) is { } numberBound)
+        {
+            if (AsDecimal(actual) is { } number)
+                order = number.CompareTo(numberBound);
+            else if (BeyondDecimal(actual) is { } sign)
+                order = sign;
+            else
+                return false;
+        }
         else if (AsDate(actual) is { } moment && AsDate(bound) is { } momentBound)
+        {
             order = moment.CompareTo(momentBound);
+        }
         else
+        {
             return false;
+        }
 
         return op switch
         {
@@ -295,11 +401,6 @@ internal static class FieldRules
             _ => false,
         };
     }
-
-    /// <summary>Whether any field of the type stores a rule.</summary>
-    public static bool HasRules(ContentTypeDefinition definition) =>
-        definition.Fields is not null
-        && definition.Fields.Any(f => f?.ValidationRules is { Count: > 0 });
 
     private static string? PatternError(object? raw)
     {
@@ -313,6 +414,11 @@ internal static class FieldRules
         {
             _ = new Regex(pattern, PatternOptions, PatternTimeout);
             return null;
+        }
+        catch (NotSupportedException)
+        {
+            return "uses a lookahead, a lookbehind, a backreference or an atomic group, or is too "
+                + "large to build. Patterns are matched without backtracking, which supports none of those";
         }
         catch (ArgumentException)
         {
@@ -331,8 +437,14 @@ internal static class FieldRules
         if (condition.Count > MaxConditions)
             return $"names {condition.Count} fields, and at most {MaxConditions} are allowed";
 
-        foreach (var (_, comparison) in condition)
+        foreach (var (name, comparison) in condition)
         {
+            // Permission conditions read document properties this way. An entry being validated
+            // has none yet, so the condition could never hold.
+            if (name.StartsWith('$'))
+                return $"names '{Shorten(name)}', and a condition here reads the entry's own fields, "
+                    + "not a property of the document";
+
             if (ReadObject(comparison) is not { Count: > 0 } operators)
                 return shape;
 
@@ -342,6 +454,9 @@ internal static class FieldRules
 
             foreach (var (op, bound) in operators)
             {
+                if (Mentions(bound, CurrentUser))
+                    return $"compares against {CurrentUser}, which only a permission condition can fill in";
+
                 if (Comparisons.Contains(op) && AsDecimal(bound) is null && AsDate(bound) is null)
                     return $"compares with '{op}' against a value that is not a number or a date";
             }
@@ -350,7 +465,87 @@ internal static class FieldRules
         return null;
     }
 
-    private static IComparable? Bound(FieldDefinition field, string rule)
+    private static bool Mentions(object? bound, string text) => bound switch
+    {
+        null => false,
+        string s => s == text,
+        JsonElement { ValueKind: JsonValueKind.String } je => je.GetString() == text,
+        JsonElement { ValueKind: JsonValueKind.Array } je => je.EnumerateArray()
+            .Any(item => item.ValueKind == JsonValueKind.String && item.GetString() == text),
+        System.Collections.IEnumerable list => list.Cast<object?>().Any(item => Mentions(item, text)),
+        _ => false,
+    };
+
+    // The pairs below return nothing for a pair that contradicts itself. No value could pass both,
+    // so applying a stored one would refuse every write of the field.
+
+    private static (decimal? Min, decimal? Max) NumberBounds(Dictionary<string, object> rules)
+    {
+        decimal? min = TryGet(rules, Min, out var rawMin) ? AsDecimal(rawMin) : null;
+        decimal? max = TryGet(rules, Max, out var rawMax) ? AsDecimal(rawMax) : null;
+
+        if (min > max)
+            return (null, null);
+
+        return (min, max);
+    }
+
+    private static (DateTime? Min, DateTime? Max) DateBounds(Dictionary<string, object> rules)
+    {
+        DateTime? min = TryGet(rules, Min, out var rawMin) ? AsDate(rawMin) : null;
+        DateTime? max = TryGet(rules, Max, out var rawMax) ? AsDate(rawMax) : null;
+
+        if (min > max)
+            return (null, null);
+
+        return (min, max);
+    }
+
+    private static (int? Min, int? Max) LengthBounds(Dictionary<string, object> rules)
+    {
+        var min = RawLength(rules, MinLength);
+        var max = RawLength(rules, MaxLength);
+
+        if (min > max)
+            return (null, null);
+
+        return (min, max);
+    }
+
+    private static Regex? UsablePattern(Dictionary<string, object> rules)
+    {
+        if (!TryGetPattern(rules, out var raw) || AsString(raw) is not { Length: > 0 } pattern)
+            return null;
+
+        return pattern.Length > MaxPatternLength ? null : Compiled(pattern);
+    }
+
+    private static Regex? Compiled(string pattern)
+    {
+        if (Patterns.TryGetValue(pattern, out var cached))
+            return cached;
+
+        Regex? built;
+        try
+        {
+            built = new Regex(pattern, PatternOptions, PatternTimeout);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException)
+        {
+            built = null;
+        }
+
+        if (Patterns.Count >= MaxCachedPatterns)
+            Patterns.Clear();
+
+        Patterns[pattern] = built;
+        return built;
+    }
+
+    private static bool Contradicts(IComparable? min, IComparable? max) =>
+        min is not null && max is not null && min.CompareTo(max) > 0;
+
+    private static IComparable? RawBound(FieldDefinition field, string rule)
     {
         if (!TryGet(field.ValidationRules, rule, out var raw))
             return null;
@@ -361,7 +556,7 @@ internal static class FieldRules
         return IsDateType(field.Type) ? AsDate(raw) : null;
     }
 
-    private static int? Length(Dictionary<string, object> rules, string rule) =>
+    private static int? RawLength(Dictionary<string, object> rules, string rule) =>
         TryGet(rules, rule, out var raw) ? AsLength(raw) : null;
 
     private static string? Canonical(string? name)
@@ -424,7 +619,9 @@ internal static class FieldRules
             case double d: return FromDouble(d);
             case float f: return FromDouble(f);
             case JsonElement { ValueKind: JsonValueKind.Number } je:
-                return je.TryGetDecimal(out var fromJson) ? fromJson : null;
+                if (je.TryGetDecimal(out var fromJson))
+                    return fromJson;
+                return je.TryGetDouble(out var wide) ? FromDouble(wide) : null;
         }
 
         if (AsString(value) is not { } s)
@@ -438,7 +635,25 @@ internal static class FieldRules
 
     // A cast from a double outside decimal's range throws.
     private static decimal? FromDouble(double d) =>
-        double.IsFinite(d) && Math.Abs(d) < 7.9e28 ? (decimal)d : null;
+        double.IsFinite(d) && Math.Abs(d) < DecimalRange ? (decimal)d : null;
+
+    /// <summary>
+    /// The sign of a finite number too large for a decimal, or null for anything else.
+    /// </summary>
+    private static int? BeyondDecimal(object? value)
+    {
+        double? read = value switch
+        {
+            double d => d,
+            float f => f,
+            JsonElement { ValueKind: JsonValueKind.Number } je when je.TryGetDouble(out var wide) => wide,
+            _ => null,
+        };
+
+        return read is { } number && double.IsFinite(number) && Math.Abs(number) >= DecimalRange
+            ? Math.Sign(number)
+            : null;
+    }
 
     private static int? AsLength(object? value) =>
         AsDecimal(value) is { } m && m >= 0 && m <= int.MaxValue && m == decimal.Truncate(m)

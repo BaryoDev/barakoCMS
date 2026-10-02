@@ -517,8 +517,9 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
     }
 
     /// <summary>
-    /// The bundle's own field instances whose validation rules are the ones the stored type holds
-    /// for a field of that name.
+    /// The bundle's own field instances whose type and validation rules are the ones the stored
+    /// type holds for a field of that name. A rule depends on the field's type, so a bundle that
+    /// changes the type has changed what the rules mean.
     /// </summary>
     private static List<FieldDefinition> FieldsWithStoredRules(ContentTypeDefinition type, ContentTypeDefinition? stored)
     {
@@ -529,7 +530,9 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
         return type.Fields
             .Where(field => storedFields.FirstOrDefault(
                     f => f is not null && string.Equals(f.Name, field.Name, StringComparison.OrdinalIgnoreCase))
-                is { } held && SameRules(field.ValidationRules, held.ValidationRules))
+                is { } held
+                && string.Equals(field.Type, held.Type, StringComparison.OrdinalIgnoreCase)
+                && SameRules(field.ValidationRules, held.ValidationRules))
             .ToList();
     }
 

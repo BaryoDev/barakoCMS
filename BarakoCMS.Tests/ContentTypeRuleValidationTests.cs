@@ -101,6 +101,49 @@ public class ContentTypeRuleValidationTests
     }
 
     [Fact]
+    public void A_pattern_using_a_lookahead_or_a_backreference_is_refused()
+    {
+        var (isValid, errors) = Save("string", ("pattern", @"^(?=.*[0-9]).+$"));
+
+        isValid.Should().BeFalse();
+        errors.Should().HaveCount(1);
+        errors[0].Should().Contain("Subject").And.Contain("lookahead").And.Contain("without backtracking");
+
+        var (backreference, backreferenceErrors) = Save("string", ("pattern", @"^(a)\1$"));
+
+        backreference.Should().BeFalse();
+        backreferenceErrors.Should().HaveCount(1);
+        backreferenceErrors[0].Should().Contain("backreference");
+    }
+
+    [Fact]
+    public void A_condition_naming_a_document_property_or_the_current_user_is_refused()
+    {
+        var (isValid, errors) = Save("string", ("requiredWhen", new Dictionary<string, object>
+        {
+            ["$status"] = new Dictionary<string, object> { ["_eq"] = "Published" },
+        }));
+
+        isValid.Should().BeFalse();
+        errors.Should().HaveCount(1);
+        errors[0].Should().Contain("Subject").And.Contain("'requiredWhen'").And.Contain("$status");
+
+        var (user, userErrors) = Save("string", ("requiredWhen", new Dictionary<string, object>
+        {
+            ["Owner"] = new Dictionary<string, object> { ["_eq"] = "$CURRENT_USER" },
+        }));
+
+        user.Should().BeFalse();
+        userErrors.Should().HaveCount(1);
+        userErrors[0].Should().Contain("$CURRENT_USER");
+
+        Save("string", ("requiredWhen", new Dictionary<string, object>
+        {
+            ["Owner"] = new Dictionary<string, object> { ["_in"] = new List<object> { "a", "$CURRENT_USER" } },
+        })).IsValid.Should().BeFalse();
+    }
+
+    [Fact]
     public void A_rule_on_a_field_type_it_does_not_apply_to_is_refused()
     {
         var (isValid, errors) = Save("bool", ("max", 1));

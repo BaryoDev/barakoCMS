@@ -12,7 +12,8 @@ namespace barakoCMS.Infrastructure.Services;
 /// <remarks>
 /// Rules were stored and ignored before they were enforced, so a type written back then may carry a
 /// rule nobody has seen applied. An operator reads here which types now refuse entries, and which
-/// carry a rule that a save would refuse today and that is therefore skipped.
+/// stored rules a save would refuse today and are therefore skipped, each named as type, field and
+/// rule. A type with one usable rule and one unusable rule appears in both.
 /// </remarks>
 internal sealed class StoredValidationRulesNotice(
     IDocumentStore store,
@@ -68,7 +69,7 @@ internal sealed class StoredValidationRulesNotice(
                 if (skipped.Count > 0)
                 {
                     logger.LogWarning(
-                        "Tenant {Tenant}: {Count} content type(s) store a validation rule that is not applied, because saving it today would be refused: {Types}",
+                        "Tenant {Tenant}: {Count} stored validation rule(s) are not applied, because saving them today would be refused: {Rules}",
                         LogSafe.Value(tenantId), skipped.Count, Listed(skipped));
                 }
             }
@@ -84,6 +85,10 @@ internal sealed class StoredValidationRulesNotice(
         return found;
     }
 
+    /// <summary>
+    /// The names of the types with at least one rule a write applies, and every stored rule a write
+    /// skips, as <c>type.Field.rule</c>.
+    /// </summary>
     public static async Task<(List<string> Applied, List<string> Skipped)> ReadAsync(
         IQuerySession session, CancellationToken ct)
     {
@@ -100,8 +105,17 @@ internal sealed class StoredValidationRulesNotice(
 
             foreach (var definition in batch.Where(FieldRules.HasRules))
             {
-                var refused = definition.Fields.Any(f => f is not null && FieldRules.DefinitionErrors(f).Count > 0);
-                (refused ? skipped : applied).Add(definition.Name);
+                var any = false;
+
+                foreach (var field in definition.Fields.Where(f => f is not null))
+                {
+                    var (works, unusable) = FieldRules.Classify(field);
+                    any |= works.Count > 0;
+                    skipped.AddRange(unusable.Select(rule => $"{definition.Name}.{field.Name}.{rule}"));
+                }
+
+                if (any)
+                    applied.Add(definition.Name);
             }
 
             if (batch.Count < BatchSize)
