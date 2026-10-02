@@ -287,13 +287,34 @@ public static class SystemCapabilities
     /// </remarks>
     public const string ManageCollectionSyncs = "manage_collection_syncs";
 
+    /// <summary>
+    /// Read and set a field marked Sensitive that lists no roles of its own, and read an entry
+    /// whose own level is Sensitive.
+    /// </summary>
+    /// <remarks>
+    /// What the role name "HR" used to decide. Absent from Admin's defaults because Admin never read
+    /// a Sensitive value: the default policy named HR and nobody else. A field that lists
+    /// <see cref="FieldDefinition.VisibleToRoles"/> is decided by that list, not by this.
+    /// </remarks>
+    public const string ViewSensitive = "view_sensitive";
+
+    /// <summary>
+    /// Read and set a field marked Hidden that lists no roles of its own, and read an entry whose
+    /// own level is Hidden.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <see cref="ViewSensitive"/> and not implied by it, in either direction. Only
+    /// SuperAdmin read a Hidden value before, so no seeded role but SuperAdmin starts with it.
+    /// </remarks>
+    public const string ViewHidden = "view_hidden";
+
     public static readonly IReadOnlySet<string> Known = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         All, ManageRoles, ManageTenants, ManageTenantMembers, ManageUsers, ManageUserMembership, ManageUserGroups,
         ManageApiKeys, ViewAuditLog, ManageSettings, ManageEmailSettings, ManageContentTypes, ManagePublicDelivery,
         ViewMonitoring, ManageRedirects, ManageQueries, ManageRequests, ViewConnectors, ManageConnectors,
         ManageWorkflows, ViewWorkflowRuns, RetryWorkflowActions, RollbackContent, EraseContent, ViewModules,
-        ViewJobs, ViewWebhookResponseBodies, ManageCollectionSyncs,
+        ViewJobs, ViewWebhookResponseBodies, ManageCollectionSyncs, ViewSensitive, ViewHidden,
     };
 
     public static bool IsKnown(string capability) =>

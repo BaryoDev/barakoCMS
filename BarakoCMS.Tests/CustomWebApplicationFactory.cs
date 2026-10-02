@@ -87,7 +87,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyn
                  {
                      new barakoCMS.Models.Role { Id = barakoCMS.Data.DataSeeder.SuperAdminRoleId, Name = "SuperAdmin", Description = "Full system access" },
                      new barakoCMS.Models.Role { Id = barakoCMS.Data.DataSeeder.AdminRoleId, Name = "Admin", Description = "Administrator with full access" },
-                     new barakoCMS.Models.Role { Id = barakoCMS.Data.DataSeeder.HRRoleId, Name = "HR", Description = "Human Resources - manage attendance" },
+                     new barakoCMS.Models.Role { Id = barakoCMS.Data.DataSeeder.DemoHrRoleId, Name = "HR", Description = "Human Resources - manage attendance" },
                      new barakoCMS.Models.Role { Id = barakoCMS.Data.DataSeeder.UserRoleId, Name = "User", Description = "Standard user" },
                  })
         {

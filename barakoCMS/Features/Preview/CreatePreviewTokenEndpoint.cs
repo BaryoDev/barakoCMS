@@ -1,5 +1,5 @@
 using barakoCMS.Features.Public;
-using barakoCMS.Infrastructure.Multitenancy;
+using barakoCMS.Features.Site.ShareLinks;
 using barakoCMS.Infrastructure.Preview;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
@@ -23,17 +23,34 @@ internal class CreatePreviewTokenResponse
 }
 
 /// <summary>
-/// POST /api/preview — an authenticated editor mints a short-lived preview token for one draft entry.
-/// The caller must actually have read access to that content type (same check as the authoring read
-/// endpoint), so you can only mint a token for a draft you're allowed to see. The token is bound to the
-/// current tenant + this type + slug; the public delivery endpoint validates it before revealing a draft.
+/// POST /api/preview: a signed-in editor gets a 30 minute token for one draft entry. Deprecated in
+/// favour of an entry share link (<c>POST /api/contents/{id}/share-links</c>).
 /// </summary>
+/// <remarks>
+/// The token is the key of an entry share link stored with <see cref="SiteShareLink.Preview"/> set:
+/// hashed, looked up in the caller's tenant, expired by the server and deleted with its entry. The
+/// caller needs read on the entry, the same check as the authoring read, so a token cannot be had
+/// for a draft the caller may not see. The body and the status codes are what they were when the
+/// token was a signed JWT.
+///
+/// Read is a low bar and the route used to store nothing, so a token leaves as little behind as it
+/// can: a fixed label, no audit row, no place in the entry's list of links, and at most
+/// <see cref="ShareLinkKeys.MaxPreviewPerEntry"/> live per entry, the oldest dropped to make room.
+///
+/// The <c>Deprecation</c> header is set here, so it is on what this handler answers: the 200, its
+/// 404s and the 401 for a token whose user is gone. It is not on an answer written before the
+/// handler runs: the 401 for no credentials, a 400 from binding, a 429, or the 403 an API key gets.
+/// </remarks>
 internal class CreatePreviewTokenEndpoint(
-    IQuerySession session,
-    IConfiguration config,
-    IPermissionResolver permissions,
-    TenantContext tenant) : Endpoint<CreatePreviewTokenRequest, CreatePreviewTokenResponse>
+    IDocumentSession session,
+    IPermissionResolver permissions) : Endpoint<CreatePreviewTokenRequest, CreatePreviewTokenResponse>
 {
+    /// <summary>The day the route was deprecated, 2 October 2026, in the form RFC 9745 gives the header.</summary>
+    internal const string DeprecatedSince = "@1790899200";
+
+    /// <summary>Fixed, so the stored row copies nothing from the entry.</summary>
+    internal const string PreviewLabel = "Preview token";
+
     public override void Configure()
     {
         Post("/api/preview"); // authenticated by default
@@ -41,6 +58,8 @@ internal class CreatePreviewTokenEndpoint(
 
     public override async Task HandleAsync(CreatePreviewTokenRequest req, CancellationToken ct)
     {
+        HttpContext.Response.Headers["Deprecation"] = DeprecatedSince;
+
         if (!Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId))
         {
             await Send.UnauthorizedAsync(ct);
@@ -68,7 +87,36 @@ internal class CreatePreviewTokenEndpoint(
             return;
         }
 
-        var (token, expiresAt) = PreviewToken.Create(config, tenant.Slug, req.Type, req.Slug, entry.Id);
-        await Send.ResponseAsync(new CreatePreviewTokenResponse { Token = token, ExpiresAt = expiresAt });
+        var now = DateTimeOffset.UtcNow;
+        var entryId = entry.Id;
+
+        // The tenant's expired tokens go, and so do this entry's oldest live ones past the cap.
+        session.DeleteWhere<SiteShareLink>(l => l.Preview && l.ExpiresAt < now);
+        var live = await session.Query<SiteShareLink>()
+            .Where(l => l.EntryId == entryId && l.Preview && l.ExpiresAt >= now)
+            .OrderBy(l => l.CreatedAt)
+            .ToListAsync(ct);
+        foreach (var oldest in live.Take(Math.Max(0, live.Count - ShareLinkKeys.MaxPreviewPerEntry + 1)))
+        {
+            session.Delete(oldest);
+        }
+
+        var key = ShareLinkKeys.NewKey();
+        var link = new SiteShareLink
+        {
+            Id = Guid.NewGuid(),
+            Label = PreviewLabel,
+            KeyHash = ShareLinkKeys.EntryHash(key),
+            CreatedAt = now,
+            CreatedBy = User.FindFirst("Username")?.Value,
+            ExpiresAt = now.Add(PreviewToken.DefaultLifetime),
+            EntryId = entryId,
+            Preview = true,
+        };
+        session.Store(link);
+
+        await session.SaveChangesAsync(ct);
+
+        await Send.ResponseAsync(new CreatePreviewTokenResponse { Token = key, ExpiresAt = link.ExpiresAt.UtcDateTime });
     }
 }
