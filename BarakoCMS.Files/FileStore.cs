@@ -18,11 +18,17 @@ namespace BarakoCMS.Files;
 /// does. They take no caller, so no private file leaves through them.
 ///
 /// The members that take a caller apply <see cref="FileOwnership"/> to it, as the download and
-/// delete routes do, after checking that it is a caller those routes would have let in at all:
-/// signed in, not an API key, and signed in to this scope's tenant.
+/// delete routes do, after three checks a principal handed to a method has not had: signed in,
+/// not an API key, and not a token for another tenant. The caller has to be the current request's.
+/// Whether its token was revoked, its tenant switched off or its device refused is settled by the
+/// request pipeline and is not asked again here.
 ///
 /// A save runs the checks the upload route runs and writes the record the upload route writes, so
 /// the module's routes serve a file stored here as they serve an upload.
+///
+/// A save and a delete commit through the scope's session, which the storage shares, so both
+/// refuse to start while that session holds work the caller staged. What they commit is then
+/// their own and nothing else.
 ///
 /// The record and the bytes go through the scope's own session and storage, which are opened for
 /// the scope's tenant, so an id of another tenant loads nothing. A cached resize is absent here for
@@ -107,6 +113,7 @@ internal sealed class FileStore(
     public async Task<FileSaveResult> SaveAsync(FileToStore file, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(file);
+        RefuseStagedWork(nameof(SaveAsync));
 
         var contentType = UploadTypes.Allowed(file.ContentType);
         if (contentType is null)
@@ -114,18 +121,22 @@ internal sealed class FileStore(
             return Refuse($"Only these types are allowed: {string.Join(", ", UploadTypes.Names)}.");
         }
 
-        var bytes = await ReadUpToAsync(file.Content, UploadTypes.MaxBytes, cancellationToken);
-        if (bytes is null)
+        using var held = await ReadUpToAsync(file.Content, UploadTypes.MaxBytes, cancellationToken);
+        if (held is null)
         {
             return Refuse($"File is too large (max {UploadTypes.MaxBytes / (1024 * 1024)} MB).");
         }
 
-        if (bytes.Length == 0)
+        // One copy of the file, read in place for the check, the scan and the store.
+        var size = (int)held.Length;
+        var buffer = held.GetBuffer();
+
+        if (size == 0)
         {
             return Refuse("A file is required.");
         }
 
-        if (!UploadTypes.Matches(contentType, bytes.AsSpan(0, Math.Min(bytes.Length, UploadTypes.HeadLength))))
+        if (!UploadTypes.Matches(contentType, buffer.AsSpan(0, Math.Min(size, UploadTypes.HeadLength))))
         {
             return Refuse($"The file's content is not {contentType}.");
         }
@@ -135,14 +146,14 @@ internal sealed class FileStore(
         if (scanner.Configured)
         {
             ScanResult scan;
-            using (var forScanning = new MemoryStream(bytes, writable: false))
+            using (var forScanning = new MemoryStream(buffer, 0, size, writable: false))
             {
                 scan = await scanner.ScanAsync(forScanning, cancellationToken);
             }
 
             if (scan.Verdict != ScanVerdict.Clean)
             {
-                await RecordRefusalAsync(fileName, contentType, bytes.Length, file.Owner, scan, cancellationToken);
+                await RecordRefusalAsync(fileName, contentType, size, file, scan, cancellationToken);
 
                 // An unreachable scanner is not evidence that a file is safe, so it is refused as
                 // an infected one is. Only the scanner's silence can change on a later attempt.
@@ -155,7 +166,7 @@ internal sealed class FileStore(
         var key = FileKeys.ForUpload(file.IsPublic, UploadTypes.Extension(contentType));
 
         StoredObjectRef stored;
-        using (var content = new MemoryStream(bytes, writable: false))
+        using (var content = new MemoryStream(buffer, 0, size, writable: false))
         {
             stored = await storage.PutAsync(content, key, contentType, file.IsPublic, cancellationToken);
         }
@@ -164,7 +175,7 @@ internal sealed class FileStore(
         {
             FileName = fileName,
             ContentType = contentType,
-            Size = bytes.Length,
+            Size = size,
             Provider = storage.Provider,
             StorageKey = stored.Key,
             IsPublic = file.IsPublic,
@@ -181,6 +192,7 @@ internal sealed class FileStore(
         Guid id, ClaimsPrincipal caller, bool force = false, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(caller);
+        RefuseStagedWork(nameof(DeleteAsync));
 
         // The delete route asks for the capability first and for ownership second. A caller missing
         // either is told the file is not there, so this cannot be used to learn which ids exist.
@@ -237,14 +249,19 @@ internal sealed class FileStore(
     }
 
     /// <summary>
-    /// Whether the authenticated routes of this module would have let <paramref name="caller"/> in
-    /// before asking about any one file.
+    /// Whether <paramref name="caller"/> is a principal the authenticated routes of this module
+    /// could have been reached with, asked before anything about one file.
     /// </summary>
     /// <remarks>
-    /// Three things the request pipeline settles before a route runs, and that nothing settles for
-    /// a principal handed to a method. An API key reaches no file route at all. A token names the
-    /// tenant it was issued for, its role claims are that tenant's, and a request carrying it into
-    /// another tenant is refused; the comparison is the one that refusal makes.
+    /// Three checks that cost nothing and that a principal handed to a method has not had. An API
+    /// key reaches no file route at all. A token names the tenant it was issued for, its role
+    /// claims are that tenant's, and a request carrying it into another tenant is refused; the
+    /// comparison is the one that refusal makes.
+    ///
+    /// It is not the whole request pipeline. A revoked token, a token older than its user's
+    /// session, a tenant that is switched off or is the default one in Multi mode, and a device
+    /// that is not trusted are all refused before a route runs, and none of them is asked again
+    /// here. The caller has to be the principal of the request this scope serves.
     /// </remarks>
     private bool IsSignedInHere(ClaimsPrincipal caller)
     {
@@ -271,48 +288,96 @@ internal sealed class FileStore(
     }
 
     /// <summary>
-    /// The audit entry the upload route writes for a file the scanner refused, committed on its own
-    /// because nothing else is stored for a refused file.
+    /// The audit entry for a file the scanner refused, under the action the upload route uses.
     /// </summary>
+    /// <remarks>
+    /// The route names the signed-in user, their name and their address. Here the actor is whoever
+    /// the caller said supplied the file, which is nobody for a file a job produced. The owner is
+    /// who the file would have belonged to, not who sent it, so it goes in the metadata. Committed
+    /// on its own: the session held nothing when the save started.
+    /// </remarks>
     private async Task RecordRefusalAsync(
-        string fileName, string contentType, long size, Guid owner, ScanResult scan, CancellationToken ct)
+        string fileName, string contentType, long size, FileToStore file, ScanResult scan, CancellationToken ct)
     {
+        var metadata = new Dictionary<string, object>
+        {
+            ["fileName"] = fileName,
+            ["contentType"] = contentType,
+            ["size"] = size,
+            ["reason"] = scan.Signature ?? scan.Error ?? "unknown",
+        };
+
+        if (file.Owner != Guid.Empty)
+        {
+            metadata["owner"] = file.Owner.ToString();
+        }
+
         await barakoCMS.Infrastructure.Audit.AuditLog.RecordAsync(
             session,
             tenant.Slug,
             scan.Verdict == ScanVerdict.Infected ? "file.refused.infected" : "file.refused.unscanned",
-            owner == Guid.Empty ? null : (Guid?)owner,
-            string.Empty,
+            file.SuppliedBy,
+            actorUsername: null,
             targetType: "file",
             targetId: fileName,
-            metadata: new Dictionary<string, object>
-            {
-                ["fileName"] = fileName,
-                ["contentType"] = contentType,
-                ["size"] = size,
-                ["reason"] = scan.Signature ?? scan.Error ?? "unknown",
-            },
+            metadata: metadata,
             ct: ct);
 
         await session.SaveChangesAsync(ct);
     }
 
-    /// <summary>The stream's remaining bytes, or null when there are more than <paramref name="limit"/>.</summary>
-    private static async Task<byte[]?> ReadUpToAsync(Stream stream, long limit, CancellationToken ct)
+    /// <summary>
+    /// Stops a save or a delete that would commit work the caller staged on the scope's session.
+    /// </summary>
+    /// <remarks>
+    /// The storage and the audit entry commit through that session, some of them before the file's
+    /// own record and some on a path that stores no file at all. With work already staged, a
+    /// refused or failed save would commit the caller's rows with no file behind them.
+    /// </remarks>
+    private void RefuseStagedWork(string member)
     {
-        using var held = new MemoryStream();
+        var pending = session.PendingChanges;
+        if (pending.Operations().Any() || pending.Streams().Any())
+        {
+            throw new InvalidOperationException(
+                $"IFileStore.{member} commits the scope's session, and that session holds changes that are not saved yet. "
+                + "Call it before staging anything else, or save those changes first.");
+        }
+    }
+
+    /// <summary>
+    /// The stream's remaining bytes, or null when there are more than <paramref name="limit"/>.
+    /// The caller disposes the result.
+    /// </summary>
+    private static async Task<MemoryStream?> ReadUpToAsync(Stream stream, long limit, CancellationToken ct)
+    {
+        var capacity = 0;
+        if (stream.CanSeek)
+        {
+            // Known up front: refuse without reading, and size the one buffer to fit.
+            var remaining = stream.Length - stream.Position;
+            if (remaining > limit)
+            {
+                return null;
+            }
+
+            capacity = (int)Math.Max(remaining, 0);
+        }
+
+        var held = new MemoryStream(capacity);
         var chunk = new byte[81920];
         int read;
         while ((read = await stream.ReadAsync(chunk, ct)) > 0)
         {
             if (held.Length + read > limit)
             {
+                held.Dispose();
                 return null;
             }
 
             held.Write(chunk, 0, read);
         }
 
-        return held.ToArray();
+        return held;
     }
 }

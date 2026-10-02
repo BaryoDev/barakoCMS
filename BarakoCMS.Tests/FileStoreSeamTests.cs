@@ -171,7 +171,8 @@ public class FileStoreSeamTests
         bool isPublic = false,
         Guid owner = default,
         string? name = null,
-        string contentType = "application/pdf")
+        string contentType = "application/pdf",
+        Guid? suppliedBy = null)
     {
         using var scope = services.CreateScope();
         using var content = new MemoryStream(bytes);
@@ -184,9 +185,50 @@ public class FileStoreSeamTests
                 ContentType = contentType,
                 IsPublic = isPublic,
                 Owner = owner,
+                SuppliedBy = suppliedBy,
             },
             Ct);
     }
+
+    /// <summary>A stream that cannot say how long it is, as a request body cannot.</summary>
+    private sealed class ForwardOnly(byte[] bytes) : Stream
+    {
+        private readonly MemoryStream _inner = new(bytes);
+
+        public override bool CanRead => true;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => false;
+
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) => _inner.Read(buffer, offset, count);
+
+        public override void Flush()
+        {
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
+    /// <summary>A record that is staged and never saved by the test, to see whether a store call commits it.</summary>
+    private static StoredFile Bystander() => new()
+    {
+        FileName = NewName(),
+        ContentType = "application/pdf",
+        StorageKey = $"{FileKeys.Prefix(false)}{Guid.NewGuid():N}.pdf",
+    };
 
     private async Task<Guid> StoredAsync(byte[] bytes, bool isPublic = false, Guid owner = default)
     {
@@ -534,6 +576,91 @@ public class FileStoreSeamTests
         (await StoredWithNameAsync(_factory.Services, kept)).Should().Be(1);
     }
 
+    [Fact]
+    public async Task The_size_limit_is_ten_megabytes_whether_or_not_the_stream_says_its_length()
+    {
+        const int limit = 10 * 1024 * 1024;
+        var atLimit = new byte[limit];
+        var over = new byte[limit + 1];
+        FileSamples.Pdf().CopyTo(atLimit, 0);
+        FileSamples.Pdf().CopyTo(over, 0);
+        atLimit[^1] = 7;
+
+        async Task<FileSaveResult> SaveFromAsync(Stream content, string name)
+        {
+            using var scope = _factory.Services.CreateScope();
+            await using (content)
+            {
+                return await scope.ServiceProvider.GetRequiredService<IFileStore>().SaveAsync(
+                    new FileToStore { Content = content, FileName = name, ContentType = "application/pdf" }, Ct);
+            }
+        }
+
+        var overSeekable = NewName();
+        var overForwardOnly = NewName();
+        (await SaveFromAsync(new MemoryStream(over), overSeekable)).Refused.Should().Contain("too large");
+        (await SaveFromAsync(new ForwardOnly(over), overForwardOnly)).Refused.Should().Contain("too large");
+        (await StoredWithNameAsync(_factory.Services, overSeekable)).Should().Be(0);
+        (await StoredWithNameAsync(_factory.Services, overForwardOnly)).Should().Be(0);
+
+        // Exactly at the limit is stored whole, read from a stream that does not say its length.
+        var kept = await SaveFromAsync(new ForwardOnly(atLimit), NewName());
+        kept.File.Should().NotBeNull(kept.Refused ?? string.Empty);
+        kept.File!.Size.Should().Be(limit);
+
+        var read = await ReadAsync(kept.File.Id, Caller(Guid.NewGuid(), "Admin"));
+        read.Should().NotBeNull();
+        read!.Length.Should().Be(limit);
+        read[^1].Should().Be(7, "the last byte is the file's and not a spare byte of the buffer it was read into");
+    }
+
+    /// <summary>
+    /// The store commits through the scope's session. A caller that staged a row of its own first
+    /// would have it committed by a save that then refuses the file, or by a delete it may not make.
+    /// </summary>
+    [Fact]
+    public async Task A_save_or_a_delete_with_work_already_staged_throws_and_commits_nothing()
+    {
+        var superAdmin = await SuperAdminAsync();
+        var existing = await StoredAsync(PdfBytes(), owner: superAdmin);
+
+        var beforeSave = Bystander();
+        var name = NewName();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            scope.ServiceProvider.GetRequiredService<IDocumentSession>().Store(beforeSave);
+            var store = scope.ServiceProvider.GetRequiredService<IFileStore>();
+
+            using var content = new MemoryStream(PdfBytes());
+            var save = () => store.SaveAsync(
+                new FileToStore { Content = content, FileName = name, ContentType = "application/pdf" }, Ct);
+
+            (await save.Should().ThrowAsync<InvalidOperationException>()).Which.Message.Should().Contain("SaveAsync");
+        }
+
+        (await RecordAsync(beforeSave.Id)).Should().BeNull("the caller never saved it, and the store must not");
+        (await StoredWithNameAsync(_factory.Services, name)).Should().Be(0);
+
+        var beforeDelete = Bystander();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            scope.ServiceProvider.GetRequiredService<IDocumentSession>().Store(beforeDelete);
+            var store = scope.ServiceProvider.GetRequiredService<IFileStore>();
+
+            var delete = () => store.DeleteAsync(existing, Caller(superAdmin, "SuperAdmin"), force: true, Ct);
+
+            (await delete.Should().ThrowAsync<InvalidOperationException>()).Which.Message.Should().Contain("DeleteAsync");
+        }
+
+        (await RecordAsync(beforeDelete.Id)).Should().BeNull();
+        (await RecordAsync(existing)).Should().NotBeNull("the delete did not start");
+
+        // The control: the same save and delete from a scope with nothing staged.
+        var stored = await SaveAsync(_factory.Services, PdfBytes(), name: name);
+        stored.File.Should().NotBeNull(stored.Refused ?? string.Empty);
+        (await DeleteAsync(existing, Caller(superAdmin, "SuperAdmin"))).Should().Be(FileDeleteResult.Deleted);
+    }
+
     private sealed class SwitchableScanner : IFileScanner
     {
         public ScanResult Answer { get; set; } = ScanResult.Clean;
@@ -564,6 +691,8 @@ public class FileStoreSeamTests
     {
         var scanner = new SwitchableScanner();
 
+        // A host of its own because the shared one has no scanner and no way to swap one in
+        // (UploadScanningTests derives a host for the same reason). One host, three answers.
         // Never disposed: FastEndpoints keeps a pointer to the last host that mapped endpoints.
         var host = _factory.WithWebHostBuilder(builder =>
             builder.ConfigureServices(services =>
@@ -573,11 +702,30 @@ public class FileStoreSeamTests
             }));
 
         var owner = Guid.NewGuid();
+        var sender = Guid.NewGuid();
 
         scanner.Answer = ScanResult.Infected("Eicar-Test-Signature");
+
+        // A row the caller staged before the save. A refusal that commits its audit entry through
+        // the same session would commit this with it.
+        var bystander = Bystander();
+        using (var scope = host.Services.CreateScope())
+        {
+            scope.ServiceProvider.GetRequiredService<IDocumentSession>().Store(bystander);
+
+            using var content = new MemoryStream(PdfBytes());
+            var save = () => scope.ServiceProvider.GetRequiredService<IFileStore>().SaveAsync(
+                new FileToStore { Content = content, FileName = NewName(), ContentType = "application/pdf" }, Ct);
+
+            await save.Should().ThrowAsync<InvalidOperationException>();
+        }
+
+        scanner.Scans.Should().Be(0, "the save stopped before anything was read");
+        (await RecordAsync(bystander.Id)).Should().BeNull("a save that stores no file commits nothing of the caller's");
+
         var infectedName = NewName();
         var bytes = PdfBytes();
-        var infected = await SaveAsync(host.Services, bytes, owner: owner, name: infectedName);
+        var infected = await SaveAsync(host.Services, bytes, owner: owner, name: infectedName, suppliedBy: sender);
 
         scanner.Scans.Should().Be(1, "a save that never reached the scanner proves nothing below");
         scanner.BytesRead.Should().Be(bytes.Length, "the scanner is handed the whole file");
@@ -603,13 +751,16 @@ public class FileStoreSeamTests
             var recorded = await session.Query<AuditEvent>().Where(e => e.TargetId == infectedName).ToListAsync(Ct);
             recorded.Should().HaveCount(1);
             recorded[0].Action.Should().Be("file.refused.infected");
-            recorded[0].ActorUserId.Should().Be(owner);
+            recorded[0].ActorUserId.Should().Be(sender, "the actor is who sent the file, not who it would have belonged to");
             recorded[0].Metadata.Should().ContainKey("reason");
             recorded[0].Metadata!["reason"].ToString().Should().Contain("Eicar-Test-Signature");
+            recorded[0].Metadata.Should().ContainKey("owner");
+            recorded[0].Metadata["owner"].ToString().Should().Be(owner.ToString());
 
             var missed = await session.Query<AuditEvent>().Where(e => e.TargetId == unscannedName).ToListAsync(Ct);
             missed.Should().HaveCount(1);
             missed[0].Action.Should().Be("file.refused.unscanned");
+            missed[0].ActorUserId.Should().BeNull("nobody was named as having sent it");
         }
 
         // The control: the same host stores a file its scanner passes.
@@ -648,6 +799,10 @@ public class FileStoreSeamTests
         (await DeleteAsync(owned, Caller(superAdmin, "SuperAdmin", ("auth_method", "apikey")), force: true))
             .Should().Be(FileDeleteResult.NotFound);
         (await DeleteAsync(owned, NotSignedIn(), force: true)).Should().Be(FileDeleteResult.NotFound);
+
+        // A SuperAdmin whose token was issued for another tenant.
+        (await DeleteAsync(owned, Caller(superAdmin, "SuperAdmin", ("tenant", "seam-some-other-tenant")), force: true))
+            .Should().Be(FileDeleteResult.NotFound);
 
         (await RecordAsync(owned)).Should().NotBeNull("none of those callers may delete it");
 

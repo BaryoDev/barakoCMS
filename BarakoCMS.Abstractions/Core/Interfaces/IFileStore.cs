@@ -18,8 +18,24 @@ namespace barakoCMS.Core.Interfaces;
 /// <b>Any other read names its caller.</b> <see cref="FindAsync"/>, <see cref="OpenAsync"/> and
 /// <see cref="DeleteAsync"/> take the signed-in user the work is done for and give that user what
 /// the store's own API would: a private file is read by the user it belongs to or by an account
-/// administering the tenant, and by nobody else. Pass the principal of the request the scope
-/// serves. There is no member that reads a private file for no user.
+/// administering the tenant, and by nobody else. There is no member that reads a private file for
+/// no user.
+/// </para>
+/// <para>
+/// <b>The caller is the current request's.</b> Pass the principal of the request the scope serves,
+/// which the request pipeline has already let in. A store refuses a principal that is not signed
+/// in, comes from an API key or was issued for another tenant, and checks nothing else about it:
+/// not whether its token was revoked since, not whether its tenant is still active, not device
+/// trust. A principal kept from an earlier request or rebuilt from a stored token gets none of
+/// those checks.
+/// </para>
+/// <para>
+/// <b>A save and a delete commit.</b> <see cref="SaveAsync"/> and <see cref="DeleteAsync"/> commit
+/// their own work through the scope's unit of work before they return. Call them before staging
+/// anything else in the scope: BarakoCMS.Files throws <see cref="InvalidOperationException"/> when
+/// work is already staged, so that it never commits a caller's changes for a file it then refuses.
+/// Inside a content batch nothing commits until the batch does, and bytes written to or removed
+/// from an object store do not roll back with it.
 /// </para>
 /// <para>
 /// <b>The tenant is the scope's.</b> No member takes a tenant. An id resolves only in the tenant of
@@ -78,8 +94,7 @@ public interface IFileStore
     /// virus scan where one is configured), and a file that fails one is not stored:
     /// <see cref="FileSaveResult.File"/> is null and <see cref="FileSaveResult.Refused"/> says why.
     /// Nobody's right to store is checked here. The caller decides who may reach the code that
-    /// stores, and whether the file may be public. The store commits through the scope's own unit
-    /// of work, so anything else staged there is committed with the file.
+    /// stores, and whether the file may be public.
     /// </remarks>
     Task<FileSaveResult> SaveAsync(FileToStore file, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException($"{GetType().Name} does not store files.");
@@ -130,6 +145,13 @@ public sealed class FileToStore
     /// tenant reads it while it is private.
     /// </summary>
     public Guid Owner { get; init; }
+
+    /// <summary>
+    /// The user who supplied the file, when one did. It is named as the actor if the store records
+    /// that it refused the file, and decides nothing else. Leave it null for a file no user sent,
+    /// such as one a job produced.
+    /// </summary>
+    public Guid? SuppliedBy { get; init; }
 }
 
 /// <summary>What <see cref="IFileStore.SaveAsync"/> did: the stored file, or the reason it was not stored.</summary>

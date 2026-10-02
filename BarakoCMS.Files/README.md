@@ -84,18 +84,27 @@ public sealed class Receipts(IFileStore files)
 - `FindAsync` and `OpenAsync` take the signed-in user and hand over what that user could download:
   a public file, or a private one that is theirs or that they administer, the rule
   `GET /api/files/{id}` applies. An API key, a principal that is not signed in and a token for
-  another tenant read public files only.
+  another tenant read public files only. Pass the current request's principal: token revocation,
+  tenant activity and device trust are the request pipeline's checks and are not run again here.
 - `SaveAsync` runs the checks `POST /api/files` runs (type, content, 10 MB, the scanner when
   configured) and writes the record an upload writes, owned by `Owner`, so the routes above serve
   it as they serve an upload. A refused file is not stored, and a scanner refusal is written to the
   audit log.
-  It does not check `upload_files`: the calling module decides who may reach it. The whole file is
-  held in memory while it is checked and stored.
+  It does not check `upload_files`: the calling module decides who may reach it. The file is held
+  in memory once while it is checked and stored (its own size from a seekable stream, up to twice
+  that from one that is not), and the Postgres storage copies it twice more.
 - `DeleteAsync` deletes for a caller `DELETE /api/files/{id}` would delete for, and answers
   `InUse` while an entry names the file unless forced.
 
+`SaveAsync` and `DeleteAsync` commit, through the scope's session. Call them before staging
+anything else on it: they throw `InvalidOperationException` when work is already staged, so a
+refused save never commits a caller's rows. Inside a content batch nothing commits until the batch
+does, and with an object store the bytes do not roll back with it; `MODULES.md` says what that
+leaves behind.
+
 There is no member that reads or deletes a private file for no user. A job that runs without one
-can store a file and read public files.
+can store a file and read public files. A file stored with no `Owner` shows the empty id as
+`uploadedBy` on `GET /api/files` and `GET /api/files/{id}/meta`.
 
 ## Notes
 
