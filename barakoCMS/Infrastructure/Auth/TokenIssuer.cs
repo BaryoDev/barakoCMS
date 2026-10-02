@@ -15,6 +15,12 @@ public sealed class TokenIssuer(
     ILogger<TokenIssuer> logger,
     TenancyOptions tenancy) : ITokenIssuer
 {
+    /// <summary>The constructor as it shipped. The mode is read from <paramref name="config"/>.</summary>
+    public TokenIssuer(IQuerySession session, IConfiguration config, ILogger<TokenIssuer> logger)
+        : this(session, config, logger, TenancyOptions.FromConfiguration(config))
+    {
+    }
+
     public Task<TokenIssueResult> IssueAccessTokenAsync(
         User user,
         string tenantSlug,

@@ -52,47 +52,97 @@ public class TenancyOptionsTests
     }
 
     [Theory]
-    [InlineData("/health")]
-    [InlineData("/health/live")]
-    [InlineData("/health/ready")]
-    [InlineData("/health/build")]
-    [InlineData("/metrics")]
-    [InlineData("/api/meta")]
-    [InlineData("/API/Meta")]
-    [InlineData("/api/auth/login")]
-    [InlineData("/api/auth/refresh")]
-    [InlineData("/api/auth/google/callback")]
-    [InlineData("/api/tenants/by-host/acme.example.com")]
-    [InlineData("/api/tenants/acme/public")]
-    public void A_listed_route_answers_without_a_tenant(string path)
+    [InlineData("GET", "/health")]
+    [InlineData("GET", "/health/live")]
+    [InlineData("HEAD", "/health/live")]
+    [InlineData("GET", "/health/ready")]
+    [InlineData("GET", "/health/build")]
+    [InlineData("GET", "/metrics")]
+    [InlineData("GET", "/api/meta")]
+    [InlineData("GET", "/API/Meta")]
+    [InlineData("POST", "/api/auth/login")]
+    [InlineData("POST", "/api/auth/refresh")]
+    [InlineData("GET", "/api/auth/google/callback")]
+    [InlineData("GET", "/api/tenants/by-host/acme.example.com")]
+    [InlineData("GET", "/api/tenants/acme/public")]
+    [InlineData("HEAD", "/api/tenants/acme/public")]
+    public void A_listed_route_answers_without_a_tenant(string method, string path)
     {
-        TenantlessRoutes.Allows(new PathString(path)).Should().BeTrue();
+        TenantlessRoutes.Allows(method, new PathString(path)).Should().BeTrue();
     }
 
+    /// <summary>
+    /// A path is allowed for the methods its route serves. <c>/api/tenants/members/public</c> has
+    /// the shape of the public profile route, and routing gives it to the member routes under
+    /// <c>PUT</c> and <c>DELETE</c>, so <c>members</c> is not a handle under any method.
+    /// </summary>
     [Theory]
-    [InlineData("")]
-    [InlineData("/")]
-    [InlineData("/api/contents")]
-    [InlineData("/api/public/posts")]
-    [InlineData("/api/me/tenants")]
-    [InlineData("/api/me/switch")]
-    [InlineData("/api/tenants")]
-    [InlineData("/api/tenants/acme")]
-    [InlineData("/api/tenants/members")]
-    [InlineData("/api/tenants/members/roles")]
-    [InlineData("/api/tenants/by-host")]
-    [InlineData("/api/tenants/acme/public/more")]
-    [InlineData("/api/authx")]
-    [InlineData("/api/metadata")]
-    [InlineData("/healthz")]
-    [InlineData("/health-ui")]
-    [InlineData("/metrics/more")]
-    [InlineData("/swagger/index.html")]
-    [InlineData("/api/webhooks/resend")]
-    [InlineData("/api/a-route-added-tomorrow")]
-    public void Any_other_route_needs_a_tenant(string path)
+    [InlineData("GET", "")]
+    [InlineData("GET", "/")]
+    [InlineData("GET", "/api/contents")]
+    [InlineData("GET", "/api/public/posts")]
+    [InlineData("GET", "/api/me/tenants")]
+    [InlineData("POST", "/api/me/switch")]
+    [InlineData("GET", "/api/tenants")]
+    [InlineData("POST", "/api/tenants")]
+    [InlineData("GET", "/api/tenants/acme")]
+    [InlineData("PUT", "/api/tenants/acme")]
+    [InlineData("GET", "/api/tenants/members")]
+    [InlineData("GET", "/api/tenants/members/roles")]
+    [InlineData("GET", "/api/tenants/members/public")]
+    [InlineData("PUT", "/api/tenants/members/public")]
+    [InlineData("DELETE", "/api/tenants/members/public")]
+    [InlineData("PUT", "/api/tenants/acme/public")]
+    [InlineData("DELETE", "/api/tenants/acme/public")]
+    [InlineData("POST", "/api/tenants/by-host/acme.example.com")]
+    [InlineData("GET", "/api/tenants/by-host")]
+    [InlineData("GET", "/api/tenants/acme/public/more")]
+    [InlineData("POST", "/api/meta")]
+    [InlineData("POST", "/health/live")]
+    [InlineData("POST", "/metrics")]
+    [InlineData("GET", "/api/authx")]
+    [InlineData("GET", "/api/metadata")]
+    [InlineData("GET", "/healthz")]
+    [InlineData("GET", "/health-ui")]
+    [InlineData("GET", "/metrics/more")]
+    [InlineData("GET", "/swagger/index.html")]
+    [InlineData("POST", "/api/webhooks/resend")]
+    [InlineData("GET", "/api/a-route-added-tomorrow")]
+    public void Any_other_route_needs_a_tenant(string method, string path)
     {
-        TenantlessRoutes.Allows(new PathString(path)).Should().BeFalse();
+        TenantlessRoutes.Allows(method, new PathString(path)).Should().BeFalse();
+    }
+
+    /// <summary>
+    /// Two tenants claiming one domain switch custom domains off until an operator fixes it. They
+    /// must not switch the tenants off: in Multi a map with no active slugs answers 404 for
+    /// every tenant, the one whose administrator has to fix the domain included.
+    /// </summary>
+    [Fact]
+    public void A_domain_claimed_twice_drops_the_domains_and_keeps_the_active_tenants()
+    {
+        var first = new Tenant { Id = Guid.NewGuid(), Slug = "first", Name = "First", Domains = ["shared.example.com"] };
+        var second = new Tenant { Id = Guid.NewGuid(), Slug = "second", Name = "Second", Domains = ["shared.example.com"] };
+
+        var map = TenantDomainSource.Build([first, second], Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
+
+        map.Count.Should().Be(0, "a domain two tenants claim routes to neither");
+        map.Find("shared.example.com").Should().BeNull();
+        map.IsActiveTenant("first").Should().BeTrue();
+        map.IsActiveTenant("second").Should().BeTrue();
+    }
+
+    [Fact]
+    public void Without_a_conflict_the_map_holds_the_domains_and_the_active_tenants()
+    {
+        var withDomain = new Tenant { Id = Guid.NewGuid(), Slug = "first", Name = "First", Domains = ["first.example.com"] };
+        var without = new Tenant { Id = Guid.NewGuid(), Slug = "second", Name = "Second" };
+
+        var map = TenantDomainSource.Build([withDomain, without], Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
+
+        map.Find("first.example.com").Should().Be("first");
+        map.IsActiveTenant("first").Should().BeTrue();
+        map.IsActiveTenant("second").Should().BeTrue("a tenant with no domain is still a tenant");
     }
 
     [Fact]
@@ -130,14 +180,20 @@ public class TenancyOptionsTests
 
     private sealed record Outcome(bool ReachedNext, string Slug, int StatusCode, string Body);
 
-    private static async Task<Outcome> ResolveAsync(string? mode, string path, string? header, params string[] activeSlugs)
+    private static Task<Outcome> ResolveAsync(string? mode, string path, string? header, params string[] activeSlugs) =>
+        SendAsync(mode, HttpMethods.Get, path, header, [], activeSlugs);
+
+    private static async Task<Outcome> SendAsync(
+        string? mode, string method, string path, string? header, string[] alsoSent, string[] activeSlugs)
     {
         var services = new ServiceCollection()
             .AddSingleton(TenancyOptions.FromConfiguration(Configuration(mode)))
             .BuildServiceProvider();
 
         var context = new DefaultHttpContext { RequestServices = services };
-        context.Request.Method = HttpMethods.Get;
+        context.Request.Method = method;
+        foreach (var name in alsoSent)
+            context.Request.Headers[name] = "value";
         context.Request.Path = path;
         context.Request.Host = new HostString("localhost");
         context.Response.Body = new MemoryStream();
@@ -193,6 +249,35 @@ public class TenancyOptionsTests
 
         outcome.ReachedNext.Should().BeTrue();
         outcome.Slug.Should().Be("acme");
+    }
+
+    /// <summary>
+    /// Only a real preflight is let through: <c>OPTIONS</c> with <c>Origin</c> and
+    /// <c>Access-Control-Request-Method</c>, which is what the CORS middleware answers itself.
+    /// Any other <c>OPTIONS</c> would go on to routing on the default partition.
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("Origin")]
+    [InlineData("Access-Control-Request-Method")]
+    public async Task In_Multi_an_OPTIONS_request_that_is_not_a_preflight_is_refused(string? onlyHeader)
+    {
+        string[] alsoSent = onlyHeader is null ? [] : [onlyHeader];
+        var outcome = await SendAsync("Multi", HttpMethods.Options, "/api/contents", null, alsoSent, ["acme"]);
+
+        outcome.ReachedNext.Should().BeFalse();
+        outcome.StatusCode.Should().Be(StatusCodes.Status404NotFound);
+        outcome.Body.Should().Be(TenantResolutionMiddleware.NoTenantMessage);
+    }
+
+    [Fact]
+    public async Task In_Multi_a_preflight_is_let_through_on_the_default_slug()
+    {
+        var outcome = await SendAsync(
+            "Multi", HttpMethods.Options, "/api/contents", "ghost", ["Origin", "Access-Control-Request-Method"], ["acme"]);
+
+        outcome.ReachedNext.Should().BeTrue();
+        outcome.Slug.Should().Be(Tenant.DefaultSlug);
     }
 
     /// <summary>The default: in Single an unregistered slug is resolved and served, as before.</summary>

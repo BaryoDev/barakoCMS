@@ -91,4 +91,11 @@ internal static class TenantPartitions
     /// </summary>
     public static bool ServesDefaultPartition(IConfiguration? configuration) =>
         configuration is null || !TenancyOptions.FromConfiguration(configuration).IsMulti;
+
+    /// <summary>
+    /// Whether <see cref="ListAsync"/> answers from the registry, with enforcement on or in Multi,
+    /// so a listed partition may hold nothing and is worth asking before a full pass over it.
+    /// </summary>
+    public static bool ListsFromRegistry(IConfiguration configuration) =>
+        Enforced(configuration) || !ServesDefaultPartition(configuration);
 }

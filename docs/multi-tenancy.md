@@ -119,7 +119,8 @@ endpoint. It runs before the CORS middleware, so a browser calling from another 
 failed request and not the 404.
 
 **These routes answer without a tenant**, and nothing else does. The list is in
-`Infrastructure/Multitenancy/TenantlessRoutes.cs`, so a new route is refused until it is added:
+`Infrastructure/Multitenancy/TenantlessRoutes.cs`, so a new route is refused until it is added.
+Apart from `/api/auth/*`, each is allowed for `GET` and `HEAD` only:
 
 | Route | Why |
 | --- | --- |
@@ -131,8 +132,15 @@ failed request and not the 404.
 | `/api/auth/*` | identity is stored once for the deployment, and a provider redirects a social sign-in to one fixed address |
 
 They run on the `default` slug whatever the request named, so a slug nobody registered never
-reaches a session or an audit row through them. A CORS preflight is let through as well, since a
-browser sends it without `X-Tenant`; the CORS middleware answers it and no endpoint runs.
+reaches a session or an audit row through them. A CORS preflight (`OPTIONS` with `Origin` and
+`Access-Control-Request-Method`) is let through as well, since a browser sends it without
+`X-Tenant`; the CORS middleware answers it and no endpoint runs.
+
+One consequence for the audit log. A sign-in or refresh sent with no tenant, or under an
+unregistered or inactive one, is recorded with tenant `default`, since that is the slug the request
+runs on. `GET /api/audit` shows a tenant administrator their own tenant's rows, so they do not see
+those attempts, including failed sign-ins against their own members. A SuperAdmin does, with
+`GET /api/audit?tenant=default`. A sign-in that names the tenant is recorded under it as before.
 
 Left off on purpose: `/api/me/*` and `/api/tenants` (send the tenant you are signed in to),
 `/swagger` (the delivery paths in the document are generated per tenant), the optional health
@@ -145,6 +153,15 @@ password sign-in, OTP, MFA, refresh, `POST /api/me/switch` and the ExternalAuth 
 sign-in without a tenant is allowed; getting a token from it is not, and password sign-in answers
 with the same `401` a wrong password gets. `POST /api/me/switch` answers `400` for such a target, as it does for
 a tenant the caller does not belong to.
+
+**A token issued before the switch stops working.** An access token lives fifteen minutes, so one
+minted for the `default` partition or an unregistered slug just before `Multi` was turned on, or for
+a tenant just before it was switched off, would otherwise still be accepted on the routes that do
+not compare the token's tenant with the request's (`/api/me/*`, `/api/auth/*`, routes ending
+`/public`). In `Multi`, `TenantAccessMiddleware` answers `403` on every route for a token whose own
+`tenant` claim is not a registered, active tenant. It reads the cached list of active tenants, so
+it follows that cache (below). A token with no `tenant` claim at all, which only tokens from before
+the claim existed are, is not covered and passes as it does in `Single`.
 
 **API keys.** A key carries its own tenant. In `Multi` a key scoped to the `default` partition or to
 a slug with no active tenant is refused with `401`. Resolution runs before the key is read, so a
@@ -163,39 +180,65 @@ the startup pass that encrypts stored workflow credentials and the startup notic
 validation rules visit registered tenants only, active or not, and not the `default` partition.
 That is one query per registered tenant per pass, as with database enforcement
 (`docs/tenancy-at-the-database.md`). The scheduled content sweep and the collection sync sweep
-visit active tenants and skip the `default` partition. Not changed by the mode: the job queue, which still runs a job
-already stored in the `default` partition (and, with database enforcement off, in any partition),
-and the startup pass that redacts stored workflow logs, which still visits the `default` partition.
+visit active tenants and skip the `default` partition. Not changed by the mode: the job queue,
+which still runs a job already stored in the `default` partition (and, with database enforcement
+off, in any partition), and the startup pass that redacts stored workflow logs, which still visits
+the `default` partition. No pass logs what it skipped. The API logs one line at each start saying
+the mode is `Multi` and which passes leave those partitions alone.
 
 **The list of active tenants is cached** with the domain map, for `Multitenancy:CacheDuration`
 (five minutes by default). Creating or updating a tenant through the API clears it on the instance
-that handled the request. Another instance keeps answering 404 for a new tenant, or serving one
-just switched off, until its copy expires. The token issuer reads the registry each time.
+that handled the request, and a list that instance was still loading when the write landed is not
+kept. Another instance keeps answering 404 for a new tenant, or serving one just switched off,
+until its copy expires. The token issuer and the API key check read the registry each time.
 
 ### Data that is already there when you switch to Multi
 
 Nothing is moved or deleted. Rows in the `default` partition, and rows under a slug with no
 `Tenant` document, stay where they are. The API no longer reaches them, and the background passes
-named above no longer visit them: a workflow run queued there does not execute, and scheduled
-content in the `default` partition is not published.
+named above no longer visit them. For what is stored there that means:
 
-To see what is there, run this in the API's database. It lists each partition holding content
-that no `Tenant` document names; `*DEFAULT*` is the `default` partition. With
+- a workflow run that is pending or running does not execute, and stays as it is;
+- scheduled content in the `default` partition is not published or unpublished when its time comes;
+- finished workflow runs and webhook deliveries are no longer removed when their retention window
+  passes, so they are kept until the partition is registered or the mode goes back to `Single`;
+- credential parameters on stored workflows that were not yet encrypted stay as they were stored;
+- a collection sync defined in the `default` partition no longer runs.
+
+The log redaction pass is the exception: it still rewrites stored workflow logs in the `default`
+partition at startup.
+
+Run this before switching, in the API's database. It counts, for each partition no `Tenant`
+document names, the content entries, the entries with a schedule still to run, and the workflow
+runs that have not finished; `*DEFAULT*` is the `default` partition. With
 `Tenancy:DatabaseEnforcement` on, run it as a superuser, since the policy hides other tenants'
 rows from the application role.
 
 ```sql
-select c.tenant_id, count(*) as entries
-from public.mt_doc_contents c
-where not exists (
-    select 1 from public.mt_doc_tenants t where t.data ->> 'Slug' = c.tenant_id
+with unregistered as (
+    select 'content entries' as what, c.tenant_id
+    from public.mt_doc_contents c
+    union all
+    select 'scheduled content entries', c.tenant_id
+    from public.mt_doc_contents c
+    where c.data ->> 'ScheduledPublishAt' is not null
+       or c.data ->> 'ScheduledUnpublishAt' is not null
+    union all
+    select 'unfinished workflow runs', r.tenant_id
+    from public.mt_doc_workflow_runs r
+    where (r.data ->> 'Status')::integer in (0, 1)
 )
-group by c.tenant_id
-order by c.tenant_id;
+select u.what, u.tenant_id, count(*) as rows
+from unregistered u
+where not exists (
+    select 1 from public.mt_doc_tenants t where t.data ->> 'Slug' = u.tenant_id
+)
+group by u.what, u.tenant_id
+order by u.tenant_id, u.what;
 ```
 
-Content is one table of several. The same query over another tenant-scoped table (workflows, files)
-answers for that table.
+Other tenant-scoped tables (workflow definitions, files, webhook deliveries) hold rows too. The
+same `not exists` over one of them answers for that table.
 
 To bring an unregistered partition back, create a tenant with that slug (`POST /api/tenants`) and
 give its users memberships. That works only for a slug that is a valid handle. For the `default`

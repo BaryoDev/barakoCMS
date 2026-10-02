@@ -174,6 +174,53 @@ public class TenancyModeTokenTests
             "the same bearer switches to a tenant it belongs to, so the refusals above are about the target");
     }
 
+    private static HttpRequestMessage WithBearer(string path, string bearer, string? tenant)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, path);
+        if (tenant is not null)
+            request.Headers.Add(TenantResolutionMiddleware.TenantHeader, tenant);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearer);
+        return request;
+    }
+
+    /// <summary>
+    /// A token issued before the switch to Multi, or before its tenant was switched off, lives
+    /// fifteen minutes. <c>/api/me/*</c> and <c>/api/auth/*</c> do not compare the token's tenant
+    /// with the request's, so without a check of the token's own tenant it would keep working there.
+    /// </summary>
+    [Fact]
+    public async Task A_token_for_the_default_partition_an_unregistered_slug_or_an_inactive_tenant_stops_working_in_Multi()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var user = await MultiTenancyHost.CreateUserAsync(_fixture);
+        var home = await MultiTenancyHost.RegisterTenantAsync(_fixture);
+        var inactive = await MultiTenancyHost.RegisterTenantAsync(_fixture, active: false);
+        await MultiTenancyHost.GrantMembershipAsync(_fixture, user.Id, home);
+
+        var forHome = MultiTenancyHost.TokenFor(_fixture, user, home);
+        var stale = new[]
+        {
+            MultiTenancyHost.TokenFor(_fixture, user, Tenant.DefaultSlug),
+            MultiTenancyHost.TokenFor(_fixture, user, MultiTenancyHost.UnregisteredSlug()),
+            MultiTenancyHost.TokenFor(_fixture, user, inactive),
+        };
+
+        (await _multi.SendAsync(WithBearer("/api/me/tenants", forHome, home), ct)).StatusCode
+            .Should().Be(HttpStatusCode.OK, "a token for a registered, active tenant works, so the refusals below are about the token's tenant");
+
+        stale.Should().HaveCount(3);
+        foreach (var bearer in stale)
+        {
+            (await _multi.SendAsync(WithBearer("/api/me/tenants", bearer, home), ct)).StatusCode
+                .Should().Be(HttpStatusCode.Forbidden, "under a registered tenant, on a route exempt from the tenant match");
+            (await _multi.SendAsync(WithBearer("/api/auth/mfa/status", bearer, tenant: null), ct)).StatusCode
+                .Should().Be(HttpStatusCode.Forbidden, "on a route that answers without a tenant");
+        }
+
+        (await _fixture.CreateClient().SendAsync(WithBearer("/api/me/tenants", stale[0], tenant: null), ct)).StatusCode
+            .Should().Be(HttpStatusCode.OK, "with no setting a token for the default partition works as before");
+    }
+
     private async Task<string> StoreKeyAsync(Guid ownerId, string tenantSlug)
     {
         var secret = "bcms_" + Guid.NewGuid().ToString("N");

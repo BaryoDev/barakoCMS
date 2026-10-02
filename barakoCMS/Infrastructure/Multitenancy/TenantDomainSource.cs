@@ -66,45 +66,78 @@ public sealed class TenantDomainSource : ITenantDomainSource
 
     public bool RefuseUnknownHosts => _options.RefuseUnknownHosts;
 
-    public void Invalidate() => _cache.Remove(CacheKey);
+    private readonly Lock _gate = new();
+    private long _version;
+
+    public void Invalidate()
+    {
+        lock (_gate)
+        {
+            _version++;
+            _cache.Remove(CacheKey);
+        }
+    }
 
     public async Task<TenantDomainMap> GetAsync(CancellationToken ct = default)
     {
         if (_cache.TryGetValue<TenantDomainMap>(CacheKey, out var cached) && cached is not null)
             return cached;
 
+        long version;
+        lock (_gate)
+        {
+            version = _version;
+        }
+
         await using var session = _store.QuerySession();
         var tenants = await session.Query<Tenant>()
             .Where(t => t.IsActive)
             .ToListAsync(ct);
 
+        var map = Build(tenants, _logger);
+
+        // A tenant written while the query above was running has already called Invalidate, and
+        // caching this list would put the old one back for the whole cache duration: in Multi, a
+        // tenant just switched off would stay served. So a list read before the last Invalidate is
+        // used for this request and not kept.
+        lock (_gate)
+        {
+            if (version == _version)
+            {
+                // Size is mandatory, not optional: the shared IMemoryCache is configured with a
+                // SizeLimit, and an entry without a Size throws on Set. One entry, so it counts as one.
+                _cache.Set(CacheKey, map, new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = _options.CacheDuration,
+                    Size = 1,
+                });
+            }
+        }
+
+        return map;
+    }
+
+    /// <summary>The map for a list of active tenants.</summary>
+    internal static TenantDomainMap Build(IReadOnlyList<Tenant> tenants, ILogger logger)
+    {
         var entries = tenants
             .Where(t => t.Domains.Count > 0)
             .SelectMany(t => t.Domains.Select(d => (Domain: d, t.Slug)));
 
         var slugs = tenants.Select(t => t.Slug).ToList();
 
-        TenantDomainMap map;
         try
         {
-            map = new TenantDomainMap(entries, slugs);
+            return new TenantDomainMap(entries, slugs);
         }
         catch (InvalidOperationException ex)
         {
             // A duplicate domain is a data problem an operator has to fix. Throwing here would take
             // every request down with it, including the admin request needed to correct it, so the
-            // map degrades to empty and the conflict is logged loudly instead.
-            _logger.LogError(ex, "Tenant domains conflict; custom domain resolution is disabled until it is resolved");
-            map = new TenantDomainMap([], slugs);
+            // map degrades to no domains and the conflict is logged loudly instead. The active
+            // slugs are kept: in Multi an empty map would answer 404 for every tenant.
+            logger.LogError(ex, "Tenant domains conflict; custom domain resolution is disabled until it is resolved");
+            return new TenantDomainMap([], slugs);
         }
-
-        // Size is mandatory, not optional: the shared IMemoryCache is configured with a SizeLimit,
-        // and an entry without a Size throws on Set. One entry, so it counts as one.
-        _cache.Set(CacheKey, map, new MemoryCacheEntryOptions
-        {
-            AbsoluteExpirationRelativeToNow = _options.CacheDuration,
-            Size = 1,
-        });
-        return map;
     }
 }

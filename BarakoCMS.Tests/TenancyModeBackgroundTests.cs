@@ -81,12 +81,17 @@ public class TenancyModeBackgroundTests
                 await using var reader = await cmd.ExecuteReaderAsync(ct);
                 while (await reader.ReadAsync(ct))
                 {
-                    leftBehind.Add(reader.GetString(0));
+                    leftBehind.Add($"{reader.GetString(0)} in {reader.GetString(1)}");
                 }
             }
 
-            leftBehind.Should().Contain(new[] { StorageConstants.DefaultTenantId, unregistered });
-            leftBehind.Should().NotContain(new[] { active, inactive }, "a registered tenant's rows are not left behind");
+            leftBehind.Should().Contain(new[]
+            {
+                $"content entries in {StorageConstants.DefaultTenantId}",
+                $"content entries in {unregistered}",
+            });
+            leftBehind.Should().NotContain(row => row.EndsWith(" in " + active) || row.EndsWith(" in " + inactive),
+                "a registered tenant's rows are not left behind");
         }
         finally
         {

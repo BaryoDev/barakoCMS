@@ -1611,6 +1611,19 @@ public static class ServiceCollectionExtensions
 
     private static void UseTenantAndAuthentication(IApplicationBuilder app)
     {
+        // Once per start. In Multi partitions are skipped without a line per pass, so this is where
+        // an operator reads that they are.
+        if (app.ApplicationServices.GetRequiredService<barakoCMS.Infrastructure.Multitenancy.TenancyOptions>().IsMulti)
+        {
+            app.ApplicationServices.GetRequiredService<ILoggerFactory>()
+                .CreateLogger("barakoCMS.Infrastructure.Multitenancy.TenancyMode")
+                .LogInformation(
+                    "Tenancy:Mode is Multi. The default partition and any partition with no Tenant document are not served, "
+                  + "and the workflow runner, the retention sweeps, the credential encryption pass, the scheduled content sweep "
+                  + "and the collection sync sweep do not visit them. Rows already stored there are left as they are. "
+                  + "docs/multi-tenancy.md has a query that lists them.");
+        }
+
         // Resolve the tenant from the subdomain, early so downstream code can read it.
         app.UseMiddleware<barakoCMS.Infrastructure.Multitenancy.TenantResolutionMiddleware>();
 

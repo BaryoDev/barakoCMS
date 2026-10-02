@@ -109,7 +109,9 @@ or not, plus the default partition. Two consequences:
 
 With `Tenancy:Mode` set to `Multi` the passes that list partitions (the workflow runner, the two
 retention sweeps and the credential pass) read the registry whether or not enforcement is on, and
-leave out the default partition as well. The job queue is not changed by the mode.
+leave out the default partition as well. So in `Multi` the credential pass leaves a workflow in the
+default partition as it was stored, which with enforcement alone it would have encrypted. The job
+queue is not changed by the mode. `docs/multi-tenancy.md` lists what else is left as it is.
 
 A partition with no `Tenant` document is not only a slug somebody typed into an `X-Tenant` header.
 It is also the ordinary shape of a single-tenant deployment reached over a subdomain: the slug is

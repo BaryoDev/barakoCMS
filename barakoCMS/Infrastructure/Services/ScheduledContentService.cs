@@ -28,8 +28,16 @@ public class ScheduledContentService : BackgroundService
     // Transitions the scheduler makes are attributed to the system, not a user.
     public static readonly Guid SystemActor = Guid.Empty;
 
+    public ScheduledContentService(IDocumentStore store, ILogger<ScheduledContentService> logger)
+        : this(store, logger, null)
+    {
+    }
+
+    /// <param name="store">The document store.</param>
+    /// <param name="logger">The logger.</param>
+    /// <param name="configuration">Where <c>Tenancy:Mode</c> is read. Null is Single.</param>
     public ScheduledContentService(
-        IDocumentStore store, ILogger<ScheduledContentService> logger, IConfiguration? configuration = null)
+        IDocumentStore store, ILogger<ScheduledContentService> logger, IConfiguration? configuration)
     {
         _store = store;
         _logger = logger;

@@ -302,6 +302,10 @@ public class TenancyModeResolutionTests
 
         response.StatusCode.Should().Be(HttpStatusCode.NoContent, "the CORS middleware answers a preflight itself");
         (await response.Content.ReadAsStringAsync(ct)).Should().NotBe(TenantResolutionMiddleware.NoTenantMessage);
+
+        var notAPreflight = new HttpRequestMessage(HttpMethod.Options, Probe);
+        await ShouldBeTheRefusalAsync(await _multi.SendAsync(notAPreflight, ct),
+            "an OPTIONS request that is not a preflight is not answered by CORS, so it needs a tenant like any other");
     }
 
     /// <summary>

@@ -156,7 +156,7 @@ public class TenantResolutionMiddleware(RequestDelegate next)
         if (!tenant.IsDefault && map.IsActiveTenant(tenant.Slug))
             return false;
 
-        if (TenantlessRoutes.Allows(context.Request.Path) || IsCorsPreflight(context.Request))
+        if (TenantlessRoutes.Allows(context.Request.Method, context.Request.Path) || IsCorsPreflight(context.Request))
         {
             tenant.Slug = Models.Tenant.DefaultSlug;
             return false;
