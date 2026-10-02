@@ -308,6 +308,67 @@ holds.
 
 `RateLimitSetupTests` covers the defaults, the startup failures, the renderer bucket and a wrong key.
 
+### Limits that are off until you set them
+
+Three more limits have no default. Unset, nothing changes: the routes they cover stay on the limits
+in the table above. Each is on once its `PermitLimit` is set. `WindowSeconds` defaults to `60` and
+`QueueLimit` to `0`. Setting `WindowSeconds` or `QueueLimit` without `PermitLimit` stops the host at
+startup, since it would read as a limit that is on while it is off.
+
+| Section | Counts | Applies to |
+| --- | --- | --- |
+| `RateLimiting:Delivery` | per client IP | `GET /api/public/{type}`, its `/search`, `/{slug}` and `/feed.xml`, and `/api/public/sitemap.xml` |
+| `RateLimiting:ApiKey` | per API key | every request an API key authenticated, on any route |
+| `RateLimiting:Policies:{name}` | per client IP, user or API key | the routes that name the policy |
+
+```yaml
+- RateLimiting__Delivery__PermitLimit=300
+- RateLimiting__ApiKey__PermitLimit=1000
+- RateLimiting__ApiKey__WindowSeconds=3600
+```
+
+All of these are counted on top of the global limit, never instead of it. A delivery limit above
+the global one (100 a minute per client IP by default) therefore never refuses anything until
+`RateLimiting:Global` is raised too. A request carrying the renderer key is not counted by the
+delivery limit. It stays in the renderer bucket.
+
+The API key quota is counted against the key the API verified, not against what the request
+presents, so it follows the key across addresses and a made-up key opens no bucket: that request is
+not authenticated and is counted against its IP like any other. A signed-in session is not on the
+quota. One number applies to every key; a key cannot be given its own.
+
+#### Named policies
+
+A policy is a name, numbers and what it counts against:
+
+```yaml
+- RateLimiting__Policies__booking-lookup__PermitLimit=20
+- RateLimiting__Policies__booking-lookup__WindowSeconds=60
+- RateLimiting__Policies__booking-lookup__Partition=Ip
+```
+
+A route in a module or in the host names it in code, `RequireRateLimiting("booking-lookup")`, so
+its numbers can change without a build. `Partition` is `Ip` (the default), `User` or `ApiKey`. With
+`User` or `ApiKey` a caller who has no such id, an anonymous one for instance, is counted in one
+bucket shared by every such caller.
+
+A name is up to 64 letters, digits, dashes, underscores and dots, and must be spelled on the route
+exactly as in configuration, case included. The built-in names (`auth`, `telemetry`,
+`registration`, `site-share`, `logout`, `delivery`) cannot be defined here; the sections above set
+those. A route of core, the host or a registered module that names a policy nobody defined stops the
+host at startup with the route and the policy named.
+
+#### What these counters are
+
+Every limit on this page is counted in the memory of one API process. With two instances behind a
+load balancer a client can spend each limit twice, and a restart starts every count again. A bucket
+is dropped about ten seconds after its window has passed with no request, so the number held at once
+is the number of distinct clients, users or keys seen in the last window, not all that were ever
+seen. There is no fixed cap on that number.
+
+`NamedRateLimitPolicyTests` covers the defaults, the startup failures, a configured policy, a forged
+`X-Forwarded-For`, the delivery limit and the key quota.
+
 ## Content type field limit
 
 A content type may hold at most 200 fields. Creating one with more, or adding a field that would take

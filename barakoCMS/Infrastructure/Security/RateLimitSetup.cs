@@ -8,8 +8,26 @@ namespace barakoCMS.Infrastructure.Security;
 /// <summary>One fixed window: how many requests, over how long, and how many may wait for the next window.</summary>
 internal sealed record RateLimitWindow(int PermitLimit, int WindowSeconds, int QueueLimit);
 
+/// <summary>What a named policy counts a request against.</summary>
+internal enum RateLimitPartitionBy
+{
+    /// <summary>The client IP.</summary>
+    Ip,
+
+    /// <summary>The signed-in user, whether by token or by API key.</summary>
+    User,
+
+    /// <summary>The API key the request authenticated with.</summary>
+    ApiKey,
+}
+
+/// <summary>A policy defined under <c>RateLimiting:Policies:{name}</c>, which a route names.</summary>
+internal sealed record NamedRateLimit(string Name, RateLimitWindow Window, RateLimitPartitionBy PartitionBy);
+
 /// <summary>The rate limits read from the <c>RateLimiting</c> section, validated.</summary>
 /// <param name="RendererKey">Null when no renderer key is configured, which means no renderer partition.</param>
+/// <param name="Delivery">Null when not configured, which leaves public delivery on the global limit alone.</param>
+/// <param name="ApiKey">Null when not configured, which means an API key has no quota of its own.</param>
 internal sealed record RateLimitSettings(
     RateLimitWindow Global,
     RateLimitWindow Auth,
@@ -17,11 +35,15 @@ internal sealed record RateLimitSettings(
     RateLimitWindow Registration,
     string? RendererKey,
     RateLimitWindow Renderer,
-    RateLimitWindow SiteShare)
+    RateLimitWindow SiteShare,
+    RateLimitWindow? Delivery,
+    RateLimitWindow? ApiKey,
+    IReadOnlyList<NamedRateLimit> Policies)
 {
     public override string ToString() =>
         $"RateLimitSettings {{ Global = {Global}, Auth = {Auth}, Batch = {Batch}, "
-      + $"Registration = {Registration}, RendererKey = {(RendererKey is null ? "unset" : "set")}, Renderer = {Renderer}, SiteShare = {SiteShare} }}";
+      + $"Registration = {Registration}, RendererKey = {(RendererKey is null ? "unset" : "set")}, Renderer = {Renderer}, SiteShare = {SiteShare}, "
+      + $"Delivery = {Delivery?.ToString() ?? "unset"}, ApiKey = {ApiKey?.ToString() ?? "unset"}, Policies = [{string.Join(", ", Policies)}] }}";
 }
 
 /// <summary>
@@ -48,6 +70,13 @@ internal sealed record RateLimitSettings(
 /// matching key the header is ignored and the socket IP is the visitor, so nobody else can pick an
 /// address to escape the limit.
 /// </para>
+/// <para>
+/// <c>Delivery</c>, <c>ApiKey</c> and <c>Policies</c> have no default: unset, a route is limited as
+/// it was before they existed. A policy under <c>Policies:{name}</c> is one a route names with
+/// <c>RequireRateLimiting</c>. One partitioned by IP is counted here. One partitioned by user or by
+/// API key, and the API key quota, need a verified caller, and this limiter runs before
+/// authentication, so <see cref="RateLimitAfterAuthentication"/> counts those.
+/// </para>
 /// </remarks>
 internal static class RateLimitSetup
 {
@@ -61,8 +90,30 @@ internal static class RateLimitSetup
     public const string RegistrationPolicy = "registration";
     public const string SiteSharePolicy = "site-share";
     public const string LogoutPolicy = "logout";
+    public const string DeliveryPolicy = "delivery";
+
+    public const int MaxPolicyNameLength = 64;
 
     internal const string RendererPartition = "renderer";
+
+    private const string NotCountedHere = "not-counted-here";
+
+    /// <summary>
+    /// The policy names this class registers, each with the section that holds its numbers. A
+    /// configured policy may not take one of them, in any case: two ways to set one limit would
+    /// need a rule for which wins, and the existing sections already are that setting.
+    /// </summary>
+    private static readonly Dictionary<string, string?> BuiltInPolicies = new(StringComparer.OrdinalIgnoreCase)
+    {
+        [AuthPolicy] = "Auth",
+        [BatchPolicy] = "Batch",
+        [RegistrationPolicy] = "Registration",
+        [SiteSharePolicy] = "SiteShare",
+        [DeliveryPolicy] = "Delivery",
+        [LogoutPolicy] = null,
+    };
+
+    private static readonly RateLimitWindow OptInDefaults = new(0, 60, 0);
 
     public static readonly RateLimitWindow DefaultGlobal = new(100, 60, 10);
     public static readonly RateLimitWindow DefaultAuth = new(5, 15 * 60, 0);
@@ -103,7 +154,10 @@ internal static class RateLimitSetup
             Window(section, "Registration", DefaultRegistration),
             rendererKey,
             Window(section, "Renderer", DefaultRenderer),
-            Window(section, "SiteShare", DefaultSiteShare));
+            Window(section, "SiteShare", DefaultSiteShare),
+            OptInWindow(section, "Delivery"),
+            OptInWindow(section, "ApiKey"),
+            Policies(section));
     }
 
     /// <summary>
@@ -135,6 +189,15 @@ internal static class RateLimitSetup
         options.AddPolicy(LogoutPolicy, context =>
             RateLimitPartition.GetFixedWindowLimiter($"logout-{ClientIp(context)}", _ => Options(Logout)));
 
+        options.AddPolicy(DeliveryPolicy, context => DeliveryPartition(context, settings.Delivery, rendererKeyHash));
+
+        foreach (var policy in settings.Policies)
+        {
+            options.AddPolicy(policy.Name, context => policy.PartitionBy == RateLimitPartitionBy.Ip
+                ? RateLimitPartition.GetFixedWindowLimiter($"policy|{policy.Name}|{ClientIp(context)}", _ => Options(policy.Window))
+                : RateLimitPartition.GetNoLimiter(NotCountedHere));
+        }
+
         // Anonymous telemetry ingestion (browser error reports). Tighter than the global limit: the
         // endpoint is unauthenticated and each request fans out to one lookup per item in the batch.
         options.AddPolicy(BatchPolicy, context =>
@@ -149,12 +212,117 @@ internal static class RateLimitSetup
             RateLimitPartition.GetFixedWindowLimiter(SiteSharePartitionKey(context, rendererKeyHash), _ => Options(settings.SiteShare)));
 
         options.OnRejected = async (context, cancellationToken) =>
-        {
-            context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
-            await context.HttpContext.Response.WriteAsync(
-                "Too many requests. Please try again later.", cancellationToken);
-        };
+            await Reject(context.HttpContext, cancellationToken);
     }
+
+    internal static async Task Reject(HttpContext context, CancellationToken cancellationToken)
+    {
+        context.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+        await context.Response.WriteAsync("Too many requests. Please try again later.", cancellationToken);
+    }
+
+    /// <summary>
+    /// Stops the host when a route names a rate limit policy nobody registered, naming both.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The framework only finds this out on the first request to the route, and answers every
+    /// request to it with an error from then on. Routes the host maps after <c>UseBarakoCMS</c>
+    /// returns are not seen here.
+    /// </para>
+    /// <para>
+    /// Checked: core's routes, the host's own, and those of every registered module. An endpoint
+    /// class from any other assembly is left alone. Endpoint discovery maps whatever is loaded in
+    /// the process, so a module nobody registered can have routes here without its services, its
+    /// policy among them, and that host started before this check existed.
+    /// </para>
+    /// </remarks>
+    public static void RequireRegisteredPolicies(IApplicationBuilder app)
+    {
+        if (app is not IEndpointRouteBuilder routes)
+        {
+            return;
+        }
+
+        var owned = new HashSet<System.Reflection.Assembly> { typeof(RateLimitSetup).Assembly };
+        if (System.Reflection.Assembly.GetEntryAssembly() is { } entry)
+        {
+            owned.Add(entry);
+        }
+
+        foreach (var module in app.ApplicationServices.GetServices<barakoCMS.Modules.IBarakoModule>())
+        {
+            owned.UnionWith(module.EndpointAssemblies);
+        }
+
+        RequireRegisteredPolicies(
+            routes.DataSources
+                .SelectMany(source => source.Endpoints)
+                .Where(endpoint => endpoint.Metadata.GetMetadata<FastEndpoints.EndpointDefinition>() is not { } definition
+                    || owned.Contains(definition.EndpointType.Assembly)),
+            app.ApplicationServices.GetRequiredService<Microsoft.Extensions.Options.IOptions<RateLimiterOptions>>().Value);
+    }
+
+    internal static void RequireRegisteredPolicies(IEnumerable<Endpoint> endpoints, RateLimiterOptions options)
+    {
+        var registered = new Dictionary<string, bool>(StringComparer.Ordinal);
+        var missing = new List<string>();
+
+        foreach (var endpoint in endpoints)
+        {
+            var name = endpoint.Metadata.GetMetadata<EnableRateLimitingAttribute>()?.PolicyName;
+            if (name is null)
+            {
+                continue;
+            }
+
+            if (!registered.TryGetValue(name, out var known))
+            {
+                known = IsRegistered(options, name);
+                registered[name] = known;
+            }
+
+            if (!known)
+            {
+                var route = endpoint is RouteEndpoint routed ? routed.RoutePattern.RawText : endpoint.DisplayName;
+                missing.Add($"'{route ?? "a route"}' names '{name}'");
+            }
+        }
+
+        if (missing.Count > 0)
+        {
+            throw new InvalidOperationException(
+                "A route names a rate limit policy that does not exist: " + string.Join("; ", missing.Distinct()) + ". "
+              + $"Define it under {Section}:Policies with the same spelling, case included, or register it in code.");
+        }
+    }
+
+    /// <summary>
+    /// The options keep their policies private, and a module registers its own on the same options.
+    /// Adding a name that is taken throws, so that is the question asked. A name that was free is
+    /// now a policy with no limit, which is why the caller stops the host for it.
+    /// </summary>
+    private static bool IsRegistered(RateLimiterOptions options, string name)
+    {
+        try
+        {
+            options.AddPolicy(name, _ => RateLimitPartition.GetNoLimiter(NotCountedHere));
+            return false;
+        }
+        catch (ArgumentException)
+        {
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// No limit when delivery is not configured, and none for the renderer: its reads for every
+    /// site come from one IP and are already counted in the renderer bucket. Otherwise the client IP.
+    /// </summary>
+    internal static RateLimitPartition<string> DeliveryPartition(HttpContext context, RateLimitWindow? delivery, byte[]? rendererKeyHash) =>
+        delivery is { } window && !HasRendererKey(context, rendererKeyHash)
+            ? RateLimitPartition.GetFixedWindowLimiter($"delivery|{ClientIp(context)}", _ => Options(window))
+            : RateLimitPartition.GetNoLimiter(NotCountedHere);
 
     /// <summary>
     /// The renderer partition when the header matches the configured key, otherwise the client IP.
@@ -235,7 +403,7 @@ internal static class RateLimitSetup
     private static string ClientIp(HttpContext context) =>
         context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
-    private static FixedWindowRateLimiterOptions Options(RateLimitWindow window) => new()
+    internal static FixedWindowRateLimiterOptions Options(RateLimitWindow window) => new()
     {
         PermitLimit = window.PermitLimit,
         Window = TimeSpan.FromSeconds(window.WindowSeconds),
@@ -258,6 +426,78 @@ internal static class RateLimitSetup
             throw Invalid(name, nameof(RateLimitWindow.QueueLimit), limit.QueueLimit, "cannot be negative");
 
         return limit;
+    }
+
+    /// <summary>
+    /// A limit with no default. Null when nothing under it is set. A window or a queue with no
+    /// <c>PermitLimit</c> is refused, since it would read as a limit that is on while it is off.
+    /// </summary>
+    private static RateLimitWindow? OptInWindow(IConfigurationSection section, string name)
+    {
+        string[] keys = [nameof(RateLimitWindow.PermitLimit), nameof(RateLimitWindow.WindowSeconds), nameof(RateLimitWindow.QueueLimit)];
+        if (keys.All(key => string.IsNullOrWhiteSpace(section[$"{name}:{key}"])))
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(section[$"{name}:{nameof(RateLimitWindow.PermitLimit)}"]))
+        {
+            throw new InvalidOperationException(
+                $"{Section}:{name}:{nameof(RateLimitWindow.PermitLimit)} is not set, but another value under "
+              + $"{Section}:{name} is. The limit is off until {nameof(RateLimitWindow.PermitLimit)} is set, so set it or remove the rest.");
+        }
+
+        return Window(section, name, OptInDefaults);
+    }
+
+    private static IReadOnlyList<NamedRateLimit> Policies(IConfigurationSection section)
+    {
+        var policies = new List<NamedRateLimit>();
+
+        foreach (var child in section.GetSection("Policies").GetChildren())
+        {
+            var name = child.Key;
+            if (name.Length > MaxPolicyNameLength || !name.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_' or '.'))
+            {
+                throw new InvalidOperationException(
+                    $"{Section}:Policies has a policy whose name cannot be used. A name is up to {MaxPolicyNameLength} "
+                  + "letters, digits, dashes, underscores and dots.");
+            }
+
+            if (BuiltInPolicies.TryGetValue(name, out var owner))
+            {
+                throw new InvalidOperationException(
+                    $"{Section}:Policies:{name} has the name of a built-in policy. "
+                  + (owner is null ? "That one is fixed and has no setting." : $"Set its numbers under {Section}:{owner} instead."));
+            }
+
+            var path = $"Policies:{name}";
+            var window = OptInWindow(section, path) ?? throw new InvalidOperationException(
+                $"{Section}:{path}:{nameof(RateLimitWindow.PermitLimit)} is not set. A policy needs a limit.");
+
+            policies.Add(new NamedRateLimit(name, window, PartitionBy(section, path)));
+        }
+
+        return policies;
+    }
+
+    private static RateLimitPartitionBy PartitionBy(IConfigurationSection section, string path)
+    {
+        var raw = section[$"{path}:Partition"];
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return RateLimitPartitionBy.Ip;
+        }
+
+        // TryParse also reads "7" as a value with no name, so the name has to be one of the three.
+        if (!Enum.TryParse<RateLimitPartitionBy>(raw.Trim(), ignoreCase: true, out var value) || !Enum.IsDefined(value))
+        {
+            throw new InvalidOperationException(
+                $"{Section}:{path}:Partition is '{raw}'. Use {nameof(RateLimitPartitionBy.Ip)}, "
+              + $"{nameof(RateLimitPartitionBy.User)} or {nameof(RateLimitPartitionBy.ApiKey)}.");
+        }
+
+        return value;
     }
 
     private static int Integer(IConfigurationSection section, string name, string key, int fallback)
