@@ -111,7 +111,10 @@ public class WorkflowRun
             return;
         }
 
-        var succeeded = Actions.Count(a => a.Status is AttemptStatus.Succeeded or AttemptStatus.Skipped);
+        // An action skipped because the one before it failed did not go well, so it does not count
+        // towards a run that succeeded. Skipped because the content went still does.
+        var succeeded = Actions.Count(a =>
+            a.Status == AttemptStatus.Succeeded || (a.Status == AttemptStatus.Skipped && a.HaltedBy is null));
 
         Status = succeeded == Actions.Count
             ? RunStatus.Succeeded
@@ -170,13 +173,84 @@ public class WorkflowRun
         return stopped;
     }
 
+    /// <summary>
+    /// Skips what is left after an attempt that ended Failed or Unknown, when that attempt is set to
+    /// <see cref="WorkflowFailurePolicy.Halt"/>.
+    /// </summary>
+    /// <remarks>
+    /// Skipped and not left Pending. A Pending attempt reads as work the runner will get to, and
+    /// the run would stay unfinished with nothing in it that can be claimed.
+    ///
+    /// Does nothing for an attempt that is still waiting on a retry, that succeeded, that was
+    /// skipped because the content went, or that is set to continue. Attempts before it, and
+    /// attempts after it that already finished, are left as they are. The caller recomputes.
+    ///
+    /// Internal with <see cref="ResumeAfter"/>: the runner and the retry endpoint are the only
+    /// callers, and a host has no reason to move a run's attempts itself.
+    /// </remarks>
+    /// <returns>How many attempts were skipped.</returns>
+    internal int HaltAfter(WorkflowActionAttempt failed, DateTimeOffset now)
+    {
+        if (failed.OnFailure != WorkflowFailurePolicy.Halt) return 0;
+        if (failed.Status is not (AttemptStatus.Failed or AttemptStatus.Unknown)) return 0;
+
+        var skipped = 0;
+
+        foreach (var attempt in Actions)
+        {
+            if (attempt.Ordinal <= failed.Ordinal || attempt.Status != AttemptStatus.Pending) continue;
+
+            attempt.Status = AttemptStatus.Skipped;
+            attempt.HaltedBy = failed.Ordinal;
+            attempt.Error = SkippedAfterHalt;
+            attempt.NextAttemptAt = null;
+            attempt.CompletedAt = now;
+            skipped++;
+        }
+
+        return skipped;
+    }
+
+    /// <summary>
+    /// Queues again every attempt that was skipped because the attempt at this ordinal failed.
+    /// </summary>
+    /// <remarks>
+    /// The other half of <see cref="HaltAfter"/>, for when the failed attempt is retried. Only the
+    /// attempts that one skipped: an attempt skipped because the content went stays skipped. The
+    /// caller recomputes.
+    /// </remarks>
+    /// <returns>How many attempts were queued again.</returns>
+    internal int ResumeAfter(int ordinal)
+    {
+        var resumed = 0;
+
+        foreach (var attempt in Actions)
+        {
+            if (attempt.Status != AttemptStatus.Skipped || attempt.HaltedBy != ordinal) continue;
+
+            attempt.Status = AttemptStatus.Pending;
+            attempt.HaltedBy = null;
+            attempt.Error = null;
+            attempt.NextAttemptAt = null;
+            attempt.CompletedAt = null;
+            resumed++;
+        }
+
+        return resumed;
+    }
+
+    /// <summary>The error on an attempt skipped because an earlier one set to halt failed.</summary>
+    internal const string SkippedAfterHalt =
+        "Not run: an earlier action failed and is set to halt the run. Retry that action to run this one.";
+
     /// <summary>The error on an attempt that was claimed, never reported back, and was then stopped.</summary>
     public const string InFlightWhenStopped =
         "The action was in flight when the run was stopped and never reported back, so it is not known whether it arrived.";
 
     /// <summary>
-    /// Mirrors the order the runner claims in: a waiting attempt does not hold up the ones after it,
-    /// and nothing past a running attempt is looked at until that one finishes or its lease runs out.
+    /// Mirrors the order the runner claims in: a waiting attempt does not hold up the ones after it
+    /// unless it is set to halt, and nothing past a running attempt is looked at until that one
+    /// finishes or its lease runs out.
     /// </summary>
     private DateTimeOffset? EarliestClaim()
     {
@@ -192,6 +266,8 @@ public class WorkflowRun
             if (attempt.Status != AttemptStatus.Pending) continue;
 
             earliest = Earlier(earliest, attempt.NextAttemptAt ?? DueAtOnce);
+
+            if (attempt.OnFailure == WorkflowFailurePolicy.Halt) return earliest;
         }
 
         return earliest;
@@ -216,6 +292,20 @@ public class WorkflowActionAttempt
     public string ActionType { get; set; } = string.Empty;
 
     public Dictionary<string, string> Parameters { get; set; } = new();
+
+    /// <summary>Copied from the workflow's action when the run was queued.</summary>
+    /// <remarks>An attempt stored before this existed reads as Continue.</remarks>
+    public WorkflowFailurePolicy OnFailure { get; set; } = WorkflowFailurePolicy.Continue;
+
+    /// <summary>
+    /// For a Skipped attempt, the ordinal of the attempt whose failure skipped it. Null for any
+    /// other status, and for an attempt skipped because the content no longer exists.
+    /// </summary>
+    /// <remarks>
+    /// What tells the two kinds of Skipped apart. Retrying the attempt named here queues this one
+    /// again, and this one cannot be retried on its own while that one has not succeeded.
+    /// </remarks>
+    public int? HaltedBy { get; set; }
 
     public AttemptStatus Status { get; set; } = AttemptStatus.Pending;
 
@@ -282,5 +372,8 @@ public class WorkflowActionAttempt
 /// <see cref="Cancelled"/> is kept apart from <see cref="Skipped"/> for the same kind of reason.
 /// Skipped is the content having gone, which nobody decided. Cancelled is somebody stopping the run
 /// before the action started, so a Cancelled action never went out.
+///
+/// Skipped is also an action that did not run because an earlier one set to halt failed. That one
+/// carries <see cref="WorkflowActionAttempt.HaltedBy"/>, and it never went out either.
 /// </remarks>
 public enum AttemptStatus { Pending, Running, Succeeded, Failed, Unknown, Skipped, Cancelled }

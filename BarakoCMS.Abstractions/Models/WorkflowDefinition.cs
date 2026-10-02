@@ -46,4 +46,34 @@ public class WorkflowAction
 {
     public string Type { get; set; } = string.Empty; // "Email", "SMS", "Webhook"
     public Dictionary<string, string> Parameters { get; set; } = new(); // e.g., "To": "admin@example.com"
+
+    /// <summary>What a run does with the actions after this one when this one fails.</summary>
+    /// <remarks>
+    /// An action stored before this existed has no such field and reads as
+    /// <see cref="WorkflowFailurePolicy.Continue"/>, which is what every run did before it.
+    ///
+    /// Nullable so a request that sends its optional fields as null is not refused. Null means
+    /// Continue, the same as leaving it out.
+    /// </remarks>
+    public WorkflowFailurePolicy? OnFailure { get; set; } = WorkflowFailurePolicy.Continue;
+}
+
+/// <summary>Whether the actions after a failed one still run.</summary>
+/// <remarks>
+/// Per action, because both answers are right for their own case. Notifications are independent,
+/// and skipping the tweet because the mail server was down is a surprise. A chain is not: filing
+/// the document after the journal entry failed carries on as though it had succeeded.
+///
+/// Numbered explicitly. Marten stores an enum as its number, so a member goes on the end.
+/// </remarks>
+public enum WorkflowFailurePolicy
+{
+    /// <summary>The actions after this one run whatever happens to it.</summary>
+    Continue = 0,
+
+    /// <summary>
+    /// Nothing after this action runs until it has succeeded. While it waits on a retry the actions
+    /// after it wait too, and once it has failed for good, or ended Unknown, they are skipped.
+    /// </summary>
+    Halt = 1,
 }
