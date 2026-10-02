@@ -66,7 +66,7 @@ NETWORK="${NETWORK:-barako-upgrade-check}"
 PG="${PG:-upgrade-check-pg}"
 OLD="${OLD:-upgrade-check-old}"
 # Empty means whoever binds the port chooses it: Docker for Postgres and the FROM_VERSION container,
-# the kernel for the 4.0 host. A value set by the caller is used as given. See lib-ports.sh for why
+# the kernel for the new host. A value set by the caller is used as given. See lib-ports.sh for why
 # there is no default.
 PG_PORT="${PG_PORT:-}"
 NEW_PORT="${NEW_PORT:-}"
@@ -336,7 +336,7 @@ echo "Suite schema matches"
 step "booting the working tree's Suite in Production against the migrated database"
 HOST_EXEC=exec run_suite >"$WORK/boot.log" 2>&1 &
 HOST_PID=$!
-NEW_PORT=$(listen_port "$WORK/boot.log" "$HOST_PID") || { cat "$WORK/boot.log" >&2; fail "the 4.0 host this run started is not listening"; }
+NEW_PORT=$(listen_port "$WORK/boot.log" "$HOST_PID") || { cat "$WORK/boot.log" >&2; fail "the working tree's Suite this run started is not listening"; }
 NEW_URL="http://127.0.0.1:${NEW_PORT}"
 for _ in $(seq 1 60); do
     [ "$(curl -s -o /dev/null -w '%{http_code}' "$NEW_URL/health" || true)" = "200" ] && break
