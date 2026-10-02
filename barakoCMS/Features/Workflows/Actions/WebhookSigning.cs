@@ -211,7 +211,18 @@ internal static class WebhookSigning
                 continue;
             }
 
-            if (LooksProtected(value)) continue;
+            if (LooksProtected(value))
+            {
+                // What follows the prefix on anything the protector wrote is base64 of at least a
+                // nonce and a tag. A value with the prefix and not that shape was typed that way and
+                // stored in clear. One with the shape that will not decrypt cannot be told from
+                // ciphertext under another key, so it is left alone, as it always was.
+                if (AesGcmEnvelope.IsWellFormed(value[AesGcmEnvelope.VersionPrefix.Length..])) continue;
+
+                parameters[name] = protector.Protect(name == SecretParameter ? value.Trim() : value);
+                changed = true;
+                continue;
+            }
 
             var decrypted = protector.Unprotect(value);
             if (decrypted is not null)
@@ -277,9 +288,16 @@ internal static class WebhookSigning
         string.Equals(name, ChildSecretSetProperty, StringComparison.OrdinalIgnoreCase)
         || string.Equals(name, ChildUnreadableBranchesProperty, StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>What a run, and a dry run, say about a branch that is not readable. Names the parameter, never its value.</summary>
+    private const string UnreadableBranchShape =
+        "cannot be read as a list of actions (each an object, parameter values as text, no repeated property name)";
+
+    /// <summary>What a run says about the branch it took when that branch is not readable. Names the parameter, never its value.</summary>
     public static string UnreadableBranchReason(string branch) =>
-        $"The '{branch}' parameter cannot be read as a list of actions (each an object, parameter values as text, no repeated property name), so it does not run.";
+        $"The '{branch}' parameter {UnreadableBranchShape}, so it does not run.";
+
+    /// <summary>What a dry run says about a branch that is not readable, without knowing whether a run would take it.</summary>
+    public static string UnreadableBranchWarning(string branch) =>
+        $"The '{branch}' parameter {UnreadableBranchShape}. A run fails this action when it takes that branch.";
 
     /// <summary>
     /// Runs <paramref name="rewrite"/> over every child action a Conditional carries in its

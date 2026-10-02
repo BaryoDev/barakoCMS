@@ -66,6 +66,11 @@ internal class Endpoint : Endpoint<Request, Response>
         // back to whoever sent the workflow and the sample, so it shows what the templates resolved to.
         var preview = new List<Dictionary<string, string>>();
 
+        // One entry per preview entry. A Conditional branch that cannot be read is withheld from the
+        // preview and named here. Not a failure: a real run refuses only the branch it takes, and
+        // which one that is depends on the condition, which this simulation does not evaluate.
+        var notes = new List<string?>();
+
         try
         {
             foreach (var action in req.Workflow.Actions)
@@ -84,26 +89,17 @@ internal class Endpoint : Endpoint<Request, Response>
                         "DRY-RUN: Would execute {ActionType} with parameters: {Parameters}",
                         action.Type, System.Text.Json.JsonSerializer.Serialize(shown));
 
-                    if (unreadableBranches.Count > 0)
-                    {
-                        // A real run refuses a branch it cannot read, so the simulation must not
-                        // report the action as fine.
-                        _debugger.LogActionFailure(
-                            executionLog, action.Type, actionTimer,
-                            string.Join(" ", unreadableBranches.Select(branch => Actions.WebhookSigning.UnreadableBranchReason(branch))),
-                            resolvedParams);
-                    }
-                    else
-                    {
-                        _debugger.LogActionSuccess(executionLog, action.Type, actionTimer, resolvedParams);
-                    }
-
+                    _debugger.LogActionSuccess(executionLog, action.Type, actionTimer, resolvedParams);
                     preview.Add(shown);
+                    notes.Add(unreadableBranches.Count == 0
+                        ? null
+                        : string.Join(" ", unreadableBranches.Select(branch => Actions.WebhookSigning.UnreadableBranchWarning(branch))));
                 }
                 catch (Exception ex)
                 {
                     _debugger.LogActionFailure(executionLog, action.Type, actionTimer, ex, action.Parameters);
                     preview.Add(Actions.WebhookSigning.WithoutSecret(action.Type, action.Parameters));
+                    notes.Add(null);
                 }
             }
 
@@ -116,7 +112,7 @@ internal class Endpoint : Endpoint<Request, Response>
                 {
                     ActionType = a.ActionType,
                     Success = a.Success,
-                    ErrorMessage = a.ErrorMessage,
+                    ErrorMessage = a.ErrorMessage ?? (i < notes.Count ? notes[i] : null),
                     ResolvedParameters = i < preview.Count ? preview[i] : a.ResolvedParameters,
                     Duration = a.Duration,
                 }).ToList(),

@@ -652,7 +652,7 @@ public class ConditionalChildCredentialTests
     }
 
     [Fact]
-    public async Task A_dry_run_reports_a_conditional_with_an_unreadable_branch_as_failed()
+    public async Task A_dry_run_names_an_unreadable_branch_on_the_action_without_failing_it()
     {
         var secret = NewSecret();
         var client = _fixture.CreateClient();
@@ -697,11 +697,109 @@ public class ConditionalChildCredentialTests
         body.Should().NotContain(secret);
 
         using var json = JsonDocument.Parse(body);
-        json.RootElement.GetProperty("success").GetBoolean().Should().BeFalse();
+        json.RootElement.GetProperty("success").GetBoolean().Should().BeTrue(
+            "a run fails only if it takes that branch, and the dry run does not evaluate the condition");
         json.RootElement.GetProperty("actions").GetArrayLength().Should().Be(1);
         var action = json.RootElement.GetProperty("actions")[0];
-        action.GetProperty("success").GetBoolean().Should().BeFalse();
+        action.GetProperty("success").GetBoolean().Should().BeTrue();
         action.GetProperty("errorMessage").GetString().Should().Contain("ThenActions");
+        action.GetProperty("resolvedParameters").TryGetProperty("ThenActions", out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_branch_holding_the_literal_null_is_left_as_sent_named_in_the_response_and_refused_when_it_runs()
+    {
+        var workflow = Conditional(thenActions: "null");
+
+        WebhookSigning.IsReadableBranch("null").Should().BeFalse();
+        WebhookSigning.ProtectSecrets(workflow, Protector()).Should().BeFalse();
+        workflow.Actions.Single().Parameters["ThenActions"].Should().Be("null");
+
+        var response = WorkflowActionResponse.From(workflow.Actions.Single());
+        response.UnreadableBranches.Should().HaveCount(1);
+        response.UnreadableBranches.Should().Equal("ThenActions");
+        response.Parameters.Should().NotContainKey("ThenActions");
+
+        var services = new ServiceCollection();
+        services.AddSingleton(Protector());
+        services.AddSingleton<IWorkflowAction>(new CredentialEchoAction());
+        var conditional = new ConditionalAction(services.BuildServiceProvider(), NullLogger<ConditionalAction>.Instance);
+
+        var result = await conditional.RunAsync(
+            workflow.Actions.Single().Parameters, PublishedContent(), TestContext.Current.CancellationToken);
+
+        result.Succeeded.Should().BeFalse();
+        result.Retryable.Should().BeFalse("the branch reads the same on the next attempt");
+        result.Error.Should().Contain("ThenActions");
+    }
+
+    [Fact]
+    public async Task A_conditional_with_an_empty_list_for_a_branch_still_succeeds()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton(Protector());
+        services.AddSingleton<IWorkflowAction>(new CredentialEchoAction());
+        var conditional = new ConditionalAction(services.BuildServiceProvider(), NullLogger<ConditionalAction>.Instance);
+
+        var result = await conditional.RunAsync(
+            Conditional(thenActions: "[]").Actions.Single().Parameters, PublishedContent(), TestContext.Current.CancellationToken);
+
+        result.Succeeded.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task The_startup_migration_encrypts_a_stored_value_that_only_starts_like_an_envelope()
+    {
+        // The prefix followed by text that is not base64, so it cannot be something the protector wrote.
+        var childPassword = AesGcmEnvelope.VersionPrefix + "plain-password-" + Guid.NewGuid().ToString("N");
+        var ownPassword = AesGcmEnvelope.VersionPrefix + "plain-password-" + Guid.NewGuid().ToString("N");
+
+        // An envelope under another key has the prefix and the shape. It must be left alone, not wrapped again.
+        var otherKey = new SecretProtector(new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Secrets:Key"] = "a-different-key-that-is-at-least-32-characters" })
+            .Build());
+        var rotated = otherKey.Protect("ak_child_rotated");
+
+        var workflow = Conditional(thenActions: Branch(
+            Child("CredentialEcho", new() { ["Password"] = childPassword, ["ApiKey"] = rotated, ["Channel"] = "ops-channel" })));
+        workflow.Actions.Single().Parameters["Password"] = ownPassword;
+
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        await using (var session = store.LightweightSession())
+        {
+            session.Store(workflow);
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        var before = await StoredJsonAsync(workflow.Id);
+        before.Should().Contain(childPassword, "the document has to start out in clear for this to be an upgrade");
+        before.Should().Contain(ownPassword);
+
+        var migration = new WorkflowCredentialMigrationService(
+            store, Protector(), _fixture.Services.GetRequiredService<IConfiguration>(),
+            _fixture.Services.GetRequiredService<ILogger<WorkflowCredentialMigrationService>>());
+        await migration.ProtectAllTenantsAsync(TestContext.Current.CancellationToken);
+
+        var after = await StoredJsonAsync(workflow.Id);
+        after.Should().Contain("ops-channel");
+        after.Should().NotContain(childPassword);
+        after.Should().NotContain(ownPassword);
+
+        await using (var check = store.QuerySession())
+        {
+            var stored = await check.LoadAsync<WorkflowDefinition>(workflow.Id, TestContext.Current.CancellationToken);
+            var parameters = stored!.Actions.Single().Parameters;
+            Protector().Unprotect(parameters["Password"]).Should().Be(ownPassword);
+
+            using var branch = JsonDocument.Parse(parameters["ThenActions"]);
+            branch.RootElement.GetArrayLength().Should().Be(1);
+            var child = branch.RootElement[0].GetProperty("Parameters");
+            Protector().Unprotect(child.GetProperty("Password").GetString()!).Should().Be(childPassword);
+            child.GetProperty("ApiKey").GetString().Should().Be(rotated, "ciphertext under another key is not encrypted a second time");
+        }
+
+        await migration.ProtectAllTenantsAsync(TestContext.Current.CancellationToken);
+        (await StoredJsonAsync(workflow.Id)).Should().Be(after, "a second pass changes nothing");
     }
 
     private static async Task<string> PageHoldingAsync(HttpClient client, Guid id)

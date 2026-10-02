@@ -89,17 +89,18 @@ internal class ConditionalAction : IWorkflowAction
                 $"The '{(conditionResult ? "Then" : "Else")}Actions' parameter is not valid JSON.");
         }
 
-        if (actions == null || actions.Count == 0)
-        {
-            return WorkflowActionResult.Success();
-        }
-
         // Saving and reading skip a branch they cannot read the same way this does, so its
-        // credentials were never encrypted. Running it would use them as stored.
+        // credentials were never encrypted. Running it would use them as stored. Before the empty
+        // check, since the literal null deserialises to no list at all and is not a readable branch.
         if (!WebhookSigning.IsReadableBranch(actionsToExecute))
         {
             return WorkflowActionResult.PermanentFailure(
                 WebhookSigning.UnreadableBranchReason(conditionResult ? "ThenActions" : "ElseActions"));
+        }
+
+        if (actions == null || actions.Count == 0)
+        {
+            return WorkflowActionResult.Success();
         }
 
         var availableActions = _serviceProvider.GetService<IEnumerable<IWorkflowAction>>();
