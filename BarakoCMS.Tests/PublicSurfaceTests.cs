@@ -95,6 +95,124 @@ public class PublicSurfaceTests
           + "endpoints moved or they were made public, and both change what the assertion above proves");
     }
 
+    // D32's four operations. They ship as package surface before anything implements them, so what
+    // is pinned here is the contract itself and not a side effect of the framework behind it.
+    private static readonly Type[] DurableWorkSeams =
+    [
+        typeof(barakoCMS.Core.Interfaces.IDurableOutbox),
+        typeof(barakoCMS.Core.Interfaces.IDurableRuns),
+        typeof(barakoCMS.Core.Interfaces.IDurableMessageHandler<>),
+        typeof(barakoCMS.Core.Interfaces.DurableMessageContext),
+    ];
+
+    private const BindingFlags Declared = BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly;
+
+    private static string NameOf(Type type) => type.IsGenericType
+        ? $"{type.Name[..type.Name.IndexOf('`')]}<{string.Join(", ", type.GetGenericArguments().Select(NameOf))}>"
+        : type.Name;
+
+    private static string Signature(MethodInfo method)
+    {
+        var parameters = method.GetParameters().Select(p => $"{NameOf(p.ParameterType)} {p.Name}");
+        return $"{NameOf(method.DeclaringType!)}.{method.Name}({string.Join(", ", parameters)}): {NameOf(method.ReturnType)}";
+    }
+
+    private static IEnumerable<Type> Flatten(Type type) => type.IsGenericType
+        ? type.GetGenericArguments().SelectMany(Flatten).Prepend(type)
+        : new[] { type };
+
+    [Fact]
+    public void The_durable_work_seams_are_public_types_of_the_contract_assembly()
+    {
+        DurableWorkSeams.Should().HaveCount(4);
+
+        foreach (var seam in DurableWorkSeams)
+        {
+            seam.Assembly.Should().BeSameAs(Contract, $"{seam.Name} is what a module compiles against");
+            seam.IsPublic.Should().BeTrue($"{seam.Name} is package surface");
+            seam.Namespace.Should().Be("barakoCMS.Core.Interfaces");
+        }
+
+        var durable = Contract.GetExportedTypes()
+            .Where(t => t.Name.Contains("Durable", StringComparison.Ordinal))
+            .Select(t => t.FullName!)
+            .ToArray();
+
+        durable.Should().HaveCount(4, "a fifth durable work type is a widening of the contract, to be added here on purpose");
+        durable.Should().BeEquivalentTo(DurableWorkSeams.Select(t => t.FullName!).ToArray());
+    }
+
+    // A member that ships cannot be removed or changed inside a major version, so a change to any
+    // line here is a breaking change to the package surface and an addition is a decision.
+    [Fact]
+    public void The_durable_work_seams_have_exactly_the_members_they_shipped_with()
+    {
+        var members = DurableWorkSeams
+            .SelectMany(t => t.GetMethods(Declared))
+            .Select(Signature)
+            .ToArray();
+
+        var shipped = new[]
+        {
+            "IDurableOutbox.EnqueueAsync(String tenant, TMessage message, CancellationToken cancellationToken): Task",
+            "IDurableOutbox.ScheduleAsync(String tenant, TMessage message, DateTimeOffset dueAt, CancellationToken cancellationToken): Task",
+            "IDurableRuns.StartAsync(String tenant, String runId, TMessage message, CancellationToken cancellationToken): Task",
+            "IDurableRuns.WaitAsync(String tenant, String waitKey, DateTimeOffset timeoutAt, TMessage onTimeout, CancellationToken cancellationToken): Task",
+            "IDurableRuns.ResumeAsync(String tenant, String waitKey, TMessage message, CancellationToken cancellationToken): Task<Boolean>",
+            "IDurableMessageHandler<TMessage>.HandleAsync(TMessage message, DurableMessageContext context, CancellationToken cancellationToken): Task",
+            "DurableMessageContext.get_Tenant(): String",
+            "DurableMessageContext.set_Tenant(String value): Void",
+            "DurableMessageContext.get_MessageId(): String",
+            "DurableMessageContext.set_MessageId(String value): Void",
+        };
+
+        members.Should().HaveCount(shipped.Length);
+        members.Should().BeEquivalentTo(shipped);
+    }
+
+    // D34 for these seams: no Marten, Wolverine, FastEndpoints or ASP.NET type in a signature, so
+    // the framework behind them can change without breaking a module built against them.
+    [Fact]
+    public void The_durable_work_seams_name_only_contract_and_base_library_types()
+    {
+        var named = DurableWorkSeams
+            .SelectMany(t => t.GetMethods(Declared))
+            .SelectMany(m => m.GetParameters().Select(p => p.ParameterType).Append(m.ReturnType))
+            .SelectMany(Flatten)
+            .Where(t => !t.IsGenericParameter)
+            .Distinct()
+            .ToArray();
+
+        named.Should().NotBeEmpty("the seams have parameters, so an empty scan is a broken scan");
+        named.Should().Contain(typeof(CancellationToken), "every operation takes one, so the scan reached the signatures");
+        named.Should().Contain(typeof(barakoCMS.Core.Interfaces.DurableMessageContext), "and the handler's own");
+
+        var foreign = named
+            .Where(t => t.Assembly != Contract && t.Assembly != typeof(object).Assembly)
+            .Select(t => t.FullName)
+            .ToArray();
+
+        foreign.Should().BeEmpty(
+            "a seam that names a framework's type makes that framework part of what a module compiles "
+          + "against, which is what the seams exist to prevent");
+    }
+
+    [Fact]
+    public void The_contract_assembly_references_no_messaging_framework()
+    {
+        var referenced = Contract.GetReferencedAssemblies()
+            .Select(a => a.Name)
+            .Where(name => name is not null)
+            .Select(name => name!)
+            .ToArray();
+
+        referenced.Should().NotBeEmpty("an empty list means the reflection read nothing");
+
+        referenced.Should().NotContain(name => name.StartsWith("Wolverine", StringComparison.OrdinalIgnoreCase),
+            "Wolverine stands behind the seams in the core's Infrastructure. In the contract it would "
+          + "be a dependency of every module");
+    }
+
     /// <summary>
     /// The contract compiles without the host. That is the whole reason it is a separate assembly:
     /// a reference back to the core would make every "is this contract" question a review question
