@@ -9,7 +9,7 @@ instance, one curl per step, with the status code each one answers.
 
 Every request below was run against the test host in this order and answered the code shown. The
 pieces it uses are on master and tested: a lifecycle per type (`Models/ContentTypeDefinition.cs`,
-`Features/Content/ChangeStatus/Endpoint.cs`, `ContentLifecycleTests`), permission on a transition
+`Infrastructure/Services/ContentTransitioner.cs`, `ContentLifecycleTests`), permission on a transition
 (`Infrastructure/Services/PermissionResolver.cs`, `TransitionPermissionTests`), a workflow that
 fires on a transition (`Features/Workflows/WorkflowProjection.cs`) and email from settings
 (`Features/Settings/Email/Endpoints.cs`, [configuring email](configuring-email.md)).
@@ -453,7 +453,8 @@ curl -s -X PUT $BASE/api/contents/$INVOICE/status -H "Authorization: Bearer $APP
   write another writer's field back to what it was.
 - `data` sent to a transition that declares no fields, or with `newStatus`, is ignored.
 
-The requirement is checked where a transition is made, which is this endpoint and nothing else.
+The requirement is checked where a transition is made, which is `IContentTransitioner`: this
+endpoint calls it, and so does any code that moves an entry (see the next section).
 Scheduled publishing, `UpdateField`, collection pushes and syncs change `status` and never the
 lifecycle state. A workflow can still blank the field afterwards: this is a check on the move, not
 a rule the entry keeps.
@@ -463,6 +464,49 @@ a field a stored transition names, one that changes what a stored transition req
 whose new lifecycle names a field the bundle's type does not declare. A stored transition that
 names a field the type does not have anyway is skipped for that name and logged at warning level,
 and the rest of what it requires still applies.
+
+## Making a transition from code
+
+A webhook, a job or a module moves an entry through `IContentTransitioner`
+(`barakoCMS.Core.Interfaces`, in `BarakoCMS.Abstractions`), resolved from the scope whose session
+loaded the entry. It applies the rules this page walked through, appends the same events, writes
+the same `content.transitioned` audit row and commits. `ContentTransitionerTests` is the proof.
+
+```csharp
+var result = await transitioner.TransitionAsync(
+    entry,
+    "MarkPaid",
+    ContentTransitionActor.ForSystem("payments-webhook"),
+    new ContentTransitionOptions { SkipPermissionChecks = true },
+    ct);
+
+if (!result.Succeeded)
+    logger.LogWarning("Not moved ({Outcome}): {Errors}", result.Outcome, string.Join(" ", result.Errors));
+```
+
+The actor is stated, and it is one of two kinds:
+
+- `ForUser(id)` is a stored user. Read on the type and the transition permission are checked
+  through the permission resolver, in the tenant of the scope, as they are for a request. A value
+  in `Data` for a field the user's roles may not see is put back, so a required one counts as not
+  sent. An id that is no user is refused.
+- `ForSystem("name")` is code under a fixed name. It holds no permissions, so on its own it is
+  refused. `SkipPermissionChecks = true` is the caller saying it authorised the move itself.
+
+`SkipPermissionChecks` is off unless set, works for either kind of actor, and skips three things:
+read on the type, the transition permission, and field sensitivity on the values sent. It does not
+skip the lifecycle (a move from the wrong state is `Conflict`), the required fields, validation,
+the before-save hooks, or the self transition rule for a user actor. A system actor is not subject
+to the self transition rule, which is about the person who raised the entry.
+
+What is recorded: the events carry the user's id, or `Guid.Empty` for a system actor, which is what
+scheduled publishing and collection syncs already record. The audit row carries the user's id and
+username, or neither for a system actor, with `"actor": "system:<name>"` in its metadata. A move
+made with the checks skipped has `"permissionChecks": "skipped"` in the metadata.
+
+The result's `Outcome` is `Transitioned`, `Forbidden`, `Invalid` or `Conflict`, which the endpoint
+answers as `200`, `403`, `400` and `409`. The call commits the scope's session, so anything staged
+in it beforehand commits with the move.
 
 ## What this page does not cover
 
