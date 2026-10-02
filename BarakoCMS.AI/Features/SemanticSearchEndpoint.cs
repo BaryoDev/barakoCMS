@@ -1,3 +1,4 @@
+using barakoCMS.Core.Interfaces;
 using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
@@ -20,7 +21,8 @@ public sealed record SemanticResponse(IReadOnlyList<SemanticHit> Results, int Co
 /// GET /api/public/{type}/semantic?q=…&amp;limit=… — vector search over a type's index. Embeds the query,
 /// ranks stored vectors by cosine similarity, then re-verifies each candidate is STILL Published and
 /// document-Public before returning it — so an entry unpublished or hidden since indexing never leaks.
-/// Anonymous and cacheable; the literal "semantic" segment wins over the {slug} route.
+/// Anonymous and cacheable; the literal "semantic" segment wins over the {slug} route. Takes the
+/// delivery list's <c>filter[field][op]=value</c> parameters, applied before ranking.
 /// </summary>
 public class SemanticSearchEndpoint(
     IQuerySession session,
@@ -49,6 +51,16 @@ public class SemanticSearchEndpoint(
         var def = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
         if (def is not { IsPubliclyDeliverable: true }) { await Send.NotFoundAsync(ct); return; }
 
+        // Before the embedding call, so a refused filter costs no model call and answers 400
+        // whatever q holds.
+        var filter = Resolve<IPublicContentFilterParser>().Parse(HttpContext.Request.Query, def);
+        if (filter.Error is not null)
+        {
+            AddError(filter.Error);
+            await Send.ErrorsAsync(400, ct);
+            return;
+        }
+
         if (q.Length < 2 || !embed.IsConfigured) { await Send.OkAsync(empty, ct); return; }
 
         var queryVector = await embed.EmbedAsync(q, ct);
@@ -59,12 +71,40 @@ public class SemanticSearchEndpoint(
         // Ordered by id so the same subset is ranked on every request, which keeps a cached answer
         // and a fresh one in agreement. Database-side ranking, which needs no cap, is #621.
         var scanLimit = Math.Clamp(Resolve<IOptions<AiOptions>>().Value.SemanticSearchScanLimit, 1, int.MaxValue - 1);
-        var scanned = await session.Query<ContentEmbedding>()
-            .Where(e => e.ContentType == type)
+        var embeddings = session.Query<ContentEmbedding>().Where(e => e.ContentType == type);
+
+        // An embedding holds no field values, so a filter is answered by the entries. Their ids are
+        // read under the same cap and in the same order as the scan, and only those embeddings are
+        // ranked. Past the cap the response says truncated, the same as an unfiltered scan.
+        var filterTruncated = false;
+        if (!filter.IsEmpty)
+        {
+            var matching = await filter.Apply(session.Query<Content>()
+                    .Where(c => c.ContentType == type
+                                && c.Status == ContentStatus.Published
+                                && c.Sensitivity == SensitivityLevel.Public))
+                .OrderBy(c => c.Id)
+                .Select(c => c.Id)
+                .Take(scanLimit + 1)
+                .ToListAsync(ct);
+
+            if (matching.Count == 0)
+            {
+                SetCache();
+                await Send.OkAsync(empty, ct);
+                return;
+            }
+
+            filterTruncated = matching.Count > scanLimit;
+            var ids = matching.Take(scanLimit).ToArray();
+            embeddings = embeddings.Where(e => e.Id.In(ids));
+        }
+
+        var scanned = await embeddings
             .OrderBy(e => e.Id)
             .Take(scanLimit + 1)
             .ToListAsync(ct);
-        var truncated = scanned.Count > scanLimit;
+        var truncated = filterTruncated || scanned.Count > scanLimit;
 
         var ranked = scanned
             .Take(scanLimit)
@@ -89,7 +129,15 @@ public class SemanticSearchEndpoint(
             if (results.Count >= limit) break;
         }
 
-        HttpContext.Response.Headers.CacheControl = "public, max-age=60";
+        SetCache();
         await Send.OkAsync(new SemanticResponse(results, results.Count, q) { Truncated = truncated }, ct);
+    }
+
+    // The answer is built from the resolved tenant, and the X-Tenant header is read before the
+    // host, so a shared cache keyed on the URL alone would serve one tenant's results to another.
+    private void SetCache()
+    {
+        HttpContext.Response.Headers.CacheControl = "public, max-age=60";
+        HttpContext.Response.Headers.Vary = barakoCMS.Infrastructure.Multitenancy.TenantResolutionMiddleware.TenantHeader;
     }
 }

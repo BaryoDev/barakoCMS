@@ -15,20 +15,33 @@ public class ConditionEvaluator : IConditionEvaluator
         Dictionary<string, object> conditions,
         Dictionary<string, object> contentData,
         Models.User user)
-        => Evaluate(conditions, contentData, null, user);
+        => Evaluate(conditions, contentData, null, user, callerVariables: false, null);
 
     /// <inheritdoc />
     public bool Evaluate(
         Dictionary<string, object> conditions,
         Models.Content content,
         Models.User user)
-        => Evaluate(conditions, content.Data, content, user);
+        => Evaluate(conditions, content.Data, content, user, callerVariables: false, null);
 
+    /// <inheritdoc />
+    public bool Evaluate(
+        Dictionary<string, object> conditions,
+        Models.Content content,
+        Models.User user,
+        IReadOnlyDictionary<string, string>? callerProfile)
+        => Evaluate(conditions, content.Data, content, user, callerVariables: true, callerProfile);
+
+    // callerVariables is off for the two older overloads, which keep reading "$CURRENT_USER.x" as
+    // the text it is. FieldRules evaluates a field's requiredWhen through the first of them, and a
+    // stored rule there must not change meaning because permission conditions gained a variable.
     private bool Evaluate(
         Dictionary<string, object> conditions,
         Dictionary<string, object> contentData,
         Models.Content? content,
-        Models.User user)
+        Models.User user,
+        bool callerVariables,
+        IReadOnlyDictionary<string, string>? callerProfile)
     {
         foreach (var (field, conditionValue) in conditions)
         {
@@ -46,7 +59,31 @@ public class ConditionEvaluator : IConditionEvaluator
 
             foreach (var (op, rawExpectedValue) in operators)
             {
-                if (!EvaluateOperator(op, actualValue, Normalize(rawExpectedValue), user))
+                var expectedValue = Normalize(rawExpectedValue);
+
+                if (callerVariables && expectedValue is string reference && CallerAttributes.IsReference(reference))
+                {
+                    // Denied before the operator is looked at. A caller with no value for the
+                    // attribute is not "different from" every row, so _ne must not grant here.
+                    if (!CallerAttributes.TryResolve(reference, callerProfile, out var attribute))
+                        return false;
+
+                    // _in and _nin walk a scalar as its characters, so "not in" a branch name would
+                    // grant nearly every row. A variable is a single value: equal or not equal.
+                    if (op is not ("_eq" or "_ne"))
+                        return false;
+
+                    if (!CallerAttributes.IsComparable(actualValue))
+                        return false;
+
+                    // Compared as it is stored: a profile value is never read as a variable itself.
+                    if (!Compare(op, actualValue, attribute))
+                        return false;
+
+                    continue;
+                }
+
+                if (!EvaluateOperator(op, actualValue, expectedValue, user))
                     return false;
             }
         }
@@ -129,6 +166,11 @@ public class ConditionEvaluator : IConditionEvaluator
             expectedValue = user.Id.ToString();
         }
 
+        return Compare(op, actualValue, expectedValue);
+    }
+
+    private bool Compare(string op, object? actualValue, object? expectedValue)
+    {
         return op switch
         {
             "_eq" => Equals(actualValue?.ToString(), expectedValue?.ToString()),

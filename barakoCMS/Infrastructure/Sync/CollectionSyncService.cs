@@ -142,8 +142,12 @@ internal sealed class CollectionSyncService(
     private async Task SweepHeldAsync(DateTime nowUtc, CancellationToken ct)
     {
         // null is the default partition, where a single-deployment site keeps its content; named
-        // slugs are the path-based tenants.
-        var partitions = new List<string?> { null };
+        // slugs are the path-based tenants. In Multi the default partition belongs to no tenant and
+        // is left as it is.
+        var partitions = new List<string?>();
+        if (TenantPartitions.ServesDefaultPartition(configuration))
+            partitions.Add(null);
+
         await using (var query = store.QuerySession())
         {
             var tenants = await query.Query<Tenant>().Where(t => t.IsActive).ToListAsync(ct);
