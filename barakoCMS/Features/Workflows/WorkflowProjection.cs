@@ -39,6 +39,41 @@ internal partial class WorkflowProjection : EventProjection
         if (e.Data.NewStatus == barakoCMS.Models.ContentStatus.Published)
         {
             await ProcessEventAsync(barakoCMS.Models.WorkflowEvents.Published, e.Data.Id, e.TenantId, e.Sequence, ops);
+            return;
+        }
+
+        if (await WasPublishedBeforeAsync(e, ops))
+        {
+            await ProcessEventAsync(barakoCMS.Models.WorkflowEvents.Unpublished, e.Data.Id, e.TenantId, e.Sequence, ops);
+        }
+    }
+
+    /// <remarks>
+    /// The event carries only the new status, and the document already holds it by the time the
+    /// daemon gets here, so the status before comes from folding the stream up to the event before
+    /// this one. A draft moved to Archived was never Published and is not an unpublish.
+    ///
+    /// Nothing may escape, for the reason given in ProcessEventAsync. A failed read is logged and
+    /// answers no.
+    /// </remarks>
+    private async Task<bool> WasPublishedBeforeAsync(IEvent<barakoCMS.Events.ContentStatusChanged> e, IQuerySession query)
+    {
+        if (e.Version <= 1)
+        {
+            return false;
+        }
+
+        try
+        {
+            var before = await query.Events.FetchStreamAsync(e.Data.Id, version: e.Version - 1, token: CancellationToken.None);
+            var prior = barakoCMS.Infrastructure.Services.ContentProjection.Fold(before);
+            return prior is { Status: barakoCMS.Models.ContentStatus.Published };
+        }
+        catch (Exception ex)
+        {
+            var logger = _serviceProvider.GetService<ILogger<WorkflowProjection>>();
+            logger?.LogError(ex, "WorkflowProjection could not read the status before event {Sequence} for content {ContentId} in tenant {TenantId}", e.Sequence, e.Data.Id, e.TenantId);
+            return false;
         }
     }
 

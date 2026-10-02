@@ -291,6 +291,13 @@ holding the first. A blank entry is refused. With a transition trigger, every li
 exist and declare that transition with the same spelling, and each one that does not is named in
 the `400`.
 
+Events work the same way. Send `"triggerEvents": ["Published", "Unpublished"]` alongside or instead
+of `triggerEvent`; the response carries the list with every event and `triggerEvent` holding the
+first. An event fires a workflow once, however many list entries it matches. `Unpublished` fires
+when a Published entry changes to any other status. `Deleted` fires when an entry is erased, and
+its run carries the entry's id and content type only, so a `Deleted` workflow with conditions does
+not fire.
+
 ## 9. The sender, from settings
 
 ```bash

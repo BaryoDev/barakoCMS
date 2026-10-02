@@ -22,6 +22,9 @@ internal sealed class WorkflowResponse
     /// <remarks>Filled for a workflow saved before the list existed too, so a reader can use this alone.</remarks>
     public List<string> TriggerContentTypes { get; init; } = new();
     public string TriggerEvent { get; init; } = string.Empty;
+
+    /// <summary>Every event the workflow fires on, including <see cref="TriggerEvent"/>.</summary>
+    public List<string> TriggerEvents { get; init; } = new();
     public Dictionary<string, string> Conditions { get; init; } = new();
     public List<WorkflowActionResponse> Actions { get; init; } = new();
 
@@ -32,6 +35,7 @@ internal sealed class WorkflowResponse
         TriggerContentType = w.TriggerContentType,
         TriggerContentTypes = WorkflowTriggers.ContentTypes(w),
         TriggerEvent = w.TriggerEvent,
+        TriggerEvents = WorkflowTriggers.Events(w),
         Conditions = w.Conditions,
         Actions = w.Actions.Select(WorkflowActionResponse.From).ToList(),
     };

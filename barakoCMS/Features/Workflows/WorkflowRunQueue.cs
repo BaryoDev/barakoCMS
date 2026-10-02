@@ -50,6 +50,18 @@ internal interface IWorkflowRunQueue
     /// </summary>
     /// <returns>How many runs were queued.</returns>
     Task<int> EnqueueAsync(barakoCMS.Models.Content content, string eventType, long eventSequence, CancellationToken ct);
+
+    /// <summary>
+    /// Records the Deleted runs for an entry being erased, on the caller's session and without
+    /// saving, so the runs commit with the erasure or not at all.
+    /// </summary>
+    /// <remarks>
+    /// Takes the id and the content type and no entry, so nothing of the erased data can reach a
+    /// run. A workflow with conditions is not queued: its conditions read the entry's data, and
+    /// that is what is being erased.
+    /// </remarks>
+    /// <returns>How many runs were queued.</returns>
+    Task<int> QueueDeletedAsync(Guid contentId, string contentType, CancellationToken ct);
 }
 
 internal sealed class WorkflowRunQueue(IDocumentSession session, ILogger<WorkflowRunQueue> logger) : IWorkflowRunQueue
@@ -86,38 +98,79 @@ internal sealed class WorkflowRunQueue(IDocumentSession session, ILogger<Workflo
                 continue;
             }
 
-            var run = new WorkflowRun
-            {
-                Id = Guid.NewGuid(),
-                WorkflowDefinitionId = workflow.Id,
-                WorkflowName = workflow.Name,
-                ContentId = content.Id,
-                ContentType = content.ContentType,
-                TriggerEvent = eventType,
-                TriggeringEventSequence = eventSequence,
-            };
-
-            for (var i = 0; i < workflow.Actions.Count; i++)
-            {
-                run.Actions.Add(new WorkflowActionAttempt
-                {
-                    Ordinal = i,
-                    ActionType = workflow.Actions[i].Type,
-                    // Copied rather than referenced. A definition edited between queueing and
-                    // running would otherwise change what a queued run sends, and the operator who
-                    // edited it is not expecting to have rewritten yesterday's outbox.
-                    Parameters = new Dictionary<string, string>(workflow.Actions[i].Parameters),
-                    IdempotencyKey = $"{run.Id:N}-{i}",
-                });
-            }
-
-            run.Recompute();
-            session.Store(run);
+            session.Store(NewRun(workflow, content.Id, content.ContentType, eventType, eventSequence));
             queued++;
         }
 
         if (queued > 0) await session.SaveChangesAsync(ct);
 
         return queued;
+    }
+
+    public async Task<int> QueueDeletedAsync(Guid contentId, string contentType, CancellationToken ct)
+    {
+        var workflows = await session.Query<WorkflowDefinition>()
+            .Where(WorkflowTriggers.FiredBy(contentType, WorkflowEvents.Deleted))
+            .ToListAsync(ct);
+
+        var queued = 0;
+
+        foreach (var workflow in workflows)
+        {
+            if (workflow.Conditions is { Count: > 0 })
+            {
+                logger.LogDebug(
+                    "Workflow {WorkflowId} has conditions, so it is not queued for erased content {ContentId}",
+                    workflow.Id, contentId);
+                continue;
+            }
+
+            var already = await session.Query<WorkflowRun>()
+                .Where(r => r.WorkflowDefinitionId == workflow.Id
+                            && r.ContentId == contentId
+                            && r.TriggerEvent == WorkflowEvents.Deleted)
+                .AnyAsync(ct);
+
+            if (already) continue;
+
+            // Sequence zero. An erasure removes the stream, so there is no event to point at, and
+            // no stored event has that sequence.
+            session.Store(NewRun(workflow, contentId, contentType, WorkflowEvents.Deleted, eventSequence: 0));
+            queued++;
+        }
+
+        return queued;
+    }
+
+    private static WorkflowRun NewRun(
+        WorkflowDefinition workflow, Guid contentId, string contentType, string eventType, long eventSequence)
+    {
+        var run = new WorkflowRun
+        {
+            Id = Guid.NewGuid(),
+            WorkflowDefinitionId = workflow.Id,
+            WorkflowName = workflow.Name,
+            ContentId = contentId,
+            ContentType = contentType,
+            TriggerEvent = eventType,
+            TriggeringEventSequence = eventSequence,
+        };
+
+        for (var i = 0; i < workflow.Actions.Count; i++)
+        {
+            run.Actions.Add(new WorkflowActionAttempt
+            {
+                Ordinal = i,
+                ActionType = workflow.Actions[i].Type,
+                // Copied rather than referenced. A definition edited between queueing and
+                // running would otherwise change what a queued run sends, and the operator who
+                // edited it is not expecting to have rewritten yesterday's outbox.
+                Parameters = new Dictionary<string, string>(workflow.Actions[i].Parameters),
+                IdempotencyKey = $"{run.Id:N}-{i}",
+            });
+        }
+
+        run.Recompute();
+        return run;
     }
 }
