@@ -23,7 +23,8 @@ queue in #106.
 ```
 
 `event` is the trigger that fired the workflow (`Created`, `Updated`, `Published`, `Unpublished`,
-`Deleted` or `transition:<Name>`), so one URL behind several events can tell them apart. `data`
+`Deleted` or `transition:<Name>`), so one URL behind several events can tell them apart. A webhook
+inside a `Conditional` action carries the same `event` as the run it belongs to. `data`
 holds the fields the content type marks Public, and is empty for an entry that is itself Sensitive
 or Hidden.
 

@@ -128,9 +128,9 @@ internal class ConditionalAction : IWorkflowAction
             try
             {
                 childResult = await plugin.RunAsync(
-                    extractor is null
+                    ActionParameters.WithTriggerOf(parameters, extractor is null
                         ? ActionParameters.Resolve(childAction.Type, childAction.Parameters, content)
-                        : ActionParameters.Resolve(extractor, childAction.Type, childAction.Parameters, content),
+                        : ActionParameters.Resolve(extractor, childAction.Type, childAction.Parameters, content)),
                     content, ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)

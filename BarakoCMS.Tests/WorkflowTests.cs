@@ -89,6 +89,29 @@ public class WorkflowTests
             "the action receives the parameters the workflow declared");
     }
 
+    [Fact]
+    public async Task The_engine_tells_an_action_which_trigger_fired()
+    {
+        var type = $"wfe_{Guid.NewGuid():n}"[..12];
+        var (engine, spy, scope) = await EngineAsync();
+        using var _ = scope;
+
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        session.Store(Definition(type, new()));
+        await session.SaveChangesAsync();
+
+        await engine.ProcessEventAsync(type, "Created", new Content
+        {
+            Id = Guid.NewGuid(),
+            ContentType = type,
+        }, CancellationToken.None);
+
+        spy.Executions.Should().HaveCount(1);
+        spy.Executions[0].Should().ContainKey("TriggerEvent");
+        spy.Executions[0]["TriggerEvent"].Should().Be("Created",
+            "the runner passes the trigger this way, and an action has to read it the same on both paths");
+    }
+
     /// <summary>
     /// The half that makes the test above mean something.
     /// </summary>

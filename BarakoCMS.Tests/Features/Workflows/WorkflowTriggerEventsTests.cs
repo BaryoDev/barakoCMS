@@ -142,6 +142,8 @@ public class WorkflowTriggerEventsTests
         received.ContentType.Should().Be(contentType);
         received.ContentJson.Should().NotContain(needle, "the action is told which entry went, not what it held");
         received.ParametersJson.Should().NotContain(needle, "a template cannot read data the run was never given");
+        received.ParametersJson.Should().Contain("\"TriggerEvent\":\"Deleted\"",
+            "the trigger is how a custom action learns the entry was erased");
         received.ParametersJson.Should().Contain("\"When\":\"||\"",
             "an erased entry has no status or timestamps, and Draft and the time of the run would be invented");
     }
