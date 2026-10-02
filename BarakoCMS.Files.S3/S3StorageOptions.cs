@@ -37,11 +37,11 @@ public sealed class S3StorageOptions
     /// R2, Garage and SeaweedFS do not apply an ACL sent with an upload, so make the bucket public
     /// instead and set this false.
     ///
-    /// <para>Caveat with a public bucket (the R2 setup): every object in it is readable by anyone who
-    /// knows the key, so a "private" file physically resides in public space and is protected only by
-    /// its unguessable key (the app never discloses a private file's key or URL). With AWS the
-    /// per-object ACL keeps private objects genuinely private. If you need strict private files on R2,
-    /// use a separate private bucket for them.</para>
+    /// <para>Caveat with a bucket that is public as a whole: every object in it is readable by anyone
+    /// who knows the key, private files included. Public files are stored under <c>public/</c> and
+    /// private ones under <c>private/</c>, so grant anonymous read on <c>public/*</c> only, or point
+    /// the CDN at that prefix. A file stored before the prefixes existed sits at the bucket root
+    /// whatever its visibility, and a grant on <c>public/*</c> does not cover it.</para>
     /// </summary>
     public bool UsePublicReadAcl { get; set; } = true;
 }

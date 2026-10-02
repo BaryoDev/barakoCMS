@@ -84,7 +84,8 @@ the original.
 ## Where the bytes go
 
 Through the same `IFileStorage` as the upload, with the same public-ness, under a key derived from
-the original's (`abc123.png` becomes `abc123_w640.png`). On S3 that means a variant of a public
+the original's (`public/abc123.png` becomes `public/abc123_w640.png`). The prefix is the one for the
+original's visibility, also for an original stored before keys had a prefix. On S3 that means a variant of a public
 object gets its own public URL and the route redirects to it; on Postgres the bytes are proxied like
 any other.
 

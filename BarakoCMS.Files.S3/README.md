@@ -61,18 +61,98 @@ bucket" rather than as an error.
 |---|---|
 | `ServiceUrl` | Set for R2 or a self-hosted store; leave null for AWS |
 | `ForcePathStyle` | Usually `true` for self-hosted stores |
-| `PublicBaseUrl` | Serve public files from your CDN domain |
+| `PublicBaseUrl` | Serve public files from your CDN domain. The key is appended, so a public file's URL is `{PublicBaseUrl}/public/{name}` |
 | `UsePublicReadAcl` | Defaults to `true`. Set it to `false` on buckets that block public ACLs |
 
 Keys belong in environment variables or a secret store, never in a checked-in `appsettings.json`.
+
+## Key layout and public access
+
+Visibility is in the key. A public file is stored as `public/{name}` and a private one as
+`private/{name}`, and a resized copy sits under the prefix for the visibility of the file it came
+from. The name is random and the extension comes from the checked content type; the upload's
+`isPublic` flag picks the prefix and nothing else from the request is in the key.
+
+That prefix is what makes direct public URLs safe. A bucket policy and a CDN origin grant by bucket
+or by key prefix, never by the `isPublic` flag in the database. Granted on the whole bucket, they
+serve a private file to anyone who has its key. Granted on `public/*`, they serve public files and
+nothing else.
+
+On AWS S3, with `UsePublicReadAcl` set to `false`, this policy is the whole grant:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "PublicFilesOnly",
+      "Effect": "Allow",
+      "Principal": "*",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::my-bucket/public/*"
+    }
+  ]
+}
+```
+
+Do not grant `s3:GetObject` on `arn:aws:s3:::my-bucket/*`, and do not grant `s3:ListBucket` to
+anonymous callers. Set `PublicBaseUrl` to the bucket's URL (`https://my-bucket.s3.eu-west-1.amazonaws.com`).
+
+With CloudFront, keep the bucket private and let only the distribution read the prefix. Create the
+distribution with the bucket as its origin and an origin access control, leave the origin path
+empty so the URL path is the key, and scope the bucket policy to the distribution and the prefix:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "CloudFrontPublicFilesOnly",
+      "Effect": "Allow",
+      "Principal": { "Service": "cloudfront.amazonaws.com" },
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::my-bucket/public/*",
+      "Condition": {
+        "StringEquals": {
+          "AWS:SourceArn": "arn:aws:cloudfront::111122223333:distribution/EDFDVBD6EXAMPLE"
+        }
+      }
+    }
+  ]
+}
+```
+
+Set `PublicBaseUrl` to the distribution's domain and `UsePublicReadAcl` to `false`. A request for
+`/private/...` through the distribution is refused by S3, because the policy does not cover it.
+
+Where the only grant on offer covers the whole bucket (an R2 bucket made public in the dashboard
+is public as a whole), there is no safe way to give public files a direct URL from the same bucket as private
+ones. Leave `PublicBaseUrl` unset there and public files are streamed through
+`GET /api/public/files/{id}`.
+
+The storage refuses a write whose key and visibility disagree: a private object under `public/`, or
+a public one under `private/`.
+
+### Files stored before the prefixes
+
+A file uploaded before BarakoCMS.Files 4.3.2 keeps the key on its row, at the bucket root
+with no prefix, and nothing moves it. The API reads, resizes and deletes it by that key as before,
+and a new resize of it is stored under the prefix for its visibility.
+
+Those files are the reason not to narrow an existing bucket's grant without looking first. A grant
+on `public/*` does not cover a root key, so an old private file stops being reachable at the
+bucket, which is the point, and so does an old public one: its stored `publicUrl` then answers 403,
+and `GET /api/public/files/{id}` still redirects to it. Upload those public files again before
+narrowing the grant. While the grant covers the whole bucket, old and new private files alike are
+readable by anyone who has a key.
 
 ## S3-compatible stores
 
 | Store | Notes |
 |---|---|
-| AWS S3 | Leave `ServiceUrl` null and set `Region`. `UsePublicReadAcl` only works on a bucket with ACLs enabled. |
-| Cloudflare R2 | No object ACLs: make the bucket public in the R2 dashboard and set `UsePublicReadAcl` to `false`. |
-| [SeaweedFS](https://github.com/seaweedfs/seaweedfs) | Apache-2.0. The module's own tests run against it. Does not apply an ACL sent with an upload, so make the bucket public and set `UsePublicReadAcl` to `false`. |
+| AWS S3 | Leave `ServiceUrl` null and set `Region`. `UsePublicReadAcl` only works on a bucket with ACLs enabled, and new buckets have them disabled, so prefer the policy on `public/*` above. |
+| Cloudflare R2 | No object ACLs, so set `UsePublicReadAcl` to `false`. A bucket made public in the R2 dashboard is public as a whole, private files included: see "Key layout and public access". |
+| [SeaweedFS](https://github.com/seaweedfs/seaweedfs) | Apache-2.0. The module's own tests run against it. Does not apply an ACL sent with an upload, so set `UsePublicReadAcl` to `false`. Anonymous read granted on the whole bucket covers private files too: see "Key layout and public access". |
 | [Garage](https://garagehq.deuxfleurs.fr/) | AGPL-3.0. No object ACLs, so treat it like R2 and set `UsePublicReadAcl` to `false`. |
 | MinIO | Unmaintained. The upstream repository is archived and gets no security patches, so it is not recommended for new deployments. |
 
