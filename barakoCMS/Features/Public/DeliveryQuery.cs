@@ -1,5 +1,7 @@
 using System.Globalization;
 using barakoCMS.Models;
+using Marten;
+using Marten.Linq.MatchesSql;
 
 namespace barakoCMS.Features.Public;
 
@@ -29,6 +31,12 @@ internal readonly record struct DeliveryNear(string Field, double Lat, double Ln
 internal sealed class DeliveryQuery
 {
     public const int MaxFilters = 5;
+
+    /// <summary>
+    /// The longest value one filter may carry, in characters. A longer one is refused, since a
+    /// trimmed value would match entries the caller did not ask for.
+    /// </summary>
+    public const int MaxValueLength = 256;
 
     /// <summary>
     /// The largest radius a near filter may ask for, in kilometres, unless
@@ -75,16 +83,24 @@ internal sealed class DeliveryQuery
     /// appearing in a response. Refusing unknown fields rather than ignoring them matters for the
     /// same reason a silently ignored filter returns more rows than the caller asked for, and the
     /// caller cannot tell the difference between "no filter" and "no matches".
+    ///
+    /// <c>readable</c> says which declared fields this caller may read. Null is the anonymous rule
+    /// above, and the authenticated entries list passes the sensitivity service's answer for its
+    /// caller. <c>nameFields</c> is whether a refusal lists the fields that would have been
+    /// accepted. It is off for the authenticated list, where a caller is not always allowed to
+    /// read the content type's schema.
     /// </remarks>
     public static DeliveryQuery Parse(
         IEnumerable<KeyValuePair<string, string?>> query, ContentTypeDefinition? def,
-        double maxRadiusKm = DefaultMaxRadiusKm)
+        double maxRadiusKm = DefaultMaxRadiusKm,
+        Func<FieldDefinition, bool>? readable = null,
+        bool nameFields = true)
     {
         if (def is null)
             return new DeliveryQuery { Error = "Unknown content type." };
 
         var allowed = def.Fields
-            .Where(f => f.Sensitivity == SensitivityLevel.Public)
+            .Where(readable ?? (f => f.Sensitivity == SensitivityLevel.Public))
             .ToDictionary(f => f.Name, f => f.Type ?? string.Empty, StringComparer.OrdinalIgnoreCase);
 
         var lists = ListFields(def);
@@ -119,8 +135,15 @@ internal sealed class DeliveryQuery
             var (name, op) = (parts[0], parts[1]);
 
             if (!allowed.TryGetValue(name, out var declaredType))
-                return new DeliveryQuery { Error = Unfilterable(name, allowed) };
+                return new DeliveryQuery { Error = Unfilterable(name, allowed, nameFields) };
             var canonical = Canonical(allowed, name);
+
+            if ((rawValue?.Length ?? 0) > MaxValueLength)
+                return new DeliveryQuery
+                {
+                    Error = $"The value of the filter on '{canonical}' is too long. "
+                          + $"At most {MaxValueLength} characters are allowed.",
+                };
 
             if (string.Equals(op, "near", StringComparison.OrdinalIgnoreCase))
             {
@@ -224,6 +247,55 @@ internal sealed class DeliveryQuery
                           + $"The most a request may ask for is {maxRadiusKm.ToString(CultureInfo.InvariantCulture)} km.");
 
         return (new DeliveryNear(field, lat, lng, radius), null);
+    }
+
+    /// <summary>
+    /// The request's <c>filter[...]</c> parameters, one pair per value, and nothing else.
+    /// </summary>
+    /// <remarks>
+    /// For the routes that take filters but not <c>sort</c>. Each repeat of a key is its own pair,
+    /// the same way the list route reads them, so a repeat counts against <see cref="MaxFilters"/>.
+    /// </remarks>
+    public static List<KeyValuePair<string, string?>> FilterPairs(IQueryCollection query) =>
+        query
+            .Where(kv => kv.Key.StartsWith("filter[", StringComparison.OrdinalIgnoreCase))
+            .SelectMany(kv => kv.Value.Select(v => new KeyValuePair<string, string?>(kv.Key, v)))
+            .ToList();
+
+    /// <summary>
+    /// <c>Delivery:MaxRadiusKm</c>, the widest near filter a caller may ask for. Defaults to
+    /// <see cref="DefaultMaxRadiusKm"/>; a value that is not a positive number is treated as unset
+    /// rather than as no limit.
+    /// </summary>
+    public static double MaxRadiusKm(IConfiguration config) =>
+        double.TryParse(config["Delivery:MaxRadiusKm"], NumberStyles.Float, CultureInfo.InvariantCulture, out var v)
+        && v > 0
+            ? v
+            : DefaultMaxRadiusKm;
+
+    /// <summary>
+    /// Narrows a content query by every parsed filter and the near filter, each as a bound
+    /// <c>MatchesSql</c> fragment.
+    /// </summary>
+    /// <remarks>
+    /// Added to the query it is given, never a new one, so the predicates the caller already put
+    /// on it (type, status, sensitivity) stay in force.
+    /// </remarks>
+    public IQueryable<barakoCMS.Models.Content> ApplyTo(IQueryable<barakoCMS.Models.Content> query)
+    {
+        foreach (var f in Filters)
+        {
+            var (sql, parameters) = ToSql(f);
+            query = query.Where(c => c.MatchesSql(sql, parameters));
+        }
+
+        if (Near is { } near)
+        {
+            var (sql, parameters) = NearSql(near);
+            query = query.Where(c => c.MatchesSql(sql, parameters));
+        }
+
+        return query;
     }
 
     private static bool TryNumber(string text, out double value) =>
@@ -582,8 +654,10 @@ internal sealed class DeliveryQuery
     private static string Canonical(Dictionary<string, string> allowed, string name) =>
         allowed.Keys.First(k => string.Equals(k, name, StringComparison.OrdinalIgnoreCase));
 
-    private static string Unfilterable(string field, Dictionary<string, string> allowed) =>
-        $"Field '{field}' is not filterable. Filterable fields: {Names(allowed)}.";
+    private static string Unfilterable(string field, Dictionary<string, string> allowed, bool nameFields = true) =>
+        nameFields
+            ? $"Field '{field}' is not filterable. Filterable fields: {Names(allowed)}."
+            : $"Field '{field}' is not filterable.";
 
     private static string Unsortable(string field, Dictionary<string, string> allowed) =>
         $"Field '{field}' is not sortable. Sortable fields: {Names(allowed)}.";

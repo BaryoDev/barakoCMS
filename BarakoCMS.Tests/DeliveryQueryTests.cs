@@ -349,4 +349,90 @@ public class DeliveryQueryTests
         DeliveryQuery.Parse(Array.Empty<KeyValuePair<string, string?>>(), null)
             .IsValid.Should().BeFalse();
     }
+
+    [Fact]
+    public void A_value_longer_than_the_cap_is_refused_and_not_trimmed()
+    {
+        var tooLong = new string('a', DeliveryQuery.MaxValueLength + 1);
+
+        var q = Parse(("filter[title][eq]", tooLong));
+
+        q.IsValid.Should().BeFalse("a trimmed value would match entries the caller did not ask for");
+        q.Filters.Should().BeEmpty("a refused filter must not be applied at all");
+        q.Error.Should().Contain("title").And.NotContain("aaaa", "the reason names the field and does not repeat the value");
+    }
+
+    [Fact]
+    public void A_value_exactly_at_the_cap_is_still_allowed()
+    {
+        var q = Parse(("filter[title][eq]", new string('a', DeliveryQuery.MaxValueLength)));
+
+        q.IsValid.Should().BeTrue(q.Error);
+        q.Filters.Should().ContainSingle();
+    }
+
+    [Fact]
+    public void The_callers_read_rule_decides_which_fields_are_filterable()
+    {
+        KeyValuePair<string, string?>[] pairs = [new("filter[cost][lte]", "50")];
+
+        DeliveryQuery.Parse(pairs, Def()).IsValid.Should().BeFalse(
+            "cost is Sensitive, so the anonymous rule refuses it. Without this the next line proves nothing");
+
+        var q = DeliveryQuery.Parse(pairs, Def(), readable: f => f.Sensitivity != SensitivityLevel.Hidden);
+
+        q.IsValid.Should().BeTrue(q.Error);
+        q.Filters.Should().ContainSingle()
+            .Which.Should().Be(new DeliveryFilter("cost", FilterOp.Lte, "50", "number"));
+
+        DeliveryQuery.Parse(
+                [new KeyValuePair<string, string?>("filter[notes][eq]", "x")],
+                Def(), readable: f => f.Sensitivity != SensitivityLevel.Hidden)
+            .IsValid.Should().BeFalse("the same rule still refuses the field it does not allow");
+    }
+
+    [Fact]
+    public void A_refusal_can_leave_out_the_names_of_the_fields_it_would_accept()
+    {
+        KeyValuePair<string, string?>[] pairs = [new("filter[cost][eq]", "1")];
+
+        DeliveryQuery.Parse(pairs, Def()).Error.Should().Contain("price",
+            "the anonymous list names the Public fields, which is the control for the line below");
+
+        var q = DeliveryQuery.Parse(pairs, Def(), nameFields: false);
+
+        q.IsValid.Should().BeFalse();
+        q.Error.Should().NotContain("price").And.NotContain("title");
+    }
+
+    [Fact]
+    public void Only_filter_parameters_are_read_off_a_query_string_and_each_repeat_is_its_own_pair()
+    {
+        var query = new Microsoft.AspNetCore.Http.QueryCollection(
+            new Dictionary<string, Microsoft.Extensions.Primitives.StringValues>
+            {
+                ["filter[price][gte]"] = new Microsoft.Extensions.Primitives.StringValues(new[] { "1", "2" }),
+                ["sort"] = "nope",
+                ["q"] = "marten",
+            });
+
+        var pairs = DeliveryQuery.FilterPairs(query);
+
+        pairs.Should().HaveCount(2);
+        pairs.Should().OnlyContain(p => p.Key == "filter[price][gte]");
+        pairs.Select(p => p.Value).Should().BeEquivalentTo(new[] { "1", "2" });
+    }
+
+    [Fact]
+    public void The_filter_parser_is_part_of_the_package_surface()
+    {
+        var exported = typeof(barakoCMS.Modules.IBarakoModule).Assembly
+            .GetExportedTypes()
+            .Select(t => t.FullName)
+            .ToArray();
+
+        exported.Should().NotBeEmpty();
+        exported.Should().Contain("barakoCMS.Core.Interfaces.IPublicContentFilterParser");
+        exported.Should().Contain("barakoCMS.Core.Interfaces.IPublicContentFilter");
+    }
 }

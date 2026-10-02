@@ -104,6 +104,22 @@ public class SensitivityService : ISensitivityService
         return ValueTask.CompletedTask;
     }
 
+    public bool MaySeeField(FieldDefinition field, HttpContext httpContext) =>
+        _mode == SensitivityMode.Off
+        || httpContext.User.IsInRole("SuperAdmin")
+        || field.Sensitivity == SensitivityLevel.Public
+        || CallerMaySee(field, httpContext.User);
+
+    public bool MaySeeDocument(SensitivityLevel level, HttpContext httpContext) =>
+        _mode == SensitivityMode.Off
+        || httpContext.User.IsInRole("SuperAdmin")
+        || level switch
+        {
+            SensitivityLevel.Public => true,
+            SensitivityLevel.Sensitive => RoleAllowed(httpContext.User, DefaultRolesFor(SensitivityLevel.Sensitive)),
+            _ => false,
+        };
+
     private static void DropUnwritable(
         ContentTypeDefinition definition,
         IDictionary<string, object> incoming,
