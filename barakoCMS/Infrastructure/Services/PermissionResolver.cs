@@ -8,10 +8,11 @@ namespace barakoCMS.Infrastructure.Services;
 /// checks, identified by its id rather than its name: the name is not the key, and a custom role
 /// that took it used to inherit the bypass. See Models/SystemRoles.
 /// </summary>
-public class PermissionResolver(
+public partial class PermissionResolver(
     IDocumentSession session,
     IConditionEvaluator conditionEvaluator,
-    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : IPermissionResolver
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
+    ILogger<PermissionResolver>? logger = null) : IPermissionResolver
 {
     /// <summary>The user's roles in this tenant, read once per request.</summary>
     /// <remarks>
@@ -43,6 +44,9 @@ public class PermissionResolver(
         {
             return _roles;
         }
+
+        // What was read while following references was read as the previous user.
+        ForgetReferences();
 
         // Roles come from the user's membership in the current tenant (falling back to the user's
         // legacy roles when there's no membership).
@@ -102,7 +106,9 @@ public class PermissionResolver(
 
         // ADDITIVE LOGIC (Union): If ANY rule allows, grant access.
         // Unless we explicitly need restrictive (intersection), Additive is standard for CMS.
-        foreach (var rule in rules)
+        // Rules that follow no reference first: they read nothing, and one of them granting spares
+        // the loads the others would make.
+        foreach (var rule in rules.OrderBy(r => ReferenceConditions.Mentioned(r.Conditions)))
         {
             // If rule is enabled...
             if (rule.Enabled)
@@ -113,7 +119,7 @@ public class PermissionResolver(
                 // would resolve to "field not present" and deny every record including the caller's
                 // own, which reads as a broken rule rather than as a missing capability.
                 if (content == null || rule.Conditions == null || rule.Conditions.Count == 0 ||
-                    conditionEvaluator.Evaluate(rule.Conditions, content, user, _profile))
+                    await GrantsAsync(rule.Conditions, content, user, cancellationToken))
                 {
                     return true; // Granted by at least one role
                 }
@@ -150,7 +156,10 @@ public class PermissionResolver(
             if (rule is not null) rules.Add(rule);
         }
 
-        return PermissionPredicateCompiler.Compile(rules, user.Id, _profile);
+        if (!rules.Any(r => r.Enabled && ReferenceConditions.Mentioned(r.Conditions)))
+            return PermissionPredicateCompiler.Compile(rules, user.Id, _profile);
+
+        return await CompileFollowingReferencesAsync(roles, rules, contentTypeSlug, user, cancellationToken);
     }
 
     /// <summary>
