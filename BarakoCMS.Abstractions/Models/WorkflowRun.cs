@@ -184,9 +184,12 @@ public class WorkflowRun
     /// Does nothing for an attempt that is still waiting on a retry, that succeeded, that was
     /// skipped because the content went, or that is set to continue. Attempts before it, and
     /// attempts after it that already finished, are left as they are. The caller recomputes.
+    ///
+    /// Internal with <see cref="ResumeAfter"/>: the runner and the retry endpoint are the only
+    /// callers, and a host has no reason to move a run's attempts itself.
     /// </remarks>
     /// <returns>How many attempts were skipped.</returns>
-    public int HaltAfter(WorkflowActionAttempt failed, DateTimeOffset now)
+    internal int HaltAfter(WorkflowActionAttempt failed, DateTimeOffset now)
     {
         if (failed.OnFailure != WorkflowFailurePolicy.Halt) return 0;
         if (failed.Status is not (AttemptStatus.Failed or AttemptStatus.Unknown)) return 0;
@@ -217,7 +220,7 @@ public class WorkflowRun
     /// caller recomputes.
     /// </remarks>
     /// <returns>How many attempts were queued again.</returns>
-    public int ResumeAfter(int ordinal)
+    internal int ResumeAfter(int ordinal)
     {
         var resumed = 0;
 
@@ -237,7 +240,7 @@ public class WorkflowRun
     }
 
     /// <summary>The error on an attempt skipped because an earlier one set to halt failed.</summary>
-    public const string SkippedAfterHalt =
+    internal const string SkippedAfterHalt =
         "Not run: an earlier action failed and is set to halt the run. Retry that action to run this one.";
 
     /// <summary>The error on an attempt that was claimed, never reported back, and was then stopped.</summary>

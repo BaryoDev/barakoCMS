@@ -51,8 +51,11 @@ public class WorkflowAction
     /// <remarks>
     /// An action stored before this existed has no such field and reads as
     /// <see cref="WorkflowFailurePolicy.Continue"/>, which is what every run did before it.
+    ///
+    /// Nullable so a request that sends its optional fields as null is not refused. Null means
+    /// Continue, the same as leaving it out.
     /// </remarks>
-    public WorkflowFailurePolicy OnFailure { get; set; } = WorkflowFailurePolicy.Continue;
+    public WorkflowFailurePolicy? OnFailure { get; set; } = WorkflowFailurePolicy.Continue;
 }
 
 /// <summary>Whether the actions after a failed one still run.</summary>

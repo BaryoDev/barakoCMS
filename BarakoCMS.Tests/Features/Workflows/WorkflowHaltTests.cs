@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using barakoCMS.Features.Workflows;
 using barakoCMS.Models;
 using FluentAssertions;
 using Marten;
@@ -242,6 +243,80 @@ public class WorkflowHaltTests
         var audit = await _harness.AuditOfAsync("workflow.action.retried", seeded.Id);
         audit.Should().HaveCount(1);
         Convert.ToInt32(audit[0].Metadata!["resumedActions"].ToString()).Should().Be(2);
+    }
+
+    /// <summary>
+    /// A resume is not a pass: the retried action fails again, and the action behind it is skipped
+    /// again without having run.
+    /// </summary>
+    [Fact]
+    public async Task A_resumed_run_whose_halting_action_fails_again_skips_the_later_action_again()
+    {
+        var admin = await _harness.AdminAsync();
+        var workflowId = await _harness.StoreWorkflowAsync();
+        var contentId = await _harness.StoreContentAsync();
+        WorkflowRun run = null!;
+
+        await _harness.WithHostedRunnerPausedAsync(async () =>
+        {
+            var failed = Halting(WorkflowStopHarness.Finished(AttemptStatus.Failed));
+            failed.ActionType = NoHandler;
+
+            var seeded = await _harness.SeedRunAsync(workflowId, contentId, [failed, SkippedBehind(0)]);
+
+            var res = await admin.PostAsync($"/api/workflow-runs/{seeded.Id}/actions/0/retry", null, Ct);
+            res.StatusCode.Should().Be(HttpStatusCode.OK, "{0}", await res.Content.ReadAsStringAsync(Ct));
+
+            var queued = await _harness.LoadRunAsync(seeded.Id);
+            queued.Actions.Should().HaveCount(2);
+            queued.Actions[1].Status.Should().Be(AttemptStatus.Pending, "the retry has to have queued it for the skip below to be a second one");
+
+            await _harness.DrainAsync();
+
+            run = await _harness.LoadRunAsync(seeded.Id);
+        });
+
+        run.Actions.Should().HaveCount(2);
+        run.Actions[0].Status.Should().Be(AttemptStatus.Failed);
+        run.Actions[0].Attempts.Should().Be(2, "it was tried once more");
+        run.Actions[1].Status.Should().Be(AttemptStatus.Skipped);
+        run.Actions[1].HaltedBy.Should().Be(0);
+        run.Actions[1].Attempts.Should().Be(0);
+        WorkflowStopHarness.TimesRun(run.Actions[1]).Should().Be(0);
+        run.Status.Should().Be(RunStatus.Failed);
+        run.NextDueAt.Should().BeNull();
+    }
+
+    /// <summary>
+    /// The other way an action fails for good: a failure the runner would retry, on its last try.
+    /// </summary>
+    [Fact]
+    public async Task A_halting_action_that_fails_on_its_last_attempt_skips_the_later_action()
+    {
+        var workflowId = await _harness.StoreWorkflowAsync();
+        var contentId = await _harness.StoreContentAsync();
+        WorkflowRun run = null!;
+
+        await _harness.WithHostedRunnerPausedAsync(async () =>
+        {
+            var lastTry = Halting(WorkflowStopHarness.Waiting("ThrowingRunner", due: true));
+            lastTry.Attempts = WorkflowRetryPolicy.MaxAttempts - 1;
+
+            var seeded = await _harness.SeedRunAsync(workflowId, contentId, [lastTry, WorkflowStopHarness.Waiting(due: true)]);
+
+            await _harness.DrainAsync();
+
+            run = await _harness.LoadRunAsync(seeded.Id);
+        });
+
+        run.Actions.Should().HaveCount(2);
+        run.Actions[0].Status.Should().Be(AttemptStatus.Failed);
+        run.Actions[0].Retryable.Should().BeTrue("it ran out of tries, it was not refused");
+        run.Actions[0].Attempts.Should().Be(WorkflowRetryPolicy.MaxAttempts);
+        run.Actions[1].Status.Should().Be(AttemptStatus.Skipped);
+        run.Actions[1].HaltedBy.Should().Be(0);
+        WorkflowStopHarness.TimesRun(run.Actions[1]).Should().Be(0);
+        run.Status.Should().Be(RunStatus.Failed);
     }
 
     /// <summary>

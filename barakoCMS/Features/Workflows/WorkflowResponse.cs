@@ -63,7 +63,7 @@ internal sealed class WorkflowActionResponse
     public Dictionary<string, string> Parameters { get; init; } = new();
     public bool SecretSet { get; init; }
 
-    /// <summary>Continue or Halt. Continue for an action saved before the setting existed.</summary>
+    /// <summary>Continue or Halt. Continue for an action saved without the setting, or with null.</summary>
     public WorkflowFailurePolicy OnFailure { get; init; }
 
     /// <summary>
@@ -82,7 +82,7 @@ internal sealed class WorkflowActionResponse
             Type = a.Type,
             Parameters = parameters,
             SecretSet = WebhookSigning.HasSecret(a.Parameters),
-            OnFailure = a.OnFailure,
+            OnFailure = a.OnFailure ?? WorkflowFailurePolicy.Continue,
             UnreadableBranches = unreadableBranches,
         };
     }

@@ -103,7 +103,8 @@ independent things, the tweet still goes out when the mail server is down, and t
 
 A chain is different: if the journal entry fails, filing the document and adjusting stock should not
 go ahead as though it had worked. Each action of a workflow takes `onFailure`, `Continue` or `Halt`.
-Left out it is `Continue`, and so is every action saved before the setting existed.
+Left out or sent as `null` it is `Continue`, and so is every action saved before the setting
+existed. Any other value is refused with a 400, where the API used to ignore the field.
 
 ```json
 {
@@ -137,10 +138,19 @@ once it succeeds, and are skipped again if it fails again. The audit entry of th
 The policy is copied onto a run when the workflow fires, like the action's parameters, so a run
 already queued keeps the policy it was queued with. It applies to a workflow's own actions. The
 children of a `Conditional` have no policy of their own: the `Conditional` succeeds or fails as one
-action, and its own `onFailure` decides what follows.
+action, and its own `onFailure` decides what follows. A workflow that puts `onFailure` on a child
+is refused when it is saved.
 
-During a rolling upgrade a node still on the older version does not know the policy and runs past a
-failed action. Finish the rollout before saving a workflow that uses `Halt`.
+The engine a host can call in line through `IWorkflowEngine` follows the policy too. It retries
+nothing, so any failure of a `Halt` action ends the workflow there, and the actions after it are
+written to the execution log as not run.
+
+A node on a version before this one does not know the policy. It runs past a failed or waiting
+`Halt` action, and when it writes a run it drops `onFailure` and `haltedBy` from it, so a halted
+run retried through such a node can end `Succeeded` with actions that never ran. That is true
+during a rolling upgrade and after a rollback alike. Finish the rollout before saving a workflow
+that uses `Halt`, and before rolling back past this version, change those workflows back or wait
+for their runs to finish.
 
 ## Stopping a workflow or a run
 

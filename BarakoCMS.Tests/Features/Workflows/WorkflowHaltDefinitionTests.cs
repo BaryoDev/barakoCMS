@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using barakoCMS.Features.Workflows;
+using barakoCMS.Infrastructure.Security;
 using barakoCMS.Models;
 using FluentAssertions;
 using Marten;
@@ -123,6 +124,7 @@ public class WorkflowHaltDefinitionTests
             [
                 new WorkflowAction { Type = WorkflowStopHarness.Counting, OnFailure = WorkflowFailurePolicy.Halt },
                 new WorkflowAction { Type = WorkflowStopHarness.Counting },
+                new WorkflowAction { Type = WorkflowStopHarness.Counting, OnFailure = null },
             ];
         });
 
@@ -137,21 +139,137 @@ public class WorkflowHaltDefinitionTests
 
         var runs = await _harness.RunsOfAsync(workflowId);
         runs.Should().HaveCount(1);
-        runs[0].Actions.Should().HaveCount(2);
+        runs[0].Actions.Should().HaveCount(3);
         runs[0].Actions.OrderBy(a => a.Ordinal).Select(a => a.OnFailure)
-            .Should().Equal(WorkflowFailurePolicy.Halt, WorkflowFailurePolicy.Continue);
+            .Should().Equal(WorkflowFailurePolicy.Halt, WorkflowFailurePolicy.Continue, WorkflowFailurePolicy.Continue);
     }
 
     /// <summary>
+    /// A name is refused where the request is read, before the validator. The answer is a 400 and
+    /// not a 500, and nothing is stored.
+    /// </summary>
+    [Fact]
+    public async Task A_policy_sent_as_a_name_that_is_not_one_is_refused_with_a_400_and_nothing_is_stored()
+    {
+        var admin = await _harness.AdminAsync();
+        var name = WorkflowStopHarness.NewName("576-stop");
+
+        var res = await admin.PostAsJsonAsync("/api/workflows", new
+        {
+            name,
+            triggerContentType = WorkflowStopHarness.NewName("chain"),
+            triggerEvent = WorkflowEvents.Published,
+            actions = new object[]
+            {
+                new { type = "Email", parameters = EmailParameters, onFailure = "Stop" },
+            },
+        }, Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest, "{0}", await res.Content.ReadAsStringAsync(Ct));
+
+        await using var session = _harness.Store.QuerySession();
+        (await session.Query<WorkflowDefinition>().Where(w => w.Name == name).CountAsync(Ct)).Should().Be(0);
+    }
+
+    /// <summary>
+    /// A client that sends its optional fields as null is not refused. Null reads as Continue.
+    /// </summary>
+    [Fact]
+    public async Task A_policy_sent_as_null_is_accepted_and_reads_as_continue()
+    {
+        var admin = await _harness.AdminAsync();
+
+        var res = await admin.PostAsJsonAsync("/api/workflows", new
+        {
+            name = WorkflowStopHarness.NewName("576-null"),
+            triggerContentType = WorkflowStopHarness.NewName("chain"),
+            triggerEvent = WorkflowEvents.Published,
+            actions = new object[]
+            {
+                new { type = "Email", parameters = EmailParameters, onFailure = (string?)null },
+            },
+        }, Ct);
+        var body = await res.Content.ReadAsStringAsync(Ct);
+        res.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", res.StatusCode, body);
+
+        using var doc = JsonDocument.Parse(body);
+        var actions = doc.RootElement.GetProperty("actions");
+        actions.GetArrayLength().Should().Be(1);
+        actions[0].GetProperty("onFailure").GetString().Should().Be("Continue");
+    }
+
+    /// <summary>
+    /// A child of a Conditional has no policy. One that names it is refused, and the same workflow
+    /// without the key is accepted, so the refusal is the key and nothing else about the request.
+    /// </summary>
+    [Fact]
+    public async Task A_policy_on_a_child_of_a_conditional_is_refused_and_the_same_child_without_it_is_accepted()
+    {
+        var admin = await _harness.AdminAsync();
+        var refused = WorkflowStopHarness.NewName("576-child");
+
+        var withPolicy = JsonSerializer.Serialize(new[]
+        {
+            new { Type = "Email", Parameters = EmailParameters, OnFailure = "Halt" },
+        });
+        var without = JsonSerializer.Serialize(new[]
+        {
+            new { Type = "Email", Parameters = EmailParameters },
+        });
+
+        var res = await admin.PostAsJsonAsync("/api/workflows", Conditional(refused, withPolicy), Ct);
+        var body = await res.Content.ReadAsStringAsync(Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest, "{0}", body);
+        body.Should().Contain("An action inside a Conditional has no onFailure");
+
+        await using (var session = _harness.Store.QuerySession())
+        {
+            (await session.Query<WorkflowDefinition>().Where(w => w.Name == refused).CountAsync(Ct)).Should().Be(0);
+        }
+
+        var accepted = await admin.PostAsJsonAsync(
+            "/api/workflows", Conditional(WorkflowStopHarness.NewName("576-child-ok"), without), Ct);
+        accepted.IsSuccessStatusCode.Should().BeTrue(
+            "got {0}: {1}", accepted.StatusCode, await accepted.Content.ReadAsStringAsync(Ct));
+    }
+
+    private static object Conditional(string name, string thenActions) => new
+    {
+        name,
+        triggerContentType = WorkflowStopHarness.NewName("chain"),
+        triggerEvent = WorkflowEvents.Published,
+        actions = new object[]
+        {
+            new
+            {
+                type = "Conditional",
+                parameters = new Dictionary<string, string>
+                {
+                    ["Condition"] = "{{status}} == Published",
+                    ["ThenActions"] = thenActions,
+                },
+            },
+        },
+    };
+
+    /// <summary>
     /// The engine that runs actions in line, which a host can still call. Two workflows on one
-    /// event, each a throwing action followed by a counting one, differing only in the policy.
+    /// event, each a failing action followed by a counting one, differing only in the policy.
     /// </summary>
     /// <remarks>
+    /// One case for each way an action fails there: it throws, it returns a failure, no handler is
+    /// registered for its type, and it holds a credential the key cannot decrypt.
+    ///
     /// The twin that continues shows the engine reached both workflows, so a count of zero for the
     /// halting one is the policy and not an event that fired nothing.
     /// </remarks>
-    [Fact]
-    public async Task The_engine_stops_at_a_halting_action_that_fails_and_records_the_rest_as_not_run()
+    [Theory]
+    [InlineData("throws")]
+    [InlineData("returns a failure")]
+    [InlineData("has no handler")]
+    [InlineData("holds a credential that cannot be decrypted")]
+    public async Task The_engine_stops_at_a_halting_action_that_fails_and_records_the_rest_as_not_run(string failure)
     {
         var contentType = WorkflowStopHarness.NewName("chain");
         var afterHalt = Guid.NewGuid().ToString("N");
@@ -160,16 +278,12 @@ public class WorkflowHaltDefinitionTests
         var halting = await _harness.StoreWorkflowAsync(w =>
         {
             w.TriggerContentType = contentType;
-            w.Actions =
-            [
-                new WorkflowAction { Type = "ThrowingRunner", OnFailure = WorkflowFailurePolicy.Halt },
-                Keyed(afterHalt),
-            ];
+            w.Actions = [Failing(failure, WorkflowFailurePolicy.Halt), Keyed(afterHalt)];
         });
         await _harness.StoreWorkflowAsync(w =>
         {
             w.TriggerContentType = contentType;
-            w.Actions = [new WorkflowAction { Type = "ThrowingRunner" }, Keyed(afterContinue)];
+            w.Actions = [Failing(failure, WorkflowFailurePolicy.Continue), Keyed(afterContinue)];
         });
 
         using (var scope = _factory.Services.CreateScope())
@@ -179,7 +293,8 @@ public class WorkflowHaltDefinitionTests
             await engine.ProcessEventAsync(contentType, WorkflowEvents.Published, NewEntry(contentType), Ct);
         }
 
-        CountingRunnerAction.RunsByKey.GetValueOrDefault(afterContinue).Should().Be(1);
+        CountingRunnerAction.RunsByKey.GetValueOrDefault(afterContinue).Should().Be(1,
+            "the action before it failed, or this twin proves nothing: {0}", failure);
         CountingRunnerAction.RunsByKey.GetValueOrDefault(afterHalt).Should().Be(0);
 
         await using var session = _harness.Store.QuerySession();
@@ -188,10 +303,30 @@ public class WorkflowHaltDefinitionTests
         logs.Should().HaveCount(1);
         logs[0].Success.Should().BeFalse();
         logs[0].Actions.Should().HaveCount(2, "an action that was not run is still recorded");
+        logs[0].Actions[0].Success.Should().BeFalse();
         logs[0].Actions[1].ActionType.Should().Be(WorkflowStopHarness.Counting);
         logs[0].Actions[1].Success.Should().BeFalse();
         logs[0].Actions[1].ErrorMessage.Should().Be(WorkflowRun.SkippedAfterHalt);
     }
+
+    private static WorkflowAction Failing(string failure, WorkflowFailurePolicy policy) => failure switch
+    {
+        "throws" => new WorkflowAction { Type = "ThrowingRunner", OnFailure = policy },
+        "returns a failure" => new WorkflowAction { Type = "HookedRunner", OnFailure = policy },
+        "has no handler" => new WorkflowAction { Type = "NoSuchAction", OnFailure = policy },
+        "holds a credential that cannot be decrypted" => new WorkflowAction
+        {
+            Type = WorkflowStopHarness.Counting,
+            OnFailure = policy,
+            // An envelope written under a key this host does not have, as after a changed Secrets:Key.
+            Parameters = new Dictionary<string, string>
+            {
+                ["ApiKey"] = AesGcmEnvelope.VersionPrefix
+                    + AesGcmEnvelope.Protect(AesGcmEnvelope.DeriveKey("a key this host does not have"), "sk_test"),
+            },
+        },
+        _ => throw new ArgumentOutOfRangeException(nameof(failure), failure, "not a failure this test knows"),
+    };
 
     private static WorkflowAction Keyed(string key) => new()
     {

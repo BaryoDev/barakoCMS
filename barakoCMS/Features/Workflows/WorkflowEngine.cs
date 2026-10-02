@@ -97,8 +97,18 @@ internal class WorkflowEngine(
         {
             if (halted)
             {
-                debugger.LogActionFailure(run, action.Type, Stopwatch.StartNew(),
-                    WorkflowRun.SkippedAfterHalt, action.Parameters);
+                // Written to the record directly. The debugger's failure call logs an error saying
+                // the action failed, and this one did not run.
+                run.Actions.Add(new ActionExecutionLog
+                {
+                    ActionType = action.Type,
+                    Success = false,
+                    ErrorMessage = WorkflowRun.SkippedAfterHalt,
+                    ResolvedParameters = WorkflowDebugger.RecordableParameters(action.Parameters),
+                });
+                logger.LogInformation(
+                    "Workflow action '{ActionType}' in workflow '{WorkflowName}' was not run: an earlier action set to halt failed",
+                    action.Type, workflow.Name);
                 continue;
             }
 
