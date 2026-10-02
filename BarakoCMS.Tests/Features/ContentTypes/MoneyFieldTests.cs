@@ -132,13 +132,20 @@ public class MoneyFieldTests : IAsyncLifetime
         stored.Currency.Should().Be("USD");
         stored.Scale.Should().Be(4);
 
-        var res = await _client.GetAsync("/api/content-types");
-        res.StatusCode.Should().Be(HttpStatusCode.OK);
-        using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
-        var root = doc.RootElement;
-        var list = root.ValueKind == JsonValueKind.Array ? root : root.GetProperty("items");
-        var fields = list.EnumerateArray().Single(t => t.GetProperty("name").GetString() == name)
-            .GetProperty("fields").EnumerateArray()
+        // The list is paged and ordered by name, and the shared database holds many types.
+        JsonElement? listed = null;
+        for (var page = 1; listed is null && page <= 50; page++)
+        {
+            var res = await _client.GetAsync($"/api/content-types?page={page}&pageSize=100");
+            res.StatusCode.Should().Be(HttpStatusCode.OK);
+            using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+            var items = doc.RootElement.GetProperty("items");
+            if (items.GetArrayLength() == 0) break;
+            foreach (var type in items.EnumerateArray())
+                if (type.GetProperty("name").GetString() == name) listed = type.Clone();
+        }
+        listed.Should().NotBeNull("the type just created is in the list");
+        var fields = listed!.Value.GetProperty("fields").EnumerateArray()
             .ToDictionary(f => f.GetProperty("name").GetString()!, f => f);
         fields.Should().HaveCount(2);
 
