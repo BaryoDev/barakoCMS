@@ -500,6 +500,10 @@ internal sealed class WorkflowRunner(
                 attempt.CompletedAt = DateTimeOffset.UtcNow;
             }
 
+            // In the save that records the failure, so there is no moment where the failure is
+            // stored and the actions after it can still be claimed.
+            latest.HaltAfter(attempt, DateTimeOffset.UtcNow);
+
             latest.Recompute();
             session.Update(latest);
 
@@ -600,6 +604,10 @@ internal sealed class WorkflowRunner(
     /// PartiallyFailed. These are usually independent, and skipping the tweet because the mail
     /// server was down is a surprise nobody asked for. That choice is #329's recommendation and is
     /// recorded here rather than left to fall out of the loop.
+    ///
+    /// An action set to <see cref="WorkflowFailurePolicy.Halt"/> is the exception, for a chain where
+    /// the later steps assume the earlier one worked. Nothing after it is claimed while it waits on
+    /// a retry, and <see cref="WorkflowRun.HaltAfter"/> skips what is left once it fails for good.
     /// </remarks>
     private static WorkflowActionAttempt? NextDue(WorkflowRun run)
     {
@@ -617,7 +625,11 @@ internal sealed class WorkflowRunner(
 
             if (attempt.Status != AttemptStatus.Pending) continue;
 
-            if (attempt.NextAttemptAt is { } due && due > now) continue;
+            if (attempt.NextAttemptAt is { } due && due > now)
+            {
+                if (attempt.OnFailure == WorkflowFailurePolicy.Halt) return null;
+                continue;
+            }
 
             return attempt;
         }
