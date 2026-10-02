@@ -5,6 +5,7 @@ using FluentAssertions;
 using Marten;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace BarakoCMS.Tests.Features.Workflows;
@@ -18,10 +19,11 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// Each test seeds a tenant of its own. The runner reads the twenty oldest candidates per tenant, so
 /// in the default tenant the runs other classes left behind would decide what a test sees.
 ///
-/// The fixture's hosted runner polls the same database and can claim anything seeded here. The
-/// assertions are on what happened to a run, which holds whichever runner did it, and the actions
-/// used need no handler on any particular host: "NoSuchAction" fails for good on its first attempt
-/// everywhere, and <see cref="CountingRunnerAction"/> is registered on the fixture.
+/// The fixture's hosted runner polls the same database and can claim anything seeded here. A test
+/// that asserts on what happened to a run holds whichever runner did it. A test that counts passes,
+/// claims or scans stops the hosted runner for its duration. The actions used need no handler on any
+/// particular host: "NoSuchAction" fails for good on its first attempt everywhere, and
+/// <see cref="CountingRunnerAction"/> is registered on the fixture.
 /// </remarks>
 [Collection("Sequential")]
 public class WorkflowRunnerFairClaimTests
@@ -157,53 +159,84 @@ public class WorkflowRunnerFairClaimTests
     }
 
     /// <summary>
-    /// Two tenants, the one that sorts first holding more work. The second pass serves the other.
+    /// Two tenants with four due runs each. After four of the eight have run, each tenant has had two.
     /// </summary>
+    /// <remarks>
+    /// Symmetric on purpose. Without the rotation every pass starts from the same tenant, whichever
+    /// one the partition list happens to put first, and that tenant has enough work for the first
+    /// four, so the split is four and none. Either order fails, which a busy tenant and a quiet one
+    /// would not: listed quiet first, the quiet one is served on the first pass anyway.
+    ///
+    /// Counted in runs executed rather than passes made, so a retry some other class left behind
+    /// coming due and taking a pass does not change the split.
+    /// </remarks>
     [Fact]
-    public async Task A_tenant_with_a_backlog_does_not_keep_the_next_tenant_waiting()
+    public async Task Two_tenants_with_due_work_are_served_in_turn()
     {
-        await DrainAsync(NewRunner());
-
-        var prefix = NewTenant();
-        var busy = prefix + "-a";
-        var quiet = prefix + "-b";
-
-        for (var i = 0; i < 4; i++)
+        await WithHostedRunnerPausedAsync(async () =>
         {
-            await SeedAsync(busy, NoHandler, DateTimeOffset.UtcNow, nextAttemptAt: null);
-        }
+            await DrainAsync(NewRunner());
 
-        var waiting = await SeedAsync(quiet, NoHandler, DateTimeOffset.UtcNow, nextAttemptAt: null);
+            var prefix = NewTenant();
+            var tenants = new[] { prefix + "-a", prefix + "-b" };
+            var seeded = new Dictionary<string, List<Guid>>();
 
-        var runner = NewRunner();
-        await runner.RunOnceAsync(Ct);
-        await runner.RunOnceAsync(Ct);
+            foreach (var tenant in tenants)
+            {
+                seeded[tenant] = [];
+                for (var i = 0; i < 4; i++)
+                {
+                    seeded[tenant].Add(await SeedAsync(tenant, NoHandler, DateTimeOffset.UtcNow, nextAttemptAt: null));
+                }
+            }
 
-        // Read at once rather than polled. The hosted runner reaches the quiet tenant within a few
-        // seconds whatever the order, so waiting for the run to settle would pass without the
-        // rotation.
-        var run = await LoadAsync(quiet, waiting);
-        run.Actions[0].Attempts.Should().Be(1, "the second pass starts after the tenant the first one served");
+            var runner = NewRunner();
+            var executed = new Dictionary<string, int>();
+            var passes = 0;
+
+            do
+            {
+                (await runner.RunOnceAsync(Ct)).Should().BeTrue("eight runs are due");
+                (++passes).Should().BeLessThan(50, "four of the eight should have run long before this");
+
+                foreach (var (tenant, ids) in seeded)
+                {
+                    executed[tenant] = 0;
+                    foreach (var id in ids)
+                    {
+                        if ((await LoadAsync(tenant, id)).Actions[0].Attempts == 1) executed[tenant]++;
+                    }
+                }
+            }
+            while (executed.Values.Sum() < 4);
+
+            executed.Should().HaveCount(2);
+            executed.Values.Should().OnlyContain(count => count == 2,
+                "each pass starts after the tenant the last one served, so the two take turns");
+        });
     }
 
     [Fact]
     public async Task An_idle_pass_lists_the_partitions_once()
     {
-        var runner = NewRunner();
-
-        int before;
-        bool did;
-        var passes = 0;
-
-        do
+        await WithHostedRunnerPausedAsync(async () =>
         {
-            before = runner.PartitionScans;
-            did = await runner.RunOnceAsync(Ct);
-            (++passes).Should().BeLessThan(200, "the runner should drain rather than find work forever");
-        }
-        while (did);
+            var runner = NewRunner();
 
-        (runner.PartitionScans - before).Should().Be(1);
+            int before;
+            bool did;
+            var passes = 0;
+
+            do
+            {
+                before = runner.PartitionScans;
+                did = await runner.RunOnceAsync(Ct);
+                (++passes).Should().BeLessThan(200, "the runner should drain rather than find work forever");
+            }
+            while (did);
+
+            (runner.PartitionScans - before).Should().Be(1);
+        });
     }
 
     /// <summary>
@@ -212,44 +245,45 @@ public class WorkflowRunnerFairClaimTests
     [Fact]
     public async Task A_drain_does_not_list_the_partitions_once_per_action()
     {
-        var tenant = NewTenant();
-        for (var i = 0; i < 12; i++)
+        await WithHostedRunnerPausedAsync(async () =>
         {
-            await SeedAsync(tenant, NoHandler, DateTimeOffset.UtcNow, nextAttemptAt: null);
-        }
+            await DrainAsync(NewRunner());
 
-        var runner = NewRunner();
-        var timer = Stopwatch.StartNew();
-        var claims = 0;
+            var tenant = NewTenant();
+            for (var i = 0; i < 12; i++)
+            {
+                await SeedAsync(tenant, NoHandler, DateTimeOffset.UtcNow, nextAttemptAt: null);
+            }
 
-        while (await runner.RunOnceAsync(Ct))
-        {
-            (++claims).Should().BeLessThan(200, "the runner should drain rather than find work forever");
-        }
+            var runner = NewRunner();
+            var timer = Stopwatch.StartNew();
+            var claims = 0;
 
-        timer.Stop();
+            while (await runner.RunOnceAsync(Ct))
+            {
+                (++claims).Should().BeLessThan(200, "the runner should drain rather than find work forever");
+            }
 
-        // The hosted runner can take some of the twelve. Losing ten of them to a runner that wakes
-        // every five seconds has not been seen, and without this the bound below could hold for a
-        // runner that claimed nothing.
-        claims.Should().BeGreaterThan(2);
+            timer.Stop();
 
-        // One list to start, one before reporting idle, and one more for each idle interval the
-        // drain lasted, which is how long a kept list is trusted.
-        var allowed = 2 + (int)(timer.Elapsed / WorkflowRunner.Idle);
-        runner.PartitionScans.Should().BeLessThanOrEqualTo(allowed);
-        runner.PartitionScans.Should().BeLessThan(claims);
+            claims.Should().BeGreaterThanOrEqualTo(12, "no other runner is polling, so this one claimed all twelve");
+
+            // One list to start, one before reporting idle, and one more for each idle interval the
+            // drain lasted, which is how long a kept list is trusted. Listing per action is thirteen.
+            var allowed = 2 + (int)(timer.Elapsed / WorkflowRunner.Idle);
+            runner.PartitionScans.Should().BeLessThanOrEqualTo(allowed);
+        });
     }
 
     /// <summary>
-    /// The partition scan filters on the expression the Status index is built on.
+    /// The partition scan filters on an expression an index covers.
     /// </summary>
     /// <remarks>
-    /// Sequential scans are switched off for the plan so the answer is whether the index can serve
-    /// the filter at all, not what the planner prefers on a table this small.
+    /// Sequential scans are switched off for the plan, so one still appearing means no index can
+    /// serve the filter. Which index the planner picks is its own business.
     /// </remarks>
     [Fact]
-    public async Task The_partition_scan_can_use_the_status_index()
+    public async Task The_partition_scan_does_not_need_a_sequential_scan()
     {
         await using var conn = Store.Storage.Database.CreateConnection();
         await conn.OpenAsync(Ct);
@@ -273,7 +307,33 @@ public class WorkflowRunnerFairClaimTests
         }
 
         plan.Should().NotBeEmpty();
-        string.Join('\n', plan).Should().Contain("mt_doc_workflow_runs_idx_status");
+        string.Join(' ', plan).Should().NotContain("Seq Scan on mt_doc_workflow_runs");
+    }
+
+    /// <summary>
+    /// Runs the body with the fixture's hosted runner stopped, and starts it again afterwards.
+    /// </summary>
+    /// <remarks>
+    /// For the tests that count passes, claims or scans. The hosted runner polls the same database,
+    /// and a run it claimed first would change every one of those counts. The collection is
+    /// sequential, so no other test is waiting on it meanwhile.
+    /// </remarks>
+    private async Task WithHostedRunnerPausedAsync(Func<Task> body)
+    {
+        var hosted = _factory.Services.GetServices<IHostedService>().OfType<WorkflowRunner>().Single();
+
+        await hosted.StopAsync(Ct);
+
+        try
+        {
+            await body();
+        }
+        finally
+        {
+            // Not the test's token: the runner's loop is linked to the one it is started with, and
+            // this one is cancelled when the test ends.
+            await hosted.StartAsync(CancellationToken.None);
+        }
     }
 
     private static DateTimeOffset ParkedUntil => DateTimeOffset.UtcNow.AddHours(1);

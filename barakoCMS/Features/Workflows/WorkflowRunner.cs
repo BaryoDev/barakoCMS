@@ -202,8 +202,8 @@ internal sealed class WorkflowRunner(
     /// instead, including inactive tenants, and the due query in <see cref="RunOnceAsync"/> is what
     /// skips a partition with nothing to do.
     ///
-    /// The cast is written the way the Status index is declared, so the planner can answer this
-    /// from mt_doc_workflow_runs_idx_status rather than reading every run.
+    /// The cast is the expression the Status index is declared on, so the filter does not need a
+    /// sequential scan of every run.
     /// </remarks>
     internal const string PartitionsWithWorkSql =
         "select distinct tenant_id from public.mt_doc_workflow_runs "
