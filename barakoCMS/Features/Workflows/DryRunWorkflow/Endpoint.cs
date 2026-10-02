@@ -14,8 +14,19 @@ namespace barakoCMS.Features.Workflows.DryRunWorkflow;
 /// </summary>
 internal class Request
 {
-    public WorkflowDefinition Workflow { get; set; } = new();
+    public DryRunWorkflowRequest Workflow { get; set; } = new();
     public barakoCMS.Models.Content SampleContent { get; set; } = new();
+}
+
+/// <summary>What create takes, and the id the simulation's log is filed under.</summary>
+/// <remarks>
+/// The id is a reference and not something stored on a workflow: the log of a dry run is listed with
+/// the runs of the workflow it names, so the console sends the id of the one being edited. It is not
+/// checked against the stored workflows, so a workflow that is not saved yet can be simulated.
+/// </remarks>
+internal sealed class DryRunWorkflowRequest : CreateWorkflowRequest
+{
+    public Guid Id { get; set; }
 }
 
 /// <summary>

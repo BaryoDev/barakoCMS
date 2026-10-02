@@ -13,7 +13,7 @@ namespace barakoCMS.Features.Workflows;
 internal class CreateWorkflowEndpoint(
     IDocumentSession session,
     barakoCMS.Infrastructure.Services.IWorkflowSchemaValidator validator,
-    ISecretProtector protector) : Endpoint<WorkflowDefinition, barakoCMS.Features.Workflows.WorkflowResponse>
+    ISecretProtector protector) : Endpoint<CreateWorkflowRequest, barakoCMS.Features.Workflows.WorkflowResponse>
 {
     public override void Configure()
     {
@@ -21,11 +21,13 @@ internal class CreateWorkflowEndpoint(
         Definition.RequireCapability(SystemCapabilities.ManageWorkflows, "SuperAdmin", "Admin");
     }
 
-    public override async Task HandleAsync(WorkflowDefinition req, CancellationToken ct)
+    public override async Task HandleAsync(CreateWorkflowRequest req, CancellationToken ct)
     {
+        var workflow = req.ToDefinition();
+
         // Validate before persisting so invalid trigger events / unknown action types / missing
         // required parameters are rejected up front rather than silently never firing (or firing twice).
-        var validation = await validator.ValidateAsync(req, ct);
+        var validation = await validator.ValidateAsync(workflow, ct);
         if (!validation.IsValid)
         {
             foreach (var error in validation.Errors)
@@ -41,24 +43,24 @@ internal class CreateWorkflowEndpoint(
         // accepted here and then never fire.
         if (validation.NormalisedTriggerEvents is { Count: > 0 } declared)
         {
-            req.TriggerEvent = declared[0];
-            req.TriggerEvents = declared;
+            workflow.TriggerEvent = declared[0];
+            workflow.TriggerEvents = declared;
         }
         else if (validation.NormalisedTriggerEvent is { Length: > 0 } single)
         {
-            req.TriggerEvent = single;
+            workflow.TriggerEvent = single;
         }
 
-        WorkflowTriggers.Normalise(req);
+        WorkflowTriggers.Normalise(workflow);
 
         // Encrypted before it is stored, so the definition, the runs that copy its parameters and
         // the execution log all hold ciphertext. Only the webhook action decrypts it, when sending.
-        WebhookSigning.ProtectSecrets(req, protector);
+        WebhookSigning.ProtectSecrets(workflow, protector);
 
-        req.Id = Guid.NewGuid();
-        session.Store(req);
+        workflow.Id = Guid.NewGuid();
+        session.Store(workflow);
         await session.SaveChangesAsync(ct);
-        await Send.ResponseAsync(barakoCMS.Features.Workflows.WorkflowResponse.From(req), cancellation: ct);
+        await Send.ResponseAsync(barakoCMS.Features.Workflows.WorkflowResponse.From(workflow), cancellation: ct);
     }
 }
 

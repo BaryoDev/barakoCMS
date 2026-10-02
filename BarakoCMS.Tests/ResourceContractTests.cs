@@ -62,6 +62,47 @@ public class ResourceContractTests
           + "stored property is a silent wire break and adding one publishes it to every client");
     }
 
+    /// <summary>
+    /// The same rule on the way in. An endpoint that binds the stored document lets a request set
+    /// every property the document has, including one added later that no caller should choose.
+    /// </summary>
+    /// <remarks>
+    /// The request type itself only. A stored document nested inside a request, as the sample entry
+    /// of a workflow dry run is, is not looked for.
+    /// </remarks>
+    [Fact]
+    public void No_endpoint_binds_a_stored_document_as_its_request()
+    {
+        var requests = new List<(string Endpoint, Type Request)>();
+
+        foreach (var type in Core.GetTypes())
+        {
+            for (var b = type.BaseType; b is not null; b = b.BaseType)
+            {
+                if (!b.IsGenericType) continue;
+
+                // Every FastEndpoints base named Endpoint puts the request first. The one named
+                // EndpointWithoutRequest has none, and its own base is counted with an empty request.
+                if (!b.GetGenericTypeDefinition().Name.StartsWith("Endpoint`", StringComparison.Ordinal)) continue;
+
+                requests.Add((type.FullName ?? type.Name, b.GetGenericArguments()[0]));
+            }
+        }
+
+        requests.Should().HaveCountGreaterThan(50,
+            "the control: with no endpoints found there would be no offenders and nothing proven");
+
+        var offenders = requests
+            .Where(r => StoredDocuments.Contains(r.Request))
+            .Select(r => $"{r.Endpoint} binds {r.Request.Name}")
+            .Distinct()
+            .ToList();
+
+        offenders.Should().BeEmpty(
+            "an endpoint that binds the stored document accepts every property it has, so a "
+          + "server-owned one added later can be set by any caller the moment it is saved");
+    }
+
     /// <summary>A paginated envelope is a wrapper; what matters is what it wraps.</summary>
     /// <remarks>
     /// Walks the base types, because an envelope that adds a field of its own is a subclass of
