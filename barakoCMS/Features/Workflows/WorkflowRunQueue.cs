@@ -160,6 +160,9 @@ internal sealed class WorkflowRunQueue(IDocumentSession session, ILogger<Workflo
             ContentType = contentType,
             TriggerEvent = eventType,
             TriggeringEventSequence = eventSequence,
+            // From the triggering event in the projection, and from the request for an erasure.
+            CorrelationId = barakoCMS.Infrastructure.Tracing.Correlation.Id,
+            TraceParent = barakoCMS.Infrastructure.Tracing.Correlation.Cause,
         };
 
         for (var i = 0; i < workflow.Actions.Count; i++)
