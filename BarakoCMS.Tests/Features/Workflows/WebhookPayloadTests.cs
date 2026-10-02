@@ -66,6 +66,59 @@ public class WebhookPayloadTests
         listener.LastBody.Should().NotContain(Ssn);
     }
 
+    [Fact]
+    public async Task A_Deleted_delivery_holds_the_event_the_id_and_the_type_and_nothing_invented()
+    {
+        const string tenant = "webhook-payload-deleted";
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var contentType = await SeedTypeAsync(store, tenant);
+        var erased = new barakoCMS.Features.Workflows.ErasedContent(Guid.NewGuid(), contentType);
+
+        using var listener = new RecordingListener();
+        await SendAsync(store, tenant, erased, listener.Url, PermitsLoopback, new Dictionary<string, string>
+        {
+            ["Url"] = listener.Url,
+            ["TriggerEvent"] = WorkflowEvents.Deleted,
+        });
+
+        listener.WasCalled.Should().BeTrue();
+        using var body = System.Text.Json.JsonDocument.Parse(listener.LastBody!);
+        var names = body.RootElement.EnumerateObject().Select(p => p.Name).ToList();
+
+        names.Should().HaveCount(3, "a status of Draft and timestamps of now would describe an entry that is gone: {0}", listener.LastBody);
+        names.Should().BeEquivalentTo(new[] { "event", "contentId", "contentType" });
+        body.RootElement.GetProperty("event").GetString().Should().Be("Deleted");
+        body.RootElement.GetProperty("contentId").GetGuid().Should().Be(erased.Id);
+        body.RootElement.GetProperty("contentType").GetString().Should().Be(contentType);
+    }
+
+    [Fact]
+    public async Task A_Published_delivery_names_its_event_and_keeps_every_field_it_had()
+    {
+        const string tenant = "webhook-payload-event";
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var contentType = await SeedTypeAsync(store, tenant);
+        var content = Record(contentType, SensitivityLevel.Public);
+
+        using var listener = new RecordingListener();
+        await SendAsync(store, tenant, content, listener.Url, PermitsLoopback, new Dictionary<string, string>
+        {
+            ["Url"] = listener.Url,
+            ["TriggerEvent"] = WorkflowEvents.Published,
+        });
+
+        listener.WasCalled.Should().BeTrue();
+        using var body = System.Text.Json.JsonDocument.Parse(listener.LastBody!);
+        var names = body.RootElement.EnumerateObject().Select(p => p.Name).ToList();
+
+        names.Should().HaveCount(7, "{0}", listener.LastBody);
+        names.Should().BeEquivalentTo(new[] { "event", "contentId", "contentType", "status", "data", "createdAt", "updatedAt" });
+        body.RootElement.GetProperty("event").GetString().Should().Be("Published");
+        body.RootElement.GetProperty("contentId").GetGuid().Should().Be(content.Id);
+        body.RootElement.GetProperty("status").GetString().Should().Be("Published");
+        body.RootElement.GetProperty("data").GetRawText().Should().Contain("Sarah");
+    }
+
     /// <summary>
     /// A name that answers with a public address for the pre-flight check and a blocked one for the
     /// connection never reaches the blocked address.

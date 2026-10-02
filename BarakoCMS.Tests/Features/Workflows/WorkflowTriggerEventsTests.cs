@@ -115,7 +115,11 @@ public class WorkflowTriggerEventsTests
                 new WorkflowAction
                 {
                     Type = "DeletedEcho",
-                    Parameters = new Dictionary<string, string> { ["Note"] = "{{data.FullName}}" },
+                    Parameters = new Dictionary<string, string>
+                    {
+                        ["Note"] = "{{data.FullName}}",
+                        ["When"] = "{{status}}|{{createdAt}}|{{updatedAt}}",
+                    },
                 },
             ];
         });
@@ -123,20 +127,7 @@ public class WorkflowTriggerEventsTests
         var id = await SeedAsync(contentType, needle);
         (await _client.DeleteAsync($"/api/contents/{id}/erase")).StatusCode.Should().Be(HttpStatusCode.NoContent);
 
-        // Either this runner or the fixture's hosted one may claim the attempt.
-        var runner = new WorkflowRunner(
-            _factory.Services,
-            _factory.Services.GetRequiredService<Microsoft.Extensions.Logging.ILogger<WorkflowRunner>>(),
-            _factory.Services.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>());
-
-        await PollAsync(
-            async () =>
-            {
-                await runner.RunOnceAsync(CancellationToken.None);
-                var queued = await RunsOfAsync(workflowId);
-                return queued.Count > 0 && queued.All(r => r.Status is not (RunStatus.Pending or RunStatus.Running));
-            },
-            "the Deleted run was never finished by a runner");
+        await DrainAsync(workflowId);
 
         var runs = await RunsOfAsync(workflowId);
         runs.Should().HaveCount(1);
@@ -151,6 +142,74 @@ public class WorkflowTriggerEventsTests
         received.ContentType.Should().Be(contentType);
         received.ContentJson.Should().NotContain(needle, "the action is told which entry went, not what it held");
         received.ParametersJson.Should().NotContain(needle, "a template cannot read data the run was never given");
+        received.ParametersJson.Should().Contain("\"When\":\"||\"",
+            "an erased entry has no status or timestamps, and Draft and the time of the run would be invented");
+    }
+
+    [Fact]
+    public async Task Erasing_an_entry_created_again_under_the_same_id_fires_Deleted_again()
+    {
+        await AuthenticateAsync("SuperAdmin");
+        var contentType = NewName("wf");
+        var workflowId = await StoreWorkflowAsync(w =>
+        {
+            w.TriggerContentType = contentType;
+            w.TriggerEvent = WorkflowEvents.Deleted;
+        });
+
+        var id = Guid.NewGuid();
+        await SeedAsync(contentType, "first", id);
+        (await _client.DeleteAsync($"/api/contents/{id}/erase")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await RunsOfAsync(workflowId)).Should().HaveCount(1);
+
+        await SeedAsync(contentType, "second", id);
+        (await _client.DeleteAsync($"/api/contents/{id}/erase")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        (await RunsOfAsync(workflowId)).Should().HaveCount(2, "each erasure is its own event, whatever the id");
+    }
+
+    [Fact]
+    public async Task A_conditional_on_a_Deleted_run_refuses_a_condition_on_status_and_runs_one_on_the_content_type()
+    {
+        await AuthenticateAsync("SuperAdmin");
+        var contentType = NewName("wf");
+        var refusedChild = NewName("child");
+        var allowedChild = NewName("child");
+
+        var refusedId = await StoreWorkflowAsync(w =>
+        {
+            w.TriggerContentType = contentType;
+            w.TriggerEvent = WorkflowEvents.Deleted;
+            w.Actions = [Conditional("{{status}} == Draft", refusedChild)];
+        });
+        var allowedId = await StoreWorkflowAsync(w =>
+        {
+            w.TriggerContentType = contentType;
+            w.TriggerEvent = WorkflowEvents.Deleted;
+            w.Actions = [Conditional($"{{{{contentType}}}} == {contentType}", allowedChild)];
+        });
+
+        var id = await SeedAsync(contentType, $"erased-{Guid.NewGuid():n}");
+        (await _client.DeleteAsync($"/api/contents/{id}/erase")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        await DrainAsync(refusedId, allowedId);
+
+        var allowed = await RunsOfAsync(allowedId);
+        allowed.Should().HaveCount(1);
+        allowed[0].Actions.Should().HaveCount(1);
+        allowed[0].Actions[0].Status.Should().Be(AttemptStatus.Succeeded, "{0}", allowed[0].Actions[0].Error);
+        DeletedEchoAction.ReceivedByRun.TryGetValue(allowedChild, out var ran).Should().BeTrue(
+            "the content type is known for an erased entry, so the branch runs");
+        ran!.ContentId.Should().Be(id);
+
+        var refused = await RunsOfAsync(refusedId);
+        refused.Should().HaveCount(1);
+        refused[0].Actions.Should().HaveCount(1);
+        refused[0].Actions[0].Status.Should().Be(AttemptStatus.Failed);
+        refused[0].Actions[0].Retryable.Should().BeFalse("the entry will not come back on a retry");
+        refused[0].Actions[0].Error.Should().Contain("erased");
+        DeletedEchoAction.ReceivedByRun.ContainsKey(refusedChild).Should().BeFalse(
+            "a branch chosen on a status nobody stored must not run");
     }
 
     [Fact]
@@ -180,12 +239,11 @@ public class WorkflowTriggerEventsTests
     {
         var post = NewName("post");
 
-        // Stored straight through a session, so nothing has removed the repeats.
+        // Stored straight through a session, so nothing has removed the repeats. The single fields
+        // are left blank, so only the lists can match.
         var workflowId = await StoreWorkflowAsync(w =>
         {
-            w.TriggerContentType = post;
             w.TriggerContentTypes = [post, post];
-            w.TriggerEvent = WorkflowEvents.Published;
             w.TriggerEvents = [WorkflowEvents.Published, WorkflowEvents.Published];
         });
 
@@ -379,12 +437,59 @@ public class WorkflowTriggerEventsTests
         json.Should().NotContain("riggerContentTypes", "the list has to be gone for this to be an old document");
     }
 
-    private async Task<Guid> SeedAsync(string contentType, string needle)
+    /// <summary>
+    /// Runs queued attempts until every run of these workflows is finished. Either this runner or
+    /// the fixture's hosted one may claim an attempt.
+    /// </summary>
+    private async Task DrainAsync(params Guid[] workflowIds)
+    {
+        var runner = new WorkflowRunner(
+            _factory.Services,
+            _factory.Services.GetRequiredService<Microsoft.Extensions.Logging.ILogger<WorkflowRunner>>(),
+            _factory.Services.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>());
+
+        await PollAsync(
+            async () =>
+            {
+                await runner.RunOnceAsync(CancellationToken.None);
+
+                foreach (var workflowId in workflowIds)
+                {
+                    var queued = await RunsOfAsync(workflowId);
+                    if (queued.Count == 0 || queued.Any(r => r.Status is RunStatus.Pending or RunStatus.Running))
+                    {
+                        return false;
+                    }
+                }
+
+                return true;
+            },
+            "a queued run was never finished by a runner");
+    }
+
+    /// <summary>
+    /// A conditional whose then branch is one DeletedEcho. The child is given its own RunId, since
+    /// the runner's is not passed down to children, so the echo can be found by it.
+    /// </summary>
+    private static WorkflowAction Conditional(string condition, string childKey) => new()
+    {
+        Type = "Conditional",
+        Parameters = new Dictionary<string, string>
+        {
+            ["Condition"] = condition,
+            ["ThenActions"] = JsonSerializer.Serialize(new[]
+            {
+                new { Type = "DeletedEcho", Parameters = new Dictionary<string, string> { ["RunId"] = childKey } },
+            }),
+        },
+    };
+
+    private async Task<Guid> SeedAsync(string contentType, string needle, Guid? withId = null)
     {
         using var scope = _factory.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
         var writer = scope.ServiceProvider.GetRequiredService<barakoCMS.Core.Interfaces.IContentWriter>();
-        var id = Guid.NewGuid();
+        var id = withId ?? Guid.NewGuid();
 
         await writer.CreateAsync(new barakoCMS.Events.ContentCreated(
             id, contentType, new Dictionary<string, object> { ["FullName"] = needle },

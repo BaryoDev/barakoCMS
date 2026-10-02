@@ -62,6 +62,9 @@ internal interface IWorkflowRunQueue
     /// </remarks>
     /// <returns>How many runs were queued.</returns>
     Task<int> QueueDeletedAsync(Guid contentId, string contentType, CancellationToken ct);
+
+    /// <summary>Whether any workflow fires on this event for this content type.</summary>
+    Task<bool> ListensAsync(string contentType, string eventType, CancellationToken ct);
 }
 
 internal sealed class WorkflowRunQueue(IDocumentSession session, ILogger<WorkflowRunQueue> logger) : IWorkflowRunQueue
@@ -119,20 +122,16 @@ internal sealed class WorkflowRunQueue(IDocumentSession session, ILogger<Workflo
         {
             if (workflow.Conditions is { Count: > 0 })
             {
-                logger.LogDebug(
+                logger.LogInformation(
                     "Workflow {WorkflowId} has conditions, so it is not queued for erased content {ContentId}",
                     workflow.Id, contentId);
                 continue;
             }
 
-            var already = await session.Query<WorkflowRun>()
-                .Where(r => r.WorkflowDefinitionId == workflow.Id
-                            && r.ContentId == contentId
-                            && r.TriggerEvent == WorkflowEvents.Deleted)
-                .AnyAsync(ct);
-
-            if (already) continue;
-
+            // No check for an earlier Deleted run of this entry. An id can be erased, created again
+            // and erased again (a collection sync derives its ids), and each erasure is its own
+            // event. A repeat request for an entry already gone is a 404 before it gets here.
+            //
             // Sequence zero. An erasure removes the stream, so there is no event to point at, and
             // no stored event has that sequence.
             session.Store(NewRun(workflow, contentId, contentType, WorkflowEvents.Deleted, eventSequence: 0));
@@ -141,6 +140,11 @@ internal sealed class WorkflowRunQueue(IDocumentSession session, ILogger<Workflo
 
         return queued;
     }
+
+    public Task<bool> ListensAsync(string contentType, string eventType, CancellationToken ct) =>
+        session.Query<WorkflowDefinition>()
+            .Where(WorkflowTriggers.FiredBy(contentType, eventType))
+            .AnyAsync(ct);
 
     private static WorkflowRun NewRun(
         WorkflowDefinition workflow, Guid contentId, string contentType, string eventType, long eventSequence)

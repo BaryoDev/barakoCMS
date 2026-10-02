@@ -293,7 +293,7 @@ internal sealed class WorkflowRunner(
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
         // An erased entry cannot be loaded, and a Deleted action is told only which entry went.
         var content = run.TriggerEvent == WorkflowEvents.Deleted
-            ? new barakoCMS.Models.Content { Id = run.ContentId, ContentType = run.ContentType }
+            ? new ErasedContent(run.ContentId, run.ContentType)
             : await session.LoadAsync<barakoCMS.Models.Content>(run.ContentId, ct);
 
         if (content is null)

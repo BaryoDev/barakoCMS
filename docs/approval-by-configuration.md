@@ -293,10 +293,23 @@ the `400`.
 
 Events work the same way. Send `"triggerEvents": ["Published", "Unpublished"]` alongside or instead
 of `triggerEvent`; the response carries the list with every event and `triggerEvent` holding the
-first. An event fires a workflow once, however many list entries it matches. `Unpublished` fires
-when a Published entry changes to any other status. `Deleted` fires when an entry is erased, and
-its run carries the entry's id and content type only, so a `Deleted` workflow with conditions does
-not fire.
+first. An event fires a workflow once, however many list entries it matches.
+
+`Unpublished` fires when a Published entry changes to any other status. The status before the
+change is read from the entry's event stream. An entry with no status on record there (seeded, or
+stored without events) fires no `Unpublished` on its first status change; the API logs that at
+Information with the entry's id and type. Later changes are on record and fire as usual.
+
+`Deleted` fires when an entry is erased. Its run carries the entry's id and content type only:
+
+- A `Deleted` workflow with conditions is saved but never fires, because its conditions read data
+  that is gone.
+- `{{id}}` and `{{contentType}}` resolve as usual. `{{status}}`, `{{createdAt}}` and
+  `{{updatedAt}}` resolve to nothing, and a `{{data.X}}` token is left as written.
+- A `Conditional` action whose condition reads `{{status}}` or `{{data.X}}` fails, and is not
+  retried. A condition on `{{contentType}}` works.
+- A `Webhook` body holds `event`, `contentId` and `contentType` and nothing else (see
+  [webhooks.md](webhooks.md)).
 
 ## 9. The sender, from settings
 

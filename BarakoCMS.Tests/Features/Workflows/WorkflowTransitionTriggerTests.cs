@@ -238,6 +238,49 @@ public class WorkflowTransitionTriggerTests
         (await WaitForAsync(probe, atLeast: 1)).Should().Be(1);
     }
 
+    /// <summary>
+    /// A transition named only in the list is stored and returned in the declared spelling, and fires.
+    /// </summary>
+    [Fact]
+    public async Task A_transition_in_the_list_of_events_is_stored_as_declared_and_fires()
+    {
+        await AuthenticateAsync();
+        var type = await TypeWithLifecycleAsync();
+        var probe = NewName("probe");
+
+        var res = await _client.PostAsJsonAsync("/api/workflows", new
+        {
+            name = NewName("wf"),
+            triggerContentType = type,
+            triggerEvents = new[] { "transition:approve" },
+            actions = new[] { Probe(probe) },
+        });
+        res.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", res.StatusCode, await res.Content.ReadAsStringAsync());
+
+        var created = await res.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
+        var returned = created.GetProperty("triggerEvents").EnumerateArray().Select(e => e.GetString()).ToList();
+        returned.Should().HaveCount(1);
+        returned[0].Should().Be("transition:Approve");
+        created.GetProperty("triggerEvent").GetString().Should().Be("transition:Approve");
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+            var stored = await session.Query<WorkflowDefinition>()
+                .FirstOrDefaultAsync(w => w.TriggerContentType == type);
+
+            stored.Should().NotBeNull();
+            stored!.TriggerEvents.Should().HaveCount(1);
+            stored.TriggerEvents[0].Should().Be("transition:Approve");
+        }
+
+        var id = await CreateContentAsync(type);
+        await TransitionAsync(id, "Submit");
+        (await TransitionAsync(id, "Approve")).EnsureSuccessStatusCode();
+
+        (await WaitForAsync(probe, atLeast: 1)).Should().Be(1);
+    }
+
     private async Task AuthenticateAsync()
     {
         var (token, _) = await TestHelpers.CreateAdminUserAsync(_factory);
