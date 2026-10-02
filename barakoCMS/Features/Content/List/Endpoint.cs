@@ -57,6 +57,13 @@ internal class ContentResponse
     /// before every write went through the writer.
     /// </remarks>
     public long Version { get; set; }
+
+    /// <summary>
+    /// The file each <c>file</c> field names, keyed as the field is in <c>Data</c>, which keeps
+    /// the id. Only a file this caller may download is here. Left out when there is none.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<string, barakoCMS.Infrastructure.Services.ResolvedFile>? Files { get; set; }
 }
 
 internal class Endpoint(
@@ -218,6 +225,7 @@ internal class Endpoint(
             : permittedItems.Skip(req.Skip).Take(req.Take).ToList();
 
         await FillVersionsAsync(pagedItems, ct);
+        await FillFilesAsync(pagedItems, ct);
 
         if (permittedTotal < 0) permittedTotal = permittedItems.Count;
 
@@ -320,6 +328,28 @@ internal class Endpoint(
         .Replace("\\", "\\\\")
         .Replace("%", "\\%")
         .Replace("_", "\\_");
+
+    /// <summary>
+    /// Reads the files the page's <c>file</c> fields name, for the whole page at once.
+    /// </summary>
+    /// <remarks>
+    /// After paging and after the scrub, so it reads for at most a page of rows and never for a
+    /// field masked from this caller.
+    /// </remarks>
+    private async Task FillFilesAsync(IReadOnlyList<ContentResponse> items, CancellationToken ct)
+    {
+        var files = await barakoCMS.Features.Content.EntryFiles.ResolveAsync(
+            items.Select(i => (i.ContentType, i.Data)).ToList(),
+            session,
+            Resolve<barakoCMS.Core.Interfaces.IFileStore>(),
+            User,
+            ct);
+
+        for (var i = 0; i < items.Count; i++)
+        {
+            items[i].Files = files[i];
+        }
+    }
 
     /// <summary>
     /// Reads the stream version for one page of rows, in a single round trip.

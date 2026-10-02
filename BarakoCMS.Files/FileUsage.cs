@@ -20,11 +20,11 @@ public class FileUsageRow
 /// Finds the entries whose data references a file.
 /// </summary>
 /// <remarks>
-/// Content has no typed file field (#141 gave it a reference to another entry, not to a file), so a
-/// file reference is whatever string an editor put in a field: the id on its own, the download URL
-/// a client built from it, or, on an object store, the object's public URL. The first two carry
-/// the id and the third carries the storage key, so both are matched as substrings of the entry's
-/// data. That also catches a <c>?w=</c> variant URL, whose key is the parent's key plus a suffix.
+/// A <c>file</c> field stores the id as text, in the form with hyphens. Any other field names a
+/// file by whatever string an editor put in it: the id on its own, the download URL a client built
+/// from it, or, on an object store, the object's public URL. The first two carry the id and the
+/// third carries the storage key, so both are matched as substrings of the entry's data. That
+/// also catches a <c>?w=</c> variant URL, whose key is the parent's key plus a suffix.
 ///
 /// It is a sequential scan over the tenant's entries. That is the right trade for an editor asking
 /// about one file before deleting it, and the wrong one for anything on a hot path, which is why

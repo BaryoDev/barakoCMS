@@ -63,8 +63,17 @@ public interface IContentValidatorService
             $"{GetType().Name} does not implement {nameof(ValidateFieldsAsync)}.");
 }
 
-public class ContentValidatorService(IQuerySession session) : IContentValidatorService
+public class ContentValidatorService(
+    IQuerySession session,
+    barakoCMS.Core.Interfaces.IFileStore? files,
+    Microsoft.AspNetCore.Http.IHttpContextAccessor? http) : IContentValidatorService
 {
+    /// <summary>A validator with no file store, which refuses a new value in a <c>file</c> field.</summary>
+    public ContentValidatorService(IQuerySession session)
+        : this(session, null, null)
+    {
+    }
+
     public async Task<(bool IsValid, List<string> Errors)> ValidateAsync(
         string contentType,
         Dictionary<string, object> data,
@@ -162,7 +171,15 @@ public class ContentValidatorService(IQuerySession session) : IContentValidatorS
                 var value = keyDetails.Value;
                 var expectedType = field.Type.ToLower();
 
-                if (!FieldTypeRegistry.IsValidValue(expectedType, value))
+                if (expectedType == FileFields.TypeName)
+                {
+                    // Ahead of the shape check, so text that is not an id is answered in the same
+                    // words as an id the caller may not use.
+                    var error = await ValidateFileAsync(field, value, existing);
+                    if (error is not null)
+                        errors.Add(error);
+                }
+                else if (!FieldTypeRegistry.IsValidValue(expectedType, value))
                 {
                     var actualType = GetActualTypeName(value);
                     errors.Add($"Field '{field.DisplayName}' expects type '{expectedType}' but received '{actualType}'");
@@ -295,6 +312,37 @@ public class ContentValidatorService(IQuerySession session) : IContentValidatorS
                  + $"but is declared to point at '{field.ReferenceType}'.";
 
         return null;
+    }
+
+    /// <summary>
+    /// Checks that a file field names a file the caller of this request may use.
+    /// </summary>
+    /// <remarks>
+    /// Asked of the file store as the caller, so the answer is the one the download routes give:
+    /// any public file, or a private one that is the caller's own or that the caller administers.
+    /// A write with no request behind it, such as a job, has no caller and takes a public file only.
+    ///
+    /// The value the entry already holds in this field is not asked about again. It was checked for
+    /// whoever attached it, and asking for it as this caller would refuse every later edit of the
+    /// entry by anyone else, and every edit after the file was deleted.
+    /// </remarks>
+    private async Task<string?> ValidateFileAsync(FieldDefinition field, object value, Models.Content? existing)
+    {
+        if (existing is not null && FileFields.Holds(existing.Data, field.Name, value))
+            return null;
+
+        if (files is null or NoFileStore)
+            return FileFields.NoStore(field);
+
+        if (!FileFields.TryReadId(value, out var id))
+            return FileFields.Refused(field);
+
+        var caller = http?.HttpContext?.User;
+        var file = caller is null
+            ? await files.FindPublicAsync(id)
+            : await files.FindAsync(id, caller);
+
+        return file is null ? FileFields.Refused(field) : null;
     }
 
     /// <summary>Whether a required field holding this value counts as left out.</summary>

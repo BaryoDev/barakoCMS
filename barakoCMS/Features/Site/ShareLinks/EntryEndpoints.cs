@@ -379,7 +379,8 @@ internal sealed class OpenShareLinkEndpoint(
         PublicContentResponse? entry = null;
         if (link.EntryId is not null)
         {
-            entry = await ShareLinkKeys.OpenEntryAsync(session, link, ct);
+            entry = await ShareLinkKeys.OpenEntryAsync(
+                session, link, ct, Resolve<barakoCMS.Core.Interfaces.IFileStore>());
             if (entry is null)
             {
                 await Send.NotFoundAsync(ct);

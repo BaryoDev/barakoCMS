@@ -28,4 +28,12 @@ internal sealed class NoFileStore : IFileStore
 
     public Task<FileDeleteResult> DeleteAsync(Guid id, System.Security.Claims.ClaimsPrincipal caller, bool force = false, CancellationToken cancellationToken = default) =>
         throw new InvalidOperationException(Message);
+
+    public Task<IReadOnlyDictionary<Guid, StoredFileInfo>> FindPublicManyAsync(
+        IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken = default) =>
+        throw new InvalidOperationException(Message);
+
+    public Task<IReadOnlyDictionary<Guid, StoredFileInfo>> FindManyAsync(
+        IReadOnlyCollection<Guid> ids, System.Security.Claims.ClaimsPrincipal caller, CancellationToken cancellationToken = default) =>
+        throw new InvalidOperationException(Message);
 }
