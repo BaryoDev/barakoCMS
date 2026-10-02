@@ -51,7 +51,7 @@ internal static class DescribeDocument
     public static IReadOnlyList<DescribedModule> Modules(ModuleCatalogue catalogue) =>
         catalogue.Entries
             .Where(entry => entry.Enabled)
-            .Select(entry => new DescribedModule(entry.Name))
+            .Select(entry => new DescribedModule(entry.Name, entry.HttpContractVersion))
             .OrderBy(module => module.Name, StringComparer.Ordinal)
             .ToArray();
 }

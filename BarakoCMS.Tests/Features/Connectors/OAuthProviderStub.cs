@@ -361,15 +361,18 @@ internal static class OAuthConnectors
 
     internal static ConnectorSender Sender(
         IServiceProvider services, IQuerySession session, ConnectorTokenCache cache,
-        ILogger<ConnectorSender>? logger = null, TimeSpan? grantTimeout = null) =>
+        ILogger<ConnectorSender>? logger = null, TimeSpan? grantTimeout = null,
+        IConnectorDeliveryLog? deliveries = null, TimeSpan? recordTimeout = null) =>
         new(
             services.GetRequiredService<IHttpClientFactory>(),
             session,
             services.GetRequiredService<IConnectorSecretProtector>(),
             cache,
+            deliveries ?? services.GetRequiredService<IConnectorDeliveryLog>(),
             logger ?? new CapturingLogger())
         {
             GrantTimeout = grantTimeout ?? TimeSpan.FromSeconds(30),
+            RecordTimeout = recordTimeout ?? TimeSpan.FromSeconds(5),
         };
 
     internal static string NewSlug() => "oauth" + Guid.NewGuid().ToString("n")[..10];

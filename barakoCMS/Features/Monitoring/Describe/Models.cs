@@ -59,4 +59,9 @@ internal sealed record DescribedRule(string Name, IReadOnlyList<string> Aliases)
 internal sealed record DescribedFieldHint(string Name, IReadOnlyList<string> FieldTypes);
 
 /// <param name="Name"><see cref="barakoCMS.Modules.IBarakoModule.Name"/>, verbatim.</param>
-internal sealed record DescribedModule(string Name);
+/// <param name="HttpContractVersion">
+/// <see cref="barakoCMS.Modules.IBarakoModule.HttpContractVersion"/>, the version of the module's
+/// own endpoints. Zero means the module states none. Not the <c>contractVersion</c> of
+/// <c>GET /api/modules</c>, which is what the module was compiled against.
+/// </param>
+internal sealed record DescribedModule(string Name, int HttpContractVersion);

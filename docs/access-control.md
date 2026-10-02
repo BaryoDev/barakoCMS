@@ -442,7 +442,7 @@ same registries the API checks requests against, so a client does not keep its o
   "fieldRoles": [ { "name": "title", "fieldTypes": ["string", "text"] } ],
   "capabilities": [ { "name": "manage_roles", "source": "core", "note": null } ],
   "workflowActions": [ { "type": "Webhook", "requiredParameters": ["Url"], "optionalParameters": ["Secret"], "secretParameters": ["Secret"] } ],
-  "modules": [ { "name": "Accounting" } ]
+  "modules": [ { "name": "Pages", "httpContractVersion": 1 } ]
 }
 ```
 
@@ -456,11 +456,15 @@ list, possibly empty, for one it would serve. So `null` means withheld, and an e
 |---|---|---|
 | `capabilities` | `GET /api/capabilities` | `manage_roles` |
 | `workflowActions` | `GET /api/workflows/actions` | `manage_workflows` |
-| `modules` | the enabled entries of `GET /api/modules`, name only | `view_modules` |
+| `modules` | the enabled entries of `GET /api/modules`, by name, each with its `httpContractVersion` | `view_modules` |
 
 A workflow action carries the fields `GET /api/workflows/actions` returns for it. A module the
 enabled list left off is not in `modules`, and since it serves no endpoint and registers no action
 it adds nothing to the other two either.
+
+A module's `httpContractVersion` is the version of that module's own endpoints, wherever they are
+mounted, and `0` means the module states none. It is not the `contractVersion` in
+`GET /api/modules`, which is the module contract the module was compiled against.
 
 `workflowActions` is also `null` when the action registry cannot be read, which is what happens when
 a registered action fails to construct. The rest of the document still answers 200, and the server
@@ -547,9 +551,9 @@ says.
 | `Features/Connectors/*` | `view_connectors` | `GET /api/connectors`, `GET /api/connectors/{slug}` | SuperAdmin, Admin |
 | `Features/Connectors/*` | `manage_connectors` | `POST /api/connectors`, `PUT` and `DELETE /api/connectors/{slug}`, `POST /api/connectors/{slug}/test` | SuperAdmin, Admin |
 | `Features/Workflows/*` | `manage_workflows` | `/api/workflows`, `/api/workflows/actions`, `/variables`, `/validate`, `/dry-run`, `PUT /api/workflows/{id}/enabled`, `DELETE /api/workflows/{id}`, `POST /api/workflow-runs/{id}/cancel` | SuperAdmin, Admin |
-| `Features/WorkflowRuns/*` | `view_workflow_runs` | `GET /api/workflow-runs`, `GET /api/workflow-runs/{id}`, `GET /api/workflows/{id}/debug`, `GET /api/webhook-deliveries` | SuperAdmin, Admin |
+| `Features/WorkflowRuns/*` | `view_workflow_runs` | `GET /api/workflow-runs`, `GET /api/workflow-runs/{id}`, `GET /api/workflows/{id}/debug`, `GET /api/webhook-deliveries`, `GET /api/connector-deliveries` | SuperAdmin, Admin |
 | `Features/WorkflowRuns/*` | `retry_workflow_actions` | `POST /api/workflow-runs/{id}/actions/{ordinal}/retry` | SuperAdmin, Admin |
-| `Features/WebhookDeliveries/*` | `view_webhook_response_bodies` | The `responseBody` field on `GET /api/webhook-deliveries`, nothing else on the row | SuperAdmin |
+| `Features/WebhookDeliveries/*`, `Features/ConnectorDeliveries/*` | `view_webhook_response_bodies` | The `responseBody` field on `GET /api/webhook-deliveries`, and the `responseBody` and `requestHeaders` fields on `GET /api/connector-deliveries`, nothing else on the row | SuperAdmin |
 | `Features/Content/History/*` | `rollback_content` | `POST /api/contents/{id}/rollback/{versionId}` | SuperAdmin, Admin |
 | `Features/Content/Erase/*` | `erase_content` | `DELETE /api/contents/{id}/erase` | SuperAdmin |
 | `Features/Jobs/*` | `view_jobs` | `GET /api/jobs` | SuperAdmin, Admin |
