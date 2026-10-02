@@ -46,6 +46,47 @@ If runs are piling up in `Pending`, the runner is not keeping up or is switched 
 Webhook deliveries keep their own log with its own window, `Webhooks:DeliveryLogRetentionDays`.
 See `docs/webhooks.md`.
 
+## How many actions run at once
+
+A node runs one action at a time unless it is told otherwise. Every action is a call to a third
+party, so at two seconds per webhook that is half an action a second per node, and a bigger machine
+does not change it.
+
+```json
+{
+  "Workflows": {
+    "RunnerConcurrency": 4
+  }
+}
+```
+
+`Workflows:RunnerConcurrency` is how many actions one node may have in flight at once. The default
+is 1. It takes 1 to 20, and a value outside that range stops the API from starting, with an error
+that names the setting. Twenty is the number of due runs a pass reads per tenant.
+
+What to know before raising it:
+
+- **The bound is per node.** The worst case against one provider is the setting times the number of
+  nodes: three nodes at 4 is twelve calls to the same provider in flight at once. Set it from the
+  provider's rate limit, not from the node's cores. A provider that starts answering 429 turns the
+  extra calls into retries.
+- **The actions of one run still run in order, one at a time.** "Post, then email, then tweet" stays
+  a sequence. Only actions of different runs overlap.
+- **Runs no longer finish in the order they were queued.** At 1, a node works through a tenant's
+  runs oldest first, so two runs for the same entry reach a receiver in the order they fired. Above
+  1 they can be in flight together and arrive either way round. Several nodes already had this.
+- **Tenants share the slots.** A pass hands them out one per tenant in turn, so a tenant with a
+  long queue gets a second slot only after every other tenant with due work has had one.
+- **A pass waits for all of its actions before it claims again.** One slow action holds the other
+  slots of its pass empty until it ends, so throughput is the bound divided by the slowest action
+  of each pass, not by the average.
+- Each action in flight uses a database connection while it loads the entry and records the
+  outcome, so the setting also has to fit the connection pool.
+
+When a node stops, the actions it has in flight are cancelled and the node waits for them to end,
+the same as with one. An attempt whose outcome was not recorded stays `Running` under its lease and
+is taken again, by any node, when the lease ends five minutes after it was claimed.
+
 ## Stopping a workflow or a run
 
 Three requests, all behind `manage_workflows`, each written to the audit log.
