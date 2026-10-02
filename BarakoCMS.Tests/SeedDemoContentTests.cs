@@ -190,14 +190,20 @@ public class SeedDemoContentTests
         {
             await ClearDemoContentAsync(ct);
 
-            // Stored before the host below is built, so that host's own startup seed meets it too.
             await using (var decide = store.LightweightSession())
             {
                 decide.Store(new ContentTypeSourcingPolicy { Name = policyName, EventSourced = true });
                 await decide.SaveChangesAsync(ct);
             }
 
-            var host = new HostShim(_fixture.WithSetting("Seed:DemoContent", "true").Services);
+            // The fixture's own host, which started long ago. A host built here would run its
+            // startup seed in the background, beside the two calls below.
+            var host = new HostShim(_fixture.Services);
+
+            DataSeeder.SeedsDemoContent(
+                    _fixture.Services.GetRequiredService<IConfiguration>(),
+                    _fixture.Services.GetRequiredService<IHostEnvironment>())
+                .Should().BeTrue("with the switch off the seed creates nothing, and the zeros below would say nothing");
 
             await DataSeeder.SeedAsync(host);
 
@@ -211,7 +217,13 @@ public class SeedDemoContentTests
 
             var after = await CountDemoContentAsync(ct);
             after.ContentTypes.Should().Be(1, "the skip above was about the decision, which is gone now");
+            after.Workflows.Should().Be(1);
             after.Records.Should().BeGreaterThan(0);
+
+            await using var read = store.QuerySession();
+            var recorded = await read.LoadAsync<ContentTypeSourcingPolicy>(policyName, ct);
+            recorded.Should().NotBeNull("the seed records the name's decision with the type");
+            recorded!.EventSourced.Should().BeFalse();
         }
         finally
         {

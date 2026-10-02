@@ -88,8 +88,8 @@ internal sealed class Validator : Validator<Request>
 /// <c>SetFieldSensitivity</c> apply: a stream is append-only, so a value written to it cannot be
 /// erased, and a type that could not be created with such a field must not gain one here.
 ///
-/// Adding an endpoint and adding an optional field to a response are both additive, so the API
-/// contract version does not move.
+/// The endpoint itself and the optional field it added to a response were additive. The refusals
+/// are request validation, and tightening one is a change to the API contract.
 /// </remarks>
 internal sealed class Endpoint(
     IDocumentSession session,

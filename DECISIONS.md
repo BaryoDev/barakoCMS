@@ -48,7 +48,7 @@ by id with a mutable display name, this moves to that id.
 
 ## D2. An event-sourced type may not hold non-Public fields
 
-**Decided:** 22 Aug 2026. **Issue:** #230. **Status:** implemented: type creation, field add, field sensitivity change and Portability import each refuse it.
+**Decided:** 22 Aug 2026. **Issue:** #230. **Status:** implemented: type creation, field add, field sensitivity change and Portability import each refuse it, and blueprint apply answers 409 for a name decided as event sourced.
 
 Enforced at type creation and at field-add, using the `FieldDefinition.Sensitivity` that already
 exists.
