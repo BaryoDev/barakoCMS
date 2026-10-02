@@ -112,7 +112,8 @@ deployment with no memberships at all behaves exactly as it did before multi-ten
   working, since a refresh mints for the `X-Tenant` it is sent and re-checks membership.
   The body names the target as `{ "tenant": "<handle>" }`. `club` is an alias of `tenant`, kept for
   clients written when it was the only name, and both go through the same membership check. A
-  request that sets both to different tenants is a 400, and so is one that sets neither.
+  request that sets both to different tenants is a 400, and so is one that sets neither. Only the
+  JSON body is read: a `tenant` or `club` on the query string is ignored.
 - `/api/tenants` creates, lists and updates tenants, gated on `SuperAdmin`.
 - `GET /api/tenants/{handle}/public` is the anonymous lookup a sign-in page needs.
 

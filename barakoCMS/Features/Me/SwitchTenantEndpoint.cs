@@ -9,15 +9,24 @@ using System.Security.Claims;
 
 namespace barakoCMS.Features.Me;
 
+/// <remarks>
+/// Only the JSON body names the target. FastEndpoints binds the query string onto a request after
+/// the body, which would let a URL override or contradict the body on an endpoint that issues a
+/// token, so both properties refuse every source but the body.
+/// </remarks>
 internal class SwitchTenantRequest
 {
+    private const Source NotTheBody = Source.QueryParam | Source.RouteParam | Source.FormField;
+
     /// <summary>The handle of the tenant to switch into.</summary>
+    [DontBind(NotTheBody)]
     public string? Tenant { get; set; }
 
     /// <summary>
     /// An alias of <c>tenant</c>, kept for clients written when this was the only name. Send one of
     /// the two: a request where both are set and name different tenants is refused.
     /// </summary>
+    [DontBind(NotTheBody)]
     public string? Club { get; set; }
 }
 

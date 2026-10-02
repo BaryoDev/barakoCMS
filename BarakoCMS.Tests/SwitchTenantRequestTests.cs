@@ -153,6 +153,79 @@ public class SwitchTenantRequestTests
         errors[0].Reason.Should().Be(TenantRequired);
     }
 
+    /// <summary>
+    /// The caller belongs to all three tenants, so a query string that was read would show up as a
+    /// token for OTHER or as a disagreement, not as a membership refusal.
+    /// </summary>
+    [Theory]
+    [InlineData("?tenant=OTHER", """{"club":"AWAY"}""")]
+    [InlineData("?tenant=OTHER", """{"tenant":"AWAY"}""")]
+    [InlineData("?club=OTHER", """{"tenant":"AWAY"}""")]
+    [InlineData("?club=OTHER", """{"club":"AWAY"}""")]
+    public async Task A_target_in_the_query_string_is_not_read_beside_a_body(string query, string json)
+    {
+        var (token, home, away, other) = await MemberOfThreeAsync();
+
+        var resp = await SwitchAsync(token, home, Raw(json, away, other), Fill(query, away, other));
+
+        resp.StatusCode.Should().Be(HttpStatusCode.OK, await resp.Content.ReadAsStringAsync());
+        TenantClaimOf(await TokenOfAsync(resp)).Should().Be(away);
+    }
+
+    [Theory]
+    [InlineData("?tenant=AWAY")]
+    [InlineData("?club=AWAY")]
+    public async Task A_target_named_only_in_the_query_string_is_refused_and_switches_nowhere(string query)
+    {
+        var (token, home, away, other) = await MemberOfThreeAsync();
+
+        var resp = await SwitchAsync(token, home, Raw("{}", away, other), Fill(query, away, other));
+
+        resp.StatusCode.Should().Be(HttpStatusCode.BadRequest, await resp.Content.ReadAsStringAsync());
+        var errors = await ErrorsAsync(resp);
+        errors.Should().HaveCount(1);
+        errors[0].Reason.Should().Be(TenantRequired);
+        (await MyTenantsAsync(token, home)).StatusCode.Should().Be(HttpStatusCode.OK,
+            "a refused switch must not revoke the token it was sent");
+    }
+
+    [Theory]
+    [InlineData("""{"tenant":5,"club":"AWAY"}""")]
+    [InlineData("""{"tenant":{"slug":"AWAY"},"club":"AWAY"}""")]
+    public async Task A_tenant_that_is_not_a_string_is_refused_and_switches_nowhere(string json)
+    {
+        var (token, home, away, other) = await MemberOfThreeAsync();
+
+        var resp = await SwitchAsync(token, home, Raw(json, away, other));
+
+        resp.StatusCode.Should().Be(HttpStatusCode.BadRequest, await resp.Content.ReadAsStringAsync());
+        (await MyTenantsAsync(token, home)).StatusCode.Should().Be(HttpStatusCode.OK,
+            "a refused switch must not revoke the token it was sent");
+    }
+
+    /// <summary>
+    /// The endpoint has no blank check of its own after the validator. If a blank target ever
+    /// reached the issuer and this refusal were gone, a blank slug has no Tenant document, reads as
+    /// unmanaged, and gets a token.
+    /// </summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("\t")]
+    public async Task The_issuer_denies_a_blank_slug(string slug)
+    {
+        var (userId, username) = await CreateUserAsync();
+        using var scope = _factory.Services.CreateScope();
+        var issuer = scope.ServiceProvider.GetRequiredService<barakoCMS.Infrastructure.Auth.ITokenIssuer>();
+        var user = new User { Id = userId, Username = username, RoleIds = new List<Guid>() };
+
+        var result = await issuer.IssueAccessTokenAsync(user, slug);
+
+        result.Allowed.Should().BeFalse();
+        result.Token.Should().BeEmpty();
+        result.DenialReason.Should().Be("no tenant supplied");
+    }
+
     [Fact]
     public async Task A_tenant_the_caller_is_not_a_member_of_is_refused_the_same_way_under_either_name()
     {
@@ -274,9 +347,10 @@ public class SwitchTenantRequestTests
     private Task<HttpResponseMessage> SwitchAsync(string? bearer, string fromTenant, object body) =>
         SwitchAsync(bearer, fromTenant, JsonContent.Create(body));
 
-    private async Task<HttpResponseMessage> SwitchAsync(string? bearer, string fromTenant, HttpContent body)
+    private async Task<HttpResponseMessage> SwitchAsync(
+        string? bearer, string fromTenant, HttpContent body, string query = "")
     {
-        var req = new HttpRequestMessage(HttpMethod.Post, "/api/me/switch") { Content = body };
+        var req = new HttpRequestMessage(HttpMethod.Post, "/api/me/switch" + query) { Content = body };
         req.Headers.Add("X-Tenant", fromTenant);
         if (bearer is not null)
             req.Headers.Authorization = new("Bearer", bearer);
@@ -301,6 +375,25 @@ public class SwitchTenantRequestTests
         await GrantMembershipAsync(userId, away);
         return (SignedToken(userId, username, home), home, away);
     }
+
+    private async Task<(string Token, string Home, string Away, string Other)> MemberOfThreeAsync()
+    {
+        var (userId, username) = await CreateUserAsync();
+        var home = await CreateTenantAsync();
+        var away = await CreateTenantAsync();
+        var other = await CreateTenantAsync();
+        await GrantMembershipAsync(userId, home);
+        await GrantMembershipAsync(userId, away);
+        await GrantMembershipAsync(userId, other);
+        return (SignedToken(userId, username, home), home, away, other);
+    }
+
+    /// <summary>Theory rows cannot hold a slug made at run time, so they name it and this fills it in.</summary>
+    private static string Fill(string template, string away, string other) =>
+        template.Replace("AWAY", away, StringComparison.Ordinal).Replace("OTHER", other, StringComparison.Ordinal);
+
+    private static StringContent Raw(string json, string away, string other) =>
+        new(Fill(json, away, other), Encoding.UTF8, "application/json");
 
     private async Task<(Guid Id, string Username)> CreateUserAsync()
     {
