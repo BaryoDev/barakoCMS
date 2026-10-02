@@ -48,9 +48,9 @@ public class ModuleConfigureAppTests : IClassFixture<ModuleConfigureAppTests.Hos
     {
         public Host() : base(o =>
         {
-            o.Modules.Add(new PipelineProbe("ProbeFirst"));
-            o.Modules.Add(new PipelineProbe("ProbeSecond"));
-            o.Modules.Add(new PipelineProbe("ProbeOff"));
+            o.Modules.Add(new ProbeFirst());
+            o.Modules.Add(new ProbeSecond());
+            o.Modules.Add(new ProbeOff());
             o.Settings["BarakoCMS:Modules:Enabled"] = "ProbeFirst,ProbeSecond";
             o.Settings["JWT:Key"] = IntegrationTestFixture.JwtKey;
         })
@@ -58,7 +58,14 @@ public class ModuleConfigureAppTests : IClassFixture<ModuleConfigureAppTests.Hos
         }
     }
 
-    private sealed class PipelineProbe(string name) : IBarakoModule
+    // One class per probe: the module builder refuses two instances of one module class.
+    private sealed class ProbeFirst() : PipelineProbe("ProbeFirst");
+
+    private sealed class ProbeSecond() : PipelineProbe("ProbeSecond");
+
+    private sealed class ProbeOff() : PipelineProbe("ProbeOff");
+
+    private abstract class PipelineProbe(string name) : IBarakoModule
     {
         public string Name { get; } = name;
         public bool HookRan { get; private set; }
