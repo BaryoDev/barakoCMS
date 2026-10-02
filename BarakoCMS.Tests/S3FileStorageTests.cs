@@ -89,16 +89,12 @@ public class S3FileStorageTests : IAsyncLifetime
     }
 
     /// <summary>
-    /// The first row is the plain case. The rest are keys a store or a proxy that collapses slashes,
-    /// dot segments or case would land under <c>public/</c> all the same.
+    /// The plain key, and one a store that drops a leading slash would land under <c>public/</c>
+    /// all the same. <c>FileKeysTests</c> covers the other shapes without a store.
     /// </summary>
     [Theory]
     [InlineData("public/leak.pdf")]
     [InlineData("/public/leak.pdf")]
-    [InlineData("./public/leak.pdf")]
-    [InlineData("//public/leak.pdf")]
-    [InlineData("a/../public/leak.pdf")]
-    [InlineData("Public/leak.pdf")]
     public async Task A_private_object_is_refused_under_the_public_prefix(string key)
     {
         var refused = async () => await _storage.PutAsync(
@@ -118,10 +114,6 @@ public class S3FileStorageTests : IAsyncLifetime
     [Theory]
     [InlineData("private/pic.png")]
     [InlineData("/private/pic.png")]
-    [InlineData("./private/pic.png")]
-    [InlineData("//private/pic.png")]
-    [InlineData("a/../private/pic.png")]
-    [InlineData("Private/pic.png")]
     public async Task A_public_object_is_refused_under_the_private_prefix(string key)
     {
         var refused = async () => await _storage.PutAsync(
