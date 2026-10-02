@@ -155,6 +155,7 @@ internal class Endpoint(
         field.VisibleToRoles = to == SensitivityLevel.Public
             ? new List<string>()
             : req.VisibleToRoles ?? new List<string>();
+        await barakoCMS.Core.RoleReferences.ToIdsAsync(session, [field], ct);
         field.Mask = to == SensitivityLevel.Public ? FieldMask.Default : req.Mask ?? FieldMask.Default;
         def.UpdatedAt = DateTimeOffset.UtcNow;
         session.Store(def);
@@ -187,13 +188,18 @@ internal class Endpoint(
         // The delivery OpenAPI document lists only the Public fields of a type, so this changed it.
         openApiCache.Invalidate(tenant.Slug);
 
+        // Stored as role ids, answered as role names, which is what a client sends back. A copy,
+        // so the stored field is not the one rewritten.
+        var answered = new FieldDefinition { VisibleToRoles = [.. field.VisibleToRoles] };
+        await barakoCMS.Core.RoleReferences.ToNamesAsync(session, [answered], ct);
+
         await Send.OkAsync(new Response
         {
             Name = def.Name,
             Field = field.Name,
             From = from,
             To = to,
-            VisibleToRoles = field.VisibleToRoles,
+            VisibleToRoles = answered.VisibleToRoles,
             Mask = field.Mask,
             EntriesReindexed = reindexed,
         }, ct);

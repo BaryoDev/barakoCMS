@@ -78,6 +78,10 @@ public sealed class ContentEraser(
             contentId, contentId);
         session.Delete(content);
 
+        // The entry's share links and preview tokens go with it. Once the entry is gone they open
+        // nothing, and no route could list or revoke them.
+        session.DeleteWhere<Models.SiteShareLink>(l => l.EntryId == contentId);
+
         // The id only, never the content. A log line about an erasure that quotes what was erased is
         // not an erasure. Logged on queueing rather than on commit, which is a small imprecision
         // accepted so that this stays free of transaction control; the caller's save is what makes

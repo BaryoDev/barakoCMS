@@ -13,8 +13,10 @@
 #   3. apply the reviewed core migrations, migrations/4.0.0/3.x-to-4.0.sql,
 #      migrations/4.2.0/user-normalized-identity.sql, migrations/4.2.0/site-share-links.sql,
 #      migrations/4.3.0/collection-syncs.sql, migrations/4.3.0/marten-9-37-event-store-columns.sql,
-#      migrations/4.4.0/marten-9-38-quick-append-events.sql and
-#      migrations/4.5.0/refresh-token-hash-index.sql
+#      migrations/4.4.0/marten-9-38-quick-append-events.sql,
+#      migrations/4.5.0/refresh-token-hash-index.sql and
+#      migrations/4.6.0/sensitivity-by-capability.sql, after which the HR role FROM_VERSION seeded
+#      holds view_sensitive
 #   4. db-assert must PASS on the core host, so those files are exactly what core needs
 #   5. apply the module migrations, migrations/4.2.0/stored-files-parent-index.sql,
 #      migrations/4.2.0/forms-public-forms.sql, migrations/4.5.0/email-sent-emails.sql and
@@ -25,6 +27,7 @@
 #      its stored progression rather than restarting from zero
 #   9. the new build stops, and the rollback files are applied newest first:
 #      migrations/4.6.0/rollback-forms-email-verification.sql,
+#      migrations/4.6.0/rollback-sensitivity-by-capability.sql,
 #      migrations/4.5.0/rollback-email-sent-emails.sql,
 #      migrations/4.5.0/rollback-refresh-token-hash-index.sql,
 #      migrations/4.4.0/rollback-marten-9-38-quick-append-events.sql,
@@ -61,6 +64,7 @@
 set -euo pipefail
 
 . "$(dirname "$0")/lib-ports.sh"
+. "$(dirname "$0")/lib-upgrade-data.sh"
 
 FROM_VERSION="${FROM_VERSION:-3.21.0}"
 IMAGE="${IMAGE:-ghcr.io/baryodev/barako-cms:${FROM_VERSION}}"
@@ -302,6 +306,18 @@ step "applying migrations/4.5.0/refresh-token-hash-index.sql"
 docker cp migrations/4.5.0/refresh-token-hash-index.sql "$PG:/tmp/refresh-hash.sql"
 docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/refresh-hash.sql >/dev/null
 
+# Data, not schema (#883). FROM_VERSION seeded a role named HR under the fixed id, whose holders read
+# Sensitive fields by that name, and the working tree decides the same thing by capability. The
+# file grants to that role and to no other role named HR. The count is checked before the new build
+# boots, because its seeder grants the same capability and would hide a file that does nothing. The
+# three checks are in lib-upgrade-data.sh.
+step "applying migrations/4.6.0/sensitivity-by-capability.sql"
+require_seeded_hr
+docker cp migrations/4.6.0/sensitivity-by-capability.sql "$PG:/tmp/sensitivity.sql"
+docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/sensitivity.sql >/dev/null
+require_seeded_hr_granted
+echo "HR holds view_sensitive"
+
 step "the migration left the daemon's progression alone"
 PROGRESSION_MIGRATED=$(psql_q "select coalesce(max(last_seq_id), 0) from mt_event_progression where name like '%WorkflowProjection%';")
 [ "$PROGRESSION_MIGRATED" = "$PROGRESSION_BEFORE" ] \
@@ -407,6 +423,10 @@ HOST_PID=""
 step "applying migrations/4.6.0/rollback-forms-email-verification.sql"
 docker cp migrations/4.6.0/rollback-forms-email-verification.sql "$PG:/tmp/forms-email-verification-down.sql"
 docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/forms-email-verification-down.sql >/dev/null
+step "applying migrations/4.6.0/rollback-sensitivity-by-capability.sql"
+docker cp migrations/4.6.0/rollback-sensitivity-by-capability.sql "$PG:/tmp/sensitivity-down.sql"
+docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/sensitivity-down.sql >/dev/null
+require_seeded_hr_not_granted
 step "applying migrations/4.5.0/rollback-email-sent-emails.sql"
 docker cp migrations/4.5.0/rollback-email-sent-emails.sql "$PG:/tmp/sent-emails-down.sql"
 docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/sent-emails-down.sql >/dev/null
@@ -487,4 +507,4 @@ else
     DOWN_LAST="migrations/4.2.0/rollback-site-share-links.sql and migrations/4.2.0/rollback-user-normalized-identity.sql"
 fi
 
-printf '\nThe upgrade from %s to the working tree works on the Suite host, with %smigrations/4.2.0/user-normalized-identity.sql, migrations/4.2.0/site-share-links.sql, migrations/4.3.0/collection-syncs.sql, migrations/4.3.0/marten-9-37-event-store-columns.sql, migrations/4.4.0/marten-9-38-quick-append-events.sql, migrations/4.5.0/refresh-token-hash-index.sql, migrations/4.2.0/stored-files-parent-index.sql, migrations/4.2.0/forms-public-forms.sql, migrations/4.5.0/email-sent-emails.sql and migrations/4.6.0/forms-email-verification.sql applied first, and rolls back cleanly with migrations/4.6.0/rollback-forms-email-verification.sql, migrations/4.5.0/rollback-email-sent-emails.sql, migrations/4.5.0/rollback-refresh-token-hash-index.sql, migrations/4.4.0/rollback-marten-9-38-quick-append-events.sql, migrations/4.3.0/rollback-collection-syncs.sql, migrations/4.3.0/rollback-marten-9-37-event-store-columns.sql, %s.\n' "$FROM_VERSION" "$UP_FIRST" "$DOWN_LAST"
+printf '\nThe upgrade from %s to the working tree works on the Suite host, with %smigrations/4.2.0/user-normalized-identity.sql, migrations/4.2.0/site-share-links.sql, migrations/4.3.0/collection-syncs.sql, migrations/4.3.0/marten-9-37-event-store-columns.sql, migrations/4.4.0/marten-9-38-quick-append-events.sql, migrations/4.5.0/refresh-token-hash-index.sql, migrations/4.6.0/sensitivity-by-capability.sql, migrations/4.2.0/stored-files-parent-index.sql, migrations/4.2.0/forms-public-forms.sql, migrations/4.5.0/email-sent-emails.sql and migrations/4.6.0/forms-email-verification.sql applied first, and rolls back cleanly with migrations/4.6.0/rollback-forms-email-verification.sql, migrations/4.6.0/rollback-sensitivity-by-capability.sql, migrations/4.5.0/rollback-email-sent-emails.sql, migrations/4.5.0/rollback-refresh-token-hash-index.sql, migrations/4.4.0/rollback-marten-9-38-quick-append-events.sql, migrations/4.3.0/rollback-collection-syncs.sql, migrations/4.3.0/rollback-marten-9-37-event-store-columns.sql, %s.\n' "$FROM_VERSION" "$UP_FIRST" "$DOWN_LAST"

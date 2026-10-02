@@ -324,14 +324,14 @@ public class TenantMemberApiTests
             .RootElement.GetProperty("userId").GetGuid();
 
         var updated = await client.PutAsJsonAsync($"/api/tenants/members/{userId}",
-            new { roleIds = new[] { SystemRoles.HRRoleId }, status = "Suspended" });
+            new { roleIds = new[] { barakoCMS.Data.DataSeeder.DemoHrRoleId }, status = "Suspended" });
 
         NotRateLimited(updated);
         updated.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var row = (await MembershipsAsync(userId, slug)).Single();
         row.Status.Should().Be(MembershipStatus.Suspended);
-        row.RoleIds.Should().Equal(SystemRoles.HRRoleId);
+        row.RoleIds.Should().Equal(barakoCMS.Data.DataSeeder.DemoHrRoleId);
     }
 
     [Fact]
