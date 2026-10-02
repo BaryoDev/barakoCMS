@@ -58,25 +58,20 @@ internal static class ActionParameters
 
     public static Dictionary<string, string> Resolve(
         ITemplateVariableExtractor extractor, string actionType, IReadOnlyDictionary<string, string> parameters, Models.Content content) =>
-        Resolve(actionType, parameters, content is ErasedContent, (template, encoding) => extractor.ResolveVariables(template, content, encoding));
+        Resolve(actionType, parameters, (template, encoding) => extractor.ResolveVariables(template, content, encoding));
 
     /// <summary>The same, without an extractor, for a caller that is not handed one.</summary>
     public static Dictionary<string, string> Resolve(
         string actionType, IReadOnlyDictionary<string, string> parameters, Models.Content content) =>
-        Resolve(actionType, parameters, content is ErasedContent, (template, encoding) => TemplateVariableExtractor.Resolve(template, content, encoding));
+        Resolve(actionType, parameters, (template, encoding) => TemplateVariableExtractor.Resolve(template, content, encoding));
 
     private static Dictionary<string, string> Resolve(
-        string actionType, IReadOnlyDictionary<string, string> parameters, bool erased, Func<string, TemplateValueEncoding, string> resolve)
+        string actionType, IReadOnlyDictionary<string, string> parameters, Func<string, TemplateValueEncoding, string> resolve)
     {
         var resolved = new Dictionary<string, string>(parameters.Count);
         foreach (var (key, value) in parameters)
         {
-            // For an erased entry the condition reaches the conditional as written, so it can see
-            // which variables the condition reads and refuse the ones an erased entry does not have.
-            var asWritten = IsResolvedByTheAction(actionType, key)
-                || (erased && actionType == "Conditional" && key.Equals("Condition", StringComparison.OrdinalIgnoreCase));
-
-            resolved[key] = asWritten ? value : resolve(value, EncodingFor(actionType, key));
+            resolved[key] = IsResolvedByTheAction(actionType, key) ? value : resolve(value, EncodingFor(actionType, key));
         }
 
         return resolved;
