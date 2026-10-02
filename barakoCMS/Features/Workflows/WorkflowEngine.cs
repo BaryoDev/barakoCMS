@@ -35,13 +35,22 @@ internal class WorkflowEngine(
             return;
         }
 
+        // A Deleted event means here what it means on the queued path: the entry is erased, an
+        // action is told which entry went and nothing of what it held, and a workflow with
+        // conditions does not fire, since its conditions read the data that is gone. Whatever the
+        // caller passed, only the id and the content type go further.
+        var erased = eventType == WorkflowEvents.Deleted;
+        if (erased) content = new ErasedContent(content.Id, contentType);
+
         foreach (var workflow in workflows)
         {
             try
             {
+                if (erased && workflow.Conditions is { Count: > 0 }) continue;
+
                 if (MatchesConditions(workflow, content))
                 {
-                    await ExecuteActionsAsync(workflow, content, ct);
+                    await ExecuteActionsAsync(workflow, eventType, content, ct);
                 }
             }
             catch (Exception ex)
@@ -75,7 +84,7 @@ internal class WorkflowEngine(
         return true;
     }
 
-    private async Task ExecuteActionsAsync(WorkflowDefinition workflow, barakoCMS.Models.Content content, CancellationToken ct)
+    private async Task ExecuteActionsAsync(WorkflowDefinition workflow, string eventType, barakoCMS.Models.Content content, CancellationToken ct)
     {
         var run = debugger.StartExecution(workflow.Id, content.Id);
         var overallTimer = Stopwatch.StartNew();
@@ -108,6 +117,10 @@ internal class WorkflowEngine(
                 // Resolve {{...}} template variables against the content BEFORE executing, so live
                 // runs behave like the dry-run preview.
                 resolvedParams = ActionParameters.Resolve(variableExtractor, action.Type, parameters, content);
+
+                // The same channel the runner uses, so an action reads the trigger the same way on
+                // either path.
+                resolvedParams[ActionParameters.TriggerEventParameter] = eventType;
 
                 logger.LogInformation("Executing workflow action '{ActionType}' for workflow '{WorkflowName}'", action.Type, workflow.Name);
                 var result = await handler.RunAsync(resolvedParams, content, ct);

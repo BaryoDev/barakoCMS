@@ -83,6 +83,38 @@ public class WorkflowRunCancelTests
     }
 
     /// <summary>
+    /// A run that has finished is history. Cancel leaves it exactly as it is.
+    /// </summary>
+    /// <remarks>
+    /// A delete lists a workflow's queued runs and then loads each one. A run that finished between
+    /// the two is loaded finished, and without this it was marked cancelled: a run that succeeded
+    /// would read as stopped. The delete also looks at the status after the load; this is the same
+    /// rule where every caller of Cancel gets it.
+    /// </remarks>
+    [Theory]
+    [InlineData(AttemptStatus.Succeeded, RunStatus.Succeeded)]
+    [InlineData(AttemptStatus.Failed, RunStatus.Failed)]
+    [InlineData(AttemptStatus.Unknown, RunStatus.Failed)]
+    public void Cancel_leaves_a_finished_run_as_it_is(AttemptStatus finished, RunStatus expected)
+    {
+        var completedAt = DateTimeOffset.UtcNow.AddMinutes(-3);
+        var run = new WorkflowRun
+        {
+            Actions = [new WorkflowActionAttempt { Ordinal = 0, Status = finished, Attempts = 1, CompletedAt = completedAt }],
+        };
+        run.Recompute();
+        run.Status.Should().Be(expected, "the run has to be finished before the cancel for this to mean anything");
+
+        run.Cancel(DateTimeOffset.UtcNow).Should().Be(0);
+
+        run.CancelledAt.Should().BeNull();
+        run.Status.Should().Be(expected);
+        run.Actions.Should().HaveCount(1);
+        run.Actions[0].Status.Should().Be(finished);
+        run.Actions[0].CompletedAt.Should().Be(completedAt);
+    }
+
+    /// <summary>
     /// A stopped run whose only stopped attempt is Unknown still ends Cancelled and leaves the due
     /// query, which reads Pending and Running runs.
     /// </summary>

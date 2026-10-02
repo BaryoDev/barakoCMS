@@ -1,4 +1,5 @@
 using System.Net;
+using barakoCMS.Features.Workflows;
 using barakoCMS.Models;
 using FluentAssertions;
 using Marten;
@@ -166,6 +167,114 @@ public class WorkflowDeleteTests
             cleanup.DeleteWhere<WorkflowRun>(r => r.Id == control.Id);
             await cleanup.SaveChangesAsync(CancellationToken.None);
         }
+    }
+
+    /// <summary>
+    /// A retry that arrives while a delete of the workflow is in progress waits for it, and is then
+    /// refused, so no attempt is queued for a workflow that is gone.
+    /// </summary>
+    /// <remarks>
+    /// The delete is this test's own session, holding the lock the delete endpoint takes, with the
+    /// workflow deleted and not yet saved. A retry that did not take the lock would read the
+    /// workflow as still there, answer 200 at once and leave a Pending attempt behind.
+    ///
+    /// The pause only gives a retry that does not wait the time to finish. What is asserted after
+    /// it does not depend on timing.
+    /// </remarks>
+    [Fact]
+    public async Task A_retry_waits_for_a_delete_in_progress_and_is_then_refused()
+    {
+        var admin = await _harness.AdminAsync();
+        var id = await _harness.StoreWorkflowAsync();
+        var run = await _harness.SeedRunAsync(id, Guid.NewGuid(), [WorkflowStopHarness.Finished(AttemptStatus.Failed)]);
+
+        Task<HttpResponseMessage> retry;
+
+        await using (var deleting = _harness.Store.LightweightSession())
+        {
+            await WorkflowDefinitionLock.TakeAsync(deleting, id, Ct);
+            deleting.Delete<WorkflowDefinition>(id);
+
+            retry = admin.PostAsync($"/api/workflow-runs/{run.Id}/actions/0/retry", null, Ct);
+            await Task.Delay(TimeSpan.FromMilliseconds(750), Ct);
+
+            retry.IsCompleted.Should().BeFalse("the retry has to wait for the delete that holds the workflow");
+
+            await deleting.SaveChangesAsync(Ct);
+        }
+
+        var res = await retry;
+
+        res.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await res.Content.ReadAsStringAsync(Ct)).Should().Contain("deleted");
+
+        var after = await _harness.LoadRunAsync(run.Id);
+        after.Actions.Should().HaveCount(1);
+        after.Actions[0].Status.Should().Be(AttemptStatus.Failed, "no attempt is left Pending for a workflow that is gone");
+        after.Status.Should().Be(RunStatus.Failed);
+        (await _harness.LoadWorkflowAsync(id)).Should().BeNull();
+    }
+
+    /// <summary>
+    /// The other order: a delete that arrives while a retry is in progress waits for it, then sees
+    /// the attempt the retry queued and cancels it with the rest.
+    /// </summary>
+    /// <remarks>
+    /// The retry is this test's own session, holding the lock the retry endpoint takes, with the
+    /// attempt set back to Pending and not yet saved. A delete that did not take the lock would not
+    /// see that attempt, would answer at once, and the attempt would be saved after it for a
+    /// workflow that no longer exists.
+    /// </remarks>
+    [Fact]
+    public async Task A_delete_waits_for_a_retry_in_progress_and_cancels_the_attempt_it_queued()
+    {
+        var admin = await _harness.AdminAsync();
+        var id = await _harness.StoreWorkflowAsync();
+        var run = await _harness.SeedRunAsync(id, Guid.NewGuid(), [WorkflowStopHarness.Finished(AttemptStatus.Failed)]);
+
+        Task<HttpResponseMessage> delete;
+
+        await using (var retrying = _harness.Store.LightweightSession())
+        {
+            await WorkflowDefinitionLock.TakeAsync(retrying, id, Ct);
+
+            var read = await retrying.LoadAsync<WorkflowRun>(run.Id, Ct);
+            read!.Actions[0].Status = AttemptStatus.Pending;
+            // Parked, so no runner claims it between this save and the delete's read.
+            read.Actions[0].NextAttemptAt = WorkflowStopHarness.ParkedUntil;
+            read.CompletedAt = null;
+            read.Recompute();
+            retrying.Update(read);
+
+            delete = admin.DeleteAsync($"/api/workflows/{id}", Ct);
+            await Task.Delay(TimeSpan.FromMilliseconds(750), Ct);
+
+            delete.IsCompleted.Should().BeFalse("the delete has to wait for the retry that holds the workflow");
+
+            await retrying.SaveChangesAsync(Ct);
+        }
+
+        var res = await delete;
+
+        res.StatusCode.Should().Be(HttpStatusCode.NoContent, "{0}", await res.Content.ReadAsStringAsync(Ct));
+        (await _harness.LoadWorkflowAsync(id)).Should().BeNull();
+
+        var after = await _harness.LoadRunAsync(run.Id);
+        after.Actions.Should().HaveCount(1);
+        after.Actions[0].Status.Should().Be(AttemptStatus.Cancelled, "no attempt is left Pending for a workflow that is gone");
+        after.Status.Should().Be(RunStatus.Cancelled);
+        after.NextDueAt.Should().BeNull();
+    }
+
+    [Fact]
+    public void The_lock_a_delete_and_a_retry_share_names_the_tenant_and_the_workflow()
+    {
+        var id = Guid.NewGuid();
+
+        WorkflowDefinitionLock.Key("acme", id).Should().NotBe(WorkflowDefinitionLock.Key("globex", id),
+            "the same id in two tenants is two workflows");
+        WorkflowDefinitionLock.Key("acme", id).Should().NotBe(WorkflowDefinitionLock.Key("acme", Guid.NewGuid()));
+        WorkflowDefinitionLock.Key("acme", id).Should().Be(WorkflowDefinitionLock.Key("acme", id));
     }
 
     /// <summary>

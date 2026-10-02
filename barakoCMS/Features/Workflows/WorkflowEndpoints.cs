@@ -226,6 +226,11 @@ internal sealed class DeleteWorkflowEndpoint(
 
     public override async Task HandleAsync(DeleteWorkflowRequest req, CancellationToken ct)
     {
+        // Before anything is read. A retry of one of this workflow's runs takes the same lock, so it
+        // either queues its attempt before the runs are looked for below, and is cancelled with
+        // them, or waits and finds the workflow gone.
+        await WorkflowDefinitionLock.TakeAsync(session, req.Id, ct);
+
         var workflow = await session.LoadAsync<WorkflowDefinition>(req.Id, ct);
         if (workflow is null)
         {
@@ -260,7 +265,10 @@ internal sealed class DeleteWorkflowEndpoint(
             // Loaded one at a time, the way the runner claims, so each write carries the version it
             // read and a run the runner took in between is refused and not overwritten.
             var run = await session.LoadAsync<WorkflowRun>(runId, ct);
-            if (run is null) continue;
+
+            // Looked at again, because the run may have finished since the query above listed it.
+            // A run that succeeded or failed in between is history and is not marked cancelled.
+            if (run is null || run.Status is not (RunStatus.Pending or RunStatus.Running)) continue;
 
             run.Cancel(now);
             session.Update(run);

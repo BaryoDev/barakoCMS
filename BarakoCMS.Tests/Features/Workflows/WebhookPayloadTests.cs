@@ -119,6 +119,92 @@ public class WebhookPayloadTests
         body.RootElement.GetProperty("data").GetRawText().Should().Contain("Sarah");
     }
 
+    [Fact]
+    public async Task A_webhook_inside_a_conditional_on_a_Published_run_names_the_event()
+    {
+        const string tenant = "webhook-nested-published";
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var contentType = await SeedTypeAsync(store, tenant);
+        var content = Record(contentType, SensitivityLevel.Public);
+
+        using var listener = new RecordingListener();
+        await SendThroughConditionalAsync(store, tenant, content, listener.Url, WorkflowEvents.Published);
+
+        listener.WasCalled.Should().BeTrue();
+        using var body = System.Text.Json.JsonDocument.Parse(listener.LastBody!);
+        var names = body.RootElement.EnumerateObject().Select(p => p.Name).ToList();
+
+        names.Should().HaveCount(7, "{0}", listener.LastBody);
+        body.RootElement.GetProperty("event").GetString().Should().Be("Published",
+            "the child gets the run's trigger, not none and not the one it declared for itself");
+        body.RootElement.GetProperty("status").GetString().Should().Be("Published");
+    }
+
+    [Fact]
+    public async Task A_webhook_inside_a_conditional_on_a_Deleted_run_sends_the_event_the_id_and_the_type_only()
+    {
+        const string tenant = "webhook-nested-deleted";
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var contentType = await SeedTypeAsync(store, tenant);
+        var erased = new barakoCMS.Features.Workflows.ErasedContent(Guid.NewGuid(), contentType);
+
+        using var listener = new RecordingListener();
+        await SendThroughConditionalAsync(store, tenant, erased, listener.Url, WorkflowEvents.Deleted);
+
+        listener.WasCalled.Should().BeTrue();
+        using var body = System.Text.Json.JsonDocument.Parse(listener.LastBody!);
+        var names = body.RootElement.EnumerateObject().Select(p => p.Name).ToList();
+
+        names.Should().HaveCount(3, "{0}", listener.LastBody);
+        names.Should().BeEquivalentTo(new[] { "event", "contentId", "contentType" });
+        body.RootElement.GetProperty("event").GetString().Should().Be("Deleted");
+        body.RootElement.GetProperty("contentId").GetGuid().Should().Be(erased.Id);
+    }
+
+    /// <summary>
+    /// Sends through a Conditional whose then branch is one Webhook, the way the runner would call
+    /// it. The child declares a trigger of its own, which must not reach the body.
+    /// </summary>
+    private static async Task SendThroughConditionalAsync(
+        IDocumentStore store, string tenant, barakoCMS.Models.Content content, string url, string triggerEvent)
+    {
+        var guard = PermitsLoopback;
+        await using var session = store.LightweightSession(tenant);
+        using var handler = OutboundHttpHandler.Create(guard);
+        using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(10) };
+
+        var webhook = new WebhookAction(
+            new SingleClientFactory(client),
+            session,
+            new Moq.Mock<barakoCMS.Infrastructure.Security.ISecretProtector>().Object,
+            guard,
+            NullLogger<WebhookAction>.Instance);
+
+        var children = new ServiceCollection();
+        children.AddSingleton<barakoCMS.Features.Workflows.IWorkflowAction>(webhook);
+        await using var provider = children.BuildServiceProvider();
+        var conditional = new ConditionalAction(provider, NullLogger<ConditionalAction>.Instance);
+
+        var result = await conditional.RunAsync(
+            new Dictionary<string, string>
+            {
+                ["Condition"] = $"{{{{contentType}}}} == {content.ContentType}",
+                ["ThenActions"] = System.Text.Json.JsonSerializer.Serialize(new[]
+                {
+                    new
+                    {
+                        Type = "Webhook",
+                        Parameters = new Dictionary<string, string> { ["Url"] = url, ["TriggerEvent"] = "Spoofed" },
+                    },
+                }),
+                ["TriggerEvent"] = triggerEvent,
+            },
+            content,
+            CancellationToken.None);
+
+        result.Succeeded.Should().BeTrue("the child webhook has to be sent: {0}", result.Error);
+    }
+
     /// <summary>
     /// A name that answers with a public address for the pre-flight check and a blocked one for the
     /// connection never reaches the blocked address.

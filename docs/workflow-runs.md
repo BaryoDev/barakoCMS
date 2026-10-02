@@ -109,7 +109,11 @@ it. Switch the workflow on, then retry.
 `DELETE /api/workflows/{id}` deletes a workflow and cancels its queued runs in the same transaction.
 It cancels at most 200 runs. A workflow with more than that queued is refused with a 409: switch it
 off first, let the runner cancel them, then delete it. Its finished runs stay as history, and a
-retry of one of their actions answers 409, so a deleted workflow sends nothing more. One gap is left:
+retry of one of their actions answers 409, so a deleted workflow sends nothing more. A delete and a
+retry of one of the workflow's runs take turns: a retry that arrives during the delete waits and is
+then refused, and a delete that arrives during a retry waits and cancels the attempt the retry
+queued. A run that finishes while the delete is under way keeps the status it finished with. One gap
+is left:
 a run queued by an event in the instant between the delete reading the queue and committing is not
 cancelled, and executes once with the actions it copied. Switching the workflow off before deleting
 it closes that.

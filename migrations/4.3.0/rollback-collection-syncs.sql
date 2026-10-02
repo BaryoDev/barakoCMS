@@ -1,8 +1,8 @@
 -- Undoes migrations/4.3.0/collection-syncs.sql, for a rollback to a release before collection syncs.
 --
--- An earlier release does not declare this table, and it asserts its own schema at startup, so it
--- reports a table it does not know about as outstanding and refuses to boot while it is there.
--- Dropping it is what lets the older image start.
+-- An earlier release does not declare this table. It would still boot beside it, since a release
+-- refuses only an index or column it does not declare on a table it does. Dropping it puts the
+-- database back to what that release built.
 --
 -- WHAT IS LOST: the schedules and field mappings somebody configured. The entries a sync wrote are
 -- ordinary content in mt_doc_contents and are NOT touched, so the pages those syncs fill keep

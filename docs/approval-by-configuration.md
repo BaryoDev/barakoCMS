@@ -310,6 +310,9 @@ Information with the entry's id and type. Later changes are on record and fire a
   retried. A condition on `{{contentType}}` works.
 - A `Webhook` body holds `event`, `contentId` and `contentType` and nothing else (see
   [webhooks.md](webhooks.md)).
+- A custom `IWorkflowAction` is told by its `TriggerEvent` parameter, which is `Deleted`. The
+  `Content` it is handed has the entry's `Id` and `ContentType`; every other member is a default
+  and not a stored value, so the action should not send or store them.
 
 ## 9. The sender, from settings
 

@@ -25,33 +25,53 @@ internal static class ActionParameters
     /// A conditional's branches are JSON holding child actions. Resolving them as one string would
     /// let a quote in a value rewrite that JSON, and would give the child's parameters no encoding
     /// at all, so they are left as written and the conditional resolves each child's parameters.
+    /// Its condition is left as written too: the conditional reads the token's value from the entry
+    /// itself, and a value substituted first would be parsed as part of the comparison.
     /// </summary>
     public static bool IsResolvedByTheAction(string actionType, string parameter) =>
         actionType == "Conditional"
-        && (parameter.Equals("ThenActions", StringComparison.OrdinalIgnoreCase)
+        && (parameter.Equals("Condition", StringComparison.OrdinalIgnoreCase)
+            || parameter.Equals("ThenActions", StringComparison.OrdinalIgnoreCase)
             || parameter.Equals("ElseActions", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>The parameter the runner and the engine use to tell an action which trigger fired.</summary>
+    public const string TriggerEventParameter = "TriggerEvent";
+
+    /// <summary>
+    /// Hands the parent's trigger down to a child action's parameters.
+    /// </summary>
+    /// <remarks>
+    /// The name is reserved: a child that declares its own gets the parent's instead, the same way
+    /// the runner overwrites one declared on a top-level action. A child cannot claim an event that
+    /// did not fire.
+    /// </remarks>
+    public static Dictionary<string, string> WithTriggerOf(
+        IReadOnlyDictionary<string, string> parent, Dictionary<string, string> child)
+    {
+        if (parent.TryGetValue(TriggerEventParameter, out var trigger))
+        {
+            child[TriggerEventParameter] = trigger;
+        }
+
+        return child;
+    }
 
     public static Dictionary<string, string> Resolve(
         ITemplateVariableExtractor extractor, string actionType, IReadOnlyDictionary<string, string> parameters, Models.Content content) =>
-        Resolve(actionType, parameters, content is ErasedContent, (template, encoding) => extractor.ResolveVariables(template, content, encoding));
+        Resolve(actionType, parameters, (template, encoding) => extractor.ResolveVariables(template, content, encoding));
 
     /// <summary>The same, without an extractor, for a caller that is not handed one.</summary>
     public static Dictionary<string, string> Resolve(
         string actionType, IReadOnlyDictionary<string, string> parameters, Models.Content content) =>
-        Resolve(actionType, parameters, content is ErasedContent, (template, encoding) => TemplateVariableExtractor.Resolve(template, content, encoding));
+        Resolve(actionType, parameters, (template, encoding) => TemplateVariableExtractor.Resolve(template, content, encoding));
 
     private static Dictionary<string, string> Resolve(
-        string actionType, IReadOnlyDictionary<string, string> parameters, bool erased, Func<string, TemplateValueEncoding, string> resolve)
+        string actionType, IReadOnlyDictionary<string, string> parameters, Func<string, TemplateValueEncoding, string> resolve)
     {
         var resolved = new Dictionary<string, string>(parameters.Count);
         foreach (var (key, value) in parameters)
         {
-            // For an erased entry the condition reaches the conditional as written, so it can see
-            // which variables the condition reads and refuse the ones an erased entry does not have.
-            var asWritten = IsResolvedByTheAction(actionType, key)
-                || (erased && actionType == "Conditional" && key.Equals("Condition", StringComparison.OrdinalIgnoreCase));
-
-            resolved[key] = asWritten ? value : resolve(value, EncodingFor(actionType, key));
+            resolved[key] = IsResolvedByTheAction(actionType, key) ? value : resolve(value, EncodingFor(actionType, key));
         }
 
         return resolved;

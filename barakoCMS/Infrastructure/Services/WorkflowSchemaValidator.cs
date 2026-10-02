@@ -202,7 +202,13 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
                 continue;
             }
 
-            var (valid, spelling) = await DeclaredSpellingAsync(workflow, transition, result, ct);
+            // The single field when the trigger came from it, the list entry otherwise, so a
+            // request that sent only the list is not told about a field it never sent.
+            var field = string.Equals(triggerEvent, workflow.TriggerEvent, StringComparison.Ordinal)
+                ? "triggerEvent"
+                : $"triggerEvents[{(workflow.TriggerEvents ?? []).IndexOf(triggerEvent)}]";
+
+            var (valid, spelling) = await DeclaredSpellingAsync(workflow, transition, field, result, ct);
             transitionsValid &= valid;
             normalised.Add(spelling is null ? triggerEvent : WorkflowEvents.ForTransition(spelling));
         }
@@ -233,7 +239,7 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
     /// workflow names no type, which <see cref="Validate"/> has already refused.
     /// </returns>
     private async Task<(bool Valid, string? Spelling)> DeclaredSpellingAsync(
-        WorkflowDefinition workflow, string transition, WorkflowValidationResult result, CancellationToken ct)
+        WorkflowDefinition workflow, string transition, string field, WorkflowValidationResult result, CancellationToken ct)
     {
         // Every named type is checked, and every failure reported, so a list with two mistakes is
         // not fixed one save at a time.
@@ -253,7 +259,7 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
             {
                 result.Errors.Add(new ValidationError
                 {
-                    Field = "triggerEvent",
+                    Field = field,
                     Message = $"Content type '{contentType}' does not exist, so its transitions cannot be checked",
                 });
                 transitionValid = false;
@@ -271,7 +277,7 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
 
                 result.Errors.Add(new ValidationError
                 {
-                    Field = "triggerEvent",
+                    Field = field,
                     Message = $"'{transition}' is not a transition on '{contentType}'. Declared transitions: {available}",
                 });
                 transitionValid = false;
@@ -289,7 +295,7 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
             {
                 result.Errors.Add(new ValidationError
                 {
-                    Field = "triggerEvent",
+                    Field = field,
                     Message = $"'{spelledBy}' declares the transition as '{spelling}' and '{contentType}' as '{match.Name}'. "
                             + "One workflow matches one spelling, so use a workflow per spelling",
                 });

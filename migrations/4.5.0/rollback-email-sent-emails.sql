@@ -1,9 +1,9 @@
 -- Undoes migrations/4.5.0/email-sent-emails.sql, for a rollback to a release before sends were
 -- recorded.
 --
--- An earlier release does not declare this table, and it asserts its own schema at startup, so it
--- reports a table it does not know about as outstanding and refuses to boot while it is there.
--- Dropping it is what lets the older image start.
+-- An earlier release does not declare this table. It would still boot beside it, since a release
+-- refuses only an index or column it does not declare on a table it does. Dropping it puts the
+-- database back to what that release built.
 --
 -- WHAT IS LOST: which tenant sent which email. The emails themselves were delivered and are not
 -- affected. A bounce or complaint Resend reports after the rollback is recorded without a tenant,

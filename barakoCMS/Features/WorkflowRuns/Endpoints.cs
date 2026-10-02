@@ -239,6 +239,12 @@ internal sealed class RetryAttemptEndpoint(
         // send nothing and leave the run Cancelled, which can never be retried again. Refused
         // before anything is written, so the run keeps its status and can be retried once the
         // workflow is on. A workflow that was deleted must not fire again through a retry either.
+        //
+        // Under the lock a delete of the workflow takes, so the check below and the save cannot
+        // straddle one: the delete either sees the attempt queued here and cancels it, or has
+        // already committed and the workflow is gone.
+        await barakoCMS.Features.Workflows.WorkflowDefinitionLock.TakeAsync(session, run.WorkflowDefinitionId, ct);
+
         var workflow = await session.LoadAsync<WorkflowDefinition>(run.WorkflowDefinitionId, ct);
         if (workflow is null)
         {
