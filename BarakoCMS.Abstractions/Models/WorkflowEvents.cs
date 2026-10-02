@@ -16,17 +16,26 @@ public static class WorkflowEvents
     public const string Updated = "Updated";
     
     /// <summary>
-    /// Triggered when content is deleted.
+    /// Triggered when content is erased.
     /// </summary>
+    /// <remarks>
+    /// The entry is gone by the time an action runs, so a run for this trigger carries the entry's
+    /// id and content type and none of its data.
+    /// </remarks>
     public const string Deleted = "Deleted";
     
     /// <summary>
     /// Triggered when content status changes to Published.
     /// </summary>
     public const string Published = "Published";
+
+    /// <summary>
+    /// Triggered when content that was Published changes to any other status.
+    /// </summary>
+    public const string Unpublished = "Unpublished";
     
     /// <summary>
-    /// The prefix a trigger uses to name a lifecycle transition rather than one of the four events
+    /// The prefix a trigger uses to name a lifecycle transition rather than one of the events
     /// above, as in "transition:Approve".
     /// </summary>
     /// <remarks>
@@ -46,7 +55,7 @@ public static class WorkflowEvents
     /// listed here.
     /// </summary>
     /// <returns>Array of all valid event type strings.</returns>
-    public static string[] All => new[] { Created, Updated, Deleted, Published };
+    public static string[] All => new[] { Created, Updated, Deleted, Published, Unpublished };
 
     /// <summary>Whether this trigger names a lifecycle transition.</summary>
     public static bool IsTransition(string eventName) =>

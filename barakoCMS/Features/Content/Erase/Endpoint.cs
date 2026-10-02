@@ -27,6 +27,7 @@ internal class Request
 internal class Endpoint(
     IContentEraser eraser,
     IDocumentSession session,
+    barakoCMS.Features.Workflows.IWorkflowRunQueue workflowRuns,
     barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<Request>
 {
     public override void Configure()
@@ -41,11 +42,21 @@ internal class Endpoint(
     {
         Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId);
 
+        // Read for the content type alone. The Deleted workflows are told which entry went and what
+        // type it was, never what it held.
+        var contentType = (await session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct))?.ContentType;
+
         var found = await eraser.QueueEraseAsync(req.Id, ct);
         if (!found)
         {
             await Send.NotFoundAsync(ct);
             return;
+        }
+
+        // On this session and unsaved, so the runs commit with the erasure and the audit entry.
+        if (contentType is not null)
+        {
+            await workflowRuns.QueueDeletedAsync(req.Id, contentType, ct);
         }
 
         // Queued, not yet committed, and the audit entry joins it on the same session so that one

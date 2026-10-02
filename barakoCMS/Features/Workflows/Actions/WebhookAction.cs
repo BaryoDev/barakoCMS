@@ -151,15 +151,29 @@ internal class WebhookAction : IWorkflowAction
         {
             var client = _httpClientFactory.CreateClient("ExternalApi");
 
-            var payload = new
-            {
-                contentId = content.Id,
-                contentType = content.ContentType,
-                status = content.Status.ToString(),
-                data = await DeliverableDataAsync(content, ct),
-                createdAt = content.CreatedAt,
-                updatedAt = content.UpdatedAt
-            };
+            // The trigger, so one URL behind several events can tell them apart. Null when the
+            // caller is not the runner and did not say.
+            var triggerEvent = parameters.GetValueOrDefault("TriggerEvent");
+
+            // An erased entry has no status, data or timestamps left to send, and the defaults of
+            // the object standing in for it would read as a move to Draft just now.
+            object payload = content is ErasedContent || triggerEvent == WorkflowEvents.Deleted
+                ? new
+                {
+                    @event = triggerEvent,
+                    contentId = content.Id,
+                    contentType = content.ContentType
+                }
+                : new
+                {
+                    @event = triggerEvent,
+                    contentId = content.Id,
+                    contentType = content.ContentType,
+                    status = content.Status.ToString(),
+                    data = await DeliverableDataAsync(content, ct),
+                    createdAt = content.CreatedAt,
+                    updatedAt = content.UpdatedAt
+                };
 
             // Serialised here rather than by JsonContent, because the signature is over the exact
             // bytes on the wire and the receiver recomputes it over the exact bytes it read. A body

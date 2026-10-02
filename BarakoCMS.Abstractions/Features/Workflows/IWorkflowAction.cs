@@ -34,6 +34,11 @@ public interface IWorkflowAction
     /// written against the older contract keeps working unchanged and reports failure the only way it
     /// can: by throwing, which the engine records. Override this to report a failure that is an
     /// expected outcome rather than a defect.
+    ///
+    /// The <c>TriggerEvent</c> parameter names the trigger that fired. When it is <c>Deleted</c> the
+    /// entry has been erased: <paramref name="content"/> carries its <c>Id</c> and <c>ContentType</c>
+    /// and nothing else. Every other member is a default and not a stored value, so do not send or
+    /// store its status, sensitivity, data or timestamps.
     /// </remarks>
     async Task<WorkflowActionResult> RunAsync(Dictionary<string, string> parameters, Models.Content content, CancellationToken ct)
     {
