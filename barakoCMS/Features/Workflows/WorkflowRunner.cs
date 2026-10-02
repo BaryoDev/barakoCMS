@@ -291,7 +291,10 @@ internal sealed class WorkflowRunner(
         // whole attempt is what keeps the load-then-store pattern every other write in this codebase
         // relies on.
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-        var content = await session.LoadAsync<barakoCMS.Models.Content>(run.ContentId, ct);
+        // An erased entry cannot be loaded, and a Deleted action is told only which entry went.
+        var content = run.TriggerEvent == WorkflowEvents.Deleted
+            ? new barakoCMS.Models.Content { Id = run.ContentId, ContentType = run.ContentType }
+            : await session.LoadAsync<barakoCMS.Models.Content>(run.ContentId, ct);
 
         if (content is null)
         {

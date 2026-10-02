@@ -99,6 +99,61 @@ public class WorkflowTriggerEventsTests
     }
 
     [Fact]
+    public async Task The_action_of_a_Deleted_workflow_runs_and_is_handed_the_id_and_type_only()
+    {
+        await AuthenticateAsync("SuperAdmin");
+        var contentType = NewName("wf");
+        var needle = $"erased-{Guid.NewGuid():n}";
+
+        // The template names the erased field. With the entry's data it would resolve to the needle.
+        var workflowId = await StoreWorkflowAsync(w =>
+        {
+            w.TriggerContentType = contentType;
+            w.TriggerEvent = WorkflowEvents.Deleted;
+            w.Actions =
+            [
+                new WorkflowAction
+                {
+                    Type = "DeletedEcho",
+                    Parameters = new Dictionary<string, string> { ["Note"] = "{{data.FullName}}" },
+                },
+            ];
+        });
+
+        var id = await SeedAsync(contentType, needle);
+        (await _client.DeleteAsync($"/api/contents/{id}/erase")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        // Either this runner or the fixture's hosted one may claim the attempt.
+        var runner = new WorkflowRunner(
+            _factory.Services,
+            _factory.Services.GetRequiredService<Microsoft.Extensions.Logging.ILogger<WorkflowRunner>>(),
+            _factory.Services.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>());
+
+        await PollAsync(
+            async () =>
+            {
+                await runner.RunOnceAsync(CancellationToken.None);
+                var queued = await RunsOfAsync(workflowId);
+                return queued.Count > 0 && queued.All(r => r.Status is not (RunStatus.Pending or RunStatus.Running));
+            },
+            "the Deleted run was never finished by a runner");
+
+        var runs = await RunsOfAsync(workflowId);
+        runs.Should().HaveCount(1);
+        runs[0].Actions.Should().HaveCount(1);
+        runs[0].Actions[0].Status.Should().Be(AttemptStatus.Succeeded,
+            "the entry is always gone for a Deleted run, so skipping on a missing entry means the action never runs: {0}",
+            runs[0].Actions[0].Error);
+
+        DeletedEchoAction.ReceivedByRun.TryGetValue(runs[0].Id.ToString(), out var received).Should().BeTrue(
+            "the action has to have been called for this run");
+        received!.ContentId.Should().Be(id);
+        received.ContentType.Should().Be(contentType);
+        received.ContentJson.Should().NotContain(needle, "the action is told which entry went, not what it held");
+        received.ParametersJson.Should().NotContain(needle, "a template cannot read data the run was never given");
+    }
+
+    [Fact]
     public async Task A_workflow_naming_several_types_and_events_fires_for_each_of_them()
     {
         var page = NewName("page");
