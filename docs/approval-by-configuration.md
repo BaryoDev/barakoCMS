@@ -308,7 +308,7 @@ Information with the entry's id and type. Later changes are on record and fire a
   `{{updatedAt}}` resolve to nothing, and a `{{data.X}}` token is left as written.
 - A `Conditional` action whose condition reads `{{status}}` or `{{data.X}}` fails, and is not
   retried. A condition on `{{contentType}}` works.
-- A `Webhook` body holds `event`, `contentId` and `contentType` and nothing else (see
+- A `Webhook` body holds `event`, `tenant`, `contentId` and `contentType` and nothing else (see
   [webhooks.md](webhooks.md)).
 - A custom `IWorkflowAction` is told by its `TriggerEvent` parameter, which is `Deleted`. The
   `Content` it is handed has the entry's `Id` and `ContentType`; every other member is a default
