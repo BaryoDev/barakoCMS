@@ -25,7 +25,9 @@ namespace BarakoCMS.Tests;
 /// Each test builds its own <see cref="WebApplication"/> the way <c>JobWorkerSchemaOrderTests</c>
 /// does, on a database of its own, and never starts it: the check runs inside
 /// <c>UseBarakoCMS</c>. Endpoint discovery is off and the endpoint assemblies are named, so each
-/// host maps exactly what its test says.
+/// host maps exactly what its test says. A module's endpoints are only ever mapped here with the
+/// module's services registered: FastEndpoints constructs every endpoint as it maps the routes, so
+/// a host without those services stops there, before the check.
 /// </remarks>
 [Collection("Sequential")]
 public class RateLimitStartupCheckTests
@@ -76,19 +78,8 @@ public class RateLimitStartupCheckTests
 
         Action use = () => app.UseBarakoCMS();
 
-        use.Should().Throw<InvalidOperationException>("a registered module's routes are checked like core's")
+        use.Should().Throw<InvalidOperationException>("a module's routes are checked like core's")
             .WithMessage($"*{FormsRoute}' names '{FormsOptions.RateLimitPolicy}'*");
-    }
-
-    [Fact]
-    public async Task Routes_of_a_module_nobody_registered_do_not_stop_the_host()
-    {
-        await using var app = await BuildAsync(strayEndpoints: true);
-
-        Action use = () => app.UseBarakoCMS();
-
-        use.Should().NotThrow(
-            "the Forms routes are mapped with no module behind them and so no policy, and a host in that state started before the check existed");
     }
 
     [Theory]
@@ -147,7 +138,6 @@ public class RateLimitStartupCheckTests
 
     private async Task<WebApplication> BuildAsync(
         IBarakoModule? module = null,
-        bool strayEndpoints = false,
         Action<IServiceCollection>? own = null,
         bool beforeCore = false,
         (string Key, string Value)? setting = null)
@@ -180,7 +170,7 @@ public class RateLimitStartupCheckTests
             own?.Invoke(builder.Services);
 
         var endpoints = new List<Assembly> { typeof(barakoCMS.Data.DataSeeder).Assembly };
-        if (module is not null || strayEndpoints)
+        if (module is not null)
             endpoints.Add(typeof(FormsModule).Assembly);
         builder.Services.AddFastEndpoints(o =>
         {

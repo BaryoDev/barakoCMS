@@ -225,17 +225,9 @@ internal static class RateLimitSetup
     /// Stops the host when a route names a rate limit policy nobody registered, naming both.
     /// </summary>
     /// <remarks>
-    /// <para>
     /// The framework only finds this out on the first request to the route, and answers every
-    /// request to it with an error from then on. Routes the host maps after <c>UseBarakoCMS</c>
-    /// returns are not seen here.
-    /// </para>
-    /// <para>
-    /// Checked: core's routes, the host's own, and those of every registered module. An endpoint
-    /// class from any other assembly is left alone. Endpoint discovery maps whatever is loaded in
-    /// the process, so a module nobody registered can have routes here without its services, its
-    /// policy among them, and that host started before this check existed.
-    /// </para>
+    /// request to it with an error from then on. Every route mapped so far is checked, whichever
+    /// assembly it came from. Routes the host maps after <c>UseBarakoCMS</c> returns are not seen here.
     /// </remarks>
     public static void RequireRegisteredPolicies(IApplicationBuilder app)
     {
@@ -254,23 +246,7 @@ internal static class RateLimitSetup
             throw DuplicatePolicy(duplicate, Read(app.ApplicationServices.GetRequiredService<IConfiguration>()));
         }
 
-        var owned = new HashSet<System.Reflection.Assembly> { typeof(RateLimitSetup).Assembly };
-        if (System.Reflection.Assembly.GetEntryAssembly() is { } entry)
-        {
-            owned.Add(entry);
-        }
-
-        foreach (var module in app.ApplicationServices.GetServices<barakoCMS.Modules.IBarakoModule>())
-        {
-            owned.UnionWith(module.EndpointAssemblies);
-        }
-
-        RequireRegisteredPolicies(
-            routes.DataSources
-                .SelectMany(source => source.Endpoints)
-                .Where(endpoint => endpoint.Metadata.GetMetadata<FastEndpoints.EndpointDefinition>() is not { } definition
-                    || owned.Contains(definition.EndpointType.Assembly)),
-            options);
+        RequireRegisteredPolicies(routes.DataSources.SelectMany(source => source.Endpoints), options);
     }
 
     /// <summary>

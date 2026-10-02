@@ -363,8 +363,8 @@ The core's own names are reserved: `auth`, `telemetry`, `registration`, `site-sh
 new in this release, `delivery`. They cannot be defined under `Policies`; the sections above set
 them. A host or a module that registers its own policy named `delivery` in code stops at startup
 with a message saying to rename it. A name under `Policies` that a module already registers in code
-(`forms`, with the Forms module on) stops the host the same way, naming the setting. A route of
-core, the host or a registered module that names a policy nobody defined stops the host at startup
+(`forms`, with the Forms module on) stops the host the same way, naming the setting. Any route
+mapped by the time the API is set up that names a policy nobody defined stops the host at startup
 with the route and the policy named.
 
 #### What these counters are
