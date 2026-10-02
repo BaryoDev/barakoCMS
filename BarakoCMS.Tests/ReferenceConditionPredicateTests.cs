@@ -397,6 +397,19 @@ public class ReferenceConditionPredicateTests
             selected.Should().BeEmpty();
             allowed.Should().BeEmpty();
         }
+
+        // The control: the same classes and enrollments under a comparison on text. Without it a
+        // resolver that denied every condition following a reference would pass the loop above.
+        var onText = await CallerAsync(
+            new ContentTypePermission { ContentTypeSlug = classes, Read = new PermissionRule { Enabled = true } },
+            new ContentTypePermission { ContentTypeSlug = enrollments, Read = Where("Class.Title", "_eq", "a class") });
+
+        var (textPredicate, textSelected, textAllowed, stored) = await AskAsync(onText.Id, enrollments);
+
+        stored.Should().Be(8, "two enrollments for each of the four rules above");
+        textPredicate.Compiled.Should().BeTrue();
+        textSelected.Should().HaveCount(8);
+        textAllowed.Should().HaveCount(8);
     }
 
     [Fact]

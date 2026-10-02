@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Marten;
+using Marten.Linq;
 using Marten.Linq.MatchesSql;
 using Marten.Services;
 using LogSafe = barakoCMS.Infrastructure.Logging.LogSafe;
@@ -12,7 +13,7 @@ namespace barakoCMS.Infrastructure.Services;
 /// every way it can fail to resolve denies.
 /// </summary>
 /// <remarks>
-/// A condition is answered one of two ways, and both are the same question.
+/// A condition is answered one of three ways, and all three are the same question.
 ///
 /// The first row that asks loads the entry it points at: one read, which is all a get, an update
 /// or a transition needs. The second row that asks, pointing somewhere else, means a pass over
@@ -23,10 +24,11 @@ namespace barakoCMS.Infrastructure.Services;
 /// rows of other people it walks over.
 ///
 /// The set holds at most <see cref="ReferenceConditions.MaxEntriesPerCondition"/> ids. A condition
-/// that matches more has no set: the list is not paged in the database, and each row loads the
-/// entry it points at, up to <see cref="ReferenceConditions.MaxEntriesPerRequest"/> distinct
-/// entries. Past that the check throws rather than deny, because a denial there would be a short
-/// list that says nothing about being short.
+/// that leads to more has none. Where the database can answer the whole condition, a list of a
+/// named type is filtered by a subquery in place of the ids, and the rows of each page it returns
+/// load the entries they point at. Any other pass over many rows is refused, with
+/// <see cref="ReferenceConditionBoundException"/>, at the row that shows it is one: not answered
+/// with the rows it reached, which would be a short list that says nothing about being short.
 ///
 /// What is kept is kept for the DI scope, which is a request for every caller today, and dropped
 /// when this scope's session commits, so a scope that writes an entry and then asks again reads it
@@ -34,16 +36,18 @@ namespace barakoCMS.Infrastructure.Services;
 /// </remarks>
 public partial class PermissionResolver
 {
+    private const int CompareBatch = 500;
+
     private readonly Dictionary<string, Models.ContentTypeDefinition?> _definitions = new(StringComparer.Ordinal);
     private readonly Dictionary<Guid, Models.Content?> _referenced = new();
     private readonly Dictionary<(string Type, string Field, string Operators), Followed> _followed = new();
 
     private bool _followingReference;
     private bool _listening;
-    private bool _warnedSecondHop;
 
     /// <summary>A path that resolved against the content types: what to follow, to where, compared how.</summary>
     private sealed record ReferencePath(
+        string Key,
         string ReferenceField,
         string TargetField,
         object Operators,
@@ -61,9 +65,23 @@ public partial class PermissionResolver
 
         /// <summary>
         /// The referenced entries that satisfy the condition and that the caller may read. Null
-        /// until resolved, and null afterwards when more match than a set holds.
+        /// until resolved, and null afterwards when there are more than a set holds.
         /// </summary>
         public HashSet<Guid>? Ids { get; set; }
+
+        /// <summary>
+        /// With no set: the whole condition as one fragment, when the database can answer it.
+        /// </summary>
+        public ReadPredicate? Matching { get; set; }
+
+        /// <summary>
+        /// Whether this scope handed a list a subquery for the condition, so the rows now being
+        /// checked are a page the database already filtered.
+        /// </summary>
+        public bool Paged { get; set; }
+
+        /// <summary>How many entries this condition has loaded one by one.</summary>
+        public int Singles { get; set; }
     }
 
     private sealed class ForgetOnCommit(PermissionResolver resolver) : DocumentSessionListenerBase
@@ -110,7 +128,7 @@ public partial class PermissionResolver
         // another grants nothing here. Its other rules are still asked.
         if (_followingReference)
         {
-            WarnSecondHop(content.ContentType);
+            NoteSecondHop(content.ContentType);
             return false;
         }
 
@@ -160,15 +178,27 @@ public partial class PermissionResolver
         if (followed.Ids is { } known)
             return known.Contains(targetId);
 
+        var loaded = _referenced.ContainsKey(targetId);
+
         // A second row pointing somewhere new is a pass over many rows. Resolve the condition once
         // and answer this row and every later one from the set.
-        if (followed.Loaded && !followed.Resolved && !_referenced.ContainsKey(targetId))
+        if (!loaded && followed.Loaded)
         {
-            await ResolveAsync(followed, path, user, cancellationToken);
+            if (!followed.Resolved)
+                await ResolveAsync(followed, path, user, cancellationToken);
 
             if (followed.Ids is { } resolved)
                 return resolved.Contains(targetId);
+
+            // No set. Only a page the database filtered by subquery goes on loading, and a page
+            // is far smaller than the limit. Anything else is refused here, at the row that shows
+            // the pass for what it is, before it reads further.
+            if (!followed.Paged || followed.Singles >= ReferenceConditions.MaxEntriesPerRequest)
+                throw new ReferenceConditionBoundException(path.Key);
         }
+
+        if (!loaded)
+            followed.Singles++;
 
         followed.Loaded = true;
 
@@ -229,7 +259,7 @@ public partial class PermissionResolver
         if (comparison.Sql is null)
             return null;
 
-        return new ReferencePath(referenceField, targetField, operators, target, comparison);
+        return new ReferencePath(key, referenceField, targetField, operators, target, comparison);
     }
 
     private Followed FollowedFor(ReferencePath path)
@@ -266,8 +296,8 @@ public partial class PermissionResolver
             var sql = $"({path.Comparison.Sql}) AND ({readable.Sql})";
             object[] parameters = [.. path.Comparison.Parameters, .. readable.Parameters];
 
-            // One past the bound, which tells a condition that matches exactly the bound from one
-            // that matches more.
+            // One past the bound, which tells a condition that leads to exactly the bound from one
+            // that leads to more.
             var ids = await session.Query<Models.Content>()
                 .Where(c => c.ContentType == targetType && c.Sensitivity == Models.SensitivityLevel.Public)
                 .Where(c => c.MatchesSql(sql, parameters))
@@ -277,7 +307,7 @@ public partial class PermissionResolver
                 .ToListAsync(cancellationToken);
 
             if (ids.Count > bound)
-                WarnTooMany(path);
+                followed.Matching = new ReadPredicate(sql, parameters);
             else
                 followed.Ids = ids.ToHashSet();
 
@@ -286,31 +316,37 @@ public partial class PermissionResolver
 
         // The caller's Read rules for the referenced type do not compile, a rule on $status for
         // one. The comparison still narrows in the database, and each match is asked the read
-        // rules in memory.
+        // rules in memory, a batch at a time, so the bound counts what the caller may read and
+        // not what matched.
         var comparisonSql = path.Comparison.Sql!;
         var comparisonParameters = path.Comparison.Parameters;
-
-        var matches = await session.Query<Models.Content>()
-            .Where(c => c.ContentType == targetType && c.Sensitivity == Models.SensitivityLevel.Public)
-            .Where(c => c.MatchesSql(comparisonSql, comparisonParameters))
-            .OrderBy(c => c.Id)
-            .Take(bound + 1)
-            .ToListAsync(cancellationToken);
-
-        if (matches.Count > bound)
-        {
-            WarnTooMany(path);
-            return;
-        }
-
         var kept = new HashSet<Guid>();
-        foreach (var match in matches)
-        {
-            if (await ReadableAsync(user, match, cancellationToken))
-                kept.Add(match.Id);
-        }
 
-        followed.Ids = kept;
+        for (var skip = 0; skip < ReferenceConditions.MaxEntriesCompared; skip += CompareBatch)
+        {
+            var batch = await session.Query<Models.Content>()
+                .Where(c => c.ContentType == targetType && c.Sensitivity == Models.SensitivityLevel.Public)
+                .Where(c => c.MatchesSql(comparisonSql, comparisonParameters))
+                .OrderBy(c => c.Id)
+                .Skip(skip)
+                .Take(CompareBatch)
+                .ToListAsync(cancellationToken);
+
+            foreach (var match in batch)
+            {
+                if (await ReadableAsync(user, match, cancellationToken))
+                    kept.Add(match.Id);
+            }
+
+            if (kept.Count > bound)
+                return;
+
+            if (batch.Count < CompareBatch)
+            {
+                followed.Ids = kept;
+                return;
+            }
+        }
     }
 
     private async Task<bool> ReadableAsync(Models.User user, Models.Content target, CancellationToken cancellationToken)
@@ -328,7 +364,8 @@ public partial class PermissionResolver
 
     /// <summary>
     /// The read predicate for rules of which at least one follows a reference: each such condition
-    /// becomes "the reference field holds one of these ids".
+    /// becomes "the reference field holds one of these ids", or, past what a set holds, "the
+    /// reference field holds an id this query selects".
     /// </summary>
     private async Task<ReadPredicate> CompileFollowingReferencesAsync(
         IReadOnlyList<Models.Role> roles,
@@ -344,6 +381,7 @@ public partial class PermissionResolver
         ListenForCommits();
 
         var references = new Dictionary<Models.PermissionRule, IReadOnlyDictionary<string, ReadPredicate>>();
+        var bySubquery = new List<(Followed Followed, string Key)>();
 
         foreach (var rule in rules)
         {
@@ -368,18 +406,59 @@ public partial class PermissionResolver
                 if (!followed.Resolved)
                     await ResolveAsync(followed, path, user, cancellationToken);
 
-                // More match than a set holds, so there is no predicate and the list is answered
-                // per entry, exactly or not at all.
-                if (followed.Ids is not { } ids)
-                    return ReadPredicate.None;
+                if (followed.Ids is { } ids)
+                {
+                    clauses[key] = ReferenceConditions.In(path.ReferenceField, ids);
+                    continue;
+                }
 
-                clauses[key] = ReferenceConditions.In(path.ReferenceField, ids);
+                // No set. The database answers the condition whole or the list is refused, before
+                // the endpoint loads the type to check it row by row.
+                clauses[key] = Subquery(path, followed) ?? throw new ReferenceConditionBoundException(path.Key);
+                bySubquery.Add((followed, path.Key));
             }
 
             references[rule] = clauses;
         }
 
-        return PermissionPredicateCompiler.Compile(rules, user.Id, _profile, references);
+        var predicate = PermissionPredicateCompiler.Compile(rules, user.Id, _profile, references);
+
+        // With no predicate the endpoint would load the whole type and check it row by row, which
+        // a condition with no set cannot answer. Refused now, before that load.
+        if (!predicate.Compiled && bySubquery.Count > 0)
+            throw new ReferenceConditionBoundException(bySubquery[0].Key);
+
+        // The rows this scope checks next are a page the database filtered.
+        foreach (var (followed, _) in bySubquery)
+            followed.Paged = true;
+
+        return predicate;
+    }
+
+    /// <summary>
+    /// The condition as "the reference field holds an id this query selects", or null when the
+    /// database cannot answer it whole.
+    /// </summary>
+    /// <remarks>
+    /// The query is built on this scope's session and rendered by Marten, tenant filter included,
+    /// from the same fragments the set is read with. Nothing here names the table or its tenant
+    /// column.
+    /// </remarks>
+    private ReadPredicate? Subquery(ReferencePath path, Followed followed)
+    {
+        if (followed.Matching is not { Sql: { } sql } matching)
+            return null;
+
+        var targetType = path.Target.Name;
+        var parameters = matching.Parameters;
+
+        var command = session.Query<Models.Content>()
+            .Where(c => c.ContentType == targetType && c.Sensitivity == Models.SensitivityLevel.Public)
+            .Where(c => c.MatchesSql(sql, parameters))
+            .Select(c => c.Id)
+            .ToCommand(FetchType.FetchMany);
+
+        return ReferenceConditions.InSubquery(path.ReferenceField, command);
     }
 
     /// <summary>
@@ -403,7 +482,7 @@ public partial class PermissionResolver
 
             if (rule.Enabled && ReferenceConditions.Mentioned(rule.Conditions))
             {
-                WarnSecondHop(contentTypeSlug);
+                NoteSecondHop(contentTypeSlug);
                 continue;
             }
 
@@ -423,50 +502,24 @@ public partial class PermissionResolver
         return definition;
     }
 
-    /// <summary>
-    /// The entry a reference points at, read once per scope. Throws past
-    /// <see cref="ReferenceConditions.MaxEntriesPerRequest"/> distinct entries.
-    /// </summary>
-    /// <remarks>
-    /// Reached only by the first row of each condition and by a condition with no set. A caller
-    /// walking a whole collection gets an error there and not a list with rows quietly left out.
-    /// </remarks>
+    /// <summary>The entry a reference points at, read once per scope.</summary>
     private async Task<Models.Content?> ReferencedAsync(Guid id, CancellationToken cancellationToken)
     {
         if (_referenced.TryGetValue(id, out var known))
             return known;
-
-        if (_referenced.Count >= ReferenceConditions.MaxEntriesPerRequest)
-        {
-            throw new ReferenceConditionBoundException(
-                "A permission condition that follows a reference matches more than "
-              + $"{ReferenceConditions.MaxEntriesPerCondition} entries, so each row's reference is read on its own, "
-              + $"and this request needed more than {ReferenceConditions.MaxEntriesPerRequest} of them. "
-              + "Narrow the condition, or name fewer rows in the request.");
-        }
 
         var target = await session.LoadAsync<Models.Content>(id, cancellationToken);
         _referenced[id] = target;
         return target;
     }
 
-    private void WarnTooMany(ReferencePath path)
+    /// <summary>
+    /// Debug, not a warning: a Read rule on the referenced type that itself follows a reference is
+    /// a legitimate setup, and it would be logged on every request by such a caller.
+    /// </summary>
+    private void NoteSecondHop(string contentType)
     {
-        logger?.LogWarning(
-            "A condition on {Field} matches more than {Bound} entries of {ContentType} that the caller may read. "
-          + "A list is not paged in the database for it, and each row's reference is read on its own.",
-            LogSafe.Value(path.TargetField),
-            ReferenceConditions.MaxEntriesPerCondition,
-            LogSafe.Value(path.Target.Name));
-    }
-
-    private void WarnSecondHop(string contentType)
-    {
-        if (_warnedSecondHop)
-            return;
-
-        _warnedSecondHop = true;
-        logger?.LogWarning(
+        logger?.LogDebug(
             "A condition followed a reference into {ContentType}, whose own read rule follows another. "
           + "One reference is followed, so that rule grants nothing to the condition.",
             LogSafe.Value(contentType));

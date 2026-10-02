@@ -55,7 +55,10 @@ internal sealed class StoredReferenceConditionsNotice(
             $"select distinct tenant_id from {store.Options.DatabaseSchemaName}.mt_doc_contenttypedefinition",
             ct);
 
-        var roles = await ReadAsync(store, partitions, ct);
+        var roles = await ReadAsync(store, partitions, ct, (tenantId, ex) => logger.LogError(
+            ex,
+            "Could not check the roles that store a condition following a reference in tenant {Tenant}",
+            LogSafe.Value(tenantId)));
 
         if (roles.Count > 0)
         {
@@ -73,8 +76,15 @@ internal sealed class StoredReferenceConditionsNotice(
     /// The roles holding at least one dotted condition that a role write would refuse in every one
     /// of these tenants. With no tenant to ask, every dotted condition counts.
     /// </summary>
+    /// <param name="tenantFailed">
+    /// Called for a tenant that could not be asked, which is then left out. Null lets the failure
+    /// through.
+    /// </param>
     public static async Task<List<(Guid Id, string Name)>> ReadAsync(
-        IDocumentStore store, IReadOnlyList<string> tenantIds, CancellationToken ct)
+        IDocumentStore store,
+        IReadOnlyList<string> tenantIds,
+        CancellationToken ct,
+        Action<string, Exception>? tenantFailed = null)
     {
         var holding = new List<Role>();
 
@@ -100,18 +110,31 @@ internal sealed class StoredReferenceConditionsNotice(
 
         var permissions = holding.SelectMany(role => role.Permissions ?? []).ToList();
 
-        HashSet<(string Slug, string Key)>? nowhere = null;
+        HashSet<ConditionIdentity>? nowhere = null;
 
         foreach (var tenantId in tenantIds)
         {
-            await using var session = store.QuerySession(tenantId);
-            var unresolved = await ReferenceConditionRules.UnresolvedAsync(session, permissions, ct);
+            try
+            {
+                await using var session = store.QuerySession(tenantId);
+                var unresolved = await ReferenceConditionRules.UnresolvedAsync(session, permissions, ct);
 
-            if (nowhere is null)
-                nowhere = unresolved;
-            else
-                nowhere.IntersectWith(unresolved);
+                if (nowhere is null)
+                    nowhere = unresolved;
+                else
+                    nowhere.IntersectWith(unresolved);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException && tenantFailed is not null)
+            {
+                // The other tenants are still asked. A condition that follows a reference only in
+                // the tenant that failed is named, which errs towards telling the operator.
+                tenantFailed(tenantId, ex);
+            }
         }
+
+        // Tenants to ask and none answered: nothing is known, so nothing is named.
+        if (tenantIds.Count > 0 && nowhere is null)
+            return [];
 
         nowhere ??= ReferenceConditionRules.Paths(permissions).ToHashSet();
 

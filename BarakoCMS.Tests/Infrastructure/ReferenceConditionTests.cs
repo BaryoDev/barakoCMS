@@ -204,6 +204,13 @@ public class ReferenceConditionTests
                  {
                      id.ToString("N"),
                      id.ToString("B"),
+                     // Spellings the id parser takes in place of leading digits. The list compares
+                     // the stored text with the id written plainly, so these would open and not list.
+                     "0x345678-1234-1234-1234-123456789abc",
+                     "0X345678-1234-1234-1234-123456789abc",
+                     "+2345678-1234-1234-1234-123456789abc",
+                     "12345678-0x34-1234-1234-123456789abc",
+                     $"{id}\n",
                      $" {id}",
                      $"{id} ",
                      "not an id",
@@ -218,6 +225,85 @@ public class ReferenceConditionTests
         {
             ReferenceConditions.TryReadId(held, out _).Should().BeFalse("{0} is not text in the hyphenated form", held);
         }
+    }
+
+    private static Npgsql.NpgsqlCommand Command(string text, params Npgsql.NpgsqlParameter[] parameters)
+    {
+        var command = new Npgsql.NpgsqlCommand(text);
+        command.Parameters.AddRange(parameters);
+        return command;
+    }
+
+    [Fact]
+    public void A_query_becomes_a_subquery_with_its_parameters_in_the_order_its_text_names_them()
+    {
+        // The two ways a command names a parameter: by position and by name.
+        foreach (var command in new[]
+                 {
+                     Command(
+                         "select d.id from public.mt_doc_content as d where d.tenant_id = $1 and d.data ->> 'ContentType' = $2;",
+                         new Npgsql.NpgsqlParameter { Value = "tenant-a" },
+                         new Npgsql.NpgsqlParameter { Value = "class" }),
+                     Command(
+                         "select d.id from public.mt_doc_content as d where d.tenant_id = :p0 and d.data ->> 'ContentType' = :p1",
+                         new Npgsql.NpgsqlParameter("p0", "tenant-a"),
+                         new Npgsql.NpgsqlParameter("p1", "class")),
+                 })
+        {
+            var predicate = ReferenceConditions.InSubquery("Class", command);
+
+            predicate.Should().NotBeNull();
+            predicate!.Sql.Should().EndWith(
+                "IN (select d.id from public.mt_doc_content as d where d.tenant_id = ? and d.data ->> 'ContentType' = ?)");
+            predicate.Sql!.Count(ch => ch == '?').Should().Be(predicate.Parameters.Length);
+
+            // The reference field twice, for the spelling check and the cast, then the query's own.
+            predicate.Parameters.Should().HaveCount(4);
+            predicate.Parameters.Should().Equal("Class", "Class", "tenant-a", "class");
+        }
+    }
+
+    [Fact]
+    public void A_parameter_named_twice_is_bound_twice_and_a_cast_is_not_a_parameter()
+    {
+        var predicate = ReferenceConditions.InSubquery("Class", Command(
+            "select d.id from t as d where d.a = $2 and d.b::text = $1 and d.c = $2",
+            new Npgsql.NpgsqlParameter { Value = "one" },
+            new Npgsql.NpgsqlParameter { Value = "two" }));
+
+        predicate.Should().NotBeNull();
+        predicate!.Sql.Should().EndWith("IN (select d.id from t as d where d.a = ? and d.b::text = ? and d.c = ?)");
+        predicate.Parameters.Should().HaveCount(5);
+        predicate.Parameters.Should().Equal("Class", "Class", "two", "one", "two");
+    }
+
+    [Fact]
+    public void A_query_that_cannot_be_carried_over_with_certainty_gives_no_subquery()
+    {
+        var one = new Func<Npgsql.NpgsqlParameter>(() => new Npgsql.NpgsqlParameter { Value = "one" });
+
+        // A parameter the text never names, one the text names and the command does not hold, a
+        // question mark of the text's own, a parameter with no value, and a text that is no select.
+        foreach (var command in new[]
+                 {
+                     Command("select d.id from t as d where d.a = $1", one(), one()),
+                     Command("select d.id from t as d where d.a = $1 and d.b = $2", one()),
+                     Command("select d.id from t as d where d.a ? $1", one()),
+                     Command("select d.id from t as d where d.a = $1", new Npgsql.NpgsqlParameter { Value = DBNull.Value }),
+                     Command("delete from t where a = $1", one()),
+                 })
+        {
+            ReferenceConditions.InSubquery("Class", command).Should().BeNull("{0} is not certain", command.CommandText);
+        }
+    }
+
+    [Fact]
+    public void A_refusal_past_the_bound_names_the_condition_and_the_bound()
+    {
+        var refusal = new ReferenceConditionBoundException("Class.InstructorUser");
+
+        refusal.Message.Should().Contain("'Class.InstructorUser'");
+        refusal.Message.Should().Contain($"more than {ReferenceConditions.MaxEntriesPerCondition} entries");
     }
 
     [Fact]

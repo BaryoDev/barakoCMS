@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using FluentAssertions;
 using Marten;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
@@ -97,7 +98,12 @@ public class ReferenceConditionAccessTests
     }
 
     /// <summary>A user whose one role holds exactly these permissions.</summary>
-    private async Task<(HttpClient Client, Guid UserId)> CallerAsync(params ContentTypePermission[] permissions)
+    private Task<(HttpClient Client, Guid UserId)> CallerAsync(params ContentTypePermission[] permissions) =>
+        CallerHoldingAsync([], permissions);
+
+    /// <summary>The same, with system capabilities on the role, for a route gated on one.</summary>
+    private async Task<(HttpClient Client, Guid UserId)> CallerHoldingAsync(
+        string[] capabilities, params ContentTypePermission[] permissions)
     {
         using var scope = _factory.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
@@ -107,6 +113,7 @@ public class ReferenceConditionAccessTests
             Id = Guid.NewGuid(),
             Name = $"Instructor_{Guid.NewGuid():n}",
             Permissions = [.. permissions],
+            SystemCapabilities = [.. capabilities],
         };
         session.Store(role);
 
@@ -494,19 +501,31 @@ public class ReferenceConditionAccessTests
             scene.Classes,
             [new() { ["Title"] = "elsewhere", ["InstructorUser"] = scene.UserId.ToString() }],
             tenant: elsewhere)).Single();
-        var pointsAway = (await EnrollAsync(scene.Enrollments, foreignClass.ToString())).Single();
+        try
+        {
+            var pointsAway = (await EnrollAsync(scene.Enrollments, foreignClass.ToString())).Single();
 
-        (await GetAsync(scene.Client, pointsAway)).Should().Be(HttpStatusCode.Forbidden);
-        (await GetAsync(scene.Client, scene.Mine[0])).Should().Be(HttpStatusCode.OK, "a class in this tenant is the control");
+            (await GetAsync(scene.Client, pointsAway)).Should().Be(HttpStatusCode.Forbidden);
+            (await GetAsync(scene.Client, scene.Mine[0])).Should().Be(HttpStatusCode.OK, "a class in this tenant is the control");
 
-        var listed = await ListedAsync(scene.Client, scene.Enrollments);
-        listed.Ids.Should().HaveCount(2);
-        listed.Total.Should().Be(2);
-        listed.Ids.Should().BeEquivalentTo(scene.Mine);
+            var listed = await ListedAsync(scene.Client, scene.Enrollments);
+            listed.Ids.Should().HaveCount(2);
+            listed.Total.Should().Be(2);
+            listed.Ids.Should().BeEquivalentTo(scene.Mine);
 
-        var everyType = await ListedAsync(scene.Client, null);
-        everyType.Ids.Should().HaveCount(3);
-        everyType.Ids.Should().NotContain(pointsAway);
+            var everyType = await ListedAsync(scene.Client, null);
+            everyType.Ids.Should().HaveCount(3);
+            everyType.Ids.Should().NotContain(pointsAway);
+        }
+        finally
+        {
+            // The only row under that tenant id, so the partition does not outlive the test for
+            // the passes that visit every tenant with rows.
+            using var scope = _factory.Services.CreateScope();
+            await using var session = scope.ServiceProvider.GetRequiredService<IDocumentStore>().LightweightSession(elsewhere);
+            session.Delete<Content>(foreignClass);
+            await session.SaveChangesAsync();
+        }
     }
 
     [Fact]
@@ -524,18 +543,41 @@ public class ReferenceConditionAccessTests
         refused.AddRange(await EnrollAsync(scene.Enrollments, scene.MyClass.ToString("N")));
         refused.AddRange(await EnrollAsync(scene.Enrollments, new List<object> { scene.MyClass.ToString() }));
 
-        refused.Should().HaveCount(6);
+        // A class of the caller's whose id starts with zeros, and that id respelled with a prefix
+        // the id parser takes in place of leading digits. The text is not the id the list compares.
+        var zeros = Guid.Parse("00" + Guid.NewGuid().ToString()[2..]);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new Content
+            {
+                Id = zeros,
+                ContentType = scene.Classes,
+                Status = ContentStatus.Published,
+                Sensitivity = SensitivityLevel.Public,
+                Data = new Dictionary<string, object> { ["Title"] = "zeros", ["InstructorUser"] = scene.UserId.ToString() },
+            });
+            await session.SaveChangesAsync();
+        }
+
+        refused.AddRange(await EnrollAsync(scene.Enrollments, "0x" + zeros.ToString()[2..]));
+        refused.AddRange(await EnrollAsync(scene.Enrollments, "+0" + zeros.ToString()[2..]));
+
+        refused.Should().HaveCount(8);
         foreach (var id in refused)
             (await GetAsync(scene.Client, id)).Should().Be(HttpStatusCode.Forbidden);
 
-        // Upper case is the same id, and both paths read it.
+        // Upper case is the same id, and both paths read it. So is the zeros class spelled plainly,
+        // which shows the two respellings above were refused for their spelling.
         var upper = (await EnrollAsync(scene.Enrollments, scene.MyClass.ToString().ToUpperInvariant())).Single();
+        var plain = (await EnrollAsync(scene.Enrollments, zeros.ToString())).Single();
         (await GetAsync(scene.Client, upper)).Should().Be(HttpStatusCode.OK);
+        (await GetAsync(scene.Client, plain)).Should().Be(HttpStatusCode.OK);
 
         var listed = await ListedAsync(scene.Client, scene.Enrollments);
-        listed.Ids.Should().HaveCount(3);
-        listed.Total.Should().Be(3);
-        listed.Ids.Should().BeEquivalentTo(scene.Mine.Append(upper));
+        listed.Ids.Should().HaveCount(4);
+        listed.Total.Should().Be(4);
+        listed.Ids.Should().BeEquivalentTo(scene.Mine.Append(upper).Append(plain));
     }
 
     [Fact]
@@ -953,49 +995,231 @@ public class ReferenceConditionAccessTests
         }
     }
 
-    [Fact]
-    public async Task A_condition_matching_more_entries_than_a_set_holds_is_answered_per_entry_or_fails_and_never_runs_short()
+    private const string BoundClasses = "refboundclass";
+    private const string BoundEnrollments = "refboundenrol";
+    private const string BoundPages = "refboundpage";
+
+    private static readonly object TreeGate = new();
+    private static WebApplicationFactory<Program>? _treeHost;
+
+    /// <summary>
+    /// A host whose page tree reads <see cref="BoundPages"/>. Kept for the run and never disposed,
+    /// as the host in <c>PagesModuleTests</c> is.
+    /// </summary>
+    private WebApplicationFactory<Program> TreeHost()
     {
-        var (classes, enrollments) = await TypesAsync();
-        var (client, userId) = await CallerAsync(Classes(classes), Enrollments(enrollments));
+        lock (TreeGate)
+        {
+            return _treeHost ??= _factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+                services.Configure<BarakoCMS.Pages.PagesOptions>(o => o.ContentType = BoundPages)));
+        }
+    }
+
+    /// <summary>
+    /// Fixed names, because the page tree's type is set when its host is built. A class, an
+    /// enrollment with a slug so it can be pushed, and a page owned by a class.
+    /// </summary>
+    private async Task EnsureBoundTypesAsync()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+
+        if (await session.Query<ContentTypeDefinition>().AnyAsync(d => d.Name == BoundClasses))
+            return;
+
+        session.Store(new ContentTypeDefinition
+        {
+            Id = Guid.NewGuid(), Name = BoundClasses, DisplayName = BoundClasses,
+            Fields =
+            [
+                new FieldDefinition { Name = "Title", DisplayName = "Title", Type = "string" },
+                new FieldDefinition { Name = "InstructorUser", DisplayName = "Instructor", Type = "string" },
+            ],
+        });
+
+        session.Store(new ContentTypeDefinition
+        {
+            Id = Guid.NewGuid(), Name = BoundEnrollments, DisplayName = BoundEnrollments,
+            Fields =
+            [
+                new FieldDefinition { Name = "Student", DisplayName = "Student", Type = "string" },
+                new FieldDefinition { Name = "Slug", DisplayName = "Slug", Type = "slug" },
+                new FieldDefinition { Name = "Class", DisplayName = "Class", Type = "reference", ReferenceType = BoundClasses },
+            ],
+        });
+
+        session.Store(new ContentTypeDefinition
+        {
+            Id = Guid.NewGuid(), Name = BoundPages, DisplayName = BoundPages,
+            Fields =
+            [
+                new FieldDefinition { Name = "Title", DisplayName = "Title", Type = "string" },
+                new FieldDefinition { Name = "Slug", DisplayName = "Slug", Type = "slug" },
+                new FieldDefinition { Name = "Owner", DisplayName = "Owner", Type = "reference", ReferenceType = BoundClasses },
+            ],
+        });
+
+        await session.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// A 403 that says why: the reason names the condition and the bound, so the caller is told
+    /// what a row rule's bare 403 does not tell them.
+    /// </summary>
+    private static async Task ShouldBeRefusedAsync(Task<HttpResponseMessage> request, string pass, string key)
+    {
+        var response = await request;
+        var body = await response.Content.ReadAsStringAsync();
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden, "{0} answered {1}", pass, body);
+
+        var reasons = new List<string>();
+        using (var doc = JsonDocument.Parse(body))
+            Collect(doc.RootElement, reasons);
+
+        var bound = $"more than {ReferenceConditions.MaxEntriesPerCondition} entries";
+
+        reasons.Should().Contain(
+            reason => reason.Contains(key) && reason.Contains(bound),
+            "{0} says which condition and what bound, and answered {1}", pass, body);
+    }
+
+    private static void Collect(JsonElement element, List<string> texts)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Object:
+                foreach (var property in element.EnumerateObject())
+                    Collect(property.Value, texts);
+                break;
+
+            case JsonValueKind.Array:
+                foreach (var item in element.EnumerateArray())
+                    Collect(item, texts);
+                break;
+
+            case JsonValueKind.String:
+                texts.Add(element.GetString() ?? string.Empty);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// One set of 1,002 classes for every pass, since storing them is most of what this costs:
+    /// 1,156 rows stored in five writes, 12 requests, one extra host for the page tree.
+    /// </summary>
+    [Fact]
+    public async Task A_condition_leading_to_more_entries_than_a_set_holds_pages_a_named_type_and_refuses_every_other_pass()
+    {
+        await EnsureBoundTypesAsync();
+        await PurgeAsync(BoundClasses, BoundEnrollments, BoundPages);
+
+        // Teaches more classes than a set holds. The database can answer their rules whole.
+        var (client, userId) = await CallerHoldingAsync(
+            ["export_content"],
+            Classes(BoundClasses),
+            Enrollments(BoundEnrollments),
+            new ContentTypePermission { ContentTypeSlug = BoundPages, Read = Where("Owner.InstructorUser", "_eq", "$CURRENT_USER") });
+
+        // Reads every published class, by a rule the database cannot answer, and the enrollments
+        // of any class that has a title.
+        var (reader, _) = await CallerAsync(
+            new ContentTypePermission { ContentTypeSlug = BoundClasses, Read = Where("$status", "_eq", "Published") },
+            new ContentTypePermission { ContentTypeSlug = BoundEnrollments, Read = Where("Class.Title", "_ne", "no such title") });
 
         try
         {
-            // One more class than a condition resolves to as a set.
-            var taught = await StoreAsync(classes, Enumerable.Range(0, ReferenceConditions.MaxEntriesPerCondition + 1)
+            var taught = await StoreAsync(BoundClasses, Enumerable.Range(0, ReferenceConditions.MaxEntriesPerCondition + 1)
                 .Select(i => new Dictionary<string, object> { ["Title"] = $"class {i}", ["InstructorUser"] = userId.ToString() }));
             taught.Should().HaveCount(ReferenceConditions.MaxEntriesPerCondition + 1);
 
-            // As many enrollments, in distinct classes, as a request loads one by one.
-            var enrolled = await StoreAsync(enrollments, taught.Take(ReferenceConditions.MaxEntriesPerRequest)
-                .Select(id => new Dictionary<string, object> { ["Student"] = "a student", ["Class"] = id.ToString() }));
+            var notTheirs = await ClassAsync(BoundClasses, Guid.NewGuid());
 
-            var within = await ListedAsync(client, enrollments);
-            within.Total.Should().Be(ReferenceConditions.MaxEntriesPerRequest, "no set, so each row's class is loaded, and all of them fit");
-            within.Ids.Should().HaveCount(ReferenceConditions.MaxEntriesPerRequest);
-            within.Ids.Should().BeEquivalentTo(enrolled);
+            // More than a page of enrollments, each in a class of its own. The first names its
+            // class in upper case, which the subquery has to read as the list of ids does.
+            var mine = await StoreAsync(BoundEnrollments, taught.Take(150).Select((id, i) => new Dictionary<string, object>
+            {
+                ["Student"] = "a student",
+                ["Slug"] = $"bound-{i}",
+                ["Class"] = i == 0 ? id.ToString().ToUpperInvariant() : id.ToString(),
+            }));
+            mine.Should().HaveCount(150);
 
-            // One more distinct class than that.
-            var extra = (await EnrollAsync(enrollments, taught[^2].ToString())).Single();
+            var theirs = (await StoreAsync(BoundEnrollments,
+            [
+                new() { ["Student"] = "somebody else", ["Slug"] = "bound-other", ["Class"] = notTheirs.ToString() },
+                new() { ["Student"] = "nowhere", ["Slug"] = "bound-nowhere", ["Class"] = "not an id" },
+            ]));
 
-            var past = await client.GetAsync($"/api/contents?contentType={enrollments}&pageSize=100");
-            past.StatusCode.Should().Be(HttpStatusCode.InternalServerError,
-                "the list cannot be answered whole, and a list with rows left out would not say so");
+            await StoreAsync(BoundPages, taught.Take(2).Select((id, i) => new Dictionary<string, object>
+            {
+                ["Title"] = $"page {i}",
+                ["Slug"] = $"bound-page-{i}",
+                ["Owner"] = id.ToString(),
+            }));
 
-            (await GetAsync(client, extra)).Should().Be(HttpStatusCode.OK, "a single read follows one reference");
+            // A named type: the database filters by subquery, and pages and counts.
+            var typed = await ListedAsync(client, BoundEnrollments);
+            typed.Total.Should().Be(150);
+            typed.Ids.Should().HaveCount(150);
+            typed.Ids.Should().BeEquivalentTo(mine);
 
-            // At a thousand classes the condition has a set again, and the list is the database's.
+            // One entry: one read.
+            (await GetAsync(client, mine[7])).Should().Be(HttpStatusCode.OK);
+            (await GetAsync(client, theirs[0])).Should().Be(HttpStatusCode.Forbidden);
+
+            // Every pass that walks rows itself is refused, with the reason.
+            // The caller holds two conditions into classes, on enrollments and on pages, and the
+            // refusal names whichever the pass met at its second row.
+            await ShouldBeRefusedAsync(client.GetAsync("/api/contents?pageSize=10"), "the list of every type", ".InstructorUser");
+
+            await ShouldBeRefusedAsync(
+                client.GetAsync($"/api/portability/export?types={BoundEnrollments}"), "the export", Follows);
+
+            await ShouldBeRefusedAsync(
+                client.PostAsJsonAsync($"/api/collections/{BoundEnrollments}/push", new
+                {
+                    entries = new[]
+                    {
+                        new Dictionary<string, object> { ["Slug"] = "bound-0", ["Student"] = "pushed", ["Class"] = taught[0].ToString() },
+                        new Dictionary<string, object> { ["Slug"] = "bound-1", ["Student"] = "pushed", ["Class"] = taught[1].ToString() },
+                    },
+                }),
+                "the push",
+                Follows);
+
+            var tree = TreeHost().CreateClient();
+            tree.DefaultRequestHeaders.Authorization = client.DefaultRequestHeaders.Authorization;
+            await ShouldBeRefusedAsync(tree.GetAsync("/api/pages/tree"), "the page tree", "Owner.InstructorUser");
+
+            // A named type whose condition the database cannot answer whole: refused too, before
+            // the type is loaded.
+            await ShouldBeRefusedAsync(
+                reader.GetAsync($"/api/contents?contentType={BoundEnrollments}&pageSize=10"),
+                "a named type under a read rule the database cannot answer",
+                "Class.Title");
+
+            // At a thousand each condition has a set again, and every pass answers.
             await EraseAsync(taught[^1]);
+            await EraseAsync(notTheirs);
 
-            var at = await ListedAsync(client, enrollments);
-            at.Total.Should().Be(ReferenceConditions.MaxEntriesPerRequest + 1);
-            at.Ids.Should().HaveCount(ReferenceConditions.MaxEntriesPerRequest + 1);
-            at.Ids.Should().BeEquivalentTo(enrolled.Append(extra));
+            var everyType = await client.GetAsync("/api/contents?pageSize=1");
+            everyType.StatusCode.Should().Be(HttpStatusCode.OK, await everyType.Content.ReadAsStringAsync());
+            using (var doc = JsonDocument.Parse(await everyType.Content.ReadAsStringAsync()))
+            {
+                doc.RootElement.GetProperty("totalItems").GetInt32().Should().Be(
+                    ReferenceConditions.MaxEntriesPerCondition + 150 + 2,
+                    "a thousand classes, their 150 enrollments and the two pages they own");
+            }
+
+            var readerTyped = await ListedAsync(reader, BoundEnrollments);
+            readerTyped.Total.Should().Be(150);
+            readerTyped.Ids.Should().HaveCount(150);
+            readerTyped.Ids.Should().BeEquivalentTo(mine);
         }
         finally
         {
-            // A thousand entries nothing else reads, in a database every other class lists.
-            await PurgeAsync(classes, enrollments);
+            await PurgeAsync(BoundClasses, BoundEnrollments, BoundPages);
         }
     }
 

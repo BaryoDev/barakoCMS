@@ -359,7 +359,7 @@ public class ReferenceConditionRoleValidationTests
     }
 
     [Fact]
-    public async Task More_content_types_than_one_write_checks_is_refused_before_any_is_read()
+    public async Task More_content_types_than_one_write_checks_is_refused()
     {
         var admin = await AdminAsync();
         var tag = Guid.NewGuid().ToString("n")[..8];
@@ -401,6 +401,12 @@ public class ReferenceConditionRoleValidationTests
         var elsewhere = $"elsewhere{Guid.NewGuid():n}"[..24];
         var id = Guid.NewGuid();
 
+        static Dictionary<string, object> TwoOperators() => new()
+        {
+            ["_nin"] = new List<object> { "z", "y" },
+            ["_eq"] = "x",
+        };
+
         PermissionRule Stored(string key, string expected) => new()
         {
             Enabled = true,
@@ -418,14 +424,20 @@ public class ReferenceConditionRoleValidationTests
                 Name = $"Stored_{Guid.NewGuid():n}",
                 Permissions =
                 [
-                    new ContentTypePermission { ContentTypeSlug = enrollments, Read = Stored("a.b.c", "x") },
+                    new ContentTypePermission
+                    {
+                        ContentTypeSlug = enrollments,
+                        Read = new PermissionRule { Enabled = true, Conditions = new Dictionary<string, object> { ["a.b.c"] = TwoOperators() } },
+                    },
                     new ContentTypePermission { ContentTypeSlug = elsewhere, Read = Stored("Class.InstructorUser", "$CURRENT_USER") },
                 ],
             });
             await session.SaveChangesAsync();
         }
 
-        object legacy = Permission(enrollments, "a.b.c", Operators("_eq", "x"));
+        // Sent with _nin before _eq. The database hands the stored one back with _eq first, and
+        // the two are the same condition.
+        object legacy = Permission(enrollments, "a.b.c", TwoOperators());
         object foreign = Permission(elsewhere, "Class.InstructorUser", Operators());
 
         async Task<(HttpStatusCode Status, string Text)> PutAsync(string name, params object[] permissions)

@@ -24,12 +24,15 @@ public class StoredReferenceConditionsNoticeTests
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private static Role Holding(string slug, string key, bool onCreate = false)
+    private static Role Holding(string slug, string key, bool onCreate = false, object? expected = null)
     {
         var rule = new PermissionRule
         {
             Enabled = true,
-            Conditions = new Dictionary<string, object> { [key] = new Dictionary<string, object> { ["_eq"] = "x" } },
+            Conditions = new Dictionary<string, object>
+            {
+                [key] = new Dictionary<string, object> { ["_eq"] = expected ?? "x" },
+            },
         };
 
         return new Role
@@ -75,37 +78,64 @@ public class StoredReferenceConditionsNoticeTests
             await session.SaveChangesAsync(Ct);
         }
 
+        // Three roles hold the same key on the same content type. One follows a reference. The
+        // other two are refused for the rule they sit on and for the value they compare, so the
+        // key alone cannot say which role to name.
         var follows = Holding(enrollments, "Class.InstructorUser");
+        var onCreate = Holding(enrollments, "Class.InstructorUser", onCreate: true);
+        var aNumber = Holding(enrollments, "Class.InstructorUser", expected: 42L);
         var notAReference = Holding(enrollments, "Student.InstructorUser");
         var twoHops = Holding(enrollments, "Class.Teacher.InstructorUser");
-        var onCreate = Holding(enrollments, "Class.InstructorUser", onCreate: true);
         var noDot = Holding(enrollments, "Student");
 
-        await using (var session = store.LightweightSession())
+        var roles = new[] { follows, onCreate, aNumber, notAReference, twoHops, noDot };
+        var refused = new[] { onCreate.Id, aNumber.Id, notAReference.Id, twoHops.Id };
+
+        try
         {
-            foreach (var role in new[] { follows, notAReference, twoHops, onCreate, noDot })
-                session.Store(role);
-            await session.SaveChangesAsync(Ct);
+            await using (var session = store.LightweightSession())
+            {
+                foreach (var role in roles)
+                    session.Store(role);
+                await session.SaveChangesAsync(Ct);
+            }
+
+            var inBoth = (await StoredReferenceConditionsNotice.ReadAsync(store, [first, second], Ct))
+                .Select(role => role.Id).ToList();
+
+            inBoth.Should().Contain(refused);
+            inBoth.Should().NotContain(follows.Id, "it follows a reference in the first tenant, whatever another role does with the same key");
+            inBoth.Should().NotContain(noDot.Id, "a key with no dot is a field of the row, as it always was");
+
+            // Asked about the second tenant alone, where neither type exists, it follows nothing.
+            var inSecond = (await StoredReferenceConditionsNotice.ReadAsync(store, [second], Ct))
+                .Select(role => role.Id).ToList();
+
+            inSecond.Should().Contain(refused.Append(follows.Id));
+            inSecond.Should().NotContain(noDot.Id);
+
+            // With no tenant to ask, every dotted condition counts.
+            var nowhere = await StoredReferenceConditionsNotice.ReadAsync(store, [], Ct);
+
+            nowhere.Should().Contain(role => role.Id == follows.Id && role.Name == follows.Name);
+            nowhere.Select(role => role.Id).Should().NotContain(noDot.Id);
         }
+        finally
+        {
+            // Roles are read by every later run of the notice, and a definition keeps its tenant
+            // among the partitions the background passes visit.
+            await using (var session = store.LightweightSession())
+            {
+                foreach (var role in roles)
+                    session.Delete<Role>(role.Id);
+                await session.SaveChangesAsync(Ct);
+            }
 
-        var inBoth = (await StoredReferenceConditionsNotice.ReadAsync(store, [first, second], Ct))
-            .Select(role => role.Id).ToList();
-
-        inBoth.Should().Contain(new[] { notAReference.Id, twoHops.Id, onCreate.Id });
-        inBoth.Should().NotContain(follows.Id, "it follows a reference in the first tenant");
-        inBoth.Should().NotContain(noDot.Id, "a key with no dot is a field of the row, as it always was");
-
-        // Asked about the second tenant alone, where neither type exists, it follows nothing.
-        var inSecond = (await StoredReferenceConditionsNotice.ReadAsync(store, [second], Ct))
-            .Select(role => role.Id).ToList();
-
-        inSecond.Should().Contain(new[] { follows.Id, notAReference.Id, twoHops.Id, onCreate.Id });
-        inSecond.Should().NotContain(noDot.Id);
-
-        // With no tenant to ask, every dotted condition counts.
-        var nowhere = await StoredReferenceConditionsNotice.ReadAsync(store, [], Ct);
-
-        nowhere.Should().Contain(role => role.Id == follows.Id && role.Name == follows.Name);
-        nowhere.Select(role => role.Id).Should().NotContain(noDot.Id);
+            await using (var session = store.LightweightSession(first))
+            {
+                session.DeleteWhere<ContentTypeDefinition>(d => d.Name == classes || d.Name == enrollments);
+                await session.SaveChangesAsync(Ct);
+            }
+        }
     }
 }

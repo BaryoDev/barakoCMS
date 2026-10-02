@@ -131,7 +131,8 @@ It denies unless all of this holds, whatever the operator is:
 
 - The first name is a field the row's type declares as a `reference`, spelled as declared. If the
   field's type is changed later, the condition stops granting.
-- The row holds an id there, as text in the hyphenated form. Upper or lower case both read.
+- The row holds an id there, as text in the hyphenated form and no other: eight, four, four,
+  four and twelve hexadecimal digits. Upper or lower case both read.
 - The id is an entry in this tenant, of the type the reference declares, whose document sensitivity
   is Public. An erased entry and one in another tenant are both not there.
 - The caller may read that entry under their own Read rules for its type. The instructor's role
@@ -179,11 +180,26 @@ What it costs, and where it stops:
   is one query per condition, whoever else's rows the pass walks over. `GET /api/contents` with a
   `contentType` builds its query from the same ids, so it filters, pages and counts in the
   database.
-- The set holds at most 1,000 ids. A condition that matches more has none: a warning is logged,
-  the list is not paged in the database, and each row's referenced entry is loaded, up to 200
-  distinct entries in a request. A request that needs more fails with a 500 and returns no rows.
-  It does not return the rows it reached and leave the rest out, because nothing in such a list
-  would say it was short. Narrow the condition, or the request.
+- The set holds at most 1,000 ids: referenced entries that satisfy the condition and that the
+  caller may read. A condition keyed on the caller (`_eq $CURRENT_USER`) rarely reaches that. One
+  that is not, such as `Class.Visibility _eq public` or any `_ne` or `_nin`, reaches it as the
+  tenant grows. What happens then depends on the pass:
+  - `GET /api/contents` with a `contentType` keeps working when the database can answer the whole
+    condition, which is when the caller's Read rules for the referenced type compile to SQL. The
+    list is filtered by a subquery in place of the ids, with no bound on how many entries it
+    selects, and the rows of each page load the entries they point at.
+  - A get, an update or a transition on one entry keeps working: it is one read.
+  - Every other pass over many rows is refused with a 403 whose reason names the condition and
+    the bound: `GET /api/contents` with no `contentType`, the export, the page tree, a push of
+    more than one existing entry, and a list of a named type when the caller's Read rules for
+    the referenced type do not compile (a `$status` rule, for one). It is refused at the second
+    row, before the rest is read, and one warning is logged. It is not answered with the rows it
+    reached, because nothing in such a list would say it was short. The cure is on the role:
+    narrow the condition.
+- When the caller's Read rules for the referenced type do not compile, the matches are read in
+  batches of 500 and each is asked the read rules in memory, so the 1,000 counts what the caller
+  may read. At most 5,000 matches are read this way. A condition that matches more has no set,
+  however few of them the caller may read.
 - What a request has read this way is dropped when its session commits, so a write followed by a
   check in the same request reads again.
 - A refusal by id is still 403, as it is for every other condition.

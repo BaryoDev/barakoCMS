@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Marten;
 using barakoCMS.Models;
 
@@ -25,15 +26,20 @@ internal static class ReferenceConditions
 {
     /// <summary>
     /// The most referenced entries one condition resolves to as a set of ids. A condition that
-    /// matches more has no set: a list is not paged in the database for it and each row loads the
-    /// entry it points at.
+    /// leads to more has no set. A list of a named type is then filtered by a subquery where the
+    /// database can answer the whole condition, and any other pass over many rows is refused.
     /// </summary>
     public const int MaxEntriesPerCondition = 1000;
 
     /// <summary>
-    /// The most referenced entries a request loads one by one. Each condition loads one before it
-    /// resolves to a set, so only a condition with no set gets near this. Past it the check throws
-    /// <see cref="ReferenceConditionBoundException"/>.
+    /// The most matches read to build a set when the caller's Read rules for the referenced type
+    /// have to be asked in memory. Past it the condition has no set, however few the caller may read.
+    /// </summary>
+    public const int MaxEntriesCompared = 5000;
+
+    /// <summary>
+    /// The most referenced entries one condition loads one by one to confirm a page the database
+    /// filtered by subquery. A page holds at most half of this.
     /// </summary>
     public const int MaxEntriesPerRequest = 200;
 
@@ -85,9 +91,20 @@ internal static class ReferenceConditions
     };
 
     /// <summary>
+    /// The one spelling of an id a reference is followed through: eight, four, four, four and
+    /// twelve hexadecimal digits with hyphens between, in either case. The same pattern is used
+    /// in SQL by <see cref="InSubquery"/>.
+    /// </summary>
+    private const string IdPattern = "^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$";
+
+    private static readonly Regex Id = new(
+        IdPattern.Replace("$", "\\z"), RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
+
+    /// <summary>
     /// The id a reference field holds. Only the hyphenated form, in either case, because that is
-    /// what <see cref="In"/> can match in SQL: a value one of the two accepted and the other did
-    /// not would be an entry a caller can open and not list.
+    /// what the list can match in SQL: a value one of the two accepted and the other did not would
+    /// be an entry a caller can open and not list. The pattern is checked before the parse, since
+    /// the parser also takes a part that starts with <c>0x</c> or a plus sign.
     /// </summary>
     public static bool TryReadId(object? value, out Guid id)
     {
@@ -100,7 +117,7 @@ internal static class ReferenceConditions
             _ => null,
         };
 
-        return text is { Length: 36 } && Guid.TryParseExact(text, "D", out id);
+        return text is not null && Id.IsMatch(text) && Guid.TryParseExact(text, "D", out id);
     }
 
     /// <summary>The field a path follows, or null when the type does not declare it as a reference.</summary>
@@ -171,14 +188,97 @@ internal static class ReferenceConditions
 
         return new ReadPredicate($"lower(d.data -> 'Data' ->> ?) IN ({placeholders})", parameters.ToArray());
     }
+
+    private static readonly Regex CommandParameter = new(
+        @"\$(?<position>\d+)|(?<![:\w])[:@](?<name>p\d+)", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+
+    /// <summary>
+    /// The rows whose reference field holds the id of an entry the given query selects, for a
+    /// condition that leads to more entries than a list of ids holds.
+    /// </summary>
+    /// <param name="selectIds">
+    /// The command Marten built for "select the id of every referenced entry that satisfies the
+    /// condition and that the caller may read", from a query on the scope's session. The tenant
+    /// filter in it is the one Marten wrote, with its own parameter.
+    /// </param>
+    /// <returns>
+    /// Null when the command cannot be carried over with certainty: every parameter it declares has
+    /// to appear in its text, and the text may hold no <c>?</c> of its own. The caller then has no
+    /// predicate, and refuses.
+    /// </returns>
+    /// <remarks>
+    /// The inner query names its table <c>d</c>, as the outer one does. It reads nothing of the
+    /// outer row, so the inner name hides the outer one inside the parentheses and nothing else.
+    ///
+    /// The reference value is cast to a uuid only when it has the spelling <see cref="TryReadId"/>
+    /// reads, so a row holding anything else is not selected and cannot fail the cast.
+    /// </remarks>
+    public static ReadPredicate? InSubquery(string referenceField, Npgsql.NpgsqlCommand selectIds)
+    {
+        var text = selectIds.CommandText.Trim().TrimEnd(';').Trim();
+
+        if (!text.StartsWith("select", StringComparison.OrdinalIgnoreCase) || text.Contains('?'))
+            return null;
+
+        var parameters = new List<object> { referenceField, referenceField };
+        var used = new HashSet<int>();
+        var unknown = false;
+
+        var rendered = CommandParameter.Replace(text, match =>
+        {
+            var index = -1;
+
+            if (match.Groups["position"].Success)
+            {
+                if (int.TryParse(match.Groups["position"].Value, out var position))
+                    index = position - 1;
+            }
+            else
+            {
+                var name = match.Groups["name"].Value;
+                for (var i = 0; i < selectIds.Parameters.Count; i++)
+                {
+                    if (selectIds.Parameters[i].ParameterName.TrimStart(':', '@') == name)
+                    {
+                        index = i;
+                        break;
+                    }
+                }
+            }
+
+            if (index < 0 || index >= selectIds.Parameters.Count
+                || selectIds.Parameters[index].Value is null or DBNull)
+            {
+                unknown = true;
+                return match.Value;
+            }
+
+            used.Add(index);
+            parameters.Add(selectIds.Parameters[index].Value!);
+            return "?";
+        });
+
+        if (unknown || used.Count != selectIds.Parameters.Count)
+            return null;
+
+        return new ReadPredicate(
+            "(CASE WHEN (d.data -> 'Data' ->> ?) ~ '" + IdPattern + "' "
+          + "THEN (d.data -> 'Data' ->> ?)::uuid END) IN (" + rendered + ")",
+            parameters.ToArray());
+    }
 }
 
 /// <summary>
-/// A pass over many rows could not be answered within the bounds on following references.
+/// A pass over many rows met a condition that leads to more referenced entries than one request
+/// follows.
 /// </summary>
 /// <remarks>
-/// Thrown rather than answered with a denial. A denial for the rows past the bound would return a
-/// list that is short and says nothing about being short, to a caller who can open the missing
-/// rows one at a time.
+/// Thrown rather than answered with a denial for the rows past the bound, which would return a
+/// list that is short and says nothing about being short. <c>MalformedRequestMiddleware</c> turns
+/// it into a 403 carrying the message, which is written for the caller and names nothing but the
+/// condition's key and the bound.
 /// </remarks>
-internal sealed class ReferenceConditionBoundException(string message) : InvalidOperationException(message);
+internal sealed class ReferenceConditionBoundException(string key) : InvalidOperationException(
+    $"The permission condition '{key}' leads to more than {ReferenceConditions.MaxEntriesPerCondition} entries, "
+  + "and a request that covers many rows follows at most that many. Read one entry at a time, name a content "
+  + "type, or have the condition on the role narrowed.");

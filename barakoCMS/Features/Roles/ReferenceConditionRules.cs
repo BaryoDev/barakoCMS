@@ -5,6 +5,9 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.Roles;
 
+/// <summary>What makes a condition the one it is: its content type, its rule, its key and its operators.</summary>
+internal readonly record struct ConditionIdentity(string Slug, string Slot, string Key, string Operators);
+
 /// <summary>
 /// What a role write checks about a condition that follows a reference, such as
 /// <c>Class.InstructorUser</c>.
@@ -90,8 +93,32 @@ internal static class ReferenceConditionRules
         return PathsOf(permissions).Where(held => !kept.Contains(Identity(held))).ToList();
     }
 
-    private static (string Slug, string Slot, string Key, string Operators) Identity(Held held) =>
-        (held.Slug, held.Slot, held.Key, JsonSerializer.Serialize(held.Operators));
+    private static ConditionIdentity Identity(Held held) =>
+        new(held.Slug, held.Slot, held.Key, OperatorsText(held.Operators));
+
+    /// <summary>
+    /// The operators and their values, in a text that does not depend on the order the operators
+    /// were written in. A stored condition comes back in the database's key order and a request in
+    /// the client's, and the same condition must read as the same. A list keeps its order.
+    /// </summary>
+    private static string OperatorsText(object? operators)
+    {
+        IEnumerable<(string Name, object? Value)>? pairs = operators switch
+        {
+            Dictionary<string, object> held => held.Select(pair => (pair.Key, (object?)pair.Value)),
+            JsonElement { ValueKind: JsonValueKind.Object } element =>
+                element.EnumerateObject().Select(property => (property.Name, (object?)property.Value)),
+            _ => null,
+        };
+
+        if (pairs is null)
+            return JsonSerializer.Serialize(operators);
+
+        return string.Join(
+            "\n",
+            pairs.OrderBy(pair => pair.Name, StringComparer.Ordinal)
+                .Select(pair => JsonSerializer.Serialize(pair.Name) + ":" + JsonSerializer.Serialize(pair.Value)));
+    }
 
     public static List<string> ShapeErrors(List<ContentTypePermission>? permissions) =>
         ShapeErrors(PathsOf(permissions));
@@ -200,18 +227,23 @@ internal static class ReferenceConditionRules
     /// <summary>Whether any rule in these permissions holds a condition whose key holds a dot.</summary>
     public static bool HoldsPath(List<ContentTypePermission>? permissions) => PathsOf(permissions).Any();
 
-    /// <summary>The content type and key of every such condition.</summary>
-    public static IEnumerable<(string Slug, string Key)> Paths(List<ContentTypePermission>? permissions) =>
-        PathsOf(permissions).Select(held => (held.Slug, held.Key));
+    /// <summary>Every such condition, as what makes it the condition it is.</summary>
+    public static IEnumerable<ConditionIdentity> Paths(List<ContentTypePermission>? permissions) =>
+        PathsOf(permissions).Select(Identity);
 
     /// <summary>
-    /// The conditions in these permissions that a write would refuse in this session's tenant, by
-    /// content type and key. For the start-up notice, which asks every tenant.
+    /// The conditions in these permissions that a write would refuse in this session's tenant. For
+    /// the start-up notice, which asks every tenant.
     /// </summary>
-    public static async Task<HashSet<(string Slug, string Key)>> UnresolvedAsync(
+    /// <remarks>
+    /// Each is identified by its content type, its rule, its key and its operators, since any of
+    /// the four can be what a write refuses: the same key is refused on a Create rule and accepted
+    /// on a Read rule, and refused with a number where it is accepted with text.
+    /// </remarks>
+    public static async Task<HashSet<ConditionIdentity>> UnresolvedAsync(
         IQuerySession session, List<ContentTypePermission>? permissions, CancellationToken cancellationToken)
     {
-        var unresolved = new HashSet<(string Slug, string Key)>();
+        var unresolved = new HashSet<ConditionIdentity>();
         var wellFormed = new List<Held>();
 
         foreach (var held in PathsOf(permissions))
@@ -219,7 +251,7 @@ internal static class ReferenceConditionRules
             if (ShapeError(held) is null)
                 wellFormed.Add(held);
             else
-                unresolved.Add((held.Slug, held.Key));
+                unresolved.Add(Identity(held));
         }
 
         var definitions = await DefinitionsForAsync(session, wellFormed, cancellationToken);
@@ -227,7 +259,7 @@ internal static class ReferenceConditionRules
         foreach (var held in wellFormed)
         {
             if (Error(definitions, held) is not null)
-                unresolved.Add((held.Slug, held.Key));
+                unresolved.Add(Identity(held));
         }
 
         return unresolved;
