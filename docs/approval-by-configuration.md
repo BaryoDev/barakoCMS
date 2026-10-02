@@ -308,7 +308,7 @@ Information with the entry's id and type. Later changes are on record and fire a
   `{{updatedAt}}` resolve to nothing, and a `{{data.X}}` token is left as written.
 - A `Conditional` action whose condition reads `{{status}}` or `{{data.X}}` fails, and is not
   retried. A condition on `{{contentType}}` works.
-- A `Webhook` body holds `event`, `contentId` and `contentType` and nothing else (see
+- A `Webhook` body holds `event`, `tenant`, `contentId` and `contentType` and nothing else (see
   [webhooks.md](webhooks.md)).
 - A custom `IWorkflowAction` is told by its `TriggerEvent` parameter, which is `Deleted`. The
   `Content` it is handed has the entry's `Id` and `ContentType`; every other member is a default
@@ -406,6 +406,63 @@ and logged at warning level, which exists for a deployment whose entries predate
 | Workflow on `transition:Pay` | admin | `400` | Not a declared transition |
 | `Approve` from Submitted | approver | `200` | Granted, in order, not the raiser |
 | `Approve` from Approved | approver | `409` | Out of order, and the caller may know that |
+
+## A transition that requires fields
+
+This part is not in the walkthrough above and its requests were not run against the quickstart. It
+is tested by `TransitionRequiredFieldsTests`.
+
+A transition can name fields of the type that must be sent with the move, and fields that may be:
+
+```json
+{ "name": "Reject", "from": "Submitted", "to": "Rejected",
+  "requiredFields": ["RejectionReason"], "optionalFields": ["RejectionNote"] }
+```
+
+Both lists are optional and empty by default. Each name has to be a field the type declares, and a
+name may appear once across the two lists; anything else is refused when the type is saved.
+
+The values go in `data` on the same request that makes the move:
+
+```bash
+curl -s -X PUT $BASE/api/contents/$INVOICE/status -H "Authorization: Bearer $APPROVER" \
+  -H 'Content-Type: application/json' \
+  -d '{"transition": "Reject", "data": {"RejectionReason": "No receipt attached"}}'
+```
+
+- Without a value for `RejectionReason` in `data` the answer is `400` naming the field, and the
+  entry stays where it was. A blank string and `null` count as no value. A value already on the
+  entry does not count either: an entry rejected, sent back and rejected again needs a reason of
+  its own, or the workflow would send the first one out a second time.
+- `data` may carry only the fields the transition declares. Any other key is a `400`, and the
+  answer lists the fields the transition takes without repeating the key that was sent.
+- The caller needs the transition permission and not `update`. That is how a reviewer who may not
+  edit the entry still records why they rejected it, and the declared lists are the limit of what
+  they can write.
+- The values are checked the way an update checks them: a field the caller may not see is put back
+  to its stored value, the type's validation runs over the whole entry (required fields, types and
+  `validationRules`), and before-save hooks run. A reviewer who may not see a required field cannot
+  send it, so the move is refused with the field named, whatever the entry already holds.
+- The permission checks run first. A caller who may not perform the transition gets the same bare
+  `403` as before and is not told which fields it requires.
+- The values and the move commit together. The entry's history shows an `Updated` beside the
+  `Transitioned`, and a workflow on `transition:Reject` reads `{{data.RejectionReason}}`. A workflow
+  on `Updated` fires too, because the data did change.
+- When `data` is sent, an edit to the entry by somebody else that commits while the move is in
+  flight makes the move a `409`, and an edit that committed just before is kept. The move does not
+  write another writer's field back to what it was.
+- `data` sent to a transition that declares no fields, or with `newStatus`, is ignored.
+
+The requirement is checked where a transition is made, which is this endpoint and nothing else.
+Scheduled publishing, `UpdateField`, collection pushes and syncs change `status` and never the
+lifecycle state. A workflow can still blank the field afterwards: this is a check on the move, not
+a rule the entry keeps.
+
+An import replaces a type's fields and keeps its lifecycle, so it refuses a bundle that leaves out
+a field a stored transition names, one that changes what a stored transition requires, and one
+whose new lifecycle names a field the bundle's type does not declare. A stored transition that
+names a field the type does not have anyway is skipped for that name and logged at warning level,
+and the rest of what it requires still applies.
 
 ## What this page does not cover
 

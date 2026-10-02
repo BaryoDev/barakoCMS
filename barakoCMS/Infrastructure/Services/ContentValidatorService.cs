@@ -146,8 +146,7 @@ public class ContentValidatorService(IQuerySession session) : IContentValidatorS
             var requiredByRule = !field.IsRequired && FieldRules.IsRequiredBy(field, data);
             if (field.IsRequired || requiredByRule)
             {
-                if (keyDetails.Key == null || keyDetails.Value == null || string.IsNullOrWhiteSpace(keyDetails.Value.ToString())
-                    || IsEmptyList(field, keyDetails.Value))
+                if (keyDetails.Key == null || IsBlank(field, keyDetails.Value))
                 {
                     errors.Add(requiredByRule
                         ? $"Field '{field.DisplayName}' ({field.Name}) is required for this entry (rule 'requiredWhen')."
@@ -293,6 +292,10 @@ public class ContentValidatorService(IQuerySession session) : IContentValidatorS
 
         return null;
     }
+
+    /// <summary>Whether a required field holding this value counts as left out.</summary>
+    internal static bool IsBlank(FieldDefinition field, object? value) =>
+        value is null || string.IsNullOrWhiteSpace(value.ToString()) || IsEmptyList(field, value);
 
     /// <summary>A required multiple choice holding an empty list has nothing chosen.</summary>
     private static bool IsEmptyList(FieldDefinition field, object value) =>

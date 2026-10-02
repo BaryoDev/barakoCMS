@@ -28,6 +28,16 @@ internal class Request
     /// picking one silently would hide it.
     /// </remarks>
     public string? Transition { get; set; }
+
+    /// <summary>
+    /// Values for the fields the named transition declares, written with the move.
+    /// </summary>
+    /// <remarks>
+    /// Read only for a transition that declares <c>requiredFields</c> or <c>optionalFields</c>, and
+    /// only those fields may be sent. Anywhere else it is ignored, as an unknown property was before
+    /// this existed, so no request that was accepted is refused.
+    /// </remarks>
+    public Dictionary<string, object>? Data { get; set; }
 }
 
 internal class RequestValidator : FastEndpoints.Validator<Request>

@@ -5,12 +5,8 @@ namespace barakoCMS.Features.Workflows;
 
 /// <summary>A workflow as the API describes it, rather than as it is stored.</summary>
 /// <remarks>
-/// See <c>Features/Roles/RoleResponse</c> for the reasoning.
-///
-/// Only the response is separated here. <c>CreateWorkflowEndpoint</c> still binds
-/// <see cref="WorkflowDefinition"/> as its request, so the stored shape is still the input contract.
-/// That is a larger change than this one, because the request shape is what every caller writes
-/// against, and it is noted rather than done.
+/// See <c>Features/Roles/RoleResponse</c> for the reasoning. <see cref="CreateWorkflowRequest"/> is
+/// the same separation on the way in.
 /// </remarks>
 internal sealed class WorkflowResponse
 {

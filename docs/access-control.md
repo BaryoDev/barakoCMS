@@ -60,7 +60,10 @@ with both Treasurer and Secretary gets the union.
 
 `ContentTypePermission.Transitions` sits alongside the four CRUD rules, keyed by
 transition name, for a content type that declares its own lifecycle. Update
-does not imply a transition and a transition does not imply update.
+does not imply a transition and a transition does not imply update, with one
+stated exception: a transition that declares `requiredFields` or
+`optionalFields` lets whoever may perform it write those fields, and no
+others, with the move.
 [Approval by configuration](approval-by-configuration.md) walks an invoice
 through Submit and Approve against the API, with every request as a curl and the
 status code each one answers.

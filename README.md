@@ -406,7 +406,8 @@ lifecycle hook, an endpoint and passing tests), [delivering a client project](do
 a clean machine to handover, and what is not solved yet),
 [the public delivery API](docs/delivery-api.md) (pagination, the `filter[field][op]`
 syntax, sorting, resolving references), [collections filled from outside](docs/collection-syncs.md)
-and [pushed to from CI](docs/collection-push.md), [idempotency on the authoring API](docs/idempotency.md)
+and [pushed to from CI](docs/collection-push.md), [connectors](docs/connectors.md) (third-party
+credentials, including OAuth 2.0 client credentials), [idempotency on the authoring API](docs/idempotency.md)
 (the `Idempotency-Key` header on `POST`, `PUT` and `PATCH`), [upgrading to 4.0](docs/upgrading-to-4.0.md),
 [event-sourced content types](docs/event-sourced-content-types.md),
 [blueprints](docs/blueprints.md) (content types for a blog, events, a portfolio, docs, a product
