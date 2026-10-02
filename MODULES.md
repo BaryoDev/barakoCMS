@@ -148,9 +148,10 @@ public int ContractVersion => ModuleContract.Version;
 order in which core calls them. Nothing else. A module that reaches past those into core's own
 services is not using the contract, and the version says nothing about it.
 
-**What moves the number.** Removing a member, changing a signature, or changing when core calls a
-hook relative to the others. Adding a member with a default implementation does not, because a
-module compiled against the previous version keeps working.
+**What moves the number.** Removing a member, changing a signature, changing when core calls a
+hook relative to the others, or moving the place in the request pipeline where `ConfigureApp`
+middleware runs (see [Middleware](#middleware)). Adding a member with a default implementation does
+not, because a module compiled against the previous version keeps working.
 
 **It is not the CMS version, deliberately.** Core can go 3.21 to 4.0 without touching the contract,
 and a contract change can land in a minor. Tying them together would mean either a major release
@@ -197,6 +198,21 @@ public sealed class MyModule : IBarakoModule
     public void ConfigureSchema(IModuleSchema schema)
     {
         schema.For<MyDocument>().Index(x => x.SomeField);
+    }
+
+    // Add middleware. It runs after tenant resolution, authentication and UseAuthorization.
+    // A response header is written as the response starts, not before next: see Middleware.
+    public void ConfigureApp(IApplicationBuilder app)
+    {
+        app.Use(async (context, next) =>
+        {
+            context.Response.OnStarting(() =>
+            {
+                context.Response.Headers["X-My-Feature"] = "on";
+                return Task.CompletedTask;
+            });
+            await next(context);
+        });
     }
 
     // Endpoints ship in your assembly and are auto-discovered (defaults to this assembly).
@@ -282,6 +298,95 @@ once your seed returns.
 Modules previously shared one session committed once at the end, so one failure discarded every
 module's work and any module could read another's uncommitted data.
 
+### Middleware
+
+`ConfigureApp(IApplicationBuilder app)` adds middleware to the request pipeline. `UseBarakoCMS`
+calls it once per enabled module, and whatever a module adds runs at one fixed position. In order,
+a request passes through:
+
+1. Exception handling, forwarded headers, HTTPS redirection and HSTS outside Development, the
+   security headers, the API contract header and the metrics scrape guard.
+2. Core's rate limiter.
+3. The correlation id and request logging.
+4. Tenant resolution.
+5. CORS.
+6. Authentication, the token revocation check and the tenant access check.
+7. `UseAuthorization`.
+8. **Module middleware**, one module after another.
+9. Core's output cache.
+10. What answers: the health probes, the OpenAPI document and the endpoints. An endpoint's global
+    pre-processors, the capability gate among them, run inside the endpoint.
+
+What your middleware can rely on there:
+
+- **The tenant is resolved.** Read it from the request's services:
+  `context.RequestServices.GetRequiredService<TenantContext>().Slug`.
+- **The caller is known.** `HttpContext.User` is the authenticated caller, or anonymous on an
+  endpoint that allows it. A request with no token on an endpoint that needs one never reaches
+  your middleware, and the token revocation check and the tenant access check have already run.
+- **The endpoint is matched and has not run.** `context.GetEndpoint()` returns it on a host built on
+  `WebApplication`, which is how every barakoCMS host is built.
+
+What it cannot rely on:
+
+- **The endpoint's own checks have not happened.** The capability gate, the API key scope check,
+  the idempotency filter and the DeviceTrust module's device enforcement are global
+  pre-processors. They run inside the endpoint, after you. A request that reaches your middleware can still be answered 403, so
+  middleware that answers without calling `next` (a cache, say) has skipped all of them and owns
+  them.
+- **There may be no endpoint.** A request for a path nothing is mapped to reaches your middleware
+  too, anonymous or not, with `context.GetEndpoint()` null, before core answers it 404.
+- **What you write before `next` on a cached route is not yours for long.** Your middleware is
+  outside core's output cache, so it runs on every request, including one the cache answers. A
+  response header written before `next` is stored with the cached response and replayed to every
+  later caller over whatever you wrote for that request. Write response headers in
+  `context.Response.OnStarting`, as the example above does and as core does for its own: that value
+  is the current request's on a cached response too. And a `Set-Cookie` written before `next` stops
+  core storing the response at all, which switches the cache off for that route.
+- **It does not see the health probes.** Requests under `/health` go around module middleware, the
+  same way they go around core's output cache, so a module that throttles or caches cannot decide
+  whether a pod is restarted.
+
+**What you are handed.** `app` is a branch of the pipeline that belongs to your module, made with
+`IApplicationBuilder.New()`, not the host application. It shares the host's container
+(`app.ApplicationServices`). It is not a `WebApplication` and not an `IEndpointRouteBuilder`, and it
+does not carry the host's route builder, so `UseEndpoints` on it cannot map onto the host: a
+module's endpoints ship in `EndpointAssemblies`. Everything you add to it lands at step 8 and
+nowhere else, so a module cannot put middleware ahead of tenant resolution or authentication, and
+cannot reorder or remove what core added.
+
+What that does not prevent: a module can end a request by not calling `next`, which is what a
+throttle or a cache is for, and it can answer a path of its own from inside its branch, by hand or
+with its own `UseRouting` and `UseEndpoints`, for a request core matched to no endpoint. Anything
+served that way has none of the endpoint checks listed above. Like the scoped configuration
+section, this is a boundary and not a sandbox.
+
+**Order between modules.** The order modules are configured in: `DependsOn` first, then
+registration order (what the callback added, then what discovery found, by type name). The first
+module is outermost, so it sees a request before the next module does and the response after it.
+
+**Order between hooks.** `ConfigureServices`, then `ConfigureSchema`, then `ConfigureApp`, then
+`SeedAsync`. `UseBarakoCMS` builds the Marten store before it calls any `ConfigureApp`, so a module
+whose schema is refused fails under its own name before any pipeline hook runs.
+
+**A hook that throws** stops startup. `UseBarakoCMS` throws an `InvalidOperationException` naming
+the module, with the module's exception inside it, and every module's hook runs before any module
+middleware is added, so a failure leaves none behind. Middleware that cannot be constructed fails
+the same way, by name, when the pipeline is built.
+
+**Keep it to adding middleware.** The hook runs on every start of the host, including a start that
+only runs a `db-assert`, `db-apply` or `db-patch` command, so it is not the place for work that
+needs the database or the network.
+
+**A module left off `BarakoCMS:Modules:Enabled`** does not have the hook called.
+
+**The position is part of the contract.** Moving it would change what every module's middleware can
+see, so it moves `ModuleContract.Version`.
+
+`ModuleConfigureAppTests` holds the position over HTTP, on both sides, with the output cache
+behaviour and the order of the hooks. `ModuleAppPipelineTests` holds the ordering between modules,
+the branch, the health probe exemption and the failure behaviour.
+
 ### Configuration
 
 A module receives its own `Modules:{Name}` section, never the application root.
@@ -323,10 +428,16 @@ Under the hood `AddBarakoCMS` collects the modules and:
 
 - calls each `ConfigureServices`,
 - adds each module's `EndpointAssemblies` to FastEndpoints discovery (additive to the host scan),
+- registers each module as a singleton `IBarakoModule` so `RunBarakoModuleSeedersAsync` can seed it.
+
+The Marten store is built on first use, and building it:
+
 - calls each `ConfigureSchema` with an `IModuleSchema` restricted to the module's own document types,
 - calls each `ConfigureMarten` as well, for modules written before `ConfigureSchema` existed, logging
-  a warning naming any module that still uses it,
-- registers each module as a singleton `IBarakoModule` so `RunBarakoModuleSeedersAsync` can seed it.
+  a warning naming any module that still uses it.
+
+`UseBarakoCMS` builds the store first, if nothing has yet, and then calls each `ConfigureApp`, in
+the same module order, at the position described under [Middleware](#middleware).
 
 Default services (e.g. the mock `IEmailService`) are registered with `TryAdd`, so a module can
 substitute a real implementation.
@@ -439,7 +550,9 @@ Checked, in this order, before any request is served:
    startup and lists the names available.
 5. **Schema ownership.** `ConfigureSchema` throws on a document type from an assembly the module
    did not declare in `SchemaAssemblies`.
-6. **Seeding.** Each seeder runs in its own session and transaction; one throwing is logged against
+6. **The pipeline hook.** A module that throws in `ConfigureApp` stops `UseBarakoCMS` with an error
+   naming it.
+7. **Seeding.** Each seeder runs in its own session and transaction; one throwing is logged against
    the module and does not stop the others. After all seeders run, any failures are thrown together
    as an `AggregateException`, failing startup unless the host catches it.
 
