@@ -128,11 +128,12 @@ Apart from `/api/auth/*`, each is allowed for `GET` and `HEAD` only:
 | `/metrics` | a scraper names no tenant |
 | `GET /api/meta` | a console reads the contract version before it knows a tenant |
 | `GET /api/tenants/by-host/{host}` | how a renderer learns the tenant |
-| `GET /api/tenants/{handle}/public` | how a sign-in page learns the tenant |
+| `GET /api/tenants/{handle}/public` | how a sign-in page learns the tenant. It reads the registry on the `default` slug, then that tenant's published site entry |
 | `/api/auth/*` | identity is stored once for the deployment, and a provider redirects a social sign-in to one fixed address |
 
 They run on the `default` slug whatever the request named, so a slug nobody registered never
-reaches a session or an audit row through them. A CORS preflight (`OPTIONS` with `Origin` and
+reaches a session or an audit row through them. The public profile route opens one more session,
+for the tenant the registry returned, and only after finding it registered and active. A CORS preflight (`OPTIONS` with `Origin` and
 `Access-Control-Request-Method`) is let through as well, since a browser sends it without
 `X-Tenant`; the CORS middleware answers it and no endpoint runs.
 
@@ -288,8 +289,71 @@ deployment with no memberships at all behaves exactly as it did before multi-ten
   clients written when it was the only name, and both go through the same membership check. A
   request that sets both to different tenants is a 400, and so is one that sets neither. Only the
   JSON body is read: a `tenant` or `club` on the query string is ignored.
-- `/api/tenants` creates, lists and updates tenants, gated on `SuperAdmin`.
+- `/api/tenants` creates, lists and updates tenants, gated on `SuperAdmin`. A tenant here is its
+  handle, name, domains and active flag.
 - `GET /api/tenants/{handle}/public` is the anonymous lookup a sign-in page needs.
+
+## The tenant profile
+
+A tenant used to carry a public profile on its own record: `LogoUrl`, `About`, `Location`,
+`LocationUrl`, `SocialHandle`, `Email` and `ContactUrl`. From 4.6.0 the tenant's `site` entry holds
+it ([site-settings.md](site-settings.md)), so a site is described in one place and gains a field
+without a change to the API.
+
+| Was on the tenant | Is the site field |
+| --- | --- |
+| `LogoUrl` | `Logo` |
+| `About` | `About` |
+| `Location` | `Location` |
+| `LocationUrl` | `LocationUrl` |
+| `SocialHandle` | `SocialHandle` |
+| `Email` | `Email` |
+| `ContactUrl` | `ContactUrl` |
+
+**Reading.** `GET /api/tenants/{handle}/public` keeps its shape, and `GET /api/me/tenants` keeps
+`logoUrl`. Both read the tenant's site entry the way `GET /api/public/site` delivers it: the
+published entry, and only fields the type marks Public. A draft is not read, and neither is a field
+marked Sensitive or Hidden. A field the entry does not hold falls back to the value still on the
+tenant record, so a tenant answers the same before the migration below has run. `GET /api/tenants`
+and the answers to a tenant create or update no longer carry the profile.
+
+**Writing.** `POST /api/tenants` and `PUT /api/tenants/{handle}` refuse a request that sets one of
+the seven, with a 400 naming the site field. Blank and absent are the same, so a client that sends
+them empty is not refused. An update leaves whatever is still on the tenant record alone. The
+profile is edited as content: update the `site` entry and publish it.
+
+**Who can change it.** That changed. The tenant API needs the `manage_tenants` capability, which a
+SuperAdmin holds, so only the platform could set a profile. The site entry is content of the
+tenant, so anyone who may update and publish the `site` type in that tenant can, such as its own
+Admin. A SuperAdmin still can, from inside the tenant. Who can read it did not change: it was
+anonymous, and a published site entry is.
+
+**Moving what is stored.** `migrations/4.6.0/tenant-profile-to-site.sql` moves each value into the
+site entry and blanks it on the tenant record. It moves a tenant only when that tenant has one
+published, Public entry of a publicly deliverable `site` type that is not event sourced, and it
+prints a `NOTICE` naming every tenant and value it leaves behind. Where the entry already holds a
+different value the entry wins: both sides are kept, the `NOTICE` names the tenant and field, and the
+API answers with the entry's value. Run it again after a tenant it left alone publishes its site
+entry. This lists what is still on tenant records:
+
+```sql
+select t.data ->> 'Slug' as tenant, k.key as field
+from public.mt_doc_tenants t
+cross join lateral jsonb_each_text(t.data) k
+where k.key in ('LogoUrl', 'About', 'Location', 'LocationUrl', 'SocialHandle', 'Email', 'ContactUrl')
+  and btrim(coalesce(k.value, '')) <> ''
+order by 1, 2;
+```
+
+`Branding` is not moved. It was never writable through the API and has no fixed shape to map to a
+site field, so `GET /api/tenants` and `GET /api/me/tenants` still return it from the tenant record.
+
+The fallback, the seven members and `Branding` on `Tenant` are marked obsolete and go in 6.0. Before
+then the query above has to come back empty, or the values it lists stop being served.
+
+A host or module that reads those members from a `Tenant` in its own code finds them empty for a
+tenant the file moved. 4.6.0 does not need the file to have run, so it can wait until that code
+reads the site entry.
 
 barakoBrew has a tenant switcher built on these.
 

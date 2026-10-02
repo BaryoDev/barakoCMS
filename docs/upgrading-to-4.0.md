@@ -66,6 +66,7 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.3.0
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.3.0/marten-9-37-event-store-columns.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.4.0/marten-9-38-quick-append-events.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.5.0/refresh-token-hash-index.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/tenant-profile-to-site.sql
 ```
 
 The two Marten files bring the event store up to the Marten version the release you are deploying
@@ -92,6 +93,14 @@ the file creates the table without the policy, and `db-assert` run with enforcem
 the policy as outstanding. Add it with `db-apply`, described under
 [Schema changes after 4.0](#schema-changes-after-40);
 [tenancy-at-the-database.md](tenancy-at-the-database.md) has the queries that show it is there.
+
+The tenant profile file changes data and no schema, so `db-assert` passes with or without it. It
+moves each tenant's logo, about text, location, social handle, email and contact link from the
+tenant document into that tenant's published `site` entry, and prints a `NOTICE` for every tenant
+and value it leaves where it was, with the reason. The API reads the site entry first and the tenant
+document second, so a tenant it left alone still answers. [multi-tenancy.md](multi-tenancy.md#the-tenant-profile)
+has the rules, and the query that lists what is still on tenant documents. It is safe to run twice,
+and worth running again after a tenant it left alone publishes its site entry.
 
 Run every file with the API stopped. A running API keeps a transaction open for as long as it
 runs, and an index built `CONCURRENTLY` waits for every transaction older than itself, so against
@@ -178,6 +187,7 @@ statements from the file by hand rather than re-running the whole thing.
 Stop 4.0, then:
 
 ```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/rollback-tenant-profile-to-site.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.5.0/rollback-email-sent-emails.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.5.0/rollback-refresh-token-hash-index.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.4.0/rollback-marten-9-38-quick-append-events.sql
@@ -199,6 +209,11 @@ not stop it booting: the rollback files drop those tables so the database is bac
 release built, not because the release needs it. One is left behind on a rollback to 4.0 or 4.1:
 `mt_doc_public_forms`, whose only drop is in `rollback-to-3.x.sql`. It is harmless there, and CI
 boots 4.1.0 beside it.
+
+The tenant profile file copies each tenant's profile from its published site entry back onto the
+tenant document, where a release before 4.6.0 reads it. It fills blanks only and removes nothing
+from the site entry, so nothing is lost, and an edit made to the site entry on 4.6.0 is what the
+earlier release then serves.
 
 The collection syncs file drops `mt_doc_collection_syncs`. That loses the sync schedules and field
 mappings, which nothing else records; the entries those syncs wrote are ordinary content and are

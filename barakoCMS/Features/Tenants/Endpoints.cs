@@ -2,6 +2,7 @@ using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Models;
 using FastEndpoints;
+using FluentValidation;
 using Marten;
 
 namespace barakoCMS.Features.Tenants;
@@ -10,8 +11,13 @@ internal sealed record TenantPublicResponse(
     string Handle, string Name, string? LogoUrl, string? About,
     string? Location, string? LocationUrl, string? SocialHandle, string? Email, string? ContactUrl);
 
-/// <summary>GET /api/tenants/{handle}/public — anonymous public profile for a tenant's landing page.</summary>
-internal class PublicTenantEndpoint(IQuerySession session) : EndpointWithoutRequest<TenantPublicResponse>
+/// <summary>GET /api/tenants/{handle}/public: anonymous public profile for a tenant's landing page.</summary>
+/// <remarks>
+/// The profile is read from the tenant's published <c>site</c> entry, see <see cref="TenantProfiles"/>.
+/// The route stays for callers written against it; <c>GET /api/public/site</c> is where the same
+/// values, and everything else about the site, are read from.
+/// </remarks>
+internal class PublicTenantEndpoint(IQuerySession session, IDocumentStore store) : EndpointWithoutRequest<TenantPublicResponse>
 {
     public override void Configure()
     {
@@ -24,12 +30,14 @@ internal class PublicTenantEndpoint(IQuerySession session) : EndpointWithoutRequ
         var handle = Route<string>("handle")?.ToLowerInvariant();
         var t = await session.Query<Tenant>().FirstOrDefaultAsync(x => x.Slug == handle && x.IsActive, ct);
         if (t is null) { await Send.NotFoundAsync(ct); return; }
+        var profile = await TenantProfiles.ReadAsync(store, t, ct);
         await Send.OkAsync(new TenantPublicResponse(
-            t.Slug, t.Name, t.LogoUrl, t.About, t.Location, t.LocationUrl, t.SocialHandle, t.Email, t.ContactUrl), ct);
+            t.Slug, t.Name, profile.LogoUrl, profile.About, profile.Location, profile.LocationUrl,
+            profile.SocialHandle, profile.Email, profile.ContactUrl), ct);
     }
 }
 
-/// <summary>GET /api/tenants — list all tenants with full profile (platform admin).</summary>
+/// <summary>GET /api/tenants: list all tenants (platform admin).</summary>
 internal class ListTenantsEndpoint(IQuerySession session) : Endpoint<ListRequest, PaginatedResponse<TenantResponse>>
 {
     public override void Configure()
@@ -58,6 +66,10 @@ internal sealed class TenantWriteRequest
 {
     public string Handle { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
+
+    // The seven profile fields below are bound only so TenantWriteRequestValidator can refuse a
+    // value sent in one, by name. Dropping the properties would have the binder skip them, and a
+    // caller that still sets a tenant's About here would get a 200 for a value nothing stored.
     public string? LogoUrl { get; set; }
     public string? About { get; set; }
     public string? Location { get; set; }
@@ -76,6 +88,31 @@ internal sealed class TenantWriteRequest
     /// wiping its domains.
     /// </remarks>
     public List<string>? Domains { get; set; }
+}
+
+/// <summary>Refuses a tenant write that sets a profile field, naming the site field it moved to.</summary>
+/// <remarks>
+/// A blank counts as not sent, so a client that echoes a tenant back with nothing in these is not
+/// refused. Covers create and update, which share the request.
+/// </remarks>
+internal sealed class TenantWriteRequestValidator : Validator<TenantWriteRequest>
+{
+    public TenantWriteRequestValidator()
+    {
+        RuleFor(r => r.LogoUrl).Must(BeBlank).WithMessage(Moved("Logo"));
+        RuleFor(r => r.About).Must(BeBlank).WithMessage(Moved("About"));
+        RuleFor(r => r.Location).Must(BeBlank).WithMessage(Moved("Location"));
+        RuleFor(r => r.LocationUrl).Must(BeBlank).WithMessage(Moved("LocationUrl"));
+        RuleFor(r => r.SocialHandle).Must(BeBlank).WithMessage(Moved("SocialHandle"));
+        RuleFor(r => r.Email).Must(BeBlank).WithMessage(Moved("Email"));
+        RuleFor(r => r.ContactUrl).Must(BeBlank).WithMessage(Moved("ContactUrl"));
+    }
+
+    private static bool BeBlank(string? value) => string.IsNullOrWhiteSpace(value);
+
+    private static string Moved(string siteField) =>
+        $"A tenant no longer holds a profile. Set the {siteField} field of its {TenantProfiles.SiteType} entry "
+      + "and leave this one out.";
 }
 
 /// <summary>Finds a domain already held by another tenant.</summary>
@@ -136,10 +173,6 @@ internal class CreateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
         var handle = req.Handle?.Trim().ToLowerInvariant() ?? string.Empty;
         if (!TenantHandles.IsValidHandle(handle))
         { AddError(r => r.Handle, "Invalid or reserved handle (3-40 chars, a-z, 0-9, hyphens)."); }
-        if (!string.IsNullOrWhiteSpace(req.ContactUrl) && !TenantHandles.IsValidAbsoluteUrl(req.ContactUrl))
-        { AddError(r => r.ContactUrl, "Must be a full http(s) URL."); }
-        if (!string.IsNullOrWhiteSpace(req.LocationUrl) && !TenantHandles.IsValidAbsoluteUrl(req.LocationUrl))
-        { AddError(r => r.LocationUrl, "Must be a full http(s) URL."); }
         var domains = TenantDomains.Normalise(req.Domains ?? new List<string>(), out var domainErrors);
         foreach (var error in domainErrors)
         { AddError(r => r.Domains, error); }
@@ -156,13 +189,6 @@ internal class CreateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
             Id = Guid.NewGuid(),
             Slug = handle,
             Name = req.Name,
-            LogoUrl = req.LogoUrl,
-            About = req.About,
-            Location = req.Location,
-            LocationUrl = req.LocationUrl,
-            SocialHandle = req.SocialHandle,
-            Email = req.Email,
-            ContactUrl = req.ContactUrl,
             IsActive = req.IsActive,
             Domains = domains.ToList(),
         };
@@ -191,7 +217,11 @@ internal class CreateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
     }
 }
 
-/// <summary>PUT /api/tenants/{handle} — update a tenant's profile (platform admin).</summary>
+/// <summary>PUT /api/tenants/{handle}: update a tenant's name, domains and active flag (platform admin).</summary>
+/// <remarks>
+/// Profile values still on the stored document are left as they are. This used to overwrite all
+/// seven with whatever the request held, so a request that left them out blanked them.
+/// </remarks>
 internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, TenantResponse>
 {
     private readonly IDocumentSession _session;
@@ -215,10 +245,6 @@ internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
         var tenant = await _session.Query<Tenant>().FirstOrDefaultAsync(x => x.Slug == handle, ct);
         if (tenant is null) { await Send.NotFoundAsync(ct); return; }
 
-        if (!string.IsNullOrWhiteSpace(req.ContactUrl) && !TenantHandles.IsValidAbsoluteUrl(req.ContactUrl))
-        { AddError(r => r.ContactUrl, "Must be a full http(s) URL."); }
-        if (!string.IsNullOrWhiteSpace(req.LocationUrl) && !TenantHandles.IsValidAbsoluteUrl(req.LocationUrl))
-        { AddError(r => r.LocationUrl, "Must be a full http(s) URL."); }
         IReadOnlyList<string>? domains = null;
         if (req.Domains is not null)
         {
@@ -233,13 +259,6 @@ internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
         { ThrowError($"'{clash.Domain}' is already a domain of tenant '{clash.Slug}'. A domain belongs to one tenant.", 409); }
 
         tenant.Name = req.Name;
-        tenant.LogoUrl = req.LogoUrl;
-        tenant.About = req.About;
-        tenant.Location = req.Location;
-        tenant.LocationUrl = req.LocationUrl;
-        tenant.SocialHandle = req.SocialHandle;
-        tenant.Email = req.Email;
-        tenant.ContactUrl = req.ContactUrl;
         tenant.IsActive = req.IsActive;
         if (domains is not null)
             tenant.Domains = domains.ToList();
