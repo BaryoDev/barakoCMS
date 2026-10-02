@@ -133,6 +133,22 @@ internal class Endpoint(
             return;
         }
 
+        // The counts above scan the type's entries, and the definition has no concurrency check. So
+        // it is read again here and only these two members are changed on that copy: a field added,
+        // or a sensitivity raised, while the counts ran is kept instead of being written over with
+        // what was read before them. What is left is the window every other write to a definition
+        // has, between this read and the save.
+        def = await session.LoadAsync<ContentTypeDefinition>(def.Id, ct);
+        field = def?.Fields.FirstOrDefault(
+            f => string.Equals(f.Name, fieldName, StringComparison.OrdinalIgnoreCase));
+
+        if (def is null || field is null || !MoneyFields.IsMoney(field.Type))
+        {
+            AddError("The content type changed while this ran. Nothing was written, so send it again.");
+            await Send.ErrorsAsync(409, ct);
+            return;
+        }
+
         var before = Describe(field.Currency, field.Scale);
         field.Currency = req.Currency;
         field.Scale = req.Scale;

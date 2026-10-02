@@ -46,7 +46,7 @@ public class MoneyFieldValueTests
 
         isValid.Should().BeFalse();
         errors.Should().HaveCount(1);
-        errors[0].Should().Contain("Total").And.Contain("USD").And.Contain("2 decimal places").And.Contain("10.005");
+        errors[0].Should().Contain("Total").And.Contain("USD").And.Contain("2 decimal places").And.NotContain("10.005");
     }
 
     [Fact]
@@ -110,7 +110,7 @@ public class MoneyFieldValueTests
 
         isValid.Should().BeFalse();
         errors.Should().HaveCount(1);
-        errors[0].Should().Contain("12.345");
+        errors[0].Should().Contain("2 decimal places").And.NotContain("12.345");
     }
 
     [Fact]

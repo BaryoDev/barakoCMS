@@ -31,7 +31,8 @@ internal static class MoneyFields
     public const int MaxScale = 8;
 
     // ISO 4217 minor units. Codes with no minor unit (XAU, XDR, XTS and the like) are left out, and
-    // a field naming one declares its own scale.
+    // a field naming one declares its own scale. ANG (replaced by XCG in 2025) and BGN (replaced by
+    // EUR in 2026) stay, because amounts stored before the change are still in them.
     private static readonly Dictionary<string, int> MinorUnits = BuildMinorUnits();
 
     private static Dictionary<string, int> BuildMinorUnits()
@@ -154,12 +155,71 @@ internal static class MoneyFields
             return $"{label} holds an amount in {currency} and takes a JSON number a decimal can hold "
                 + "exactly. Text, and a number outside that range, are refused.";
 
+        // The amount is not named. Write-path sensitivity puts the stored value of a field the
+        // caller may not see back into the data before this runs, so naming it would hand that
+        // value to the caller.
         if (!Fits(amount, scale))
             return $"{label} holds an amount in {currency} with at most {scale} decimal "
-                + $"{(scale == 1 ? "place" : "places")}, and {amount.ToString(CultureInfo.InvariantCulture)} "
-                + "has more. An amount is never rounded for you, so send it already rounded.";
+                + $"{(scale == 1 ? "place" : "places")}, and this one has more. An amount is never "
+                + "rounded for you, so send it already rounded.";
 
         return null;
+    }
+
+    /// <summary>
+    /// Reads plain decimal text as an amount for this field, for a writer that only has text: a
+    /// spreadsheet cell, a workflow parameter, a form input. False for a field with no usable
+    /// currency, and for anything that is not plain decimal text.
+    /// </summary>
+    /// <remarks>
+    /// The API itself stays strict and takes a JSON number. This is for the writers that cannot
+    /// send one, so what they store is a number like every other writer's. The scale is not checked
+    /// here; <see cref="ValueError"/> does that on the amount this returns.
+    /// </remarks>
+    public static bool TryReadAmountText(FieldDefinition field, object? value, out decimal amount)
+    {
+        amount = 0;
+
+        var text = value switch
+        {
+            string s => s,
+            JsonElement { ValueKind: JsonValueKind.String } je => je.GetString(),
+            _ => null,
+        };
+
+        return text is not null && TryResolve(field, out _, out _) && TryParsePlain(text, out amount);
+    }
+
+    /// <summary>
+    /// An optional sign, digits, and at most one point with digits on both sides. No exponent, no
+    /// thousands separator, no currency symbol, no space inside. Space around it is ignored.
+    /// </summary>
+    public static bool TryParsePlain(string text, out decimal amount)
+    {
+        amount = 0;
+        var trimmed = text.Trim();
+
+        var digits = 0;
+        var points = 0;
+        for (var i = 0; i < trimmed.Length; i++)
+        {
+            var c = trimmed[i];
+            if (c is >= '0' and <= '9')
+                digits++;
+            else if (c == '.' && points == 0 && digits > 0 && i < trimmed.Length - 1)
+                points++;
+            else if ((c == '-' || c == '+') && i == 0)
+                continue;
+            else
+                return false;
+        }
+
+        return digits > 0
+            && decimal.TryParse(
+                trimmed,
+                NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint,
+                CultureInfo.InvariantCulture,
+                out amount);
     }
 
     /// <summary>Whether the amount has no digit past the scale. Trailing zeros do not count.</summary>

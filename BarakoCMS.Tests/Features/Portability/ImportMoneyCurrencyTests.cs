@@ -188,7 +188,7 @@ public class ImportMoneyCurrencyTests
         var refused = await ImportAsync(await AdminOfAsync(destination), bundle);
 
         refused.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await refused.Content.ReadAsStringAsync(Ct)).Should().Contain("Total").And.Contain("USD").And.Contain("10.005");
+        (await refused.Content.ReadAsStringAsync(Ct)).Should().Contain("Total").And.Contain("USD").And.Contain("2 decimal places");
 
         bundle.Contents[^1].Data["Total"] = 10.01m;
         var imported = await ImportAsync(await AdminOfAsync(destination), bundle);

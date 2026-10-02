@@ -191,6 +191,50 @@ internal class UpdateFieldAction : IWorkflowAction
             dataChanged = true;
         }
 
+        if (dataChanged && value is not null)
+        {
+            // A parameter is text, and a money field that declares a currency takes a number. Text
+            // stored there would make every later save of the entry fail, so it is read as an
+            // amount here or the action fails, where the failure is seen. Every other field keeps
+            // the text it was given.
+            var dataKey = field.StartsWith("data.", StringComparison.OrdinalIgnoreCase) ? field.Substring(5) : field;
+
+            barakoCMS.Models.FieldDefinition? declared;
+            try
+            {
+                var definition = await _session.Query<barakoCMS.Models.ContentTypeDefinition>()
+                    .FirstOrDefaultAsync(d => d.Name == targetContent.ContentType, ct);
+                declared = definition?.Fields.FirstOrDefault(
+                    f => f is not null && string.Equals(f.Name, dataKey, StringComparison.OrdinalIgnoreCase));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to load the content type for field {Field}", field);
+                return WorkflowActionResult.Failure($"Could not read the content type of content {targetContent.Id} ({ex.GetType().Name}).");
+            }
+
+            if (declared is not null
+                && barakoCMS.Core.Validation.MoneyFields.TryResolve(declared, out var currency, out var scale))
+            {
+                // Permanent, and the value is not named: it parses the same way on every retry, and
+                // it can carry whatever a template resolved out of the triggering content.
+                if (!barakoCMS.Core.Validation.MoneyFields.TryReadAmountText(declared, value, out var amount))
+                {
+                    return WorkflowActionResult.PermanentFailure(
+                        $"Field '{declared.Name}' holds an amount in {currency}, and the value this action was given is not a plain decimal number.");
+                }
+
+                if (!barakoCMS.Core.Validation.MoneyFields.Fits(amount, scale))
+                {
+                    return WorkflowActionResult.PermanentFailure(
+                        $"Field '{declared.Name}' holds an amount in {currency} with at most {scale} decimal "
+                        + $"{(scale == 1 ? "place" : "places")}, and the value this action was given has more.");
+                }
+
+                data[dataKey] = amount;
+            }
+        }
+
         if (dataChanged)
         {
             // Data is replaced wholesale by Content.Apply(ContentUpdated, ...), so this carries

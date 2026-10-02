@@ -44,7 +44,7 @@ There is none, on purpose: the API never rounds an amount, on write or on read.
 | --- | --- | --- |
 | USD | `12.5`, `12.50`, `12` | accepted |
 | USD | `12.500` | accepted, the extra zero is not a decimal place |
-| USD | `12.345` | 400 naming the field, the currency and the amount |
+| USD | `12.345` | 400 naming the field, the currency and its decimal places |
 | JPY | `100.5` | 400 |
 | KWD | `1.234` | accepted |
 | USD | `"12.50"` (text) | 400, send a JSON number |
@@ -55,10 +55,28 @@ point. A decimal holds 28 significant digits. A number longer than that is outsi
 covers: the JSON reader has already shortened it, or handed it over as floating point, which a field
 with a currency refuses.
 
+The refusal never repeats the amount. On an update the stored value of a field the caller may not
+see is put back before validation, so repeating it would show that value to the caller.
+
 Every path that writes an entry through the entry validator applies this: create, update, a status
 change that carries fields, a version restore, bulk import, a bundle import, a collection push and a
-form submission. A collection sync applies it too and skips an item that does not fit. The
-`UpdateField` workflow action validates nothing it writes, on any field type, and that is unchanged.
+form submission. A collection sync applies it too and skips an item that does not fit.
+
+## Writers that only have text
+
+The API takes a JSON number. Three writers have nothing but text, and for a field that declares a
+currency each reads plain decimal text as the number it spells and stores a number:
+
+- a spreadsheet import (`POST /api/import/content`), where every cell is text
+- a form submission, where an input posts text
+- the `UpdateField` workflow action, whose `Value` parameter is text
+
+Plain decimal text is an optional sign, digits, and at most one point with digits on both sides:
+`12.50`, `-3`, `0.5`. Space around it is ignored. `1,250.00`, `$12`, `1e3` and `12.` are not, and
+neither is an amount with more decimal places than the scale. The import refuses that row naming the
+field, the form answers 400, and the workflow action fails without retrying, with a message that
+names the field and not the value. For a field with no currency all three store the text they were
+given, as before.
 
 ## Declaring a currency on a field that already has entries
 
@@ -76,6 +94,12 @@ No entry is rewritten. An amount that fits is now read in the declared currency.
 - Changing from one code to another on a field that entries hold amounts in is a 409 the same way.
   Nothing is converted, so with `force` every stored amount is read under the new code.
 - `"currency": null` clears it and the field is a plain number again.
+
+Each count reads every entry of the type, with no index to help, and a call makes up to two of them.
+On a type with a very large number of entries the call is slow in proportion; run it outside busy
+hours. The definition is read again after the counts and only `currency` and `scale` are changed on
+that copy, so a field added or a sensitivity changed while the counts ran is kept. An entry written
+while the counts run is not counted.
 
 Needs `manage_content_types`. Recorded in the audit log as `contenttype.field.currency.changed`.
 

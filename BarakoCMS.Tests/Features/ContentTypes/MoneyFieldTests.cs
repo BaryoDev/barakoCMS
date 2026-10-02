@@ -106,10 +106,49 @@ public class MoneyFieldTests : IAsyncLifetime
 
         var tooFine = await CreateEntryAsync(type, "a", 9.999);
         tooFine.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await tooFine.Content.ReadAsStringAsync()).Should().Contain("Price").And.Contain("USD").And.Contain("9.999");
+        (await tooFine.Content.ReadAsStringAsync()).Should().Contain("Price").And.Contain("USD").And.Contain("2 decimal places");
 
         var fits = await CreateEntryAsync(type, "b", 9.99);
         fits.IsSuccessStatusCode.Should().BeTrue(await fits.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task Creating_a_type_stores_the_currency_and_scale_its_field_declares_and_the_schema_returns_them()
+    {
+        var name = NewName();
+
+        var created = await _client.PostAsJsonAsync("/api/content-types", new
+        {
+            name, displayName = "Priced",
+            fields = new object[]
+            {
+                new { name = "Price", displayName = "Price", type = "money", currency = "USD", scale = 4 },
+                new { name = "Cost", displayName = "Cost", type = "money" },
+            },
+        });
+        created.IsSuccessStatusCode.Should().BeTrue(await created.Content.ReadAsStringAsync());
+
+        var stored = await ReadFieldAsync(name, "Price");
+        stored.Currency.Should().Be("USD");
+        stored.Scale.Should().Be(4);
+
+        var res = await _client.GetAsync("/api/content-types");
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+        var root = doc.RootElement;
+        var list = root.ValueKind == JsonValueKind.Array ? root : root.GetProperty("items");
+        var fields = list.EnumerateArray().Single(t => t.GetProperty("name").GetString() == name)
+            .GetProperty("fields").EnumerateArray()
+            .ToDictionary(f => f.GetProperty("name").GetString()!, f => f);
+        fields.Should().HaveCount(2);
+
+        fields["Price"].GetProperty("currency").GetString().Should().Be("USD");
+        fields["Price"].GetProperty("scale").GetInt32().Should().Be(4);
+        fields["Cost"].GetProperty("currency").ValueKind.Should().Be(JsonValueKind.Null);
+        fields["Cost"].GetProperty("scale").ValueKind.Should().Be(JsonValueKind.Null);
+
+        (await CreateEntryAsync(name, "a", 1.2345)).IsSuccessStatusCode.Should().BeTrue();
+        (await CreateEntryAsync(name, "b", 1.23456)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
     [Fact]
@@ -228,6 +267,40 @@ public class MoneyFieldTests : IAsyncLifetime
         using var body = JsonDocument.Parse(await forced.Content.ReadAsStringAsync());
         body.RootElement.GetProperty("entriesRelabelled").GetInt32().Should().Be(1);
         (await ReadFieldAsync(type, "Price")).Currency.Should().Be("EUR");
+    }
+
+    [Fact]
+    public async Task An_entry_holding_text_in_the_field_counts_as_one_that_does_not_fit()
+    {
+        var type = await StoreTypeAsync(false, Price());
+        await StoreEntryAsync(type, "number", 12.50m);
+        await StoreEntryAsync(type, "text", "12.50");
+
+        var refused = await PutCurrencyAsync(type, "Price", new { currency = "USD" });
+
+        refused.StatusCode.Should().Be(HttpStatusCode.Conflict, await refused.Content.ReadAsStringAsync());
+        (await refused.Content.ReadAsStringAsync()).Should().Contain("1 entry holds").And.Contain("not a number");
+        (await ReadFieldAsync(type, "Price")).Currency.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Narrowing_only_the_scale_counts_what_no_longer_fits_and_widening_it_needs_no_force()
+    {
+        var type = await StoreTypeAsync(false, Price("USD", 4));
+        await StoreEntryAsync(type, "fine", 1.2345m);
+        await StoreEntryAsync(type, "round", 1.25m);
+
+        var narrowed = await PutCurrencyAsync(type, "Price", new { currency = "USD" });
+        narrowed.StatusCode.Should().Be(HttpStatusCode.Conflict, await narrowed.Content.ReadAsStringAsync());
+        (await narrowed.Content.ReadAsStringAsync()).Should().Contain("1 entry holds").And.Contain("2 decimal places");
+        (await ReadFieldAsync(type, "Price")).Scale.Should().Be(4, "a refused change must not land");
+
+        var widened = await PutCurrencyAsync(type, "Price", new { currency = "USD", scale = 6 });
+        widened.StatusCode.Should().Be(HttpStatusCode.OK, await widened.Content.ReadAsStringAsync());
+        using var body = JsonDocument.Parse(await widened.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("entriesNotFitting").GetInt32().Should().Be(0);
+        body.RootElement.GetProperty("entriesRelabelled").GetInt32().Should().Be(0, "the code did not change");
+        (await ReadFieldAsync(type, "Price")).Scale.Should().Be(6);
     }
 
     [Fact]
