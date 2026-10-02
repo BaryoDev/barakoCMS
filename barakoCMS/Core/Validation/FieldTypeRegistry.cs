@@ -125,6 +125,17 @@ public static class FieldTypeRegistry
     public static IReadOnlyList<string> AllowedTypeNames { get; } =
         Lookup.Keys.OrderBy(k => k, StringComparer.Ordinal).ToArray();
 
+    /// <summary>Every canonical type, in the order declared above. An alias is not an entry of its own.</summary>
+    internal static IReadOnlyList<FieldTypeSpec> Types => Specs;
+
+    /// <summary>The other names a canonical type is accepted under, sorted. Empty for most.</summary>
+    internal static IReadOnlyList<string> AliasesOf(string canonical) =>
+        Aliases
+            .Where(alias => string.Equals(alias.Value, canonical, StringComparison.OrdinalIgnoreCase))
+            .Select(alias => alias.Key)
+            .OrderBy(alias => alias, StringComparer.Ordinal)
+            .ToArray();
+
     /// <summary>Is <paramref name="type"/> a known field type (case-insensitive)?</summary>
     public static bool IsKnownType(string? type) =>
         !string.IsNullOrWhiteSpace(type) && Lookup.ContainsKey(type);

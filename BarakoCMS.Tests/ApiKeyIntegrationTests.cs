@@ -143,6 +143,19 @@ public class ApiKeyIntegrationTests
         res.StatusCode.Should().Be(HttpStatusCode.Forbidden, "API keys are limited to the content API");
     }
 
+    [Fact]
+    public async Task A_key_cannot_read_the_describe_document()
+    {
+        var (userId, _) = await SuperAdminAsync();
+        var secret = await StoreKeyAsync(userId, new[] { "*" });
+
+        var res = await _client.SendAsync(Get("/api/meta/describe", secret));
+
+        // Exactly 403. The owner is a SuperAdmin who would be served with a session, so this is the
+        // key being refused and not the caller, and a 404 would mean the route is not there.
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden, "API keys are limited to the content API");
+    }
+
     // ---- destructive content operations (#653) -------------------------------
 
     private async Task<Guid> SeedContentAsync()
