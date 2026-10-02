@@ -89,6 +89,16 @@ internal sealed class ConnectorSender(
     ConnectorTokenCache tokens,
     ILogger<ConnectorSender> logger) : IConnectorSender, IConnectorFetcher
 {
+    /// <summary>
+    /// The longest one token request may take, from the first byte sent to the last byte read.
+    /// </summary>
+    /// <remarks>
+    /// The client's own timeouts stop at the response headers, and the body is read after them. A
+    /// token endpoint that sent headers and then nothing would hold the caller for as long as it
+    /// liked, and the workflow runner is one loop.
+    /// </remarks>
+    internal TimeSpan GrantTimeout { get; init; } = TimeSpan.FromSeconds(30);
+
     public async Task<ConnectorCallResult> ProbeAsync(Connector connector, CancellationToken ct)
     {
         if (!Uri.TryCreate(connector.BaseUrl, UriKind.Absolute, out var baseUri)
@@ -362,7 +372,7 @@ internal sealed class ConnectorSender(
 
             case ConnectorAuth.Basic:
             {
-                var username = connector.Settings.GetValueOrDefault(ConnectorSettingKeys.Username) ?? string.Empty;
+                var username = connector.Settings?.GetValueOrDefault(ConnectorSettingKeys.Username) ?? string.Empty;
                 var password = await SecretAsync(connector.Id, ConnectorSecretKeys.Password, ct);
                 if (password is null) return Missing(ConnectorSecretKeys.Password);
 
@@ -373,7 +383,7 @@ internal sealed class ConnectorSender(
 
             case ConnectorAuth.ApiKeyHeader:
             {
-                var header = connector.Settings.GetValueOrDefault(ConnectorSettingKeys.HeaderName);
+                var header = connector.Settings?.GetValueOrDefault(ConnectorSettingKeys.HeaderName);
                 if (string.IsNullOrWhiteSpace(header))
                 {
                     return $"Auth is ApiKeyHeader, so Settings needs '{ConnectorSettingKeys.HeaderName}'.";
@@ -420,20 +430,20 @@ internal sealed class ConnectorSender(
     private async Task<string?> TryAttachGrantedTokenAsync(
         HttpRequestMessage request, Connector connector, CancellationToken ct)
     {
-        var tokenUrl = connector.Settings.GetValueOrDefault(ConnectorSettingKeys.TokenUrl);
+        var tokenUrl = connector.Settings?.GetValueOrDefault(ConnectorSettingKeys.TokenUrl);
         if (!Uri.TryCreate(tokenUrl?.Trim(), UriKind.Absolute, out var tokenUri)
             || (tokenUri.Scheme != Uri.UriSchemeHttp && tokenUri.Scheme != Uri.UriSchemeHttps))
         {
             return $"Auth is OAuth2ClientCredentials, so Settings needs '{ConnectorSettingKeys.TokenUrl}' as an absolute http or https URL.";
         }
 
-        var clientId = connector.Settings.GetValueOrDefault(ConnectorSettingKeys.ClientId);
+        var clientId = connector.Settings?.GetValueOrDefault(ConnectorSettingKeys.ClientId);
         if (string.IsNullOrWhiteSpace(clientId))
         {
             return $"Auth is OAuth2ClientCredentials, so Settings needs '{ConnectorSettingKeys.ClientId}'.";
         }
 
-        var clientAuth = connector.Settings.GetValueOrDefault(ConnectorSettingKeys.ClientAuth);
+        var clientAuth = connector.Settings?.GetValueOrDefault(ConnectorSettingKeys.ClientAuth);
         var inBody = string.Equals(clientAuth, ConnectorSettingKeys.ClientAuthBody, StringComparison.OrdinalIgnoreCase);
         if (!inBody
             && !string.IsNullOrWhiteSpace(clientAuth)
@@ -456,19 +466,24 @@ internal sealed class ConnectorSender(
 
         TokenGrant grant;
 
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        deadline.CancelAfter(GrantTimeout);
+
         try
         {
             grant = await ClientCredentialsGrant.RequestAsync(
                 httpClientFactory.CreateClient("ExternalApi"),
                 new ClientCredentials(
                     tokenUri, clientId.Trim(), secret,
-                    connector.Settings.GetValueOrDefault(ConnectorSettingKeys.Scope),
-                    connector.Settings.GetValueOrDefault(ConnectorSettingKeys.Audience),
+                    connector.Settings?.GetValueOrDefault(ConnectorSettingKeys.Scope),
+                    connector.Settings?.GetValueOrDefault(ConnectorSettingKeys.Audience),
                     inBody),
-                ct);
+                deadline.Token);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
+            // The caller's own cancellation, not the deadline: the deadline cancels the linked
+            // source and leaves the caller's token alone.
             throw;
         }
         catch (Exception ex)
@@ -478,7 +493,7 @@ internal sealed class ConnectorSender(
             return ex switch
             {
                 HttpRequestException => $"The token endpoint at {tokenUri.IdnHost} could not be reached. The host may be unreachable, or its address is blocked.",
-                TaskCanceledException => $"The token endpoint at {tokenUri.IdnHost} timed out.",
+                OperationCanceledException => $"The token endpoint at {tokenUri.IdnHost} timed out.",
                 _ => $"The token request to {tokenUri.IdnHost} failed.",
             };
         }
@@ -500,8 +515,8 @@ internal sealed class ConnectorSender(
     /// </summary>
     /// <remarks>
     /// A provider can revoke a token before the lifetime it gave, and the cache cannot know. One
-    /// new token and one more send, never a loop: a 401 to a token granted for this call is the
-    /// provider's answer.
+    /// new token and one more send, never a loop: a 401 to a token granted for this call, or to
+    /// one granted within the last minute, is the provider's answer.
     /// </remarks>
     private async Task<HttpResponseMessage?> RetryWithNewTokenAsync(
         HttpClient client, Connector? connector, HttpRequestMessage refused, HttpResponseMessage answer,
@@ -510,7 +525,7 @@ internal sealed class ConnectorSender(
         if (connector is null || answer.StatusCode != HttpStatusCode.Unauthorized) return null;
         if (!refused.Options.TryGetValue(SentCachedToken, out var key)) return null;
 
-        tokens.Evict(key, refused.Headers.Authorization?.Parameter);
+        if (!tokens.TryRetire(key, refused.Headers.Authorization?.Parameter)) return null;
 
         using var again = rebuild();
         if (await TryAttachAuthAsync(again, connector, ct) is not null) return null;

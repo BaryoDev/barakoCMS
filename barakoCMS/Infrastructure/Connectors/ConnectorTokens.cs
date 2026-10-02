@@ -25,12 +25,27 @@ internal sealed class ConnectorTokenCache(TimeProvider clock)
 {
     internal const int MaxEntries = 256;
 
+    /// <summary>
+    /// What one tenant may hold. Without it the cache is one pool, and a tenant with many
+    /// long-lived tokens pushes every other tenant's out.
+    /// </summary>
+    internal const int MaxEntriesPerTenant = 32;
+
+    /// <summary>
+    /// How old a cached token has to be before a 401 to it is worth a new grant. A provider that
+    /// answers 401 for some other reason would otherwise cost a grant and a second send on every
+    /// call.
+    /// </summary>
+    internal static readonly TimeSpan RegrantAfter = TimeSpan.FromSeconds(60);
+
     private static readonly TimeSpan DefaultLifetime = TimeSpan.FromSeconds(60);
     private const long MaxLifetimeSeconds = 3600;
     private const long RefreshMarginSeconds = 30;
 
     private readonly Lock _gate = new();
-    private readonly Dictionary<ConnectorTokenKey, (string Token, DateTimeOffset ExpiresAt)> _entries = new();
+    private readonly Dictionary<ConnectorTokenKey, Entry> _entries = new();
+
+    private readonly record struct Entry(string Token, DateTimeOffset GrantedAt, DateTimeOffset ExpiresAt);
 
     internal int Count
     {
@@ -80,21 +95,37 @@ internal sealed class ConnectorTokenCache(TimeProvider clock)
                 _entries.Remove(stale);
             }
 
+            while (_entries.Count(e => e.Key.Tenant == key.Tenant) >= MaxEntriesPerTenant)
+            {
+                _entries.Remove(_entries.Where(e => e.Key.Tenant == key.Tenant).MinBy(e => e.Value.ExpiresAt).Key);
+            }
+
             while (_entries.Count >= MaxEntries)
             {
                 _entries.Remove(_entries.MinBy(e => e.Value.ExpiresAt).Key);
             }
 
-            _entries[key] = (token, now + lifetime);
+            _entries[key] = new Entry(token, now, now + lifetime);
         }
     }
 
-    /// <summary>Drops <paramref name="token"/>, and leaves a newer one another call put there.</summary>
-    public void Evict(ConnectorTokenKey key, string? token)
+    /// <summary>
+    /// Whether a 401 to <paramref name="token"/> is worth one new grant, dropping the token when it is.
+    /// </summary>
+    /// <remarks>
+    /// False only when that token is still the cached one and was granted less than
+    /// <see cref="RegrantAfter"/> ago. A token another call has already replaced is left alone, and
+    /// the repeat picks the newer one up.
+    /// </remarks>
+    public bool TryRetire(ConnectorTokenKey key, string? token)
     {
         lock (_gate)
         {
-            if (_entries.TryGetValue(key, out var entry) && entry.Token == token) _entries.Remove(key);
+            if (!_entries.TryGetValue(key, out var entry) || entry.Token != token) return true;
+            if (clock.GetUtcNow() - entry.GrantedAt < RegrantAfter) return false;
+
+            _entries.Remove(key);
+            return true;
         }
     }
 }
@@ -188,8 +219,8 @@ internal static class ClientCredentialsGrant
         }
 
         if (root.Value.TryGetProperty("token_type", out var type)
-            && type.ValueKind == JsonValueKind.String
-            && !string.Equals(type.GetString(), "Bearer", StringComparison.OrdinalIgnoreCase))
+            && (type.ValueKind != JsonValueKind.String
+                || !string.Equals(type.GetString(), "Bearer", StringComparison.OrdinalIgnoreCase)))
         {
             return Failed($"The token endpoint at {host} granted a token type other than Bearer.");
         }
@@ -215,14 +246,15 @@ internal static class ClientCredentialsGrant
         }
     }
 
-    // A number by the RFC, a string of digits from some providers.
+    // A number by the RFC, a string of digits from some providers. A fraction is cut off, and the
+    // clamp only keeps the cast in range: the lifetime has its own cap.
     private static long? ExpiresIn(JsonElement root)
     {
         if (!root.TryGetProperty("expires_in", out var value)) return null;
 
         return value.ValueKind switch
         {
-            JsonValueKind.Number when value.TryGetInt64(out var seconds) => seconds,
+            JsonValueKind.Number when value.TryGetDouble(out var number) => (long)Math.Clamp(number, -1d, 1e12),
             JsonValueKind.String when long.TryParse(
                 value.GetString(), NumberStyles.None, CultureInfo.InvariantCulture, out var seconds) => seconds,
             _ => null,

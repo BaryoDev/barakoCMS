@@ -36,12 +36,16 @@ response carries `secretKeys`, the names of the secrets that are set.
 
 On an update, a secret that is left out is kept and one sent as an empty string is removed. Two
 edits do not keep a secret that is left out, because whoever makes the edit cannot read the stored
-value and it would go to a host nobody entered it for:
+value and it would go somewhere nobody entered it for:
 
 - `baseUrl` moving to another scheme, host or port needs every stored secret entered again or
   cleared in the same request.
-- `settings.TokenUrl` moving to another scheme, host or port needs `ClientSecret` entered again or
-  cleared in the same request.
+- `settings.TokenUrl` being new, or changing at all, needs `ClientSecret` entered again or cleared
+  in the same request. The whole URL is compared, path included, since a token endpoint is one
+  exact address.
+
+Testing a connector writes only its last test time and result, so a test that is still out when an
+update lands does not undo the update.
 
 ## OAuth 2.0 client credentials
 
@@ -67,19 +71,25 @@ first as RFC 6749 section 2.3.1 says. A provider that wants them in the form bod
 `"ClientAuth": "Body"`.
 
 The token request uses the same outbound client as the call itself, so `TokenUrl` meets the same
-address guard (no loopback, link-local or private address), redirects are not followed, and the
-timeouts are the same. At most 64 KB of the answer is read.
+address guard (no loopback, link-local or private address) and redirects are not followed. That
+client's timeouts end when the response headers arrive, so the token request has a deadline of its
+own: 30 seconds from the first byte sent to the last byte of the answer read, after which it is
+reported as timed out. At most 64 KB of the answer is read.
 
 **Caching.** A token is kept in memory, per API instance, under the tenant, the connector and the
 connector's `updatedAt`. It is reused until 30 seconds before `expires_in` runs out, and for an
 hour at most. An answer with no usable `expires_in` is kept for one minute. Editing a connector
-gives it a new `updatedAt`, so the next call asks for a new token. At most 256 tokens are held; past
-that the one closest to expiry is dropped. A token is never written to the database, a log, a
-workflow run or a response.
+gives it a new `updatedAt`, so the next call asks for a new token. One tenant holds at most 32
+tokens; past that, that tenant's token closest to expiry is dropped, so a tenant with many
+connectors does not push another tenant's tokens out. The instance holds at most 256 across all
+tenants, and past that the one closest to expiry is dropped whoever it belongs to. A token is never
+written to the database, a log, a workflow run or a response.
 
-**A 401 from the provider.** When the provider answers 401 to a cached token, the sender drops it,
-asks for one new token and sends once more. If that is refused too, the 401 is the result. A 401 to
-a token fetched for that same call is not repeated.
+**A 401 from the provider.** When the provider answers 401 to a cached token that is at least a
+minute old, the sender drops it, asks for one new token and sends once more. If that is refused
+too, the 401 is the result. A 401 to a token fetched for that same call, or to one granted less
+than a minute ago, is not repeated, so a provider that answers 401 for a reason a token cannot fix
+costs at most one extra token request a minute.
 
 **When the token endpoint does not grant a token.** Nothing is sent to the provider, and the
 failure is reported the same way a failed call is: a sentence in the workflow run or the test
@@ -87,7 +97,8 @@ result. The sentence names the token endpoint's host and the status code. It nam
 `error` code only when it is one of the standard ones (`invalid_client`, `invalid_scope` and so
 on), and never quotes the body, since an error body can repeat what was sent. A collection sync
 records only that the credentials could not be attached and says to test the connector, as it does
-for every other `auth`.
+for every other `auth`. A failed grant is not remembered: the next call asks the token endpoint
+again.
 
 **Limits.** This is the client credentials grant only. A provider that wants a signed JWT assertion,
 a refresh token or a user's consent is not covered. Each API instance holds its own token, so N
