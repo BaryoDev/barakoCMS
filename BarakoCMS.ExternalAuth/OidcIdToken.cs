@@ -36,10 +36,11 @@ internal enum OidcRefusal
 /// <remarks>
 /// In order: the algorithm is one of the asymmetric ones in <see cref="Algorithms"/>, so <c>none</c>
 /// and the HMAC family (where the "key" would be something the client also knows) never reach a
-/// signature check; <c>iss</c> is exactly the configured issuer; the signature verifies against the
-/// provider's published keys; <c>aud</c> contains the client id; <c>exp</c> and <c>nbf</c> hold
-/// within <see cref="ClockSkew"/>; <c>nonce</c> is the one this browser was given; <c>sub</c> is
-/// present.
+/// signature check; <c>iss</c> is exactly the configured issuer; one published key is chosen by the
+/// token's <c>kid</c> and the signature verifies against that key and no other; <c>aud</c> contains
+/// the client id, and with more than one audience <c>azp</c> is the client id; <c>exp</c> and
+/// <c>nbf</c> hold within <see cref="ClockSkew"/>; <c>nonce</c> is the one this browser was given;
+/// <c>sub</c> is present.
 /// </remarks>
 internal static class OidcIdToken
 {
@@ -96,6 +97,17 @@ internal static class OidcIdToken
             return (null, OidcRefusal.Issuer);
         }
 
+        // The key is chosen here and is the only one the signature is checked against, so the rule
+        // applied to the key afterwards is applied to the key that verified. Letting the library try
+        // every published key would verify a token under a key its header never named.
+        var signingKey = SelectKey(keys, token.Kid, provider.IssuerIsTemplate);
+        if (signingKey is null)
+        {
+            return (null, provider.IssuerIsTemplate ? OidcRefusal.SigningKeyIssuer : OidcRefusal.Signature);
+        }
+
+        SecurityKey[] verifyingKeys = [signingKey];
+
         var result = await handler.ValidateTokenAsync(idToken, new TokenValidationParameters
         {
             ValidateIssuer = true,
@@ -108,7 +120,8 @@ internal static class OidcIdToken
             ClockSkew = ClockSkew,
             RequireSignedTokens = true,
             ValidateIssuerSigningKey = true,
-            IssuerSigningKeys = keys,
+            IssuerSigningKeyResolver = (_, _, _, _) => verifyingKeys,
+            TryAllIssuerSigningKeys = false,
             ValidAlgorithms = Algorithms,
         });
 
@@ -125,14 +138,17 @@ internal static class OidcIdToken
             });
         }
 
-        // With several audiences the token has to say which one it was issued to, and it has to be us.
-        var authorizedParty = Text(payload, "azp");
-        if (authorizedParty is not null && !string.Equals(authorizedParty, provider.ClientId, StringComparison.Ordinal))
+        // With several audiences the token has to say which one it was issued to, and it has to be
+        // us. An azp that is there at all has to be us too, whatever the audience count.
+        var severalAudiences = payload.TryGetProperty("aud", out var audience)
+            && audience.ValueKind == JsonValueKind.Array && audience.GetArrayLength() > 1;
+        if ((severalAudiences || payload.TryGetProperty("azp", out _))
+            && !string.Equals(Text(payload, "azp"), provider.ClientId, StringComparison.Ordinal))
         {
             return (null, OidcRefusal.Audience);
         }
 
-        if (provider.IssuerIsTemplate && !SigningKeyMayIssue(keys, token.Kid, issuer, payload))
+        if (provider.IssuerIsTemplate && !SigningKeyMayIssue(signingKey, issuer, payload))
         {
             return (null, OidcRefusal.SigningKeyIssuer);
         }
@@ -155,10 +171,11 @@ internal static class OidcIdToken
             email = null;
         }
 
-        // Absent is false: a provider that says nothing has not vouched for the address.
+        // Absent is false: a provider that says nothing has not vouched for the address. Only the
+        // JSON boolean counts. The text "true" is what a free-form profile attribute mapped into a
+        // token looks like, and this flag decides whose account a first sign-in lands on.
         var verified = payload.TryGetProperty(provider.EmailVerifiedClaim, out var flag)
-            && (flag.ValueKind == JsonValueKind.True
-                || (flag.ValueKind == JsonValueKind.String && flag.GetString() == "true"));
+            && flag.ValueKind == JsonValueKind.True;
 
         return (new OidcIdentity(
             issuer,
@@ -166,7 +183,7 @@ internal static class OidcIdToken
             email,
             email is not null && verified,
             Bounded(Text(payload, "name"), MaxNameLength),
-            Bounded(Text(payload, "picture"), MaxPictureLength)), OidcRefusal.None);
+            Picture(Text(payload, "picture"))), OidcRefusal.None);
     }
 
     /// <summary>
@@ -192,13 +209,33 @@ internal static class OidcIdToken
     }
 
     /// <summary>
+    /// The one published key a token may be verified with, or null when its header does not settle
+    /// that.
+    /// </summary>
+    /// <remarks>
+    /// A <c>kid</c> has to match exactly one key. A token with no <c>kid</c> is accepted only from a
+    /// provider with a fixed issuer that publishes a single key, where there is nothing to choose
+    /// between. With a template issuer a <c>kid</c> is always required, because each key says which
+    /// directory it signs for and the header is what ties the token to one of them.
+    /// </remarks>
+    internal static JsonWebKey? SelectKey(IReadOnlyList<JsonWebKey> keys, string? keyId, bool issuerIsTemplate)
+    {
+        if (string.IsNullOrEmpty(keyId))
+        {
+            return !issuerIsTemplate && keys.Count == 1 ? keys[0] : null;
+        }
+
+        var named = keys.Where(k => string.Equals(k.Kid, keyId, StringComparison.Ordinal)).Take(2).ToList();
+        return named.Count == 1 ? named[0] : null;
+    }
+
+    /// <summary>
     /// The second half of the template check: a key in a shared key set says which issuer it signs
     /// for, and a key published for one directory must not vouch for another.
     /// </summary>
-    private static bool SigningKeyMayIssue(IReadOnlyList<JsonWebKey> keys, string? keyId, string issuer, JsonElement payload)
+    private static bool SigningKeyMayIssue(JsonWebKey key, string issuer, JsonElement payload)
     {
-        var key = keys.FirstOrDefault(k => string.Equals(k.Kid, keyId, StringComparison.Ordinal));
-        if (key is null || !key.AdditionalData.TryGetValue("issuer", out var raw))
+        if (!key.AdditionalData.TryGetValue("issuer", out var raw))
         {
             return true;
         }
@@ -210,6 +247,13 @@ internal static class OidcIdToken
 
     private static bool FixedTimeEquals(string left, string right) =>
         CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(left), Encoding.UTF8.GetBytes(right));
+
+    /// <summary>
+    /// Kept only as an absolute https URL. The claim can be a profile field its owner typed, and it
+    /// ends up in an image tag, so anything else is dropped.
+    /// </summary>
+    private static string? Picture(string? value) =>
+        Bounded(value, MaxPictureLength) is { } url && OidcProviders.IsHttpsUrl(url) ? url : null;
 
     private static string? Bounded(string? value, int max) =>
         string.IsNullOrWhiteSpace(value) || value.Length > max ? null : value;

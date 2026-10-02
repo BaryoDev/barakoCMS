@@ -2,9 +2,10 @@
 --
 -- One row per provider account that has signed in through an OpenID Connect provider, tying its
 -- issuer and subject to a local user. Global, like the users it points at, so there is no tenant_id
--- column. The id is a hash of issuer and subject, so the primary key is what stops one provider
--- account being linked twice, and there is no other index. Empty on arrival: rows appear as people
--- sign in through a provider configured under Oidc:Providers.
+-- column. The id is a hash of issuer and subject, so one provider account has one row, and there
+-- is no other index. The module writes the row with an upsert, so linking an account again
+-- replaces its row. Empty on arrival: rows appear as people sign in through a provider configured
+-- under Oidc:Providers.
 --
 -- CreateOnly would create it on first boot, since a missing table is a creation and not an
 -- alteration; this file exists so db-assert passes before the deploy instead of reporting the table

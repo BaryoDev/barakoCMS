@@ -9,7 +9,10 @@ namespace BarakoCMS.ExternalAuth;
 /// What the discovery document's <c>issuer</c> has to equal. The authority unless <c>Issuer</c> is
 /// set, which a provider whose issuer is a template (Microsoft's <c>{tenantid}</c>) needs.
 /// </param>
-/// <param name="EmailVerifiedClaim">The id token claim that says the provider vouches for the address.</param>
+/// <param name="EmailVerifiedClaim">
+/// The id token claim that says the provider vouches for the address. It decides which local account
+/// a first sign-in lands on, so it has to be a claim only the provider can set.
+/// </param>
 internal sealed record OidcProvider(
     string Name,
     string DisplayName,

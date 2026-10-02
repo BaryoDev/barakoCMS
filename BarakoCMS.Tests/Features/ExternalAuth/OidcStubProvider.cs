@@ -42,6 +42,9 @@ internal sealed class OidcStubProvider : HttpMessageHandler
     /// <summary>When set, every request waits on it, which is how a provider that never answers looks.</summary>
     public TaskCompletionSource? Hang { get; set; }
 
+    /// <summary>Narrows <see cref="Hang"/> to addresses that start with this, so one provider can hang alone.</summary>
+    public string? HangPrefix { get; set; }
+
     public int DiscoveryCalls;
     public int KeysCalls;
 
@@ -56,13 +59,13 @@ internal sealed class OidcStubProvider : HttpMessageHandler
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
     {
-        if (Hang is not null)
+        var url = request.RequestUri!.ToString();
+        RequestedUrls.Enqueue(url);
+
+        if (Hang is not null && (HangPrefix is null || url.StartsWith(HangPrefix, StringComparison.Ordinal)))
         {
             await Hang.Task.WaitAsync(ct);
         }
-
-        var url = request.RequestUri!.ToString();
-        RequestedUrls.Enqueue(url);
 
         if (url == Authority + "/.well-known/openid-configuration")
         {

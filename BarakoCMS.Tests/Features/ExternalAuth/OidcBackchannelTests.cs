@@ -239,6 +239,51 @@ public class OidcBackchannelTests
     }
 
     [Fact]
+    public async Task Keys_already_held_are_used_while_the_key_endpoint_fails_and_only_up_to_the_ceiling()
+    {
+        var provider = Provider();
+        var endpoints = (await _backchannel.EndpointsAsync(provider, Ct))!;
+        (await _backchannel.SigningKeysAsync(provider, endpoints, OidcStubProvider.KeyId, Ct)).Should().HaveCount(1);
+        _stub.KeysBody = "not json";
+
+        _now += OidcBackchannel.Lifetime + TimeSpan.FromSeconds(1);
+        (await _backchannel.SigningKeysAsync(provider, endpoints, OidcStubProvider.KeyId, Ct)).Should().HaveCount(1,
+            "past their lifetime the keys are refetched, and when that fails the ones held are still used");
+        _stub.KeysCalls.Should().Be(2, "the refetch was attempted");
+
+        _now = _now - OidcBackchannel.Lifetime - TimeSpan.FromSeconds(1) + OidcBackchannel.StaleKeyCeiling - TimeSpan.FromSeconds(1);
+        (await _backchannel.SigningKeysAsync(provider, endpoints, OidcStubProvider.KeyId, Ct)).Should().HaveCount(1,
+            "one second short of the ceiling they are still used");
+
+        _now += TimeSpan.FromSeconds(2);
+        (await _backchannel.SigningKeysAsync(provider, endpoints, OidcStubProvider.KeyId, Ct)).Should().BeEmpty(
+            "past the ceiling there is nothing to verify against, so every token is refused");
+
+        _stub.KeysBody = null;
+        _now += OidcBackchannel.FailureBackoff + TimeSpan.FromSeconds(1);
+        (await _backchannel.SigningKeysAsync(provider, endpoints, OidcStubProvider.KeyId, Ct)).Should().HaveCount(1,
+            "and when the endpoint answers again the keys are back");
+    }
+
+    [Fact]
+    public async Task A_provider_that_hangs_does_not_hold_up_another_providers_fetch()
+    {
+        const string slowAuthority = "https://slow.test.example";
+        _stub.Hang = new TaskCompletionSource();
+        _stub.HangPrefix = slowAuthority;
+        _backchannel.Timeout = TimeSpan.FromSeconds(30);
+
+        var slow = _backchannel.EndpointsAsync(Provider(slowAuthority), Ct);
+        var other = await _backchannel.EndpointsAsync(Provider(), Ct).WaitAsync(TimeSpan.FromSeconds(5), Ct);
+
+        other.Should().NotBeNull("the second provider's fetch ran while the first was still waiting");
+        slow.IsCompleted.Should().BeFalse("the first provider has not answered");
+
+        _stub.Hang.SetResult();
+        (await slow).Should().BeNull("the stub has no such authority, so once released the fetch fails");
+    }
+
+    [Fact]
     public async Task A_refused_exchange_returns_nothing_and_logs_neither_the_secret_nor_the_answer()
     {
         var provider = Provider();

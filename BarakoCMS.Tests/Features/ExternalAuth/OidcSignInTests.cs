@@ -86,6 +86,9 @@ public class OidcSignInTests
         { "Oidc:Providers:dark:ClientId", OidcStubProvider.ClientId },
         { "Oidc:Providers:dark:ClientSecret", OidcStubProvider.ClientSecret },
         { "Oidc:Providers:dark:Enabled", "false" },
+        { "Oidc:Providers:broken:Authority", "https://broken.test.example" },
+        { "Oidc:Providers:broken:ClientId", OidcStubProvider.ClientId },
+        { "Oidc:Providers:broken:ClientSecret", OidcStubProvider.ClientSecret },
         { "GitHub:ClientId", "" },
         { "Google:ClientId", "" },
         { "Facebook:AppId", "" },
@@ -303,8 +306,8 @@ public class OidcSignInTests
         var listed = document.RootElement.GetProperty("oidc").EnumerateArray()
             .Select(p => (Name: p.GetProperty("name").GetString(), DisplayName: p.GetProperty("displayName").GetString()))
             .ToList();
-        listed.Should().HaveCount(2);
-        listed.Should().Equal(("entra", "entra"), ("stub", "Stub ID"));
+        listed.Should().HaveCount(3);
+        listed.Should().Equal(("broken", "broken"), ("entra", "entra"), ("stub", "Stub ID"));
         document.RootElement.GetProperty("github").GetBoolean().Should().BeFalse("the existing fields are still there");
         body.Should().NotContain(OidcStubProvider.ClientSecret).And.NotContain(OidcStubProvider.ClientId);
     }
@@ -402,7 +405,9 @@ public class OidcSignInTests
         names.Should().OnlyContain(name => name == "ExternalApi",
             "that client's handler is the one that refuses internal addresses and follows no redirect");
         Stub.RequestedUrls.Should().NotBeEmpty();
-        Stub.RequestedUrls.Should().OnlyContain(url => url.StartsWith("https://idp.test.example/", StringComparison.Ordinal));
+        Stub.RequestedUrls.Should().OnlyContain(url =>
+            url.StartsWith("https://idp.test.example/", StringComparison.Ordinal)
+            || url.StartsWith("https://broken.test.example/", StringComparison.Ordinal));
     }
 
     // ---- state ----
@@ -706,6 +711,204 @@ public class OidcSignInTests
 
         ShouldBeRefused(response, flaw);
         (await UserByEmailAsync(email)).Should().BeNull();
+    }
+
+    // ---- the branches around the happy path ----
+
+    [Fact]
+    public async Task A_link_whose_user_was_deleted_is_treated_as_no_link()
+    {
+        var subject = NewSubject();
+        var firstEmail = NewEmail();
+        ShouldBeSignedIn(await SignInAsync(started => Token(started, subject, firstEmail)));
+        var removed = await UserByEmailAsync(firstEmail);
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Delete<barakoCMS.Models.User>(removed!.Id);
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        var secondEmail = NewEmail();
+        ShouldBeRefused(
+            await SignInAsync(started => Token(started, subject, secondEmail, claims => claims["email_verified"] = false)),
+            "with its user gone the link names nobody, so this is a first sign-in again and needs a verified address");
+        (await UserByEmailAsync(secondEmail)).Should().BeNull();
+
+        ShouldBeSignedIn(await SignInAsync(started => Token(started, subject, secondEmail)));
+
+        var recreated = await UserByEmailAsync(secondEmail);
+        recreated.Should().NotBeNull();
+        recreated!.Id.Should().NotBe(removed.Id, "the deleted account is not brought back");
+        (await LinkAsync(OidcStubProvider.Authority, subject))!.UserId.Should().Be(recreated.Id,
+            "the one row for this provider account now points at the new user");
+    }
+
+    [Fact]
+    public async Task An_address_already_taken_as_a_username_still_gets_its_own_account()
+    {
+        var email = NewEmail();
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new barakoCMS.Models.User
+            {
+                Id = Guid.NewGuid(),
+                Email = NewEmail(),
+                Username = email,
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword("a-real-password"),
+            });
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        ShouldBeSignedIn(await SignInAsync(started => Token(started, NewSubject(), email)));
+
+        var created = await UserByEmailAsync(email);
+        created.Should().NotBeNull("the username index must not turn a first sign-in into an error");
+        created!.Username.Should().StartWith(email + "+");
+        created.Username.Should().HaveLength(email.Length + 9);
+    }
+
+    /// <summary>
+    /// Six first sign-ins for one address at once. The unique index on the user's email lets one
+    /// insert through, and a loser is sent back to try again instead of answering 500.
+    /// </summary>
+    /// <remarks>
+    /// Whether any request actually loses depends on timing, so this pins the outcome and not the
+    /// path: no server error, one account. The test after it drives the losing path directly.
+    /// </remarks>
+    [Fact]
+    public async Task First_sign_ins_racing_for_one_address_make_one_account_and_no_server_error()
+    {
+        var email = NewEmail();
+        var flows = new List<(Started Started, string Code)>();
+        for (var i = 0; i < 6; i++)
+        {
+            var started = await StartAsync();
+            var code = NewCode();
+            Stub.Codes[code] = (Token(started, NewSubject(), email), started.Challenge);
+            flows.Add((started, code));
+        }
+
+        var responses = await Task.WhenAll(flows.Select(f => CallbackAsync(f.Code, f.Started.State, f.Started.Cookie)));
+
+        responses.Should().HaveCount(6);
+        responses.Should().OnlyContain(r => r.StatusCode == HttpStatusCode.Redirect);
+        responses.Count(r => r.Headers.Location!.ToString().Contains("#token=")).Should().BeGreaterThan(0);
+
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+        var users = await session.Query<barakoCMS.Models.User>()
+            .Where(u => u.Email == email).ToListAsync(TestContext.Current.CancellationToken);
+        users.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public async Task A_second_user_for_one_address_is_stopped_by_the_user_index_and_recognised_as_that()
+    {
+        var email = NewEmail();
+        var subject = NewSubject();
+        using var scope = _fixture.Services.CreateScope();
+        var services = scope.ServiceProvider;
+        var session = services.GetRequiredService<IDocumentSession>();
+
+        // The racing request's user, written by this unit of work but invisible to the lookup below,
+        // exactly as another request's uncommitted insert would be.
+        session.Store(new barakoCMS.Models.User
+        {
+            Id = Guid.NewGuid(),
+            Email = email,
+            Username = $"rival-{Guid.NewGuid():n}",
+            PasswordHash = "",
+        });
+        var context = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+        context.Request.Headers["User-Agent"] = "oidc-sign-in-tests";
+
+        var act = () => SocialSignIn.IssueForIdentityAsync(
+            session,
+            services.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>(),
+            services.GetRequiredService<barakoCMS.Core.Interfaces.IDeviceGate>(),
+            services.GetRequiredService<barakoCMS.Infrastructure.Auth.ITokenIssuer>(),
+            services.GetRequiredService<barakoCMS.Infrastructure.Auth.Mfa.IMfaService>(),
+            context,
+            new OidcIdentity(OidcStubProvider.Authority, subject, email, true, null, null),
+            "stub",
+            "",
+            TestContext.Current.CancellationToken);
+
+        var thrown = await act.Should().ThrowAsync<Exception>();
+        OidcSupport.IsUniqueViolation(thrown.Which).Should().BeTrue(
+            "this is the exception the callback turns into a try-again redirect");
+        (await UserByEmailAsync(email)).Should().BeNull("the whole unit of work failed, so neither user exists");
+        (await LinkAsync(OidcStubProvider.Authority, subject)).Should().BeNull("and no link was left pointing at one");
+    }
+
+    [Fact]
+    public async Task A_callback_carrying_an_error_and_no_code_is_refused_without_echoing_it()
+    {
+        var started = await StartAsync();
+        var exchangesBefore = Stub.TokenRequests.Count;
+        var request = new HttpRequestMessage(HttpMethod.Get,
+            $"/api/auth/oidc/stub/callback?error=access_denied&error_description=marker-from-the-request&state={started.State}");
+        request.Headers.Add("Cookie", $"__Host-oidc_stub={started.Cookie}; __Host-oidc_stub_club=");
+
+        var response = await _client.SendAsync(request, TestContext.Current.CancellationToken);
+
+        ShouldBeRefused(response, "the person cancelled at the provider, or the provider refused");
+        var location = Uri.UnescapeDataString(response.Headers.Location!.ToString());
+        location.Should().NotContain("access_denied").And.NotContain("marker-from-the-request");
+        Stub.TokenRequests.Count.Should().Be(exchangesBefore, "there is no code to exchange");
+        response.Headers.GetValues("Set-Cookie")
+            .Count(c => c.StartsWith("__Host-oidc_stub", StringComparison.Ordinal)).Should().Be(2, "the state is spent either way");
+    }
+
+    [Fact]
+    public async Task A_club_longer_than_a_hundred_characters_is_not_carried()
+    {
+        var tooLong = await _client.GetAsync(
+            $"/api/auth/oidc/stub/start?club={new string('a', OidcSupport.MaxClubLength + 1)}", TestContext.Current.CancellationToken);
+        tooLong.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        tooLong.Headers.Contains("Set-Cookie").Should().BeFalse("nothing is started for it");
+
+        (await _client.GetAsync(
+            $"/api/auth/oidc/stub/start?club={new string('a', OidcSupport.MaxClubLength)}", TestContext.Current.CancellationToken))
+            .StatusCode.Should().Be(HttpStatusCode.Redirect, "a hundred is inside the bound");
+
+        // The start never sets one this long, so a cookie that is must have been written by hand.
+        var started = await StartAsync();
+        var code = NewCode();
+        Stub.Codes[code] = (Token(started, NewSubject(), NewEmail()), started.Challenge);
+        var response = await CallbackAsync(code, started.State, started.Cookie, club: new string('b', OidcSupport.MaxClubLength + 1));
+
+        ShouldBeSignedIn(response);
+        response.Headers.Location!.ToString().Should().EndWith("&club=", "an oversized club is dropped, not passed on");
+    }
+
+    [Fact]
+    public async Task A_start_for_a_provider_whose_discovery_fails_sends_the_browser_back_with_a_message()
+    {
+        var response = await _client.GetAsync("/api/auth/oidc/broken/start?club=some-club", TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Redirect);
+        var location = Uri.UnescapeDataString(response.Headers.Location!.ToString());
+        location.Should().StartWith($"{BaseUrl}/login?fberror=");
+        location.Should().Contain("reach broken").And.EndWith("&club=some-club");
+        response.Headers.Contains("Set-Cookie").Should().BeFalse("no state is minted for a flow that cannot begin");
+    }
+
+    [Fact]
+    public async Task One_providers_state_cookie_is_not_accepted_at_another_providers_callback()
+    {
+        var started = await StartAsync("stub");
+        var code = NewCode();
+        Stub.Codes[code] = (Token(started, NewSubject(), NewEmail()), null);
+        var request = new HttpRequestMessage(HttpMethod.Get, $"/api/auth/oidc/entra/callback?code={code}&state={started.State}");
+        request.Headers.Add("Cookie", $"__Host-oidc_stub={started.Cookie}; __Host-oidc_stub_club=");
+
+        var response = await _client.SendAsync(request, TestContext.Current.CancellationToken);
+
+        ShouldBeRefused(response, "each provider reads its own cookie, so a flow begun at one cannot finish at another");
+        Stub.TokenRequests.ContainsKey(code).Should().BeFalse();
     }
 
     // ---- limits ----

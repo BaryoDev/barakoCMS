@@ -14,7 +14,11 @@ namespace BarakoCMS.ExternalAuth;
 /// </remarks>
 public class ExternalIdentity
 {
-    /// <summary><see cref="KeyOf"/> of the issuer and subject, so the primary key is the uniqueness rule.</summary>
+    /// <summary>
+    /// <see cref="KeyOf"/> of the issuer and subject, so one provider account has one row. The row
+    /// is written with an upsert: linking the same account again replaces it. What keeps two racing
+    /// first sign-ins from making two users is the unique index on the user's email, not this key.
+    /// </summary>
     public string Id { get; set; } = string.Empty;
 
     public string Issuer { get; set; } = string.Empty;

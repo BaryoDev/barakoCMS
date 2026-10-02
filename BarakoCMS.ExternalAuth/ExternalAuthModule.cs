@@ -64,8 +64,8 @@ public sealed class ExternalAuthModule : IBarakoModule
             .DocumentAlias("social_profiles")
             .Index(x => x.UserId, i => i.IsUnique = true);
 
-        // Global for the same reason. The id is derived from issuer and subject, so the primary key
-        // is what stops one provider account being linked twice.
+        // Global for the same reason. The id is derived from issuer and subject, so one provider
+        // account has one row, and linking it again replaces that row.
         schema.For<ExternalIdentity>()
             .SingleTenanted()
             .DocumentAlias("external_identities");

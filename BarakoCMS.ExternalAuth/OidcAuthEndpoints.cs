@@ -171,7 +171,7 @@ internal sealed class OidcCallbackEndpoint(
             (tokens, emailNotVerified) = await SocialSignIn.IssueForIdentityAsync(
                 session, config, deviceGate, tokenIssuer, mfa, HttpContext, identity, provider.Name, club, ct);
         }
-        catch (Exception ex) when (IsUniqueViolation(ex))
+        catch (Exception ex) when (OidcSupport.IsUniqueViolation(ex))
         {
             // Two first sign-ins for one address at once: the unique index on the user's email let
             // one through. The loser is told to try again, and then finds the account the winner made.
@@ -213,18 +213,5 @@ internal sealed class OidcCallbackEndpoint(
         {
             return null;
         }
-    }
-
-    private static bool IsUniqueViolation(Exception? ex)
-    {
-        for (var current = ex; current is not null; current = current.InnerException)
-        {
-            if (current is Npgsql.PostgresException { SqlState: "23505" })
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 }

@@ -34,7 +34,14 @@ internal sealed record OidcEndpoints(
 /// Discovery and keys are cached for <see cref="Lifetime"/>. A token signed with a key id the cache
 /// does not hold refetches the keys, at most once per <see cref="KeyRefreshInterval"/>, which is how
 /// a rotation is picked up without letting a stream of unknown key ids become a stream of fetches. A
-/// fetch that fails is not retried for <see cref="FailureBackoff"/>. One fetch runs at a time.
+/// fetch that fails is not retried for <see cref="FailureBackoff"/>. One fetch runs at a time for
+/// each provider, so a provider that hangs does not hold up another's.
+/// </para>
+/// <para>
+/// The two fail differently when the provider cannot be reached. Discovery fails closed at its
+/// lifetime. Keys already held go on being used while the key endpoint fails, since a provider's
+/// key endpoint being down for a while should not sign everybody out of signing in, but only until
+/// they are <see cref="StaleKeyCeiling"/> old. Past that there are no keys and every token is refused.
 /// </para>
 /// </remarks>
 internal sealed class OidcBackchannel(IHttpClientFactory httpFactory, ILogger<OidcBackchannel> logger)
@@ -45,6 +52,9 @@ internal sealed class OidcBackchannel(IHttpClientFactory httpFactory, ILogger<Oi
     internal static readonly TimeSpan KeyRefreshInterval = TimeSpan.FromMinutes(5);
     internal static readonly TimeSpan FailureBackoff = TimeSpan.FromSeconds(30);
 
+    /// <summary>The oldest a key set may be and still verify a token: its lifetime and three hours more.</summary>
+    internal static readonly TimeSpan StaleKeyCeiling = TimeSpan.FromHours(4);
+
     internal const int MaxMetadataBytes = 256 * 1024;
     internal const int MaxTokenResponseBytes = 64 * 1024;
     internal const int MaxKeys = 50;
@@ -54,7 +64,7 @@ internal sealed class OidcBackchannel(IHttpClientFactory httpFactory, ILogger<Oi
     private readonly ConcurrentDictionary<string, Cached<OidcEndpoints>> _endpoints = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, Cached<IReadOnlyList<JsonWebKey>>> _keys = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, DateTimeOffset> _failedUntil = new(StringComparer.Ordinal);
-    private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _gates = new(StringComparer.Ordinal);
 
     /// <summary>How long one outbound call may take. Settable so a test need not wait for it.</summary>
     internal TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(10);
@@ -71,7 +81,8 @@ internal sealed class OidcBackchannel(IHttpClientFactory httpFactory, ILogger<Oi
             return hit.Value;
         }
 
-        await _gate.WaitAsync(ct);
+        var gate = _gates.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct);
         try
         {
             if (_endpoints.TryGetValue(key, out hit) && Now() - hit.At < Lifetime)
@@ -97,7 +108,7 @@ internal sealed class OidcBackchannel(IHttpClientFactory httpFactory, ILogger<Oi
         }
         finally
         {
-            _gate.Release();
+            gate.Release();
         }
     }
 
@@ -115,7 +126,8 @@ internal sealed class OidcBackchannel(IHttpClientFactory httpFactory, ILogger<Oi
             return hit.Value;
         }
 
-        await _gate.WaitAsync(ct);
+        var gate = _gates.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct);
         try
         {
             if (_keys.TryGetValue(key, out hit) && !NeedsRefresh(hit, keyId))
@@ -125,14 +137,14 @@ internal sealed class OidcBackchannel(IHttpClientFactory httpFactory, ILogger<Oi
 
             if (BackingOff("keys|" + key))
             {
-                return hit?.Value ?? Array.Empty<JsonWebKey>();
+                return Stale(hit);
             }
 
             var fetched = await FetchKeysAsync(provider, endpoints, ct);
             if (fetched is null)
             {
                 _failedUntil["keys|" + key] = Now() + FailureBackoff;
-                return hit?.Value ?? Array.Empty<JsonWebKey>();
+                return Stale(hit);
             }
 
             Bound();
@@ -141,7 +153,7 @@ internal sealed class OidcBackchannel(IHttpClientFactory httpFactory, ILogger<Oi
         }
         finally
         {
-            _gate.Release();
+            gate.Release();
         }
     }
 
@@ -204,6 +216,9 @@ internal sealed class OidcBackchannel(IHttpClientFactory httpFactory, ILogger<Oi
         return !known && age >= KeyRefreshInterval;
     }
 
+    private IReadOnlyList<JsonWebKey> Stale(Cached<IReadOnlyList<JsonWebKey>>? hit) =>
+        hit is not null && Now() - hit.At < StaleKeyCeiling ? hit.Value : Array.Empty<JsonWebKey>();
+
     private bool BackingOff(string key) => _failedUntil.TryGetValue(key, out var until) && Now() < until;
 
     /// <summary>
@@ -218,6 +233,10 @@ internal sealed class OidcBackchannel(IHttpClientFactory httpFactory, ILogger<Oi
             _endpoints.Clear();
             _keys.Clear();
             _failedUntil.Clear();
+
+            // A gate somebody still holds is released by its holder. Dropping it from the map only
+            // means the next caller for that provider does not wait for them.
+            _gates.Clear();
         }
     }
 

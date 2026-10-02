@@ -92,7 +92,7 @@ Cognito, Microsoft Entra ID and others.
 | `DisplayName` | Optional. What `/api/auth/providers` reports for the button. Defaults to the name. |
 | `Scopes` | Optional. Defaults to `openid email profile`. `openid` is added if it is left out. |
 | `Issuer` | Optional. What the discovery document's `issuer` has to equal, when that is not the authority. See Microsoft below. |
-| `EmailVerifiedClaim` | Optional. The id token claim that says the provider vouches for the email. Defaults to `email_verified`. |
+| `EmailVerifiedClaim` | Optional. The id token claim that says the provider vouches for the email. Defaults to `email_verified`. It must be a claim only the provider sets, never a profile attribute a user can edit. Only the JSON boolean `true` counts. |
 | `Enabled` | `false` turns the provider off and keeps its keys. |
 
 The name is the key under `Providers`: 1 to 32 characters of `a-z`, `0-9` and hyphen. It is the
@@ -109,16 +109,26 @@ What the flow checks:
   verifier with the code, and needs the id token's `nonce` to match. A state is accepted once: the
   cookie is expired by every callback, and the instance that saw a state refuses to see it again
   for those ten minutes. That memory is per instance, so behind several instances a replay that
-  reaches another one is refused by the provider, which redeems a code once.
+  reaches another one is refused by the provider, which redeems a code once. It holds 10,000
+  states; when that many are all still live it is cleared whole, and until it fills again a replay
+  is likewise left to the provider. The cookie holds the three values in clear and is not signed:
+  it is a double-submit cookie, and what protects it is the `__Host-` prefix with HttpOnly, Secure
+  and SameSite=Lax.
 - **The id token.** Signed with one of `RS256`, `RS384`, `RS512`, `PS256`, `PS384`, `PS512`,
-  `ES256`, `ES384` or `ES512` by a key in the provider's key set. `none` and the HMAC algorithms
-  are refused. `iss` equals the configured issuer exactly, `aud` contains the client id, and
-  `exp` and `nbf` hold with 60 seconds of skew.
+  `ES256`, `ES384` or `ES512`. `none` and the HMAC algorithms are refused. The token's `kid`
+  has to name exactly one key in the provider's key set, and the signature is checked against that
+  key only. A token with no `kid` is accepted only when the provider publishes a single key and
+  its issuer is not a template. `iss` equals the configured issuer exactly, `aud` contains the
+  client id, with more than one audience `azp` has to be the client id, and `exp` and `nbf` hold
+  with 60 seconds of skew. `picture` is kept only when it is an https URL.
 - **Outbound calls.** The discovery document, the keys and the code exchange go through the same
   guarded HTTP client the core uses for webhooks: https only, no redirects, and no loopback,
   private, link-local or metadata address. Each call has a 10 second timeout. Discovery and keys are
   cached for an hour, a key id the cache does not hold refetches the keys at most once in five
-  minutes, and a failed fetch is not retried for 30 seconds.
+  minutes, and a failed fetch is not retried for 30 seconds. If the key endpoint cannot be reached
+  when the hour is up, the keys already held go on being used until they are four hours old. After
+  that every token is refused until the keys can be fetched again. Discovery has no such grace: it
+  fails at the hour.
 - **Where the browser goes.** The redirect URI is `App:BaseUrl` plus the route. Nothing in the
   request changes it, and after sign-in the browser is sent to `App:BaseUrl` only.
 - **Rate limit.** Start and callback share 20 requests per five minutes per client address.
@@ -138,6 +148,12 @@ The first time, the pair has to be tied to a user, and that is done by email onl
 asserts the address is verified. Then it is linked to the user who holds that address, or to a new
 user. When the claim is absent or false the sign-in is refused, nothing is stored, and the person is
 told to use an email code.
+
+So every provider you configure can sign in as any local account whose address it asserts as
+verified, a SuperAdmin included. Configure only providers you trust to verify email, and remember
+that a provider you run yourself (a Keycloak realm, for instance) is as trustworthy as whoever can
+edit its users. Two providers that assert the same address land on the same account. An account
+with MFA enrolled is still asked for its second factor.
 
 An upgraded database needs `migrations/4.6.0/external-auth-identities.sql` before the new build
 starts, like any new table.

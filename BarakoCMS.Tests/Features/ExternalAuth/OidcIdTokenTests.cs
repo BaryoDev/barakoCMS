@@ -210,7 +210,10 @@ public class OidcIdTokenTests : IDisposable
         }
 
         (await VerifiedAsync(c => c["email_verified"] = true)).Should().BeTrue();
-        (await VerifiedAsync(c => c["email_verified"] = "true")).Should().BeTrue("some providers send the flag as a string");
+        (await VerifiedAsync(c => c["email_verified"] = "true")).Should().BeFalse(
+            "only the JSON boolean counts: text is what a profile attribute a user typed looks like");
+        (await VerifiedAsync(c => c["email_verified"] = 1)).Should().BeFalse();
+        (await VerifiedAsync(c => c["xms_edov"] = "true", claim: "xms_edov")).Should().BeFalse("the same rule for a configured claim");
         (await VerifiedAsync(c => c["email_verified"] = false)).Should().BeFalse();
         (await VerifiedAsync(c => c["email_verified"] = "yes")).Should().BeFalse();
         (await VerifiedAsync(c => c.Remove("email_verified"))).Should().BeFalse("absent is no assertion at all");
@@ -278,5 +281,104 @@ public class OidcIdTokenTests : IDisposable
 
         (await ValidateAsync(token, Provider(Template), Keys(Template.Replace("{tenantid}", directory)))).Refusal
             .Should().Be(OidcRefusal.None, "the same key published for the token's own directory is the control");
+    }
+
+    /// <summary>
+    /// The header is written by whoever made the token. Leaving out the key id, or naming one that
+    /// is not published, must not get a token verified under a key the issuer rule is then not
+    /// applied to.
+    /// </summary>
+    [Fact]
+    public async Task With_a_template_issuer_a_key_for_another_directory_does_not_vouch_whatever_key_id_the_header_carries()
+    {
+        var directory = Guid.NewGuid().ToString();
+        var keyOwner = Guid.NewGuid().ToString();
+        var provider = Provider(Template);
+        var anotherDirectorysKey = Keys(Template.Replace("{tenantid}", keyOwner));
+
+        await ShouldBeRefusedAsync(
+            OidcTestTokens.Rs256(_key, DirectoryClaims(directory), keyId: null),
+            OidcRefusal.SigningKeyIssuer, provider, anotherDirectorysKey);
+        await ShouldBeRefusedAsync(
+            OidcTestTokens.Rs256(_key, DirectoryClaims(directory), keyId: "a-key-id-not-in-the-set"),
+            OidcRefusal.SigningKeyIssuer, provider, anotherDirectorysKey);
+
+        (await ValidateAsync(
+            OidcTestTokens.Rs256(_key, DirectoryClaims(directory)), provider, Keys(Template.Replace("{tenantid}", directory)))).Refusal
+            .Should().Be(OidcRefusal.None, "the same token under the key published for its own directory, named by its id");
+    }
+
+    [Fact]
+    public async Task With_a_template_issuer_a_token_must_name_its_key()
+    {
+        var directory = Guid.NewGuid().ToString();
+
+        await ShouldBeRefusedAsync(
+            OidcTestTokens.Rs256(_key, DirectoryClaims(directory), keyId: null),
+            OidcRefusal.SigningKeyIssuer, Provider(Template), Keys(Template.Replace("{tenantid}", directory)));
+    }
+
+    private IReadOnlyList<JsonWebKey> TwoKeys(string otherKeyId) =>
+        Keys().Concat(new JsonWebKeySet(OidcStubProvider.Jwks(_otherKey, otherKeyId)).Keys).ToList();
+
+    [Fact]
+    public async Task A_token_with_no_key_id_is_accepted_only_when_there_is_one_key_to_mean()
+    {
+        var token = OidcTestTokens.Rs256(_key, Claims(), keyId: null);
+
+        (await ValidateAsync(token)).Refusal.Should().Be(OidcRefusal.None, "a provider with one key has nothing to choose between");
+        await ShouldBeRefusedAsync(token, OidcRefusal.Signature, keys: TwoKeys("another-key"));
+    }
+
+    [Fact]
+    public async Task A_key_id_has_to_name_exactly_one_published_key()
+    {
+        var keys = TwoKeys("another-key");
+
+        (await ValidateAsync(OidcTestTokens.Rs256(_key, Claims()), keys: keys)).Refusal.Should().Be(OidcRefusal.None);
+        await ShouldBeRefusedAsync(
+            OidcTestTokens.Rs256(_key, Claims(), keyId: "another-key"), OidcRefusal.Signature, keys: keys);
+        await ShouldBeRefusedAsync(
+            OidcTestTokens.Rs256(_key, Claims(), keyId: "a-key-id-not-in-the-set"), OidcRefusal.Signature, keys: keys);
+        await ShouldBeRefusedAsync(
+            OidcTestTokens.Rs256(_key, Claims()), OidcRefusal.Signature, keys: TwoKeys(OidcStubProvider.KeyId));
+    }
+
+    [Fact]
+    public async Task With_several_audiences_the_token_has_to_name_this_client_as_the_party_it_was_issued_to()
+    {
+        var several = new[] { "another-client", OidcStubProvider.ClientId };
+
+        await ShouldBeRefusedAsync(OidcTestTokens.Rs256(_key, Claims(c => c["aud"] = several)), OidcRefusal.Audience);
+        await ShouldBeRefusedAsync(
+            OidcTestTokens.Rs256(_key, Claims(c => { c["aud"] = several; c["azp"] = 5; })), OidcRefusal.Audience);
+        await ShouldBeRefusedAsync(OidcTestTokens.Rs256(_key, Claims(c => c["azp"] = 5)), OidcRefusal.Audience);
+
+        (await ValidateAsync(OidcTestTokens.Rs256(_key, Claims(c => { c["aud"] = several; c["azp"] = OidcStubProvider.ClientId; }))))
+            .Refusal.Should().Be(OidcRefusal.None);
+        (await ValidateAsync(OidcTestTokens.Rs256(_key, Claims(c => c["aud"] = new[] { OidcStubProvider.ClientId }))))
+            .Refusal.Should().Be(OidcRefusal.None, "one audience in a list is still one audience, and needs no azp");
+    }
+
+    [Theory]
+    [InlineData("http://idp.test.example/p.png")]
+    [InlineData("javascript:alert(1)")]
+    [InlineData("data:image/png;base64,AAAA")]
+    [InlineData("//cdn.example/p.png")]
+    [InlineData("p.png")]
+    public async Task A_picture_that_is_not_an_https_address_is_not_kept(string picture)
+    {
+        var (identity, refusal) = await ValidateAsync(OidcTestTokens.Rs256(_key, Claims(c => c["picture"] = picture)));
+
+        refusal.Should().Be(OidcRefusal.None, "a bad picture is dropped, it does not fail the sign-in");
+        identity!.Picture.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task An_https_picture_is_kept()
+    {
+        var (identity, _) = await ValidateAsync(OidcTestTokens.Rs256(_key, Claims()));
+
+        identity!.Picture.Should().Be("https://idp.test.example/p.png");
     }
 }

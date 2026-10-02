@@ -71,6 +71,23 @@ internal static partial class OidcSupport
 
     public static bool FixedTimeEquals(string left, string right) =>
         CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(left), Encoding.UTF8.GetBytes(right));
+
+    /// <summary>
+    /// Is this a Postgres unique-constraint violation (SQLSTATE 23505), at any depth? Marten wraps
+    /// the Npgsql exception at a depth that varies by command, so the chain is walked.
+    /// </summary>
+    public static bool IsUniqueViolation(Exception? ex)
+    {
+        for (var current = ex; current is not null; current = current.InnerException)
+        {
+            if (current is Npgsql.PostgresException { SqlState: "23505" })
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }
 
 /// <summary>Remembers which <c>state</c> values a callback has already used, so each works once.</summary>
