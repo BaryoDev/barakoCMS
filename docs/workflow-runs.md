@@ -75,11 +75,19 @@ What to know before raising it:
 - **Runs no longer finish in the order they were queued.** At 1, a node works through a tenant's
   runs oldest first, so two runs for the same entry reach a receiver in the order they fired. Above
   1 they can be in flight together and arrive either way round. Several nodes already had this.
+- **Two runs that write the same entry can collide.** Two workflows on one event, each with an
+  `UpdateField` on the entry that triggered them, can be claimed in the same pass. Both load the
+  entry, one write is refused, and that action spends one of its five attempts and waits out its
+  backoff. It succeeds on the retry. Several nodes at 1 already behave this way.
 - **Tenants share the slots.** A pass hands them out one per tenant in turn, so a tenant with a
   long queue gets a second slot only after every other tenant with due work has had one.
 - **A pass waits for all of its actions before it claims again.** One slow action holds the other
   slots of its pass empty until it ends, so throughput is the bound divided by the slowest action
-  of each pass, not by the average.
+  of each pass, not by the average. The slowest action of any tenant sets the length of the pass
+  for every tenant.
+- **Custom actions run side by side.** Above 1, actions of different runs execute at the same time
+  in one process, so a custom action that keeps state outside its own instance has to be safe for
+  that.
 - Each action in flight uses a database connection while it loads the entry and records the
   outcome, so the setting also has to fit the connection pool.
 

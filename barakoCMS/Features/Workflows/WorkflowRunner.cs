@@ -78,7 +78,6 @@ internal sealed class WorkflowRunner(
 
     private readonly string _node = $"{Environment.MachineName}-{Guid.NewGuid():N}"[..40];
     private readonly int _concurrency = ReadConcurrency(config);
-    private Pass _pass = new(0);
 
     private string[]? _partitions;
     private long _scannedAt;
@@ -182,8 +181,9 @@ internal sealed class WorkflowRunner(
 
     /// <summary>What one pass has taken so far.</summary>
     /// <remarks>
-    /// Only the claiming loop reads or writes it. The actions it starts are handed what they need
-    /// and never touch it.
+    /// Made by the pass and handed down, never kept on the runner, so two passes on one runner
+    /// cannot share one. Only the claiming loop of its pass reads or writes it. The actions it
+    /// starts are handed what they need and never touch it.
     /// </remarks>
     private sealed class Pass(int slots)
     {
@@ -211,7 +211,7 @@ internal sealed class WorkflowRunner(
     /// </remarks>
     private async Task<bool> RunDueAsync(IDocumentStore store, CancellationToken ct)
     {
-        var pass = _pass = new Pass(_concurrency);
+        var pass = new Pass(_concurrency);
 
         try
         {
@@ -220,7 +220,7 @@ internal sealed class WorkflowRunner(
             do
             {
                 before = pass.Free;
-                await ClaimRoundAsync(store, ct);
+                await ClaimRoundAsync(store, pass, ct);
             }
             while (pass.Free > 0 && pass.Free < before);
         }
@@ -243,7 +243,7 @@ internal sealed class WorkflowRunner(
     /// starts after it, the same as after a tenant that was served, or one run that cannot be read
     /// would be where every pass starts and ends.
     /// </remarks>
-    private async Task ClaimRoundAsync(IDocumentStore store, CancellationToken ct)
+    private async Task ClaimRoundAsync(IDocumentStore store, Pass pass, CancellationToken ct)
     {
         var partitions = _partitions!;
         var start = 0;
@@ -254,13 +254,13 @@ internal sealed class WorkflowRunner(
             if (start < 0) start = 0;
         }
 
-        for (var i = 0; i < partitions.Length && _pass.Free > 0; i++)
+        for (var i = 0; i < partitions.Length && pass.Free > 0; i++)
         {
             var tenantId = partitions[(start + i) % partitions.Length];
 
             try
             {
-                if (await RunDueInAsync(store, tenantId, ct))
+                if (await RunDueInAsync(store, tenantId, pass, ct))
                 {
                     _lastServed = tenantId;
                 }
@@ -272,7 +272,7 @@ internal sealed class WorkflowRunner(
             catch (Exception ex)
             {
                 _lastServed = tenantId;
-                _pass.Due[tenantId] = new();
+                pass.Due[tenantId] = new();
                 logger.LogError(ex,
                     "The workflow runner failed in tenant {Tenant} and went on to the next",
                     barakoCMS.Infrastructure.Logging.LogSafe.Value(tenantId));
@@ -289,10 +289,8 @@ internal sealed class WorkflowRunner(
     /// for the other slots to fill, and a handler that works before its first await does not hold
     /// up the claiming.
     /// </remarks>
-    private async Task<bool> RunDueInAsync(IDocumentStore store, string tenantId, CancellationToken ct)
+    private async Task<bool> RunDueInAsync(IDocumentStore store, string tenantId, Pass pass, CancellationToken ct)
     {
-        var pass = _pass;
-
         if (!pass.Due.TryGetValue(tenantId, out var due))
         {
             due = new Queue<Guid>(await DueRunsAsync(store, tenantId, ct));

@@ -19,8 +19,12 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// Every test that touches the database stops the fixture's hosted runner and drains what other
 /// classes left due, so the runner the test builds is the only one and its bound is the one in
 /// force. Each seeds tenants of its own. The times asserted on are derived from the action's delay
-/// and the number of runs, with half the gap between the serial time and the best case as room for
-/// a loaded machine.
+/// and the number of runs.
+///
+/// A retry another class left behind can still come due between the drain and the pass and take a
+/// slot, and the runner has no way to be shown only some tenants. So the tests give the pass more
+/// slots than they need where they can, drain where one pass is not the point, and assert on their
+/// own runs.
 /// </remarks>
 [Collection("Sequential")]
 public class WorkflowRunnerConcurrencyTests
@@ -82,7 +86,9 @@ public class WorkflowRunnerConcurrencyTests
     /// </summary>
     /// <remarks>
     /// The delay is a floor on each action, so one at a time cannot finish under eight delays. The
-    /// limit asserted is halfway between that and the best case of two.
+    /// limit asserted is one delay under that, which leaves five delays of room over the best case
+    /// of two for a loaded machine or a slow database. The count of actions in flight is what shows
+    /// the overlap; the time shows that the overlap bought something.
     /// </remarks>
     [Fact]
     public async Task Runs_of_a_slow_action_finish_well_under_the_serial_time_with_a_bound_of_four()
@@ -119,7 +125,7 @@ public class WorkflowRunnerConcurrencyTests
 
             var serial = TimeSpan.FromMilliseconds(delayMs * runs);
             var best = TimeSpan.FromMilliseconds(delayMs * (runs / bound));
-            var limit = best + ((serial - best) / 2);
+            var limit = serial - TimeSpan.FromMilliseconds(delayMs);
 
             timer.Elapsed.Should().BeLessThan(limit,
                 $"one at a time takes at least {serial.TotalSeconds:0.0}s and four at a time about {best.TotalSeconds:0.0}s");
@@ -216,11 +222,16 @@ public class WorkflowRunnerConcurrencyTests
     }
 
     /// <summary>
-    /// One tenant with eight due runs, one with two, and four slots: the first pass runs two of each.
+    /// One tenant with eight due runs, one with two, and four slots: the first pass splits its slots
+    /// between them.
     /// </summary>
     /// <remarks>
     /// Filling the slots from the first tenant that has work gives it all four, and the tenant with
     /// two waits a pass for every four runs the other has queued.
+    ///
+    /// Asserted as a difference of at most one and not as two and two, so a stray run from another
+    /// class taking a slot does not fail it. At least two of the test's own have to have run, or
+    /// the difference says nothing.
     /// </remarks>
     [Fact]
     public async Task A_tenant_with_a_long_queue_does_not_take_every_slot_of_a_pass()
@@ -258,8 +269,9 @@ public class WorkflowRunnerConcurrencyTests
             }
 
             executed.Should().HaveCount(2);
-            executed[prefix + "-a"].Should().Be(2);
-            executed[prefix + "-b"].Should().Be(2, "the slots of a pass are handed out a round of the tenants at a time");
+            executed.Values.Sum().Should().BeInRange(2, 4, "the pass has four slots and ten of these runs are due");
+            Math.Abs(executed[prefix + "-a"] - executed[prefix + "-b"]).Should().BeLessThanOrEqualTo(1,
+                "the slots of a pass are handed out a round of the tenants at a time");
 
             await DrainAsync(NewRunner(4));
         });
@@ -315,14 +327,18 @@ public class WorkflowRunnerConcurrencyTests
     }
 
     /// <summary>
-    /// An action that throws, in the same pass as three that succeed.
+    /// An action that throws, beside three that succeed.
     /// </summary>
     /// <remarks>
+    /// The handler's exception is turned into a Failed outcome inside the execution, as it was
+    /// before there was a bound, so this guards that and does not depend on the bound. The failure
+    /// outside the handler is the next test.
+    ///
     /// Seeded on its last attempt, so the failure is final and no retry is left behind for a later
     /// test to drain.
     /// </remarks>
     [Fact]
-    public async Task An_action_that_throws_fails_alone_beside_the_others_of_its_pass()
+    public async Task An_action_that_throws_fails_alone_beside_the_others()
     {
         await _harness.WithHostedRunnerPausedAsync(async () =>
         {
@@ -347,7 +363,7 @@ public class WorkflowRunnerConcurrencyTests
                 await SeedAsync(tenant, contentId, Slow(group, 200)),
             };
 
-            (await NewRunner(4).RunOnceAsync(Ct)).Should().BeTrue("four runs are due");
+            await DrainAsync(NewRunner(4));
 
             var failed = await LoadAsync(tenant, failing, actions: 1);
             failed.Actions[0].Status.Should().Be(AttemptStatus.Failed);
@@ -357,7 +373,73 @@ public class WorkflowRunnerConcurrencyTests
             foreach (var id in others)
             {
                 (await LoadAsync(tenant, id, actions: 1)).Actions[0].Status.Should().Be(AttemptStatus.Succeeded,
-                    "one pass took all four, and the three beside the failure recorded their own outcome");
+                    "the three beside the failure recorded their own outcome");
+            }
+        });
+    }
+
+    /// <summary>
+    /// A run whose entry cannot be read, beside three that succeed. The failure is outside the
+    /// handler, so nothing turns it into an outcome: it is logged, the attempt is left under its
+    /// lease, and the pass and the other three go on.
+    /// </summary>
+    /// <remarks>
+    /// The entry is loaded before the handler is called. Thrown on from the action's task, the
+    /// failure would come out of the wait for the whole pass, and the drain here would throw.
+    /// </remarks>
+    [Fact]
+    public async Task A_run_whose_entry_cannot_be_read_does_not_fail_the_pass_or_the_runs_beside_it()
+    {
+        await _harness.WithHostedRunnerPausedAsync(async () =>
+        {
+            await DrainAsync(NewRunner(1));
+
+            var tenant = NewTenant();
+            var group = NewGroup();
+            var contentId = await StoreContentAsync(tenant);
+            var unreadable = await StoreContentAsync(tenant);
+
+            var first = await SeedAsync(tenant, contentId, Slow(group, 200));
+            var broken = await SeedAsync(tenant, unreadable, Slow(group, 0));
+            var others = new List<Guid>
+            {
+                first,
+                await SeedAsync(tenant, contentId, Slow(group, 200)),
+                await SeedAsync(tenant, contentId, Slow(group, 200)),
+            };
+
+            await ExecuteSqlAsync(
+                "update public.mt_doc_contents set data = jsonb_set(data, '{Data}', '\"not a map\"'::jsonb) "
+              + $"where id = '{unreadable}'");
+
+            try
+            {
+                await DrainAsync(NewRunner(4));
+
+                others.Should().HaveCount(3);
+                foreach (var id in others)
+                {
+                    (await LoadAsync(tenant, id, actions: 1)).Actions[0].Status.Should().Be(AttemptStatus.Succeeded);
+                }
+
+                var attempt = (await LoadAsync(tenant, broken, actions: 1)).Actions[0];
+                attempt.Status.Should().Be(AttemptStatus.Running, "nothing was recorded, so it waits out its lease");
+                attempt.LeasedBy.Should().NotBeNullOrEmpty();
+                attempt.Attempts.Should().Be(0);
+
+                SlowRunnerAction.Groups[group].TimesRun(attempt.IdempotencyKey).Should().Be(0,
+                    "the entry is read before the handler is called");
+            }
+            finally
+            {
+                // Left in place the run would be claimed again when its lease ends, and fail again.
+                await using (var session = Store.LightweightSession(tenant))
+                {
+                    session.Delete<WorkflowRun>(broken);
+                    await session.SaveChangesAsync(CancellationToken.None);
+                }
+
+                await ExecuteSqlAsync($"delete from public.mt_doc_contents where id = '{unreadable}'");
             }
         });
     }
@@ -401,16 +483,34 @@ public class WorkflowRunnerConcurrencyTests
     }
 
     /// <summary>
-    /// The host stops while two actions are out. The pass waits for both to end, and neither is
-    /// lost: each is still Running under this node's lease, for whoever takes it when the lease
-    /// ends, or was recorded as Unknown.
+    /// The host stops while two actions are out, and the actions take a while to notice. The pass
+    /// does not return while they are in flight, returns once they end, and neither is lost: each
+    /// is still Running under this node's lease, for whoever takes it when the lease ends, or was
+    /// recorded as Unknown.
     /// </summary>
     /// <remarks>
     /// Which of the two depends on whether the store still takes a write on a cancelled token, and
     /// that is the same with one action in flight as with several.
     /// </remarks>
     [Fact]
-    public async Task Stopping_with_actions_in_flight_waits_for_them_and_loses_none()
+    public Task Stopping_with_actions_in_flight_waits_for_them_and_loses_none() =>
+        StopWithActionsInFlightAsync(runs: 2, stopFromTheFirstAction: false);
+
+    /// <summary>
+    /// The same, with the stop arriving while the pass is still claiming: the first action to start
+    /// cancels the token, with three more runs due.
+    /// </summary>
+    /// <remarks>
+    /// The claim that is under way, or the next one, is cancelled and the pass leaves by throwing.
+    /// It still has to wait for what it started. Nothing forces a claim to be under way at that
+    /// moment: if all four were claimed before the first action began, this is the test above with
+    /// four runs, and passes for the same reason.
+    /// </remarks>
+    [Fact]
+    public Task Stopping_while_the_pass_is_still_claiming_waits_for_what_it_started() =>
+        StopWithActionsInFlightAsync(runs: 4, stopFromTheFirstAction: true);
+
+    private async Task StopWithActionsInFlightAsync(int runs, bool stopFromTheFirstAction)
     {
         await _harness.WithHostedRunnerPausedAsync(async () =>
         {
@@ -420,25 +520,45 @@ public class WorkflowRunnerConcurrencyTests
             var group = NewGroup();
             var contentId = await StoreContentAsync(tenant);
 
-            var seeded = new List<Guid>
+            using var stopping = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+            var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            var gauge = new SlowRunnerAction.Gauge
             {
-                await SeedAsync(tenant, contentId, Slow(group, 60_000)),
-                await SeedAsync(tenant, contentId, Slow(group, 60_000)),
+                HoldAfterStop = release.Task,
+                OnEnter = stopFromTheFirstAction ? new Action(stopping.Cancel) : null,
             };
+            SlowRunnerAction.Groups[group] = gauge;
+
+            var seeded = new List<Guid>();
+            for (var i = 0; i < runs; i++)
+            {
+                seeded.Add(await SeedAsync(tenant, contentId, Slow(group, 60_000)));
+            }
+
+            // More slots than runs, so a stray run from another class cannot keep one of these out.
+            var pass = Task.Run(() => NewRunner(runs + 2).RunOnceAsync(stopping.Token), Ct);
 
             try
             {
-                using var stopping = CancellationTokenSource.CreateLinkedTokenSource(Ct);
-                var pass = Task.Run(() => NewRunner(2).RunOnceAsync(stopping.Token), Ct);
-
+                var wanted = stopFromTheFirstAction ? 1 : runs;
                 var deadline = Stopwatch.StartNew();
-                while (!(SlowRunnerAction.Groups.TryGetValue(group, out var started) && started.InFlight == 2))
+
+                while (gauge.InFlight < wanted)
                 {
-                    deadline.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(30), "both actions should have started");
+                    deadline.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(30), "the actions should have started");
                     await Task.Delay(TimeSpan.FromMilliseconds(50), Ct);
                 }
 
                 stopping.Cancel();
+
+                // Long enough for a pass that does not wait to have come back.
+                await Task.Delay(TimeSpan.FromMilliseconds(500), Ct);
+
+                pass.IsCompleted.Should().BeFalse("an action the pass started is still running");
+                gauge.InFlight.Should().BeGreaterThanOrEqualTo(wanted);
+
+                release.SetResult();
 
                 try
                 {
@@ -449,13 +569,22 @@ public class WorkflowRunnerConcurrencyTests
                     // Either is a pass that ended: returned, or cancelled on the way out.
                 }
 
-                SlowRunnerAction.Groups[group].InFlight.Should().Be(0, "the pass does not return while an action it started is running");
+                gauge.InFlight.Should().Be(0, "the pass does not return while an action it started is running");
 
-                seeded.Should().HaveCount(2);
+                seeded.Should().HaveCount(runs);
                 foreach (var id in seeded)
                 {
                     var attempt = (await LoadAsync(tenant, id, actions: 1)).Actions[0];
-                    attempt.Status.Should().BeOneOf(AttemptStatus.Running, AttemptStatus.Unknown);
+
+                    if (stopFromTheFirstAction)
+                    {
+                        // A run the stop reached before its claim is still waiting.
+                        attempt.Status.Should().BeOneOf(AttemptStatus.Pending, AttemptStatus.Running, AttemptStatus.Unknown);
+                    }
+                    else
+                    {
+                        attempt.Status.Should().BeOneOf(AttemptStatus.Running, AttemptStatus.Unknown);
+                    }
 
                     if (attempt.Status == AttemptStatus.Running)
                     {
@@ -467,6 +596,20 @@ public class WorkflowRunnerConcurrencyTests
             }
             finally
             {
+                // A failure above must not leave the pass and its minute-long actions running beside
+                // the classes after this one.
+                stopping.Cancel();
+                release.TrySetResult();
+
+                try
+                {
+                    await pass.WaitAsync(TimeSpan.FromSeconds(30), CancellationToken.None);
+                }
+                catch (Exception)
+                {
+                    // How the pass ended was asserted on above, or is not what failed.
+                }
+
                 // Left in place they would be run again, a minute each, when the lease ends.
                 await using var session = Store.LightweightSession(tenant);
                 foreach (var id in seeded) session.Delete<WorkflowRun>(id);
@@ -564,6 +707,16 @@ public class WorkflowRunnerConcurrencyTests
         await session.SaveChangesAsync(Ct);
 
         return run.Id;
+    }
+
+    private async Task ExecuteSqlAsync(string sql)
+    {
+        await using var conn = Store.Storage.Database.CreateConnection();
+        await conn.OpenAsync(CancellationToken.None);
+
+        await using var command = conn.CreateCommand();
+        command.CommandText = sql;
+        (await command.ExecuteNonQueryAsync(CancellationToken.None)).Should().Be(1, "the statement is written for one row");
     }
 
     private async Task<WorkflowRun> LoadAsync(string tenant, Guid runId, int actions)
