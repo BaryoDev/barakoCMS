@@ -55,13 +55,56 @@ with or without `?w=`, and an object store's public URL. A usage row always carr
 and status; its title is there only when the caller holds read on the type and the sensitivity
 scrub leaves it, the same two checks as `GET /api/contents`.
 
-## Reading a file from another module
+## Using files from another module
 
 The module implements `IFileStore` from `BarakoCMS.Abstractions`, so the core and other modules can
-read a public file without referencing this package. It is asked for a file id, in the scope's
-tenant, and hands the file over only when it is public, the same files `GET /api/public/files/{id}`
-serves. A private file reads as absent. The workflow `Email` action uses it for attachments; see
-`docs/configuring-email.md`.
+store, read and delete a file without referencing this package. Every call works in the scope's
+tenant.
+
+```csharp
+public sealed class Receipts(IFileStore files)
+{
+    public async Task<Guid?> KeepAsync(Stream pdf, Guid payer, CancellationToken ct)
+    {
+        var saved = await files.SaveAsync(
+            new FileToStore { Content = pdf, FileName = "receipt.pdf", ContentType = "application/pdf", Owner = payer }, ct);
+        return saved.File?.Id; // null: saved.Refused says why
+    }
+
+    public Task<Stream?> ReadAsync(Guid id, ClaimsPrincipal user, CancellationToken ct) =>
+        files.OpenAsync(id, user, ct);
+}
+```
+
+- `FindPublicAsync`, `OpenPublicAsync` and `PublicUrlAsync` take no caller and answer for public
+  files only, the same files `GET /api/public/files/{id}` serves. A private file reads as absent.
+  The workflow `Email` action uses these for attachments; see `docs/configuring-email.md`.
+  `PublicUrlAsync` gives the object store's URL when the store serves the file itself, and
+  otherwise the path `/api/public/files/{id}`.
+- `FindAsync` and `OpenAsync` take the signed-in user and hand over what that user could download:
+  a public file, or a private one that is theirs or that they administer, the rule
+  `GET /api/files/{id}` applies. An API key, a principal that is not signed in and a token for
+  another tenant read public files only. Pass the current request's principal: token revocation,
+  tenant activity and device trust are the request pipeline's checks and are not run again here.
+- `SaveAsync` runs the checks `POST /api/files` runs (type, content, 10 MB, the scanner when
+  configured) and writes the record an upload writes, owned by `Owner`, so the routes above serve
+  it as they serve an upload. A refused file is not stored, and a scanner refusal is written to the
+  audit log.
+  It does not check `upload_files`: the calling module decides who may reach it. The file is held
+  in memory once while it is checked and stored (its own size from a seekable stream, up to twice
+  that from one that is not), and the Postgres storage copies it twice more.
+- `DeleteAsync` deletes for a caller `DELETE /api/files/{id}` would delete for, and answers
+  `InUse` while an entry names the file unless forced.
+
+`SaveAsync` and `DeleteAsync` commit, through the scope's session. Call them before staging
+anything else on it: they throw `InvalidOperationException` when work is already staged, so a
+refused save never commits a caller's rows. Inside a content batch nothing commits until the batch
+does, and with an object store the bytes do not roll back with it; `MODULES.md` says what that
+leaves behind.
+
+There is no member that reads or deletes a private file for no user. A job that runs without one
+can store a file and read public files. A file stored with no `Owner` shows the empty id as
+`uploadedBy` on `GET /api/files` and `GET /api/files/{id}/meta`.
 
 ## Notes
 

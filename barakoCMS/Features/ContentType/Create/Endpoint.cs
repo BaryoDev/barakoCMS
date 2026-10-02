@@ -220,6 +220,7 @@ internal class Endpoint(
             UpdatedAt = DateTimeOffset.UtcNow
         };
 
+        await barakoCMS.Core.RoleReferences.ToIdsAsync(session, def.Fields, ct);
         session.Store(def);
 
         // Written once for a name and never deleted, which is what makes recreating it inherit

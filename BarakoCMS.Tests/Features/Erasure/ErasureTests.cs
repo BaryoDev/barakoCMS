@@ -262,4 +262,59 @@ public class ErasureTests
         (await ScalarAsync("select count(*) from public.mt_doc_contents where id = @p", id))
             .Should().Be(1);
     }
+
+    /// <summary>
+    /// An erased entry's share links and preview tokens go in the same save.
+    /// </summary>
+    /// <remarks>
+    /// Left behind they open nothing, but they also cannot be listed or revoked, because both go
+    /// through the entry. Another entry's link and a link to the whole site are the controls: a
+    /// delete with too wide a predicate would pass the first assertion and fail those.
+    /// </remarks>
+    [Fact]
+    public async Task Erasing_an_entry_deletes_its_share_links_and_no_others()
+    {
+        await AuthenticateAsync("SuperAdmin");
+        var erased = await SeedAsync($"links-{Guid.NewGuid():n}");
+        var kept = await SeedAsync($"links-{Guid.NewGuid():n}");
+        var link = await StoreLinkAsync(erased, preview: false);
+        var token = await StoreLinkAsync(erased, preview: true);
+        var keptLink = await StoreLinkAsync(kept, preview: false);
+        var siteLink = await StoreLinkAsync(null, preview: false);
+
+        (await StoredLinkIdsAsync(link, token, keptLink, siteLink)).Should().HaveCount(4,
+            "the rows have to be there first, or their absence below proves nothing");
+
+        var response = await _client.DeleteAsync($"/api/contents/{erased}/erase");
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        (await StoredLinkIdsAsync(link, token, keptLink, siteLink)).Should().BeEquivalentTo(new[] { keptLink, siteLink });
+    }
+
+    private async Task<Guid> StoreLinkAsync(Guid? entryId, bool preview)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var id = Guid.NewGuid();
+        session.Store(new barakoCMS.Models.SiteShareLink
+        {
+            Id = id,
+            Label = "Stored",
+            KeyHash = Guid.NewGuid().ToString("N"),
+            CreatedAt = DateTimeOffset.UtcNow,
+            ExpiresAt = DateTimeOffset.UtcNow.AddDays(1),
+            EntryId = entryId,
+            Preview = preview,
+        });
+        await session.SaveChangesAsync();
+        return id;
+    }
+
+    private async Task<List<Guid>> StoredLinkIdsAsync(params Guid[] ids)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+        var found = await session.LoadManyAsync<barakoCMS.Models.SiteShareLink>(ids);
+        return found.Select(l => l.Id).ToList();
+    }
 }
