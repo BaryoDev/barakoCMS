@@ -140,6 +140,41 @@ public sealed class EnabledModuleEndpointTests(EnabledModuleEndpointTests.Host h
             "DeviceTrust's enforcement processor refuses a bound token sent with no device header");
     }
 
+    /// <summary>
+    /// The describe document says what this deployment runs: the two enabled modules and what they
+    /// bring, and nothing from a module the enabled list left off.
+    /// </summary>
+    [Fact]
+    public async Task The_describe_document_lists_what_the_enabled_modules_bring_and_nothing_from_one_left_off()
+    {
+        var seen = host.App.Services.GetRequiredService<barakoCMS.Modules.ModuleCatalogue>().Entries;
+        seen.Should().Contain(e => e.Name == "Accounting" && !e.Enabled,
+            "the control: Accounting is installed here and switched off, so its absence below is the filter");
+
+        var userId = await SeedUserAsync(barakoCMS.Models.SystemRoles.SuperAdminRoleId);
+        var response = await Client(fixture.CreateToken(["SuperAdmin"], userId.ToString()))
+            .GetAsync("/api/meta/describe", TestContext.Current.CancellationToken);
+
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        response.StatusCode.Should().Be(HttpStatusCode.OK, body);
+        using var document = System.Text.Json.JsonDocument.Parse(body);
+
+        var modules = document.RootElement.GetProperty("modules").EnumerateArray()
+            .Select(m => m.GetProperty("name").GetString())
+            .ToList();
+        modules.Should().HaveCount(2);
+        modules.Should().Equal(["DeviceTrust", "Pwa"]);
+
+        var capabilities = document.RootElement.GetProperty("capabilities").EnumerateArray()
+            .ToDictionary(c => c.GetProperty("name").GetString()!, c => c.GetProperty("source").GetString());
+        capabilities.Should().NotBeEmpty();
+        capabilities.Should().ContainKey(BarakoCMS.Pwa.PwaCapabilities.ViewPwaInstalls);
+        capabilities[BarakoCMS.Pwa.PwaCapabilities.ViewPwaInstalls].Should().Be("Pwa",
+            "a capability an enabled module's endpoint asks for is listed under that module");
+        capabilities.Should().NotContainKey(BarakoCMS.Accounting.AccountingCapabilities.ViewLedger,
+            "a module left off serves no endpoint, so its capability is not one this deployment has");
+    }
+
     private HttpClient Client(string token)
     {
         var client = host.App.GetTestClient();
@@ -147,7 +182,7 @@ public sealed class EnabledModuleEndpointTests(EnabledModuleEndpointTests.Host h
         return client;
     }
 
-    private async Task<Guid> SeedUserAsync()
+    private async Task<Guid> SeedUserAsync(params Guid[] roleIds)
     {
         using var scope = host.App.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
@@ -158,6 +193,7 @@ public sealed class EnabledModuleEndpointTests(EnabledModuleEndpointTests.Host h
             Username = $"enabled-{id:n}",
             Email = $"enabled-{id:n}@example.com",
             PasswordHash = "not-used",
+            RoleIds = roleIds.ToList(),
         });
         await session.SaveChangesAsync(TestContext.Current.CancellationToken);
         return id;

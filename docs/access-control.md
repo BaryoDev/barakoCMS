@@ -388,6 +388,39 @@ it. A module you have not installed contributes nothing, and a module needs no n
 be listed. `source` is `core` or the registered module's `Name`; a module whose endpoints are served
 without the module itself being registered is named by its assembly instead.
 
+### The describe document
+
+`GET /api/meta/describe` answers any signed-in caller with what this instance accepts, read from the
+same registries the API checks requests against, so a client does not keep its own copy:
+
+```json
+{
+  "apiContractVersion": 6,
+  "fieldTypes": [
+    { "name": "int", "aliases": ["integer", "number"], "editorHint": "number", "rules": ["min", "max", "requiredWhen"] }
+  ],
+  "rules": [ { "name": "pattern", "aliases": ["regex"] } ],
+  "capabilities": [ { "name": "manage_roles", "source": "core", "note": null } ],
+  "workflowActions": [ { "type": "Webhook", "requiredParameters": ["Url"], "optionalParameters": ["Secret"], "secretParameters": ["Secret"] } ],
+  "modules": [ { "name": "Accounting" } ]
+}
+```
+
+`fieldTypes` and `rules` go to every signed-in caller. The other three repeat what an endpoint with
+a gate of its own already lists, so each is `null` for a caller that endpoint would refuse, and a
+list, possibly empty, for one it would serve:
+
+| Part | Same as | Needs |
+|---|---|---|
+| `capabilities` | `GET /api/capabilities` | `manage_roles` |
+| `workflowActions` | `GET /api/workflows/actions` | `manage_workflows` |
+| `modules` | the enabled entries of `GET /api/modules`, name only | `view_modules` |
+
+A workflow action carries the fields `GET /api/workflows/actions` returns for it. A module the
+enabled list left off is not in `modules`, and since it serves no endpoint and registers no action
+it adds nothing to the other two either. The response is sent `Cache-Control: no-store`, because it
+differs by what the caller holds. An API key cannot read it: keys are confined to the content API.
+
 ### Unknown names on a role write
 
 `POST /api/roles` and `PUT /api/roles/{id}` check `systemCapabilities` against that list. A name no
