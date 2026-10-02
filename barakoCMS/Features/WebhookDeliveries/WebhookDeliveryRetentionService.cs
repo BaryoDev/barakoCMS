@@ -110,7 +110,7 @@ internal sealed class WebhookDeliveryRetentionService(
         var removed = 0;
         var bodiesCleared = 0;
 
-        var fromRegistry = TenantPartitions.Enforced(config);
+        var fromRegistry = TenantPartitions.ListsFromRegistry(config);
 
         foreach (var tenantId in await TenantPartitions.ListAsync(store, config, PartitionsWithDeliveriesSql, ct))
         {

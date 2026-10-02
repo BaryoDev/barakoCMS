@@ -19,6 +19,10 @@ with `app.tenant_id` set to `*DEFAULT*` and sees exactly the default partition, 
 single-deployment site keeps its real content. Postgres cannot tell "I forgot to say which tenant"
 from "I mean the default one", because nothing distinguishes them.
 
+`Tenancy:Mode` set to `Multi` closes that from the other side: the application then refuses the
+default partition at resolution and at token issue, so on a multi-client deployment no tenant data
+is served from it. The two settings are independent, and `docs/multi-tenancy.md` has the mode.
+
 **It does not** cover the event store. `mt_events` and `mt_streams` are outside Marten's row level
 security, so the tenant filter on those remains the application's alone.
 
@@ -102,6 +106,12 @@ or not, plus the default partition. Two consequences:
   batch it claims while draining. The credential pass runs once per start, so it pays it once.
 - Rows in a partition with no `Tenant` document are not reached. Register the tenant to bring them
   back into scope.
+
+With `Tenancy:Mode` set to `Multi` the passes that list partitions (the workflow runner, the two
+retention sweeps and the credential pass) read the registry whether or not enforcement is on, and
+leave out the default partition as well. So in `Multi` the credential pass leaves a workflow in the
+default partition as it was stored, which with enforcement alone it would have encrypted. The job
+queue is not changed by the mode. `docs/multi-tenancy.md` lists what else is left as it is.
 
 A partition with no `Tenant` document is not only a slug somebody typed into an `X-Tenant` header.
 It is also the ordinary shape of a single-tenant deployment reached over a subdomain: the slug is
