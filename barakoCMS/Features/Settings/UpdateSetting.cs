@@ -37,22 +37,29 @@ internal class UpdateSettingEndpoint(IDocumentSession session, IConfiguration co
             ThrowError(PlatformScope.DeploymentWideMessage, 403);
         }
 
+        var setting = await session.Query<SystemSetting>()
+            .FirstOrDefaultAsync(s => s.Key == req.Key, ct);
+
         // Everything stored here is written in plaintext and handed back in full by GET
         // /api/settings. That is fine for a feature flag and wrong for a credential, and the screen
         // invites it: a box labelled Value next to a key called Resend:ApiKey is going to get an API
         // key typed into it. Refusing names the endpoint that encrypts, rather than leaving the
         // operator to discover the difference from a database dump.
-        if (CredentialNames.IsCredential(req.Key))
+        //
+        // The one save let through is an empty value for a row that already exists. No route deletes
+        // a setting, so without it a value stored before its key was refused could never be removed
+        // through the API.
+        var clearsStoredValue = setting is not null && req.Value == string.Empty;
+
+        if (CredentialNames.IsCredential(req.Key) && !clearsStoredValue)
         {
             ThrowError(
                 $"'{req.Key}' looks like a credential, and settings stored here are kept in plaintext and "
               + "returned by GET /api/settings. Email credentials go to PUT /api/settings/email, which "
-              + "encrypts them and never hands them back.", 400);
+              + "encrypts them and never hands them back. A value stored earlier under this key can be "
+              + "cleared by saving it with an empty value.", 400);
             return;
         }
-
-        var setting = await session.Query<SystemSetting>()
-            .FirstOrDefaultAsync(s => s.Key == req.Key, ct);
 
         if (setting == null)
         {

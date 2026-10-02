@@ -96,10 +96,13 @@ public class SettingCredentialNameTests
         found!.Value.GetProperty("value").GetString().Should().Be("stored-earlier");
     }
 
-    [Fact]
-    public async Task A_setting_stored_under_such_a_key_earlier_is_not_changed_by_a_refused_save()
+    /// <summary>One word settings did not refuse before, and one they did.</summary>
+    [Theory]
+    [InlineData("AccessKey")]
+    [InlineData("ApiKey")]
+    public async Task A_setting_stored_under_such_a_key_earlier_is_not_changed_by_a_refused_save(string name)
     {
-        var key = Key("AccessKey");
+        var key = Key(name);
         await StoreAsync(new SystemSetting { Id = Guid.NewGuid(), Key = key, Value = "stored-earlier" });
         var client = await SuperAdminAsync();
 
@@ -108,6 +111,57 @@ public class SettingCredentialNameTests
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await StoredAsync(key))!.Value.Should().Be("stored-earlier");
+    }
+
+    /// <summary>
+    /// No route deletes a setting, so an empty value is how a value stored before its key was refused
+    /// is removed.
+    /// </summary>
+    [Theory]
+    [InlineData("AccessKey")]
+    [InlineData("ApiKey")]
+    public async Task A_setting_stored_under_such_a_key_earlier_can_be_cleared_with_an_empty_value(string name)
+    {
+        var key = Key(name);
+        await StoreAsync(new SystemSetting { Id = Guid.NewGuid(), Key = key, Value = "stored-earlier" });
+        var client = await SuperAdminAsync();
+
+        var response = await client.PostAsJsonAsync(
+            "/api/settings", new { key, value = "" }, TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK,
+            await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        var stored = await StoredAsync(key);
+        stored.Should().NotBeNull("clearing keeps the row and empties it");
+        stored!.Value.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("AccessKey")]
+    [InlineData("ApiKey")]
+    public async Task An_empty_value_does_not_create_a_setting_under_such_a_key(string name)
+    {
+        var client = await SuperAdminAsync();
+        var key = Key(name);
+
+        var response = await client.PostAsJsonAsync(
+            "/api/settings", new { key, value = "" }, TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await StoredAsync(key)).Should().BeNull("refused has to mean not written");
+    }
+
+    [Fact]
+    public async Task The_refusal_says_a_stored_value_can_be_cleared()
+    {
+        var client = await SuperAdminAsync();
+
+        var response = await client.PostAsJsonAsync(
+            "/api/settings", new { key = Key("AccessKey"), value = "typed-in-clear" }, TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))
+            .Should().Contain("empty value");
     }
 
     private async Task<HttpClient> SuperAdminAsync()

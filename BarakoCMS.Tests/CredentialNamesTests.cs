@@ -91,10 +91,16 @@ public class CredentialNamesTests
     }
 
     /// <summary>
-    /// A second word list is how two surfaces came to disagree. The words below are the ones that
-    /// only ever appear as string literals in such a list, so finding one outside the classifier
-    /// means another list has been started.
+    /// A second word list is how two surfaces came to disagree. This is a tripwire for one, not a
+    /// proof there is none: it looks for eight of the twelve words, the ones too specific to turn up
+    /// as a string literal for another reason more than once in a file, and a list of the other four
+    /// (secret, password, token, apikey) or one built from constants gets past it.
     /// </summary>
+    /// <remarks>
+    /// One of the words on its own is not a list. A module reading <c>configuration["AccessKey"]</c>
+    /// or a provider posting <c>"api_key"</c> is ordinary code, so a file is named only when it holds
+    /// two or more different words.
+    /// </remarks>
     [Fact]
     public void No_other_production_file_keeps_a_credential_word_list()
     {
@@ -105,20 +111,27 @@ public class CredentialNamesTests
         var root = RepoRoot();
         var classifier = Path.Combine(root, "barakoCMS", "Infrastructure", "Security", "CredentialNames.cs");
         File.Exists(classifier).Should().BeTrue("the classifier is the one file allowed to hold the words");
-        literal.IsMatch(File.ReadAllText(classifier)).Should().BeTrue(
-            "the scan has to be able to see the words where they do live, or finding none elsewhere proves nothing");
+        WordsFound(literal, classifier).Should().HaveCount(8,
+            "the scan has to see all eight words where they do live, or finding none elsewhere proves nothing");
 
         var files = ProductionSourceFiles(root);
         files.Count.Should().BeGreaterThan(100, "the scan has to have read the production code");
 
-        var offenders = files
+        var secondLists = files
             .Where(file => !string.Equals(file, classifier, StringComparison.Ordinal))
-            .Where(file => literal.IsMatch(File.ReadAllText(file)))
+            .Where(file => WordsFound(literal, file).Count >= 2)
             .Select(file => Path.GetRelativePath(root, file))
             .ToList();
 
-        offenders.Should().BeEmpty("a name is classified by CredentialNames.IsCredential, not by a list of its own");
+        secondLists.Should().BeEmpty(
+            "each file named here holds a second list of credential words, and a name is classified by "
+            + "CredentialNames.IsCredential so that two surfaces cannot disagree");
     }
+
+    private static HashSet<string> WordsFound(Regex literal, string file) =>
+        literal.Matches(File.ReadAllText(file))
+            .Select(match => match.Groups[1].Value.ToLowerInvariant())
+            .ToHashSet(StringComparer.Ordinal);
 
     private static List<string> ProductionSourceFiles(string root)
     {

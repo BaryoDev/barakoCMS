@@ -19,7 +19,13 @@ namespace barakoCMS.Infrastructure.Security;
 /// <para>
 /// Adding a word changes what each caller does with names that already exist: a workflow parameter
 /// under that name stops being returned and is encrypted by the startup pass, and a setting under
-/// it can no longer be saved. Removing a word leaves a value that was protected in clear.
+/// it can no longer be saved, only cleared. Removing a word leaves a value that was protected in
+/// clear.
+/// </para>
+/// <para>
+/// The console cannot call this and keeps a copy of the words to mask its inputs:
+/// <c>SENSITIVE_NAME_PARTS</c> in <c>src/lib/workflow-parameters.ts</c> of the barakoBrew
+/// repository. A word added here must be added there too.
 /// </para>
 /// </remarks>
 internal static class CredentialNames

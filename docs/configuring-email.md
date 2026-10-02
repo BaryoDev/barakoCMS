@@ -92,8 +92,10 @@ in plaintext and returned in full by `GET /api/settings`, which is right for a f
 wrong for a sending credential.
 
 A setting stored under such a key before the key was refused is still returned by
-`GET /api/settings` and still read by the API. It can no longer be changed through
-`POST /api/settings`.
+`GET /api/settings` and still read by the API. Its value can no longer be changed through
+`POST /api/settings`, and it can be cleared there: save the key with an empty value (`"value": ""`)
+and the stored value is emptied. The row stays, since no route deletes a setting. An empty value for
+a key that has no row is refused like any other.
 
 ## The test send
 
