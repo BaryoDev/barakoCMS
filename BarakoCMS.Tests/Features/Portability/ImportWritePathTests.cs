@@ -613,6 +613,116 @@ public class ImportWritePathTests
         (await StoredTypeAsync(type))!.Lifecycle!.States.Should().Equal("Draft", "Approved");
     }
 
+    private static LifecycleDefinition ApprovalRequiring(params string[] fields) => new()
+    {
+        States = ["Draft", "Approved"],
+        InitialState = "Draft",
+        Transitions = [new StateTransition { Name = "Approve", From = "Draft", To = "Approved", RequiredFields = [.. fields] }],
+    };
+
+    [Fact]
+    public async Task A_bundle_whose_lifecycle_requires_a_field_the_type_does_not_declare_is_refused()
+    {
+        var type = NewType("implreq");
+        var admin = await AdminAsync();
+
+        var (status, body) = await ImportAsync(admin,
+            [new ContentTypeDefinition
+            {
+                Name = type, DisplayName = "Invoices", Fields = [Text("Title")], Lifecycle = ApprovalRequiring("Verdict"),
+            }],
+            []);
+        status.Should().Be(HttpStatusCode.BadRequest, body);
+        body.Should().Contain("Verdict");
+        (await StoredTypeAsync(type)).Should().BeNull();
+
+        var (savedStatus, savedBody) = await ImportAsync(admin,
+            [new ContentTypeDefinition
+            {
+                Name = type, DisplayName = "Invoices", Fields = [Text("Title"), Text("Verdict")],
+                Lifecycle = ApprovalRequiring("Verdict"),
+            }],
+            []);
+        savedStatus.Should().Be(HttpStatusCode.OK, savedBody);
+        (await StoredTypeAsync(type))!.Lifecycle!.Transitions.Single().RequiredFields.Should().Equal("Verdict");
+    }
+
+    [Fact]
+    public async Task A_bundle_that_changes_what_a_stored_transition_requires_is_refused()
+    {
+        var type = NewType("implchg");
+        await StoreTypeAsync(new ContentTypeDefinition
+        {
+            Name = type, DisplayName = "Invoices", Fields = [Text("Title")], Lifecycle = ApprovalRequiring(),
+        });
+        var admin = await AdminAsync();
+
+        var (status, body) = await ImportAsync(admin,
+            [new ContentTypeDefinition
+            {
+                Name = type, DisplayName = "Invoices", Fields = [Text("Title")], Lifecycle = ApprovalRequiring("Title"),
+            }],
+            []);
+
+        status.Should().Be(HttpStatusCode.BadRequest, body);
+        body.Should().Contain("lifecycle");
+        (await StoredTypeAsync(type))!.Lifecycle!.Transitions.Single().RequiredFields.Should().BeEmpty();
+    }
+
+    /// <summary>
+    /// An import replaces a type's fields and keeps its lifecycle, so dropping a field a stored
+    /// transition names would switch that requirement off without saying so.
+    /// </summary>
+    [Fact]
+    public async Task A_bundle_that_drops_a_field_a_stored_transition_names_is_refused()
+    {
+        var type = NewType("impldrop");
+        await StoreTypeAsync(new ContentTypeDefinition
+        {
+            Name = type, DisplayName = "Invoices", Fields = [Text("Title"), Text("Verdict")],
+            Lifecycle = ApprovalRequiring("Verdict"),
+        });
+        var admin = await AdminAsync();
+
+        var (status, body) = await ImportAsync(admin,
+            [new ContentTypeDefinition { Name = type, DisplayName = "Invoices", Fields = [Text("Title")] }],
+            []);
+        status.Should().Be(HttpStatusCode.BadRequest, body);
+        body.Should().Contain("Verdict");
+        (await StoredTypeAsync(type))!.Fields.Select(f => f.Name).Should().Equal("Title", "Verdict");
+
+        var (keptStatus, keptBody) = await ImportAsync(admin,
+            [new ContentTypeDefinition { Name = type, DisplayName = "Invoices", Fields = [Text("Title"), Text("Verdict")] }],
+            []);
+        keptStatus.Should().Be(HttpStatusCode.OK, keptBody);
+    }
+
+    /// <summary>
+    /// A tenant's own export imports back, even when a stored transition already names a field the
+    /// stored type does not have. Passes before the change too: it guards the two refusals above
+    /// against being applied to a lifecycle the import does not store.
+    /// </summary>
+    [Fact]
+    public async Task A_stored_transition_already_naming_a_missing_field_does_not_stop_the_type_importing_back()
+    {
+        var type = NewType("implback");
+        await StoreTypeAsync(new ContentTypeDefinition
+        {
+            Name = type, DisplayName = "Invoices", Fields = [Text("Title")], Lifecycle = ApprovalRequiring("Verdict"),
+        });
+        var admin = await AdminAsync();
+
+        var (status, body) = await ImportAsync(admin,
+            [new ContentTypeDefinition
+            {
+                Name = type, DisplayName = "Invoices", Fields = [Text("Title")], Lifecycle = ApprovalRequiring("Verdict"),
+            }],
+            []);
+
+        status.Should().Be(HttpStatusCode.OK, body);
+        (await StoredTypeAsync(type))!.Lifecycle!.Transitions.Single().RequiredFields.Should().Equal("Verdict");
+    }
+
     // Hooks see earlier entries of the same bundle --------------------------------------------
 
     private async Task EnsureAccountingTypesAsync()

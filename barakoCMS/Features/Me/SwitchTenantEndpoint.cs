@@ -1,5 +1,6 @@
 using FastEndpoints;
 using FastEndpoints.Security;
+using FluentValidation;
 using Marten;
 using barakoCMS.Models;
 using barakoCMS.Infrastructure.Multitenancy;
@@ -8,10 +9,55 @@ using System.Security.Claims;
 
 namespace barakoCMS.Features.Me;
 
+/// <remarks>
+/// Only the JSON body names the target. FastEndpoints binds the query string onto a request after
+/// the body, which would let a URL override or contradict the body on an endpoint that issues a
+/// token, so both properties refuse every source but the body.
+/// </remarks>
 internal class SwitchTenantRequest
 {
-    /// <summary>The handle of the club to switch into.</summary>
-    public string Club { get; set; } = string.Empty;
+    private const Source NotTheBody = Source.QueryParam | Source.RouteParam | Source.FormField;
+
+    /// <summary>The handle of the tenant to switch into.</summary>
+    [DontBind(NotTheBody)]
+    public string? Tenant { get; set; }
+
+    /// <summary>
+    /// An alias of <c>tenant</c>, kept for clients written when this was the only name. Send one of
+    /// the two: a request where both are set and name different tenants is refused.
+    /// </summary>
+    [DontBind(NotTheBody)]
+    public string? Club { get; set; }
+}
+
+/// <summary>
+/// The one reading of a switch request. The validator and the endpoint both go through it, so a
+/// handle is normalised the same way whichever field carried it.
+/// </summary>
+internal static class SwitchTarget
+{
+    public static string Of(SwitchTenantRequest req)
+    {
+        var tenant = Normalise(req.Tenant);
+        return tenant.Length > 0 ? tenant : Normalise(req.Club);
+    }
+
+    /// <summary>A blank field counts as not sent, so it cannot disagree with the other one.</summary>
+    public static bool Disagree(SwitchTenantRequest req)
+    {
+        var tenant = Normalise(req.Tenant);
+        var club = Normalise(req.Club);
+        return tenant.Length > 0 && club.Length > 0 && !string.Equals(tenant, club, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// True when the request named the tenant through <c>club</c> alone. Its errors are then reported
+    /// against <c>club</c>, where a client that only knows that field looks for them.
+    /// </summary>
+    public static bool CameFromAlias(SwitchTenantRequest req) =>
+        Normalise(req.Tenant).Length == 0 && req.Club is not null;
+
+    private static string Normalise(string? handle) => (handle ?? string.Empty).Trim().ToLowerInvariant();
 }
 
 internal class SwitchTenantResponse
@@ -25,16 +71,35 @@ internal class SwitchTenantResponse
     public DateTime RefreshTokenExpiry { get; set; }
 }
 
+internal class SwitchTenantValidator : Validator<SwitchTenantRequest>
+{
+    public SwitchTenantValidator()
+    {
+        // Disagreeing needs a tenant that is not blank, so it never falls under the club rule below.
+        RuleFor(x => x.Tenant)
+            .Must((req, _) => !SwitchTarget.Disagree(req))
+            .WithMessage("tenant and club name different tenants. Send one of them.")
+            .Must((req, _) => SwitchTarget.Of(req).Length > 0)
+            .WithMessage("A tenant is required.")
+            .When(req => !SwitchTarget.CameFromAlias(req));
+
+        RuleFor(x => x.Club)
+            .Must((req, _) => SwitchTarget.Of(req).Length > 0)
+            .WithMessage("A tenant is required.")
+            .When(req => SwitchTarget.CameFromAlias(req));
+    }
+}
+
 /// <summary>
 /// POST /api/me/switch: the signed-in user exchanges their access token for one scoped to another
-/// club, without re-authenticating. The issuer checks for an active membership in the target club
-/// (or treats it as unmanaged, as every token path does) and bakes that club's roles into the new
+/// tenant, without re-authenticating. The issuer checks for an active membership in the target tenant
+/// (or treats it as unmanaged, as every token path does) and bakes that tenant's roles into the new
 /// token. Device binding (the <c>did</c> claim) is carried over so device-trust still holds.
 /// </summary>
 /// <remarks>
 /// It exchanges, it does not renew. The new token expires when the presented one would have, and the
 /// presented one is revoked, so a chain of switches cannot keep a bearer alive past its original
-/// expiry. It returns no refresh token: the one the caller already holds is not tied to a club, since
+/// expiry. It returns no refresh token: the one the caller already holds is not tied to a tenant, since
 /// a refresh mints for the <c>X-Tenant</c> it is sent and re-checks membership.
 /// </remarks>
 internal class SwitchTenantEndpoint : Endpoint<SwitchTenantRequest, SwitchTenantResponse>
@@ -61,12 +126,7 @@ internal class SwitchTenantEndpoint : Endpoint<SwitchTenantRequest, SwitchTenant
 
     public override async Task HandleAsync(SwitchTenantRequest req, CancellationToken ct)
     {
-        var target = (req.Club ?? string.Empty).Trim().ToLowerInvariant();
-        if (string.IsNullOrWhiteSpace(target))
-        {
-            ThrowError(r => r.Club, "A club is required.");
-            return;
-        }
+        var target = SwitchTarget.Of(req);
 
         Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId);
         var user = await _session.Query<User>().FirstOrDefaultAsync(u => u.Id == userId, ct);
@@ -95,7 +155,10 @@ internal class SwitchTenantEndpoint : Endpoint<SwitchTenantRequest, SwitchTenant
         var issued = await _tokenIssuer.IssueAccessTokenAsync(user, target, extraClaims, presentedExpiry, ct);
         if (!issued.Allowed)
         {
-            ThrowError(r => r.Club, "You are not a member of this club.");
+            const string notAMember = "You are not a member of this tenant.";
+            if (SwitchTarget.CameFromAlias(req))
+                ThrowError(r => r.Club, notAMember);
+            ThrowError(r => r.Tenant, notAMember);
             return;
         }
 

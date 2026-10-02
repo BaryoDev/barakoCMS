@@ -114,26 +114,16 @@ public class SensitivityService : ISensitivityService
 
     public async ValueTask<bool> ApplyAsync(string contentType, SensitivityLevel level, IDictionary<string, object> data, HttpContext httpContext, CancellationToken ct = default)
     {
-        if (_mode == SensitivityMode.Off)
-            return false;
-
-        // A Public entry of a type with no restricted field has nothing to decide, so the caller's
-        // roles are not read for it.
-        if (level == SensitivityLevel.Public
-            && (await LoadDefinitionAsync(contentType, ct))?.Fields.Any(f => f.Sensitivity != SensitivityLevel.Public) != true)
-            return false;
-
-        var user = await StoredCallerAsync(httpContext.User, ct);
-        if (IsSuperAdmin(user))
-            return false; // SuperAdmin sees everything.
-
-        // 1. Document-level. An entry's own level is judged the way a field of that level with no
-        // role list of its own is.
-        if (level != SensitivityLevel.Public && !CallerMaySee(new FieldDefinition { Sensitivity = level }, user))
+        // 1. Document-level.
+        if (!await MaySeeDocumentAsync(level, httpContext.User, ct))
         {
             data.Clear();
-            return level == SensitivityLevel.Hidden; // only a Hidden entry reports itself as withheld
+            return level == SensitivityLevel.Hidden; // true when the whole document is hidden
         }
+
+        // Nothing below can mask with the mode off, so the schema is not read.
+        if (_mode == SensitivityMode.Off)
+            return false;
 
         // 2. Field-level, from the content type's schema.
         var definition = await LoadDefinitionAsync(contentType, ct);
@@ -141,9 +131,7 @@ public class SensitivityService : ISensitivityService
         {
             foreach (var field in definition.Fields)
             {
-                if (field.Sensitivity == SensitivityLevel.Public)
-                    continue;
-                if (CallerMaySee(field, user))
+                if (await MaySeeFieldAsync(field, httpContext.User, ct))
                     continue;
                 foreach (var key in MatchingKeys(data, field.Name))
                     ApplyMask(data, key, field);
@@ -158,15 +146,11 @@ public class SensitivityService : ISensitivityService
         if (_mode == SensitivityMode.Off)
             return;
 
-        var user = await StoredCallerAsync(httpContext.User, ct);
-        if (IsSuperAdmin(user))
-            return;
-
         var definition = await LoadDefinitionAsync(contentType, ct);
         if (definition == null)
             return;
 
-        DropUnwritable(definition, incoming, existing, user);
+        await DropUnwritableAsync(definition, incoming, existing, httpContext.User, ct);
     }
 
     public async ValueTask ApplyWriteAsync(ContentTypeDefinition definition, IDictionary<string, object> incoming, IReadOnlyDictionary<string, object>? existing, HttpContext httpContext, CancellationToken ct = default)
@@ -174,24 +158,56 @@ public class SensitivityService : ISensitivityService
         if (_mode == SensitivityMode.Off)
             return;
 
-        var user = await StoredCallerAsync(httpContext.User, ct);
-        if (IsSuperAdmin(user))
-            return;
-
-        DropUnwritable(definition, incoming, existing, user);
+        await DropUnwritableAsync(definition, incoming, existing, httpContext.User, ct);
     }
 
-    private static void DropUnwritable(
+    /// <summary>
+    /// The read rule for a field, and the write rule too: a caller who may not see a field may not
+    /// set it. <see cref="ApplyAsync"/> masks exactly the fields this refuses, so what a caller may
+    /// filter on and what they are shown cannot drift apart.
+    /// </summary>
+    /// <remarks>
+    /// A Public field, and any field with the mode off, is answered before the caller's roles are
+    /// read, so an entry of a type with no restricted field costs no role query.
+    /// </remarks>
+    public async ValueTask<bool> MaySeeFieldAsync(
+        FieldDefinition field, System.Security.Claims.ClaimsPrincipal user, CancellationToken ct = default)
+    {
+        if (_mode == SensitivityMode.Off || field.Sensitivity == SensitivityLevel.Public)
+            return true;
+
+        var caller = await StoredCallerAsync(user, ct);
+        return IsSuperAdmin(caller) || CallerMaySee(field, caller);
+    }
+
+    /// <summary>
+    /// The read rule for a document. <see cref="ApplyAsync"/> clears the data of exactly the
+    /// documents this refuses.
+    /// </summary>
+    /// <remarks>
+    /// An entry's own level is judged the way a field of that level with no role list of its own
+    /// is. A Public entry is answered before the caller's roles are read.
+    /// </remarks>
+    public async ValueTask<bool> MaySeeDocumentAsync(
+        SensitivityLevel level, System.Security.Claims.ClaimsPrincipal user, CancellationToken ct = default)
+    {
+        if (_mode == SensitivityMode.Off || level == SensitivityLevel.Public)
+            return true;
+
+        var caller = await StoredCallerAsync(user, ct);
+        return IsSuperAdmin(caller) || CallerMaySee(new FieldDefinition { Sensitivity = level }, caller);
+    }
+
+    private async ValueTask DropUnwritableAsync(
         ContentTypeDefinition definition,
         IDictionary<string, object> incoming,
         IReadOnlyDictionary<string, object>? existing,
-        System.Security.Claims.ClaimsPrincipal user)
+        System.Security.Claims.ClaimsPrincipal user,
+        CancellationToken ct)
     {
         foreach (var field in definition.Fields)
         {
-            if (field.Sensitivity == SensitivityLevel.Public)
-                continue;
-            if (CallerMaySee(field, user))
+            if (await MaySeeFieldAsync(field, user, ct))
                 continue;
 
             // The caller cannot see this field, so they cannot set it. Revert to the stored value
@@ -215,7 +231,9 @@ public class SensitivityService : ISensitivityService
     /// </summary>
     /// <remarks>
     /// The list replaces the default, it does not add to it: a role holding the capability and not
-    /// on the list does not see the field. SuperAdmin is handled by the callers.
+    /// on the list does not see the field. Called only by <see cref="MaySeeFieldAsync"/> and
+    /// <see cref="MaySeeDocumentAsync"/>, with the stored caller, after they have answered for
+    /// SuperAdmin. Every read and write in this class goes through those two.
     /// </remarks>
     private static bool CallerMaySee(FieldDefinition field, System.Security.Claims.ClaimsPrincipal user)
     {

@@ -402,7 +402,11 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
             errors.Add($"field '{repeated.Key}' is declared more than once, ignoring case.");
         }
 
-        errors.AddRange(validator.ValidateLifecycle(type.Lifecycle).Errors);
+        // The fields a transition names are checked only for a lifecycle this import will store. A
+        // stored one is kept as it is, and a bundle exported from this tenant has to import back.
+        errors.AddRange(stored?.Lifecycle is null
+            ? validator.ValidateLifecycle(type.Lifecycle, type.Fields).Errors
+            : validator.ValidateLifecycle(type.Lifecycle).Errors);
 
         var name = stored?.Name ?? barakoCMS.Core.ContentTypeName.Normalize(type.Name);
         var nonPublic = type.Fields.Where(f => f.Sensitivity != SensitivityLevel.Public).Select(f => f.Name).ToList();
@@ -416,6 +420,7 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
             return errors;
 
         errors.AddRange(SensitivityChanges(type, stored));
+        errors.AddRange(DroppedTransitionFields(type, stored));
 
         var entries = await EntryCountAsync(stored, ct);
 
@@ -450,6 +455,41 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
         }
 
         return errors;
+    }
+
+    /// <summary>
+    /// Fields a stored transition names that the stored type has and the bundle leaves out.
+    /// </summary>
+    /// <remarks>
+    /// An import replaces a type's fields and keeps its lifecycle. A transition naming a field the
+    /// type no longer has skips that name on every move, so dropping the field would switch a
+    /// requirement off with nothing said. A name the stored type already lacks is not reported: that
+    /// requirement is skipped today, and a bundle exported from this tenant has to import back.
+    /// </remarks>
+    private static IEnumerable<string> DroppedTransitionFields(ContentTypeDefinition type, ContentTypeDefinition stored)
+    {
+        if (stored.Lifecycle is null)
+            yield break;
+
+        foreach (var transition in stored.Lifecycle.Transitions)
+        {
+            var named = (transition.RequiredFields ?? [])
+                .Concat(transition.OptionalFields ?? [])
+                .Where(n => !string.IsNullOrWhiteSpace(n))
+                .Distinct(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var name in named)
+            {
+                if (!stored.Fields.Any(f => f.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+
+                if (type.Fields.Any(f => f.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+
+                yield return $"field '{name}' is named by the stored transition '{transition.Name}' and the "
+                             + "bundle leaves it out, which would stop that transition asking for it. Keep the field.";
+            }
+        }
     }
 
     /// <summary>
@@ -511,7 +551,12 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
         && a.Transitions.Zip(b.Transitions).All(p =>
             string.Equals(p.First.Name, p.Second.Name, StringComparison.OrdinalIgnoreCase)
             && string.Equals(p.First.From, p.Second.From, StringComparison.OrdinalIgnoreCase)
-            && string.Equals(p.First.To, p.Second.To, StringComparison.OrdinalIgnoreCase));
+            && string.Equals(p.First.To, p.Second.To, StringComparison.OrdinalIgnoreCase)
+            && SameFields(p.First.RequiredFields, p.Second.RequiredFields)
+            && SameFields(p.First.OptionalFields, p.Second.OptionalFields));
+
+    private static bool SameFields(List<string>? a, List<string>? b) =>
+        new HashSet<string>(a ?? [], StringComparer.OrdinalIgnoreCase).SetEquals(b ?? []);
 
     /// <summary>
     /// The stored type a bundle type updates, compared under the name normalisation create applies,

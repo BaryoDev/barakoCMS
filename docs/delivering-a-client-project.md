@@ -187,14 +187,17 @@ host resolved to. The tenant switcher then calls `GET /api/me/tenants` and `POST
 swap your access token for one scoped to the tenant you picked. The switch returns no refresh token;
 keep the one from sign-in and send it with the new tenant's `X-Tenant` to refresh there.
 
-One wart to know before you write a script against it: the switch request field is spelled `club`,
-not `tenant`.
+The switch request names the tenant in `tenant`:
 
 ```bash
 curl -s -X POST "$API/api/me/switch" \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"club":"acme"}'
+  -d '{"tenant":"acme"}'
 ```
+
+The field used to be spelled `club`, and an API older than this change knows only that name. `club`
+still works as an alias. Send one of the two: a request that sets both to different tenants is
+refused with a 400.
 
 ### Custom domains
 

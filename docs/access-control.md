@@ -60,7 +60,10 @@ with both Treasurer and Secretary gets the union.
 
 `ContentTypePermission.Transitions` sits alongside the four CRUD rules, keyed by
 transition name, for a content type that declares its own lifecycle. Update
-does not imply a transition and a transition does not imply update.
+does not imply a transition and a transition does not imply update, with one
+stated exception: a transition that declares `requiredFields` or
+`optionalFields` lets whoever may perform it write those fields, and no
+others, with the move.
 [Approval by configuration](approval-by-configuration.md) walks an invoice
 through Submit and Approve against the API, with every request as a curl and the
 status code each one answers.
@@ -256,9 +259,14 @@ write it.
 The caller's roles are read from the store on each request, the roles they hold
 in the current tenant, not from the token's role claims. Taking a capability off
 a role, or a role off a user, applies on the next request rather than when the
-token expires. A read costs up to three small queries when the entry or its type
-is restricted, and none for a Public entry of a type with no restricted field. A
-write always reads them.
+token expires. A read or a write costs up to three small queries, once per
+request, when the entry or its type is restricted, and none for a Public entry
+of a type with no restricted field.
+
+The rule has one home, `ISensitivityService.MaySeeFieldAsync` and
+`MaySeeDocumentAsync`. The scrub, the write guard and the entries list's field
+filters all ask those two, so what a caller may filter on, what they are shown
+and what they may set cannot drift apart.
 
 `visibleToRoles` is stored as role ids and is still names on the wire. The
 content type endpoints, a blueprint and the import accept names and store the id

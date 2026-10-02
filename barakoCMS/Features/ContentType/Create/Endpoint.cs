@@ -75,7 +75,7 @@ internal class Endpoint(
         // 1. Validate ContentType
         var (isValid, errors) = validator.Validate(req.Name, req.DisplayName, req.Fields);
 
-        var (lifecycleValid, lifecycleErrors) = validator.ValidateLifecycle(req.Lifecycle);
+        var (lifecycleValid, lifecycleErrors) = validator.ValidateLifecycle(req.Lifecycle, req.Fields);
         if (!lifecycleValid)
         {
             isValid = false;
