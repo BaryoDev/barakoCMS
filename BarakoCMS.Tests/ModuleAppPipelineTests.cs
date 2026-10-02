@@ -173,6 +173,30 @@ public class ModuleAppPipelineTests
         root.Items.ContainsKey(Reached).Should().BeTrue();
     }
 
+    /// <summary>
+    /// A host that calls <c>UseRouting</c> itself leaves its route builder in the builder
+    /// properties, which a branch would otherwise inherit and a module could map endpoints onto.
+    /// </summary>
+    [Fact]
+    public async Task A_branch_does_not_carry_the_route_builder_of_a_host_that_called_UseRouting()
+    {
+        await using var host = WebApplication.CreateBuilder().Build();
+        host.UseRouting();
+        IApplicationBuilder app = host;
+        var stamping = new Stamping("Stamps");
+
+        app.Properties.ContainsKey(ModuleAppPipeline.EndpointRouteBuilderKey).Should().BeTrue(
+            "the control: UseRouting left the host's route builder where a branch would copy it from");
+
+        ModuleAppPipeline.Use(app, [stamping]);
+
+        stamping.Handed.Should().NotBeNull();
+        stamping.Handed!.Properties.ContainsKey(ModuleAppPipeline.EndpointRouteBuilderKey).Should().BeFalse();
+        stamping.Handed.Properties.ContainsKey(ModuleAppPipeline.GlobalEndpointRouteBuilderKey).Should().BeFalse();
+        app.Properties.ContainsKey(ModuleAppPipeline.EndpointRouteBuilderKey).Should().BeTrue(
+            "removing it from the branch leaves the host's own in place");
+    }
+
     [Fact]
     public void A_module_is_handed_a_branch_that_shares_the_container_and_cannot_replace_it()
     {

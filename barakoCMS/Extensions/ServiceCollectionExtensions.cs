@@ -1394,6 +1394,12 @@ public static class ServiceCollectionExtensions
         var configuration = app.ApplicationServices.GetRequiredService<IConfiguration>();
         var env = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
 
+        // Building the store is what runs each module's ConfigureSchema, and it is built on first
+        // use. Asked for here so the schema hook runs before any ConfigureApp below, which is the
+        // order MODULES.md states, and so a module whose schema is refused fails as itself and not
+        // inside whichever module's ConfigureApp first asked for the store.
+        _ = app.ApplicationServices.GetRequiredService<IDocumentStore>();
+
         UseExceptionHandling(app);
 
         UseForwardedHeadersAndHttps(app, configuration, env);

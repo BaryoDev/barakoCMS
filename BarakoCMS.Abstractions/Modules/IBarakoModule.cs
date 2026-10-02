@@ -114,20 +114,28 @@ public interface IBarakoModule
     /// Called once, from <c>UseBarakoCMS</c>, for enabled modules only and in the order modules are
     /// configured (<see cref="DependsOn"/> first, then registration order). The first module's
     /// middleware is outermost: it sees a request before the next module's and the response after.
+    /// It is called after <see cref="ConfigureSchema"/> and before <see cref="SeedAsync"/>, on
+    /// every start of the host, including one that only runs a database command, so keep it to
+    /// adding middleware.
     ///
     /// <b>Where it runs.</b> After forwarded headers, the security headers, core's rate limiter,
     /// the correlation id, tenant resolution, CORS, authentication, the token revocation check,
     /// the tenant access check and <c>UseAuthorization</c>. Before core's output cache and before
     /// any endpoint runs. So in your middleware the tenant is resolved, <c>HttpContext.User</c> is
     /// the caller (anonymous on an endpoint that allows it), and a request core refused earlier in
-    /// that list never arrives. Capability gates run later, inside the endpoint, so a request that
-    /// reaches your middleware can still be answered 403. The health probes under <c>/health</c>
-    /// skip module middleware.
+    /// that list never arrives. Capability gates and the other global pre-processors run later,
+    /// inside the endpoint, so a request that reaches your middleware can still be answered 403.
+    /// The health probes under <c>/health</c> skip module middleware.
+    ///
+    /// <b>Response headers.</b> Write them in <c>HttpContext.Response.OnStarting</c>. A header
+    /// written before <c>next</c> on a route core caches is stored with the cached response and
+    /// replayed to later callers.
     ///
     /// <b>What you are handed.</b> <paramref name="app"/> is a branch of the pipeline that belongs
     /// to this module, not the host application. Middleware added to it lands at the position
-    /// above and nowhere else, and the branch cannot map endpoints on the host: endpoints ship in
-    /// <see cref="EndpointAssemblies"/>. <c>app.ApplicationServices</c> is the host's container.
+    /// above and nowhere else, and the branch does not carry the host's route builder: a module's
+    /// endpoints ship in <see cref="EndpointAssemblies"/>. <c>app.ApplicationServices</c> is the
+    /// host's container.
     ///
     /// Throwing here stops startup with an error naming this module.
     /// </remarks>

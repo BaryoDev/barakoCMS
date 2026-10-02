@@ -10,6 +10,12 @@ namespace barakoCMS.Modules;
 /// </summary>
 internal static class ModuleAppPipeline
 {
+    /// <summary>Where <c>UseRouting</c> leaves the route builder it used.</summary>
+    internal const string EndpointRouteBuilderKey = "__EndpointRouteBuilder";
+
+    /// <summary>Where a <c>WebApplication</c> keeps itself as the route builder for <c>UseRouting</c>.</summary>
+    internal const string GlobalEndpointRouteBuilderKey = "__GlobalEndpointRouteBuilder";
+
     /// <summary>
     /// Runs every module's hook, then adds the result to <paramref name="app"/> as one middleware.
     /// </summary>
@@ -17,8 +23,8 @@ internal static class ModuleAppPipeline
     /// Each module gets <c>app.New()</c>, a builder of its own, rather than <paramref name="app"/>.
     /// The host's builder is a <c>WebApplication</c>: handed over as it is, a module could cast it
     /// and map endpoints, or replace <c>ApplicationServices</c> for the core middleware added after
-    /// it. A branch shares the container, keeps its own copy of the builder properties, and has no
-    /// route table.
+    /// it. A branch shares the container, keeps its own copy of the builder properties, and does
+    /// not carry the host's route table.
     ///
     /// Every hook runs before anything is added to <paramref name="app"/>, so a hook that throws
     /// leaves no other module's middleware behind.
@@ -36,6 +42,13 @@ internal static class ModuleAppPipeline
         foreach (var module in modules)
         {
             var branch = app.New();
+
+            // A host that called UseRouting before UseBarakoCMS has its own route builder in the
+            // builder properties, and New() copies them. Left there, UseEndpoints on the branch
+            // would map onto the host.
+            branch.Properties.Remove(EndpointRouteBuilderKey);
+            branch.Properties.Remove(GlobalEndpointRouteBuilderKey);
+
             try
             {
                 module.ConfigureApp(branch);
