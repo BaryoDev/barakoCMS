@@ -9,9 +9,10 @@ namespace barakoCMS.Core.Interfaces;
 /// the scope this was resolved from, so a file of another tenant reads as absent.
 /// </para>
 /// <para>
-/// <b>It decides nothing about access.</b> There is no caller here to check, so every file of the
-/// tenant is readable through it. Whoever calls it owns the rule for which files may leave, and has
-/// to apply that rule before asking.
+/// <b>The module decides who may read.</b> Every member takes the user the read is for and answers
+/// only when the module's own download rule lets that user have the file, or the file is public.
+/// With no user, only a public file is readable. The caller never learns why a file was not
+/// handed over: absent, another tenant's and not allowed all read as null.
 /// </para>
 /// <para>
 /// <b>A module implements this.</b> BarakoCMS.Files does. With no such module enabled the host
@@ -22,16 +23,23 @@ namespace barakoCMS.Core.Interfaces;
 public interface IFileStore
 {
     /// <summary>
-    /// The record of an uploaded file, or null when this tenant has no such file. A cached resize
-    /// of an image is not a file of its own and reads as absent.
+    /// The record of an uploaded file that <paramref name="userId"/> may read, or null. A cached
+    /// resize of an image is not a file of its own and reads as null.
     /// </summary>
-    Task<StoredFileInfo?> FindAsync(Guid id, CancellationToken cancellationToken = default);
+    /// <param name="id">The file's id.</param>
+    /// <param name="userId">The user the read is for, or null when there is none.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    Task<StoredFileInfo?> FindReadableAsync(Guid id, Guid? userId, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// The file's bytes from the start, or null when <see cref="FindAsync"/> would answer null or
-    /// the bytes are gone. The caller disposes the stream.
+    /// The bytes of a file <paramref name="userId"/> may read, from the start, or null when
+    /// <see cref="FindReadableAsync"/> would answer null or the bytes are gone. The caller disposes
+    /// the stream.
     /// </summary>
-    Task<Stream?> OpenReadAsync(Guid id, CancellationToken cancellationToken = default);
+    /// <param name="id">The file's id.</param>
+    /// <param name="userId">The user the read is for, or null when there is none.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    Task<Stream?> OpenReadableAsync(Guid id, Guid? userId, CancellationToken cancellationToken = default);
 }
 
 /// <summary>What a stored file is, without its bytes.</summary>

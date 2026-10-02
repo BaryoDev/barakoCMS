@@ -131,30 +131,40 @@ BarakoCMS.Files module:
 {
   "Type": "Email",
   "Parameters": {
-    "To": "{{data.Email}}",
-    "Subject": "Your receipt",
-    "Body": "<p>Thank you, {{data.Name}}.</p>",
+    "To": "registrar@example.com",
+    "Subject": "Receipt for {{data.Name}}",
+    "Body": "<p>The receipt for {{data.Name}} is attached.</p>",
     "Attachments": "{{data.Receipt}}"
   }
 }
 ```
 
-The value is one file or a list separated by commas, semicolons or line breaks. Each item is a file
-id, or a link to `/api/files/{id}` or `/api/public/files/{id}`. A link with `?w=` attaches the
-original file, not the resize. A field holding a list of ids works as it is.
+`Attachments` is a placeholder for a field of the entry, or a list of ids and placeholders separated
+by commas, semicolons or line breaks. A file is named by its id, or by a link to `/api/files/{id}`
+or `/api/public/files/{id}`. A link with `?w=` attaches the original file, not the resize. When the
+whole parameter is one placeholder and the field holds a list, every item of the list is attached.
 
-**Which files.** A workflow runs with no signed-in caller, so there is nobody whose right to
-download a file can be checked. The rule is the entry's instead: a file is attached only when the
-entry the workflow is running for names it in one of its fields, by id or by link, and the file is
-stored in that entry's tenant. A file id typed into the workflow, or filled in from anywhere else,
-is refused unless the entry also names it. A workflow on a deleted entry has no fields left, so it
-cannot attach anything.
+**Which files.** A workflow runs with no signed-in caller, so the action asks on behalf of the user
+who last saved the entry. A file is attached only when all of these hold:
 
-That makes whoever can write the entry the one who chooses the file. Anyone who can set that field
-can have any file of the tenant mailed to the action's recipient, private files included, so do not
-fill `Attachments` from a field a public form accepts or one that untrusted editors can change.
-The file's public flag and the entry's sensitivity are not checked either: the recipient gets the
-file whatever they could have read in the API. Both are the workflow author's call.
+- the entry the workflow is running for names the file in one of its fields, by id or by link;
+- the file is stored in that entry's tenant;
+- the file is public, or the user who last saved the entry could download it from
+  `GET /api/files/{id}`: they uploaded it, or they hold the Admin or SuperAdmin role in the tenant.
+
+"Last saved" is whoever made the entry's most recent change: an edit, a status change, a
+transition, a schedule or a sensitivity change. An entry with no such user attaches public files
+only. That covers a submission from a public form, an import or sync that records no user, and a
+change the scheduler made. A deleted entry has no fields left and attaches nothing.
+
+So a person who can write the field cannot have a file mailed out that they could not download
+themselves, and a public form cannot name a private file. Two things the rule does not cover:
+
+- It is the last writer who is checked, not the writer of that field. If someone names a file they
+  cannot download and an administrator then saves the entry, the file goes out on the next run.
+- The recipient is not checked. Whoever `To` resolves to gets the file whatever they could read in
+  the API, and the entry's sensitivity is not consulted. If `To` is filled from an entry field,
+  whoever can write that field chooses the recipient of the entry's files.
 
 **Limits.** From configuration:
 
@@ -166,16 +176,28 @@ file whatever they could have read in the API. Both are the workflow author's ca
 
 Zero in any of them turns attachments off. A value that is not a whole number of zero or more fails
 every email that names an attachment, with the key in the reason, and leaves other emails alone.
-The files of one email are held in memory while it is sent, and a node can be sending as many
-emails at once as `Workflows:RunnerConcurrency` allows. Your provider has its own ceiling on message
-size, and encoding adds about a third.
+
+A file whose record is over the per-file limit is refused before its bytes are read. Past that
+check the Files module reads a whole file into memory, so the limits bound what is sent and what
+the action keeps, not what one read can load for a record whose size is wrong. The files of one
+email stay in memory while it is sent. At the default limits that is about 15 MB of files, and the
+provider adds its own copies: SMTP encodes while it writes to the relay, so about 20 MB an email;
+Resend takes the files as base64 text inside one JSON request, which comes to roughly 100 MB an
+email at peak. These are estimates from the copies each path makes, not measurements. A node can be
+sending as many emails at once as `Workflows:RunnerConcurrency` allows, so multiply by that.
+
+Your provider has its own ceiling on message size, and encoding adds about a third. Neither
+provider module reports a size refusal differently from any other failure, so an email the provider
+refuses for its size is retried like one: five attempts in all, each reading and uploading the
+files again, before the action is left failed. Keep `MaxTotalBytes` under what your provider takes.
 
 **When it cannot attach.** The action fails, the reason is on the run, and nothing is sent. An email
-never goes out with a file missing. That covers a file the entry does not name, a file this tenant
-does not have, an empty field, a value that is not a file id or link, a limit passed, no
-BarakoCMS.Files module, and an email provider that does not send attachments. None of these is
-retried, because a retry would get the same answer. A file store that fails while it is read is
-retried.
+never goes out with a file missing. A file that is not named by the entry, is not in the tenant or
+may not be read gives one reason, "Attachment N cannot be attached", that does not say which of
+those it was. The others say what was wrong: an empty field or list, a value that is not a file id
+or link, a limit passed, no BarakoCMS.Files module, and an email provider that does not send
+attachments. None of these is retried, because a retry would get the same answer. A file store that
+fails while it is read is retried.
 
 The attachment carries the name the file was uploaded with, without any path, control characters
 or text direction marks, and the type the upload was checked against (`application/octet-stream`
@@ -183,6 +205,10 @@ for a file stored before uploads were checked).
 
 Both shipped providers send attachments. A provider of your own implements the two `IEmailService`
 members that take attachments; until it does, an email that names one fails and says so.
+
+A workflow stored before this release that already had an `Attachments` parameter on an Email
+action was sending without it. After the upgrade that action attaches the files or fails with a
+reason on the run.
 
 ## Auditing
 

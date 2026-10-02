@@ -31,7 +31,7 @@ public interface IEmailService
     Task SendEmailAsync(string to, string subject, string body, IReadOnlyList<EmailAttachment> attachments, CancellationToken cancellationToken = default) =>
         attachments.Count == 0
             ? SendEmailAsync(to, subject, body, cancellationToken)
-            : throw new NotSupportedException($"{GetType().Name} does not send attachments.");
+            : throw new AttachmentsNotSupportedException($"{GetType().Name} does not send attachments.");
 
     /// <summary>
     /// Sends an email on <paramref name="tenant"/>'s behalf, with files attached. The default ignores
@@ -42,6 +42,13 @@ public interface IEmailService
             ? SendForTenantAsync(tenant, to, subject, body, cancellationToken)
             : SendEmailAsync(to, subject, body, attachments, cancellationToken);
 }
+
+/// <summary>
+/// What the default attachment members throw. Internal, so the contract stays
+/// <see cref="NotSupportedException"/>, and the host can tell this refusal, made before anything was
+/// sent, from a provider's own <see cref="NotSupportedException"/> thrown for another reason.
+/// </summary>
+internal sealed class AttachmentsNotSupportedException(string message) : NotSupportedException(message);
 
 /// <summary>One file attached to an email.</summary>
 /// <remarks>

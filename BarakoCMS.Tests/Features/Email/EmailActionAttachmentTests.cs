@@ -13,21 +13,31 @@ namespace BarakoCMS.Tests.Features.Email;
 /// Which stored files the Email action attaches, and what it does with the ones it will not.
 /// </summary>
 /// <remarks>
-/// No database: the file store is a dictionary and the provider records what it was handed. Every
-/// refusal is paired with a count of what was sent, because a refusal that still sends the message
-/// without its file is the failure these tests exist to catch.
+/// No database: the file store is a dictionary that hands a file over when it is public or was
+/// uploaded by the user it is asked for, and the provider records what it was handed. Every refusal
+/// is paired with a count of what was sent, because a refusal that still sends the message without
+/// its file is the failure these tests exist to catch.
 /// </remarks>
 public class EmailActionAttachmentTests
 {
     private static readonly byte[] Receipt = "%PDF-1.4 receipt"u8.ToArray();
 
+    /// <summary>The user every entry here was last saved by, and the uploader of every file, unless a test says otherwise.</summary>
+    private static readonly Guid Writer = Guid.NewGuid();
+
+    private const string Refused = "cannot be attached";
+
     private sealed class FakeFiles : IFileStore
     {
-        private readonly Dictionary<Guid, (StoredFileInfo Info, byte[] Bytes)> _files = new();
+        private readonly Dictionary<Guid, (StoredFileInfo Info, byte[] Bytes, Guid Uploader, bool IsPublic)> _files = new();
 
         public int Calls { get; private set; }
 
-        public Guid Add(string name, byte[] bytes, string contentType = "application/pdf", long? recordedSize = null)
+        public List<Guid?> AskedFor { get; } = [];
+
+        public Guid Add(
+            string name, byte[] bytes, string contentType = "application/pdf", long? recordedSize = null,
+            Guid? uploader = null, bool isPublic = false)
         {
             var id = Guid.NewGuid();
             _files[id] = (new StoredFileInfo
@@ -36,20 +46,25 @@ public class EmailActionAttachmentTests
                 FileName = name,
                 ContentType = contentType,
                 Size = recordedSize ?? bytes.Length,
-            }, bytes);
+            }, bytes, uploader ?? Writer, isPublic);
             return id;
         }
 
-        public Task<StoredFileInfo?> FindAsync(Guid id, CancellationToken cancellationToken = default)
+        private bool Readable(Guid id, Guid? userId) =>
+            _files.TryGetValue(id, out var file) && (file.IsPublic || (userId is { } user && user == file.Uploader));
+
+        public Task<StoredFileInfo?> FindReadableAsync(Guid id, Guid? userId, CancellationToken cancellationToken = default)
         {
             Calls++;
-            return Task.FromResult(_files.TryGetValue(id, out var file) ? file.Info : null);
+            AskedFor.Add(userId);
+            return Task.FromResult(Readable(id, userId) ? _files[id].Info : null);
         }
 
-        public Task<Stream?> OpenReadAsync(Guid id, CancellationToken cancellationToken = default)
+        public Task<Stream?> OpenReadableAsync(Guid id, Guid? userId, CancellationToken cancellationToken = default)
         {
             Calls++;
-            return Task.FromResult<Stream?>(_files.TryGetValue(id, out var file) ? new MemoryStream(file.Bytes) : null);
+            AskedFor.Add(userId);
+            return Task.FromResult<Stream?>(Readable(id, userId) ? new MemoryStream(_files[id].Bytes) : null);
         }
     }
 
@@ -57,10 +72,10 @@ public class EmailActionAttachmentTests
     {
         public const string Secret = "bucket-name-nobody-should-read";
 
-        public Task<StoredFileInfo?> FindAsync(Guid id, CancellationToken cancellationToken = default) =>
+        public Task<StoredFileInfo?> FindReadableAsync(Guid id, Guid? userId, CancellationToken cancellationToken = default) =>
             throw new IOException($"The store {Secret} is down.");
 
-        public Task<Stream?> OpenReadAsync(Guid id, CancellationToken cancellationToken = default) =>
+        public Task<Stream?> OpenReadableAsync(Guid id, Guid? userId, CancellationToken cancellationToken = default) =>
             throw new IOException($"The store {Secret} is down.");
     }
 
@@ -76,6 +91,17 @@ public class EmailActionAttachmentTests
         }
     }
 
+    /// <summary>A provider that does send attachments and throws the same exception type for a reason of its own.</summary>
+    private sealed class PickyProvider : IEmailService
+    {
+        public Task SendEmailAsync(string to, string subject, string body, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public Task SendEmailAsync(
+            string to, string subject, string body, IReadOnlyList<EmailAttachment> attachments, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException("This relay does not take PDF files today.");
+    }
+
     private static IConfiguration Limits(params (string Key, string Value)[] pairs) =>
         new ConfigurationBuilder()
             .AddInMemoryCollection(pairs.Select(p => new KeyValuePair<string, string?>(p.Key, p.Value)))
@@ -84,10 +110,13 @@ public class EmailActionAttachmentTests
     private static EmailAction Build(IEmailService email, IFileStore? files, IConfiguration? configuration = null) =>
         new(email, NullLogger<EmailAction>.Instance, tenant: null, files: files, configuration: configuration);
 
-    private static Content Entry(params (string Field, object Value)[] data) => new()
+    private static Content Entry(params (string Field, object Value)[] data) => EntrySavedBy(Writer, data);
+
+    private static Content EntrySavedBy(Guid writer, params (string Field, object Value)[] data) => new()
     {
         Id = Guid.NewGuid(),
         ContentType = "registration",
+        LastModifiedBy = writer,
         Data = data.ToDictionary(d => d.Field, d => d.Value),
     };
 
@@ -98,6 +127,13 @@ public class EmailActionAttachmentTests
         ["Body"] = "<p>Attached.</p>",
         [key] = attachments,
     };
+
+    private static Dictionary<string, string> PlainMail()
+    {
+        var mail = Mail("unused");
+        mail.Remove("Attachments");
+        return mail;
+    }
 
     private static Task<barakoCMS.Features.Workflows.WorkflowActionResult> RunAsync(
         EmailAction action, Dictionary<string, string> parameters, Content entry) =>
@@ -110,7 +146,7 @@ public class EmailActionAttachmentTests
         var id = files.Add("receipt.pdf", Receipt);
         var recorder = new RecordingEmailService();
 
-        var result = await RunAsync(Build(recorder, files), Mail(id.ToString()), Entry(("Receipt", id.ToString())));
+        var result = await RunAsync(Build(recorder, files), Mail("{{data.Receipt}}"), Entry(("Receipt", id.ToString())));
 
         result.Succeeded.Should().BeTrue(result.Error ?? string.Empty);
         var sent = recorder.Messages.Should().ContainSingle().Which;
@@ -129,10 +165,10 @@ public class EmailActionAttachmentTests
     {
         var files = new FakeFiles();
         var id = files.Add("stub.pdf", Receipt);
-        var value = string.Format(link, id);
         var recorder = new RecordingEmailService();
 
-        var result = await RunAsync(Build(recorder, files), Mail(value), Entry(("Stub", value)));
+        var result = await RunAsync(
+            Build(recorder, files), Mail("{{data.Stub}}"), Entry(("Stub", string.Format(link, id))));
 
         result.Succeeded.Should().BeTrue(result.Error ?? string.Empty);
         var sent = recorder.Messages.Should().ContainSingle().Which;
@@ -140,17 +176,22 @@ public class EmailActionAttachmentTests
         sent.Attachments[0].Content.Should().Equal(Receipt);
     }
 
+    /// <summary>
+    /// A list field as a stored entry holds it: a list of objects, which renders to text as its
+    /// type name. The action reads the list from the entry instead of the rendered text.
+    /// </summary>
     [Fact]
-    public async Task Two_files_in_a_list_field_are_both_attached_in_order()
+    public async Task Every_file_in_a_list_field_is_attached_in_order()
     {
         var files = new FakeFiles();
         var first = files.Add("one.pdf", [1, 2, 3]);
         var second = files.Add("two.pdf", [4, 5]);
-        var list = System.Text.Json.JsonSerializer.SerializeToElement(new[] { first.ToString(), second.ToString() });
         var recorder = new RecordingEmailService();
 
-        // What {{data.Files}} resolves to for a list field: the JSON text of the array.
-        var result = await RunAsync(Build(recorder, files), Mail(list.ToString()), Entry(("Files", list)));
+        var result = await RunAsync(
+            Build(recorder, files),
+            Mail("{{ data.Files }}"),
+            Entry(("Files", new List<object> { first.ToString(), $"/api/files/{second}" })));
 
         result.Succeeded.Should().BeTrue(result.Error ?? string.Empty);
         var sent = recorder.Messages.Should().ContainSingle().Which;
@@ -158,9 +199,42 @@ public class EmailActionAttachmentTests
         sent.Attachments.Select(a => a.FileName).Should().Equal("one.pdf", "two.pdf");
     }
 
+    [Fact]
+    public async Task A_list_field_with_something_that_is_not_text_in_it_sends_nothing()
+    {
+        var files = new FakeFiles();
+        var id = files.Add("one.pdf", Receipt);
+        var recorder = new RecordingEmailService();
+
+        var result = await RunAsync(
+            Build(recorder, files), Mail("{{data.Files}}"), Entry(("Files", new List<object> { id.ToString(), 42L })));
+
+        result.Succeeded.Should().BeFalse();
+        result.Error.Should().Contain("Attachment 2").And.Contain("not a file id");
+        recorder.Messages.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Two_placeholders_in_one_parameter_attach_both_files()
+    {
+        var files = new FakeFiles();
+        var receipt = files.Add("receipt.pdf", Receipt);
+        var stub = files.Add("stub.pdf", [9]);
+        var recorder = new RecordingEmailService();
+
+        var result = await RunAsync(
+            Build(recorder, files),
+            Mail("{{data.Receipt}}, {{data.Stub}}"),
+            Entry(("Receipt", receipt.ToString()), ("Stub", stub.ToString())));
+
+        result.Succeeded.Should().BeTrue(result.Error ?? string.Empty);
+        recorder.Messages.Should().ContainSingle().Which.Attachments.Select(a => a.FileName)
+            .Should().Equal("receipt.pdf", "stub.pdf");
+    }
+
     /// <summary>
-    /// The file exists and the tenant is right. The only thing wrong is that this entry does not
-    /// name it, which is what stops a workflow mailing out a file that belongs to another entry.
+    /// An id typed into the workflow. The file exists and the entry's last writer could read it;
+    /// the only thing wrong is that this entry does not name it.
     /// </summary>
     [Fact]
     public async Task A_file_the_entry_does_not_name_is_refused_and_nothing_is_sent()
@@ -175,7 +249,7 @@ public class EmailActionAttachmentTests
 
         refused.Succeeded.Should().BeFalse();
         refused.Retryable.Should().BeFalse();
-        refused.Error.Should().Contain("not a file of this entry");
+        refused.Error.Should().Contain(Refused);
         refused.Error.Should().NotContain(theirs.ToString(), "the reason names the position, not the value it was handed");
         recorder.Messages.Should().BeEmpty("a message without its file is not a smaller success");
         files.Calls.Should().Be(0, "the store is not asked about a file the entry does not name");
@@ -186,53 +260,138 @@ public class EmailActionAttachmentTests
         recorder.Messages.Should().ContainSingle().Which.Attachments.Should().HaveCount(1);
     }
 
+    /// <summary>
+    /// The entry names the file through the templated field, so naming it decides nothing. What
+    /// refuses it is that the user who last saved the entry may not read that file.
+    /// </summary>
+    [Fact]
+    public async Task A_private_file_the_entrys_last_writer_may_not_read_is_refused_though_the_entry_names_it()
+    {
+        var files = new FakeFiles();
+        var somebodyElse = Guid.NewGuid();
+        var theirs = files.Add("theirs.pdf", Receipt, uploader: somebodyElse);
+        var recorder = new RecordingEmailService();
+
+        var refused = await RunAsync(
+            Build(recorder, files), Mail("{{data.Receipt}}"), Entry(("Receipt", theirs.ToString())));
+
+        refused.Succeeded.Should().BeFalse();
+        refused.Retryable.Should().BeFalse();
+        refused.Error.Should().Contain(Refused);
+        recorder.Messages.Should().BeEmpty();
+        files.AskedFor.Should().NotBeEmpty();
+        files.AskedFor.Should().OnlyContain(user => user == Writer, "the store is asked for the user who last saved the entry");
+
+        // The control: the same file and parameter on an entry its uploader saved last.
+        var allowed = await RunAsync(
+            Build(recorder, files), Mail("{{data.Receipt}}"), EntrySavedBy(somebodyElse, ("Receipt", theirs.ToString())));
+        allowed.Succeeded.Should().BeTrue(allowed.Error ?? string.Empty);
+        recorder.Messages.Should().ContainSingle().Which.Attachments.Should().HaveCount(1);
+    }
+
+    /// <summary>
+    /// A public form's submission has no user behind it, so only a public file goes out for it.
+    /// </summary>
+    [Fact]
+    public async Task An_entry_nobody_is_recorded_as_saving_attaches_a_public_file_and_not_a_private_one()
+    {
+        var files = new FakeFiles();
+        var open = files.Add("terms.pdf", Receipt, isPublic: true);
+        var closed = files.Add("receipt.pdf", Receipt);
+        var recorder = new RecordingEmailService();
+
+        var refused = await RunAsync(
+            Build(recorder, files), Mail("{{data.File}}"), EntrySavedBy(Guid.Empty, ("File", closed.ToString())));
+
+        refused.Succeeded.Should().BeFalse();
+        refused.Error.Should().Contain(Refused);
+        recorder.Messages.Should().BeEmpty();
+        files.AskedFor.Should().NotBeEmpty();
+        files.AskedFor.Should().OnlyContain(user => user == null, "an empty id is no user, not a user with an empty id");
+
+        var allowed = await RunAsync(
+            Build(recorder, files), Mail("{{data.File}}"), EntrySavedBy(Guid.Empty, ("File", open.ToString())));
+        allowed.Succeeded.Should().BeTrue(allowed.Error ?? string.Empty);
+        recorder.Messages.Should().ContainSingle().Which.Attachments.Should().HaveCount(1);
+    }
+
+    /// <summary>
+    /// Not named, not there and not allowed all give the same reason, so a run cannot be used to
+    /// learn which files exist.
+    /// </summary>
+    [Fact]
+    public async Task Every_refusal_of_a_file_gives_the_same_reason()
+    {
+        var files = new FakeFiles();
+        var mine = files.Add("mine.pdf", Receipt);
+        var notMine = files.Add("theirs.pdf", Receipt, uploader: Guid.NewGuid());
+        var missing = Guid.NewGuid();
+        var recorder = new RecordingEmailService();
+
+        var notNamed = await RunAsync(Build(recorder, files), Mail(mine.ToString()), Entry(("Receipt", missing.ToString())));
+        var notThere = await RunAsync(Build(recorder, files), Mail("{{data.Receipt}}"), Entry(("Receipt", missing.ToString())));
+        var notAllowed = await RunAsync(Build(recorder, files), Mail("{{data.Receipt}}"), Entry(("Receipt", notMine.ToString())));
+
+        notNamed.Succeeded.Should().BeFalse();
+        notNamed.Error.Should().Contain(Refused);
+        notThere.Error.Should().Be(notNamed.Error);
+        notAllowed.Error.Should().Be(notNamed.Error);
+        notThere.Retryable.Should().BeFalse();
+        notAllowed.Retryable.Should().BeFalse();
+        recorder.Messages.Should().BeEmpty();
+    }
+
     [Fact]
     public async Task One_refused_file_in_a_list_sends_nothing_rather_than_the_rest()
     {
         var files = new FakeFiles();
         var mine = files.Add("mine.pdf", Receipt);
-        var theirs = files.Add("theirs.pdf", Receipt);
+        var theirs = files.Add("theirs.pdf", Receipt, uploader: Guid.NewGuid());
         var recorder = new RecordingEmailService();
 
         var result = await RunAsync(
-            Build(recorder, files), Mail($"{mine}, {theirs}"), Entry(("Receipt", mine.ToString())));
+            Build(recorder, files),
+            Mail("{{data.Files}}"),
+            Entry(("Files", new List<object> { mine.ToString(), theirs.ToString() })));
 
         result.Succeeded.Should().BeFalse();
         result.Error.Should().Contain("Attachment 2");
         recorder.Messages.Should().BeEmpty();
     }
 
-    [Fact]
-    public async Task A_file_the_store_does_not_have_is_refused_and_nothing_is_sent()
-    {
-        var files = new FakeFiles();
-        var missing = Guid.NewGuid();
-        var recorder = new RecordingEmailService();
-
-        var result = await RunAsync(Build(recorder, files), Mail(missing.ToString()), Entry(("Receipt", missing.ToString())));
-
-        result.Succeeded.Should().BeFalse();
-        result.Retryable.Should().BeFalse();
-        result.Error.Should().Contain("not a stored file of this tenant");
-        files.Calls.Should().BeGreaterThan(0, "this refusal is the store's answer, not the entry check's");
-        recorder.Messages.Should().BeEmpty();
-    }
-
     [Theory]
     [InlineData("", "names no file")]
     [InlineData("   ", "names no file")]
-    [InlineData("{{data.Receipt}}", "not a file id")]
+    [InlineData("{{data.Missing}}", "not a file id")]
     [InlineData("receipt.pdf", "not a file id")]
     [InlineData("3fa85f6457174562b3fc2c963f66afa6", "not a file id")]
-    public async Task A_value_that_names_no_file_fails_the_action_instead_of_sending_without_one(string value, string reason)
+    [InlineData("3fa85f64-5717-4562-b3fc-2c963f66afa6,", "names no file")]
+    public async Task A_parameter_that_names_no_file_fails_the_action_instead_of_sending_without_one(string value, string reason)
     {
         var recorder = new RecordingEmailService();
 
-        var result = await RunAsync(Build(recorder, new FakeFiles()), Mail(value), Entry(("Receipt", value)));
+        var result = await RunAsync(
+            Build(recorder, new FakeFiles()), Mail(value), Entry(("Receipt", "3fa85f64-5717-4562-b3fc-2c963f66afa6")));
 
         result.Succeeded.Should().BeFalse();
         result.Retryable.Should().BeFalse();
         result.Error.Should().Contain(reason);
+        recorder.Messages.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task An_empty_field_fails_the_action_instead_of_sending_without_the_file()
+    {
+        var recorder = new RecordingEmailService();
+
+        foreach (var entry in new[] { Entry(("Receipt", string.Empty)), Entry(("Receipt", new List<object>())) })
+        {
+            var result = await RunAsync(Build(recorder, new FakeFiles()), Mail("{{data.Receipt}}"), entry);
+
+            result.Succeeded.Should().BeFalse();
+            result.Retryable.Should().BeFalse();
+        }
+
         recorder.Messages.Should().BeEmpty();
     }
 
@@ -244,9 +403,31 @@ public class EmailActionAttachmentTests
         var recorder = new RecordingEmailService();
 
         var result = await RunAsync(
-            Build(recorder, files), Mail(id.ToString(), key: "attachments"), Entry(("Receipt", id.ToString())));
+            Build(recorder, files), Mail("{{data.Receipt}}", key: "attachments"), Entry(("Receipt", id.ToString())));
 
         result.Succeeded.Should().BeTrue(result.Error ?? string.Empty);
+        recorder.Messages.Should().ContainSingle().Which.Attachments.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public async Task The_parameter_written_twice_in_different_case_fails_the_action()
+    {
+        var files = new FakeFiles();
+        var id = files.Add("receipt.pdf", Receipt);
+        var entry = Entry(("Receipt", id.ToString()));
+        var recorder = new RecordingEmailService();
+
+        var twice = Mail("{{data.Receipt}}");
+        twice["attachments"] = "{{data.Receipt}}";
+        var result = await RunAsync(Build(recorder, files), twice, entry);
+
+        result.Succeeded.Should().BeFalse();
+        result.Retryable.Should().BeFalse();
+        result.Error.Should().Contain("declared more than once");
+        recorder.Messages.Should().BeEmpty();
+
+        // The control: written once, the same parameter sends the file.
+        (await RunAsync(Build(recorder, files), Mail("{{data.Receipt}}"), entry)).Succeeded.Should().BeTrue();
         recorder.Messages.Should().ContainSingle().Which.Attachments.Should().HaveCount(1);
     }
 
@@ -305,6 +486,7 @@ public class EmailActionAttachmentTests
         over.Retryable.Should().BeFalse();
         over.Error.Should().Contain(EmailAttachmentLimits.MaxFileBytesKey).And.Contain("10");
         recorder.Messages.Should().BeEmpty();
+        files.Calls.Should().Be(1, "a record over the limit is refused before the store is asked for its bytes");
 
         var within = await RunAsync(Build(recorder, files, limits), Mail(small.ToString()), entry);
         within.Succeeded.Should().BeTrue(within.Error ?? string.Empty);
@@ -312,7 +494,7 @@ public class EmailActionAttachmentTests
     }
 
     /// <summary>
-    /// The limit is on the bytes read, not only on the size the record claims.
+    /// The limit is on the bytes the stream holds, not only on the size the record claims.
     /// </summary>
     [Fact]
     public async Task A_file_larger_than_its_record_says_is_still_held_to_the_size_limit()
@@ -353,6 +535,56 @@ public class EmailActionAttachmentTests
         recorder.Messages.Should().ContainSingle().Which.Attachments.Should().HaveCount(1);
     }
 
+    /// <summary>
+    /// Each record says one byte, so the records pass every limit. Only the count of bytes actually
+    /// read can refuse these, and each file alone is within the per-file limit.
+    /// </summary>
+    [Fact]
+    public async Task Files_whose_records_understate_them_are_still_held_to_the_total_limit()
+    {
+        var files = new FakeFiles();
+        var first = files.Add("one.pdf", new byte[6], recordedSize: 1);
+        var second = files.Add("two.pdf", new byte[6], recordedSize: 1);
+        var entry = Entry(("Files", $"{first} {second}"));
+        var limits = Limits((EmailAttachmentLimits.MaxTotalBytesKey, "10"), (EmailAttachmentLimits.MaxFileBytesKey, "8"));
+        var recorder = new RecordingEmailService();
+
+        var over = await RunAsync(Build(recorder, files, limits), Mail($"{first},{second}"), entry);
+
+        over.Succeeded.Should().BeFalse();
+        over.Retryable.Should().BeFalse();
+        over.Error.Should().Contain(EmailAttachmentLimits.MaxTotalBytesKey);
+        recorder.Messages.Should().BeEmpty();
+
+        var within = await RunAsync(Build(recorder, files, limits), Mail(first.ToString()), entry);
+        within.Succeeded.Should().BeTrue(within.Error ?? string.Empty);
+        recorder.Messages.Should().ContainSingle().Which.Attachments.Should().HaveCount(1);
+    }
+
+    [Theory]
+    [InlineData(EmailAttachmentLimits.MaxCountKey)]
+    [InlineData(EmailAttachmentLimits.MaxFileBytesKey)]
+    [InlineData(EmailAttachmentLimits.MaxTotalBytesKey)]
+    public async Task Zero_in_a_limit_turns_attachments_off_and_leaves_plain_email_alone(string key)
+    {
+        var files = new FakeFiles();
+        var id = files.Add("receipt.pdf", Receipt);
+        var limits = Limits((key, "0"));
+        var recorder = new RecordingEmailService();
+
+        var withFile = await RunAsync(
+            Build(recorder, files, limits), Mail("{{data.Receipt}}"), Entry(("Receipt", id.ToString())));
+
+        withFile.Succeeded.Should().BeFalse();
+        withFile.Retryable.Should().BeFalse();
+        withFile.Error.Should().Contain(key);
+        recorder.Messages.Should().BeEmpty();
+
+        var withoutFile = await RunAsync(Build(recorder, files, limits), PlainMail(), Entry());
+        withoutFile.Succeeded.Should().BeTrue(withoutFile.Error ?? string.Empty);
+        recorder.Messages.Should().ContainSingle().Which.Attachments.Should().BeEmpty();
+    }
+
     [Theory]
     [InlineData("ten megabytes")]
     [InlineData("-1")]
@@ -371,9 +603,7 @@ public class EmailActionAttachmentTests
         withFile.Error.Should().NotContain(value);
         recorder.Messages.Should().BeEmpty();
 
-        var plain = Mail("unused");
-        plain.Remove("Attachments");
-        var withoutFile = await RunAsync(Build(recorder, files, limits), plain, Entry());
+        var withoutFile = await RunAsync(Build(recorder, files, limits), PlainMail(), Entry());
 
         withoutFile.Succeeded.Should().BeTrue(withoutFile.Error ?? string.Empty);
         recorder.Messages.Should().ContainSingle().Which.Attachments.Should().BeEmpty();
@@ -437,8 +667,8 @@ public class EmailActionAttachmentTests
     {
         var store = new NoFileStore();
 
-        var find = () => store.FindAsync(Guid.NewGuid(), TestContext.Current.CancellationToken);
-        var open = () => store.OpenReadAsync(Guid.NewGuid(), TestContext.Current.CancellationToken);
+        var find = () => store.FindReadableAsync(Guid.NewGuid(), Writer, TestContext.Current.CancellationToken);
+        var open = () => store.OpenReadableAsync(Guid.NewGuid(), Writer, TestContext.Current.CancellationToken);
 
         (await find.Should().ThrowAsync<InvalidOperationException>()).Which.Message.Should().Contain("BarakoCMS.Files");
         (await open.Should().ThrowAsync<InvalidOperationException>()).Which.Message.Should().Contain("BarakoCMS.Files");
@@ -462,10 +692,27 @@ public class EmailActionAttachmentTests
         provider.Sent.Should().Be(0);
 
         // The control: the same provider still sends an email that names no attachment.
-        var plain = Mail("unused");
-        plain.Remove("Attachments");
-        (await RunAsync(Build(provider, files), plain, Entry())).Succeeded.Should().BeTrue();
+        (await RunAsync(Build(provider, files), PlainMail(), Entry())).Succeeded.Should().BeTrue();
         provider.Sent.Should().Be(1);
+    }
+
+    /// <summary>
+    /// Only the default members' own refusal means "cannot send attachments". A provider that does
+    /// send them and throws the same exception type for its own reason is an ordinary failure.
+    /// </summary>
+    [Fact]
+    public async Task A_providers_own_not_supported_exception_is_an_ordinary_retryable_failure()
+    {
+        var files = new FakeFiles();
+        var id = files.Add("receipt.pdf", Receipt);
+
+        var result = await RunAsync(Build(new PickyProvider(), files), Mail(id.ToString()), Entry(("Receipt", id.ToString())));
+
+        result.Succeeded.Should().BeFalse();
+        result.Retryable.Should().BeTrue();
+        result.Error.Should().Contain("NotSupportedException");
+        result.Error.Should().NotContain("does not send attachments");
+        result.Error.Should().NotContain("PDF files today", "a provider's message does not go on the run");
     }
 
     [Fact]

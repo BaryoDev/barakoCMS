@@ -141,7 +141,7 @@ internal class EmailAction : IWorkflowAction
         {
             throw;
         }
-        catch (NotSupportedException) when (attachments.Count > 0)
+        catch (AttachmentsNotSupportedException)
         {
             // Permanent: the provider is the same one on every retry.
             return WorkflowActionResult.PermanentFailure("The registered email provider does not send attachments.");

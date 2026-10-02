@@ -64,11 +64,11 @@ internal sealed record EmailAttachmentLimits(int MaxCount, long MaxFileBytes, lo
 /// Turns the Email action's <c>Attachments</c> parameter into files to send, or a reason not to.
 /// </summary>
 /// <remarks>
-/// A workflow runs with no caller, so there is nobody whose access to a file can be checked. The
-/// rule is the entry's: a file is attached only when the entry the workflow is running for names it
-/// in one of its fields. The parameter is usually a template filled from the entry, so its value
-/// is never trusted to choose a file on its own, and the check reads the entry rather than the
-/// parameter.
+/// A workflow runs with no caller, so the rule borrows one: the user who last saved the entry the
+/// workflow is running for. A file is attached only when that entry names it in one of its fields
+/// and the file store hands it over for that user, which it does for a public file or one the
+/// user could download. An entry nobody is recorded as having saved can attach public files only.
+/// Naming a file is not enough on its own, because whoever can write the field can name any file.
 /// </remarks>
 internal static class EmailAttachments
 {
@@ -77,6 +77,12 @@ internal static class EmailAttachments
 
     private static readonly Regex FilesLink = new(
         @"/files/(?<id>[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})(?:[/?#]|$)",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    // The whole parameter is one placeholder for a field of the entry, the syntax the template
+    // resolver reads.
+    private static readonly Regex OneField = new(
+        @"^\{\{\s*data\.(?<field>[A-Za-z0-9_.]+)\s*\}\}\z",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     private static readonly Regex MediaType = new(
@@ -102,17 +108,26 @@ internal static class EmailAttachments
             return Refuse("No module that stores files is enabled, so nothing can be attached. Enable BarakoCMS.Files and restart.");
         }
 
-        var items = named.Split(',', ';', '\n');
-        if (items.Length > limits.MaxCount)
+        var items = Items(named, content);
+        if (items.Count == 0)
         {
-            return Refuse(
-                $"The email names {items.Length} attachments, over the limit of {limits.MaxCount} in {EmailAttachmentLimits.MaxCountKey}.");
+            return Refuse("The 'Attachments' parameter names no file. The list it is filled from is empty.");
         }
 
-        var ids = new List<Guid>(items.Length);
-        for (var i = 0; i < items.Length; i++)
+        if (items.Count > limits.MaxCount)
         {
-            var item = items[i].Trim('[', ']', '"', ' ', '\t', '\r', '\n');
+            return Refuse(
+                $"The email names {items.Count} attachments, over the limit of {limits.MaxCount} in {EmailAttachmentLimits.MaxCountKey}.");
+        }
+
+        // An entry nobody is recorded as having saved (a public form's submission, an import with no
+        // actor, a deleted entry) has no user to ask for.
+        Guid? reader = content.LastModifiedBy == Guid.Empty ? null : content.LastModifiedBy;
+
+        var ids = new List<Guid>(items.Count);
+        for (var i = 0; i < items.Count; i++)
+        {
+            var item = items[i].Trim(' ', '\t', '\r', '\n');
             if (item.Length == 0)
             {
                 return Refuse($"Attachment {i + 1} names no file. The field it is filled from is empty.");
@@ -127,8 +142,7 @@ internal static class EmailAttachments
             // the entry does not name exists.
             if (!References(content, id))
             {
-                return Refuse(
-                    $"Attachment {i + 1} is not a file of this entry. Only a file that one of the entry's fields names can be attached.");
+                return Refuse(NotAttachable(i));
             }
 
             ids.Add(id);
@@ -138,10 +152,10 @@ internal static class EmailAttachments
         long declared = 0;
         for (var i = 0; i < ids.Count; i++)
         {
-            var info = await files.FindAsync(ids[i], ct);
+            var info = await files.FindReadableAsync(ids[i], reader, ct);
             if (info is null)
             {
-                return Refuse($"Attachment {i + 1} is not a stored file of this tenant.");
+                return Refuse(NotAttachable(i));
             }
 
             if (info.Size > limits.MaxFileBytes)
@@ -162,14 +176,15 @@ internal static class EmailAttachments
         long total = 0;
         for (var i = 0; i < found.Count; i++)
         {
-            await using var stream = await files.OpenReadAsync(found[i].Id, ct);
+            await using var stream = await files.OpenReadableAsync(found[i].Id, reader, ct);
             if (stream is null)
             {
-                return Refuse($"Attachment {i + 1} has no stored content.");
+                return Refuse(NotAttachable(i));
             }
 
-            // The recorded size was checked above. This is the bound on what is actually held in
-            // memory, for a record whose size is wrong.
+            // The recorded size was checked above, before the store was asked for any bytes. This is
+            // the same limit on what the stream holds, for a record whose size is wrong. It bounds
+            // what is sent, not what the store read to produce the stream.
             var bytes = await ReadUpToAsync(stream, limits.MaxFileBytes, ct);
             if (bytes is null)
             {
@@ -192,6 +207,52 @@ internal static class EmailAttachments
 
         return new Resolution(attachments, null);
     }
+
+    // One reason for a file the entry does not name, a file this tenant does not have and a file
+    // the entry's last writer may not read, so the run does not say which files exist.
+    private static string NotAttachable(int index) =>
+        $"Attachment {index + 1} cannot be attached. It has to be a file that one of the entry's fields names "
+        + "and that is public or that the user who last saved the entry may download.";
+
+    /// <summary>
+    /// The files the parameter names, one item each, before any of them is checked.
+    /// </summary>
+    /// <remarks>
+    /// The runner hands this parameter over as written. When it is one placeholder for a field, the
+    /// field's stored value is read from the entry: a list gives one item per element, where
+    /// rendering it to text would give the list's type name. Anything else is rendered the way
+    /// every other parameter is and split on commas, semicolons and line breaks.
+    /// </remarks>
+    internal static IReadOnlyList<string> Items(string named, barakoCMS.Models.Content content)
+    {
+        var field = OneField.Match(named.Trim());
+        if (field.Success
+            && content.Data is not null
+            && content.Data.TryGetValue(field.Groups["field"].Value, out var value)
+            && value is not string)
+        {
+            return value switch
+            {
+                null => new[] { string.Empty },
+                JsonElement { ValueKind: JsonValueKind.Array } array => array.EnumerateArray().Select(item => Text(item)).ToArray(),
+                JsonElement element => new[] { Text(element) },
+                System.Collections.IEnumerable list and not System.Collections.IDictionary => list.Cast<object?>().Select(item => Text(item)).ToArray(),
+                _ => new[] { Text(value) },
+            };
+        }
+
+        return TemplateVariableExtractor.Resolve(named, content, TemplateValueEncoding.None).Split(',', ';', '\n');
+    }
+
+    // Text is the only thing that can name a file. Anything else becomes text that is not an id.
+    private static string Text(object? value) => value switch
+    {
+        null => string.Empty,
+        string text => text,
+        JsonElement { ValueKind: JsonValueKind.String } element => element.GetString() ?? string.Empty,
+        JsonElement { ValueKind: JsonValueKind.Null } => string.Empty,
+        _ => "(not text)",
+    };
 
     private static string OverFileLimit(int index, EmailAttachmentLimits limits) =>
         $"Attachment {index + 1} is over {limits.MaxFileBytes} bytes, the limit in {EmailAttachmentLimits.MaxFileBytesKey}.";
@@ -321,8 +382,21 @@ internal static class EmailAttachments
     internal static string SafeContentType(string? stored) =>
         stored is not null && MediaType.IsMatch(stored) ? stored.ToLowerInvariant() : "application/octet-stream";
 
+    /// <summary>The stream's bytes, or null when there are more than <paramref name="limit"/>.</summary>
     private static async Task<byte[]?> ReadUpToAsync(Stream stream, long limit, CancellationToken ct)
     {
+        // A store that already holds the file as one array hands that array over, so the bytes
+        // are not copied a second time.
+        if (stream is MemoryStream memory
+            && memory.Position == 0
+            && memory.TryGetBuffer(out var whole)
+            && whole.Array is not null
+            && whole.Offset == 0
+            && whole.Count == whole.Array.Length)
+        {
+            return whole.Count > limit ? null : whole.Array;
+        }
+
         using var held = new MemoryStream();
         var chunk = new byte[81920];
         int read;

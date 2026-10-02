@@ -8,9 +8,9 @@ internal sealed class NoFileStore : IFileStore
     internal const string Message =
         "No module that stores files is enabled. Enable BarakoCMS.Files and restart.";
 
-    public Task<StoredFileInfo?> FindAsync(Guid id, CancellationToken cancellationToken = default) =>
+    public Task<StoredFileInfo?> FindReadableAsync(Guid id, Guid? userId, CancellationToken cancellationToken = default) =>
         throw new InvalidOperationException(Message);
 
-    public Task<Stream?> OpenReadAsync(Guid id, CancellationToken cancellationToken = default) =>
+    public Task<Stream?> OpenReadableAsync(Guid id, Guid? userId, CancellationToken cancellationToken = default) =>
         throw new InvalidOperationException(Message);
 }
