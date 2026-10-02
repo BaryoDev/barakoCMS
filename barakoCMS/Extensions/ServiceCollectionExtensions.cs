@@ -1435,6 +1435,8 @@ public static class ServiceCollectionExtensions
 
         UseTenantAndAuthentication(app);
 
+        app.UseMiddleware<barakoCMS.Infrastructure.Security.RateLimitAfterAuthentication>();
+
         ModuleAppPipeline.Use(app, app.ApplicationServices.GetServices<IBarakoModule>());
 
         UseOutputCaching(app);
@@ -1446,6 +1448,8 @@ public static class ServiceCollectionExtensions
         UseHealthEndpoints(app, configuration);
 
         UseOpenApi(app, configuration, env);
+
+        barakoCMS.Infrastructure.Security.RateLimitSetup.RequireRegisteredPolicies(app);
 
         return app;
     }

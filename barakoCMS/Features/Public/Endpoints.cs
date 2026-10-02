@@ -308,6 +308,7 @@ internal class ListPublishedEndpoint(
     {
         Get("/api/public/{type}");
         AllowAnonymous();
+        Options(x => x.RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.DeliveryPolicy));
     }
 
     public override async Task HandleAsync(PublicListRequest req, CancellationToken ct)
@@ -438,6 +439,7 @@ internal class PublicSearchEndpoint(IQuerySession session, IConfiguration config
     {
         Get("/api/public/{type}/search");
         AllowAnonymous();
+        Options(x => x.RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.DeliveryPolicy));
     }
 
     public override async Task HandleAsync(CancellationToken ct)
@@ -535,6 +537,7 @@ internal class GetBySlugEndpoint(
     {
         Get("/api/public/{type}/{slug}");
         AllowAnonymous();
+        Options(x => x.RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.DeliveryPolicy));
     }
 
     public override async Task HandleAsync(CancellationToken ct)

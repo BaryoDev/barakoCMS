@@ -12,6 +12,7 @@ internal class SitemapEndpoint(IQuerySession session, IConfiguration config) : E
     {
         Get("/api/public/sitemap.xml");
         AllowAnonymous();
+        Options(x => x.RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.DeliveryPolicy));
     }
     public override async Task HandleAsync(CancellationToken ct)
     {
