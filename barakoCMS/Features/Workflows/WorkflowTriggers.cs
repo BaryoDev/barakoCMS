@@ -41,6 +41,16 @@ internal static class WorkflowTriggers
         w => (w.TriggerContentType == contentType || w.TriggerContentTypes.Contains(contentType))
              && (w.TriggerEvent == eventType || w.TriggerEvents.Contains(eventType));
 
+    /// <summary>The workflows among <paramref name="fired"/> that are switched on.</summary>
+    /// <remarks>
+    /// Applied to what the query returned and not written into <see cref="FiredBy"/>. A definition
+    /// stored before the flag existed has no such field, and in SQL a comparison with a missing
+    /// field is null, which a filter reads the same as off. Read into the class, a missing field
+    /// keeps the default, which is on.
+    /// </remarks>
+    internal static List<WorkflowDefinition> SwitchedOn(IEnumerable<WorkflowDefinition> fired) =>
+        fired.Where(workflow => workflow.Enabled).ToList();
+
     /// <summary>
     /// Stores the trigger in the shape every reader understands: each list holds every value, and
     /// each single field holds the first.

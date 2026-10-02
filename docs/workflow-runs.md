@@ -26,7 +26,8 @@ Both are in days and both are the defaults, so a deployment that sets neither ge
 
 `PartiallyFailed` is kept on the failure window, not the success one. A run where the post went out
 and the email did not holds a thing nobody has dealt with, which is the case the longer window is
-for.
+for. `Cancelled` is kept on the failure window too: it holds an action that was stopped, and
+whoever asks why wants it for as long as a failure.
 
 **Zero or less keeps that class forever.** That reading was chosen deliberately, because "0 days"
 reads as "delete immediately" just as naturally, and a setting whose two plain readings are opposite
@@ -44,6 +45,42 @@ If runs are piling up in `Pending`, the runner is not keeping up or is switched 
 
 Webhook deliveries keep their own log with its own window, `Webhooks:DeliveryLogRetentionDays`.
 See `docs/webhooks.md`.
+
+## Stopping a workflow or a run
+
+Three requests, all behind `manage_workflows`, each written to the audit log.
+
+`PUT /api/workflows/{id}/enabled` with `{ "enabled": false }` switches a workflow off. It starts no
+more runs, on any trigger. Runs it had already queued are cancelled by the runner as it reaches
+them, which for a run waiting on a backoff is when the wait ends, and switching the workflow back on
+does not bring them back. A workflow saved before the flag existed is on. While a workflow is off, a
+retry of one of its failed actions answers 409: the runner would cancel the run where it should run
+it. Switch the workflow on, then retry.
+
+`DELETE /api/workflows/{id}` deletes a workflow and cancels its queued runs in the same transaction.
+It cancels at most 200 runs. A workflow with more than that queued is refused with a 409: switch it
+off first, let the runner cancel them, then delete it. Its finished runs stay as history, and a
+retry of one of their actions answers 409, so a deleted workflow sends nothing more. A delete and a
+retry of one of the workflow's runs take turns: a retry that arrives during the delete waits and is
+then refused, and a delete that arrives during a retry waits and cancels the attempt the retry
+queued. A run that finishes while the delete is under way keeps the status it finished with. One gap
+is left:
+a run queued by an event in the instant between the delete reading the queue and committing is not
+cancelled, and executes once with the actions it copied. Switching the workflow off before deleting
+it closes that.
+
+`POST /api/workflow-runs/{id}/cancel` stops one run. Every action that has not started becomes
+`Cancelled`, which always means the action never went out. An action that is running is left,
+because its request is already with the third party: it finishes and records its outcome as it
+happened, nothing after it starts, and if it failed it is not tried again. An action that was
+claimed by a node that then went quiet, so its lease ran out with no outcome, becomes `Unknown`: it
+may have gone out. The run reads `Cancelled` once nothing of it is in flight, whatever its actions
+did. A run that has finished cannot be cancelled, and an action of a cancelled run cannot be retried.
+Both answer 409. Cancelling a run that is already stopped and still has an action out changes
+nothing and records nothing.
+
+A cancel and the runner claiming the same run cannot both be saved. If the runner got there first the
+cancel answers 409 and can be sent again for what is left.
 
 ## This is not an audit trail
 

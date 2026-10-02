@@ -100,6 +100,7 @@ public class RoleGateTests
         new("GET", "/api/workflow-runs", "/api/workflow-runs"),
         new("GET", "/api/workflow-runs/{id}", $"/api/workflow-runs/{NotAGuid}"),
         new("POST", "/api/workflow-runs/{id}/actions/{ordinal}/retry", $"/api/workflow-runs/{NotAGuid}/actions/0/retry"),
+        new("POST", "/api/workflow-runs/{id}/cancel", $"/api/workflow-runs/{NotAGuid}/cancel"),
         new("GET", "/api/connectors", "/api/connectors"),
         new("POST", "/api/connectors", "/api/connectors"),
         // NotASlug for the same reason ids here are unparseable: the endpoint answers 400 from its
@@ -146,6 +147,8 @@ public class RoleGateTests
         new("POST", "/api/workflows/validate", "/api/workflows/validate"),
         new("POST", "/api/workflows/dry-run", "/api/workflows/dry-run"),
         new("GET", "/api/workflows/{id}/debug", $"/api/workflows/{NotAGuid}/debug"),
+        new("PUT", "/api/workflows/{id}/enabled", $"/api/workflows/{NotAGuid}/enabled"),
+        new("DELETE", "/api/workflows/{id}", $"/api/workflows/{NotAGuid}"),
     ];
 
     public static TheoryData<GatedRoute> AllGatedRoutes()

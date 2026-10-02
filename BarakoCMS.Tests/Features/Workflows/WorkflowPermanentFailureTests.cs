@@ -37,10 +37,21 @@ public class WorkflowPermanentFailureTests
         var contentId = Guid.NewGuid();
         session.Store(new Content { Id = contentId, ContentType = "article", Status = ContentStatus.Published });
 
+        // A retry is refused for a run whose workflow is gone, so the run has one behind it. Its
+        // content type is its own, so it fires for nothing another test publishes.
+        var workflow = new WorkflowDefinition
+        {
+            Id = Guid.NewGuid(),
+            Name = "Permanent failure",
+            TriggerContentType = $"permanent-failure-{Guid.NewGuid():N}",
+            TriggerEvent = "Published",
+        };
+        session.Store(workflow);
+
         var run = new WorkflowRun
         {
             Id = Guid.NewGuid(),
-            WorkflowDefinitionId = Guid.NewGuid(),
+            WorkflowDefinitionId = workflow.Id,
             WorkflowName = "Permanent failure",
             ContentId = contentId,
             ContentType = "article",

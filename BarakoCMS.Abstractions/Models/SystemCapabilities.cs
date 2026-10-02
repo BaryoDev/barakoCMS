@@ -187,9 +187,14 @@ public static class SystemCapabilities
 
     /// <summary>
     /// Author workflows: list and create them, read the registered actions and the template
-    /// variables, validate a definition and dry-run one.
+    /// variables, validate a definition and dry-run one. Stop them too: switch a workflow off,
+    /// delete it, and cancel one of its runs.
     /// </summary>
     /// <remarks>
+    /// Stopping is here and not with <see cref="RetryWorkflowActions"/>. Whoever can switch a
+    /// workflow off already stops its runs that way, and nothing about stopping makes an action
+    /// happen.
+    ///
     /// The dry run belongs here rather than in a name of its own. It executes nothing: it resolves
     /// the templates and reports what each action would have done. Splitting it out would leave the
     /// person who just wrote the workflow with running it in production as the only way to see what

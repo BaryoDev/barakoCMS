@@ -28,6 +28,9 @@ internal sealed class WorkflowResponse
     public Dictionary<string, string> Conditions { get; init; } = new();
     public List<WorkflowActionResponse> Actions { get; init; } = new();
 
+    /// <summary>Whether the workflow fires. True for a workflow saved before it could be switched off.</summary>
+    public bool Enabled { get; init; } = true;
+
     public static WorkflowResponse From(WorkflowDefinition w) => new()
     {
         Id = w.Id,
@@ -38,6 +41,7 @@ internal sealed class WorkflowResponse
         TriggerEvents = WorkflowTriggers.Events(w),
         Conditions = w.Conditions,
         Actions = w.Actions.Select(WorkflowActionResponse.From).ToList(),
+        Enabled = w.Enabled,
     };
 }
 

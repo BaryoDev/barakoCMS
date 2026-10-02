@@ -17,6 +17,9 @@ internal sealed class RunResponse
     public string Status { get; init; } = nameof(RunStatus.Pending);
     public DateTimeOffset CreatedAt { get; init; }
     public DateTimeOffset? CompletedAt { get; init; }
+
+    /// <summary>When the run was told to stop. Null for a run nobody stopped.</summary>
+    public DateTimeOffset? CancelledAt { get; init; }
     public List<AttemptResponse> Actions { get; init; } = new();
 
     public static RunResponse From(WorkflowRun r) => new()
@@ -30,6 +33,7 @@ internal sealed class RunResponse
         Status = r.Status.ToString(),
         CreatedAt = r.CreatedAt,
         CompletedAt = r.CompletedAt,
+        CancelledAt = r.CancelledAt,
         Actions = r.Actions.OrderBy(a => a.Ordinal).Select(AttemptResponse.From).ToList(),
     };
 }
@@ -210,6 +214,15 @@ internal sealed class RetryAttemptEndpoint(
             return;
         }
 
+        // Refused for the whole run, not only its cancelled actions. The runner starts nothing on a
+        // run that was stopped, so an attempt queued here would be cancelled again at the next
+        // claim, and the workflow behind it may be switched off or gone.
+        if (run.CancelledAt is not null)
+        {
+            ThrowError("That run was cancelled, and a cancelled run is not started again.", 409);
+            return;
+        }
+
         if (attempt.Status == AttemptStatus.Succeeded)
         {
             ThrowError("That action already succeeded. Retrying it would send it a second time.", 409);
@@ -219,6 +232,29 @@ internal sealed class RetryAttemptEndpoint(
         if (attempt.Status == AttemptStatus.Running && attempt.LeaseExpiresAt > DateTimeOffset.UtcNow)
         {
             ThrowError("That action is running now. Wait for it to finish or for its lease to expire.", 409);
+            return;
+        }
+
+        // The runner cancels a run whose workflow is switched off, so a retry accepted here would
+        // send nothing and leave the run Cancelled, which can never be retried again. Refused
+        // before anything is written, so the run keeps its status and can be retried once the
+        // workflow is on. A workflow that was deleted must not fire again through a retry either.
+        //
+        // Under the lock a delete of the workflow takes, so the check below and the save cannot
+        // straddle one: the delete either sees the attempt queued here and cancels it, or has
+        // already committed and the workflow is gone.
+        await barakoCMS.Features.Workflows.WorkflowDefinitionLock.TakeAsync(session, run.WorkflowDefinitionId, ct);
+
+        var workflow = await session.LoadAsync<WorkflowDefinition>(run.WorkflowDefinitionId, ct);
+        if (workflow is null)
+        {
+            ThrowError("The workflow that run belonged to has been deleted, so its actions are not run again.", 409);
+            return;
+        }
+
+        if (!workflow.Enabled)
+        {
+            ThrowError("That workflow is switched off. Switch it on first, then retry.", 409);
             return;
         }
 
@@ -282,6 +318,94 @@ internal sealed class RetryAttemptEndpoint(
             // 409 and the same wording as the running-lease check above, because from the operator's
             // side it is the same situation: somebody else got to it first.
             ThrowError("That action is running now. Wait for it to finish or for its lease to expire.", 409);
+            return;
+        }
+
+        await Send.ResponseAsync(RunResponse.From(run), cancellation: ct);
+    }
+}
+
+/// <summary>
+/// Stops one run: every action that has not started is cancelled and nothing more is started.
+/// </summary>
+/// <remarks>
+/// An action running under a live lease is left. Its request is already with the third party, so
+/// it finishes and records its outcome, and the run ends after it. If it fails it is not queued
+/// again. An action still marked running after its lease ran out becomes Unknown: it was claimed,
+/// so it may have gone out, and Cancelled is kept for an action that never did.
+///
+/// The write is the same optimistic one the runner's claim makes on the run, so a cancel and a
+/// claim of the same run cannot both be saved. Whichever is second is refused: the runner moves on,
+/// and this answers 409 so the request can be sent again for what is left.
+/// </remarks>
+internal sealed class CancelRunEndpoint(
+    IDocumentSession session,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : EndpointWithoutRequest<RunResponse>
+{
+    public override void Configure()
+    {
+        Post("/api/workflow-runs/{id}/cancel");
+        // With authoring, not with retry. Whoever can switch a workflow off or delete it already
+        // stops its runs that way, and retry is the grant that makes an action happen, which this
+        // never does.
+        Definition.RequireCapability(SystemCapabilities.ManageWorkflows, RunGate.LegacyRoles);
+    }
+
+    public override async Task HandleAsync(CancellationToken ct)
+    {
+        if (!Guid.TryParse(Route<string>("id"), out var id))
+        {
+            ThrowError("The run id is not a GUID.", 400);
+            return;
+        }
+
+        var run = await session.LoadAsync<WorkflowRun>(id, ct);
+        if (run is null)
+        {
+            await Send.NotFoundAsync(ct);
+            return;
+        }
+
+        if (run.Status is not (RunStatus.Pending or RunStatus.Running))
+        {
+            ThrowError("That run has already finished, so there is nothing left to cancel.", 409);
+            return;
+        }
+
+        var alreadyStopped = run.CancelledAt is not null;
+        var cancelled = run.Cancel(DateTimeOffset.UtcNow);
+
+        // A repeat while the last action is still out changes nothing, so it writes nothing and
+        // records nothing, and answers with the run as it stands.
+        if (alreadyStopped && cancelled == 0)
+        {
+            await Send.ResponseAsync(RunResponse.From(run), cancellation: ct);
+            return;
+        }
+
+        session.Update(run);
+
+        var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
+        await AuditLog.RecordAsync(session, tenant.Slug, "workflow.run.cancelled", actorId,
+            User.FindFirst("Username")?.Value,
+            targetType: nameof(WorkflowRun), targetId: run.Id.ToString(),
+            metadata: new Dictionary<string, object>
+            {
+                ["workflow"] = run.WorkflowName,
+                ["cancelledActions"] = run.Actions.Count(a => a.Status == AttemptStatus.Cancelled),
+                // An action left running is the one thing this could not stop, so the entry says
+                // whether there was one.
+                ["leftRunning"] = run.Actions.Count(a => a.Status == AttemptStatus.Running),
+            }, ct: ct);
+
+        try
+        {
+            await session.SaveChangesAsync(ct);
+        }
+        catch (Exception ex) when (ex is JasperFx.ConcurrencyException
+            || ex.GetType().Name.Contains("Concurrency"))
+        {
+            ThrowError("The runner took an action of that run just now. Nothing was changed. Send the request again to cancel what is left.", 409);
             return;
         }
 

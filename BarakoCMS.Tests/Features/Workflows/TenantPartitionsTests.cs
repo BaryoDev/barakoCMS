@@ -177,10 +177,30 @@ public class TenantPartitionsTests
             kept[tenant] = recent.Id;
         }
 
+        // A partition whose only finished run is a cancelled one. With enforcement on the sweep
+        // asks each registered partition whether it holds a finished run before it visits, so a
+        // status that question does not name leaves the partition unvisited and the run in place.
+        var cancelledOnly = await RegisterAsync(store, "rls-runs-cxl", active: true, ct);
+        var oldCancelled = FinishedRun(now.AddDays(-400));
+        oldCancelled.WorkflowName = "Cancelled";
+        oldCancelled.Status = RunStatus.Cancelled;
+
+        await using (var session = store.LightweightSession(cancelledOnly))
+        {
+            session.Store(oldCancelled);
+            await session.SaveChangesAsync(ct);
+        }
+
         var service = new WorkflowRunRetentionService(
             store, host.Services.GetRequiredService<IConfiguration>(), NullLogger<WorkflowRunRetentionService>.Instance);
 
         (await service.TrySweepAllTenantsAsync(now, ct)).Should().BeTrue();
+
+        await using (var check = store.QuerySession(cancelledOnly))
+        {
+            (await check.LoadAsync<WorkflowRun>(oldCancelled.Id, ct)).Should().BeNull(
+                "a cancelled run past the failure window is removed in a partition that holds nothing else");
+        }
 
         kept.Should().HaveCount(3);
         foreach (var (tenant, recentId) in kept)

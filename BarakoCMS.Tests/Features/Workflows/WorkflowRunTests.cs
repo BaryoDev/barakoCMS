@@ -470,10 +470,21 @@ public class WorkflowRunTests
         var store = _factory.Services.GetRequiredService<IDocumentStore>();
         await using var session = store.LightweightSession();
 
+        // A retry is refused for a run whose workflow is gone, so the run has one behind it. Its
+        // content type is its own, so it fires for nothing another test publishes.
+        var workflow = new WorkflowDefinition
+        {
+            Id = Guid.NewGuid(),
+            Name = "Notify the team",
+            TriggerContentType = $"run-tests-{Guid.NewGuid():N}",
+            TriggerEvent = "Published",
+        };
+        session.Store(workflow);
+
         var run = new WorkflowRun
         {
             Id = Guid.NewGuid(),
-            WorkflowDefinitionId = Guid.NewGuid(),
+            WorkflowDefinitionId = workflow.Id,
             WorkflowName = "Notify the team",
             ContentId = Guid.NewGuid(),
             ContentType = "article",

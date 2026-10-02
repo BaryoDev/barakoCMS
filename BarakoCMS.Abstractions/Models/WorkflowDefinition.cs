@@ -32,6 +32,14 @@ public class WorkflowDefinition
     public List<string> TriggerEvents { get; set; } = new();
     public Dictionary<string, string> Conditions { get; set; } = new(); // e.g., "Status" == "Approved"
     public List<WorkflowAction> Actions { get; set; } = new();
+
+    /// <summary>Whether the workflow fires. On unless it was switched off.</summary>
+    /// <remarks>
+    /// A definition stored before this existed has no such field and reads as on, so nothing stops
+    /// firing on upgrade. Switched off, it starts no runs, and the runner cancels a run it had
+    /// already queued when it reaches it, so switching it back on does not send what was waiting.
+    /// </remarks>
+    public bool Enabled { get; set; } = true;
 }
 
 public class WorkflowAction

@@ -257,6 +257,11 @@ internal sealed class WorkflowRunner(
             run = (await session.LoadAsync<WorkflowRun>(runId, ct))!;
             if (run is null) return false;
 
+            if (run.CancelledAt is not null || await IsSwitchedOffAsync(session, run.WorkflowDefinitionId, ct))
+            {
+                return await CancelRemainingAsync(session, run, ct);
+            }
+
             claimed = NextDue(run);
             if (claimed is null)
             {
@@ -285,6 +290,30 @@ internal sealed class WorkflowRunner(
 
         var outcome = await ExecuteAsync(store, run, claimed, tenantId, ct);
 
+        // Twice, because a cancel or a delete may write the run between the read and the save here.
+        // Either leaves this attempt Running under this node's lease, so a second read can still
+        // record what happened. Left unrecorded on a stopped run, the attempt is never run again,
+        // and an action that completed would read as one nobody knows the outcome of.
+        if (!await RecordAsync(store, runId, tenantId, claimed, outcome, ct)
+            && !await RecordAsync(store, runId, tenantId, claimed, outcome, ct))
+        {
+            // The outcome is lost. On a run nobody stopped the lease expires and the attempt runs
+            // again, which is why the idempotency key is stable across attempts rather than
+            // generated per try. On a stopped run it is marked Unknown when the lease ends.
+            logger.LogWarning("Could not record the outcome of run {RunId} action {Ordinal}", runId, claimed.Ordinal);
+        }
+
+        return true;
+    }
+
+    /// <summary>Writes one attempt's outcome onto the run as it is stored now.</summary>
+    /// <returns>
+    /// False when the save was refused because the run was written in between. True otherwise,
+    /// which includes there being nothing to write: the run or the attempt gone, or the lease lost.
+    /// </returns>
+    private async Task<bool> RecordAsync(
+        IDocumentStore store, Guid runId, string tenantId, WorkflowActionAttempt claimed, Outcome outcome, CancellationToken ct)
+    {
         await using (var session = store.LightweightSession(tenantId))
         {
             var latest = await session.LoadAsync<WorkflowRun>(runId, ct);
@@ -313,6 +342,17 @@ internal sealed class WorkflowRunner(
             }
 
             Apply(attempt, outcome);
+
+            // Stopped while this attempt was out. It ran, so its outcome is recorded as it
+            // happened, and a failure that would have been queued again stays a failure.
+            if (latest.CancelledAt is not null && attempt.Status == AttemptStatus.Pending)
+            {
+                attempt.Status = AttemptStatus.Failed;
+                attempt.Retryable = true;
+                attempt.NextAttemptAt = null;
+                attempt.CompletedAt = DateTimeOffset.UtcNow;
+            }
+
             latest.Recompute();
             session.Update(latest);
 
@@ -323,13 +363,57 @@ internal sealed class WorkflowRunner(
             catch (Exception ex) when (ex is JasperFx.ConcurrencyException
                 || ex.GetType().Name.Contains("Concurrency"))
             {
-                // The outcome is lost, the lease expires, and the attempt runs again. That is why
-                // the idempotency key is stable across attempts rather than generated per try.
-                logger.LogWarning("Could not record the outcome of run {RunId} action {Ordinal}", runId, claimed.Ordinal);
+                return false;
             }
         }
 
         return true;
+    }
+
+    /// <summary>Whether the workflow a run belongs to has been switched off since the run was queued.</summary>
+    /// <remarks>
+    /// Asked at every claim, so a run stops between two of its actions too. A run whose definition
+    /// is gone is not stopped here: deleting through the API cancels the queued runs itself, and a
+    /// run stored with no definition behind it has always run.
+    /// </remarks>
+    internal static async Task<bool> IsSwitchedOffAsync(IQuerySession session, Guid workflowId, CancellationToken ct) =>
+        await session.LoadAsync<WorkflowDefinition>(workflowId, ct) is { Enabled: false };
+
+    /// <summary>
+    /// Cancels what is left of a run that was stopped, or whose workflow is switched off, in place
+    /// of claiming it.
+    /// </summary>
+    /// <remarks>
+    /// The same optimistic write the claim makes. Refused, another node or the cancel endpoint wrote
+    /// the run first, and the run is offered again on a later pass if anything of it is still due.
+    /// </remarks>
+    /// <returns>
+    /// Whether the run was written. That counts as work done, so the pass ends and the next starts
+    /// at once: a switched off workflow with a long queue is cleared without an idle wait every
+    /// twenty runs, and without holding up the due runs behind it. Nothing written is not work, or a
+    /// run with nothing left to cancel would be a pass that never ends.
+    /// </returns>
+    internal static async Task<bool> CancelRemainingAsync(IDocumentSession session, WorkflowRun run, CancellationToken ct)
+    {
+        var stopped = run.CancelledAt;
+        var stored = run.NextDueAt;
+
+        var moved = run.Cancel(DateTimeOffset.UtcNow);
+        if (moved == 0 && run.CancelledAt == stopped && run.NextDueAt == stored) return false;
+
+        session.Update(run);
+
+        try
+        {
+            await session.SaveChangesAsync(ct);
+            return true;
+        }
+        catch (Exception ex) when (ex is JasperFx.ConcurrencyException
+            || ex.GetType().Name.Contains("Concurrency"))
+        {
+            // Another writer got there first, and its write stands.
+            return false;
+        }
     }
 
     /// <summary>

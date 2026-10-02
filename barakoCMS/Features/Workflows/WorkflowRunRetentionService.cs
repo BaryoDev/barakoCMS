@@ -176,11 +176,12 @@ internal sealed class WorkflowRunRetentionService : BackgroundService
     /// <remarks>
     /// Terminal statuses only, cast to integer because Marten stores an enum as a number: the
     /// JsonStringEnumConverter in ServiceCollectionExtensions is the HTTP serializer.
-    /// 2 Succeeded, 3 Failed, 4 PartiallyFailed. Pending and Running are deliberately absent.
+    /// 2 Succeeded, 3 Failed, 4 PartiallyFailed, 5 Cancelled. Pending and Running are deliberately
+    /// absent.
     /// </remarks>
     private const string PartitionsWithRunsSql =
         "select distinct tenant_id from public.mt_doc_workflow_runs "
-      + "where (data ->> 'Status')::integer in (2, 3, 4)";
+      + "where (data ->> 'Status')::integer in (2, 3, 4, 5)";
 
     /// <summary>
     /// One query that ends the visit to a partition with nothing finished in it, which with database
@@ -191,7 +192,8 @@ internal sealed class WorkflowRunRetentionService : BackgroundService
         session.Query<WorkflowRun>().AnyAsync(
             r => r.Status == RunStatus.Succeeded
               || r.Status == RunStatus.Failed
-              || r.Status == RunStatus.PartiallyFailed,
+              || r.Status == RunStatus.PartiallyFailed
+              || r.Status == RunStatus.Cancelled,
             ct);
 
     /// <summary>
@@ -209,12 +211,14 @@ internal sealed class WorkflowRunRetentionService : BackgroundService
 
         // Succeeded on its own, then the two that contain a failure. PartiallyFailed is grouped with
         // Failed on purpose: it holds at least one action nobody has dealt with, and the reason this
-        // has two windows is that such a run stays interesting.
+        // has two windows is that such a run stays interesting. Cancelled goes with them: it holds
+        // an action that never went out, and somebody asking why wants it for as long as a failure.
         removed += await SweepClassAsync(
             session, nowUtc, windows.SucceededDays, [RunStatus.Succeeded], logger, ct);
 
         removed += await SweepClassAsync(
-            session, nowUtc, windows.FailedDays, [RunStatus.Failed, RunStatus.PartiallyFailed], logger, ct);
+            session, nowUtc, windows.FailedDays,
+            [RunStatus.Failed, RunStatus.PartiallyFailed, RunStatus.Cancelled], logger, ct);
 
         return removed;
     }
