@@ -407,6 +407,59 @@ and logged at warning level, which exists for a deployment whose entries predate
 | `Approve` from Submitted | approver | `200` | Granted, in order, not the raiser |
 | `Approve` from Approved | approver | `409` | Out of order, and the caller may know that |
 
+## A transition that requires fields
+
+This part is not in the walkthrough above and its requests were not run against the quickstart. It
+is tested by `TransitionRequiredFieldsTests`.
+
+A transition can name fields of the type that must hold a value once the move is made, and fields
+that may be sent with it:
+
+```json
+{ "name": "Reject", "from": "Submitted", "to": "Rejected",
+  "requiredFields": ["RejectionReason"], "optionalFields": ["RejectionNote"] }
+```
+
+Both lists are optional and empty by default. Each name has to be a field the type declares, and a
+name may appear once across the two lists; anything else is refused when the type is saved.
+
+The values go in `data` on the same request that makes the move:
+
+```bash
+curl -s -X PUT $BASE/api/contents/$INVOICE/status -H "Authorization: Bearer $APPROVER" \
+  -H 'Content-Type: application/json' \
+  -d '{"transition": "Reject", "data": {"RejectionReason": "No receipt attached"}}'
+```
+
+- Without a value for `RejectionReason` the answer is `400` naming the field, and the entry stays
+  where it was. A blank string and `null` count as no value. A value already on the entry meets the
+  requirement, so a clerk can fill it in before the reviewer acts.
+- `data` may carry only the fields the transition declares. Any other key is a `400`, and the
+  answer lists the fields the transition takes without repeating the key that was sent.
+- The caller needs the transition permission and not `update`. That is how a reviewer who may not
+  edit the entry still records why they rejected it, and the declared lists are the limit of what
+  they can write.
+- The values are checked the way an update checks them: a field the caller may not see is put back
+  to its stored value, the type's validation runs over the whole entry (required fields, types and
+  `validationRules`), and before-save hooks run. A reviewer who may not see a required field cannot
+  fill it, so the move is refused unless the entry already holds a value.
+- The permission checks run first. A caller who may not perform the transition gets the same bare
+  `403` as before and is not told which fields it requires.
+- The values and the move commit together. The entry's history shows an `Updated` beside the
+  `Transitioned`, and a workflow on `transition:Reject` reads `{{data.RejectionReason}}`. A workflow
+  on `Updated` fires too, because the data did change.
+- `data` sent to a transition that declares no fields, or with `newStatus`, is ignored.
+
+The requirement is checked where a transition is made, which is this endpoint and nothing else.
+Scheduled publishing, `UpdateField`, collection pushes and syncs change `status` and never the
+lifecycle state. A workflow can still blank the field afterwards: this is a check on the move, not
+a rule the entry keeps.
+
+A stored transition naming a field the type no longer has (an import replaces a type's fields and
+keeps its lifecycle) is skipped for that name and logged at warning level, and the rest of what it
+requires still applies. An import refuses a bundle whose new lifecycle names a field the bundle's
+type does not declare, and one that changes what a stored transition requires.
+
 ## What this page does not cover
 
 `GET /api/contents/{id}` does not return the lifecycle state today; the status change response,

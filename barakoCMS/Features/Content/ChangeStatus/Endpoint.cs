@@ -1,4 +1,6 @@
 using barakoCMS.Core.Interfaces;
+using barakoCMS.Core.Validation;
+using barakoCMS.Infrastructure.Logging;
 using FastEndpoints;
 using Marten;
 using barakoCMS.Infrastructure.Audit;
@@ -67,7 +69,7 @@ internal class Endpoint(
         // lifecycle.
         if (lifecycle is not null)
         {
-            await HandleTransitionAsync(req, content, lifecycle, user, userId, ct);
+            await HandleTransitionAsync(req, content, definition!, lifecycle, user, userId, ct);
             return;
         }
 
@@ -156,10 +158,19 @@ internal class Endpoint(
     /// predate the rules, and refusing every edit to them is not a migration path. Off logs the
     /// violation and allows it, which is a deliberate escape hatch rather than an oversight, and it
     /// defaults to on.
+    ///
+    /// A transition may declare fields. The ones it requires must hold a value once the move is
+    /// made, on the entry already or sent in Data, and Data may carry only the fields the transition
+    /// declares. The caller needs the transition permission and not Update to send them: a reviewer
+    /// who may not edit an entry still has to say why they rejected it, and the declared list is
+    /// what keeps that from becoming a general edit. Sent values go through the gates an update
+    /// runs (field sensitivity, the type's validation, the before-save hooks) and are recorded as a
+    /// ContentUpdated beside the ContentTransitioned, in one commit.
     /// </remarks>
     private async Task HandleTransitionAsync(
         Request req,
         barakoCMS.Models.Content content,
+        barakoCMS.Models.ContentTypeDefinition definition,
         barakoCMS.Models.LifecycleDefinition lifecycle,
         barakoCMS.Models.User user,
         Guid userId,
@@ -250,12 +261,130 @@ internal class Endpoint(
                 content.Id, message);
         }
 
-        var transitioned = new barakoCMS.Events.ContentTransitioned(
-            content.Id, transition.Name, currentState, transition.To, userId, DateTime.UtcNow);
+        // After every permission check above, so a caller who may not make this move learns nothing
+        // about the fields it asks for.
+        var takes = TransitionFields.Resolve(transition, definition);
+
+        if (takes.Skipped.Count > 0)
+        {
+            logger.LogWarning(
+                "Transition {Transition} on content type {ContentType} names {Count} field(s) the type does not declare, so they were skipped: {Fields}",
+                LogSafe.Value(transition.Name), LogSafe.Value(content.ContentType), takes.Skipped.Count,
+                LogSafe.Value(string.Join(", ", takes.Skipped)));
+        }
+
+        Dictionary<string, object>? data = null;
+        Guid? expectedDocVersion = null;
+
+        if (takes.TakesFields && req.Data is { Count: > 0 } sent)
+        {
+            // The sent values are laid over a copy of the stored data, so what is validated and
+            // stored is the whole entry. The version is read here so a write that lands between
+            // this read and the commit fails the commit instead of being overwritten by the copy.
+            expectedDocVersion = (await session.MetadataForAsync(content, ct))?.CurrentVersion;
+            data = new Dictionary<string, object>(content.Data, content.Data.Comparer);
+
+            var written = new HashSet<barakoCMS.Models.FieldDefinition>();
+            var notTaken = 0;
+
+            foreach (var (key, value) in sent)
+            {
+                var field = takes.Find(key);
+                if (field is null)
+                {
+                    notTaken++;
+                    continue;
+                }
+
+                if (!written.Add(field))
+                {
+                    AddError($"Field '{field.DisplayName}' ({field.Name}) was sent more than once, ignoring case.");
+                    continue;
+                }
+
+                // Under the key the entry already stores it as, which is the one the validator reads.
+                var storedKey = data.Keys.FirstOrDefault(k => TransitionFields.Matches(k, field.Name)) ?? field.Name;
+                data[storedKey] = value;
+            }
+
+            // Counted and not named: the keys are whatever the caller typed.
+            if (notTaken > 0)
+            {
+                AddError($"'{transition.Name}' takes {string.Join(", ", takes.Names)} in data, and "
+                    + $"{notTaken} other {(notTaken == 1 ? "field was" : "fields were")} sent.");
+            }
+
+            ThrowIfAnyErrors();
+
+            // A caller who may not see a field may not change it. Reverts any such field to what is
+            // stored, before the required check reads it.
+            await Resolve<ISensitivityService>()
+                .ApplyWriteAsync(content.ContentType, data, content.Data, HttpContext, ct);
+        }
+
+        foreach (var field in TransitionFields.Blank(takes, data ?? content.Data))
+        {
+            AddError($"Field '{field.DisplayName}' ({field.Name}) is required by the transition '{transition.Name}'.");
+        }
+
+        ThrowIfAnyErrors();
+
+        var events = new List<object>();
+
+        if (data is not null)
+        {
+            var validation = await Resolve<barakoCMS.Infrastructure.Services.IContentValidatorService>()
+                .ValidateAsync(content.ContentType, data, existing: content);
+            if (!validation.IsValid)
+            {
+                foreach (var error in validation.Errors)
+                {
+                    AddError(error);
+                }
+
+                ThrowIfAnyErrors();
+            }
+
+            var hookErrors = await Resolve<barakoCMS.Infrastructure.Services.IContentLifecycleRunner>()
+                .RunBeforeSaveAsync(content.ContentType, content.Id, data, content.Data, userId, ct);
+            if (hookErrors.Count > 0)
+            {
+                foreach (var error in hookErrors)
+                {
+                    AddError(error);
+                }
+
+                ThrowIfAnyErrors();
+            }
+
+            var publicFields = definition.Fields
+                .Where(f => f.Sensitivity == barakoCMS.Models.SensitivityLevel.Public)
+                .Select(f => f.Name)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            var searchText = string.Join(
+                ' ',
+                data
+                    .Where(kv => publicFields.Contains(kv.Key))
+                    .Select(kv => kv.Value?.ToString())
+                    .Where(v => !string.IsNullOrWhiteSpace(v)));
+
+            events.Add(new barakoCMS.Events.ContentUpdated(content.Id, data, userId, searchText, DateTime.UtcNow));
+        }
+
+        events.Add(new barakoCMS.Events.ContentTransitioned(
+            content.Id, transition.Name, currentState, transition.To, userId, DateTime.UtcNow));
 
         try
         {
-            await contentWriter.AppendOptimisticAsync(content, new object[] { transitioned }, ct);
+            await contentWriter.AppendOptimisticAsync(content, events, ct);
+
+            // After the append and before the commit: the writer loads the document again to store
+            // it, and a version bound before that load is discarded.
+            if (expectedDocVersion is { } expected)
+            {
+                session.UpdateExpectedVersion(content, expected);
+            }
 
             await AuditLog.RecordAsync(session, tenant.Slug, $"content.transitioned", userId, user.Username,
                 targetType: content.ContentType, targetId: content.Id.ToString(),

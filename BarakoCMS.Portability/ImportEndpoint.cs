@@ -395,7 +395,11 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
             errors.Add($"field '{repeated.Key}' is declared more than once, ignoring case.");
         }
 
-        errors.AddRange(validator.ValidateLifecycle(type.Lifecycle).Errors);
+        // The fields a transition names are checked only for a lifecycle this import will store. A
+        // stored one is kept as it is, and a bundle exported from this tenant has to import back.
+        errors.AddRange(stored?.Lifecycle is null
+            ? validator.ValidateLifecycle(type.Lifecycle, type.Fields).Errors
+            : validator.ValidateLifecycle(type.Lifecycle).Errors);
 
         var name = stored?.Name ?? barakoCMS.Core.ContentTypeName.Normalize(type.Name);
         var nonPublic = type.Fields.Where(f => f.Sensitivity != SensitivityLevel.Public).Select(f => f.Name).ToList();
@@ -504,7 +508,12 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
         && a.Transitions.Zip(b.Transitions).All(p =>
             string.Equals(p.First.Name, p.Second.Name, StringComparison.OrdinalIgnoreCase)
             && string.Equals(p.First.From, p.Second.From, StringComparison.OrdinalIgnoreCase)
-            && string.Equals(p.First.To, p.Second.To, StringComparison.OrdinalIgnoreCase));
+            && string.Equals(p.First.To, p.Second.To, StringComparison.OrdinalIgnoreCase)
+            && SameFields(p.First.RequiredFields, p.Second.RequiredFields)
+            && SameFields(p.First.OptionalFields, p.Second.OptionalFields));
+
+    private static bool SameFields(List<string>? a, List<string>? b) =>
+        new HashSet<string>(a ?? [], StringComparer.OrdinalIgnoreCase).SetEquals(b ?? []);
 
     /// <summary>
     /// The stored type a bundle type updates, compared under the name normalisation create applies,

@@ -104,6 +104,23 @@ public class StateTransition
     public string From { get; set; } = string.Empty;
 
     public string To { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Fields of the type that must hold a value once this move is made, for example a rejection
+    /// reason on "Reject". Empty for a transition that requires nothing.
+    /// </summary>
+    /// <remarks>
+    /// The value may already be on the entry or be sent with the transition. A field named here may
+    /// be written by whoever may perform the transition, with the move, without the update
+    /// permission: that is what lets a reviewer who may not edit an entry say why they rejected it.
+    /// </remarks>
+    public List<string> RequiredFields { get; set; } = new();
+
+    /// <summary>
+    /// Fields of the type that may be sent with this move and need not be, for example a note
+    /// beside the rejection reason.
+    /// </summary>
+    public List<string> OptionalFields { get; set; } = new();
 }
 
 public class FieldDefinition
