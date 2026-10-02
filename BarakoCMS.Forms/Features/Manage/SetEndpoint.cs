@@ -31,7 +31,7 @@ internal sealed class SetEndpoint(IDocumentSession session) : Endpoint<SetReques
     public override void Configure()
     {
         Put("/api/forms/{contentType}");
-        Definition.RequireCapability(FormsCapabilities.ManageForms, FormsCapabilities.LegacyRoles);
+        Definition.RequireCapability(FormsCapabilities.ManageForms, FormsCapabilities.Defaults.LegacyRoles);
     }
 
     public override async Task HandleAsync(SetRequest req, CancellationToken ct)

@@ -77,5 +77,5 @@ public sealed class FormsModule : IBarakoModule
     /// module exists. Additive and idempotent.
     /// </summary>
     public Task SeedAsync(IDocumentSession session, IServiceProvider services, CancellationToken ct) =>
-        ModuleCapabilities.GrantAsync(session, FormsCapabilities.SeededRoles, FormsCapabilities.All, ct);
+        FormsCapabilities.Defaults.GrantAsync(session, ct);
 }

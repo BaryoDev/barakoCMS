@@ -60,13 +60,17 @@ public sealed class AccountingModule : IBarakoModule
 
     public async Task SeedAsync(IDocumentSession session, IServiceProvider services, CancellationToken ct)
     {
-        var existing = await session.Query<Role>().FirstOrDefaultAsync(r => r.Name == "Accountant", ct);
+        // By id before by name: storing a new role under the seeded id would replace a role an
+        // operator renamed, and with it every permission they gave it.
+        var accountant = AccountingCapabilities.Accountant.Name;
+        var existing = await session.LoadAsync<Role>(AccountantRoleId, ct)
+                       ?? await session.Query<Role>().FirstOrDefaultAsync(r => r.Name == accountant, ct);
         if (existing is null)
         {
             session.Store(new Role
             {
                 Id = AccountantRoleId,
-                Name = "Accountant",
+                Name = accountant,
                 Description = "Can post journal entries and view the ledger."
             });
         }
@@ -75,8 +79,7 @@ public sealed class AccountingModule : IBarakoModule
         // capability, so turning Auth:LegacyRoleFallback off does not take the module away from
         // them. Core cannot do this: SystemCapabilities.DefaultsFor does not know this module
         // exists. Additive and idempotent, and it skips a role the host never seeded.
-        await ModuleCapabilities.GrantAsync(
-            session, AccountingCapabilities.SeededRoles, AccountingCapabilities.All, ct);
+        await AccountingCapabilities.Defaults.GrantAsync(session, ct);
 
         // Accounts and journal entries are content types (content-type-first). Seed their
         // definitions so the schema validator and the admin's generic content UI know their shape.

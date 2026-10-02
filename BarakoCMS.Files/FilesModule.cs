@@ -82,5 +82,5 @@ public sealed class FilesModule : IBarakoModule
     /// Admin. Additive and idempotent, and it skips a role the host never seeded.
     /// </remarks>
     public Task SeedAsync(IDocumentSession session, IServiceProvider services, CancellationToken ct) =>
-        ModuleCapabilities.GrantAsync(session, FileCapabilities.SeededRoles, FileCapabilities.All, ct);
+        FileCapabilities.Defaults.GrantAsync(session, ct);
 }

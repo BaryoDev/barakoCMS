@@ -37,5 +37,5 @@ public sealed class UmamiAnalyticsModule : IBarakoModule
     /// Admin. Additive and idempotent, and it skips a role the host never seeded.
     /// </remarks>
     public Task SeedAsync(IDocumentSession session, IServiceProvider services, CancellationToken ct) =>
-        ModuleCapabilities.GrantAsync(session, AnalyticsCapabilities.SeededRoles, AnalyticsCapabilities.All, ct);
+        AnalyticsCapabilities.Defaults.GrantAsync(session, ct);
 }

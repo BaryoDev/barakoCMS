@@ -24,7 +24,7 @@ namespace barakoCMS.Features.Connectors;
 /// </remarks>
 internal static class ConnectorGate
 {
-    internal static readonly string[] LegacyRoles = ["SuperAdmin", "Admin"];
+    internal static readonly IReadOnlyList<string> LegacyRoles = CapabilityGate.AdminLegacyRoles;
 
     internal static Task AuditAsync(
         IDocumentSession session,
