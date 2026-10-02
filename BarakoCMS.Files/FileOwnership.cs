@@ -1,7 +1,4 @@
 using System.Security.Claims;
-using barakoCMS.Infrastructure.Multitenancy;
-using barakoCMS.Models;
-using Marten;
 
 namespace BarakoCMS.Files;
 
@@ -22,13 +19,9 @@ namespace BarakoCMS.Files;
 /// </remarks>
 internal static class FileOwnership
 {
-    // The roles that administer a tenant's files. One list, so the request path and the path with
-    // no request cannot come to name different roles.
-    private static readonly string[] AnyFileRoles = ["SuperAdmin", "Admin"];
-
     public static bool CanAccess(ClaimsPrincipal user, StoredFile file)
     {
-        if (AnyFileRoles.Any(user.IsInRole))
+        if (user.IsInRole("SuperAdmin") || user.IsInRole("Admin"))
         {
             return true;
         }
@@ -36,48 +29,5 @@ internal static class FileOwnership
         return Guid.TryParse(user.FindFirst("UserId")?.Value, out var userId)
             && userId != Guid.Empty
             && file.UploadedBy == userId;
-    }
-
-    /// <summary>
-    /// The same answer for a user who is not making a request, such as the one who last saved the
-    /// entry a workflow is running for.
-    /// </summary>
-    /// <remarks>
-    /// The roles are read the way a token is issued: the user's own roles together with the roles
-    /// of an active membership in <paramref name="tenantSlug"/>, compared by exact name as
-    /// <see cref="ClaimsPrincipal.IsInRole"/> compares them. A user who no longer exists is refused
-    /// even for a file they uploaded, since they could not sign in to download it.
-    /// </remarks>
-    public static async Task<bool> CanAccessAsync(
-        IQuerySession session, string tenantSlug, Guid? userId, StoredFile file, CancellationToken ct)
-    {
-        if (userId is not { } id || id == Guid.Empty)
-        {
-            return false;
-        }
-
-        var user = await session.LoadAsync<User>(id, ct);
-        if (user is null)
-        {
-            return false;
-        }
-
-        if (file.UploadedBy == id)
-        {
-            return true;
-        }
-
-        var roleIds = await MembershipRoles.EffectiveRoleIdsAsync(session, user, tenantSlug, ct);
-        if (roleIds.Count == 0)
-        {
-            return false;
-        }
-
-        var names = await session.Query<Role>()
-            .Where(r => roleIds.Contains(r.Id))
-            .Select(r => r.Name)
-            .ToListAsync(ct);
-
-        return names.Any(name => AnyFileRoles.Contains(name, StringComparer.Ordinal));
     }
 }

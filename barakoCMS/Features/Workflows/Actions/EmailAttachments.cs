@@ -64,11 +64,11 @@ internal sealed record EmailAttachmentLimits(int MaxCount, long MaxFileBytes, lo
 /// Turns the Email action's <c>Attachments</c> parameter into files to send, or a reason not to.
 /// </summary>
 /// <remarks>
-/// A workflow runs with no caller, so the rule borrows one: the user who last saved the entry the
-/// workflow is running for. A file is attached only when that entry names it in one of its fields
-/// and the file store hands it over for that user, which it does for a public file or one the
-/// user could download. An entry nobody is recorded as having saved can attach public files only.
-/// Naming a file is not enough on its own, because whoever can write the field can name any file.
+/// A workflow runs with no caller, and nothing on an entry records who chose the files its fields
+/// name, so there is no user whose right to a private file could be checked. A file is attached
+/// only when the entry the workflow is running for names it in one of its fields and the file is
+/// public, which means anyone holding its URL can already download it. Naming a file is not enough
+/// on its own, because whoever can write the field can name any file.
 /// </remarks>
 internal static class EmailAttachments
 {
@@ -120,10 +120,6 @@ internal static class EmailAttachments
                 $"The email names {items.Count} attachments, over the limit of {limits.MaxCount} in {EmailAttachmentLimits.MaxCountKey}.");
         }
 
-        // An entry nobody is recorded as having saved (a public form's submission, an import with no
-        // actor, a deleted entry) has no user to ask for.
-        Guid? reader = content.LastModifiedBy == Guid.Empty ? null : content.LastModifiedBy;
-
         var ids = new List<Guid>(items.Count);
         for (var i = 0; i < items.Count; i++)
         {
@@ -152,7 +148,7 @@ internal static class EmailAttachments
         long declared = 0;
         for (var i = 0; i < ids.Count; i++)
         {
-            var info = await files.FindReadableAsync(ids[i], reader, ct);
+            var info = await files.FindPublicAsync(ids[i], ct);
             if (info is null)
             {
                 return Refuse(NotAttachable(i));
@@ -176,7 +172,7 @@ internal static class EmailAttachments
         long total = 0;
         for (var i = 0; i < found.Count; i++)
         {
-            await using var stream = await files.OpenReadableAsync(found[i].Id, reader, ct);
+            await using var stream = await files.OpenPublicAsync(found[i].Id, ct);
             if (stream is null)
             {
                 return Refuse(NotAttachable(i));
@@ -209,10 +205,9 @@ internal static class EmailAttachments
     }
 
     // One reason for a file the entry does not name, a file this tenant does not have and a file
-    // the entry's last writer may not read, so the run does not say which files exist.
+    // that is not public, so the run does not say which files exist.
     private static string NotAttachable(int index) =>
-        $"Attachment {index + 1} cannot be attached. It has to be a file that one of the entry's fields names "
-        + "and that is public or that the user who last saved the entry may download.";
+        $"Attachment {index + 1} cannot be attached. It has to be a public file that one of the entry's fields names.";
 
     /// <summary>
     /// The files the parameter names, one item each, before any of them is checked.

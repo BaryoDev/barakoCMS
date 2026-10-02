@@ -1,18 +1,19 @@
 namespace barakoCMS.Core.Interfaces;
 
 /// <summary>
-/// Reads the files a module stores, for a caller that must not reference that module.
+/// Reads the public files a module stores, for a caller that must not reference that module.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>The tenant is the scope's.</b> No member takes a tenant. An id resolves only in the tenant of
-/// the scope this was resolved from, so a file of another tenant reads as absent.
+/// <b>Public files only.</b> Both members hand out a file only when it is marked public, which is
+/// a file anyone holding its URL can already download. A file that is not public reads as null,
+/// exactly as a file that does not exist does, so a caller learns nothing about it. This is not a
+/// general read: there is no caller here whose right to a private file could be checked. A read
+/// of any file needs its own member with its own access rule.
 /// </para>
 /// <para>
-/// <b>The module decides who may read.</b> Every member takes the user the read is for and answers
-/// only when the module's own download rule lets that user have the file, or the file is public.
-/// With no user, only a public file is readable. The caller never learns why a file was not
-/// handed over: absent, another tenant's and not allowed all read as null.
+/// <b>The tenant is the scope's.</b> No member takes a tenant. An id resolves only in the tenant of
+/// the scope this was resolved from, so a file of another tenant reads as null.
 /// </para>
 /// <para>
 /// <b>A module implements this.</b> BarakoCMS.Files does. With no such module enabled the host
@@ -23,23 +24,16 @@ namespace barakoCMS.Core.Interfaces;
 public interface IFileStore
 {
     /// <summary>
-    /// The record of an uploaded file that <paramref name="userId"/> may read, or null. A cached
-    /// resize of an image is not a file of its own and reads as null.
+    /// The record of a public file, or null when this tenant has no public file with that id. A
+    /// cached resize of an image is not a file of its own and reads as null.
     /// </summary>
-    /// <param name="id">The file's id.</param>
-    /// <param name="userId">The user the read is for, or null when there is none.</param>
-    /// <param name="cancellationToken">Cancels the read.</param>
-    Task<StoredFileInfo?> FindReadableAsync(Guid id, Guid? userId, CancellationToken cancellationToken = default);
+    Task<StoredFileInfo?> FindPublicAsync(Guid id, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// The bytes of a file <paramref name="userId"/> may read, from the start, or null when
-    /// <see cref="FindReadableAsync"/> would answer null or the bytes are gone. The caller disposes
-    /// the stream.
+    /// The bytes of a public file from the start, or null when <see cref="FindPublicAsync"/> would
+    /// answer null or the bytes are gone. The caller disposes the stream.
     /// </summary>
-    /// <param name="id">The file's id.</param>
-    /// <param name="userId">The user the read is for, or null when there is none.</param>
-    /// <param name="cancellationToken">Cancels the read.</param>
-    Task<Stream?> OpenReadableAsync(Guid id, Guid? userId, CancellationToken cancellationToken = default);
+    Task<Stream?> OpenPublicAsync(Guid id, CancellationToken cancellationToken = default);
 }
 
 /// <summary>What a stored file is, without its bytes.</summary>

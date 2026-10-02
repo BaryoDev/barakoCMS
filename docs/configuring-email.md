@@ -132,9 +132,9 @@ BarakoCMS.Files module:
   "Type": "Email",
   "Parameters": {
     "To": "registrar@example.com",
-    "Subject": "Receipt for {{data.Name}}",
-    "Body": "<p>The receipt for {{data.Name}} is attached.</p>",
-    "Attachments": "{{data.Receipt}}"
+    "Subject": "Programme for {{data.Name}}",
+    "Body": "<p>The programme {{data.Name}} chose is attached.</p>",
+    "Attachments": "{{data.Programme}}"
   }
 }
 ```
@@ -144,27 +144,26 @@ by commas, semicolons or line breaks. A file is named by its id, or by a link to
 or `/api/public/files/{id}`. A link with `?w=` attaches the original file, not the resize. When the
 whole parameter is one placeholder and the field holds a list, every item of the list is attached.
 
-**Which files.** A workflow runs with no signed-in caller, so the action asks on behalf of the user
-who last saved the entry. A file is attached only when all of these hold:
+**Which files.** Public files only. A file is attached when all of these hold:
 
 - the entry the workflow is running for names the file in one of its fields, by id or by link;
 - the file is stored in that entry's tenant;
-- the file is public, or the user who last saved the entry could download it from
-  `GET /api/files/{id}`: they uploaded it, or they hold the Admin or SuperAdmin role in the tenant.
+- the file is public, which means anyone holding its URL can already download it from
+  `/api/public/files/{id}`.
 
-"Last saved" is whoever made the entry's most recent change: an edit, a status change, a
-transition, a schedule or a sensitivity change. An entry with no such user attaches public files
-only. That covers a submission from a public form, an import or sync that records no user, and a
-change the scheduler made. A deleted entry has no fields left and attaches nothing.
+Nobody's rights are consulted. A workflow runs with no signed-in caller, and nothing on an entry
+records who chose the files its fields name: the last person to save it, approve it, restore it or
+import it need not be the person who put the file id there. So the action sends only what is
+already public, and it does not matter who can write the field or who `To` resolves to: the
+recipient receives nothing the file's URL would not give them.
 
-So a person who can write the field cannot have a file mailed out that they could not download
-themselves, and a public form cannot name a private file. Two things the rule does not cover:
+The cost is that a private file cannot be emailed by a workflow yet. A receipt, a contract or
+anything else uploaded without the public flag is refused, whoever uploaded it and whoever saved
+the entry. That waits for a file field that ties a file to its entry when it is uploaded (#668).
+Until then, mark the file public at upload if it may go out by email, or send a link the recipient
+signs in to open.
 
-- It is the last writer who is checked, not the writer of that field. If someone names a file they
-  cannot download and an administrator then saves the entry, the file goes out on the next run.
-- The recipient is not checked. Whoever `To` resolves to gets the file whatever they could read in
-  the API, and the entry's sensitivity is not consulted. If `To` is filled from an entry field,
-  whoever can write that field chooses the recipient of the entry's files.
+A deleted entry has no fields left and attaches nothing.
 
 **Limits.** From configuration:
 
@@ -192,9 +191,9 @@ refuses for its size is retried like one: five attempts in all, each reading and
 files again, before the action is left failed. Keep `MaxTotalBytes` under what your provider takes.
 
 **When it cannot attach.** The action fails, the reason is on the run, and nothing is sent. An email
-never goes out with a file missing. A file that is not named by the entry, is not in the tenant or
-may not be read gives one reason, "Attachment N cannot be attached", that does not say which of
-those it was. The others say what was wrong: an empty field or list, a value that is not a file id
+never goes out with a file missing. A file that is not named by the entry, is not in the tenant, is
+not public or does not exist gives one reason, "Attachment N cannot be attached", that does not say
+which of those it was. The others say what was wrong: an empty field or list, a value that is not a file id
 or link, a limit passed, no BarakoCMS.Files module, and an email provider that does not send
 attachments. None of these is retried, because a retry would get the same answer. A file store that
 fails while it is read is retried.

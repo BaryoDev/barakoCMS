@@ -58,11 +58,10 @@ scrub leaves it, the same two checks as `GET /api/contents`.
 ## Reading a file from another module
 
 The module implements `IFileStore` from `BarakoCMS.Abstractions`, so the core and other modules can
-read a stored file without referencing this package. It is asked for a file id and a user, in
-the scope's tenant, and hands the file over only when the file is public or that user could download
-it from `GET /api/files/{id}`: the uploader, or someone holding the Admin or SuperAdmin role in the
-tenant. With no user it hands over public files only. The workflow `Email` action uses it for
-attachments; see `docs/configuring-email.md`.
+read a public file without referencing this package. It is asked for a file id, in the scope's
+tenant, and hands the file over only when it is public, the same files `GET /api/public/files/{id}`
+serves. A private file reads as absent. The workflow `Email` action uses it for attachments; see
+`docs/configuring-email.md`.
 
 ## Notes
 

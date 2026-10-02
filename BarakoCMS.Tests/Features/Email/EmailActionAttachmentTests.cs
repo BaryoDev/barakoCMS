@@ -13,31 +13,25 @@ namespace BarakoCMS.Tests.Features.Email;
 /// Which stored files the Email action attaches, and what it does with the ones it will not.
 /// </summary>
 /// <remarks>
-/// No database: the file store is a dictionary that hands a file over when it is public or was
-/// uploaded by the user it is asked for, and the provider records what it was handed. Every refusal
-/// is paired with a count of what was sent, because a refusal that still sends the message without
-/// its file is the failure these tests exist to catch.
+/// No database: the file store is a dictionary that hands a file over when it is public, and the
+/// provider records what it was handed. Every refusal is paired with a count of what was sent,
+/// because a refusal that still sends the message without its file is the failure these tests
+/// exist to catch.
 /// </remarks>
 public class EmailActionAttachmentTests
 {
     private static readonly byte[] Receipt = "%PDF-1.4 receipt"u8.ToArray();
 
-    /// <summary>The user every entry here was last saved by, and the uploader of every file, unless a test says otherwise.</summary>
-    private static readonly Guid Writer = Guid.NewGuid();
-
     private const string Refused = "cannot be attached";
 
     private sealed class FakeFiles : IFileStore
     {
-        private readonly Dictionary<Guid, (StoredFileInfo Info, byte[] Bytes, Guid Uploader, bool IsPublic)> _files = new();
+        private readonly Dictionary<Guid, (StoredFileInfo Info, byte[] Bytes, bool IsPublic)> _files = new();
 
         public int Calls { get; private set; }
 
-        public List<Guid?> AskedFor { get; } = [];
-
         public Guid Add(
-            string name, byte[] bytes, string contentType = "application/pdf", long? recordedSize = null,
-            Guid? uploader = null, bool isPublic = false)
+            string name, byte[] bytes, string contentType = "application/pdf", long? recordedSize = null, bool isPublic = true)
         {
             var id = Guid.NewGuid();
             _files[id] = (new StoredFileInfo
@@ -46,25 +40,22 @@ public class EmailActionAttachmentTests
                 FileName = name,
                 ContentType = contentType,
                 Size = recordedSize ?? bytes.Length,
-            }, bytes, uploader ?? Writer, isPublic);
+            }, bytes, isPublic);
             return id;
         }
 
-        private bool Readable(Guid id, Guid? userId) =>
-            _files.TryGetValue(id, out var file) && (file.IsPublic || (userId is { } user && user == file.Uploader));
+        private bool IsPublic(Guid id) => _files.TryGetValue(id, out var file) && file.IsPublic;
 
-        public Task<StoredFileInfo?> FindReadableAsync(Guid id, Guid? userId, CancellationToken cancellationToken = default)
+        public Task<StoredFileInfo?> FindPublicAsync(Guid id, CancellationToken cancellationToken = default)
         {
             Calls++;
-            AskedFor.Add(userId);
-            return Task.FromResult(Readable(id, userId) ? _files[id].Info : null);
+            return Task.FromResult(IsPublic(id) ? _files[id].Info : null);
         }
 
-        public Task<Stream?> OpenReadableAsync(Guid id, Guid? userId, CancellationToken cancellationToken = default)
+        public Task<Stream?> OpenPublicAsync(Guid id, CancellationToken cancellationToken = default)
         {
             Calls++;
-            AskedFor.Add(userId);
-            return Task.FromResult<Stream?>(Readable(id, userId) ? new MemoryStream(_files[id].Bytes) : null);
+            return Task.FromResult<Stream?>(IsPublic(id) ? new MemoryStream(_files[id].Bytes) : null);
         }
     }
 
@@ -72,10 +63,10 @@ public class EmailActionAttachmentTests
     {
         public const string Secret = "bucket-name-nobody-should-read";
 
-        public Task<StoredFileInfo?> FindReadableAsync(Guid id, Guid? userId, CancellationToken cancellationToken = default) =>
+        public Task<StoredFileInfo?> FindPublicAsync(Guid id, CancellationToken cancellationToken = default) =>
             throw new IOException($"The store {Secret} is down.");
 
-        public Task<Stream?> OpenReadableAsync(Guid id, Guid? userId, CancellationToken cancellationToken = default) =>
+        public Task<Stream?> OpenPublicAsync(Guid id, CancellationToken cancellationToken = default) =>
             throw new IOException($"The store {Secret} is down.");
     }
 
@@ -110,7 +101,7 @@ public class EmailActionAttachmentTests
     private static EmailAction Build(IEmailService email, IFileStore? files, IConfiguration? configuration = null) =>
         new(email, NullLogger<EmailAction>.Instance, tenant: null, files: files, configuration: configuration);
 
-    private static Content Entry(params (string Field, object Value)[] data) => EntrySavedBy(Writer, data);
+    private static Content Entry(params (string Field, object Value)[] data) => EntrySavedBy(Guid.NewGuid(), data);
 
     private static Content EntrySavedBy(Guid writer, params (string Field, object Value)[] data) => new()
     {
@@ -233,8 +224,8 @@ public class EmailActionAttachmentTests
     }
 
     /// <summary>
-    /// An id typed into the workflow. The file exists and the entry's last writer could read it;
-    /// the only thing wrong is that this entry does not name it.
+    /// An id typed into the workflow. The file exists and is public; the only thing wrong is that
+    /// this entry does not name it.
     /// </summary>
     [Fact]
     public async Task A_file_the_entry_does_not_name_is_refused_and_nothing_is_sent()
@@ -262,61 +253,44 @@ public class EmailActionAttachmentTests
 
     /// <summary>
     /// The entry names the file through the templated field, so naming it decides nothing. What
-    /// refuses it is that the user who last saved the entry may not read that file.
+    /// refuses it is that the file is not public, whoever is recorded as having saved the entry.
     /// </summary>
     [Fact]
-    public async Task A_private_file_the_entrys_last_writer_may_not_read_is_refused_though_the_entry_names_it()
+    public async Task A_private_file_the_entry_names_is_refused_whoever_saved_the_entry()
     {
         var files = new FakeFiles();
-        var somebodyElse = Guid.NewGuid();
-        var theirs = files.Add("theirs.pdf", Receipt, uploader: somebodyElse);
+        var closed = files.Add("receipt.pdf", Receipt, isPublic: false);
+        var open = files.Add("terms.pdf", Receipt);
         var recorder = new RecordingEmailService();
 
-        var refused = await RunAsync(
-            Build(recorder, files), Mail("{{data.Receipt}}"), Entry(("Receipt", theirs.ToString())));
+        foreach (var writer in new[] { Guid.NewGuid(), Guid.Empty })
+        {
+            var refused = await RunAsync(
+                Build(recorder, files), Mail("{{data.File}}"), EntrySavedBy(writer, ("File", closed.ToString())));
 
-        refused.Succeeded.Should().BeFalse();
-        refused.Retryable.Should().BeFalse();
-        refused.Error.Should().Contain(Refused);
+            refused.Succeeded.Should().BeFalse();
+            refused.Retryable.Should().BeFalse();
+            refused.Error.Should().Contain(Refused);
+            refused.Error.Should().NotContain(closed.ToString());
+        }
+
         recorder.Messages.Should().BeEmpty();
-        files.AskedFor.Should().NotBeEmpty();
-        files.AskedFor.Should().OnlyContain(user => user == Writer, "the store is asked for the user who last saved the entry");
 
-        // The control: the same file and parameter on an entry its uploader saved last.
-        var allowed = await RunAsync(
-            Build(recorder, files), Mail("{{data.Receipt}}"), EntrySavedBy(somebodyElse, ("Receipt", theirs.ToString())));
-        allowed.Succeeded.Should().BeTrue(allowed.Error ?? string.Empty);
-        recorder.Messages.Should().ContainSingle().Which.Attachments.Should().HaveCount(1);
+        // The control: the same parameter on an entry naming a public file sends it, with a user
+        // recorded and with none.
+        foreach (var writer in new[] { Guid.NewGuid(), Guid.Empty })
+        {
+            var allowed = await RunAsync(
+                Build(recorder, files), Mail("{{data.File}}"), EntrySavedBy(writer, ("File", open.ToString())));
+            allowed.Succeeded.Should().BeTrue(allowed.Error ?? string.Empty);
+        }
+
+        recorder.Messages.Should().HaveCount(2);
+        recorder.Messages.Should().OnlyContain(m => m.Attachments.Count == 1);
     }
 
     /// <summary>
-    /// A public form's submission has no user behind it, so only a public file goes out for it.
-    /// </summary>
-    [Fact]
-    public async Task An_entry_nobody_is_recorded_as_saving_attaches_a_public_file_and_not_a_private_one()
-    {
-        var files = new FakeFiles();
-        var open = files.Add("terms.pdf", Receipt, isPublic: true);
-        var closed = files.Add("receipt.pdf", Receipt);
-        var recorder = new RecordingEmailService();
-
-        var refused = await RunAsync(
-            Build(recorder, files), Mail("{{data.File}}"), EntrySavedBy(Guid.Empty, ("File", closed.ToString())));
-
-        refused.Succeeded.Should().BeFalse();
-        refused.Error.Should().Contain(Refused);
-        recorder.Messages.Should().BeEmpty();
-        files.AskedFor.Should().NotBeEmpty();
-        files.AskedFor.Should().OnlyContain(user => user == null, "an empty id is no user, not a user with an empty id");
-
-        var allowed = await RunAsync(
-            Build(recorder, files), Mail("{{data.File}}"), EntrySavedBy(Guid.Empty, ("File", open.ToString())));
-        allowed.Succeeded.Should().BeTrue(allowed.Error ?? string.Empty);
-        recorder.Messages.Should().ContainSingle().Which.Attachments.Should().HaveCount(1);
-    }
-
-    /// <summary>
-    /// Not named, not there and not allowed all give the same reason, so a run cannot be used to
+    /// Not named, not there and not public all give the same reason, so a run cannot be used to
     /// learn which files exist.
     /// </summary>
     [Fact]
@@ -324,20 +298,20 @@ public class EmailActionAttachmentTests
     {
         var files = new FakeFiles();
         var mine = files.Add("mine.pdf", Receipt);
-        var notMine = files.Add("theirs.pdf", Receipt, uploader: Guid.NewGuid());
+        var closed = files.Add("closed.pdf", Receipt, isPublic: false);
         var missing = Guid.NewGuid();
         var recorder = new RecordingEmailService();
 
         var notNamed = await RunAsync(Build(recorder, files), Mail(mine.ToString()), Entry(("Receipt", missing.ToString())));
         var notThere = await RunAsync(Build(recorder, files), Mail("{{data.Receipt}}"), Entry(("Receipt", missing.ToString())));
-        var notAllowed = await RunAsync(Build(recorder, files), Mail("{{data.Receipt}}"), Entry(("Receipt", notMine.ToString())));
+        var notPublic = await RunAsync(Build(recorder, files), Mail("{{data.Receipt}}"), Entry(("Receipt", closed.ToString())));
 
         notNamed.Succeeded.Should().BeFalse();
         notNamed.Error.Should().Contain(Refused);
         notThere.Error.Should().Be(notNamed.Error);
-        notAllowed.Error.Should().Be(notNamed.Error);
+        notPublic.Error.Should().Be(notNamed.Error);
         notThere.Retryable.Should().BeFalse();
-        notAllowed.Retryable.Should().BeFalse();
+        notPublic.Retryable.Should().BeFalse();
         recorder.Messages.Should().BeEmpty();
     }
 
@@ -346,7 +320,7 @@ public class EmailActionAttachmentTests
     {
         var files = new FakeFiles();
         var mine = files.Add("mine.pdf", Receipt);
-        var theirs = files.Add("theirs.pdf", Receipt, uploader: Guid.NewGuid());
+        var theirs = files.Add("theirs.pdf", Receipt, isPublic: false);
         var recorder = new RecordingEmailService();
 
         var result = await RunAsync(
@@ -667,8 +641,8 @@ public class EmailActionAttachmentTests
     {
         var store = new NoFileStore();
 
-        var find = () => store.FindReadableAsync(Guid.NewGuid(), Writer, TestContext.Current.CancellationToken);
-        var open = () => store.OpenReadableAsync(Guid.NewGuid(), Writer, TestContext.Current.CancellationToken);
+        var find = () => store.FindPublicAsync(Guid.NewGuid(), TestContext.Current.CancellationToken);
+        var open = () => store.OpenPublicAsync(Guid.NewGuid(), TestContext.Current.CancellationToken);
 
         (await find.Should().ThrowAsync<InvalidOperationException>()).Which.Message.Should().Contain("BarakoCMS.Files");
         (await open.Should().ThrowAsync<InvalidOperationException>()).Which.Message.Should().Contain("BarakoCMS.Files");

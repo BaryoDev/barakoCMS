@@ -5,6 +5,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Features.Workflows;
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
@@ -67,14 +68,20 @@ public class FileStoreRegistrationTests
 }
 
 /// <summary>
-/// The Files module behind the core's file seam, and the registered Email action on top of it:
-/// an uploaded file goes out only for the tenant that holds it, and only when it is public or the
-/// user who last saved the entry could download it.
+/// The Files module behind the core's file seam, and the registered Email action on top of it: a
+/// stored file goes out only when it is public, the entry names it and it is in the run's tenant.
 /// </summary>
+/// <remarks>
+/// Nobody's rights are consulted, so every refusal here is set up with a user who could download
+/// the private file through the API: its uploader, a SuperAdmin, an administrator through a
+/// membership. A rule that asked about any of them would send the file and fail the test.
+/// </remarks>
 [Collection("Sequential")]
 public class EmailAttachmentStoredFileTests
 {
     private const string Refused = "cannot be attached";
+
+    private static readonly TimeSpan PollTimeout = TimeSpan.FromSeconds(30);
 
     private readonly IntegrationTestFixture _factory;
     private readonly HttpClient _client;
@@ -89,33 +96,33 @@ public class EmailAttachmentStoredFileTests
 
     private sealed record Uploaded(Guid Id, Guid Uploader, byte[] Bytes);
 
-    /// <summary>Stores a user, with the SuperAdmin role or with no role at all, and answers its id.</summary>
-    private async Task<Guid> UserAsync(bool admin)
+    // Distinct per file, so a test that attaches two can tell them apart.
+    private static byte[] PdfBytes() => FileSamples.Pdf().Concat(Guid.NewGuid().ToByteArray()).ToArray();
+
+    private static string Address() => $"attach-{Guid.NewGuid():N}@example.com";
+
+    private static string NewName(string prefix) => $"{prefix}{Guid.NewGuid():N}"[..20];
+
+    /// <summary>Stores a user holding the global SuperAdmin role and answers its id.</summary>
+    private async Task<Guid> SuperAdminAsync()
     {
         using var scope = _factory.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-        var roleIds = new List<Guid>();
-
-        if (admin)
-        {
-            var role = await session.Query<Role>().FirstOrDefaultAsync(r => r.Name == "SuperAdmin", TestContext.Current.CancellationToken)
-                       ?? new Role { Id = barakoCMS.Data.DataSeeder.SuperAdminRoleId, Name = "SuperAdmin", Permissions = new() };
-            session.Store(role);
-            roleIds.Add(role.Id);
-        }
+        var role = await session.Query<Role>().FirstOrDefaultAsync(r => r.Name == "SuperAdmin", TestContext.Current.CancellationToken)
+                   ?? new Role { Id = barakoCMS.Data.DataSeeder.SuperAdminRoleId, Name = "SuperAdmin", Permissions = new() };
+        session.Store(role);
 
         var userId = Guid.NewGuid();
-        session.Store(new User { Id = userId, Username = $"attach-{userId}", Email = $"attach-{userId}@example.com", RoleIds = roleIds });
+        session.Store(new User { Id = userId, Username = $"attach-{userId}", Email = $"attach-{userId}@example.com", RoleIds = new() { role.Id } });
         await session.SaveChangesAsync(TestContext.Current.CancellationToken);
         return userId;
     }
 
-    /// <summary>Uploads a PDF into the default tenant as a new administrator, the way an editor does.</summary>
-    private async Task<Uploaded> UploadPdfAsync(bool isPublic = false, string name = "receipt.pdf")
+    /// <summary>Uploads a PDF into the default tenant as a new SuperAdmin, through the API.</summary>
+    private async Task<Uploaded> UploadPdfAsync(bool isPublic, string name = "receipt.pdf")
     {
-        // Distinct per upload, so a test that attaches two files can tell them apart.
-        var bytes = FileSamples.Pdf().Concat(Guid.NewGuid().ToByteArray()).ToArray();
-        var uploader = await UserAsync(admin: true);
+        var bytes = PdfBytes();
+        var uploader = await SuperAdminAsync();
         var token = _factory.CreateToken(new[] { "SuperAdmin" }, uploader.ToString());
 
         using var form = new MultipartFormDataContent();
@@ -133,6 +140,36 @@ public class EmailAttachmentStoredFileTests
         return new Uploaded(body!.Id, uploader, bytes);
     }
 
+    /// <summary>Stores a file in a named tenant the way the upload does: bytes through the storage, then the record.</summary>
+    private async Task<Uploaded> StoreInTenantAsync(string tenant, Guid uploader, bool isPublic, string name)
+    {
+        var bytes = PdfBytes();
+
+        using var scope = _factory.Services.CreateScopeForTenant(tenant);
+        var storage = scope.ServiceProvider.GetRequiredService<IFileStorage>();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+
+        using var content = new MemoryStream(bytes);
+        var stored = await storage.PutAsync(
+            content, $"{FileKeys.Prefix(isPublic)}{Guid.NewGuid():N}.pdf", "application/pdf", isPublic, TestContext.Current.CancellationToken);
+
+        var record = new StoredFile
+        {
+            FileName = name,
+            ContentType = "application/pdf",
+            Size = bytes.Length,
+            Provider = storage.Provider,
+            StorageKey = stored.Key,
+            IsPublic = isPublic,
+            PublicUrl = stored.PublicUrl,
+            UploadedBy = uploader,
+        };
+        session.Store(record);
+        await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        return new Uploaded(record.Id, uploader, bytes);
+    }
+
     private static async Task<byte[]> ReadAllAsync(Stream stream)
     {
         await using (stream)
@@ -143,7 +180,7 @@ public class EmailAttachmentStoredFileTests
         }
     }
 
-    private static Dictionary<string, string> Mail(string to, Content entry, string attachments = "{{data.Receipt}}") =>
+    private static Dictionary<string, string> Mail(string to, Content entry, string attachments) =>
         // The runner's own step. It fills To, Subject and Body from the entry and hands Attachments
         // over as written, for the action to read from the entry itself.
         ActionParameters.Resolve("Email", new Dictionary<string, string>
@@ -178,78 +215,63 @@ public class EmailAttachmentStoredFileTests
 
     private List<RecordingEmailService.Sent> SentTo(string to) => _factory.Email.Messages.Where(m => m.To == to).ToList();
 
-    private static string Address() => $"attach-{Guid.NewGuid():N}@example.com";
+    private static void ShouldBeRefused(WorkflowActionResult result, Guid file)
+    {
+        result.Succeeded.Should().BeFalse();
+        result.Retryable.Should().BeFalse();
+        result.Error.Should().Contain(Refused);
+        result.Error.Should().NotContain(file.ToString());
+    }
+
+    private void ShouldHaveSentOnly(string to, Uploaded file)
+    {
+        var sent = SentTo(to);
+        sent.Should().HaveCount(1);
+        sent[0].Attachments.Should().HaveCount(1);
+        sent[0].Attachments[0].Content.Should().Equal(file.Bytes);
+    }
 
     [Fact]
-    public async Task The_seam_hands_a_private_file_to_its_uploader_and_to_an_administrator_and_to_nobody_else()
+    public async Task The_seam_hands_out_a_public_file_and_reads_a_private_one_as_absent()
     {
-        var file = await UploadPdfAsync();
-        var otherAdmin = await UserAsync(admin: true);
-        var plainUser = await UserAsync(admin: false);
-        var nobodyStored = Guid.NewGuid();
+        var open = await UploadPdfAsync(isPublic: true, name: "terms.pdf");
+        var closed = await UploadPdfAsync(isPublic: false);
 
         using var scope = _factory.Services.CreateScope();
         var store = scope.ServiceProvider.GetRequiredService<IFileStore>();
 
-        var info = await store.FindReadableAsync(file.Id, file.Uploader, TestContext.Current.CancellationToken);
+        var info = await store.FindPublicAsync(open.Id, TestContext.Current.CancellationToken);
         info.Should().NotBeNull();
-        info!.Id.Should().Be(file.Id);
-        info.FileName.Should().Be("receipt.pdf");
+        info!.Id.Should().Be(open.Id);
+        info.FileName.Should().Be("terms.pdf");
         info.ContentType.Should().Be("application/pdf");
-        info.Size.Should().Be(file.Bytes.Length);
+        info.Size.Should().Be(open.Bytes.Length);
 
-        var stream = await store.OpenReadableAsync(file.Id, file.Uploader, TestContext.Current.CancellationToken);
+        var stream = await store.OpenPublicAsync(open.Id, TestContext.Current.CancellationToken);
         stream.Should().NotBeNull();
-        (await ReadAllAsync(stream!)).Should().Equal(file.Bytes);
+        (await ReadAllAsync(stream!)).Should().Equal(open.Bytes);
 
-        (await store.FindReadableAsync(file.Id, otherAdmin, TestContext.Current.CancellationToken))
-            .Should().NotBeNull("an administrator may download any file of the tenant");
-
-        foreach (var user in new Guid?[] { plainUser, nobodyStored, Guid.Empty, null })
-        {
-            (await store.FindReadableAsync(file.Id, user, TestContext.Current.CancellationToken)).Should().BeNull();
-            (await store.OpenReadableAsync(file.Id, user, TestContext.Current.CancellationToken)).Should().BeNull();
-        }
+        (await store.FindPublicAsync(closed.Id, TestContext.Current.CancellationToken)).Should().BeNull();
+        (await store.OpenPublicAsync(closed.Id, TestContext.Current.CancellationToken)).Should().BeNull();
+        (await store.FindPublicAsync(Guid.NewGuid(), TestContext.Current.CancellationToken)).Should().BeNull();
     }
 
     [Fact]
-    public async Task The_seam_hands_a_public_file_to_anyone_including_no_user()
+    public async Task The_seam_hands_out_nothing_from_another_tenant_not_even_a_public_file()
     {
-        var file = await UploadPdfAsync(isPublic: true, name: "terms.pdf");
-        var plainUser = await UserAsync(admin: false);
-
-        using var scope = _factory.Services.CreateScope();
-        var store = scope.ServiceProvider.GetRequiredService<IFileStore>();
-
-        (await store.FindReadableAsync(file.Id, null, TestContext.Current.CancellationToken)).Should().NotBeNull();
-        (await store.FindReadableAsync(file.Id, plainUser, TestContext.Current.CancellationToken)).Should().NotBeNull();
-
-        var stream = await store.OpenReadableAsync(file.Id, null, TestContext.Current.CancellationToken);
-        stream.Should().NotBeNull();
-        (await ReadAllAsync(stream!)).Should().Equal(file.Bytes);
-    }
-
-    [Fact]
-    public async Task The_seam_hands_out_nothing_from_another_tenant_even_a_public_file_or_to_its_uploader()
-    {
-        var closed = await UploadPdfAsync();
         var open = await UploadPdfAsync(isPublic: true);
 
         using (var own = _factory.Services.CreateScope())
         {
-            var store = own.ServiceProvider.GetRequiredService<IFileStore>();
-            (await store.FindReadableAsync(closed.Id, closed.Uploader, TestContext.Current.CancellationToken))
-                .Should().NotBeNull("the control: both are found in the tenant that holds them");
-            (await store.FindReadableAsync(open.Id, null, TestContext.Current.CancellationToken)).Should().NotBeNull();
+            (await own.ServiceProvider.GetRequiredService<IFileStore>().FindPublicAsync(open.Id, TestContext.Current.CancellationToken))
+                .Should().NotBeNull("the control: it is found in the tenant that holds it");
         }
 
         using (var other = _factory.Services.CreateScopeForTenant("attach-seam-other"))
         {
             var store = other.ServiceProvider.GetRequiredService<IFileStore>();
-            (await store.FindReadableAsync(closed.Id, closed.Uploader, TestContext.Current.CancellationToken)).Should().BeNull();
-            (await store.OpenReadableAsync(closed.Id, closed.Uploader, TestContext.Current.CancellationToken)).Should().BeNull();
-            (await store.FindReadableAsync(open.Id, null, TestContext.Current.CancellationToken)).Should().BeNull();
-            (await store.OpenReadableAsync(open.Id, null, TestContext.Current.CancellationToken)).Should().BeNull();
+            (await store.FindPublicAsync(open.Id, TestContext.Current.CancellationToken)).Should().BeNull();
+            (await store.OpenPublicAsync(open.Id, TestContext.Current.CancellationToken)).Should().BeNull();
         }
     }
 
@@ -261,7 +283,7 @@ public class EmailAttachmentStoredFileTests
         {
             FileName = "receipt.pdf",
             ContentType = "application/pdf",
-            StorageKey = $"public/{Guid.NewGuid():N}.pdf",
+            StorageKey = $"{FileKeys.Prefix(true)}{Guid.NewGuid():N}.pdf",
             IsPublic = true,
             UploadedBy = parent.Uploader,
             ParentFileId = parent.Id,
@@ -275,84 +297,31 @@ public class EmailAttachmentStoredFileTests
 
         var store = scope.ServiceProvider.GetRequiredService<IFileStore>();
 
-        (await store.FindReadableAsync(parent.Id, parent.Uploader, TestContext.Current.CancellationToken))
-            .Should().NotBeNull("the control: its original is found");
-        (await store.FindReadableAsync(variant.Id, parent.Uploader, TestContext.Current.CancellationToken)).Should().BeNull();
-        (await store.OpenReadableAsync(variant.Id, parent.Uploader, TestContext.Current.CancellationToken)).Should().BeNull();
-    }
-
-    [Fact]
-    public async Task A_private_file_uploaded_by_the_entrys_last_writer_is_attached()
-    {
-        var file = await UploadPdfAsync();
-        var to = Address();
-
-        var result = await SendAsync(to, Registration(file.Id, savedBy: file.Uploader));
-
-        result.Succeeded.Should().BeTrue(result.Error ?? string.Empty);
-
-        var sent = SentTo(to);
-        sent.Should().HaveCount(1);
-        sent[0].Attachments.Should().HaveCount(1);
-        sent[0].Attachments[0].FileName.Should().Be("receipt.pdf");
-        sent[0].Attachments[0].ContentType.Should().Be("application/pdf");
-        sent[0].Attachments[0].Content.Should().Equal(file.Bytes);
+        (await store.FindPublicAsync(parent.Id, TestContext.Current.CancellationToken)).Should().NotBeNull("the control: its original is found");
+        (await store.FindPublicAsync(variant.Id, TestContext.Current.CancellationToken)).Should().BeNull();
+        (await store.OpenPublicAsync(variant.Id, TestContext.Current.CancellationToken)).Should().BeNull();
     }
 
     /// <summary>
-    /// Entry B holds its own receipt. Entry A is saved by a user who cannot download that file and
-    /// names it in the same templated field. A's workflow must not mail B's file.
+    /// The last writer is the file's own uploader and a SuperAdmin, who can download it through the
+    /// API. The workflow still does not send it, and sends the public file beside it.
     /// </summary>
     [Fact]
-    public async Task An_entry_naming_another_entrys_private_file_through_a_templated_field_is_refused()
+    public async Task An_entry_saved_by_the_files_uploader_attaches_a_public_file_and_not_a_private_one()
     {
-        var receiptOfB = await UploadPdfAsync();
-        var writerOfA = await UserAsync(admin: false);
+        var closed = await UploadPdfAsync(isPublic: false);
+        var open = await UploadPdfAsync(isPublic: true, name: "terms.pdf");
         var to = Address();
 
-        var entryB = Registration(receiptOfB.Id, savedBy: receiptOfB.Uploader);
-        var entryA = Registration(receiptOfB.Id, savedBy: writerOfA);
-
-        var refused = await SendAsync(to, entryA);
-
-        refused.Succeeded.Should().BeFalse();
-        refused.Retryable.Should().BeFalse();
-        refused.Error.Should().Contain(Refused);
-        refused.Error.Should().NotContain(receiptOfB.Id.ToString());
+        ShouldBeRefused(await SendAsync(to, Registration(closed.Id, savedBy: closed.Uploader)), closed.Id);
         SentTo(to).Should().BeEmpty();
 
-        // The control: entry B, with the same field, template and file, sends it.
-        var allowed = await SendAsync(to, entryB);
-        allowed.Succeeded.Should().BeTrue(allowed.Error ?? string.Empty);
-        SentTo(to).Should().HaveCount(1);
-    }
-
-    /// <summary>
-    /// The entry names the file, and the two users differ only in what the Files module lets them
-    /// download: one holds no role, the other administers the tenant.
-    /// </summary>
-    [Fact]
-    public async Task A_private_file_uploaded_by_someone_else_goes_out_only_when_the_last_writer_administers_the_tenant()
-    {
-        var file = await UploadPdfAsync();
-        var plainUser = await UserAsync(admin: false);
-        var otherAdmin = await UserAsync(admin: true);
-        var to = Address();
-
-        var refused = await SendAsync(to, Registration(file.Id, savedBy: plainUser));
-
-        refused.Succeeded.Should().BeFalse();
-        refused.Retryable.Should().BeFalse();
-        refused.Error.Should().Contain(Refused);
-        SentTo(to).Should().BeEmpty();
-
-        var allowed = await SendAsync(to, Registration(file.Id, savedBy: otherAdmin));
+        var allowed = await SendAsync(to, Registration(open.Id, savedBy: open.Uploader));
         allowed.Succeeded.Should().BeTrue(allowed.Error ?? string.Empty);
 
-        var sent = SentTo(to);
-        sent.Should().HaveCount(1);
-        sent[0].Attachments.Should().HaveCount(1);
-        sent[0].Attachments[0].Content.Should().Equal(file.Bytes);
+        ShouldHaveSentOnly(to, open);
+        SentTo(to)[0].Attachments[0].FileName.Should().Be("terms.pdf");
+        SentTo(to)[0].Attachments[0].ContentType.Should().Be("application/pdf");
     }
 
     /// <summary>
@@ -360,51 +329,174 @@ public class EmailAttachmentStoredFileTests
     /// download, and nothing else.
     /// </summary>
     [Fact]
-    public async Task A_submission_with_no_user_attaches_a_public_file_and_not_a_private_one()
+    public async Task An_entry_with_no_user_attaches_a_public_file_and_not_a_private_one()
     {
-        var closed = await UploadPdfAsync();
-        var open = await UploadPdfAsync(isPublic: true, name: "terms.pdf");
+        var closed = await UploadPdfAsync(isPublic: false);
+        var open = await UploadPdfAsync(isPublic: true);
         var to = Address();
 
-        var refused = await SendAsync(to, Registration(closed.Id, savedBy: Guid.Empty));
-
-        refused.Succeeded.Should().BeFalse();
-        refused.Retryable.Should().BeFalse();
-        refused.Error.Should().Contain(Refused);
+        ShouldBeRefused(await SendAsync(to, Registration(closed.Id, savedBy: Guid.Empty)), closed.Id);
         SentTo(to).Should().BeEmpty();
 
         var allowed = await SendAsync(to, Registration(open.Id, savedBy: Guid.Empty));
         allowed.Succeeded.Should().BeTrue(allowed.Error ?? string.Empty);
-
-        var sent = SentTo(to);
-        sent.Should().HaveCount(1);
-        sent[0].Attachments.Should().HaveCount(1);
-        sent[0].Attachments[0].FileName.Should().Be("terms.pdf");
-        sent[0].Attachments[0].Content.Should().Equal(open.Bytes);
+        ShouldHaveSentOnly(to, open);
     }
 
     /// <summary>
-    /// The entry names the file and its last writer uploaded it. What refuses it is the tenant: the
-    /// run's scope is another tenant's and cannot load the file.
+    /// A tenant of its own, an administrator who holds Admin there through a membership and nowhere
+    /// else, and files stored in that tenant, one of them uploaded by that administrator. The run is
+    /// in the tenant, so the tenant is not what refuses the private file.
     /// </summary>
     [Fact]
-    public async Task A_file_of_another_tenant_is_refused_with_the_same_reason_as_any_other()
+    public async Task An_entry_saved_by_a_tenants_own_administrator_attaches_a_public_file_and_not_a_private_one()
     {
-        var file = await UploadPdfAsync();
+        var tenant = NewName("attach-club-");
+        var administrator = Guid.NewGuid();
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var admin = await session.Query<Role>().FirstOrDefaultAsync(r => r.Name == "Admin", TestContext.Current.CancellationToken);
+            admin.Should().NotBeNull("the seeder creates the Admin role, and the membership below has to hold a real one");
+
+            session.Store(new User { Id = administrator, Username = $"attach-{administrator}", Email = $"attach-{administrator}@example.com" });
+            session.Store(new Membership
+            {
+                Id = Guid.NewGuid(),
+                UserId = administrator,
+                TenantSlug = tenant,
+                RoleIds = new() { admin!.Id },
+                Status = MembershipStatus.Active,
+            });
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        var closed = await StoreInTenantAsync(tenant, administrator, isPublic: false, name: "receipt.pdf");
+        var open = await StoreInTenantAsync(tenant, administrator, isPublic: true, name: "terms.pdf");
         var to = Address();
-        var entry = Registration(file.Id, savedBy: file.Uploader);
 
-        var refused = await SendAsync(to, entry, tenant: "attach-action-other");
-
-        refused.Succeeded.Should().BeFalse();
-        refused.Retryable.Should().BeFalse();
-        refused.Error.Should().Contain(Refused);
+        ShouldBeRefused(await SendAsync(to, Registration(closed.Id, savedBy: administrator), tenant), closed.Id);
         SentTo(to).Should().BeEmpty();
 
-        // The control: the same entry and parameters in the file's own tenant send it.
-        var allowed = await SendAsync(to, entry);
+        var allowed = await SendAsync(to, Registration(open.Id, savedBy: administrator), tenant);
         allowed.Succeeded.Should().BeTrue(allowed.Error ?? string.Empty);
-        SentTo(to).Should().HaveCount(1);
+        ShouldHaveSentOnly(to, open);
+    }
+
+    /// <summary>
+    /// A public file is refused from any tenant but its own, in both directions: the default
+    /// tenant's from a named tenant, and a named tenant's from the default one.
+    /// </summary>
+    [Fact]
+    public async Task A_public_file_of_another_tenant_is_refused_with_the_same_reason_as_any_other()
+    {
+        var tenant = NewName("attach-club-");
+        var uploader = await SuperAdminAsync();
+        var inDefault = await UploadPdfAsync(isPublic: true);
+        var inTenant = await StoreInTenantAsync(tenant, uploader, isPublic: true, name: "terms.pdf");
+        var to = Address();
+
+        ShouldBeRefused(await SendAsync(to, Registration(inDefault.Id, savedBy: inDefault.Uploader), tenant), inDefault.Id);
+        ShouldBeRefused(await SendAsync(to, Registration(inTenant.Id, savedBy: uploader)), inTenant.Id);
+        SentTo(to).Should().BeEmpty();
+
+        // The control: each sends from the tenant that holds it.
+        (await SendAsync(to, Registration(inDefault.Id, savedBy: inDefault.Uploader))).Succeeded.Should().BeTrue();
+        (await SendAsync(to, Registration(inTenant.Id, savedBy: uploader), tenant)).Succeeded.Should().BeTrue();
+        SentTo(to).Should().HaveCount(2);
+    }
+
+    /// <summary>
+    /// An id typed into the workflow. The file is public and in the tenant; the entry names a
+    /// different file, so this one is not sent.
+    /// </summary>
+    [Fact]
+    public async Task A_public_file_the_entry_does_not_name_is_refused()
+    {
+        var named = await UploadPdfAsync(isPublic: true);
+        var notNamed = await UploadPdfAsync(isPublic: true);
+        var to = Address();
+        var entry = Registration(named.Id, savedBy: named.Uploader);
+
+        ShouldBeRefused(await SendAsync(to, entry, attachments: notNamed.Id.ToString()), notNamed.Id);
+        SentTo(to).Should().BeEmpty();
+
+        var allowed = await SendAsync(to, entry, attachments: named.Id.ToString());
+        allowed.Succeeded.Should().BeTrue(allowed.Error ?? string.Empty);
+        ShouldHaveSentOnly(to, named);
+    }
+
+    /// <summary>
+    /// An API key writes as its owner, so an entry created through a SuperAdmin's key records that
+    /// SuperAdmin as its last writer. The key itself cannot download any file.
+    /// </summary>
+    [Fact]
+    public async Task An_entry_saved_through_an_administrators_api_key_attaches_a_public_file_and_not_a_private_one()
+    {
+        var closed = await UploadPdfAsync(isPublic: false);
+        var open = await UploadPdfAsync(isPublic: true);
+        var owner = closed.Uploader;
+        var to = Address();
+
+        var secret = "bcms_" + Guid.NewGuid().ToString("N");
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new ApiKey
+            {
+                Id = Guid.NewGuid(),
+                Name = "attachments",
+                KeyHash = ApiKeyService.Hash(secret),
+                Prefix = secret[..12],
+                UserId = owner,
+                TenantSlug = Tenant.DefaultSlug,
+                Scopes = new() { "content:read", "content:write" },
+            });
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        async Task<Content> CreateThroughKeyAsync(Guid receipt)
+        {
+            var type = NewName("attachkey");
+            using (var definitions = _factory.Services.CreateScope())
+            {
+                var session = definitions.ServiceProvider.GetRequiredService<IDocumentSession>();
+                session.Store(new ContentTypeDefinition
+                {
+                    Id = Guid.NewGuid(),
+                    Name = type,
+                    DisplayName = "Registration",
+                    Fields = [new FieldDefinition { Name = "Receipt", DisplayName = "Receipt", Type = "string" }],
+                });
+                await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+            }
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/api/contents");
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", secret);
+            request.Content = JsonContent.Create(new
+            {
+                contentType = type,
+                data = new Dictionary<string, object> { ["Receipt"] = receipt.ToString() },
+            });
+            var response = await _client.SendAsync(request, TestContext.Current.CancellationToken);
+            response.IsSuccessStatusCode.Should().BeTrue(
+                "got {0}: {1}", response.StatusCode, await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+
+            using var scope = _factory.Services.CreateScope();
+            var entries = await scope.ServiceProvider.GetRequiredService<IQuerySession>()
+                .Query<Content>().Where(c => c.ContentType == type).ToListAsync(TestContext.Current.CancellationToken);
+            entries.Should().HaveCount(1);
+            entries[0].LastModifiedBy.Should().Be(owner, "the key writes as its owner, which is the situation under test");
+            return entries[0];
+        }
+
+        ShouldBeRefused(await SendAsync(to, await CreateThroughKeyAsync(closed.Id)), closed.Id);
+        SentTo(to).Should().BeEmpty();
+
+        var allowed = await SendAsync(to, await CreateThroughKeyAsync(open.Id));
+        allowed.Succeeded.Should().BeTrue(allowed.Error ?? string.Empty);
+        ShouldHaveSentOnly(to, open);
     }
 
     /// <summary>
@@ -414,9 +506,8 @@ public class EmailAttachmentStoredFileTests
     [Fact]
     public async Task A_stored_entrys_list_field_attaches_every_file_in_it()
     {
-        var first = await UploadPdfAsync(name: "one.pdf");
-        var second = await UploadPdfAsync(name: "two.pdf");
-        var writer = await UserAsync(admin: true);
+        var first = await UploadPdfAsync(isPublic: true, name: "one.pdf");
+        var second = await UploadPdfAsync(isPublic: true, name: "two.pdf");
         var to = Address();
         var entryId = Guid.NewGuid();
         var store = _factory.Services.GetRequiredService<IDocumentStore>();
@@ -427,10 +518,9 @@ public class EmailAttachmentStoredFileTests
             {
                 Id = entryId,
                 ContentType = "registration",
-                LastModifiedBy = writer,
                 Data = new Dictionary<string, object>
                 {
-                    ["Files"] = new List<object> { first.Id.ToString(), $"/api/files/{second.Id}" },
+                    ["Files"] = new List<object> { first.Id.ToString(), $"/api/public/files/{second.Id}" },
                 },
             });
             await session.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -462,11 +552,10 @@ public class EmailAttachmentStoredFileTests
     /// entry itself and builds the action from a scope of the run's tenant.
     /// </summary>
     [Fact]
-    public async Task A_queued_email_run_attaches_the_files_its_entry_names()
+    public async Task A_queued_email_run_attaches_the_public_files_its_entry_names()
     {
-        var first = await UploadPdfAsync(name: "one.pdf");
-        var second = await UploadPdfAsync(name: "two.pdf");
-        var writer = await UserAsync(admin: true);
+        var first = await UploadPdfAsync(isPublic: true, name: "one.pdf");
+        var second = await UploadPdfAsync(isPublic: true, name: "two.pdf");
         var to = Address();
         var store = _factory.Services.GetRequiredService<IDocumentStore>();
         var contentId = Guid.NewGuid();
@@ -479,7 +568,6 @@ public class EmailAttachmentStoredFileTests
                 Id = contentId,
                 ContentType = "registration",
                 Status = ContentStatus.Published,
-                LastModifiedBy = writer,
                 Data = new Dictionary<string, object>
                 {
                     ["Files"] = new List<object> { first.Id.ToString(), second.Id.ToString() },
@@ -522,10 +610,7 @@ public class EmailAttachmentStoredFileTests
 
         // Either this runner or the fixture's hosted one may claim it; both send through the
         // fixture's recording transport, so wait for the message rather than for a particular runner.
-        var runner = new WorkflowRunner(
-            _factory.Services,
-            _factory.Services.GetRequiredService<Microsoft.Extensions.Logging.ILogger<WorkflowRunner>>(),
-            _factory.Services.GetRequiredService<IConfiguration>());
+        var runner = NewRunner();
 
         List<RecordingEmailService.Sent> sent = [];
         for (var i = 0; i < 100 && sent.Count == 0; i++)
@@ -535,16 +620,197 @@ public class EmailAttachmentStoredFileTests
             if (sent.Count == 0) await Task.Delay(100, TestContext.Current.CancellationToken);
         }
 
-        sent.Should().ContainSingle("the queued run sends exactly one email; {0}", await WhyNotSentAsync(store, runId));
+        sent.Should().ContainSingle("the queued run sends exactly one email; {0}", await DescribeRunAsync(runId));
         sent[0].Attachments.Should().HaveCount(2);
         sent[0].Attachments.Select(a => a.FileName).Should().Equal("one.pdf", "two.pdf");
         sent[0].Attachments[0].Content.Should().Equal(first.Bytes);
         sent[0].Attachments[1].Content.Should().Equal(second.Bytes);
     }
 
-    private static async Task<string> WhyNotSentAsync(IDocumentStore store, Guid runId)
+    /// <summary>
+    /// The registration case end to end: a stranger submits a public form naming a file, a
+    /// SuperAdmin confirms the submission, and the confirmation fires an email that attaches the
+    /// named file. The entry's last writer is then the SuperAdmin, who could download a private
+    /// file. A private file the submission named is not sent, and a public one is.
+    /// </summary>
+    [Fact]
+    public async Task A_private_file_named_by_a_form_submission_is_not_sent_after_an_administrator_confirms_it()
     {
-        await using var query = store.QuerySession();
+        var closed = await UploadPdfAsync(isPublic: false);
+        var open = await UploadPdfAsync(isPublic: true, name: "terms.pdf");
+        var to = Address();
+        var type = await FormTypeWithConfirmationEmailAsync(to);
+
+        var approverToken = _factory.CreateToken(new[] { "SuperAdmin" }, (await SuperAdminAsync()).ToString());
+        var approver = _factory.CreateClient();
+        approver.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", approverToken);
+
+        var withPrivate = await SubmitAndConfirmAsync(type, approver, closed.Id);
+        var failed = await WaitForRunAsync(withPrivate, attempt => attempt.Status == AttemptStatus.Failed);
+
+        failed.Error.Should().Contain(Refused);
+        failed.Retryable.Should().NotBe(true, "the refusal is permanent, so the runner does not try it again");
+        SentTo(to).Should().BeEmpty("the submission named a private file, and confirming it must not send that file");
+
+        // The control: the same form, workflow and approver, with a submission naming a public file.
+        var withPublic = await SubmitAndConfirmAsync(type, approver, open.Id);
+        await WaitForRunAsync(withPublic, attempt => attempt.Status == AttemptStatus.Succeeded);
+
+        ShouldHaveSentOnly(to, open);
+    }
+
+    private WorkflowRunner NewRunner() => new(
+        _factory.Services,
+        _factory.Services.GetRequiredService<Microsoft.Extensions.Logging.ILogger<WorkflowRunner>>(),
+        _factory.Services.GetRequiredService<IConfiguration>());
+
+    /// <summary>A form-enabled type with a Confirm transition, and a workflow that emails on it.</summary>
+    private async Task<string> FormTypeWithConfirmationEmailAsync(string to)
+    {
+        var type = $"form-{Guid.NewGuid():N}";
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(),
+                Name = type,
+                DisplayName = "Registration",
+                Fields =
+                [
+                    new FieldDefinition { Name = "name", DisplayName = "Name", Type = "string", IsRequired = true },
+                    new FieldDefinition { Name = "receipt", DisplayName = "Receipt", Type = "string" },
+                ],
+                Lifecycle = new LifecycleDefinition
+                {
+                    States = ["New", "Confirmed"],
+                    InitialState = "New",
+                    Transitions = [new StateTransition { Name = "Confirm", From = "New", To = "Confirmed" }],
+                },
+            });
+            session.Store(new WorkflowDefinition
+            {
+                Id = Guid.NewGuid(),
+                Name = NewName("wf"),
+                TriggerContentType = type,
+                TriggerEvent = WorkflowEvents.ForTransition("Confirm"),
+                Actions =
+                [
+                    new WorkflowAction
+                    {
+                        Type = "Email",
+                        Parameters = new Dictionary<string, string>
+                        {
+                            ["To"] = to,
+                            ["Subject"] = "Registration confirmed",
+                            ["Body"] = "<p>Confirmed.</p>",
+                            ["Attachments"] = "{{data.receipt}}",
+                        },
+                    },
+                ],
+            });
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        var admin = _factory.CreateClient();
+        admin.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", await _factory.StoredUserTokenAsync("Admin"));
+        var enabled = await admin.PutAsJsonAsync($"/api/forms/{type}", new { enabled = true }, TestContext.Current.CancellationToken);
+        enabled.StatusCode.Should().Be(HttpStatusCode.OK, await enabled.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+
+        return type;
+    }
+
+    /// <summary>Submits the form as a stranger, then confirms the submission as the approver. Answers the entry's id.</summary>
+    private async Task<Guid> SubmitAndConfirmAsync(string type, HttpClient approver, Guid receipt)
+    {
+        var name = $"Ana {Guid.NewGuid():N}";
+
+        // Its own client address: the submit route allows five requests per address per window.
+        var visitor = _factory.CreateClient();
+        var bytes = Guid.NewGuid().ToByteArray();
+        visitor.DefaultRequestHeaders.Add(
+            TestRemoteIpFilter.Header,
+            $"2001:db8:806::{bytes[0]:x2}{bytes[1]:x2}:{bytes[2]:x2}{bytes[3]:x2}");
+
+        var submitted = await visitor.PostAsJsonAsync(
+            $"/api/public/forms/{type}", new { data = new { name, receipt = receipt.ToString() } }, TestContext.Current.CancellationToken);
+        submitted.StatusCode.Should().Be(HttpStatusCode.Accepted, await submitted.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+
+        Guid id;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var entries = (await scope.ServiceProvider.GetRequiredService<IQuerySession>()
+                    .Query<Content>().Where(c => c.ContentType == type).ToListAsync(TestContext.Current.CancellationToken))
+                .Where(c => Equals(c.Data.GetValueOrDefault("name"), name))
+                .ToList();
+            entries.Should().HaveCount(1);
+            entries[0].LastModifiedBy.Should().Be(Guid.Empty, "a submission is stored with no user");
+            id = entries[0].Id;
+        }
+
+        var confirmed = await approver.PutAsJsonAsync(
+            $"/api/contents/{id}/status", new { id, transition = "Confirm" }, TestContext.Current.CancellationToken);
+        confirmed.IsSuccessStatusCode.Should().BeTrue(
+            "got {0}: {1}", confirmed.StatusCode, await confirmed.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var entry = await scope.ServiceProvider.GetRequiredService<IQuerySession>()
+                .LoadAsync<Content>(id, TestContext.Current.CancellationToken);
+            entry.Should().NotBeNull();
+            entry!.LastModifiedBy.Should().NotBe(Guid.Empty, "the confirmation stamps the approver, which is the situation under test");
+        }
+
+        return id;
+    }
+
+    /// <summary>
+    /// Waits for the Email attempt of the run the confirmation queued to reach the wanted state,
+    /// helping the runner along, and answers that attempt.
+    /// </summary>
+    private async Task<WorkflowActionAttempt> WaitForRunAsync(Guid contentId, Func<WorkflowActionAttempt, bool> wanted)
+    {
+        var store = _factory.Services.GetRequiredService<IDocumentStore>();
+        var runner = NewRunner();
+        var deadline = DateTime.UtcNow + PollTimeout;
+        var last = "no run was queued for the entry";
+
+        while (DateTime.UtcNow < deadline)
+        {
+            await runner.RunOnceAsync(TestContext.Current.CancellationToken);
+
+            await using (var query = store.QuerySession())
+            {
+                var runs = await query.Query<WorkflowRun>()
+                    .Where(r => r.ContentId == contentId)
+                    .ToListAsync(TestContext.Current.CancellationToken);
+
+                if (runs.Count > 0)
+                {
+                    runs.Should().HaveCount(1, "one confirmation queues one run");
+                    runs[0].Actions.Should().HaveCount(1);
+                    var attempt = runs[0].Actions[0];
+
+                    if (wanted(attempt))
+                    {
+                        return attempt;
+                    }
+
+                    last = $"the attempt is {attempt.Status}, attempts {attempt.Attempts}, error '{attempt.Error}'";
+                }
+            }
+
+            await Task.Delay(250, TestContext.Current.CancellationToken);
+        }
+
+        throw new Xunit.Sdk.XunitException($"Timed out after {PollTimeout.TotalSeconds:0}s: {last}.");
+    }
+
+    private async Task<string> DescribeRunAsync(Guid runId)
+    {
+        await using var query = _factory.Services.GetRequiredService<IDocumentStore>().QuerySession();
         var run = await query.LoadAsync<WorkflowRun>(runId, TestContext.Current.CancellationToken);
 
         return run is null
