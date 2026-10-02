@@ -9,8 +9,10 @@
 Records the device behind each sign-in, binds a session to the device it was issued to, and can
 require OTP approval before a device it has never seen is allowed in.
 
-The point is that a stolen token stops being enough on its own: it also has to be presented from the
-device it was minted for.
+With `DeviceTrust:Enforce` on, a token bound to a device is refused unless the request also names
+that device and the device is still trusted. Enforcement is off by default. With it off, devices are
+recorded and can be revoked, and no sign-in or request is checked against its device. See
+[Configuration](#configuration).
 
 ## Enable it
 
@@ -43,11 +45,33 @@ the repository.
 
 A user only ever sees and revokes their own devices.
 
+## Configuration
+
+```json
+{
+  "DeviceTrust": { "Enforce": true }
+}
+```
+
+`DeviceTrust:Enforce` defaults to `false`.
+
+A client names its device by sending an id of its own choosing in the `X-Device-Id` header, the
+same value on every request. A sign-in with an email code trusts the device named in that header
+and puts its id in the token as the `did` claim. A password sign-in from a device already trusted
+carries the claim too. A sign-in that sends no header gets a token with no `did` claim.
+
+| | `Enforce` off (the default) | `Enforce` on |
+|---|---|---|
+| Password sign-in from a device that is not trusted | Allowed | No token is issued. A code is emailed, and signing in with it trusts the device named in the header |
+| A request whose token has a `did` claim | Not checked | 401 unless `X-Device-Id` equals the claim and the device is still trusted |
+| A request whose token has no `did` claim | Not checked | Not checked |
+
 ## Notes
 
-Revoking a device invalidates its refresh token immediately. An access token already issued stays
-valid until it expires, so a revoked device can linger for the remainder of that window rather than
-being cut off mid-request.
+Revoking a device invalidates its refresh token immediately. With `Enforce` off, an access token
+already issued stays valid until it expires, so a revoked device can linger for the remainder of
+that window rather than being cut off mid-request. With `Enforce` on, a revoked device's next
+request is refused.
 
 ## Part of barakoCMS
 

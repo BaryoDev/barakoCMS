@@ -62,7 +62,7 @@ bucket" rather than as an error.
 | `ServiceUrl` | Set for R2 or a self-hosted store; leave null for AWS |
 | `ForcePathStyle` | Usually `true` for self-hosted stores |
 | `PublicBaseUrl` | Serve public files from your CDN domain |
-| `UsePublicReadAcl` | Leave `false` on buckets that block public ACLs, which is the safer default |
+| `UsePublicReadAcl` | Defaults to `true`. Set it to `false` on buckets that block public ACLs |
 
 Keys belong in environment variables or a secret store, never in a checked-in `appsettings.json`.
 
