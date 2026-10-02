@@ -13,11 +13,21 @@ public class WorkflowRunNextDueTests
     private static readonly DateTimeOffset Later = Created.AddMinutes(10);
 
     [Fact]
-    public void A_run_nobody_has_tried_is_due_from_the_moment_it_was_created()
+    public void A_run_nobody_has_tried_is_due_at_once_whatever_clock_wrote_it()
     {
         var run = Run(new WorkflowActionAttempt { Ordinal = 0 });
 
-        run.NextDueAt.Should().Be(Created);
+        run.NextDueAt.Should().Be(WorkflowRun.DueAtOnce);
+        WorkflowRun.DueAtOnce.Should().BeBefore(Created.AddYears(-50),
+            "a node whose clock runs behind the writer's must still read the run as due");
+    }
+
+    [Fact]
+    public void A_claimed_run_with_no_lease_time_is_due_at_once()
+    {
+        var run = Run(new WorkflowActionAttempt { Ordinal = 0, Status = AttemptStatus.Running });
+
+        run.NextDueAt.Should().Be(WorkflowRun.DueAtOnce);
     }
 
     [Fact]
@@ -43,7 +53,7 @@ public class WorkflowRunNextDueTests
             new WorkflowActionAttempt { Ordinal = 0, NextAttemptAt = Later },
             new WorkflowActionAttempt { Ordinal = 1 });
 
-        run.NextDueAt.Should().Be(Created, "the runner skips an action in backoff and takes the next");
+        run.NextDueAt.Should().Be(WorkflowRun.DueAtOnce, "the runner skips an action in backoff and takes the next");
     }
 
     [Fact]

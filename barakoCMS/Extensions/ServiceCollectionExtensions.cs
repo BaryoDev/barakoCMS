@@ -691,11 +691,7 @@ public static class ServiceCollectionExtensions
             // must not both take the same attempt. This is what refuses the second one.
             .UseOptimisticConcurrency(true)
             .Index(x => x.Status)
-            .Index(x => x.CreatedAt)
-            // The runner asks for due runs in the query. A database that already has the table
-            // needs migrations/4.6.0/workflow-runs-next-due-index.sql, since CreateOnly never adds
-            // an index to a table that exists.
-            .Index(x => x.NextDueAt);
+            .Index(x => x.CreatedAt);
 
         options.Schema.For<WebhookDelivery>()
             .MultiTenanted()

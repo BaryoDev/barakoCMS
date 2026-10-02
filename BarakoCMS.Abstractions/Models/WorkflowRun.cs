@@ -47,8 +47,9 @@ public class WorkflowRun
     public DateTimeOffset? CompletedAt { get; set; }
 
     /// <summary>
-    /// The earliest moment the runner could claim an attempt of this run. Null once nothing is left
-    /// to claim, and on a run stored before this was kept.
+    /// The earliest moment the runner could claim an attempt of this run. <see cref="DueAtOnce"/>
+    /// when one can be claimed now. Null once nothing is left to claim, and on a run stored before
+    /// this was kept.
     /// </summary>
     /// <remarks>
     /// On the run rather than only on its attempts so the runner can ask the database for due runs.
@@ -56,6 +57,14 @@ public class WorkflowRun
     /// runner reads a null on an unfinished run as due, so a run stored without it is still claimed.
     /// </remarks>
     public DateTimeOffset? NextDueAt { get; set; }
+
+    /// <summary>What <see cref="NextDueAt"/> holds for a run with an attempt that has no wait.</summary>
+    /// <remarks>
+    /// A fixed moment in the past, not the writing node's clock. The reader compares with its own
+    /// clock, so a time taken from a node that runs ahead would make every other node wait out the
+    /// difference before claiming a run that is due.
+    /// </remarks>
+    public static readonly DateTimeOffset DueAtOnce = DateTimeOffset.UnixEpoch;
 
     public List<WorkflowActionAttempt> Actions { get; set; } = new();
 
@@ -95,7 +104,6 @@ public class WorkflowRun
     /// <summary>
     /// Mirrors the order the runner claims in: a waiting attempt does not hold up the ones after it,
     /// and nothing past a running attempt is looked at until that one finishes or its lease runs out.
-    /// An attempt with no time of its own is due at once, which <see cref="CreatedAt"/> stands in for.
     /// </summary>
     private DateTimeOffset? EarliestClaim()
     {
@@ -105,12 +113,12 @@ public class WorkflowRun
         {
             if (attempt.Status == AttemptStatus.Running)
             {
-                return Earlier(earliest, attempt.LeaseExpiresAt ?? CreatedAt);
+                return Earlier(earliest, attempt.LeaseExpiresAt ?? DueAtOnce);
             }
 
             if (attempt.Status != AttemptStatus.Pending) continue;
 
-            earliest = Earlier(earliest, attempt.NextAttemptAt ?? CreatedAt);
+            earliest = Earlier(earliest, attempt.NextAttemptAt ?? DueAtOnce);
         }
 
         return earliest;

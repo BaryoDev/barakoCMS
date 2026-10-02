@@ -147,6 +147,10 @@ internal sealed class WorkflowRunner(
     /// <remarks>
     /// A pass ends at the first claim. Always starting from the top let a tenant that sorts early
     /// and always has work keep every tenant after it waiting.
+    ///
+    /// A tenant that throws is logged and passed over. The next pass starts after it, the same as
+    /// after a tenant that was served, or one run that cannot be read would be where every pass
+    /// starts and ends.
     /// </remarks>
     private async Task<bool> RunDueAsync(IDocumentStore store, CancellationToken ct)
     {
@@ -162,28 +166,56 @@ internal sealed class WorkflowRunner(
         for (var i = 0; i < partitions.Length; i++)
         {
             var tenantId = partitions[(start + i) % partitions.Length];
-            var now = DateTimeOffset.UtcNow;
 
-            await using var query = store.QuerySession(tenantId);
-
-            // Due-ness is in the query so the twenty are twenty runs that can be claimed. A run
-            // stored before NextDueAt was kept has none and is read as due; TryRunAsync decides.
-            var due = await query.Query<WorkflowRun>()
-                .Where(r => (r.Status == RunStatus.Pending || r.Status == RunStatus.Running)
-                    && (r.NextDueAt == null || r.NextDueAt <= now))
-                .OrderBy(r => r.CreatedAt)
-                .Take(CandidatesPerPass)
-                .Select(r => r.Id)
-                .ToListAsync(ct);
-
-            foreach (var runId in due)
+            try
             {
-                if (await TryRunAsync(store, runId, tenantId, ct))
+                if (await RunDueInAsync(store, tenantId, ct))
                 {
                     _lastServed = tenantId;
                     return true;
                 }
             }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _lastServed = tenantId;
+                logger.LogError(ex,
+                    "The workflow runner failed in tenant {Tenant} and went on to the next",
+                    barakoCMS.Infrastructure.Logging.LogSafe.Value(tenantId));
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Claims and runs the first due attempt one tenant has, if it has one.</summary>
+    private async Task<bool> RunDueInAsync(IDocumentStore store, string tenantId, CancellationToken ct)
+    {
+        var now = DateTimeOffset.UtcNow;
+
+        await using var query = store.QuerySession(tenantId);
+
+        // Due-ness is in the query so the twenty are twenty runs that can be claimed. A run stored
+        // before NextDueAt was kept has none and is read as due; TryRunAsync decides.
+        //
+        // Not indexed. Marten writes the null test on the raw JSON value and the comparison on
+        // mt_immutable_timestamptz of it, and Postgres uses an index for an OR only when every arm
+        // matches one. The null arm has to stay while an older node can still write a run without
+        // the value, so an index on the comparison alone would be maintained and never read.
+        var due = await query.Query<WorkflowRun>()
+            .Where(r => (r.Status == RunStatus.Pending || r.Status == RunStatus.Running)
+                && (r.NextDueAt == null || r.NextDueAt <= now))
+            .OrderBy(r => r.CreatedAt)
+            .Take(CandidatesPerPass)
+            .Select(r => r.Id)
+            .ToListAsync(ct);
+
+        foreach (var runId in due)
+        {
+            if (await TryRunAsync(store, runId, tenantId, ct)) return true;
         }
 
         return false;
@@ -202,12 +234,13 @@ internal sealed class WorkflowRunner(
     /// instead, including inactive tenants, and the due query in <see cref="RunOnceAsync"/> is what
     /// skips a partition with nothing to do.
     ///
-    /// The cast is the expression the Status index is declared on, so the filter does not need a
-    /// sequential scan of every run.
+    /// The cast in the filter is the expression the Status index is declared on, so the index can
+    /// serve it.
     /// </remarks>
     internal const string PartitionsWithWorkSql =
-        "select distinct tenant_id from public.mt_doc_workflow_runs "
-      + "where (data ->> 'Status')::integer in (0, 1)";
+        "select distinct tenant_id from public.mt_doc_workflow_runs where " + UnfinishedFilter;
+
+    internal const string UnfinishedFilter = "(data ->> 'Status')::integer in (0, 1)";
 
     /// <summary>Claims the next due attempt of one run and executes it.</summary>
     private async Task<bool> TryRunAsync(IDocumentStore store, Guid runId, string tenantId, CancellationToken ct)

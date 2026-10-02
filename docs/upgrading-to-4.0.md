@@ -64,7 +64,6 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.3.0
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.3.0/marten-9-37-event-store-columns.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.4.0/marten-9-38-quick-append-events.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.5.0/refresh-token-hash-index.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/workflow-runs-next-due-index.sql
 ```
 
 The two Marten files bring the event store up to the Marten version the release you are deploying
@@ -161,7 +160,6 @@ statements from the file by hand rather than re-running the whole thing.
 Stop 4.0, then:
 
 ```bash
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/rollback-workflow-runs-next-due-index.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.5.0/rollback-email-sent-emails.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.5.0/rollback-refresh-token-hash-index.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.4.0/rollback-marten-9-38-quick-append-events.sql

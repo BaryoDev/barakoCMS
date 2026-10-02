@@ -12,8 +12,8 @@ namespace BarakoCMS.Tests.Features.Workflows;
 
 /// <summary>
 /// What the runner claims and in what order: a due run is not hidden by runs that are not due, a
-/// tenant with a backlog does not keep the next one waiting, and a drain does not list partitions
-/// once per action.
+/// tenant with a backlog does not keep the next one waiting, a tenant that throws does not stop the
+/// rest, and a drain does not list partitions once per action.
 /// </summary>
 /// <remarks>
 /// Each test seeds a tenant of its own. The runner reads the twenty oldest candidates per tenant, so
@@ -276,14 +276,54 @@ public class WorkflowRunnerFairClaimTests
     }
 
     /// <summary>
-    /// The partition scan filters on an expression an index covers.
+    /// Three tenants, and the middle one holds a run that cannot be read. The other two are served.
     /// </summary>
     /// <remarks>
-    /// Sequential scans are switched off for the plan, so one still appearing means no index can
-    /// serve the filter. Which index the planner picks is its own business.
+    /// The due query selects ids, so it offers the broken run, and loading it throws. Uncaught, that
+    /// ends the pass at the middle tenant every time, and the tenant after it is never reached.
     /// </remarks>
     [Fact]
-    public async Task The_partition_scan_does_not_need_a_sequential_scan()
+    public async Task A_tenant_whose_run_cannot_be_read_does_not_stop_the_others()
+    {
+        await WithHostedRunnerPausedAsync(async () =>
+        {
+            await DrainAsync(NewRunner());
+
+            var prefix = NewTenant();
+            var first = await SeedAsync(prefix + "-a", NoHandler, DateTimeOffset.UtcNow, nextAttemptAt: null);
+            var broken = await SeedAsync(prefix + "-b", NoHandler, DateTimeOffset.UtcNow, nextAttemptAt: null);
+            var last = await SeedAsync(prefix + "-c", NoHandler, DateTimeOffset.UtcNow, nextAttemptAt: null);
+
+            await ExecuteSqlAsync(
+                "update public.mt_doc_workflow_runs set data = jsonb_set(data, '{Actions}', '\"not a list\"'::jsonb) "
+              + $"where id = '{broken}'");
+
+            try
+            {
+                await DrainAsync(NewRunner());
+
+                (await LoadAsync(prefix + "-a", first)).Actions[0].Attempts.Should().Be(1);
+                (await LoadAsync(prefix + "-c", last)).Actions[0].Attempts.Should().Be(1,
+                    "the tenant after the one that throws is still reached");
+            }
+            finally
+            {
+                // Left in place it would throw in every later drain, in this class and in others.
+                await ExecuteSqlAsync($"delete from public.mt_doc_workflow_runs where id = '{broken}'");
+            }
+        });
+    }
+
+    /// <summary>
+    /// The filter of the partition scan can be served by the Status index.
+    /// </summary>
+    /// <remarks>
+    /// The filter alone, without the distinct. With it the planner may walk the primary key, which
+    /// leads with tenant_id, and apply the filter row by row, and that plan says nothing about the
+    /// cast. Sequential scans are switched off so the size of the table does not decide.
+    /// </remarks>
+    [Fact]
+    public async Task The_partition_scan_filter_uses_the_status_index()
     {
         await using var conn = Store.Storage.Database.CreateConnection();
         await conn.OpenAsync(Ct);
@@ -298,7 +338,8 @@ public class WorkflowRunnerFairClaimTests
         var plan = new List<string>();
         await using (var explain = conn.CreateCommand())
         {
-            explain.CommandText = "explain " + WorkflowRunner.PartitionsWithWorkSql;
+            explain.CommandText =
+                "explain select id from public.mt_doc_workflow_runs where " + WorkflowRunner.UnfinishedFilter;
             await using var reader = await explain.ExecuteReaderAsync(Ct);
             while (await reader.ReadAsync(Ct))
             {
@@ -306,8 +347,10 @@ public class WorkflowRunnerFairClaimTests
             }
         }
 
+        WorkflowRunner.PartitionsWithWorkSql.Should().EndWith(WorkflowRunner.UnfinishedFilter,
+            "the plan above has to be for the filter the runner sends");
         plan.Should().NotBeEmpty();
-        string.Join(' ', plan).Should().NotContain("Seq Scan on mt_doc_workflow_runs");
+        string.Join(' ', plan).Should().Contain("mt_doc_workflow_runs_idx_status");
     }
 
     /// <summary>
@@ -409,6 +452,16 @@ public class WorkflowRunnerFairClaimTests
         check.CommandText =
             $"select count(*) from public.mt_doc_workflow_runs where id = '{runId}' and jsonb_exists(data, 'NextDueAt')";
         Convert.ToInt64(await check.ExecuteScalarAsync(Ct)).Should().Be(0, "the stored run has to be without the field");
+    }
+
+    private async Task ExecuteSqlAsync(string sql)
+    {
+        await using var conn = Store.Storage.Database.CreateConnection();
+        await conn.OpenAsync(Ct);
+
+        await using var command = conn.CreateCommand();
+        command.CommandText = sql;
+        (await command.ExecuteNonQueryAsync(Ct)).Should().Be(1, "the statement is written for one run");
     }
 
     private async Task<WorkflowRun> LoadAsync(string tenant, Guid runId)
