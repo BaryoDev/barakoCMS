@@ -45,6 +45,14 @@ public class ConditionEvaluator : IConditionEvaluator
     {
         foreach (var (field, conditionValue) in conditions)
         {
+            // A key that follows a reference is answered by PermissionResolver, which reads the
+            // referenced entry and hands this class the rest. One that reaches here with a document
+            // was resolved by nobody, and the row's own data is not asked: see ReferenceConditions.
+            // The overload that takes only a data bag is the one FieldRules uses for requiredWhen,
+            // where a dotted key stays the text it is.
+            if (content is not null && ReferenceConditions.IsPath(field))
+                return false;
+
             if (!TryResolve(field, contentData, content, out var actualValue))
                 return false; // Field doesn't exist in content
 

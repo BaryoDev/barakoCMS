@@ -15,4 +15,10 @@ public sealed class PublicForm
     public DateTimeOffset EnabledAt { get; set; }
 
     public Guid EnabledBy { get; set; }
+
+    /// <summary>
+    /// The email field a visitor has to prove they can read mail at before a submission is accepted,
+    /// or null when the form does not verify. A row stored before this existed reads null.
+    /// </summary>
+    public string? VerifyEmailField { get; set; }
 }

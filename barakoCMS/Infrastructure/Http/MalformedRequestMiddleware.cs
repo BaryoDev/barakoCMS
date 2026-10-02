@@ -21,6 +21,13 @@ namespace barakoCMS.Infrastructure.Http;
 /// its type alone. An <see cref="IOException"/> from a storage backend during an upload is a server
 /// fault and must stay a 500.
 /// </para>
+/// <para>
+/// One refusal here is not about the request's shape: a permission condition that leads to more
+/// entries than a pass over many rows follows
+/// (<see cref="barakoCMS.Infrastructure.Services.ReferenceConditionBoundException"/>). It is thrown
+/// from the permission resolver, under whichever endpoint was walking rows, and it is neither a
+/// fault nor something an endpoint can answer for, so it is answered here, with 403 and its reason.
+/// </para>
 /// </remarks>
 internal sealed class MalformedRequestMiddleware(RequestDelegate next, ILogger<MalformedRequestMiddleware> logger)
 {
@@ -29,6 +36,23 @@ internal sealed class MalformedRequestMiddleware(RequestDelegate next, ILogger<M
         try
         {
             await next(context);
+        }
+        catch (barakoCMS.Infrastructure.Services.ReferenceConditionBoundException ex) when (!context.Response.HasStarted)
+        {
+            // Not a malformed request and not a fault: the caller's role holds a condition that
+            // leads to more entries than a pass over many rows follows. It is refused the way a row
+            // rule refuses, with the reason, which is built from the condition's key and a constant
+            // and holds nothing the request sent. A warning with no stack, since every such request
+            // by that caller ends here until the role changes.
+            logger.LogWarning("Refused a request with 403: {Reason}", ex.Message);
+
+            context.Response.Clear();
+            await new ProblemDetails(
+                    [new ValidationFailure(string.Empty, ex.Message)],
+                    context.Request.Path,
+                    context.TraceIdentifier,
+                    StatusCodes.Status403Forbidden)
+                .ExecuteAsync(context);
         }
         catch (Exception ex) when (!context.Response.HasStarted && Classify(ex) is { } refusal)
         {
