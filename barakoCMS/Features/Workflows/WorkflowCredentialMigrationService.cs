@@ -25,8 +25,10 @@ namespace barakoCMS.Features.Workflows;
 /// always logs how many partitions and workflows it read: a pass that reached nothing must not look
 /// like a pass with nothing left to do.
 ///
-/// Only the credential-named parameters on a workflow's own actions are covered. The child actions
-/// a Conditional action carries in its parameters are not parsed (issue #871).
+/// The child actions a Conditional action carries in <c>ThenActions</c> and <c>ElseActions</c> are
+/// covered too, at any depth. A branch that is not a JSON array of actions the Conditional can run
+/// (see <see cref="WebhookSigning.IsReadableBranch"/>) is left as it is and logged by name. Such a
+/// branch is not run and not returned by the API.
 ///
 /// It is safe to run on several instances at once and on every boot, since
 /// <see cref="WebhookSigning.MigrateStoredCredentials"/> leaves a prefixed value alone; two
@@ -153,7 +155,11 @@ internal sealed class WorkflowCredentialMigrationService : BackgroundService
                     // might be a credential.
                     logger?.LogWarning(
                         "The {Parameter} parameter of action {ActionIndex} on workflow {WorkflowId} could not be decrypted with the current key and was left as it is. Either Secrets:Key changed since it was saved, or it was saved in clear; restore the old key, or recreate the workflow.",
-                        name, index, workflow.Id));
+                        name, index, workflow.Id),
+                    (index, branch) =>
+                        logger?.LogWarning(
+                            "The {Branch} branch of action {ActionIndex} on workflow {WorkflowId} could not be read as a list of actions and was left as it is. It does not run and the API does not return it; recreate the workflow with a valid branch.",
+                            branch, index, workflow.Id));
 
                 if (!changedHere) continue;
 

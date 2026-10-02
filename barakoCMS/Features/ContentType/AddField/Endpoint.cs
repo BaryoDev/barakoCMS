@@ -142,7 +142,7 @@ internal sealed class Endpoint(
         // Validate the type as it would be, not the field on its own, so every rule create applies
         // applies here too.
         var merged = definition.Fields.Concat(new[] { field }).ToList();
-        var (isValid, errors) = validator.Validate(definition.Name, definition.DisplayName, merged);
+        var (isValid, errors) = validator.Validate(definition.Name, definition.DisplayName, merged, definition.Fields);
         if (!isValid)
         {
             foreach (var error in errors) AddError(error);

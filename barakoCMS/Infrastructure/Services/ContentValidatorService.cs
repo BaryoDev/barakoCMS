@@ -143,12 +143,15 @@ public class ContentValidatorService(IQuerySession session) : IContentValidatorS
             var keyDetails = data.FirstOrDefault(k => k.Key.Equals(field.Name, StringComparison.OrdinalIgnoreCase));
 
             // Check Required
-            if (field.IsRequired)
+            var requiredByRule = !field.IsRequired && FieldRules.IsRequiredBy(field, data);
+            if (field.IsRequired || requiredByRule)
             {
                 if (keyDetails.Key == null || keyDetails.Value == null || string.IsNullOrWhiteSpace(keyDetails.Value.ToString())
                     || IsEmptyList(field, keyDetails.Value))
                 {
-                    errors.Add($"Field '{field.DisplayName}' ({field.Name}) is required.");
+                    errors.Add(requiredByRule
+                        ? $"Field '{field.DisplayName}' ({field.Name}) is required for this entry (rule 'requiredWhen')."
+                        : $"Field '{field.DisplayName}' ({field.Name}) is required.");
                     continue;
                 }
             }
@@ -180,6 +183,10 @@ public class ContentValidatorService(IQuerySession session) : IContentValidatorS
                     var error = ValidateChoice(field, value);
                     if (error is not null)
                         errors.Add(error);
+                }
+                else
+                {
+                    errors.AddRange(FieldRules.ValueErrors(field, value));
                 }
             }
         }
