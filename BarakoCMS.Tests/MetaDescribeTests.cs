@@ -62,17 +62,20 @@ public class MetaDescribeTests
 
     private static WebApplicationFactory<Program>? _brokenRegistry;
 
-    // The registry is what throws when a registered action cannot be constructed. It is replaced,
-    // and no throwing action is registered, because a derived host runs a workflow runner against
-    // the shared database and a host that cannot build its actions would fail other classes' runs.
+    // The registry resolves and only reading the actions throws. A registration that throws on
+    // resolve stops the host from starting: the workflow endpoints take the registry, or the
+    // validator built on it, in their constructors, and those are resolved while endpoints are
+    // mapped. No throwing action is registered either, because a derived host runs a workflow
+    // runner against the shared database and would fail other classes' runs.
     private WebApplicationFactory<Program> BrokenRegistryHost()
     {
         lock (Gate)
         {
             return _brokenRegistry ??= _factory.WithWebHostBuilder(builder =>
                 builder.ConfigureServices(services =>
-                    services.AddScoped<IWorkflowPluginRegistry>(_ =>
-                        throw new InvalidOperationException("an action could not be constructed"))));
+                    services.AddScoped<IWorkflowPluginRegistry>(provider => new UnreadableRegistry(
+                        new WorkflowPluginRegistry(
+                            provider.GetServices<barakoCMS.Features.Workflows.IWorkflowAction>())))));
         }
     }
 
@@ -376,6 +379,15 @@ public class MetaDescribeTests
         document.GetProperty("fieldTypes").GetArrayLength().Should().Be(FieldTypeRegistry.Types.Count);
         document.GetProperty("rules").GetArrayLength().Should().Be(FieldRules.Names.Count);
         Withheld(document, "workflowActions").Should().BeTrue("the caller may read them and the registry threw");
+
+        using (var scope = BrokenRegistryHost().Services.CreateScope())
+        {
+            var registry = scope.ServiceProvider.GetRequiredService<IWorkflowPluginRegistry>();
+            registry.IsActionRegistered("Email").Should().BeTrue("the control: the registry itself resolves on this host");
+            registry.Invoking(r => r.GetAllActions()).Should().Throw<InvalidOperationException>(
+                "and reading the actions is what fails, so the null above is the endpoint's catch");
+        }
+
         document.GetProperty("modules").ValueKind.Should().Be(JsonValueKind.Array,
             "a part that comes after the failed one is still answered");
 
@@ -520,6 +532,17 @@ public class MetaDescribeTests
             "Bearer", _factory.CreateToken(roles: [unique], userId: userId.ToString()));
         return client;
     }
+}
+
+/// <summary>A registry that answers everything but the list of actions.</summary>
+internal sealed class UnreadableRegistry(IWorkflowPluginRegistry inner) : IWorkflowPluginRegistry
+{
+    public IReadOnlyList<WorkflowActionMetadata> GetAllActions() =>
+        throw new InvalidOperationException("an action could not be read");
+
+    public WorkflowActionMetadata? GetActionMetadata(string actionType) => inner.GetActionMetadata(actionType);
+
+    public bool IsActionRegistered(string actionType) => inner.IsActionRegistered(actionType);
 }
 
 [barakoCMS.Infrastructure.Attributes.WorkflowActionMetadataAttribute(
