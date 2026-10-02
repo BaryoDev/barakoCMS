@@ -164,6 +164,15 @@ public class EntriesListFieldFilterTests
             root.GetProperty("pageSize").GetInt32());
     }
 
+    // The error body carries the request's trace id, which differs on every request.
+    private static string WithoutTraceId(string body)
+    {
+        var fields = JsonDocument.Parse(body).RootElement.EnumerateObject()
+            .Where(p => p.Name != "traceId")
+            .Select(p => $"{p.Name}={p.Value.GetRawText()}");
+        return string.Join("\n", fields);
+    }
+
     private async Task<string> RefusedAsync(string token, string query)
     {
         var response = await SendAsync(token, query);
@@ -209,7 +218,7 @@ public class EntriesListFieldFilterTests
         var unknown = await RefusedAsync(viewer, $"contentType={type}&filter[Nope][eq]=1");
 
         sensitive.Should().NotContain("Stage", "the refusal does not list the type's fields");
-        hidden.Replace("Pin", "X").Should().Be(unknown.Replace("Nope", "X"),
+        WithoutTraceId(hidden).Replace("Pin", "X").Should().Be(WithoutTraceId(unknown).Replace("Nope", "X"),
             "a field the caller cannot read answers exactly as one that does not exist");
     }
 
