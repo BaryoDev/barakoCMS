@@ -83,12 +83,19 @@ public class ContentTransitionerTests
         },
     };
 
-    private async Task<string> TypeAsync(LifecycleDefinition? lifecycle, List<FieldDefinition>? fields = null)
+    private static string NewTypeName() => "ctr" + Guid.NewGuid().ToString("n")[..8];
+
+    /// <summary>
+    /// Stored straight through the session. A role list on a field is stored as given, so a test
+    /// that lists a role gives its id, which is what the API stores.
+    /// </summary>
+    private async Task<string> TypeAsync(
+        LifecycleDefinition? lifecycle, List<FieldDefinition>? fields = null, string? name = null)
     {
         using var scope = _factory.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
 
-        var name = "ctr" + Guid.NewGuid().ToString("n")[..8];
+        name ??= NewTypeName();
         session.Store(new ContentTypeDefinition
         {
             Id = Guid.NewGuid(),
@@ -101,8 +108,11 @@ public class ContentTransitionerTests
         return name;
     }
 
-    /// <summary>A stored user holding one role with the permission given, or no role at all.</summary>
-    private async Task<User> UserAsync(ContentTypePermission? permission, string? roleName = null)
+    /// <summary>
+    /// A stored user holding one stored role with the permission given and, when named, one system
+    /// capability. With no permission the user holds no role at all.
+    /// </summary>
+    private async Task<User> UserAsync(ContentTypePermission? permission, string? capability = null)
     {
         using var scope = _factory.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
@@ -113,8 +123,9 @@ public class ContentTransitionerTests
             var role = new Role
             {
                 Id = Guid.NewGuid(),
-                Name = roleName ?? $"Role_{Guid.NewGuid():n}",
+                Name = $"Role_{Guid.NewGuid():n}",
                 Permissions = [permission],
+                SystemCapabilities = capability is null ? new List<string>() : new List<string> { capability },
             };
             session.Store(role);
             roleIds.Add(role.Id);
@@ -477,41 +488,51 @@ public class ContentTransitionerTests
         allowed.Outcome.Should().Be(ContentTransitionOutcome.Transitioned, string.Join(" ", allowed.Errors));
     }
 
-    // ---- field sensitivity outside a request -------------------------------------------------
+    // ---- field sensitivity -------------------------------------------------------------------
 
-    /// <summary>
-    /// With no request to read a principal from, field sensitivity is answered from the roles the
-    /// user holds: a reviewer whose role may see the field sets it, and one whose role may not is
-    /// refused, as the endpoint refuses them.
-    /// </summary>
-    [Fact]
-    public async Task Outside_a_request_a_user_actor_may_set_only_a_field_their_roles_may_see()
+    private static ContentTransitionOptions WithReason() => new()
     {
-        var payroll = $"Payroll_{Guid.NewGuid():n}";
+        Data = new Dictionary<string, object> { ["RejectionReason"] = "No receipt attached" },
+    };
+
+    /// <summary>A type whose RejectionReason is Sensitive and lists the roles given, by id, or none.</summary>
+    private async Task<Guid> SensitiveReasonAsync(string type, params Guid[] visibleTo)
+    {
         var fields = Fields();
         var reason = fields.Single(f => f.Name == "RejectionReason");
         reason.Sensitivity = SensitivityLevel.Sensitive;
-        reason.VisibleToRoles = [payroll];
-        var type = await TypeAsync(Review(), fields);
+        reason.VisibleToRoles = visibleTo.Select(id => id.ToString()).ToList();
+        await TypeAsync(Review(), fields, type);
         var (id, _) = await SubmittedAsync(type);
+        return id;
+    }
 
-        var reviewer = await UserAsync(Reviewer(type));
-        var payrollReviewer = await UserAsync(Reviewer(type), roleName: payroll);
-        var sent = new ContentTransitionOptions
-        {
-            Data = new Dictionary<string, object> { ["RejectionReason"] = "No receipt attached" },
-        };
-
-        var refused = await MoveAsync(id, "Reject", ContentTransitionActor.ForUser(reviewer.Id), sent);
-
+    private async Task RefusedForTheReasonAsync(Guid id, ContentTransitionResult refused)
+    {
         refused.Outcome.Should().Be(ContentTransitionOutcome.Invalid, "the value was put back, so the required field was not sent");
         refused.Errors.Should().HaveCount(1);
         refused.Errors[0].Should().Contain("RejectionReason");
         var after = await LoadAsync(id);
         after.LifecycleState.Should().Be("Submitted");
         Value(after, "RejectionReason").Should().BeNull();
+    }
 
-        var allowed = await MoveAsync(id, "Reject", ContentTransitionActor.ForUser(payrollReviewer.Id), sent);
+    /// <summary>
+    /// A field that lists roles is set by a holder of one of them and by nobody else. The roles are
+    /// the ones the user holds in the store, looked up from the user's id: no request is involved.
+    /// </summary>
+    [Fact]
+    public async Task Outside_a_request_a_user_actor_sets_a_listed_field_only_when_they_hold_a_listed_role()
+    {
+        var type = NewTypeName();
+        var reviewer = await UserAsync(Reviewer(type));
+        var listed = await UserAsync(Reviewer(type));
+        var id = await SensitiveReasonAsync(type, listed.RoleIds.Single());
+
+        await RefusedForTheReasonAsync(
+            id, await MoveAsync(id, "Reject", ContentTransitionActor.ForUser(reviewer.Id), WithReason()));
+
+        var allowed = await MoveAsync(id, "Reject", ContentTransitionActor.ForUser(listed.Id), WithReason());
 
         allowed.Outcome.Should().Be(ContentTransitionOutcome.Transitioned, string.Join(" ", allowed.Errors));
         var content = await LoadAsync(id);
@@ -520,18 +541,44 @@ public class ContentTransitionerTests
     }
 
     /// <summary>
-    /// Skipping the permission checks covers field sensitivity on the sent values too, which is
-    /// what lets a system actor, who holds no role, write a field no role but Payroll may see.
+    /// A Sensitive field with no role list is set by a user whose role holds view_sensitive.
+    /// view_hidden does not stand in for it, and neither does holding no capability.
+    /// </summary>
+    [Fact]
+    public async Task Outside_a_request_a_user_actor_sets_an_unlisted_sensitive_field_only_with_the_capability()
+    {
+        var type = NewTypeName();
+        var plain = await UserAsync(Reviewer(type));
+        var hiddenOnly = await UserAsync(Reviewer(type), SystemCapabilities.ViewHidden);
+        var sensitive = await UserAsync(Reviewer(type), SystemCapabilities.ViewSensitive);
+        var id = await SensitiveReasonAsync(type);
+
+        await RefusedForTheReasonAsync(
+            id, await MoveAsync(id, "Reject", ContentTransitionActor.ForUser(plain.Id), WithReason()));
+        await RefusedForTheReasonAsync(
+            id, await MoveAsync(id, "Reject", ContentTransitionActor.ForUser(hiddenOnly.Id), WithReason()));
+
+        var allowed = await MoveAsync(id, "Reject", ContentTransitionActor.ForUser(sensitive.Id), WithReason());
+
+        allowed.Outcome.Should().Be(ContentTransitionOutcome.Transitioned, string.Join(" ", allowed.Errors));
+        Value(await LoadAsync(id), "RejectionReason").Should().Be("No receipt attached");
+    }
+
+    /// <summary>
+    /// Skipping the permission checks covers field sensitivity on the sent values too. A system
+    /// actor is no user, so there is no stored role to look up for it and without the skip it
+    /// could never write a field that is not Public. The control is a user with no capability
+    /// making the same move without the skip.
     /// </summary>
     [Fact]
     public async Task A_caller_that_skips_the_checks_may_set_a_sensitive_field()
     {
-        var fields = Fields();
-        var reason = fields.Single(f => f.Name == "RejectionReason");
-        reason.Sensitivity = SensitivityLevel.Sensitive;
-        reason.VisibleToRoles = [$"Payroll_{Guid.NewGuid():n}"];
-        var type = await TypeAsync(Review(), fields);
-        var (id, _) = await SubmittedAsync(type);
+        var type = NewTypeName();
+        var plain = await UserAsync(Reviewer(type));
+        var id = await SensitiveReasonAsync(type);
+
+        await RefusedForTheReasonAsync(
+            id, await MoveAsync(id, "Reject", ContentTransitionActor.ForUser(plain.Id), WithReason()));
 
         var result = await MoveAsync(id, "Reject", ContentTransitionActor.ForSystem("review-bot"), new ContentTransitionOptions
         {
@@ -601,14 +648,21 @@ public class ContentTransitionerTests
         (await AuditAsync(id)).Should().HaveCount(2);
     }
 
-    // ---- whose principal answers field sensitivity -------------------------------------------
+    // ---- inside a request ---------------------------------------------------------------------
 
     /// <summary>
     /// The move made from inside a request: the context accessor holds a request by the actor,
-    /// carrying the role names given, resolved to the tenant given.
+    /// carrying the role names given, resolved to the tenant given. The move itself is made in a
+    /// scope for <paramref name="scopeTenant"/>, or the default tenant.
     /// </summary>
     private async Task<ContentTransitionResult> MoveInsideRequestAsync(
-        Guid id, string transition, User actor, string[] tokenRoles, string requestTenant, ContentTransitionOptions options)
+        Guid id,
+        string transition,
+        User actor,
+        string[] tokenRoles,
+        string requestTenant,
+        ContentTransitionOptions? options = null,
+        string? scopeTenant = null)
     {
         using var requestScope = _factory.Services.CreateScope();
         requestScope.ServiceProvider.GetRequiredService<TenantContext>().Slug = requestTenant;
@@ -621,7 +675,9 @@ public class ContentTransitionerTests
             RequestServices = requestScope.ServiceProvider,
         };
 
-        using var scope = _factory.Services.CreateScope();
+        using var scope = scopeTenant is null
+            ? _factory.Services.CreateScope()
+            : _factory.Services.CreateScopeForTenant(scopeTenant);
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
         var transitioner = scope.ServiceProvider.GetRequiredService<IContentTransitioner>();
         var content = await session.LoadAsync<Content>(id);
@@ -639,112 +695,48 @@ public class ContentTransitionerTests
         }
     }
 
-    /// <summary>A type whose RejectionReason only the named role may see, an entry in Submitted, and a reviewer who does not hold that role.</summary>
-    private async Task<(Guid Id, User Reviewer, string Payroll)> SensitiveReviewAsync()
-    {
-        var payroll = $"Payroll_{Guid.NewGuid():n}";
-        var fields = Fields();
-        var reason = fields.Single(f => f.Name == "RejectionReason");
-        reason.Sensitivity = SensitivityLevel.Sensitive;
-        reason.VisibleToRoles = [payroll];
-        var type = await TypeAsync(Review(), fields);
-        var (id, _) = await SubmittedAsync(type);
-        return (id, await UserAsync(Reviewer(type)), payroll);
-    }
-
-    private static ContentTransitionOptions WithReason() => new()
-    {
-        Data = new Dictionary<string, object> { ["RejectionReason"] = "No receipt attached" },
-    };
-
     /// <summary>
-    /// Inside the actor's own request for this tenant, the request's principal is the one read.
+    /// A role name on the actor's request decides nothing about a field. The stored roles do.
     /// </summary>
     /// <remarks>
-    /// The token names a role the stored user does not hold, which is the only way to tell the two
-    /// principals apart: one built from the stored roles would put the value back and refuse.
-    /// It is what the endpoint has always passed, so this pins that the service still does.
+    /// The first caller's token names the listed role and SuperAdmin, and the stored user holds
+    /// neither, so the value is put back. The second caller's token names no role at all, and the
+    /// stored user holds the listed one, so the value is written.
     /// </remarks>
     [Fact]
-    public async Task Inside_the_actors_own_request_the_request_principal_answers_field_sensitivity()
+    public async Task Inside_the_actors_own_request_a_role_name_on_the_token_decides_nothing_for_a_field()
     {
-        var (id, reviewer, payroll) = await SensitiveReviewAsync();
+        var type = NewTypeName();
+        var reviewer = await UserAsync(Reviewer(type));
+        var listed = await UserAsync(Reviewer(type));
+        var id = await SensitiveReasonAsync(type, listed.RoleIds.Single());
 
-        var result = await MoveInsideRequestAsync(id, "Reject", reviewer, [payroll], Tenant.DefaultSlug, WithReason());
+        string listedRoleName;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var role = await scope.ServiceProvider.GetRequiredService<IQuerySession>().LoadAsync<Role>(listed.RoleIds.Single());
+            role.Should().NotBeNull();
+            listedRoleName = role!.Name;
+        }
 
-        result.Outcome.Should().Be(ContentTransitionOutcome.Transitioned, string.Join(" ", result.Errors));
+        var refused = await MoveInsideRequestAsync(
+            id, "Reject", reviewer, [listedRoleName, "SuperAdmin"], Tenant.DefaultSlug, WithReason());
+
+        await RefusedForTheReasonAsync(id, refused);
+
+        var allowed = await MoveInsideRequestAsync(id, "Reject", listed, [], Tenant.DefaultSlug, WithReason());
+
+        allowed.Outcome.Should().Be(ContentTransitionOutcome.Transitioned, string.Join(" ", allowed.Errors));
         Value(await LoadAsync(id), "RejectionReason").Should().Be("No receipt attached");
-    }
-
-    /// <summary>
-    /// The same request, resolved to another tenant, lends nothing: its role names were issued for
-    /// that tenant, so the principal is built from the roles the user holds in this one.
-    /// </summary>
-    [Fact]
-    public async Task A_request_by_the_actor_for_another_tenant_does_not_lend_its_role_names()
-    {
-        var (id, reviewer, payroll) = await SensitiveReviewAsync();
-
-        var refused = await MoveInsideRequestAsync(id, "Reject", reviewer, [payroll], "elsewhere", WithReason());
-
-        refused.Outcome.Should().Be(ContentTransitionOutcome.Invalid, "the stored roles may not see the field, so the value was put back");
-        refused.Errors.Should().HaveCount(1);
-        refused.Errors[0].Should().Contain("RejectionReason");
-        var after = await LoadAsync(id);
-        after.LifecycleState.Should().Be("Submitted");
-        Value(after, "RejectionReason").Should().BeNull();
-    }
-
-    /// <summary>
-    /// A request made by somebody else says nothing about the actor either.
-    /// </summary>
-    [Fact]
-    public async Task A_request_by_somebody_else_does_not_lend_its_role_names()
-    {
-        var (id, reviewer, payroll) = await SensitiveReviewAsync();
-        var somebodyElse = await UserAsync(permission: null);
-
-        using var requestScope = _factory.Services.CreateScope();
-        var request = new DefaultHttpContext
-        {
-            User = new ClaimsPrincipal(new ClaimsIdentity(
-                new List<Claim> { new("UserId", somebodyElse.Id.ToString()), new(ClaimTypes.Role, payroll) },
-                "Test", "Username", ClaimTypes.Role)),
-            RequestServices = requestScope.ServiceProvider,
-        };
-
-        var accessor = _factory.Services.GetRequiredService<IHttpContextAccessor>();
-        accessor.HttpContext = request;
-        ContentTransitionResult refused;
-        try
-        {
-            refused = await MoveAsync(id, "Reject", ContentTransitionActor.ForUser(reviewer.Id), WithReason());
-        }
-        finally
-        {
-            accessor.HttpContext = null;
-        }
-
-        refused.Outcome.Should().Be(ContentTransitionOutcome.Invalid);
-        refused.Errors.Should().HaveCount(1);
-        (await LoadAsync(id)).LifecycleState.Should().Be("Submitted");
     }
 
     // ---- a registered tenant -------------------------------------------------------------------
 
-    /// <summary>
-    /// Global roles do not let a user act in a registered tenant they are not a member of.
-    /// </summary>
-    /// <remarks>
-    /// The role lookup falls back to a user's global roles when there is no membership, so the
-    /// permission check alone would pass a user who could hold no token for the tenant. The clerk
-    /// here holds a global role granting Submit. Refused with no membership, allowed with one.
-    /// </remarks>
-    [Fact]
-    public async Task Outside_their_own_request_a_user_actor_needs_an_active_membership_in_a_registered_tenant()
+    /// <summary>A registered, active tenant holding one type with the review lifecycle and one entry in Draft.</summary>
+    private async Task<(string Slug, string Type, Guid Id)> TenantEntryAsync()
     {
         var slug = "ctr-" + Guid.NewGuid().ToString("n")[..8];
-        var type = "ctr" + Guid.NewGuid().ToString("n")[..8];
+        var type = NewTypeName();
         var id = Guid.NewGuid();
 
         using (var scope = _factory.Services.CreateScope())
@@ -773,18 +765,33 @@ public class ContentTransitionerTests
             await session.SaveChangesAsync();
         }
 
+        return (slug, type, id);
+    }
+
+    private async Task<ContentTransitionResult> MoveInTenantAsync(string slug, Guid id, string transition, User actor)
+    {
+        using var scope = _factory.Services.CreateScopeForTenant(slug);
+        var content = await scope.ServiceProvider.GetRequiredService<IDocumentSession>().LoadAsync<Content>(id);
+        content.Should().NotBeNull("the entry was written in this tenant");
+        return await scope.ServiceProvider.GetRequiredService<IContentTransitioner>()
+            .TransitionAsync(content!, transition, ContentTransitionActor.ForUser(actor.Id));
+    }
+
+    /// <summary>
+    /// Global roles do not let a user act in a registered tenant they are not a member of.
+    /// </summary>
+    /// <remarks>
+    /// The role lookup falls back to a user's global roles when there is no membership, so the
+    /// permission check alone would pass a user who could hold no token for the tenant. The clerk
+    /// here holds a global role granting Submit. Refused with no membership, allowed with one.
+    /// </remarks>
+    [Fact]
+    public async Task Outside_their_own_request_a_user_actor_needs_an_active_membership_in_a_registered_tenant()
+    {
+        var (slug, type, id) = await TenantEntryAsync();
         var clerk = await UserAsync(Clerk(type));
 
-        async Task<ContentTransitionResult> SubmitAsync(ContentTransitionOptions? options = null)
-        {
-            using var scope = _factory.Services.CreateScopeForTenant(slug);
-            var content = await scope.ServiceProvider.GetRequiredService<IDocumentSession>().LoadAsync<Content>(id);
-            content.Should().NotBeNull("the entry was written in this tenant");
-            return await scope.ServiceProvider.GetRequiredService<IContentTransitioner>()
-                .TransitionAsync(content!, "Submit", ContentTransitionActor.ForUser(clerk.Id), options);
-        }
-
-        var refused = await SubmitAsync();
+        var refused = await MoveInTenantAsync(slug, id, "Submit", clerk);
 
         refused.Outcome.Should().Be(ContentTransitionOutcome.Forbidden);
         refused.Errors.Should().HaveCount(1);
@@ -797,7 +804,35 @@ public class ContentTransitionerTests
             await session.SaveChangesAsync();
         }
 
-        var allowed = await SubmitAsync();
+        var allowed = await MoveInTenantAsync(slug, id, "Submit", clerk);
+
+        allowed.Outcome.Should().Be(ContentTransitionOutcome.Transitioned, string.Join(" ", allowed.Errors));
+        allowed.ToState.Should().Be("Submitted");
+    }
+
+    /// <summary>
+    /// A request by the actor for another tenant is not their own request here, so the membership
+    /// is still asked for. A request by the actor for this tenant is, and it is not asked again.
+    /// </summary>
+    /// <remarks>
+    /// The clerk holds no membership in the tenant throughout. From inside a request resolved to
+    /// the default tenant, a scope opened for the registered tenant refuses them. From inside a
+    /// request resolved to the registered tenant, the token that request carried is what answered,
+    /// which is how the endpoint has always treated a token still in its lifetime.
+    /// </remarks>
+    [Fact]
+    public async Task A_request_by_the_actor_for_another_tenant_does_not_stand_in_for_a_membership_here()
+    {
+        var (slug, type, id) = await TenantEntryAsync();
+        var clerk = await UserAsync(Clerk(type));
+
+        var refused = await MoveInsideRequestAsync(id, "Submit", clerk, [], Tenant.DefaultSlug, scopeTenant: slug);
+
+        refused.Outcome.Should().Be(ContentTransitionOutcome.Forbidden);
+        refused.Errors.Should().HaveCount(1);
+        refused.Errors[0].Should().Contain("membership");
+
+        var allowed = await MoveInsideRequestAsync(id, "Submit", clerk, [], slug, scopeTenant: slug);
 
         allowed.Outcome.Should().Be(ContentTransitionOutcome.Transitioned, string.Join(" ", allowed.Errors));
         allowed.ToState.Should().Be("Submitted");

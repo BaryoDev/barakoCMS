@@ -284,7 +284,7 @@ internal sealed class ContentTransitioner(
             if (!skipPermissionChecks)
             {
                 await services.GetRequiredService<ISensitivityService>().ApplyWriteAsync(
-                    content.ContentType, data, stored, ownRequest ?? await BuiltRequestAsync(user!, ct), ct);
+                    content.ContentType, data, stored, ownRequest ?? RequestNaming(user!), ct);
             }
         }
 
@@ -390,9 +390,9 @@ internal sealed class ContentTransitioner(
     /// </summary>
     /// <remarks>
     /// Both halves matter. A request made by somebody else says nothing about the actor. A request
-    /// by the actor for another tenant carries a token issued for that tenant, with that tenant's
-    /// role names on it, and code that opens a scope for this tenant from inside it must not have
-    /// those names read as roles held here.
+    /// by the actor for another tenant carries a token issued for that tenant, and it is no proof
+    /// that the user may hold one for this tenant, so code that opens a scope for this tenant from
+    /// inside it is asked for the membership like any other caller outside a request.
     /// </remarks>
     private HttpContext? OwnRequest(User user)
     {
@@ -448,38 +448,15 @@ internal sealed class ContentTransitioner(
     /// A request to answer field sensitivity for, when the actor has none of their own here.
     /// </summary>
     /// <remarks>
-    /// The sensitivity service reads the caller from an HttpContext, so one is made that names the
-    /// user. The UserId claim is the part that identifies them. The role claims are there because
-    /// the service reads role names off the principal today, and they are the names of the roles
-    /// the user holds in this tenant, which is what a token for the user would carry.
+    /// The sensitivity service takes an HttpContext and reads one thing from it: the UserId claim,
+    /// from which it looks up the roles and capabilities the user holds in this scope's tenant. So
+    /// the context made here carries that claim and nothing else. It states no role and no
+    /// capability, because none it stated would be read, and one that was read would be an answer
+    /// this class made up.
     /// </remarks>
-    private async Task<HttpContext> BuiltRequestAsync(User user, CancellationToken ct)
+    private HttpContext RequestNaming(User user)
     {
-        var claims = new List<Claim>
-        {
-            new("UserId", user.Id.ToString()),
-            new("Username", user.Username),
-            new("tenant", tenant.Slug),
-        };
-
-        claims.AddRange(await RoleClaimsAsync(user, ct));
-
-        var identity = new ClaimsIdentity(claims, nameof(ContentTransitioner), "Username", ClaimTypes.Role);
+        var identity = new ClaimsIdentity(new[] { new Claim("UserId", user.Id.ToString()) }, nameof(ContentTransitioner));
         return new DefaultHttpContext { User = new ClaimsPrincipal(identity), RequestServices = services };
-    }
-
-    // Needed only while the sensitivity service reads role names off the principal. Once it
-    // resolves the caller's stored roles from the UserId claim, this method and its one call go.
-    private async Task<List<Claim>> RoleClaimsAsync(User user, CancellationToken ct)
-    {
-        var roleIds = await MembershipRoles.EffectiveRoleIdsAsync(session, user, tenant.Slug, ct);
-        var roleNames = await session.Query<Role>()
-            .Where(r => roleIds.Contains(r.Id))
-            .Select(r => r.Name)
-            .ToListAsync(ct);
-
-        IEnumerable<string> names = roleNames.Count == 0 ? new[] { "User" } : roleNames;
-
-        return names.Select(name => new Claim(ClaimTypes.Role, name)).ToList();
     }
 }

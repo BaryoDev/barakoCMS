@@ -489,8 +489,8 @@ The actor is stated, and it is one of two kinds:
 
 - `ForUser(id)` is a stored user. Read on the type and the transition permission are checked
   through the permission resolver the endpoint uses, against the roles the user holds in the tenant
-  of the scope. A value in `Data` for a field the user's roles may not see is put back, so a
-  required one counts as not sent. An id that is no user is refused.
+  of the scope. A value in `Data` for a field the user may not see is put back, so a required one
+  counts as not sent. An id that is no user is refused.
 - `ForSystem("name")` is code under a fixed name. It holds no permissions, so on its own it is
   refused. `SkipPermissionChecks = true` is the caller saying it authorised the move itself.
 
@@ -515,6 +515,19 @@ registered tenant, the tenant has to be active and the user has to hold an activ
 it, so a user's global roles alone do not let them act in a tenant they could hold no token for.
 The default tenant and a slug nobody registered have no membership to check. Inside the user's own
 request for the same tenant none of this is asked again, since the token already answered it.
+
+**Sensitive and Hidden fields.** A transition returns no field values, so there is nothing for it
+to mask: the result carries the outcome, the states and error text that names fields, never what
+they hold. What it writes is decided the way an update is. For a user actor the sensitivity service
+is given the user's id and looks up the roles the user holds in the tenant: a field that lists
+roles in `visibleToRoles` is written only by a holder of one of them, a Sensitive field with no
+list needs a role with `view_sensitive`, a Hidden one needs `view_hidden`, and the seeded
+SuperAdmin role writes any. Nothing the calling code states about roles is read, inside a request
+or outside one, and role names on a token decide nothing. A system actor is no user, so there is
+nothing to look up for it: the only way it writes a field that is not Public is
+`SkipPermissionChecks`, which writes the values as sent. That is the one place the skip lets a
+caller store a value no stored role was asked about. It reaches only the fields the transition
+declares, since `Data` may carry no others with or without the skip.
 
 **The entry you pass may be stale.** The service reads the entry again before it writes. If its
 lifecycle state is no longer the one your copy holds, the answer is `Conflict` and nothing is
