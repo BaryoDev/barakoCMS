@@ -897,3 +897,128 @@ asks for `manage_content_types`, since adding fields to a content type is exactl
 is. Admin holds both by default, matching what it reached before.
 
 Third-party modules calling `Roles(...)` are unaffected and compile unchanged.
+
+## What the audit log records about grants
+
+The requests in the table below each write one row to `GET /api/audit`. For those requests the row is
+staged on the same session as the change and the endpoint saves once, so a failed save leaves
+neither. That holds for the routes listed and for nothing else: the paths under "Grants that write no
+row" change what somebody can do and record nothing. A row holds who did it, what it was done to and
+names or ids for before and after. It never holds a field value, an API key, a key's hash or its
+display prefix.
+
+| Change | Action | Metadata |
+|---|---|---|
+| Role created | `role.created` | `name`, `capabilities`, `permissions` |
+| Role changed | `role.updated` | `name`, `nameBefore`, `capabilitiesBefore`, `capabilitiesAfter`, `permissionsBefore`, `permissionsAfter`, `conditionsChanged`; `capabilitiesAdded` and `capabilitiesRemoved` when the lists differ; `conditionsChangedIn` when a condition changed |
+| Role deleted | `role.deleted` | `name`, `capabilities`, `permissions` |
+| Global role given to a user | `user.role.assigned` | `roleId`, `roleName` |
+| Global role taken from a user | `user.role.removed` | `roleId`, `roleName` |
+| Tenant created | `tenant.member.added` in the new tenant's log | `invited` (false), `roleIds`, `roleNames`, `tenantCreated` |
+| Tenant switched off or on | `tenant.deactivated`, `tenant.activated` in that tenant's log | none |
+| Member added, or added again | `tenant.member.added` | `invited`, `roleIds`, `roleNames`; `previousStatus`, `previousRoleIds`, `previousRoleNames` when the membership already existed |
+| Member's roles or status changed (suspending is this) | `tenant.member.updated` | `status`, `roleIds`, `roleNames`, `previousStatus`, `previousRoleIds`, `previousRoleNames` |
+| Member removed | `tenant.member.removed` | `previousStatus`, `previousRoleIds`, `previousRoleNames` |
+| API key created | `apikey.created` | `name`, `scopes`, `contentTypes`, `actsAsUserId`, `expiresAt` when set |
+| API key revoked | `apikey.revoked` | `name`, `actsAsUserId` |
+| Field added | `contenttype.field_added` | `field`, `type`, `required`, `sensitivity`, `visibleToRoleIds`, `visibleToRoles` |
+| Field's level, role list or mask changed | `contenttype.field.sensitivity.changed` or `.lowered` | `from`, `to`, `visibleToRoleIdsFrom`, `visibleToRolesFrom`, `visibleToRoleIdsTo`, `visibleToRolesTo`, `maskFrom`, `maskTo` |
+
+The three member rows also carry `profileAdded`, `profileRemoved` and `profileChanged` when a
+profile changed: the attribute names, never their values.
+
+### Where a membership is written
+
+A membership has three writers, `Members.AddAsync`, `ChangeAsync` and `RemoveAsync`, and each stages
+its row beside the write. The member routes and tenant creation all go through them. The patch they
+share, `QueueWrite`, is private to `Members`, so no other file can queue a membership write with no
+row.
+
+`MembershipWriterTests` reads the source for a write anywhere else. Outside the member endpoints
+file and outside comment lines it fails on `new Membership` as a whole word, on `Membership x = new(`,
+on a session call typed on the document (`Patch<Membership>`, `Store<Membership>`, and the insert,
+update and delete spellings), and on any file that loads or queries memberships and also calls
+`.Store(`, `.Insert(` or `.Update(`. It does not catch a membership handed to another file that
+stores it, or a write through raw SQL.
+
+### Ids and names
+
+A role is referred to by id wherever a row had one already: `roleId` on the `user.role.*` rows,
+`roleIds` and `previousRoleIds` on the member rows. The id is the reference, since it survives a
+rename. Beside it is the name the role had when the change was made (`roleName`, `roleNames`,
+`previousRoleNames`, in the same order as the ids), read in the same request. A row is never
+rewritten, so the two cannot come apart inside it; after a rename the row still says what the role
+was called at the time. A role that no longer exists has an empty name beside its id.
+
+The field rows follow the same rule. A field stores its role list as ids, so `visibleToRoleIds`,
+`visibleToRoleIdsFrom` and `visibleToRoleIdsTo` hold those ids, and `visibleToRoles`,
+`visibleToRolesFrom` and `visibleToRolesTo` hold the names beside them in the same order, resolved
+through `RoleReferences.ToNamesAsync` when the change is made. A stored id whose role is gone has an
+empty name. Text the request sent that matched no role is stored on the field as sent; in the row it
+has an empty id and the text as its name. Each of these lists is the same capped object a role row
+uses: the first 50 `items`, the full `count`, `truncated`, and a name cut at 200 characters, since
+nothing limits the list a request sends.
+
+### The shape of a role row
+
+A list on a role row is an object: `items` holds the first 50 entries, `count` the full number and
+`truncated` whether any were left out. A name longer than 200 characters is cut to 200. A role
+document has no limit of its own, so this is what bounds the row.
+
+Each entry of `permissions` is an object, so nothing a request sent is joined into a sentence:
+
+```json
+{
+  "contentType": "invoice",
+  "actions": ["read", "update"],
+  "transitions": { "items": ["approve"], "count": 1, "truncated": false },
+  "conditions": {
+    "items": [{ "rule": "update", "field": "department", "operators": ["_in"] }],
+    "count": 1,
+    "truncated": false
+  }
+}
+```
+
+A condition is recorded as the field it tests and the operators it uses, never the value it compares
+against. A value can change with the field and operators staying the same, so `conditionsChanged`
+says whether any stored condition differs from the one it replaced, values included, and
+`conditionsChangedIn` names the content types where it does.
+
+### Who reads what
+
+The stored row is complete. `GET /api/audit` returns no more of it than the caller could read from
+the route that owns the data:
+
+- A `role.*` row is returned with only `name` and `nameBefore` in its metadata unless the caller
+  passes the gate on `GET /api/roles` (`manage_roles`).
+- An `apikey.*` row is returned with only `name` unless the caller passes the gate on
+  `GET /api/api-keys` (`manage_api_keys`).
+
+The action, actor, target and time are always returned. This matters because roles are global
+documents and a role row goes to the log of the tenant the request resolved to: without it, a
+platform administrator editing a role while resolved to one tenant would show that tenant's
+administrators the capabilities of platform roles and the content types other tenants' permissions
+name. A tenant admin reads their own tenant's rows; a SuperAdmin reads across tenants with `?tenant=`.
+
+### Before values are a read, not a lock
+
+The "before" in a row is what the endpoint loaded at the start of the request. Two edits of the same
+role, membership or user arriving together can both load the same state and both record it as their
+"before", and two revocations of one key can both write a row. The last save wins on the document,
+as it did before these rows existed.
+
+### Grants that write no row
+
+- The seeder, at startup: creating the system roles and the first users, giving a seeded role the
+  default capabilities it is missing, and, with demo content on, creating the HR role and giving it
+  `view_sensitive`.
+- A module's seeder: `ModuleCapabilities.GrantAsync` adding the module's capabilities to seeded
+  roles, and `AccountingModule.SeedAsync` creating the `Accountant` role.
+- Self-registration giving a new account the `User` role.
+- A content type created with Sensitive or Hidden fields, by `POST /api/content-types` or by applying
+  a blueprint. The blueprint row names the types only.
+- A portability import adding a new Sensitive or Hidden field to an existing type. Its row holds
+  counts only. An import cannot change the level, role list or mask of a field that already exists.
+- An entry's own sensitivity level changing. That is on the entry's event stream.
+- Reads of Sensitive and Hidden fields.
