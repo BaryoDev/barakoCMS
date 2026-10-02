@@ -155,6 +155,57 @@ public class ValidationRulesEndpointTests
     }
 
     [Fact]
+    public async Task A_field_required_under_an_age_is_required_at_16_and_not_at_30()
+    {
+        var client = await AdminAsync();
+        var asked = $"signup{Guid.NewGuid():n}"[..16];
+
+        var saved = await client.PostAsJsonAsync("/api/content-types", new
+        {
+            name = asked,
+            displayName = asked,
+            fields = new object[]
+            {
+                new { name = "Age", type = "int" },
+                new
+                {
+                    name = "GuardianName",
+                    type = "string",
+                    validationRules = new Dictionary<string, object>
+                    {
+                        ["requiredWhen"] = new Dictionary<string, object>
+                        {
+                            ["Age"] = new Dictionary<string, object> { ["_lt"] = 18 },
+                        },
+                    },
+                },
+            },
+        }, Ct);
+        saved.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", saved.StatusCode,
+            await saved.Content.ReadAsStringAsync(Ct));
+
+        using var body = JsonDocument.Parse(await saved.Content.ReadAsStringAsync(Ct));
+        var type = body.RootElement.GetProperty("name").GetString()!;
+
+        Task<HttpResponseMessage> RegisterAsync(int age) =>
+            client.PostAsJsonAsync("/api/contents", new
+            {
+                contentType = type,
+                data = new Dictionary<string, object> { ["Age"] = age },
+            }, Ct);
+
+        var minor = await RegisterAsync(16);
+        minor.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await minor.Content.ReadAsStringAsync(Ct)).Should().Contain("GuardianName");
+
+        var adult = await RegisterAsync(30);
+        adult.StatusCode.Should().Be(HttpStatusCode.OK, "got {0}", await adult.Content.ReadAsStringAsync(Ct));
+
+        var onTheBound = await RegisterAsync(18);
+        onTheBound.StatusCode.Should().Be(HttpStatusCode.OK, "got {0}", await onTheBound.Content.ReadAsStringAsync(Ct));
+    }
+
+    [Fact]
     public async Task A_type_saved_with_an_unknown_rule_name_is_refused()
     {
         var client = await AdminAsync();

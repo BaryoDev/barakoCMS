@@ -202,6 +202,118 @@ public class ValidationRuleEnforcementTests
             .IsValid.Should().BeTrue();
     }
 
+    private static FieldDefinition RequiredWhen(string name, string other, string op, object bound) =>
+        Field(name, "string", ("requiredWhen", new Dictionary<string, object>
+        {
+            [other] = new Dictionary<string, object> { [op] = bound },
+        }));
+
+    [Fact]
+    public async Task A_minor_without_a_guardian_is_refused_naming_the_guardian_field()
+    {
+        var (isValid, errors) = await WriteAsync(
+            new() { ["Age"] = 16 },
+            Field("Age", "int"),
+            RequiredWhen("GuardianName", "Age", "_lt", 18));
+
+        isValid.Should().BeFalse();
+        errors.Should().HaveCount(1);
+        errors[0].Should().Contain("GuardianName").And.Contain("'requiredWhen'");
+    }
+
+    [Fact]
+    public async Task An_adult_without_a_guardian_is_accepted()
+    {
+        var (isValid, errors) = await WriteAsync(
+            new() { ["Age"] = 30 },
+            Field("Age", "int"),
+            RequiredWhen("GuardianName", "Age", "_lt", 18));
+
+        errors.Should().BeEmpty();
+        isValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task An_age_exactly_on_the_bound_is_not_under_it()
+    {
+        var age = Field("Age", "int");
+
+        (await WriteAsync(new() { ["Age"] = 18 }, age, RequiredWhen("GuardianName", "Age", "_lt", 18)))
+            .IsValid.Should().BeTrue();
+
+        var (isValid, errors) = await WriteAsync(
+            new() { ["Age"] = 18 }, age, RequiredWhen("GuardianName", "Age", "_lte", 18));
+
+        isValid.Should().BeFalse();
+        errors.Should().HaveCount(1);
+        errors[0].Should().Contain("GuardianName");
+    }
+
+    [Fact]
+    public async Task Greater_than_holds_above_the_bound_and_greater_or_equal_holds_on_it()
+    {
+        var size = Field("PartySize", "int");
+
+        (await WriteAsync(new() { ["PartySize"] = 10 }, size, RequiredWhen("Organiser", "PartySize", "_gt", 10)))
+            .IsValid.Should().BeTrue();
+        (await WriteAsync(new() { ["PartySize"] = 11 }, size, RequiredWhen("Organiser", "PartySize", "_gt", 10)))
+            .IsValid.Should().BeFalse();
+        (await WriteAsync(new() { ["PartySize"] = 10 }, size, RequiredWhen("Organiser", "PartySize", "_gte", 10)))
+            .IsValid.Should().BeFalse();
+        (await WriteAsync(new() { ["PartySize"] = 9 }, size, RequiredWhen("Organiser", "PartySize", "_gte", 10)))
+            .IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_comparison_stored_as_json_against_a_json_value_is_applied()
+    {
+        var guardian = Field("GuardianName", "string", ("requiredWhen", Json(new { Age = new { _lt = 18 } })));
+
+        var (isValid, errors) = await WriteAsync(new() { ["Age"] = Json(16) }, Field("Age", "int"), guardian);
+
+        isValid.Should().BeFalse();
+        errors.Should().HaveCount(1);
+        errors[0].Should().Contain("GuardianName");
+
+        (await WriteAsync(new() { ["Age"] = Json(30) }, Field("Age", "int"), guardian)).IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_date_is_compared_as_a_date()
+    {
+        var born = Field("Born", "date");
+        var guardian = RequiredWhen("GuardianName", "Born", "_gt", "2008-10-02");
+
+        (await WriteAsync(new() { ["Born"] = Json("2010-05-01") }, born, guardian)).IsValid.Should().BeFalse();
+        (await WriteAsync(new() { ["Born"] = Json("1996-05-01") }, born, guardian)).IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_comparison_against_a_value_that_is_missing_or_not_a_number_does_not_hold()
+    {
+        var guardian = RequiredWhen("GuardianName", "Level", "_lt", 18);
+
+        (await WriteAsync(new() { ["Other"] = "x" }, Field("Level", "string"), Field("Other", "string"), guardian))
+            .IsValid.Should().BeTrue();
+        (await WriteAsync(new() { ["Level"] = "junior" }, Field("Level", "string"), guardian))
+            .IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_compete_entry_without_a_shirt_size_is_refused_and_a_fun_entry_is_accepted()
+    {
+        var entryType = Field("EntryType", "string");
+        var shirt = RequiredWhen("ShirtSize", "EntryType", "_eq", "COMPETE");
+
+        var (isValid, errors) = await WriteAsync(new() { ["EntryType"] = "COMPETE" }, entryType, shirt);
+
+        isValid.Should().BeFalse();
+        errors.Should().HaveCount(1);
+        errors[0].Should().Contain("ShirtSize").And.Contain("'requiredWhen'");
+
+        (await WriteAsync(new() { ["EntryType"] = "FUN" }, entryType, shirt)).IsValid.Should().BeTrue();
+    }
+
     [Fact]
     public async Task A_condition_stored_as_json_and_a_key_in_another_case_still_make_the_field_required()
     {

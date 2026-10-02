@@ -132,6 +132,30 @@ public class ContentTypeRuleValidationTests
         errors[0].Should().Contain("Subject").And.Contain("'min'").And.Contain("'max'");
     }
 
+    private static Dictionary<string, object> Condition(string op, object bound) =>
+        new() { ["Age"] = new Dictionary<string, object> { [op] = bound } };
+
+    [Fact]
+    public void A_condition_comparing_against_a_number_or_a_date_is_accepted()
+    {
+        Save("string", ("requiredWhen", Condition("_lt", 18))).IsValid.Should().BeTrue();
+        Save("string", ("requiredWhen", Condition("_lte", 18))).IsValid.Should().BeTrue();
+        Save("string", ("requiredWhen", Condition("_gt", 17.5m))).IsValid.Should().BeTrue();
+        Save("string", ("requiredWhen", Condition("_gte", "2026-01-01"))).IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void A_condition_comparing_against_a_value_that_is_not_a_number_or_a_date_is_refused()
+    {
+        var (isValid, errors) = Save("string", ("requiredWhen", Condition("_lt", "adult")));
+
+        isValid.Should().BeFalse();
+        errors.Should().HaveCount(1);
+        errors[0].Should().Contain("Subject").And.Contain("'requiredWhen'").And.Contain("'_lt'");
+
+        Save("string", ("requiredWhen", Condition("_gte", true))).IsValid.Should().BeFalse();
+    }
+
     [Fact]
     public void A_condition_with_an_unknown_comparison_is_refused()
     {

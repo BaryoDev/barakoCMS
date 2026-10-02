@@ -53,7 +53,15 @@ internal static class FieldRules
 
     private static readonly HashSet<string> Operators = new(StringComparer.Ordinal)
     {
-        "_eq", "_ne", "_in", "_nin",
+        "_eq", "_ne", "_in", "_nin", "_lt", "_lte", "_gt", "_gte",
+    };
+
+    // Answered here and not by ConditionEvaluator. That class also evaluates stored permission
+    // rules, where an operator it does not know denies, so teaching it these four could turn a
+    // stored rule that denies today into one that grants.
+    private static readonly HashSet<string> Comparisons = new(StringComparer.Ordinal)
+    {
+        "_lt", "_lte", "_gt", "_gte",
     };
 
     private static readonly ConditionEvaluator Conditions = new();
@@ -240,7 +248,52 @@ internal static class FieldRules
         foreach (var (key, value) in data)
             bag[key] = value;
 
-        return Conditions.Evaluate(condition, bag, NoUser);
+        foreach (var (name, comparison) in condition)
+        {
+            if (ReadObject(comparison) is not { Count: > 0 } operators)
+                return false;
+
+            var plain = new Dictionary<string, object>();
+            foreach (var (op, bound) in operators)
+            {
+                if (!Comparisons.Contains(op))
+                {
+                    plain[op] = bound;
+                    continue;
+                }
+
+                if (!bag.TryGetValue(name, out var actual) || !Compares(op, actual, bound))
+                    return false;
+            }
+
+            if (plain.Count > 0
+                && !Conditions.Evaluate(new Dictionary<string, object> { [name] = plain }, bag, NoUser))
+                return false;
+        }
+
+        return true;
+    }
+
+    // Numbers as numbers, dates as dates. A value that is missing, or is neither, does not compare,
+    // and the condition does not hold.
+    private static bool Compares(string op, object? actual, object? bound)
+    {
+        int order;
+        if (AsDecimal(actual) is { } number && AsDecimal(bound) is { } numberBound)
+            order = number.CompareTo(numberBound);
+        else if (AsDate(actual) is { } moment && AsDate(bound) is { } momentBound)
+            order = moment.CompareTo(momentBound);
+        else
+            return false;
+
+        return op switch
+        {
+            "_lt" => order < 0,
+            "_lte" => order <= 0,
+            "_gt" => order > 0,
+            "_gte" => order >= 0,
+            _ => false,
+        };
     }
 
     /// <summary>Whether any field of the type stores a rule.</summary>
@@ -286,6 +339,12 @@ internal static class FieldRules
             if (operators.Keys.FirstOrDefault(o => !Operators.Contains(o)) is { } unknown)
                 return $"uses the unknown comparison '{Shorten(unknown)}'. Known comparisons: "
                     + string.Join(", ", Operators.OrderBy(o => o, StringComparer.Ordinal));
+
+            foreach (var (op, bound) in operators)
+            {
+                if (Comparisons.Contains(op) && AsDecimal(bound) is null && AsDate(bound) is null)
+                    return $"compares with '{op}' against a value that is not a number or a date";
+            }
         }
 
         return null;
